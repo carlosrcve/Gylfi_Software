@@ -1,0 +1,30 @@
+<?xml version="1.0" ?>
+<RelacionRetencionesISLR RifAgente="J507757188" Periodo="202605">
+  <DetalleRetencion>
+    <RifRetenido>J507273164</RifRetenido>
+    <NumeroFactura>000007</NumeroFactura>
+    <NumeroControl>00000007</NumeroControl>
+    <FechaOperacion>26/05/2026</FechaOperacion>
+    <CodigoConcepto>020</CodigoConcepto>
+    <MontoOperacion>82802.00</MontoOperacion>
+    <PorcentajeRetencion>2.00</PorcentajeRetencion>
+  </DetalleRetencion>
+  <DetalleRetencion>
+    <RifRetenido>J507273164</RifRetenido>
+    <NumeroFactura>000008</NumeroFactura>
+    <NumeroControl>00000008</NumeroControl>
+    <FechaOperacion>29/05/2026</FechaOperacion>
+    <CodigoConcepto>020</CodigoConcepto>
+    <MontoOperacion>330344.21</MontoOperacion>
+    <PorcentajeRetencion>2.00</PorcentajeRetencion>
+  </DetalleRetencion>
+  <DetalleRetencion>
+    <RifRetenido>V238076869</RifRetenido>
+    <NumeroFactura>1</NumeroFactura>
+    <NumeroControl>000001</NumeroControl>
+    <FechaOperacion>25/05/2026</FechaOperacion>
+    <CodigoConcepto>053</CodigoConcepto>
+    <MontoOperacion>236770.86</MontoOperacion>
+    <PorcentajeRetencion>1.00</PorcentajeRetencion>
+  </DetalleRetencion>
+</RelacionRetencionesISLR>

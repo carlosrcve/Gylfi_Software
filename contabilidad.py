@@ -1,3 +1,4 @@
+#contabilidad.py
 import streamlit as st
 import pandas as pd
 from fpdf import FPDF
@@ -14,13 +15,20 @@ import plotly.graph_objects as go
 import plotly.express as px
 import calendar
 import base64
-import plotly.express as px
 from datetime import date # IMPORTA LA CLASE DATE DIRECTAMENTE
 from PIL import Image, ImageEnhance
-import pytesseract
-pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+import platform
+import google.generativeai as genai
+import requests
+from bs4 import BeautifulSoup
+# Solo configura la ruta de Tesseract si estás en Windows (tu PC)
+if platform.system() == "Windows":
+    pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+else:
+    # En Linux (Streamlit Cloud), Tesseract suele estar disponible en el sistema
+    # o no necesitas esta línea explícita
+    pass
 import json
-import base64
 from openai import OpenAI
 from sqlalchemy import create_engine
 # Busca dónde tienes tus funciones de base de datos
@@ -1447,11 +1455,6 @@ def procesar_archivo_y_cargar():
         
     except Exception as e:
         print(f"❌ Error al abrir el archivo: {e}")
-
-
-import google.generativeai as genai
-import json
-import streamlit as st
 
 
 
@@ -5235,10 +5238,7 @@ def mostrar_interfaz_busqueda_comprobante():
                     st.info("Verifique el número e intente nuevamente.")
 
 
-import requests
-from bs4 import BeautifulSoup
-from datetime import date
-import streamlit as st
+
 @log_ejecucion
 def consultar_bcv_directo_sin_bd():
     """Plan B absoluto: Si no hay BD, consulta la web directo y no rompe la app"""
