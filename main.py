@@ -34,7 +34,7 @@ else:
 '''
 
 
-# main.py
+# app.py
 import streamlit as st
 import pandas as pd
 import invoice
@@ -45,7 +45,14 @@ from datetime import datetime
 # 1. Configuración de página
 st.set_page_config(page_title="Sistema King Driver", layout="wide")
 
-# 2. CSS Blindado
+# 2. Inicialización de sesión (Integrada correctamente al inicio)
+if "session_initialized" not in st.session_state:
+    st.session_state["id_empresa_seleccionada"] = None
+    st.session_state["DB_ACTUAL"] = None
+    st.session_state["logueado"] = False
+    st.session_state["session_initialized"] = True
+
+# 3. CSS Blindado
 st.markdown("""
     <style>
     .block-container { max-width: 98% !important; padding-top: 1rem !important; }
@@ -53,7 +60,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# 3. Función Reset
+# 4. Función Reset
 def reset_empresa():
     st.session_state.conn = None 
     st.session_state.data_loaded = False
@@ -61,10 +68,7 @@ def reset_empresa():
         del st.session_state['opcion_menu_auditoria']
     st.rerun()
 
-# 4. Inicialización de sesión
-if 'logueado' not in st.session_state:
-    st.session_state.logueado = False
-
+# 5. Lógica de Login
 if not st.session_state.logueado:
     contabilidad.login_screen()
     st.stop()
@@ -81,7 +85,6 @@ with st.sidebar:
 
     st.markdown("---")
     
-    # Carga de empresas
     user_rol = st.session_state.get('rol')
     user_cliente_id = st.session_state.get('cliente_id')
     
@@ -92,7 +95,7 @@ with st.sidebar:
         query = f"SELECT id, nombre_empresa, nombre_bd FROM clientes WHERE id = {user_cliente_id}"
         
     df_empresas = pd.read_sql(query, conn_ctrl)
-    conn_ctrl.close() # Importante cerrar conexión
+    conn_ctrl.close()
     
     if df_empresas.empty:
         st.error("No tienes empresas asignadas.")
@@ -105,7 +108,6 @@ with st.sidebar:
         on_change=reset_empresa
     )
     
-    # Sincronización de sesión
     fila = df_empresas[df_empresas['nombre_empresa'] == empresa_elegida].iloc[0]
     st.session_state['DB_ACTUAL'] = fila['nombre_bd']
     st.session_state['CLIENTE_NOMBRE'] = empresa_elegida
@@ -118,16 +120,3 @@ if opcion == "Auditoría":
     contabilidad.panel_administracion(st.session_state.get('DB_ACTUAL'))
 elif opcion == "Facturación":
     invoice.modulo_facturacion()
-
-
-
-import streamlit as st
-
-# Esto es lo primero que debe ejecutarse al arrancar la App
-def setup_session():
-    if "session_initialized" not in st.session_state:
-        st.session_state["id_empresa_seleccionada"] = None
-        st.session_state["DB_ACTUAL"] = None
-        st.session_state["session_initialized"] = True
-
-setup_session()

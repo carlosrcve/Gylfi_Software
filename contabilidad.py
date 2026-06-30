@@ -22,12 +22,20 @@ import google.generativeai as genai
 import requests
 from bs4 import BeautifulSoup
 # Solo configura la ruta de Tesseract si estás en Windows (tu PC)
-if platform.system() == "Windows":
-    pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
-else:
-    # En Linux (Streamlit Cloud), Tesseract suele estar disponible en el sistema
-    # o no necesitas esta línea explícita
-    pass
+# --- Configuración segura de Tesseract ---
+import platform
+import sys
+
+# Intentamos importar pytesseract
+try:
+    import pytesseract
+    # Solo configuramos la ruta si estamos en TU computadora (Windows)
+    if platform.system() == "Windows":
+        pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+except ImportError:
+    # Si la librería no está instalada, no rompemos la app
+    pytesseract = None
+    print("Advertencia: pytesseract no está instalado.")
 import json
 from openai import OpenAI
 from sqlalchemy import create_engine
@@ -58,17 +66,29 @@ else:
 stats = {'retenido': 0.0, 'ventas': 0.0, 'compras': 0.0}
 
 # --- LÓGICA DE CONFIGURACIÓN SEGURA ---
-DB_CONFIG = {
-    # Si estamos en la nube, st.secrets tendrá los valores. 
-    # Si estamos local, usará los valores por defecto.
-    "host": st.secrets.get("DB_HOST", "localhost"), 
-    "port": int(st.secrets.get("DB_PORT", 3306)),
-    "user": st.secrets.get("DB_USER", "root"),
-    "password": st.secrets.get("DB_PASS", "Ca22021956*"),
-    "database": st.secrets.get("DB_NAME", "control_central"),
-    "raise_on_warnings": True,
-    "connection_timeout": 10
-}
+# --- LÓGICA DE CONFIGURACIÓN SEGURA ---
+try:
+    # Intenta cargar desde secretos (Streamlit Cloud o local)
+    DB_CONFIG = {
+        "host": st.secrets["DB_HOST"],
+        "port": int(st.secrets["DB_PORT"]),
+        "user": st.secrets["DB_USER"],
+        "password": st.secrets["DB_PASS"],
+        "database": st.secrets["DB_NAME"],
+        "raise_on_warnings": True,
+        "connection_timeout": 10
+    }
+except (AttributeError, FileNotFoundError, Exception):
+    # Valores por defecto para conexión remota
+    DB_CONFIG = {
+        "host": "reseau.proxy.rlwy.net",
+        "port": 58667,
+        "user": "root",
+        "password": "ptCOcCKAWIhukQZtIHyrLDWdXboCZqyI",
+        "database": "control_central",
+        "raise_on_warnings": True,
+        "connection_timeout": 10
+    }
 
 # Variable global que usan todas tus funciones de abajo
 conn = None
@@ -6113,72 +6133,62 @@ with st.sidebar:
             st.sidebar.warning("⚠️ Sin conexión a BD")
 
         # Aseguramos que el df tenga datos antes de intentar el selectbox
-        if not df_sidebar.empty:
-            # 1. Selector de Empresa
-            seleccion = st.sidebar.selectbox( # Agregué .sidebar para que aparezca bien
-                "Seleccione Empresa", 
-                df_sidebar['nombre_empresa'].tolist(), 
-                key="selector_empresa", 
-                on_change=reset_empresa
-            )
-            
-            # 2. Sincronización de datos con filtro seguro
-            datos_filtrados = df_sidebar[df_sidebar['nombre_empresa'] == seleccion]
-            
-            if not datos_filtrados.empty:
-                datos_sel = datos_filtrados.iloc[0]
-                st.session_state['DB_ACTUAL'] = datos_sel['db_nombre']
-                st.session_state['CLIENTE_NOMBRE'] = seleccion
-                st.sidebar.write(f"Empresa: {seleccion.upper()}")
-            
-            st.subheader("Módulos")
-        else:
-            st.warning("No hay empresas disponibles para mostrar.")
+        # ... (tu código previo hasta el if not df_sidebar.empty:) ...
 
-            # 3. Generamos la lista base
-
-            modulos_disponibles = [
-                "🏠 Inicio", "📂 Plan de Cuentas", "📝 Asientos Contables", 
-                "📖 Mayor Analítico", "📊 Estados Financieros", "📚 Libros Fiscales", "👤 Proveedores"
-            ]
-
-            # 4. 🔥 INYECCIÓN INTELIGENTE
-            empresa_en_mayusculas = seleccion.upper()
+    if not df_sidebar.empty:
+        # 1. Selector de Empresa
+        seleccion = st.sidebar.selectbox(
+            "Seleccione Empresa", 
+            df_sidebar['nombre_empresa'].tolist(), 
+            key="selector_empresa", 
+            on_change=reset_empresa
+        )
         
-            if "PEDACITO" in empresa_en_mayusculas and "CLIELO" in empresa_en_mayusculas:
-                modulos_disponibles.append("🧁 Inventarios")
+        # 2. Sincronización de datos
+        datos_filtrados = df_sidebar[df_sidebar['nombre_empresa'] == seleccion]
+        
+        if not datos_filtrados.empty:
+            datos_sel = datos_filtrados.iloc[0]
+            st.session_state['DB_ACTUAL'] = datos_sel['db_nombre']
+            st.session_state['CLIENTE_NOMBRE'] = seleccion
+            st.sidebar.write(f"Empresa: {seleccion.upper()}")
+        
+        st.subheader("Módulos")
 
-            # 5. RENDERIZADO SIN KEY (El secreto para que funcione)
-            opcion_menu = st.selectbox("📂 SELECCIONE UN MÓDULO", modulos_disponibles)
-            # 6. SINCRONIZACIÓN MANUAL
-            st.session_state['opcion_menu_auditoria'] = opcion_menu
-            
+        # --- TODO ESTO DEBE ESTAR FUERA DEL ELSE ---
+        modulos_disponibles = [
+            "🏠 Inicio", "📂 Plan de Cuentas", "📝 Asientos Contables", 
+            "📖 Mayor Analítico", "📊 Estados Financieros", "📚 Libros Fiscales", "👤 Proveedores"
+        ]
 
-            # 5. Sub-opciones
-            # Sub-opciones Dinámicas
-            if opcion_menu == "📝 Asientos Contables":
-                sub_opcion = st.radio("Acciones:", ["Subir Datos", "Conciliación Bancaria","Consultar Comprobante", "Consultar Saldos Iniciales", "Consultar Cierre Contable"], key="sub_asientos")
-                
-            elif opcion_menu == "📊 Estados Financieros":
-                st.markdown("---")
-                sub_opcion = st.radio("Reportes Financieros:", ["Balance de Comprobación", "Balance General", "Estado de Resultados"], key="sub_estados")
-                
-            elif opcion_menu == "📚 Libros Fiscales":
-                sub_opcion = st.radio("Reportes Fiscales:", ["Libro de Ventas", "Libro de Compras", "Comprobante de Retención ISLR","Comprobante de Retención IVA"], key="sub_libros")
-    
-            else:
-                # Esto evita el NameError si el menú principal no coincide con los de arriba
-                sub_opcion = None
-            
-            st.divider()
-            st.subheader("📅 Período de Consulta")
-            
-            col_anio, col_mes = st.columns(2)
-            col_anio.number_input("Año", value=2026, step=1, key="f_anio_global")
-            col_mes.selectbox("Mes", ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"], index=datetime.now().month - 1, key="f_mes_global")
+        # Inyección inteligente
+        empresa_en_mayusculas = seleccion.upper()
+        if "PEDACITO" in empresa_en_mayusculas and "CLIELO" in empresa_en_mayusculas:
+            modulos_disponibles.append("🧁 Inventarios")
+
+        opcion_menu = st.sidebar.selectbox("📂 SELECCIONE UN MÓDULO", modulos_disponibles)
+        st.session_state['opcion_menu_auditoria'] = opcion_menu
+
+        # Sub-opciones
+        if opcion_menu == "📝 Asientos Contables":
+            sub_opcion = st.sidebar.radio("Acciones:", ["Subir Datos", "Conciliación Bancaria","Consultar Comprobante", "Consultar Saldos Iniciales", "Consultar Cierre Contable"], key="sub_asientos")
+        elif opcion_menu == "📊 Estados Financieros":
+            st.sidebar.markdown("---")
+            sub_opcion = st.sidebar.radio("Reportes Financieros:", ["Balance de Comprobación", "Balance General", "Estado de Resultados"], key="sub_estados")
+        elif opcion_menu == "📚 Libros Fiscales":
+            sub_opcion = st.sidebar.radio("Reportes Fiscales:", ["Libro de Ventas", "Libro de Compras", "Comprobante de Retención ISLR","Comprobante de Retención IVA"], key="sub_libros")
         else:
-            st.error("No se encontraron empresas asociadas.")
-            st.stop()
+            sub_opcion = None
+        
+        st.sidebar.divider()
+        st.sidebar.subheader("📅 Período de Consulta")
+        col_anio, col_mes = st.sidebar.columns(2)
+        col_anio.number_input("Año", value=2026, step=1, key="f_anio_global")
+        col_mes.selectbox("Mes", ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"], index=datetime.now().month - 1, key="f_mes_global")
+
+    else:
+        st.error("No se encontraron empresas asociadas.")
+        st.stop()
 
 
 

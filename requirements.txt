@@ -1,0 +1,13 @@
+streamlit
+pandas
+fpdf
+mysql-connector-python
+plotly
+numpy
+pillow
+openai
+sqlalchemy
+pytesseract
+google-generativeai
+requests
+beautifulsoup4

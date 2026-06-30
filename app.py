@@ -1,4 +1,4 @@
-# lanzador.py
+# app.py
 import webview
 import subprocess
 import time
