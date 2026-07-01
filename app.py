@@ -25,11 +25,12 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # 4. Función Reset
+# 4. Función Reset
 def reset_empresa():
     st.session_state.conn = None 
     st.session_state.data_loaded = False
-    if 'opcion_menu_auditoria' in st.session_state:
-        del st.session_state['opcion_menu_auditoria']
+    # Esto borra la clave si existe, y no hace nada si no existe (no falla)
+    st.session_state.pop('opcion_menu_auditoria', None)
     st.rerun()
 
 # 5. Lógica de Login
