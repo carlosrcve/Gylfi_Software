@@ -6135,6 +6135,13 @@ with st.sidebar:
         # Aseguramos que el df tenga datos antes de intentar el selectbox
         # ... (tu código previo hasta el if not df_sidebar.empty:) ...
 
+    # --- Asegúrate de cargar los datos ANTES de la comprobación ---
+    conn_ctrl = conectar_db('control_central') # Asegúrate de que esta función devuelva la conexión
+    query = "SELECT nombre_empresa FROM clientes" # Tu consulta real
+    df_sidebar = pd.read_sql(query, conn_ctrl) # Aquí se crea la variable
+    conn_ctrl.close()
+    
+    # --- AHORA SÍ, puedes comprobar si no está vacía ---
     if not df_sidebar.empty:
         # 1. Selector de Empresa
         seleccion = st.sidebar.selectbox(
