@@ -66,7 +66,6 @@ else:
 stats = {'retenido': 0.0, 'ventas': 0.0, 'compras': 0.0}
 
 # --- LÓGICA DE CONFIGURACIÓN SEGURA ---
-# --- LÓGICA DE CONFIGURACIÓN SEGURA ---
 try:
     # Intenta cargar desde secretos (Streamlit Cloud o local)
     DB_CONFIG = {
@@ -83,7 +82,7 @@ except (AttributeError, FileNotFoundError, Exception):
     DB_CONFIG = {
         "host": "reseau.proxy.rlwy.net",
         "port": 58667,
-        "user": "root",
+        "user": "carlos_admin",
         "password": "ptCOcCKAWIhukQZtIHyrLDWdXboCZqyI",
         "database": "control_central",
         "raise_on_warnings": True,
@@ -96,86 +95,52 @@ conn = None
 def conectar_db(nombre_db="control_central"):
     global conn
     
-    # 1. Comprobamos la configuración: si no hay secrets, no intentamos conectar
-    # Esto evita el error de conexión a 'localhost' en la nube
-    if 'DB_HOST' not in st.secrets:
-        # Modo desarrollo: no estamos en un entorno con base de datos configurada
-        return None
-
-    # 2. Lógica de sesión: ¿Es la misma base de datos ya abierta?
+    # 1. Obtener la configuración SEGURA (la que tú definiste)
+    config = get_db_config() 
+    config['database'] = nombre_db # Aseguramos que use la base de datos que pides
+    
+    # 2. Lógica de sesión (mantenemos igual para eficiencia)
     db_actual_en_sesion = st.session_state.get('current_db_link')
     
     if 'conn' in st.session_state and st.session_state.conn is not None:
         if db_actual_en_sesion == nombre_db:
             try:
                 st.session_state.conn.ping(reconnect=True, attempts=3, delay=1)
-                conn = st.session_state.conn
-                return conn
+                return st.session_state.conn
             except:
                 st.session_state.conn = None
         else:
-            try:
-                st.session_state.conn.close()
-            except:
-                pass
+            try: st.session_state.conn.close()
+            except: pass
             st.session_state.conn = None
 
-    # 3. Intento de nueva conexión
+    # 3. Intento de nueva conexión usando la config de get_db_config()
     try:
-        # Usamos los datos de st.secrets (configurados en Streamlit Cloud)
-        config = {
-            "host": st.secrets["DB_HOST"],
-            "port": int(st.secrets["DB_PORT"]),
-            "user": st.secrets["DB_USER"],
-            "password": st.secrets["DB_PASS"],
-            "database": nombre_db,
-            "raise_on_warnings": True,
-            "connection_timeout": 10
-        }
-        
         new_conn = mysql.connector.connect(**config)
         
         st.session_state.conn = new_conn
         st.session_state['current_db_link'] = nombre_db
-        
         conn = new_conn 
         return conn
     except Exception as e:
-        # Modo silencioso: avisamos que no hay BD pero no bloqueamos la app
-        st.warning(f"⚠️ Conexión no disponible (Modo vista): {e}")
-        st.session_state.conn = None
-        conn = None 
+        st.warning(f"⚠️ Error de conexión: {e}")
         return None
-# =========================================================
-# 2. IDENTIDAD DINÁMICA (Sin el bloque viejo de SELECTBOX)
-# =========================================================
-# --- LÓGICA DE CONFIGURACIÓN SEGURA ---
-# Intentamos obtener los valores de st.secrets (Streamlit Cloud) 
-# y si no existen, usamos las variables de entorno o valores por defecto.
+
 
 def get_db_config():
-    try:
-        return {
-            "host": st.secrets["DB_HOST"],
-            "port": int(st.secrets["DB_PORT"]),
-            "user": st.secrets["DB_USER"],
-            "password": st.secrets["DB_PASS"],
-            "database": st.secrets["DB_NAME"],
-            "raise_on_warnings": True,
-            "connection_timeout": 10
-        }
-    except:
-        # Fallback para desarrollo local
-        return {
-            "host": os.getenv('DB_HOST', 'localhost'),
-            "port": int(os.getenv('DB_PORT', 3306)),
-            "user": os.getenv('DB_USER', 'root'),
-            "password": os.getenv('DB_PASS', 'Ca22021956*'),
-            "database": "control_central",
-            "raise_on_warnings": True,
-            "connection_timeout": 10
-        }
-# Justo donde llames a get_db_config
+    # FUERZA los valores para depurar
+    return {
+        "host": "reseau.proxy.rlwy.net",
+        "port": 58667,
+        "user": "carlos_admin",
+        "password": "ptCOcCKAWIhukQZtIHyrLDWdXboCZqyI",
+        "database": "control_central",
+        "raise_on_warnings": True,
+        "connection_timeout": 10
+    }
+
+
+
 config = get_db_config()
 st.sidebar.write(f"Host detectado: {config['host']}") # Esto te dirá si está tomando localhost o el de Railway
 
@@ -6112,8 +6077,8 @@ with st.sidebar:
             c_id = st.session_state.get('cliente_id')
             query_sidebar += f" WHERE id = {c_id}"
 
+        df_sidebar = pd.DataFrame() 
         conn_sidebar = conectar_db()
-        # 2. Control de seguridad: Si no hay conexión, creamos un DataFrame vacío
         # 3. Solo si la conexión es válida, intentamos hacer la consulta
         if conn_sidebar is not None:
             try:
@@ -6134,10 +6099,7 @@ with st.sidebar:
 
         # Aseguramos que el df tenga datos antes de intentar el selectbox
         # ... (tu código previo hasta el if not df_sidebar.empty:) ...
-    
-    # --- AHORA SÍ, puedes comprobar si no está vacía ---
-    def renderizar_sidebar_completo(df_sidebar):
-        # Asegúrate de que reset_empresa esté definida antes en el archivo
+
         if not df_sidebar.empty:
             # 1. Selector de Empresa
             seleccion = st.sidebar.selectbox(
@@ -6151,20 +6113,20 @@ with st.sidebar:
             datos_filtrados = df_sidebar[df_sidebar['nombre_empresa'] == seleccion]
             
             if not datos_filtrados.empty:
-            datos_sel = datos_filtrados.iloc[0]
-            st.session_state['DB_ACTUAL'] = datos_sel['db_nombre']
-            st.session_state['CLIENTE_NOMBRE'] = seleccion
-            st.sidebar.write(f"Empresa: {seleccion.upper()}")
-        
+                # ¡Aquí estaba el error! Estas líneas deben estar más a la derecha
+                datos_sel = datos_filtrados.iloc[0]
+                st.session_state['DB_ACTUAL'] = datos_sel['db_nombre']
+                st.session_state['CLIENTE_NOMBRE'] = seleccion
+                st.sidebar.write(f"Empresa: {seleccion.upper()}")
+            
             st.subheader("Módulos")
-
-            # --- TODO ESTO DEBE ESTAR FUERA DEL ELSE ---
+            
+            # --- El resto del código mantiene el mismo nivel que st.subheader ---
             modulos_disponibles = [
                 "🏠 Inicio", "📂 Plan de Cuentas", "📝 Asientos Contables", 
                 "📖 Mayor Analítico", "📊 Estados Financieros", "📚 Libros Fiscales", "👤 Proveedores"
             ]
 
-            # Inyección inteligente
             empresa_en_mayusculas = seleccion.upper()
             if "PEDACITO" in empresa_en_mayusculas and "CLIELO" in empresa_en_mayusculas:
                 modulos_disponibles.append("🧁 Inventarios")
@@ -6193,15 +6155,17 @@ with st.sidebar:
             st.error("No se encontraron empresas asociadas.")
             st.stop()
 
-#=====================================
-# 2. LÓGICA PRINCIPAL (AFUERA Y ABAJO DEL SIDEBAR - PANTALLA ANCHA)
-# =========================================================================
+    
 
 # --- VALIDACIÓN DE CONEXIÓN GLOBAL ---
-if 'conn' not in st.session_state or not st.session_state.conn.is_connected():
-    st.session_state.conn = conectar_db("control_central")
-
-conn = st.session_state.conn
+def asegurar_conexion():
+    if 'conn' not in st.session_state or st.session_state.conn is None:
+        st.session_state.conn = conectar_db("control_central")
+    
+    if st.session_state.conn is not None and not st.session_state.conn.is_connected():
+        st.session_state.conn = conectar_db("control_central")
+    
+    return st.session_state.conn
 
 
 # --- INTERRUPTOR DE PANTALLAS ---
@@ -6231,32 +6195,27 @@ if menu == "⚙️ Gestión de Usuarios":
 
 
 
-# Asegúrate de definir la lista antes de usarla
+# --- LÓGICA DE FECHAS SEGURA ---
 meses = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
 
-# Ahora sí, tu línea 4243 funcionará sin problemas:
-m_idx = meses.index(st.session_state['f_mes_global']) + 1
+# Usamos .get() con valores por defecto para que no explote si el widget no ha cargado
+mes_seleccionado = st.session_state.get('f_mes_global', "Enero")
+anio_f = st.session_state.get('f_anio_global', 2026)
 
+m_idx = meses.index(mes_seleccionado) + 1
 
-# ========================================================
-# 2. LÓGICA DE FECHAS MEJORADA (REACTIVA)
-# ========================================================
-m_idx = meses.index(st.session_state['f_mes_global']) + 1
-anio_f = st.session_state['f_anio_global']
-
-# Calculamos el último día exacto del mes (28, 29, 30 o 31)
+# Calculamos el último día exacto del mes
 ultimo_dia = calendar.monthrange(anio_f, m_idx)[1]
 
-# Variables de fecha tipo objeto para las funciones
+# Variables de fecha tipo objeto
 f_inicio_global = datetime(anio_f, m_idx, 1)
 f_fin_global = datetime(anio_f, m_idx, ultimo_dia)
 
-# Variables de texto para mostrar o usar en SQL si hace falta
+# Variables de texto
 fecha_inicio_str = f_inicio_global.strftime('%Y-%m-%d')
 fecha_fin_str = f_fin_global.strftime('%Y-%m-%d')
 
 EMPRESA = st.session_state.get('CLIENTE_NOMBRE', 'N/A')
-
 
 # 1. INICIALIZACIÓN GLOBAL (Aquí va tu código)
 if 'db_a_conectar' not in st.session_state:
@@ -6283,7 +6242,7 @@ def actualizar_empresa():
 # 1. Obtenemos los valores del estado
 BD_A_CONECTAR = st.session_state.get('db_a_conectar', "control_central")
 EMPRESA = st.session_state.get('nombre_empresa_seleccionada', "Seleccione Cliente")
-
+opcion_menu = st.session_state.get('opcion_menu_auditoria', "🏠 Inicio")
 # 2. Conexión centralizada
 if BD_A_CONECTAR != "control_central":
     # Solo conectamos si no hay una conexión válida en el estado
@@ -6301,7 +6260,6 @@ if BD_A_CONECTAR != "control_central":
             st.success(f"✅ Conectado a: {EMPRESA}")
         except Exception as e:
             st.error(f"Error al cambiar de base de datos: {e}")
-
 
 if "Inicio" in opcion_menu:
     # 1. Recuperamos la DB seleccionada
