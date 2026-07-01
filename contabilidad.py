@@ -6134,10 +6134,10 @@ with st.sidebar:
 
         # Aseguramos que el df tenga datos antes de intentar el selectbox
         # ... (tu código previo hasta el if not df_sidebar.empty:) ...
-
-    
     
     # --- AHORA SÍ, puedes comprobar si no está vacía ---
+    def renderizar_sidebar_completo(df_sidebar):
+    # Asegúrate de que reset_empresa esté definida antes en el archivo
     if not df_sidebar.empty:
         # 1. Selector de Empresa
         seleccion = st.sidebar.selectbox(
