@@ -6137,63 +6137,61 @@ with st.sidebar:
     
     # --- AHORA SÍ, puedes comprobar si no está vacía ---
     def renderizar_sidebar_completo(df_sidebar):
-    # Asegúrate de que reset_empresa esté definida antes en el archivo
-    if not df_sidebar.empty:
-        # 1. Selector de Empresa
-        seleccion = st.sidebar.selectbox(
-            "Seleccione Empresa", 
-            df_sidebar['nombre_empresa'].tolist(), 
-            key="selector_empresa", 
-            on_change=reset_empresa
-        )
-        
-        # 2. Sincronización de datos
-        datos_filtrados = df_sidebar[df_sidebar['nombre_empresa'] == seleccion]
-        
-        if not datos_filtrados.empty:
+        # Asegúrate de que reset_empresa esté definida antes en el archivo
+        if not df_sidebar.empty:
+            # 1. Selector de Empresa
+            seleccion = st.sidebar.selectbox(
+                "Seleccione Empresa", 
+                df_sidebar['nombre_empresa'].tolist(), 
+                key="selector_empresa", 
+                on_change=reset_empresa
+            )
+            
+            # 2. Sincronización de datos
+            datos_filtrados = df_sidebar[df_sidebar['nombre_empresa'] == seleccion]
+            
+            if not datos_filtrados.empty:
             datos_sel = datos_filtrados.iloc[0]
             st.session_state['DB_ACTUAL'] = datos_sel['db_nombre']
             st.session_state['CLIENTE_NOMBRE'] = seleccion
             st.sidebar.write(f"Empresa: {seleccion.upper()}")
         
-        st.subheader("Módulos")
+            st.subheader("Módulos")
 
-        # --- TODO ESTO DEBE ESTAR FUERA DEL ELSE ---
-        modulos_disponibles = [
-            "🏠 Inicio", "📂 Plan de Cuentas", "📝 Asientos Contables", 
-            "📖 Mayor Analítico", "📊 Estados Financieros", "📚 Libros Fiscales", "👤 Proveedores"
-        ]
+            # --- TODO ESTO DEBE ESTAR FUERA DEL ELSE ---
+            modulos_disponibles = [
+                "🏠 Inicio", "📂 Plan de Cuentas", "📝 Asientos Contables", 
+                "📖 Mayor Analítico", "📊 Estados Financieros", "📚 Libros Fiscales", "👤 Proveedores"
+            ]
 
-        # Inyección inteligente
-        empresa_en_mayusculas = seleccion.upper()
-        if "PEDACITO" in empresa_en_mayusculas and "CLIELO" in empresa_en_mayusculas:
-            modulos_disponibles.append("🧁 Inventarios")
+            # Inyección inteligente
+            empresa_en_mayusculas = seleccion.upper()
+            if "PEDACITO" in empresa_en_mayusculas and "CLIELO" in empresa_en_mayusculas:
+                modulos_disponibles.append("🧁 Inventarios")
 
-        opcion_menu = st.sidebar.selectbox("📂 SELECCIONE UN MÓDULO", modulos_disponibles)
-        st.session_state['opcion_menu_auditoria'] = opcion_menu
+            opcion_menu = st.sidebar.selectbox("📂 SELECCIONE UN MÓDULO", modulos_disponibles)
+            st.session_state['opcion_menu_auditoria'] = opcion_menu
 
-        # Sub-opciones
-        if opcion_menu == "📝 Asientos Contables":
-            sub_opcion = st.sidebar.radio("Acciones:", ["Subir Datos", "Conciliación Bancaria","Consultar Comprobante", "Consultar Saldos Iniciales", "Consultar Cierre Contable"], key="sub_asientos")
-        elif opcion_menu == "📊 Estados Financieros":
-            st.sidebar.markdown("---")
-            sub_opcion = st.sidebar.radio("Reportes Financieros:", ["Balance de Comprobación", "Balance General", "Estado de Resultados"], key="sub_estados")
-        elif opcion_menu == "📚 Libros Fiscales":
-            sub_opcion = st.sidebar.radio("Reportes Fiscales:", ["Libro de Ventas", "Libro de Compras", "Comprobante de Retención ISLR","Comprobante de Retención IVA"], key="sub_libros")
+            # Sub-opciones
+            if opcion_menu == "📝 Asientos Contables":
+                sub_opcion = st.sidebar.radio("Acciones:", ["Subir Datos", "Conciliación Bancaria","Consultar Comprobante", "Consultar Saldos Iniciales", "Consultar Cierre Contable"], key="sub_asientos")
+            elif opcion_menu == "📊 Estados Financieros":
+                st.sidebar.markdown("---")
+                sub_opcion = st.sidebar.radio("Reportes Financieros:", ["Balance de Comprobación", "Balance General", "Estado de Resultados"], key="sub_estados")
+            elif opcion_menu == "📚 Libros Fiscales":
+                sub_opcion = st.sidebar.radio("Reportes Fiscales:", ["Libro de Ventas", "Libro de Compras", "Comprobante de Retención ISLR","Comprobante de Retención IVA"], key="sub_libros")
+            else:
+                sub_opcion = None
+            
+            st.sidebar.divider()
+            st.sidebar.subheader("📅 Período de Consulta")
+            col_anio, col_mes = st.sidebar.columns(2)
+            col_anio.number_input("Año", value=2026, step=1, key="f_anio_global")
+            col_mes.selectbox("Mes", ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"], index=datetime.now().month - 1, key="f_mes_global")
+
         else:
-            sub_opcion = None
-        
-        st.sidebar.divider()
-        st.sidebar.subheader("📅 Período de Consulta")
-        col_anio, col_mes = st.sidebar.columns(2)
-        col_anio.number_input("Año", value=2026, step=1, key="f_anio_global")
-        col_mes.selectbox("Mes", ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"], index=datetime.now().month - 1, key="f_mes_global")
-
-    else:
-        st.error("No se encontraron empresas asociadas.")
-        st.stop()
-
-
+            st.error("No se encontraron empresas asociadas.")
+            st.stop()
 
 #=====================================
 # 2. LÓGICA PRINCIPAL (AFUERA Y ABAJO DEL SIDEBAR - PANTALLA ANCHA)
