@@ -121,8 +121,7 @@ else:
 # Variable global que usan todas tus funciones de abajo
 conn = None
 
-
-def conectar_db(nombre_db="control_central"):
+def conectar_db(nombre_db=DB_CONFIG.get("database", "railway")):
   global conn
 
   # 1. ¿Ya tenemos una conexión activa en la sesión y es la misma DB?
