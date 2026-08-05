@@ -93,9 +93,10 @@ if 'stats' not in st.session_state:
     stats = {'retenido': 0.0, 'ventas': 0.0, 'compras': 0.0}
 
 
-# 1. Configuración Única adaptable
+# Comprobación temporal en pantalla para ver de dónde lee las credenciales
 if "DB_HOST" in st.secrets:
-  # Si está en Streamlit Cloud, lee los datos de los Secrets de Railway
+  st.success("✅ Conectado a los Secrets de Streamlit Cloud (Railway)")
+  # 1. Configuración para Streamlit Cloud
   DB_CONFIG = {
       "host": st.secrets["DB_HOST"],
       "port": int(st.secrets["DB_PORT"]),
@@ -106,13 +107,14 @@ if "DB_HOST" in st.secrets:
       "connection_timeout": 10,
   }
 else:
-  # Si está en tu PC local, usa tus datos de siempre
+  st.warning("⚠️ No se encontraron Secrets, usando entorno local (localhost)")
+  # 1. Configuración para tu PC local
   DB_CONFIG = {
       "host": "localhost",
       "port": 3306,
       "user": "root",
       "password": "Ca22021956*",
-      "database": "control_central",  # Asegúrate de incluir el nombre de la base de datos aquí también si lo usabas aparte
+      "database": "control_central",
       "raise_on_warnings": True,
       "connection_timeout": 10,
   }
@@ -120,43 +122,44 @@ else:
 # Variable global que usan todas tus funciones de abajo
 conn = None
 
-def conectar_db(nombre_db="control_central"):
-    global conn
-    
-    # 1. ¿Ya tenemos una conexión activa en la sesión y es la misma DB?
-    db_actual_en_sesion = st.session_state.get('current_db_link')
-    
-    if 'conn' in st.session_state and st.session_state.conn is not None:
-        if db_actual_en_sesion == nombre_db:
-            try:
-                # El "ping" garantiza que no nos diga "Connection not available"
-                st.session_state.conn.ping(reconnect=True, attempts=3, delay=1)
-                conn = st.session_state.conn
-                return conn
-            except Exception:
-                st.session_state.conn = None # Conexión muerta, forzamos recreación
-        else:
-            # Cambio de empresa: Cerramos la vieja correctamente
-            try:
-                st.session_state.conn.close()
-            except:
-                pass
-            st.session_state.conn = None
 
-    # 2. Si no hay conexión o cambió la DB, creamos una nueva
-    try:
-        config = DB_CONFIG.copy()
-        config["database"] = nombre_db
-        new_conn = mysql.connector.connect(**config)
-        
-        st.session_state.conn = new_conn
-        st.session_state['current_db_link'] = nombre_db
-        conn = new_conn
+def conectar_db(nombre_db="control_central"):
+  global conn
+
+  # 1. ¿Ya tenemos una conexión activa en la sesión y es la misma DB?
+  db_actual_en_sesion = st.session_state.get("current_db_link")
+
+  if "conn" in st.session_state and st.session_state.conn is not None:
+    if db_actual_en_sesion == nombre_db:
+      try:
+        # El "ping" garantiza que no nos diga "Connection not available"
+        st.session_state.conn.ping(reconnect=True, attempts=3, delay=1)
+        conn = st.session_state.conn
         return conn
-    except Exception as e:
-        st.error(f"❌ Error al conectar a {nombre_db}: {e}")
-        conn = None
-        return None
+      except Exception:
+        st.session_state.conn = None  # Conexión muerta, forzamos recreación
+    else:
+      # Cambio de empresa: Cerramos la vieja correctamente
+      try:
+        st.session_state.conn.close()
+      except:
+        pass
+      st.session_state.conn = None
+
+  # 2. Si no hay conexión o cambió la DB, creamos una nueva
+  try:
+    config = DB_CONFIG.copy()
+    config["database"] = nombre_db
+    new_conn = mysql.connector.connect(**config)
+
+    st.session_state.conn = new_conn
+    st.session_state["current_db_link"] = nombre_db
+    conn = new_conn
+    return conn
+  except Exception as e:
+    st.error(f"❌ Error al conectar a {nombre_db}: {e}")
+    conn = None
+    return None
 # =========================================================
 # 2. IDENTIDAD DINÁMICA (Sin el bloque viejo de SELECTBOX)
 # =========================================================
