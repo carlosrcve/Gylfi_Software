@@ -93,15 +93,29 @@ if 'stats' not in st.session_state:
     stats = {'retenido': 0.0, 'ventas': 0.0, 'compras': 0.0}
 
 
-# 1. Configuración Única
-DB_CONFIG = {
-    "host": "localhost",
-    "port": 3306,
-    "user": "root",
-    "password": "Ca22021956*",
-    "raise_on_warnings": True,
-    "connection_timeout": 10
-}
+# 1. Configuración Única adaptable
+if "DB_HOST" in st.secrets:
+  # Si está en Streamlit Cloud, lee los datos de los Secrets de Railway
+  DB_CONFIG = {
+      "host": st.secrets["DB_HOST"],
+      "port": int(st.secrets["DB_PORT"]),
+      "user": st.secrets["DB_USER"],
+      "password": st.secrets["DB_PASS"],
+      "database": st.secrets["DB_NAME"],
+      "raise_on_warnings": True,
+      "connection_timeout": 10,
+  }
+else:
+  # Si está en tu PC local, usa tus datos de siempre
+  DB_CONFIG = {
+      "host": "localhost",
+      "port": 3306,
+      "user": "root",
+      "password": "Ca22021956*",
+      "database": "control_central",  # Asegúrate de incluir el nombre de la base de datos aquí también si lo usabas aparte
+      "raise_on_warnings": True,
+      "connection_timeout": 10,
+  }
 
 # Variable global que usan todas tus funciones de abajo
 conn = None
