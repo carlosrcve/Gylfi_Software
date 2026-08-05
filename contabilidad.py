@@ -121,8 +121,13 @@ else:
 # Variable global que usan todas tus funciones de abajo
 conn = None
 
-def conectar_db(nombre_db=DB_CONFIG.get("database", "railway")):
+
+def conectar_db(nombre_db=None):
   global conn
+
+  # Si no se especifica nombre, toma por defecto el que está configurado en DB_CONFIG
+  if nombre_db is None:
+    nombre_db = DB_CONFIG.get("database")
 
   # 1. ¿Ya tenemos una conexión activa en la sesión y es la misma DB?
   db_actual_en_sesion = st.session_state.get("current_db_link")
@@ -137,7 +142,7 @@ def conectar_db(nombre_db=DB_CONFIG.get("database", "railway")):
       except Exception:
         st.session_state.conn = None  # Conexión muerta, forzamos recreación
     else:
-      # Cambio de empresa: Cerramos la vieja correctamente
+      # Cambio de base de datos: Cerramos la vieja correctamente
       try:
         st.session_state.conn.close()
       except:
