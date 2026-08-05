@@ -102,18 +102,17 @@ if "DB_HOST" in st.secrets:
       "password": st.secrets["DB_PASS"],
       "database": st.secrets["DB_NAME"],
       "raise_on_warnings": True,
-      "connection_timeout": 30,  # Aumentamos el tiempo de espera
-      "use_pure": True,  # Mejora la estabilidad en conexiones proxy remotas
+      "connection_timeout": 30,
+      "use_pure": True,
   }
 else:
   st.warning("⚠️ No se encontraron Secrets, usando entorno local (localhost)")
-  # 1. Configuración para tu PC local
   DB_CONFIG = {
       "host": "localhost",
       "port": 3306,
       "user": "root",
       "password": "Ca22021956*",
-      "database": "control_central",
+      "database": "control_central",  # En tu PC local sí puede llamarse control_central
       "raise_on_warnings": True,
       "connection_timeout": 10,
   }
