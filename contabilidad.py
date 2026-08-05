@@ -1378,8 +1378,9 @@ def login_screen():
             password = st.text_input("Contraseña", type="password", placeholder="••••••••", key="pass_input")
             
             if st.button("Ingresar al Portal"):
-                # Llamamos a tu función de base de datos
-                res = verificar_usuario(conn, user, password)
+              # Obtenemos una conexión fresca garantizada antes de verificar
+              conexion_activa = conectar_db()
+              res = verificar_usuario(conexion_activa, user, password)
                 
                 if res:
                     play_success_sound()
