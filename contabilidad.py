@@ -93,44 +93,45 @@ if 'stats' not in st.session_state:
     stats = {'retenido': 0.0, 'ventas': 0.0, 'compras': 0.0}
 
 # Configuración base para el servidor de Railway (Central/Control)
+# Configuración base reforzada contra cortes de red (Lost connection)
 DB_CONFIG_BASE = {
     "host": "reseau.proxy.rlwy.net",
     "port": 58667,
     "user": "root",
     "password": "ptCOCcKAWIhukQZtIhyrLDwdXboCZqyI",
     "raise_on_warnings": True,
-    "connection_timeout": 30,
+    "connection_timeout": 60,  # Aumentado a 60 segundos
+    "read_timeout": 60,        # Evita que se corte leyendo tablas grandes
+    "write_timeout": 60,
     "use_pure": True,
 }
 
-# Variable global que usan todas tus funciones de abajo
 conn = None
 
-
 def conectar_db(nombre_db=None):
-    """Conecta a la base de datos principal o a la de un cliente específico de forma dinámica."""
     global conn
-    
-    # Determinar a qué base de datos nos vamos a conectar
-    # Si pasan un nombre, lo usamos; si no, por defecto usamos 'railway' (o la de los secrets)
-    db_name = nombre_db if nombre_db else st.secrets.get("DB_NAME", "railway")
+    db_name = nombre_db if nombre_db else st.secrets.get("DB_NAME", "control_central")
 
     try:
-        # Si ya hay una conexión activa en la sesión para esta misma base de datos, la reusamos con ping
+        # Validar si la sesión anterior sigue viva con un ping real
         if "conn" in st.session_state and st.session_state.conn is not None:
             try:
-                st.session_state.conn.ping(reconnect=True, attempts=3, delay=1)
+                st.session_state.conn.ping(reconnect=True, attempts=5, delay=2)
                 conn = st.session_state.conn
                 return conn
             except Exception:
                 st.session_state.conn = None
 
-        # Copiamos la configuración base y le inyectamos la base de datos que corresponde
         config = DB_CONFIG_BASE.copy()
         config["database"] = db_name
 
-        # Creamos la nueva conexión limpia
+        # Creamos la nueva conexión con los timeouts extendidos
         new_conn = mysql.connector.connect(**config)
+        
+        # Forzar un comando rápido para asegurar que el canal está abierto
+        cursor = new_conn.cursor()
+        cursor.execute("SELECT 1")
+        cursor.close()
 
         st.session_state.conn = new_conn
         st.session_state["current_db_link"] = db_name
@@ -141,9 +142,7 @@ def conectar_db(nombre_db=None):
         conn = None
         return None
 
-
 def conectar_db_cliente(nombre_bd_cliente):
-    """Función envolvente que usa la lógica dinámica principal para los clientes."""
     return conectar_db(nombre_bd_cliente)
 
 # =========================================================
