@@ -93,10 +93,8 @@ if 'stats' not in st.session_state:
     stats = {'retenido': 0.0, 'ventas': 0.0, 'compras': 0.0}
 
 
-# Comprobación temporal en pantalla para ver de dónde lee las credenciales
 if "DB_HOST" in st.secrets:
-  st.success("✅ Conectado a los Secrets de Streamlit Cloud (Railway)")
-  # 1. Configuración para Streamlit Cloud
+  # Si está en Streamlit Cloud, lee los datos de los Secrets de Railway con reintentos
   DB_CONFIG = {
       "host": st.secrets["DB_HOST"],
       "port": int(st.secrets["DB_PORT"]),
@@ -104,7 +102,8 @@ if "DB_HOST" in st.secrets:
       "password": st.secrets["DB_PASS"],
       "database": st.secrets["DB_NAME"],
       "raise_on_warnings": True,
-      "connection_timeout": 10,
+      "connection_timeout": 30,  # Aumentamos el tiempo de espera
+      "use_pure": True,  # Mejora la estabilidad en conexiones proxy remotas
   }
 else:
   st.warning("⚠️ No se encontraron Secrets, usando entorno local (localhost)")
