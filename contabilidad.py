@@ -106,16 +106,17 @@ if "DB_HOST" in st.secrets:
   }
 else:
   # Si no hay secrets, usa los datos públicos fijos que configuraste para Railway
-  DB_CONFIG = {
-      "host": "reseau.proxy.rlwy.net",
-      "port": 58667,
-      "user": "root",
-      "password": "ptC0CcKAWIhukQZtIHyrLDwXboCZqyI",
-      "database": "railway",
-      "raise_on_warnings": True,
-      "connection_timeout": 30,
-      "use_pure": True,
-  }
+  # Datos fijos directos para anular cualquier secreto viejo de Streamlit Cloud
+DB_CONFIG = {
+    "host": "reseau.proxy.rlwy.net",
+    "port": 58667,
+    "user": "root",
+    "password": "ptC0CcKAWIhukQZtIHyrLDwXboCZqyI",
+    "database": "railway",
+    "raise_on_warnings": True,
+    "connection_timeout": 30,
+    "use_pure": True,
+}
 
 # Variable global que usan todas tus funciones de abajo
 conn = None
