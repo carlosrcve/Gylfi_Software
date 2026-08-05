@@ -1232,13 +1232,13 @@ def verificar_usuario(conn, user, password):
     # 0. Blindaje: Asegurar que hay conexión válida
     if conn is None or not conn.is_connected():
         try:
-            conn = conectar_db("control_central")
+            conn = conectar_db()
         except:
             return None # Si no conecta, no puede verificar
 
-    # 1. Obtenemos el usuario de la base de datos
+    # 1. Obtenemos el usuario de la base de datos (sin el prefijo control_central)
     cursor = conn.cursor(dictionary=True)
-    cursor.execute("SELECT * FROM control_central.usuarios WHERE usuario = %s", (user,))
+    cursor.execute("SELECT * FROM usuarios WHERE usuario = %s", (user,))
     user_data = cursor.fetchone()
     
     if not user_data:
@@ -1264,8 +1264,8 @@ def verificar_usuario(conn, user, password):
             salt = bcrypt.gensalt()
             nuevo_hash = bcrypt.hashpw(password.encode('utf-8'), salt).decode('utf-8')
             
-            # Actualizamos la BD con el nuevo hash
-            cursor.execute("UPDATE control_central.usuarios SET clave_hash = %s WHERE id = %s", 
+            # Actualizamos la BD con el nuevo hash (sin el prefijo control_central)
+            cursor.execute("UPDATE usuarios SET clave_hash = %s WHERE id = %s", 
                            (nuevo_hash, user_data['id']))
             conn.commit()
     
@@ -1276,7 +1276,6 @@ def verificar_usuario(conn, user, password):
         return user_data # Retorna los datos del usuario para la sesión
     else:
         return None # Credenciales incorrectas
-
 
 
 
