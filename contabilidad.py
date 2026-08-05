@@ -1,5 +1,18 @@
 #contabilidad.py
+import os
+import pytesseract
+
+# --- CONFIGURACIÓN DE TESSERACT PARA MULTI-PLATAFORMA ---
+if os.name == 'nt':
+    # Ruta en tu Windows local
+    pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+else:
+    # Ruta en los servidores de la nube (Linux)
+    pytesseract.pytesseract.tesseract_cmd = '/usr/bin/tesseract'
+
 import streamlit as st
+import requests
+from bs4 import BeautifulSoup
 import pandas as pd
 from fpdf import FPDF
 import mysql.connector
@@ -15,79 +28,80 @@ import plotly.graph_objects as go
 import plotly.express as px
 import calendar
 import base64
+import plotly.express as px
 from datetime import date # IMPORTA LA CLASE DATE DIRECTAMENTE
 from PIL import Image, ImageEnhance
-import platform
-import google.generativeai as genai
-import requests
-from bs4 import BeautifulSoup
-# Solo configura la ruta de Tesseract si estás en Windows (tu PC)
-# --- Configuración segura de Tesseract ---
-import platform
-import sys
-
-# Intentamos importar pytesseract
-try:
-    import pytesseract
-    # Solo configuramos la ruta si estamos en TU computadora (Windows)
-    if platform.system() == "Windows":
-        pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
-except ImportError:
-    # Si la librería no está instalada, no rompemos la app
-    pytesseract = None
-    print("Advertencia: pytesseract no está instalado.")
+import pytesseract
+pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
 import json
+import base64
 from openai import OpenAI
 from sqlalchemy import create_engine
-# Busca dónde tienes tus funciones de base de datos
+import warnings
+import pandas as pd
 
+
+pd.set_option('future.no_silent_downcasting', True)
+warnings.filterwarnings('ignore', message='.*pandas only supports SQLAlchemy connectable.*')
+warnings.filterwarnings('ignore', category=FutureWarning, message='.*Downcasting object dtype arrays.*')
 
 # 1. CONFIGURACIÓN DE PÁGINA (ESTO VA PRIMERO QUE TODO LO DEMÁS 'st.')
 st.set_page_config(page_title="King Driver - Auditoría Profesional", layout="wide")
 
-# --- LÍNEA 22: INICIALIZACIÓN SILENCIOSA (SOLO VALORES, SIN WIDGETS) ---
-if 'anio_seleccionado' not in st.session_state:
-    st.session_state.anio_seleccionado = 2026
-if 'mes_n' not in st.session_state:
-    st.session_state.mes_n = 3
+import streamlit as st
+import pandas as pd
+import datetime
+# ... tus otras importaciones y funciones de conexión ...
 
-# Creamos las variables simples para que el resto del código las vea
-anio_seleccionado = st.session_state.anio_seleccionado
-mes_n = st.session_state.mes_n
+# ==========================================
+# 1. GESTIÓN UNIFICADA DE FILTROS GLOBALES
+# ==========================================
+import datetime
+import calendar
 
-# Definimos las fechas globales de una vez
-f_inicio_global = datetime(anio_seleccionado, mes_n, 1)
-if mes_n == 12:
-    f_fin_global = datetime(anio_seleccionado, 12, 31)
-else:
-    f_fin_global = datetime(anio_seleccionado, mes_n + 1, 1) - timedelta(days=1)
 
-# Inicializamos stats para que el Dashboard no explote
-stats = {'retenido': 0.0, 'ventas': 0.0, 'compras': 0.0}
+# --- 1. BLOQUE DE FECHAS GLOBAL (DEBE IR PRIMERO QUE TODO) ---
+if 'año_seleccionado' not in st.session_state:
+    st.session_state['año_seleccionado'] = datetime.datetime.now().year
 
-# --- LÓGICA DE CONFIGURACIÓN SEGURA ---
-try:
-    # Intenta cargar desde secretos (Streamlit Cloud o local)
-    DB_CONFIG = {
-        "host": st.secrets["DB_HOST"],
-        "port": int(st.secrets["DB_PORT"]),
-        "user": st.secrets["DB_USER"],
-        "password": st.secrets["DB_PASS"],
-        "database": st.secrets["DB_NAME"],
-        "raise_on_warnings": True,
-        "connection_timeout": 10
-    }
-except (AttributeError, FileNotFoundError, Exception):
-    # Valores por defecto para conexión remota
-    DB_CONFIG = {
-        "host": "reseau.proxy.rlwy.net",
-        "port": 58667,
-        "user": "carlos_admin",
-        "password": "ptCOcCKAWIhukQZtIHyrLDWdXboCZqyI",
-        "database": "control_central",
-        "raise_on_warnings": True,
-        "connection_timeout": 10
-    }
+if 'mes_seleccionado' not in st.session_state:
+    meses_nombres = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
+    st.session_state['mes_seleccionado'] = meses_nombres[datetime.datetime.now().month - 1]
+
+dic_meses = {
+    "Enero": 1, "Febrero": 2, "Marzo": 3, "Abril": 4, 
+    "Mayo": 5, "Junio": 6, "Julio": 7, "Agosto": 8, 
+    "Septiembre": 9, "Octubre": 10, "Noviembre": 11, "Diciembre": 12
+}
+
+anio_seleccionado = st.session_state.get('año_seleccionado', datetime.datetime.now().year)
+mes_elegido_str = st.session_state.get('mes_seleccionado', "Enero")
+
+mes_n = dic_meses.get(mes_elegido_str, 1)
+
+# Cálculo exacto de las cadenas de fecha para MySQL
+ultimo_dia_mes = calendar.monthrange(anio_seleccionado, mes_n)[1]
+fecha_inicio_str = f"{anio_seleccionado}-{mes_n:02d}-01"
+fecha_fin_str = f"{anio_seleccionado}-{mes_n:02d}-{ultimo_dia_mes:02d}"
+
+# 5. Variables de compatibilidad globales para consultas SQL (como tu Flujo de Efectivo)
+f_inicio_global = datetime.date(anio_seleccionado, mes_n, 1)
+f_fin_global = datetime.date(anio_seleccionado, mes_n, ultimo_dia_mes)
+
+# Inicializamos stats por seguridad si no existen
+if 'stats' not in st.session_state:
+    stats = {'retenido': 0.0, 'ventas': 0.0, 'compras': 0.0}
+
+
+# 1. Configuración Única
+DB_CONFIG = {
+    "host": "localhost",
+    "port": 3306,
+    "user": "root",
+    "password": "Ca22021956*",
+    "raise_on_warnings": True,
+    "connection_timeout": 10
+}
 
 # Variable global que usan todas tus funciones de abajo
 conn = None
@@ -95,56 +109,44 @@ conn = None
 def conectar_db(nombre_db="control_central"):
     global conn
     
-    # 1. Obtener la configuración SEGURA (la que tú definiste)
-    config = get_db_config() 
-    config['database'] = nombre_db # Aseguramos que use la base de datos que pides
-    
-    # 2. Lógica de sesión (mantenemos igual para eficiencia)
+    # 1. ¿Ya tenemos una conexión activa en la sesión y es la misma DB?
     db_actual_en_sesion = st.session_state.get('current_db_link')
     
     if 'conn' in st.session_state and st.session_state.conn is not None:
         if db_actual_en_sesion == nombre_db:
             try:
+                # El "ping" garantiza que no nos diga "Connection not available"
                 st.session_state.conn.ping(reconnect=True, attempts=3, delay=1)
-                return st.session_state.conn
-            except:
-                st.session_state.conn = None
+                conn = st.session_state.conn
+                return conn
+            except Exception:
+                st.session_state.conn = None # Conexión muerta, forzamos recreación
         else:
-            try: st.session_state.conn.close()
-            except: pass
+            # Cambio de empresa: Cerramos la vieja correctamente
+            try:
+                st.session_state.conn.close()
+            except:
+                pass
             st.session_state.conn = None
 
-    # 3. Intento de nueva conexión usando la config de get_db_config()
+    # 2. Si no hay conexión o cambió la DB, creamos una nueva
     try:
+        config = DB_CONFIG.copy()
+        config["database"] = nombre_db
         new_conn = mysql.connector.connect(**config)
         
         st.session_state.conn = new_conn
         st.session_state['current_db_link'] = nombre_db
-        conn = new_conn 
+        conn = new_conn
         return conn
     except Exception as e:
-        st.warning(f"⚠️ Error de conexión: {e}")
+        st.error(f"❌ Error al conectar a {nombre_db}: {e}")
+        conn = None
         return None
+# =========================================================
+# 2. IDENTIDAD DINÁMICA (Sin el bloque viejo de SELECTBOX)
+# =========================================================
 
-
-def get_db_config():
-    # FUERZA los valores para depurar
-    return {
-        "host": "reseau.proxy.rlwy.net",
-        "port": 58667,
-        "user": "carlos_admin",
-        "password": "ptCOcCKAWIhukQZtIHyrLDWdXboCZqyI",
-        "database": "control_central",
-        "raise_on_warnings": True,
-        "connection_timeout": 10
-    }
-
-
-
-config = get_db_config()
-st.sidebar.write(f"Host detectado: {config['host']}") # Esto te dirá si está tomando localhost o el de Railway
-
-# Asegúrate de usar get_db_config() al llamar a mysql.connector.connect(**get_db_config())
 # Sacamos los datos directamente de lo que ya se seleccionó en el Sidebar
 # (Asumiendo que el bloque 1.3 que pusimos antes ya definió estas variables)
 if 'DB_ACTUAL' in st.session_state:
@@ -156,13 +158,7 @@ else:
 
 DATOS_EMPRESA = {"nombre": EMPRESA, "rif": RIF}
 
-def ejecutar_consulta_segura(query):
-    conn = conectar_db()
-    if conn and conn.is_connected():
-        df = pd.read_sql(query, conn)
-        conn.close()
-        return df
-    return pd.DataFrame() # Devuelve vacío si no conecta
+
 
 import functools
 
@@ -207,6 +203,648 @@ def calcular_activo_real(df):
     return activo
 
 
+
+# Suponiendo que tienes una función que calcula la utilidad contable
+@log_ejecucion
+def obtener_utilidad_contable(db, f_i, f_f):
+    """Calcula la utilidad basada en los ingresos y egresos de la empresa 'db'"""
+    conn = conectar_db(db)
+    # Query para sumar Ingresos (Clase 4) y restar Egresos (Clase 5 y 6)
+    query = f"""
+        SELECT 
+            SUM(CASE WHEN plan_cuentas LIKE '4%%' THEN haber - debe ELSE 0 END) as ingresos,
+            SUM(CASE WHEN plan_cuentas LIKE '5%%' OR plan_cuentas LIKE '6%%' THEN debe - haber ELSE 0 END) as egresos
+        FROM `{db}`.asientos_contables
+        WHERE fecha BETWEEN %s AND %s
+    """
+    df = pd.read_sql(query, conn, params=(f_i, f_f))
+    conn.close()
+    
+    # Retornamos el resultado del cálculo
+    utilidad = df['ingresos'].iloc[0] - df['egresos'].iloc[0]
+    return utilidad if utilidad is not None else 0.0
+
+
+
+def obtener_analisis_accionista_detallado(db, f_i, f_f):
+    if not db or str(db).strip() in ["None", "{db}", ""]:
+        return pd.DataFrame()
+
+    conn = conectar_db(db)
+    if not conn:
+        return pd.DataFrame()
+
+    s_fi = str(f_i).split()[0]
+    s_ff = str(f_f).split()[0]
+
+    query = f"""
+        SELECT 
+            a.plan_cuentas, 
+            a.fecha, 
+            a.descripcion, 
+            a.debe, 
+            a.haber, 
+            (a.debe - a.haber) as neto,
+            acc.nombre as nombre_accionista
+        FROM `{db}`.asientos_contables a
+        INNER JOIN `{db}`.accionistas acc ON a.plan_cuentas = acc.codigo_cuenta_asociada
+        WHERE a.fecha BETWEEN %s AND %s
+        ORDER BY a.fecha DESC
+    """
+    
+    try:
+        df = pd.read_sql(query, conn, params=(s_fi, s_ff))
+    except Exception as e:
+        st.error(f"Error en la consulta de accionistas: {e}")
+        df = pd.DataFrame()
+    finally:
+        if conn and conn.is_connected():
+            conn.close()
+            
+    return df
+
+
+def obtener_historico_utilidad(db, f_inicio=None, f_fin=None):
+    conn = conectar_db(db)
+    df_default = pd.DataFrame({'utilidad_mensual': [0.0]})
+    
+    if not conn:
+        return df_default
+    
+    if f_inicio is not None and f_fin is None:
+        f_fin = f_inicio
+        f_inicio = None
+
+    if f_fin is None:
+        import datetime
+        f_fin = datetime.date.today()
+    
+    if hasattr(f_fin, 'strftime'):
+        fecha_fin_str = f_fin.strftime('%Y-%m-%d')
+    else:
+        fecha_fin_str = str(f_fin).split()[0]
+
+    if f_inicio is not None:
+        if hasattr(f_inicio, 'strftime'):
+            fecha_inicio_str = f_inicio.strftime('%Y-%m-%d')
+        else:
+            fecha_inicio_str = str(f_inicio).split()[0]
+    else:
+        partes = fecha_fin_str.split('-')
+        fecha_inicio_str = f"{partes[0]}-{partes[1]}-01"
+    
+    query = f"""
+        SELECT 
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '4%%' THEN haber ELSE 0 END) as ing_haber,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '4%%' THEN debe ELSE 0 END) as ing_debe,
+            
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '5%%' THEN debe ELSE 0 END) as cos_debe,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '5%%' THEN haber ELSE 0 END) as cos_haber,
+            
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '6%%' THEN debe ELSE 0 END) as gas_debe,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '6%%' THEN haber ELSE 0 END) as gas_haber,
+
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '7%%' THEN haber ELSE 0 END) as oing_haber,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '7%%' THEN debe ELSE 0 END) as oing_debe,
+            
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '8%%' THEN debe ELSE 0 END) as oeg_debe,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '8%%' THEN haber ELSE 0 END) as oeg_haber
+        FROM `{db}`.asientos_contables 
+        WHERE STR_TO_DATE(fecha, '%Y-%m-%d') BETWEEN STR_TO_DATE(%s, '%Y-%m-%d') AND STR_TO_DATE(%s, '%Y-%m-%d')
+    """
+    
+    try:
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute(query, (fecha_inicio_str, fecha_fin_str))
+        resultados = cursor.fetchall()
+        cursor.close()
+
+        if not resultados:
+            return df_default
+            
+        df = pd.DataFrame(resultados)
+        
+        if df.empty or df.isnull().all().all():
+            return df_default
+            
+        df = df.fillna(0)
+
+        ingresos = float(df['ing_haber'].iloc[0]) - float(df['ing_debe'].iloc[0])
+        costos = float(df['cos_debe'].iloc[0]) - float(df['cos_haber'].iloc[0])
+        gastos = abs(float(df['gas_debe'].iloc[0]) - float(df['gas_haber'].iloc[0]))
+        otros_ingresos = float(df['oing_haber'].iloc[0]) - float(df['oing_debe'].iloc[0])
+        otros_egresos = abs(float(df['oeg_debe'].iloc[0]) - float(df['oeg_haber'].iloc[0]))
+
+        utilidad_neta = ingresos - costos - gastos + otros_ingresos - otros_egresos
+        
+        df['utilidad_mensual'] = utilidad_neta
+        return df
+        
+    except Exception as e:
+        print(f"Error al calcular la utilidad: {e}")
+        return df_default
+        
+    finally:
+        if conn and conn.is_connected():
+            conn.close()
+
+
+@log_ejecucion
+def generar_pdf_accionista(df, nombre_empresa):
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Arial", 'B', 16)
+    pdf.cell(200, 10, txt=f"Reporte de Accionista: {nombre_empresa}", ln=True, align='C')
+    pdf.ln(10)
+    
+    # Cabecera de la tabla en PDF
+    pdf.set_font("Arial", 'B', 10)
+    pdf.cell(30, 10, 'Fecha', 1)
+    pdf.cell(90, 10, 'Descripcion', 1)
+    pdf.cell(35, 10, 'Debe', 1)
+    pdf.cell(35, 10, 'Haber', 1, ln=True)
+    
+    # Datos de la tabla
+    pdf.set_font("Arial", '', 10)
+    for _, row in df.iterrows():
+        pdf.cell(30, 10, str(row['fecha']), 1)
+        pdf.cell(90, 10, str(row['descripcion'])[:45], 1) # Cortar texto largo
+        pdf.cell(35, 10, f"{row['debe']:,.2f}", 1)
+        pdf.cell(35, 10, f"{row['haber']:,.2f}", 1, ln=True)
+        
+    return pdf.output(dest='S').encode('latin-1')
+
+
+@log_ejecucion
+def obtener_analisis_gastos_clase5(db, f_i, f_f):
+    conn = conectar_db(db)
+    query = f"""
+        SELECT 
+            plan_cuentas, 
+            CASE 
+                WHEN plan_cuentas = '5.1.1.01.001' THEN 'Costos de Reparaciones de vehiculos'
+                WHEN plan_cuentas = '5.1.1.01.002' THEN 'Iva Credito Fiscal (Ingresos Exentos)'
+                ELSE 'Otros'
+            END as descripcion, 
+            SUM(debe) as total_gasto
+        FROM `{db}`.asientos_contables 
+        WHERE plan_cuentas IN ('5.1.1.01.001', '5.1.1.01.002')
+        AND fecha BETWEEN %s AND %s
+        GROUP BY plan_cuentas
+        ORDER BY total_gasto DESC
+    """
+    df = pd.read_sql(query, conn, params=(f_i, f_f))
+    conn.close()
+    return df
+
+
+@log_ejecucion
+def obtener_analisis_gastos_clase6(db, f_i, f_f):
+    conn = conectar_db(db)
+    if not conn:
+        return pd.DataFrame()
+    
+    # Asegurar hora final para que tome todo el día
+    f_i_str = str(f_i).split()[0] + " 00:00:00"
+    f_f_str = str(f_f).split()[0] + " 23:59:59"
+
+    query = f"""
+        SELECT 
+            plan_cuentas, 
+            MAX(cuenta_contable) as cuenta_contable, 
+            (SUM(debe) - SUM(haber)) as total_gasto
+        FROM `{db}`.asientos_contables 
+        WHERE plan_cuentas LIKE '6%'
+          AND fecha >= %s AND fecha <= %s
+        GROUP BY plan_cuentas
+        HAVING total_gasto != 0
+        ORDER BY total_gasto DESC
+    """
+    df = pd.read_sql(query, conn, params=(f_i_str, f_f_str))
+    conn.close()
+    return df
+
+
+@log_ejecucion
+def obtener_asiento_por_comprobante(db, n_comprobante):
+    conn = conectar_db(db)
+    if not conn:
+        return pd.DataFrame()
+    
+    try:
+        # Trae TODAS las líneas que pertenecen a ese número de comprobante, sin importar la cuenta
+        query = f"""
+            SELECT 
+                id, 
+                n_comprobante, 
+                descripcion, 
+                fecha, 
+                plan_cuentas, 
+                cuenta_contable, 
+                referencia, 
+                debe, 
+                haber
+            FROM `{db}`.asientos_contables 
+            WHERE n_comprobante = %s
+            ORDER BY id ASC
+        """
+        df = pd.read_sql(query, conn, params=(n_comprobante,))
+        conn.close()
+        
+        if not df.empty:
+            df['debe'] = pd.to_numeric(df['debe'], errors='coerce').fillna(0)
+            df['haber'] = pd.to_numeric(df['haber'], errors='coerce').fillna(0)
+            
+        return df
+    except Exception as e:
+        print(f"Error al obtener asiento completo: {e}")
+        if conn:
+            conn.close()
+        return pd.DataFrame()
+
+
+
+@log_ejecucion
+def obtener_comprobantes_ingresos(db, f_inicio, f_fin):
+    conn = conectar_db(db)
+    if not conn:
+        return pd.DataFrame()
+    
+    try:
+        query = f"""
+            SELECT DISTINCT n_comprobante, fecha 
+            FROM `{db}`.asientos_contables 
+            WHERE plan_cuentas LIKE '7.1.1.01.001%'
+            AND fecha BETWEEN %s AND %s
+            ORDER BY fecha DESC, n_comprobante DESC
+        """
+        df = pd.read_sql(query, conn, params=(f_inicio, f_fin))
+        conn.close()
+        return df
+    except Exception as e:
+        print(f"Error al obtener comprobantes de ingresos: {e}")
+        if conn:
+            conn.close()
+        return pd.DataFrame()
+
+
+
+@log_ejecucion
+def obtener_historico_utilidad_acumulada(db):
+    conn = conectar_db(db)
+    
+    df_default = pd.DataFrame({'mes': [], 'utilidad_mensual': []})
+    
+    if not conn:
+        return df_default
+        
+    # Leemos directamente de los inputs numéricos de la barra lateral
+    año = st.session_state.get('año_seleccionado', 2026)
+    
+    # Buscamos el mes en el session_state (probando las llaves comunes de los inputs)
+    mes_limite = st.session_state.get('mes', st.session_state.get('mes_seleccionado', 6))
+    
+    # Asegurarnos de que sea un número entero válido
+    try:
+        mes_limite = int(mes_limite)
+    except:
+        mes_limite = 6
+
+    print(f"--- LECTURA DE INPUTS --- Año: {año}, Mes límite de los inputs: {mes_limite}")
+
+    query = f"""
+        SELECT 
+            MONTH(STR_TO_DATE(fecha, '%Y-%m-%d')) as mes,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '4%%' THEN haber ELSE 0 END) as ingresos_haber,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '4%%' THEN debe ELSE 0 END) as ingresos_debe,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '5%%' THEN haber ELSE 0 END) as costos_haber,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '5%%' THEN debe ELSE 0 END) as costos_debe,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '6%%' THEN haber ELSE 0 END) as gastos_haber,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '6%%' THEN debe ELSE 0 END) as gastos_debe,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '7%%' THEN haber ELSE 0 END) as otros_ingresos_haber,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '7%%' THEN debe ELSE 0 END) as otros_ingresos_debe,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '8%%' THEN haber ELSE 0 END) as otros_haber,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '8%%' THEN debe ELSE 0 END) as oitros_debe
+        FROM `{db}`.asientos_contables 
+        WHERE YEAR(STR_TO_DATE(fecha, '%Y-%m-%d')) = {año} 
+          AND MONTH(STR_TO_DATE(fecha, '%Y-%m-%d')) <= {mes_limite}
+        GROUP BY MONTH(STR_TO_DATE(fecha, '%Y-%m-%d'))
+        ORDER BY mes ASC
+    """
+    
+    try:
+        df = pd.read_sql(query, conn)
+        
+        if conn and conn.is_connected():
+            conn.close()
+            
+        if df.empty:
+            return df_default
+            
+        df = df.fillna(0)
+
+        df['utilidad_mensual'] = (
+            (df['ingresos_haber'] - df['ingresos_debe']) - 
+            (df['costos_debe'] - df['costos_haber']) - 
+            (df['gastos_debe'] - df['gastos_haber']) + 
+            (df['otros_ingresos_haber'] - df['otros_ingresos_debe']) - 
+            (df['oitros_debe'] - df['otros_haber'])
+        )
+        
+        return df[['mes', 'utilidad_mensual']]
+        
+    except Exception as e:
+        print(f"Error al calcular histórico acumulado: {e}")
+        if conn and conn.is_connected():
+            conn.close()
+        return df_default
+
+@log_ejecucion
+def obtener_saldos_acumulados(conn, f_fin, db):
+    cursor = conn.cursor(dictionary=True)
+    
+    # 1. Saldos iniciales puros de la apertura directos desde MySQL
+    cursor.execute(f"""
+        SELECT 
+            COALESCE(SUM(CASE WHEN plan_cuentas LIKE '1%' THEN (debe - haber) ELSE 0 END), 0) as activo_ini,
+            COALESCE(SUM(CASE WHEN plan_cuentas LIKE '2%' THEN (haber - debe) ELSE 0 END), 0) as pasivo_ini,
+            COALESCE(SUM(CASE WHEN plan_cuentas LIKE '3%' THEN (haber - debe) ELSE 0 END), 0) as patrimonio_ini
+        FROM `{db}`.saldos_iniciales
+    """)
+    res_ini = cursor.fetchone()
+    
+    # 2. Movimientos contables hasta la fecha de corte directos desde MySQL
+    cursor.execute(f"""
+        SELECT 
+            COALESCE(SUM(CASE WHEN plan_cuentas LIKE '1%' THEN (debe - haber) ELSE 0 END), 0) as activo_mov,
+            COALESCE(SUM(CASE WHEN plan_cuentas LIKE '2%' THEN (haber - debe) ELSE 0 END), 0) as pasivo_mov,
+            COALESCE(SUM(CASE WHEN plan_cuentas LIKE '3%' THEN (haber - debe) ELSE 0 END), 0) as patrimonio_mov
+        FROM `{db}`.asientos_contables 
+        WHERE fecha <= %s
+    """, (f_fin,))
+    res_mov = cursor.fetchone()
+    
+    cursor.close()
+    
+    # Sumatoria total calculada puramente con los datos devueltos por MySQL
+    activo_total = res_ini.get('activo_ini') + res_mov.get('activo_mov')
+    pasivo_total = res_ini.get('pasivo_ini') + res_mov.get('pasivo_mov')
+    patrimonio_total = res_ini.get('patrimonio_ini') + res_mov.get('patrimonio_mov')
+    
+    return {
+        "activo": activo_total,
+        "pasivo": pasivo_total,
+        "patrimonio": patrimonio_total
+    }
+
+@log_ejecucion
+def obtener_salud_fiscal(f_inicio, f_fin, db):
+    conn = conectar_db(db)
+    
+    default_res = {
+        "ingresos_exentas": 0, "ingresos_gravados": 0, "compras_exentas": 0,
+        "compras_16": 0, "DPP1": 0, "comisiones_bancarias1": 0, "gastos_personales1": 0,
+        "otros_ingresos": 0, "otros_egresos": 0,
+        "iva_debito_fiscal": 0, "iva_por_pagar": 0, "retencion_iva_compras": 0, 
+        "pagos_anticipados_islr": 0, "retencion_islr_proveedores": 0, "islr_pagar": 0
+    }
+    
+    if not conn:
+        return default_res
+
+    if hasattr(f_inicio, 'strftime'):
+        f_inicio_str = f_inicio.strftime('%Y-%m-%d') + " 00:00:00"
+    else:
+        f_inicio_str = str(f_inicio).split()[0] + " 00:00:00"
+
+    if hasattr(f_fin, 'strftime'):
+        fecha_str = f_fin.strftime('%Y-%m-%d') + " 23:59:59"
+    else:
+        fecha_str = str(f_fin).split()[0] + " 23:59:59"
+
+    if db == 'kingdriver_ca':
+        dpp_query = """
+            SUM(CASE WHEN plan_cuentas LIKE '6.1.1.03.020%' THEN haber ELSE 0 END) as DPP_haber,
+            SUM(CASE WHEN plan_cuentas LIKE '6.1.1.03.020%' THEN debe ELSE 0 END) as DPP_debe
+        """
+    else:
+        dpp_query = """
+            SUM(CASE WHEN plan_cuentas LIKE '6.1.1.03%' 
+                     AND plan_cuentas NOT LIKE '6.1.1.03.013%' 
+                     AND plan_cuentas NOT LIKE '6.1.1.03.021%' 
+                     AND plan_cuentas NOT LIKE '6.1.1.03.022%' 
+                THEN haber ELSE 0 END) as DPP_haber,
+            SUM(CASE WHEN plan_cuentas LIKE '6.1.1.03%' 
+                     AND plan_cuentas NOT LIKE '6.1.1.03.013%' 
+                     AND plan_cuentas NOT LIKE '6.1.1.03.021%' 
+                     AND plan_cuentas NOT LIKE '6.1.1.03.022%' 
+                THEN debe ELSE 0 END) as DPP_debe
+        """
+
+    query = f"""
+        SELECT 
+            COUNT(*) as total_registros_rango,
+            SUM(CASE WHEN plan_cuentas LIKE '4.1.1.01.001%' THEN haber ELSE 0 END) as ex_haber,
+            SUM(CASE WHEN plan_cuentas LIKE '4.1.1.01.001%' THEN debe ELSE 0 END) as ex_debe,
+            SUM(CASE WHEN plan_cuentas LIKE '4.1.1.01.002%' THEN haber ELSE 0 END) as gr_haber,
+            SUM(CASE WHEN plan_cuentas LIKE '4.1.1.01.002%' THEN debe ELSE 0 END) as gr_debe,
+            SUM(CASE WHEN plan_cuentas LIKE '5.1.1.01.001%' THEN debe ELSE 0 END) as compras_exentas,
+            SUM(CASE WHEN plan_cuentas LIKE '5.1.1.01.002%' THEN debe ELSE 0 END) as compras_16,
+            {dpp_query},
+            SUM(CASE WHEN plan_cuentas LIKE '6.1.1.03.013%' THEN haber ELSE 0 END) as comisiones_bancarias_haber,
+            SUM(CASE WHEN plan_cuentas LIKE '6.1.1.03.013%' THEN debe ELSE 0 END) as comisiones_bancarias_debe,
+            SUM(CASE WHEN plan_cuentas LIKE '6.1.1.03.021%' THEN haber ELSE 0 END) as refrigerios_haber,
+            SUM(CASE WHEN plan_cuentas LIKE '6.1.1.03.021%' THEN debe ELSE 0 END) as refrigerios_debe,
+            SUM(CASE WHEN plan_cuentas LIKE '6.1.1.03.022%' THEN haber ELSE 0 END) as representacion_haber,
+            SUM(CASE WHEN plan_cuentas LIKE '6.1.1.03.022%' THEN debe ELSE 0 END) as representacion_debe,
+            SUM(CASE WHEN plan_cuentas LIKE '7.1.1.01%' THEN haber ELSE 0 END) as otros_ingresos_haber,
+            SUM(CASE WHEN plan_cuentas LIKE '7.1.1.07%' THEN debe ELSE 0 END) as otros_ingresos_debe,
+            SUM(CASE WHEN plan_cuentas LIKE '8.1.1.01%' THEN haber ELSE 0 END) as otros_egresos_haber,
+            SUM(CASE WHEN plan_cuentas LIKE '8.1.1.01%' THEN debe ELSE 0 END) as otros_egresos_debe,
+            SUM(CASE WHEN plan_cuentas LIKE '2.1.2.01.001%' THEN haber ELSE 0 END) as iva_debito_fiscal,
+            SUM(CASE WHEN plan_cuentas LIKE '2.1.2.01.002%' THEN haber ELSE 0 END) as iva_por_pagar,
+            SUM(CASE WHEN plan_cuentas LIKE '2.1.2.01.003%' THEN haber ELSE 0 END) as retencion_iva_compras,
+            SUM(CASE WHEN plan_cuentas LIKE '2.1.2.01.004%' THEN haber ELSE 0 END) as pagos_anticipados_islr,
+            SUM(CASE WHEN plan_cuentas LIKE '2.1.2.01.005%' THEN haber ELSE 0 END) as retencion_islr_hab,
+            SUM(CASE WHEN plan_cuentas LIKE '2.1.2.01.005%' THEN debe ELSE 0 END) as retencion_islr_deb,
+            SUM(CASE WHEN plan_cuentas LIKE '2.1.2.01.006%' THEN haber ELSE 0 END) as islr_pagar
+        FROM `{db}`.asientos_contables
+        WHERE fecha >= %s AND fecha <= %s
+    """
+
+    try:
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute(query, (f_inicio_str, fecha_str))
+        res = cursor.fetchone()
+        cursor.close()
+        conn.close()
+        
+        if res and res.get('total_registros_rango', 0) > 0:
+            DPP = abs(float(res['DPP_haber'] or 0) - float(res['DPP_debe'] or 0))
+            comisiones_bancarias = abs(float(res['comisiones_bancarias_haber'] or 0) - float(res['comisiones_bancarias_debe'] or 0))
+            refrigerios_neto = abs(float(res['refrigerios_haber'] or 0) - float(res['refrigerios_debe'] or 0))
+            representacion_neto = abs(float(res['representacion_haber'] or 0) - float(res['representacion_debe'] or 0))
+            gastos_personales = refrigerios_neto + representacion_neto
+            otros_ingresos_neto = float(res['otros_ingresos_haber'] or 0) - float(res['otros_ingresos_debe'] or 0)
+            otros_egresos_neto = float(res['otros_egresos_haber'] or 0) - float(res['otros_egresos_debe'] or 0)
+            retencion_islr_proveedores = float(res['retencion_islr_hab'] or 0) - float(res['retencion_islr_deb'] or 0)
+            
+            return {
+                "ingresos_exentas": float(res['ex_haber'] if res['ex_haber'] is not None else 0) - float(res['ex_debe'] if res['ex_debe'] is not None else 0),
+                "ingresos_gravados": float(res['gr_haber'] or 0) - float(res['gr_debe'] or 0),
+                "compras_exentas": float(res['compras_exentas'] or 0),
+                "compras_16": float(res['compras_16'] or 0),
+                "DPP1": DPP, 
+                "comisiones_bancarias1": comisiones_bancarias, 
+                "gastos_personales1": gastos_personales,
+                "otros_ingresos": otros_ingresos_neto, 
+                "otros_egresos": otros_egresos_neto,
+                "iva_debito_fiscal": float(res['iva_debito_fiscal'] or 0),
+                "iva_por_pagar": float(res['iva_por_pagar'] or 0),
+                "retencion_iva_compras": float(res['retencion_iva_compras'] or 0),
+                "pagos_anticipados_islr": float(res['pagos_anticipados_islr'] or 0),
+                "retencion_islr_proveedores": retencion_islr_proveedores,
+                "islr_pagar": float(res['islr_pagar'] or 0)
+            }
+            
+    except Exception as e:
+        print(f"Error en SQL: {e}")
+    
+    return default_res
+
+
+def obtener_detalle_cashea(db, f_inicio, f_fin):
+    conn = conectar_db(db)
+    
+    if not conn:
+        return pd.DataFrame(columns=['fecha', 'descripcion', 'referencia', 'debe', 'haber', 'saldo'])
+    
+    # A. Calcular saldo inicial (antes de f_inicio) usando LIKE por seguridad
+    query_saldo_inicial = f"""
+        SELECT SUM(haber - debe) as saldo_ant
+        FROM `{db}`.asientos_contables
+        WHERE plan_cuentas LIKE '2.1.3.01.001%' AND fecha < %s
+    """
+    df_ini = pd.read_sql(query_saldo_inicial, conn, params=(f_inicio,))
+    saldo_inicial = float(df_ini['saldo_ant'].iloc[0] or 0.0)
+    
+    # B. Obtener movimientos del periodo usando LIKE por seguridad
+    query = f"""
+        SELECT fecha, descripcion, referencia, debe, haber
+        FROM `{db}`.asientos_contables
+        WHERE plan_cuentas LIKE '2.1.3.01.001%' 
+        AND fecha BETWEEN %s AND %s
+        ORDER BY fecha ASC, id ASC
+    """
+    df = pd.read_sql(query, conn, params=(f_inicio, f_fin))
+    conn.close()
+    
+    if not df.empty:
+        # Asegurar que debe y haber sean numéricos para evitar errores en cumsum
+        df['debe'] = pd.to_numeric(df['debe'], errors='coerce').fillna(0)
+        df['haber'] = pd.to_numeric(df['haber'], errors='coerce').fillna(0)
+        
+        # C. Cálculo del saldo: saldo_inicial + movimientos acumulados
+        df['saldo'] = saldo_inicial + (df['haber'] - df['debe']).cumsum()
+    else:
+        df = pd.DataFrame(columns=['fecha', 'descripcion', 'referencia', 'debe', 'haber', 'saldo'])
+        
+    return df
+
+
+
+@log_ejecucion
+def obtener_datos_barras(db, fecha_inicio, fecha_fin):
+    # Asegúrate de conectar a la base de datos correcta
+    conn = conectar_db(db)
+    
+    query = f"""
+        SELECT 
+            CASE 
+                WHEN plan_cuentas LIKE '4%%' THEN 'Ingresos' 
+                WHEN plan_cuentas LIKE '5%%' THEN 'Egresos' 
+                ELSE 'Otros' 
+            END as Categoría, 
+            SUM(debe + haber) as Monto 
+        FROM `{db}`.asientos_contables 
+        WHERE fecha BETWEEN %s AND %s
+        GROUP BY 1
+    """
+    
+    df = pd.read_sql(query, conn, params=(fecha_inicio, fecha_fin))
+    conn.close()
+    return df
+
+@log_ejecucion
+def obtener_datos_pie(db, f_fin):
+    conn = conectar_db(db)
+    # Esta mantiene el filtro por fecha acumulada (<= f_fin)
+    query = f"""
+        SELECT 
+            descripcion as nombre,
+            SUM(debe) as "Saldo Final"
+        FROM `{db}`.asientos_contables 
+        WHERE plan_cuentas LIKE '6%%'
+        AND CAST(fecha AS DATE) <= %s
+        GROUP BY descripcion
+        ORDER BY 2 DESC
+        LIMIT 10
+    """
+    df = pd.read_sql(query, conn, params=(f_fin,))
+    conn.close()
+    return df
+
+# --- COLOCA ESTA FUNCIÓN ANTES DE TU BLOQUE DE LA FILA 5 ---
+@st.cache_data(ttl=60) # ttl=60 significa que se refresca al menos cada minuto
+def obtener_datos_flujo(db, f_i, f_f):
+    conn = conectar_db(db)
+    cursor = conn.cursor(dictionary=True)
+    
+    # Aquí pegamos tu lógica de cálculo acumulado
+    query_inicial = f"""
+        SELECT 
+            (SELECT COALESCE(SUM(debe), 0) FROM `{db}`.saldos_iniciales WHERE plan_cuentas LIKE '1.1.1.02%%') +
+            (SELECT COALESCE(SUM(debe), 0) FROM `{db}`.asientos_contables WHERE plan_cuentas LIKE '1.1.1.02%%' AND fecha < %s) as debe_ini,
+            (SELECT COALESCE(SUM(haber), 0) FROM `{db}`.saldos_iniciales WHERE plan_cuentas LIKE '1.1.1.02%%') +
+            (SELECT COALESCE(SUM(haber), 0) FROM `{db}`.asientos_contables WHERE plan_cuentas LIKE '1.1.1.02%%' AND fecha < %s) as haber_ini
+    """
+    cursor.execute(query_inicial, (f_i, f_i))
+    res_ini = cursor.fetchone()
+    
+    query_mes = f"""
+        SELECT SUM(debe) as ent, SUM(haber) as sal 
+        FROM `{db}`.asientos_contables
+        WHERE plan_cuentas LIKE '1.1.1.02%%' AND fecha BETWEEN %s AND %s
+    """
+    cursor.execute(query_mes, (f_i, f_f))
+    res_mes = cursor.fetchone()
+    conn.close()
+    
+    return res_ini, res_mes
+
+
+
+def obtener_detalle_movimientos_banco(db, f_i, f_f):
+    """
+    Función para obtener el detalle de movimientos de la cuenta 1.1.1.02
+    """
+    conn = conectar_db(db)
+    query = f"""
+        SELECT 
+            fecha, 
+            descripcion, 
+            debe, 
+            haber
+        FROM `{db}`.asientos_contables
+        WHERE plan_cuentas LIKE '1.1.1.02%'
+        AND fecha BETWEEN %s AND %s
+        ORDER BY fecha ASC
+    """
+    df = pd.read_sql(query, conn, params=(f_i, f_f))
+    conn.close()
+    return df
+
+
 @st.cache_data(ttl=300)
 def obtener_kpis_financieros(_conn, f_i, f_f, sucursal, db): # <--- ¡Aquí debe estar la 'db' adentro!
     # 2. Inicialización de seguridad (Borra el comentario # y la línea si quieres, 
@@ -239,12 +877,6 @@ def obtener_kpis_financieros(_conn, f_i, f_f, sucursal, db): # <--- ¡Aquí debe
     porcentaje_compras, exento = 0.0, 0.0
 
     # 3. Obtener Balance Profesional (Roll-Up)
-    df_bal = generar_balance_profesional(conn, f_i, f_f, sucursal)
-    
-    # Inicializamos valores por defecto
-    activo, pasivo, ingresos, egresos = 0.0, 0.0, 0.0, 0.0
-    
-    # 1. Traer datos UNA SOLA VEZ
     df_bal = generar_balance_profesional(conn, f_i, f_f, sucursal)
 
     # 3. PROCESAMIENTO DEL DATAFRAME (Aquí calculamos el Activo Real)
@@ -280,21 +912,87 @@ def obtener_kpis_financieros(_conn, f_i, f_f, sucursal, db): # <--- ¡Aquí debe
     # 4. Bloque de Consultas Directas
     try:
         with conn.cursor(dictionary=True) as cursor:
-            # A. SALDO REAL FINAL (Bancos)
-            query_saldo_total = f"""
-                SELECT SUM(debe - haber) as saldo_final
+            # --- NUEVO: INDICADORES FISCALES ---
+            
+            cursor.execute(f"SELECT SUM(haber - debe) as total FROM `{db}`.asientos_contables WHERE plan_cuentas LIKE '4.1.1.01.001%%' AND fecha BETWEEN %s AND %s", (f_i, f_f))
+            ingresos_exentos = float(cursor.fetchone()['total'] or 0.0)
+
+            cursor.execute(f"SELECT SUM(haber - debe) as total FROM `{db}`.asientos_contables WHERE plan_cuentas LIKE '4.1.1.01.002%%' AND fecha BETWEEN %s AND %s", (f_i, f_f))
+            ingresos_gravados = float(cursor.fetchone()['total'] or 0.0)
+
+            cursor.execute(f"SELECT SUM(haber - debe) as total FROM `{db}`.asientos_contables WHERE plan_cuentas LIKE '5.1.1.01.001%%' AND fecha BETWEEN %s AND %s", (f_i, f_f))
+            compras_exentas = abs(float(cursor.fetchone()['total'] or 0.0))
+
+            cursor.execute(f"SELECT SUM(haber - debe) as total FROM `{db}`.asientos_contables WHERE plan_cuentas LIKE '5.1.1.01.002%%' AND fecha BETWEEN %s AND %s", (f_i, f_f))
+            compras_16 = abs(float(cursor.fetchone()['total'] or 0.0))
+
+            cursor.execute(f"SELECT SUM(haber - debe) as total FROM `{db}`.asientos_contables WHERE plan_cuentas LIKE '2.1.2.01.002%%' AND fecha BETWEEN %s AND %s", (f_i, f_f))
+            iva_por_pagar = abs(float(cursor.fetchone()['total'] or 0.0))
+
+            # 2. IVA Débito Fiscal (2.1.2.01.001)
+            cursor.execute(f"SELECT SUM(haber - debe) as total FROM `{db}`.asientos_contables WHERE plan_cuentas LIKE '2.1.2.01.001%%' AND fecha BETWEEN %s AND %s", (f_i, f_f))
+            iva_debito = abs(float(cursor.fetchone()['total'] or 0.0))
+
+            # 3. Retenciones Proveedores (2.1.2.01.003)
+            cursor.execute(f"SELECT SUM(haber - debe) as total FROM `{db}`.asientos_contables WHERE plan_cuentas LIKE '2.1.2.01.003%%' AND fecha BETWEEN %s AND %s", (f_i, f_f))
+            ret_prov = abs(float(cursor.fetchone()['total'] or 0.0))
+
+            # 4. Retenciones ISLR (2.1.2.01.007)
+            cursor.execute(f"SELECT SUM(haber - debe) as total FROM `{db}`.asientos_contables WHERE plan_cuentas LIKE '2.1.2.01.007%%' AND fecha BETWEEN %s AND %s", (f_i, f_f))
+            ret_islr = abs(float(cursor.fetchone()['total'] or 0.0))
+
+
+            # --- NUEVO: Cálculo de Utilidad (Ingresos - Gastos) ---
+            query_utilidad = f"""
+                SELECT 
+                    SUM(CASE WHEN plan_cuentas LIKE '4%%' THEN haber - debe ELSE 0 END) as ingresos,
+                    SUM(CASE WHEN plan_cuentas LIKE '6%%' OR plan_cuentas LIKE '7%%' THEN debe - haber ELSE 0 END) as gastos
+                FROM `{db}`.asientos_contables 
+                WHERE fecha BETWEEN %s AND %s
+            """
+            cursor.execute(query_utilidad, (f_i, f_f))
+            res_utilidad = cursor.fetchone()
+            ingresos = float(res_utilidad['ingresos'] or 0.0)
+            egresos = float(res_utilidad['gastos'] or 0.0)
+            utilidad = ingresos - egresos # <-- AQUÍ se calcula el valor real
+
+            # Asegúrate de que esta consulta tome el saldo inicial Y los movimientos
+           # A. Saldo Inicial hasta la fecha de inicio (f_i)
+            query_saldo_inicial = f"""
+                SELECT 
+                    (SUM(debe) - SUM(haber)) as saldo
                 FROM (
-                    SELECT debe, haber FROM `{db}`.saldos_iniciales 
-                    WHERE plan_cuentas LIKE '1.1.1.02%%'
+                    SELECT debe, haber FROM `{db}`.saldos_iniciales WHERE plan_cuentas LIKE '1.1.1.02%%'
                     UNION ALL
-                    SELECT debe, haber FROM `{db}`.asientos_contables 
-                    WHERE plan_cuentas LIKE '1.1.1.02%%' AND fecha <= %s
+                    SELECT debe, haber FROM `{db}`.asientos_contables WHERE plan_cuentas LIKE '1.1.1.02%%' AND fecha < %s
                 ) as t
             """
-            cursor.execute(query_saldo_total, (f_f,))
-            res_acumulado = cursor.fetchone()
-            saldo_final_banco = float(res_acumulado['saldo_final'] or 0)
 
+            # B. Movimientos del periodo (f_i al f_f)
+            query_movimientos = f"""
+                SELECT 
+                    SUM(debe) as entradas, 
+                    SUM(haber) as salidas 
+                FROM `{db}`.asientos_contables 
+                WHERE plan_cuentas LIKE '1.1.1.02%%' 
+                AND fecha BETWEEN %s AND %s
+            """
+            
+            cursor = conn.cursor(dictionary=True)
+
+            # 1. Obtener Saldo Inicial
+            cursor.execute(query_saldo_inicial, (f_i,))
+            res_inicial = cursor.fetchone()
+            saldo_inicial = float(res_inicial['saldo'] or 0.0)
+
+            # 2. Obtener Movimientos
+            cursor.execute(query_movimientos, (f_i, f_f))
+            res_mov = cursor.fetchone()
+            entradas = float(res_mov['entradas'] or 0.0)
+            salidas = float(res_mov['salidas'] or 0.0)
+
+            # 3. Calcular Total
+            saldo_final_banco = saldo_inicial + entradas - salidas
             # B. MOVIMIENTOS DEL MES
             cursor.execute(f"SELECT SUM(debe) as ent, SUM(haber) as sal FROM `{db}`.asientos_contables WHERE plan_cuentas LIKE '1.1.1.02%%' AND fecha BETWEEN %s AND %s", (f_i, f_f))
             res_mes = cursor.fetchone()
@@ -306,6 +1004,7 @@ def obtener_kpis_financieros(_conn, f_i, f_f, sucursal, db): # <--- ¡Aquí debe
             cursor.execute(f"SELECT SUM(debe) as total_exento FROM `{db}`.asientos_contables WHERE (plan_cuentas LIKE '5.%%' OR plan_cuentas LIKE '6.%%') AND plan_cuentas NOT IN (SELECT codigo FROM `{db}`.plan_cuentas WHERE nombre LIKE '%%IVA%%') AND fecha BETWEEN %s AND %s", (f_i, f_f))
             res_exento = cursor.fetchone()
             exento = float(res_exento['total_exento'] or 0.0)
+            
 
             # D. TOP PROVEEDOR
             cursor.execute(f"SELECT p.nombre, SUM(a.haber - a.debe) as total FROM `{db}`.asientos_contables a JOIN `{db}`.plan_cuentas p ON a.plan_cuentas = p.codigo WHERE a.plan_cuentas LIKE '2.1.1.01%%' AND a.fecha BETWEEN %s AND %s GROUP BY p.nombre ORDER BY total DESC LIMIT 1", (f_i, f_f))
@@ -315,6 +1014,7 @@ def obtener_kpis_financieros(_conn, f_i, f_f, sucursal, db): # <--- ¡Aquí debe
                 ref = egresos if egresos > 0 else salidas
                 porcentaje_compras = (float(top['total']) / ref * 100) if ref > 0 else 0
 
+
     except Exception as e:
         st.error(f"Error en consultas de KPIs: {e}")
 
@@ -322,20 +1022,29 @@ def obtener_kpis_financieros(_conn, f_i, f_f, sucursal, db): # <--- ¡Aquí debe
     return {
         "activo": activo,
         "pasivo": pasivo, # Ahora es el neto real
-        "patrimonio": activo - pasivo,
         "utilidad": utilidad,
         "liquidez": activo / pasivo if pasivo != 0 else 0,
         "prueba_acida": (activo * 0.8) / pasivo if pasivo != 0 else 0,
         "capital_trabajo": activo - pasivo,
         "margen_utilidad": (utilidad / ingresos * 100) if ingresos > 0 else 0,
-        "entradas_efectivo": entradas,
-        "salidas_efectivo": salidas,
         "flujo_neto": entradas - salidas,
-        "saldo_real_final": saldo_final_banco,
         "top_proveedor": proveedor_nombre,
         "top_porcentaje": round(porcentaje_compras, 2),
         "alertas_retencion": 0,
-        "exento": exento
+        "exento": exento,
+        # Añade estos nuevos:
+        "ingresos_exentos": ingresos_exentos,
+        "ingresos_gravados": ingresos_gravados,
+        "compras_exentas": compras_exentas, 
+        "compras_16": compras_16,
+        "iva_por_pagar": iva_por_pagar,
+        "iva_debito_fiscal": iva_debito,
+        "retencion_proveedores": ret_prov,
+        "retencion_islr": ret_islr,
+        "entradas_efectivo": entradas,    # Asegúrate que sea 'entradas_efectivo'
+        "salidas_efectivo": salidas,      # Asegúrate que sea 'salidas_efectivo'
+        "saldo_real_final": saldo_final_banco # Asegúrate que sea 'saldo_real_final'
+
     }
 
 
@@ -500,10 +1209,12 @@ def registrar_log(db_conn, usuario_id, accion, detalles, cliente_id):
 import bcrypt
 
 def verificar_usuario(conn, user, password):
-    # 0. PROTECCIÓN: Si no hay conexión, salimos de inmediato sin error
-    if conn is None:
-        st.warning("⚠️ No hay conexión a la base de datos. Verifica tus credenciales de red.")
-        return None
+    # 0. Blindaje: Asegurar que hay conexión válida
+    if conn is None or not conn.is_connected():
+        try:
+            conn = conectar_db("control_central")
+        except:
+            return None # Si no conecta, no puede verificar
 
     # 1. Obtenemos el usuario de la base de datos
     cursor = conn.cursor(dictionary=True)
@@ -512,34 +1223,33 @@ def verificar_usuario(conn, user, password):
     
     if not user_data:
         cursor.close()
-        return None
+        return None # Usuario no existe
     
-    # 2. Verificamos la clave
-    clave_en_bd = user_data.get('clave_hash')
+    # 2. Verificamos el tipo de clave (Hash nuevo vs Texto Plano antiguo)
+    clave_en_bd = user_data['clave_hash']
     login_exitoso = False
     
+    # --- LÓGICA HÍBRIDA ---
+    # Los hashes de bcrypt generados con esta librería empiezan por '$2b$'
     if clave_en_bd and clave_en_bd.startswith('$2b$'):
+        # Es un hash bcrypt, verificamos normalmente
         if bcrypt.checkpw(password.encode('utf-8'), clave_en_bd.encode('utf-8')):
             login_exitoso = True
     else:
+        # Es texto plano (o formato antiguo), comparamos directamente
         if password == clave_en_bd:
             login_exitoso = True
-            # Migración silenciosa
+            
+            # MIGRACIÓN AUTOMÁTICA: Convertimos a hash inmediatamente
             salt = bcrypt.gensalt()
             nuevo_hash = bcrypt.hashpw(password.encode('utf-8'), salt).decode('utf-8')
             
-            # Re-abrir cursor solo para el UPDATE
-            upd_cursor = conn.cursor()
-            upd_cursor.execute("UPDATE control_central.usuarios SET clave_hash = %s WHERE id = %s", 
-                               (nuevo_hash, user_data['id']))
+            # Actualizamos la BD con el nuevo hash
+            cursor.execute("UPDATE control_central.usuarios SET clave_hash = %s WHERE id = %s", 
+                           (nuevo_hash, user_data['id']))
             conn.commit()
-            upd_cursor.close()
     
-    # ¡ESTO ES LO QUE FALTABA!
-    if login_exitoso:
-        return user_data # Devuelve los datos del usuario si entró
-    else:
-        return None
+    cursor.close()
     
     # 3. Retorno del resultado
     if login_exitoso:
@@ -650,20 +1360,12 @@ def login_screen():
             password = st.text_input("Contraseña", type="password", placeholder="••••••••", key="pass_input")
             
             if st.button("Ingresar al Portal"):
-                res = None
+                # Llamamos a tu función de base de datos
+                res = verificar_usuario(conn, user, password)
                 
-                # --- MODO DESARROLLO / DEMO ---
-                # Si no hay conexión (conn es None), saltamos la BD y entramos directo
-                if conn is None:
-                    st.info("⚠️ Modo sin conexión: Entrando como Administrador Demo")
-                    res = {'rol': 'admin', 'cliente_id': 0} # Simulamos un usuario
-                else:
-                    # Llamada normal a tu base de datos
-                    res = verificar_usuario(conn, user, password)
-                
-                # --- PROCESAMIENTO DEL LOGIN (Igual para ambos casos) ---
                 if res:
-                    # play_success_sound() # Si esta función requiere conexión, coméntala hoy
+                    play_success_sound()
+                    # Mensaje Pro
                     st.toast(f"¡Acceso Concedido!", icon="🔒")
                     st.success(f"🚀 Has hecho login como **{res['rol'].upper()}**")
                     
@@ -671,12 +1373,12 @@ def login_screen():
                     st.session_state['logueado'] = True
                     st.session_state['usuario'] = user
                     st.session_state['rol'] = res['rol']
-                    st.session_state['cliente_id'] = res.get('cliente_id', 0)
+                    st.session_state['cliente_id'] = res['cliente_id']
                     
-                    time.sleep(1) 
+                    time.sleep(1.5) # Pausa para que se vea el mensaje y suene la música
                     st.rerun()
                 else:
-                    st.error("❌ Credenciales incorrectas o sin conexión a BD")
+                    st.error("❌ Credenciales incorrectas")
             
             st.markdown('</div>', unsafe_allow_html=True)
 
@@ -707,40 +1409,29 @@ def mostrar_bitacora(conn):
 
 def registrar_log_automatico(conn, accion, detalles):
     """
-    Registra automáticamente las interacciones del usuario en la tabla logs_auditoria.
-    Versión optimizada con validación de conexión y manejo de excepciones.
+    Registra automáticamente las interacciones del usuario en la tabla logs_auditoria
+    ubicada en la base de datos central de control.
     """
     cursor = None
     try:
-        # Validación robusta de la conexión
         if conn is not None and hasattr(conn, 'is_connected') and conn.is_connected():
-            
-            # Obtención segura de datos de sesión
             usuario = st.session_state.get('usuario', 'Desconocido')
-            cliente_id = st.session_state.get('cliente_id', None)
+            cliente_id = str(st.session_state.get('cliente_id', ''))
             
-            # Usamos un cursor con diccionario opcional si fuera necesario, 
-            # pero para un INSERT el cursor estándar es más rápido.
             cursor = conn.cursor()
-            
             query = """
-                INSERT INTO logs_auditoria (usuario_id, accion, detalles, ip_address, fecha) 
+                INSERT INTO control_central.logs_auditoria (usuario_id, accion, detalles, ip_address, fecha) 
                 VALUES (%s, %s, %s, %s, NOW())
             """
-            
             cursor.execute(query, (usuario, accion, detalles, cliente_id))
             conn.commit()
-            
         else:
-            # Si no hay conexión, registramos en consola (sin romper el flujo)
-            print("⚠️ Registro de log omitido: Conexión no disponible.")
+            pass
             
     except Exception as e:
-        # Captura cualquier error de SQL o conexión
         print(f"❌ Error crítico en registrar_log_automatico: {e}")
         
     finally:
-        # Cierre garantizado del cursor
         if cursor:
             cursor.close()
 
@@ -914,17 +1605,29 @@ def cargar_plan_cuentas_db(df, nombre_db): # <--- Agregamos el parámetro
 
 @log_ejecucion
 def limpiar_monto_contable(valor):
-    # Convertimos a string y limpiamos espacios
+    if valor is None:
+        return 0.0
+    
+    # Si ya es un número (int o float), devuélvelo directamente
+    if isinstance(valor, (int, float)):
+        return float(valor)
+        
     v = str(valor).strip()
     
     if v in ['-', '', 'nan', 'None', '0', '0.0']: 
         return 0.0
     
     try:
-        # PASO A PASO PARA NO MULTIPLICAR POR 10:
-        # Ejemplo: "147.659,00"
-        v = v.replace('.', '')    # Queda "147659,00"
-        v = v.replace(',', '.')    # Queda "147659.00"
+        # Si tiene tanto punto como coma (ej: "212.802.215,00")
+        if '.' in v and ',' in v:
+            v = v.replace('.', '')    # Quita los puntos de miles
+            v = v.replace(',', '.')   # Cambia la coma decimal por punto
+        elif ',' in v and '.' not in v:
+            # Si solo tiene coma (ej: "4820243,00")
+            v = v.replace(',', '.')
+        # Si solo tiene punto, asumimos que es el separador decimal estándar de Python (ej: "4820243.00")
+        # y no hacemos replace de puntos para no alterar los miles por error.
+        
         return float(v)
     except:
         return 0.0
@@ -953,8 +1656,8 @@ def cargar_saldos_iniciales_db(df, nombre_db):
                 str(row.get('plan_de_cuentas', '')),
                 str(row.get('cuenta_contable', '')),
                 str(row.get('Ref', '-')),
-                limpiar_monto(row.get('Debe', 0)),
-                limpiar_monto(row.get('Haber', 0))
+                limpiar_monto_contable(row.get('Debe', 0)),
+                limpiar_monto_contable(row.get('Haber', 0))
             )
             lista_datos.append(datos)
             
@@ -1258,6 +1961,8 @@ def ejecutar_mayor_analitico(db_nombre, cuenta, fecha_desde, fecha_hasta):
     finally:
         if conn and conn.is_connected():
             conn.close()
+
+
 @log_ejecucion
 def generar_balance_comprobacion(conn, f_i, f_f, sucursal):
     registrar_log_automatico(conn, "BALANCE_COMPROBACION", f"Balance para {st.session_state.cliente_id}")
@@ -1312,8 +2017,6 @@ def generar_balance_comprobacion(conn, f_i, f_f, sucursal):
         st.error(f"❌ Error crítico: {e}")
         return pd.DataFrame()
 
-
-
 @log_ejecucion
 def estilo_balance(row):
     """Aplica colores y negritas según el nivel de la cuenta"""
@@ -1331,7 +2034,6 @@ def estilo_balance(row):
     
     # Nivel 5: Cuentas de detalle (Caja, Bancos) - Normal
     return [''] * len(row)
-
 
 @log_ejecucion
 def formato_contable(valor):
@@ -1442,9 +2144,14 @@ def procesar_archivo_y_cargar():
         print(f"❌ Error al abrir el archivo: {e}")
 
 
+import google.generativeai as genai
+import json
+import streamlit as st
+
+
 
 # Configura tu clave
-genai.configure(api_key="ELIMINADO_POR_SEGURIDAD")
+genai.configure(api_key="AQ.Ab8RN6KiWY-x727nF8PFCerZu-EDtlkEbT5CJDBzFp188mx2Tw")
 
 @log_ejecucion
 def obtener_lista_proveedores():
@@ -2830,7 +3537,6 @@ def generar_balance_profesional(conn, f_i, f_f, sucursal):
         total_debe = get_columna('1', 'Debe') -get_columna('2', 'Debe') -get_columna('3', 'Debe')-get_columna('4', 'Debe')-get_columna('5', 'Debe')-get_columna('6', 'Debe')-get_columna('7', 'Debe')-get_columna('8', 'Debe')
         total_haber = get_columna('1', 'Haber') - get_columna('2', 'Haber') - get_columna('4', 'Haber')- get_columna('5', 'Haber')- get_columna('6', 'Haber')- get_columna('7', 'Haber')- get_columna('8', 'Haber')
         saldo_final_resumen = get_columna('4', 'Saldo Final')+get_columna('5', 'Saldo Final')+get_columna('6', 'Saldo Final')+get_columna('7', 'Saldo Final')+get_columna('8', 'Saldo Final')
-
         # 3. Creamos la fila resumen
         fila_total = pd.DataFrame([{
             'codigo': 'Σ',
@@ -2854,15 +3560,13 @@ def generar_balance_profesional(conn, f_i, f_f, sucursal):
         if cursor: cursor.close()
 
 
-
-
 # --- CONFIGURACIÓN DE FILTROS (DEBE IR PRIMERO) ---
 # Definir sucursal primero para que exista cuando los KPIs la llamen
 sucursal = st.sidebar.multiselect("Sucursal", ["Sede Principal"], default=["Sede Principal"])
 
 # Definir fechas (Asegúrate que anio_seleccionado ya exista)
-f_inicio_global = datetime(anio_seleccionado, 1, 1)
-f_fin_global = datetime(anio_seleccionado, 12, 31)
+f_inicio_global = datetime.datetime(anio_seleccionado, 1, 1)
+f_fin_global = datetime.datetime(anio_seleccionado, 12, 31)
 
 # --- AHORA SÍ, LA EJECUCIÓN DE KPIs ---
 db_actual = st.session_state.get('DB_ACTUAL')
@@ -4415,9 +5119,9 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
 
             col1, col2 = st.columns(2)
             with col1:
-                fecha_inicio = st.date_input("Fecha Inicio", datetime.now().replace(day=1))
+                fecha_inicio = st.date_input("Fecha Inicio", datetime.datetime.now().replace(day=1))
             with col2:
-                fecha_fin = st.date_input("Fecha Fin", datetime.now())
+                fecha_fin = st.date_input("Fecha Fin", datetime.datetime.now())
 
             if st.button("🔍 Filtrar y Generar TXT"):
                 # Aseguramos obtener la BD actual de la sesión
@@ -5225,42 +5929,39 @@ def mostrar_interfaz_busqueda_comprobante():
 
 
 @log_ejecucion
-def consultar_bcv_directo_sin_bd():
-    """Plan B absoluto: Si no hay BD, consulta la web directo y no rompe la app"""
-    cursor = None
-    
+def consultar_bcv_directo_sin_bd(conn=None): # <--- Ponle =None
     try:
-        # Registro de actividad
-        registrar_log_automatico(conn, "CONSULTA_TASA_BCV", f"Usuario {st.session_state.usuario} consultó tasa BCV directa {st.session_state.cliente_id}")
+        # Registro de actividad solo si conn es válido
+        if conn and conn.is_connected():
+            registrar_log_automatico(conn, "CONSULTA_TASA_BCV", f"Usuario {st.session_state.get('usuario', 'Desconocido')} consultando BCV")
         
         url = "https://www.bcv.org.ve/"
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-        }
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
         
-        response = requests.get(url, headers=headers, verify=False, timeout=10)
+        response = requests.get(url, headers=headers, verify=False, timeout=8) # Timeout un poco más corto
+        
         if response.status_code == 200:
             soup = BeautifulSoup(response.content, 'html.parser')
             dolar_container = soup.find('div', id='dolar')
             if dolar_container:
                 tasa_texto = dolar_container.find('strong').text.strip()
-                tasa_float = float(tasa_texto.replace(',', '.'))
-                return tasa_float, "Web BCV (Sin BD)"
+                return float(tasa_texto.replace(',', '.')), "Web BCV (Sin BD)"
                 
-    except Exception:
-        pass
+    except Exception as e:
+        # En lugar de pass, guarda el error en el log para saber por qué falla
+        print(f"Error técnico consultando BCV: {e}")
         
     finally:
-        # AQUÍ ESTÁ EL SECRETO:
-        if cursor:
-            cursor.close()
-            
-        # NO cierres conn. 
-        # En su lugar, haz un 'ping' para decirle a MySQL que sigues ahí:
+        # Mantenemos el ping pero aseguramos la conexión
         if conn and conn.is_connected():
-            conn.ping(reconnect=True)
+            try:
+                conn.ping(reconnect=True, attempts=2, delay=1)
+            except:
+                pass
             
     return 1.0000, "Por defecto (Error Total)"
+
+    
 @log_ejecucion
 def obtener_tasa_bcv_hoy(conn):
     """
@@ -5983,57 +6684,27 @@ def reset_empresa():
 
 if 'DB_ACTUAL' in st.session_state and st.session_state['DB_ACTUAL']:
     db_nombre = st.session_state['DB_ACTUAL']
-    EMPRESA = st.session_state.get('CLIENTE_NOMBRE', 'Empresa')
-    
     conn = conectar_db(db_nombre)
     
     if conn:
         try:
-            # 1. Limpieza de variables: Si sucursal es None, usamos un string vacío o un valor que SQL entienda
-            f_inicio = st.session_state.get('f_inicio_global', '2026-01-01')
-            f_fin = st.session_state.get('f_fin_global', '2026-12-31')
-            sucursal = st.session_state.get('sucursal_seleccionada')
-            # Si sucursal es None, forzamos a una cadena vacía o un valor neutro
-            sucursal_segura = sucursal if sucursal is not None else ""
+            # Definimos sucursal por si no existe
+            sucursal_actual = st.session_state.get('sucursal_seleccionada', None)
             
-            # 2. Inicialización
-            kpis, df_bar, df_pie, df_diario_local = None, None, None, None
+            # Ejecutamos las consultas
+            kpis = obtener_kpis_financieros(conn, f_inicio_global, f_fin_global, sucursal, st.session_state.get('DB_ACTUAL'))
+            df_bar, df_pie = obtener_datos_graficos(conn, f_inicio_global, f_fin_global, sucursal_actual)
+            df_diario_local = consultar_libro_diario_db(conn) 
             
-            # 3. Procesamiento seguro
-            # KPIs
-            try:
-                kpis = obtener_kpis_financieros(conn, f_inicio, f_fin, sucursal_segura)
-            except Exception as e:
-                st.error(f"⚠️ Error en KPIs: {e}")
-
-            # Gráficos
-            try:
-                df_bar, df_pie = obtener_datos_graficos(conn, f_inicio, f_fin, sucursal_segura)
-            except Exception as e:
-                st.error(f"⚠️ Error en Gráficos: {e}")
-
-            # Libro Diario
-            try:
-                df_diario_local = consultar_libro_diario_db(conn)
-            except Exception as e:
-                st.error(f"⚠️ Error en Libro Diario: {e}")
+            st.success(f"✅ Conectado a: {EMPRESA} ({db_nombre})")
             
-            # 4. Resultado final
-            if any(var is not None for var in [kpis, df_bar, df_diario_local]):
-                st.success(f"✅ Datos cargados correctamente para: {EMPRESA}")
-            else:
-                st.warning("⚠️ No se pudieron cargar los datos solicitados.")
-
         except Exception as e:
-            st.error(f"❌ Error crítico: {e}")
-            st.code(f"Detalle: {e}")
+            st.error(f"❌ Error al procesar los datos de {EMPRESA}: {e}")
         finally:
-            if conn and hasattr(conn, 'is_connected') and conn.is_connected():
+            if conn and conn.is_connected():
                 conn.close()
-    else:
-        st.error(f"❌ No se pudo establecer conexión con la base: {db_nombre}")
 else:
-    st.warning("⚠️ Por favor, seleccione una empresa en el panel lateral.")
+    st.warning("⚠️ Por favor, seleccione una empresa en el panel lateral para comenzar.")
 
 
 
@@ -6046,10 +6717,8 @@ with st.sidebar:
 
     st.markdown("---")
     if st.button("🚪 Cerrar Sesión"):
-        # Borramos todo lo de la sesión
-        for key in st.session_state.keys():
+        for key in list(st.session_state.keys()):
             del st.session_state[key]
-        # Recargamos la app para que vuelva a la pantalla de login
         st.rerun()
 
     # --- Navegación ---
@@ -6077,95 +6746,109 @@ with st.sidebar:
             c_id = st.session_state.get('cliente_id')
             query_sidebar += f" WHERE id = {c_id}"
 
-        df_sidebar = pd.DataFrame() 
         conn_sidebar = conectar_db()
-        # 3. Solo si la conexión es válida, intentamos hacer la consulta
-        if conn_sidebar is not None:
-            try:
-                query_sidebar = "SELECT id, nombre_empresa, db_nombre FROM control_central.clientes"
-                if st.session_state.get('rol') != 'admin':
-                    c_id = st.session_state.get('cliente_id')
-                    query_sidebar += f" WHERE id = {c_id}"
-                
-                # Ejecutamos la consulta
-                df_sidebar = pd.read_sql(query_sidebar, conn_sidebar)
-            except Exception as e:
-                st.error(f"Error al cargar clientes: {e}")
-            finally:
-                # Cerramos SIEMPRE la conexión
-                conn_sidebar.close()
-        else:
-            st.sidebar.warning("⚠️ Sin conexión a BD")
-
-        # Aseguramos que el df tenga datos antes de intentar el selectbox
-        # ... (tu código previo hasta el if not df_sidebar.empty:) ...
+        df_sidebar = pd.read_sql(query_sidebar, conn_sidebar)
+        conn_sidebar.close()
 
         if not df_sidebar.empty:
             # 1. Selector de Empresa
-            seleccion = st.sidebar.selectbox(
+            seleccion = st.selectbox(
                 "Seleccione Empresa", 
                 df_sidebar['nombre_empresa'].tolist(), 
-                key="selector_empresa", 
-                on_change=reset_empresa
+                key="selector_empresa",
+                on_change=reset_empresa if 'reset_empresa' in globals() else None
             )
+            st.write(f"Empresa seleccionada: '{seleccion.upper()}'")
             
             # 2. Sincronización de datos
-            datos_filtrados = df_sidebar[df_sidebar['nombre_empresa'] == seleccion]
-            
-            if not datos_filtrados.empty:
-                # ¡Aquí estaba el error! Estas líneas deben estar más a la derecha
-                datos_sel = datos_filtrados.iloc[0]
-                st.session_state['DB_ACTUAL'] = datos_sel['db_nombre']
-                st.session_state['CLIENTE_NOMBRE'] = seleccion
-                st.sidebar.write(f"Empresa: {seleccion.upper()}")
-            
+            datos_sel = df_sidebar[df_sidebar['nombre_empresa'] == seleccion].iloc[0]
+            st.session_state['DB_ACTUAL'] = datos_sel['db_nombre']
+            st.session_state['CLIENTE_NOMBRE'] = seleccion
+
             st.subheader("Módulos")
-            
-            # --- El resto del código mantiene el mismo nivel que st.subheader ---
+
+            # 3. Lista base de módulos
             modulos_disponibles = [
                 "🏠 Inicio", "📂 Plan de Cuentas", "📝 Asientos Contables", 
                 "📖 Mayor Analítico", "📊 Estados Financieros", "📚 Libros Fiscales", "👤 Proveedores"
             ]
 
+            # 4. Inyección inteligente
             empresa_en_mayusculas = seleccion.upper()
             if "PEDACITO" in empresa_en_mayusculas and "CLIELO" in empresa_en_mayusculas:
                 modulos_disponibles.append("🧁 Inventarios")
 
-            opcion_menu = st.sidebar.selectbox("📂 SELECCIONE UN MÓDULO", modulos_disponibles)
+            # 5. Renderizado del menú
+            opcion_menu = st.selectbox("📂 SELECCIONE UN MÓDULO", modulos_disponibles)
             st.session_state['opcion_menu_auditoria'] = opcion_menu
 
-            # Sub-opciones
+            # 6. Sub-opciones dinámicas
             if opcion_menu == "📝 Asientos Contables":
-                sub_opcion = st.sidebar.radio("Acciones:", ["Subir Datos", "Conciliación Bancaria","Consultar Comprobante", "Consultar Saldos Iniciales", "Consultar Cierre Contable"], key="sub_asientos")
+                sub_opcion = st.radio("Acciones:", ["Subir Datos", "Conciliación Bancaria","Consultar Comprobante", "Consultar Saldos Iniciales", "Consultar Cierre Contable"], key="sub_asientos")
+                
             elif opcion_menu == "📊 Estados Financieros":
-                st.sidebar.markdown("---")
-                sub_opcion = st.sidebar.radio("Reportes Financieros:", ["Balance de Comprobación", "Balance General", "Estado de Resultados"], key="sub_estados")
+                st.markdown("---")
+                sub_opcion = st.radio("Reportes Financieros:", ["Balance de Comprobación", "Balance General", "Estado de Resultados"], key="sub_estados")
+                
             elif opcion_menu == "📚 Libros Fiscales":
-                sub_opcion = st.sidebar.radio("Reportes Fiscales:", ["Libro de Ventas", "Libro de Compras", "Comprobante de Retención ISLR","Comprobante de Retención IVA"], key="sub_libros")
+                sub_opcion = st.radio("Reportes Fiscales:", ["Libro de Ventas", "Libro de Compras", "Comprobante de Retención ISLR","Comprobante de Retención IVA"], key="sub_libros")
             else:
                 sub_opcion = None
             
-            st.sidebar.divider()
-            st.sidebar.subheader("📅 Período de Consulta")
-            col_anio, col_mes = st.sidebar.columns(2)
-            col_anio.number_input("Año", value=2026, step=1, key="f_anio_global")
-            col_mes.selectbox("Mes", ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"], index=datetime.now().month - 1, key="f_mes_global")
-
+            st.divider()
+            st.subheader("📅 Período de Consulta")
+            
+            col_anio, col_mes = st.columns(2)
+            col_anio.number_input("Año", value=2026, step=1, key="año_seleccionado")
+            
+            # Usamos la key sin forzar un índice estricto que choque con el session_state
+            meses_lista = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
+            col_mes.selectbox("Mes", meses_lista, key="mes_seleccionado")
         else:
             st.error("No se encontraron empresas asociadas.")
             st.stop()
 
-    
+# --- 1. BLOQUE DE FECHAS GLOBAL (DEBE IR PRIMERO QUE TODO) ---
+if 'año_seleccionado' not in st.session_state:
+    st.session_state['año_seleccionado'] = datetime.datetime.now().year
+
+if 'mes_seleccionado' not in st.session_state:
+    meses_nombres = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
+    st.session_state['mes_seleccionado'] = meses_nombres[datetime.datetime.now().month - 1]
+
+dic_meses = {
+    "Enero": 1, "Febrero": 2, "Marzo": 3, "Abril": 4, 
+    "Mayo": 5, "Junio": 6, "Julio": 7, "Agosto": 8, 
+    "Septiembre": 9, "Octubre": 10, "Noviembre": 11, "Diciembre": 12
+}
+
+anio_seleccionado = st.session_state.get('año_seleccionado', datetime.datetime.now().year)
+mes_elegido_str = st.session_state.get('mes_seleccionado', "Enero")
+
+mes_n = dic_meses.get(mes_elegido_str, 1)
+
+# Cálculo exacto de las cadenas de fecha para MySQL
+ultimo_dia_mes = calendar.monthrange(anio_seleccionado, mes_n)[1]
+fecha_inicio_str = f"{anio_seleccionado}-{mes_n:02d}-01"
+fecha_fin_str = f"{anio_seleccionado}-{mes_n:02d}-{ultimo_dia_mes:02d}"
+
+# 5. Variables de compatibilidad globales para consultas SQL (como tu Flujo de Efectivo)
+f_inicio_global = datetime.date(anio_seleccionado, mes_n, 1)
+f_fin_global = datetime.date(anio_seleccionado, mes_n, ultimo_dia_mes)
+
+# Inicializamos stats por seguridad si no existen
+if 'stats' not in st.session_state:
+    stats = {'retenido': 0.0, 'ventas': 0.0, 'compras': 0.0}
+
+#=====================================
+# 2. LÓGICA PRINCIPAL (AFUERA Y ABAJO DEL SIDEBAR - PANTALLA ANCHA)
+# =========================================================================
 
 # --- VALIDACIÓN DE CONEXIÓN GLOBAL ---
-def asegurar_conexion():
-    if 'conn' not in st.session_state or st.session_state.conn is None:
-        st.session_state.conn = conectar_db("control_central")
-    
-    if st.session_state.conn is not None and not st.session_state.conn.is_connected():
-        st.session_state.conn = conectar_db("control_central")
-    
-    return st.session_state.conn
+if 'conn' not in st.session_state or not st.session_state.conn.is_connected():
+    st.session_state.conn = conectar_db("control_central")
+
+conn = st.session_state.conn
 
 
 # --- INTERRUPTOR DE PANTALLAS ---
@@ -6195,27 +6878,31 @@ if menu == "⚙️ Gestión de Usuarios":
 
 
 
-# --- LÓGICA DE FECHAS SEGURA ---
+# Asegúrate de definir la lista antes de usarla
 meses = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
 
-# Usamos .get() con valores por defecto para que no explote si el widget no ha cargado
-mes_seleccionado = st.session_state.get('f_mes_global', "Enero")
-anio_f = st.session_state.get('f_anio_global', 2026)
+m_idx = meses.index(st.session_state['mes_seleccionado']) + 1
 
-m_idx = meses.index(mes_seleccionado) + 1
 
-# Calculamos el último día exacto del mes
+# ========================================================
+# 2. LÓGICA DE FECHAS MEJORADA (REACTIVA)
+# ========================================================
+m_idx = meses.index(st.session_state['mes_seleccionado']) + 1
+anio_f = st.session_state['año_seleccionado']
+
+# Calculamos el último día exacto del mes (28, 29, 30 o 31)
 ultimo_dia = calendar.monthrange(anio_f, m_idx)[1]
 
-# Variables de fecha tipo objeto
-f_inicio_global = datetime(anio_f, m_idx, 1)
-f_fin_global = datetime(anio_f, m_idx, ultimo_dia)
+# Variables de fecha tipo objeto para las funciones
+f_inicio_global = datetime.date(anio_f, m_idx, 1)
+f_fin_global = datetime.date(anio_f, m_idx, ultimo_dia)
 
-# Variables de texto
+# Variables de texto para mostrar o usar en SQL si hace falta
 fecha_inicio_str = f_inicio_global.strftime('%Y-%m-%d')
 fecha_fin_str = f_fin_global.strftime('%Y-%m-%d')
 
 EMPRESA = st.session_state.get('CLIENTE_NOMBRE', 'N/A')
+
 
 # 1. INICIALIZACIÓN GLOBAL (Aquí va tu código)
 if 'db_a_conectar' not in st.session_state:
@@ -6242,7 +6929,7 @@ def actualizar_empresa():
 # 1. Obtenemos los valores del estado
 BD_A_CONECTAR = st.session_state.get('db_a_conectar', "control_central")
 EMPRESA = st.session_state.get('nombre_empresa_seleccionada', "Seleccione Cliente")
-opcion_menu = st.session_state.get('opcion_menu_auditoria', "🏠 Inicio")
+
 # 2. Conexión centralizada
 if BD_A_CONECTAR != "control_central":
     # Solo conectamos si no hay una conexión válida en el estado
@@ -6261,78 +6948,144 @@ if BD_A_CONECTAR != "control_central":
         except Exception as e:
             st.error(f"Error al cambiar de base de datos: {e}")
 
+
 if "Inicio" in opcion_menu:
     # 1. Recuperamos la DB seleccionada
     db_actual = st.session_state.get('DB_ACTUAL', 'No seleccionada')
     
     # 2. Verificamos si la conexión actual coincide con la DB seleccionada
-    # Usamos una variable auxiliar en session_state para comparar
     conexion_coincide = st.session_state.get('ultima_db_conectada') == db_actual
 
     # 3. Si no hay conexión O no coincide con la empresa seleccionada, reconectamos
     if 'conn' not in st.session_state or st.session_state.conn is None or not conexion_coincide:
         st.info(f"🔄 Conectando a la base de datos: {db_actual}...")
         
-        # Intentamos conectar
         nueva_conn = conectar_db(db_actual)
         
         if nueva_conn:
             st.session_state.conn = nueva_conn
             st.session_state.ultima_db_conectada = db_actual
-            st.rerun() # Recargamos para limpiar advertencias
+            st.rerun() 
         else:
             st.error(f"❌ No se pudo conectar a {db_actual}")
             st.stop()
 
-    # 4. ENCABEZADO DINÁMICO (Ahora sí mostrará el nombre correcto)
+    # 4. ENCABEZADO DINÁMICO
+    # 3.5. RECALCULAMOS LAS FECHAS BASADAS EN LOS SELECTORES DEL SIDEBAR
+    meses_lista = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
+    
+    anio_f = st.session_state.get('f_anio_global', 2026)
+    mes_nombre_f = st.session_state.get('mes_seleccionado', 'Junio')
+    
+    # Obtenemos el índice numérico del mes (1 al 12)
+    m_idx = meses_lista.index(mes_nombre_f) + 1 if mes_nombre_f in meses_lista else 6
+    
+    # Generamos las fechas reales del mes seleccionado
+    f_inicio_global = datetime.date(anio_f, m_idx, 1)
+    if m_idx == 12:
+        f_fin_global = datetime.date(anio_f, 12, 31)
+    else:
+        f_fin_global = datetime.date(anio_f, m_idx + 1, 1) - datetime.timedelta(days=1)
+
+
     st.title(f"📊 Auditoría Profesional: {db_actual}")
     st.markdown(f"**Período de Análisis:** {f_inicio_global.strftime('%d/%m/%Y')} al {f_fin_global.strftime('%d/%m/%Y')}")
     st.divider()
     
     conn = st.session_state.conn
-    # 3. LÓGICA PRINCIPAL
 
-    # LÓGICA PRINCIPAL (Optimización sugerida)
-    col_kpi, col_btn = st.columns([0.8, 0.2])
-    
-    with col_kpi:
-        st.subheader("Indicadores Financieros en Tiempo Real")
-    
-    with col_btn:
-        # Esto pone el botón a la derecha, se ve más elegante
-        if st.button("🔄 Actualizar Datos"):
-            st.cache_data.clear()
-            st.rerun()
+    # 5. LÓGICA PRINCIPAL PROTEGIDA CON TRY-EXCEPT-FINALLY
     try:
-
-        with st.spinner('Calculando indicadores financieros...'):
-            kpis = obtener_kpis_financieros(conn, f_inicio_global, f_fin_global, sucursal, st.session_state.get('DB_ACTUAL'))
-            df_bar, df_pie = obtener_datos_graficos(conn, f_inicio_global, f_fin_global, sucursal)
-           
-
-        # --- FILA 1: KPIs PRINCIPALES ---
-        col1, col2, col3 = st.columns(3)
+        col_kpi, col_btn = st.columns([0.8, 0.2])
         
-        # Ahora kpis.get('activo', 0) ya trae el valor de 'activo_real'
+        with col_kpi:
+            st.subheader("Indicadores Financieros en Tiempo Real")
+        
+        with col_btn:
+            if st.button("🔄 Actualizar Datos"):
+                st.cache_data.clear()
+                st.rerun()
+
+        db = st.session_state.get('DB_ACTUAL', 'kingdirver_ca')
+
+        with st.spinner(f'Comunicando con MySQL para {db}...'):
+            kpis = obtener_saldos_acumulados(conn, f_fin_global, db)
+            df_utilidad = obtener_historico_utilidad(db, f_inicio=f_inicio_global, f_fin=f_fin_global)
+
         valor_activo = kpis.get('activo', 0)
         valor_pasivo = kpis.get('pasivo', 0)
-        
+        valor_patrimonio = kpis.get('patrimonio', 0)
+        u_v = df_utilidad['utilidad_mensual'].iloc[0] if not df_utilidad.empty else 0
+
+        col1, col2, col3, col4 = st.columns(4)
         with col1:
-            st.container(border=True).metric("💰 ACTIVO TOTAL", f"Bs. {valor_activo:,.2f}", "Recursos")
+            st.container(border=True).metric("💰 ACTIVO", f"Bs. {valor_activo:,.2f}")
         with col2:
-            porc_p = (valor_pasivo / valor_activo * 100) if valor_activo != 0 else 0
-            st.container(border=True).metric("📉 PASIVO TOTAL", f"Bs. {valor_pasivo:,.2f}", f"{porc_p:.1f}% del Activo", delta_color="inverse")
+            st.container(border=True).metric("📉 PASIVO", f"Bs. {valor_pasivo:,.2f}")
         with col3:
-            u_v = kpis.get('utilidad', 0)
-            st.container(border=True).metric("📊 UTILIDAD NETAS", f"Bs. {u_v:,.2f}", "Resultado", delta_color="normal" if u_v >= 0 else "inverse")
+            st.container(border=True).metric("🏗️ PATRIMONIO", f"Bs. {valor_patrimonio:,.2f}")
+        with col4:
+            st.container(border=True).metric(
+                "📊 UTILIDAD NETA ACUM.", 
+                f"Bs. {u_v:,.2f}",
+                delta_color="normal" if u_v >= 0 else "inverse"
+            )
 
         # --- FILA 2: SALUD FISCAL (SENIAT) ---
-                # --- FILA 2: SALUD FISCAL (SENIAT) ---
-        st.markdown("### 📑 Salud Fiscal (Resumen SENIAT)")
-        f1, f2, f3 = st.columns(3)
-        f1.info(f"**IVA por Enterar**\n### Bs. {kpis.get('retenido', 0.0):,.2f}")
-        f2.success(f"**Compras Brutas**\n### Bs. {kpis.get('compras', 0.0):,.2f}")
-        f3.warning(f"**Monto Exento**\n### Bs. {kpis.get('exento', 0.0):,.2f}")
+        # =====================================================================
+        # SECCIÓN DE RENDERIZADO EN PANTALLA (FUERA DE LA FUNCIÓN)
+        # =====================================================================
+
+        # 1. Llamada a la función con tus variables globales de fecha
+        kpis_fiscales = obtener_salud_fiscal(f_inicio_global, f_fin_global, db)
+
+        # 2. Función para renderizar KPIs compactos con fondo de color en la etiqueta
+        def mini_kpi(col, titulo, valor, color="#555555"):
+            with col.container(border=True):
+                st.markdown(f"""
+                    <div style="text-align: center; padding: 2px;">
+                        <div style="
+                            font-size: 0.95rem; 
+                            background-color: {color}20; 
+                            color: {color}; 
+                            font-weight: bold; 
+                            padding: 4px; 
+                            border-radius: 5px; 
+                            margin-bottom: 5px;">
+                            {titulo}
+                        </div>
+                        <div style="font-size: 0.95rem; font-weight: bold; color: #333333; padding-bottom: 2px;">
+                            Bs. {valor:,.2f}
+                        </div>
+                    </div>
+                """, unsafe_allow_html=True)
+
+        # 3. Dibujar Ingresos (Azul y Verde)
+        st.subheader("Ingresos")
+        i1, i2, i3 = st.columns(3)
+        mini_kpi(i1, "Ingresos Exentos", kpis_fiscales.get('ingresos_exentas', 0), "#1f77b4")
+        mini_kpi(i2, "Ingresos Gravados", kpis_fiscales.get('ingresos_gravados', 0), "#2ca02c")
+
+        # 4. Compras y Gastos (Naranja/Ámbar)
+        st.subheader("Compras y Gastos")
+        c1, c2, c3, c4, c5, c6, c7 = st.columns(7)
+        mini_kpi(c1, "Compras Exentas", kpis_fiscales.get('compras_exentas', 0), "#ff7f0e")
+        mini_kpi(c2, "Compras IVA 16%", kpis_fiscales.get('compras_16', 0), "#ff7f0e")
+        mini_kpi(c3, "DPP", kpis_fiscales.get('DPP1', 0), "#d62728")
+        mini_kpi(c4, "Comis. Banc.", kpis_fiscales.get('comisiones_bancarias1', 0), "#8c564b")
+        mini_kpi(c5, "Gastos Pers.", kpis_fiscales.get('gastos_personales1', 0), "#8c564b")
+        mini_kpi(c6, "Otros Ing.", kpis_fiscales.get('otros_ingresos', 0), "#9467bd")
+        mini_kpi(c7, "Otros Egr.", kpis_fiscales.get('otros_egresos', 0), "#7f7f7f")
+
+        # 5. Obligaciones Fiscales (Rojo y tonos de alerta)
+        st.subheader("Obligaciones Fiscales")
+        f1, f2, f3, f4, f5, f6 = st.columns(6)
+        mini_kpi(f1, "Débito Fiscal", kpis_fiscales.get('iva_debito_fiscal', 0), "#d62728")
+        mini_kpi(f2, "IVA por Pagar", kpis_fiscales.get('iva_por_pagar', 0), "#d62728")
+        mini_kpi(f3, "Ret. IVA Prov.", kpis_fiscales.get('retencion_iva_compras', 0), "#bcbd22")
+        mini_kpi(f4, "ISLR ANTIC", kpis_fiscales.get('pagos_anticipados_islr', 0), "#bcbd22")
+        mini_kpi(f5, "Ret. ISLR", kpis_fiscales.get('retencion_islr_proveedores', 0), "#d62728")
+        mini_kpi(f6, "ISLR por Pagar", kpis_fiscales.get('islr_pagar', 0), "#d62728")
 
         st.divider()
 
@@ -6354,37 +7107,348 @@ if "Inicio" in opcion_menu:
         r2.metric("Índice de Solvencia", f"{solvencia:.2f}", estado_s)
 
         # 3. Capital Propio (Patrimonio Neto real)
-        patrimonio_v = kpis.get('patrimonio', 0)
-        r3.metric("Capital Propio", f"Bs. {patrimonio_v:,.2f}", "Patrimonio Neto")
-
+        capital_trabajo = kpis.get('capital_trabajo', 0)
+        r3.metric("capital de trabajo", f"Bs. {capital_trabajo:,.2f}", "capital_trabajo")
 
         # --- FILA 4: ANÁLISIS VISUAL ---
         st.divider()
         col_izq, col_der = st.columns(2)
-        with col_izq:
-            st.subheader("📊 Comparativo Ingresos/Egresos")
-            if not df_bar.empty:
-                st.plotly_chart(px.bar(df_bar, x='Categoría', y='Monto', color='Categoría', color_discrete_map={'Ingresos': '#00CC96', 'Egresos': '#EF553B'}), use_container_width=True)
-        with col_der:
-            st.subheader("🍕 Distribución de Gastos")
-            if not df_pie.empty:
-                st.plotly_chart(px.pie(df_pie, values='Saldo Final', names='nombre', hole=0.4), use_container_width=True)
 
+        # 1. Recuperamos y blindamos los valores de la sesión para evitar errores de tipo de dato
+        año_val = st.session_state.get('año_seleccionado', 2026)
+        mes_val = st.session_state.get('mes_seleccionado', 5)
+
+        try:
+            año = int(str(año_val).strip())
+        except:
+            año = 2026
+
+        meses_map = {
+            'Enero': 1, 'Febrero': 2, 'Marzo': 3, 'Abril': 4, 
+            'Mayo': 5, 'Junio': 6, 'Julio': 7, 'Agosto': 8, 
+            'Septiembre': 9, 'Octubre': 10, 'Noviembre': 11, 'Diciembre': 12
+        }
+
+        if isinstance(mes_val, str):
+            mes = meses_map.get(mes_val.strip(), 5)
+        else:
+            try:
+                mes = int(mes_val)
+            except:
+                mes = 5
+
+        # Calculamos también el último día del mes de forma segura con calendar
+        import calendar
+        ultimo_dia = int(calendar.monthrange(año, mes)[1])
+
+        f_i = f"{año}-{mes:02d}-01"
+        f_f = f"{año}-{mes:02d}-{ultimo_dia:02d}"
+
+        # 2. DEBUG VISUAL (Para ver qué fecha está usando el código realmente)
+        st.sidebar.info(f"Fecha en uso: {f_i} al {f_f}")  
+
+        db = st.session_state.get('DB_ACTUAL')
+
+        # --- ESTILOS CSS GLOBALES PARA FORMAR LA ESTÉTICA DE LA IMAGEN ---
+        st.markdown("""
+            <style>
+                /* Contenedores tipo tarjeta ejecutiva con bordes sutiles */
+                .report-card {
+                    background-color: #FFFFFF;
+                    border: 1px solid #E0E0E0;
+                    border-radius: 6px;
+                    padding: 15px 20px;
+                    margin-bottom: 15px;
+                    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+                }
+                /* Cabeceras estilo reporte oficial */
+                .report-header {
+                    background-color: #336699;
+                    color: white;
+                    padding: 8px 12px;
+                    font-size: 14px;
+                    font-weight: bold;
+                    border-top-left-radius: 4px;
+                    border-top-right-radius: 4px;
+                    margin-bottom: 10px;
+                }
+            </style>
+        """, unsafe_allow_html=True)
+
+        # --- TARJETA DE RESUMEN SUPERIOR (Estilo "Container-equivalent volume" de la imagen) ---
+        st.markdown("""
+            <div class="report-card" style="text-align: center; border-top: 4px solid #336699;">
+                <span style="color: #666666; font-size: 12px; font-weight: bold; text-transform: uppercase;">Resumen Ejecutivo de Operaciones</span>
+                <div style="color: #336699; font-size: 28px; font-weight: bold; margin-top: 5px;">Panel Financiero Oficial</div>
+            </div>
+        """, unsafe_allow_html=True)
+
+        # --- DISTRIBUCIÓN DE COLUMNAS ---
+        col_izq, col_der = st.columns(2)
+
+        # --- COLUMNA IZQUIERDA ---
+        with col_izq:
+            st.markdown('<div class="report-header">📊 Comparativo Ingresos / Egresos / Utilidad</div>', unsafe_allow_html=True)
+            with st.container():
+                st.markdown('<div class="report-card">', unsafe_allow_html=True)
+                if db:
+                    df_bar = obtener_datos_barras(db, f_i, f_f)
+                    df_util = obtener_historico_utilidad(db)
+                    
+                    utilidad_final = float(df_util['utilidad_mensual'].iloc[0]) if (df_util is not None and not df_util.empty) else 0.0
+                    
+                    ingresos = 0
+                    egresos = 0
+                    
+                    if df_bar is not None and not df_bar.empty:
+                        ingresos = df_bar.loc[df_bar['Categoría'] == 'Ingresos', 'Monto'].sum()
+                        egresos = df_bar.loc[df_bar['Categoría'] == 'Egresos', 'Monto'].sum()
+                    
+                    df_final = pd.DataFrame({
+                        'Categoría': ['Ingresos', 'Egresos', 'Utilidad'], 
+                        'Monto': [ingresos, egresos, utilidad_final]
+                    })
+                    
+                    # Gráfico de barras con azules corporativos y grises de la referencia
+                    fig = px.bar(
+                        df_final, x='Categoría', y='Monto', color='Categoría', 
+                        color_discrete_map={
+                            'Ingresos': '#336699',   # Azul institucional principal
+                            'Egresos': '#808080',    # Gris sobrio de reporte
+                            'Utilidad': '#4682B4'    # Azul acero corporativo
+                        }, 
+                        text='Monto',
+                        template="plotly_white"
+                    )
+                    
+                    fig.update_traces(texttemplate='%{text:,.2f}', textposition='outside')
+                    fig.update_layout(
+                        margin=dict(t=20, b=20, l=20, r=20),
+                        showlegend=False,
+                        xaxis_title="",
+                        yaxis_title="",
+                        font=dict(family="Arial, sans-serif", size=12, color="#333333")
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+                st.markdown('</div>', unsafe_allow_html=True)
+
+        # --- COLUMNA DERECHA ---
+        with col_der:
+            st.markdown('<div class="report-header">🍕 Distribución de Gastos (Supplies by Sector)</div>', unsafe_allow_html=True)
+            with st.container():
+                st.markdown('<div class="report-card">', unsafe_allow_html=True)
+                if db:
+                    df_pie = obtener_datos_pie(db, f_i) 
+                    if df_pie is not None and not df_pie.empty:
+                        
+                        # Paleta estricta de tonos azules y grises corporativos de la imagen
+                        colores_azules_institucionales = [
+                            '#336699', '#4682B4', '#5C93C4', '#70A3D2', 
+                            '#85B4E0', '#696969', '#808080', '#A9A9A9', '#2E4053'
+                        ]
+                        
+                        fig_pie = px.pie(
+                            df_pie, 
+                            values='Saldo Final', 
+                            names='nombre', 
+                            hole=0.45,
+                            template="plotly_white",
+                            color_discrete_sequence=colores_azules_institucionales
+                        )
+                        
+                        fig_pie.update_traces(
+                            textposition='auto', 
+                            textinfo='percent',
+                            hoverinfo='label+value+percent',
+                            marker=dict(line=dict(color='#FFFFFF', width=2))
+                        )
+                        
+                        fig_pie.update_layout(
+                            margin=dict(t=20, b=20, l=10, r=10),
+                            legend=dict(
+                                orientation="v",
+                                yanchor="middle",
+                                y=0.5,
+                                xanchor="left",
+                                x=1.02,
+                                font=dict(size=11)
+                            ),
+                            font=dict(family="Arial, sans-serif", size=12, color="#333333")
+                        )
+                        
+                        st.plotly_chart(fig_pie, use_container_width=True)
+                    else:
+                        st.warning("No hay gastos.")
+                st.markdown('</div>', unsafe_allow_html=True)
+
+       # --- FILA 5: FLUJO DE EFECTIVO ---
         # --- FILA 5: FLUJO DE EFECTIVO ---
         st.divider()
         st.subheader("💸 Movimiento de Caja (Efectivo Real)")
-        c1, c2, c3 = st.columns(3)
 
-        # 1. Entradas del mes
-        c1.metric("Entradas (BDV)", f"Bs. {kpis.get('entradas_efectivo', 0.0):,.2f}", "Cobros")
+        # 1. VARIABLES GLOBALES Y CONEXIÓN
+        f_i = fecha_inicio_str  
+        f_f = fecha_fin_str
+        db = st.session_state.get('DB_ACTUAL')
 
-        # 2. Salidas del mes
-        c2.metric("Salidas (BDV)", f"Bs. {kpis.get('salidas_efectivo', 0.0):,.2f}", "Pagos", delta_color="inverse")
+        st.caption(f"📍 Empresa activa: `{db}` | Periodo: {f_i} al {f_f}")
 
-        # 3. SALDO REAL (El que suma Saldos Iniciales + Asientos)
-        # Cambiamos 'flujo_neto' por 'saldo_real_final'
-        saldo_acumulado = kpis.get('saldo_real_final', 0.0) 
-        c3.metric("Saldo Real en Banco", f"Bs. {saldo_acumulado:,.2f}", "Disponible", delta_color="normal" if saldo_acumulado >= 0 else "inverse")
+        if db and db != "{db}" and db != "None":
+            try:
+                conn = conectar_db(db)
+                cursor = conn.cursor(dictionary=True)
+                
+                # A. Saldo Inicial Fijo (Caja y Bancos)
+                cursor.execute(f"SELECT COALESCE(SUM(debe), 0) as d, COALESCE(SUM(haber), 0) as h FROM `{db}`.saldos_iniciales WHERE plan_cuentas LIKE '1.1.1.02%'")
+                res_s_ini = cursor.fetchone()
+                debe_s_ini = float(res_s_ini['d'] or 0.0) if res_s_ini else 0.0
+                haber_s_ini = float(res_s_ini['h'] or 0.0) if res_s_ini else 0.0
+
+                # B. Movimientos históricos anteriores a f_i
+                cursor.execute(f"SELECT COALESCE(SUM(debe), 0) as d, COALESCE(SUM(haber), 0) as h FROM `{db}`.asientos_contables WHERE plan_cuentas LIKE '1.1.1.02%' AND fecha < %s", (f_i,))
+                res_hist = cursor.fetchone()
+                debe_hist = float(res_hist['d'] or 0.0) if res_hist else 0.0
+                haber_hist = float(res_hist['h'] or 0.0) if res_hist else 0.0
+
+                saldo_inicial_neto = (debe_s_ini + debe_hist) - (haber_s_ini + haber_hist)
+
+                # C. Movimientos del Periodo (f_i a f_f)
+                query_mes = f"""
+                    SELECT COALESCE(SUM(debe), 0) as ent, COALESCE(SUM(haber), 0) as sal 
+                    FROM `{db}`.asientos_contables
+                    WHERE plan_cuentas LIKE '1.1.1.02%' AND fecha BETWEEN %s AND %s
+                """
+                cursor.execute(query_mes, (f_i, f_f))
+                res_mes = cursor.fetchone()
+
+                entradas_mes = float(res_mes['ent'] or 0.0) if res_mes else 0.0
+                salidas_mes = float(res_mes['sal'] or 0.0) if res_mes else 0.0
+                saldo_real = saldo_inicial_neto + entradas_mes - salidas_mes
+
+                # D. INTENTO AUTOMÁTICO DE CUENTAS POR COBRAR DESDE LA DB
+                cxc_db = 0.0
+                try:
+                    # Intento buscar en plan contable de cuentas por cobrar (Ej: cuentas que empiezan por 1.1.2)
+                    cursor.execute(f"SELECT COALESCE(SUM(debe - haber), 0) as cxc FROM `{db}`.asientos_contables WHERE plan_cuentas LIKE '1.1.2%'")
+                    res_cxc = cursor.fetchone()
+                    if res_cxc and res_cxc['cxc']:
+                        cxc_db = float(res_cxc['cxc'])
+                except:
+                    cxc_db = 0.0
+
+                conn.close()
+
+                # 2. MÉTRICAS PRINCIPALES DEL PERIODO
+                c1, c2, c3 = st.columns(3)
+                c1.metric("Entradas (Mes)", f"Bs. {entradas_mes:,.2f}")
+                c2.metric("Salidas (Mes)", f"Bs. {salidas_mes:,.2f}")
+                c3.metric("Saldo Real Total", f"Bs. {saldo_real:,.2f}")
+
+                # RESUMEN AUTOMÁTICO IA - MÉTRICAS
+                balance_neto_mes = entradas_mes - salidas_mes
+                tendencia_mes = "positivo" if balance_neto_mes >= 0 else "negativo"
+                st.info(f"🤖 **Resumen de Caja:** Durante este periodo, las entradas totalizaron Bs. {entradas_mes:,.2f} frente a salidas de Bs. {salidas_mes:,.2f}, arrojando un flujo neto {tendencia_mes} de Bs. {balance_neto_mes:,.2f} y cerrando con un saldo real disponible de Bs. {saldo_real:,.2f}.")
+
+                # 3. CONTROLES DE SIMULACIÓN (Toma el valor detectado o permite ajustarlo)
+                st.sidebar.header("⚙️ Simulación de Escenarios (Stress Testing)")
+                
+                cuentas_por_cobrar = st.sidebar.number_input(
+                    "Cuentas por Cobrar (Detectadas / Manual):", 
+                    value=max(cxc_db, 0.0), 
+                    step=10000.0,
+                    help="Si la empresa tiene saldo en cuentas por cobrar (ej. cuenta 1.1.2), aparecerá aquí automáticamente."
+                )
+
+                pct_retraso = st.sidebar.slider(
+                    "% de Facturas que se retrasan a 60 días:", 
+                    min_value=0, 
+                    max_value=100, 
+                    value=0, 
+                    step=5
+                )
+
+                impacto_retraso = cuentas_por_cobrar * (pct_retraso / 100.0)
+
+                # 4. PROYECCIÓN DE FLUJO DE CAJA Y ANÁLISIS DE DESVIACIONES
+                st.markdown("---")
+                st.subheader("📈 Proyección de Liquidez y Análisis de Estrés")
+                st.caption("Estimación basada en el flujo neto diario con simulación a 30, 60 y 90 días.")
+
+                import datetime as dt
+
+                if isinstance(f_i, str):
+                    d1 = dt.datetime.strptime(f_i, "%Y-%m-%d")
+                else:
+                    d1 = f_i
+
+                if isinstance(f_f, str):
+                    d2 = dt.datetime.strptime(f_f, "%Y-%m-%d")
+                else:
+                    d2 = f_f
+
+                dias_rango = max((d2 - d1).days + 1, 1)
+
+                flujo_neto_periodo = entradas_mes - salidas_mes
+                promedio_diario_neto = flujo_neto_periodo / dias_rango
+
+                # Proyecciones Meta (30, 60 y 90 días)
+                proj_30_meta = saldo_real + (promedio_diario_neto * 30)
+                proj_60_meta = saldo_real + (promedio_diario_neto * 60)
+                proj_90_meta = saldo_real + (promedio_diario_neto * 90)
+
+                proj_30_ajustada = proj_30_meta - impacto_retraso
+
+                if proj_30_meta != 0:
+                    desviacion_absoluta = proj_30_ajustada - proj_30_meta
+                    desviacion_pct = (desviacion_absoluta / abs(proj_30_meta)) * 100
+                else:
+                    desviacion_absoluta, desviacion_pct = 0.0, 0.0
+
+                # Bloque 1: Proyecciones Temporales (30, 60 y 90 Días)
+                st.write("##### 🗓️ HORIZONTE DE LIQUIDEZ PROYECTADO")
+                m1, m2, m3 = st.columns(3)
+                m1.metric("Proyección 30 Días", f"Bs. {proj_30_meta:,.2f}", delta=f"{promedio_diario_neto * 30:,.2f} Bs est.")
+                m2.metric("Proyección 60 Días", f"Bs. {proj_60_meta:,.2f}", delta=f"{promedio_diario_neto * 60:,.2f} Bs est.")
+                m3.metric("Proyección 90 Días", f"Bs. {proj_90_meta:,.2f}", delta=f"{promedio_diario_neto * 90:,.2f} Bs est.")
+
+                st.info(f"🤖 **Resumen de Proyección:** Con base en un promedio diario de Bs. {promedio_diario_neto:,.2f}, se proyecta una disponibilidad de Bs. {proj_30_meta:,.2f} a 30 días, alcanzando Bs. {proj_60_meta:,.2f} a 60 días y Bs. {proj_90_meta:,.2f} al cierre de los 90 días.")
+
+                # Bloque 2: Escenario de Estrés
+                st.write("##### ⚡ ESCENARIO DE SIMULACIÓN Y MORA")
+                p1, p2, p3 = st.columns(3)
+                p1.metric("30 Días Ajustado", f"Bs. {proj_30_ajustada:,.2f}", delta=f"{desviacion_pct:.2f}%")
+                p2.metric("Impacto por Retraso", f"Bs. {impacto_retraso:,.2f}")
+                p3.metric("Desviación Absoluta", f"Bs. {desviacion_absoluta:,.2f}")
+
+                st.info(f"🤖 **Resumen de Stress Testing:** Con un monto bajo análisis de Bs. {cuentas_por_cobrar:,.2f} y un retraso simulado del {pct_retraso}%, el impacto en caja es de Bs. {impacto_retraso:,.2f}, dejando la liquidez proyectada en Bs. {proj_30_ajustada:,.2f}.")
+
+                # 5. SEMÁFORO DE RIESGO INTELIGENTE
+                if proj_30_ajustada < 0 or desviacion_pct <= -15.0:
+                    st.error(f"🚨 **ALERTA DE ILIQUIDEZ POTENCIAL ({desviacion_pct:.1f}%):** El escenario de retraso genera un déficit crítico en la disponibilidad a 30 días.")
+                elif -15.0 < desviacion_pct < 0:
+                    st.warning(f"⚠️ **Advertencia de Riesgo Leve ({desviacion_pct:.1f}%):** Existe una desviación negativa frente a la meta proyectada.")
+                else:
+                    st.success("✅ **Salud de Caja Estable:** Las proyecciones se mantienen en niveles seguros de liquidez.")
+
+                # 6. DETALLE DE MOVIMIENTOS
+                st.markdown("---")
+                st.write("### Detalle de Movimientos")
+                df_flujo = obtener_detalle_movimientos_banco(db, f_i, f_f) 
+
+                if df_flujo is not None and not df_flujo.empty:
+                    st.dataframe(df_flujo, use_container_width=True, hide_index=True, column_config={
+                        "fecha": st.column_config.DateColumn("Fecha"),
+                        "descripcion": "Concepto",
+                        "debe": st.column_config.NumberColumn("Entradas", format="Bs. %.2f"),
+                        "haber": st.column_config.NumberColumn("Salidas", format="Bs. %.2f")
+                    })
+                else:
+                    st.info(f"No hay movimientos en este rango del {f_i} al {f_f}.")
+
+            except Exception as e:
+                st.error(f"Error en consulta contable para `{db}`: {e}")
+        else:
+            st.warning("⚠️ Selecciona una empresa para ver los movimientos de caja.")
 
         # --- FILA 6: PROVEEDORES ---
         st.divider()
@@ -6392,84 +7456,166 @@ if "Inicio" in opcion_menu:
         p1, p2 = st.columns(2)
         p1.info(f"**Top Proveedor:** {kpis.get('top_proveedor', 'N/A')} ({kpis.get('top_porcentaje', 0)}%)")
         n_a = kpis.get('alertas_retencion', 0)
-        if n_a > 0: p2.warning(f"⚠️ {n_a} facturas sin retención aplicada.")
-        else: p2.success("✅ Retenciones al día.")
+        if n_a > 0: 
+            p2.warning(f"⚠️ {n_a} facturas sin retención aplicada.")
+        else: 
+            p2.success("✅ Retenciones al día.")    
 
-        # --- SECCIÓN: INDICADORES CAMBIARIOS EN LA INTERFAZ ---
+        # --- FILA 7. SECCIÓN: CUENTA CASHEA ---
+        st.divider()
+        st.subheader("💳 Detalle de Créditos: Cashea (2.1.3.01.001)")
+
+        db_actual = st.session_state.get('DB_ACTUAL')
+
+        if db_actual and db_actual != "{db}" and db_actual != "None":
+            df_cashea = obtener_detalle_cashea(db_actual, f_inicio_global, f_fin_global)
+
+            if df_cashea is not None and not df_cashea.empty:
+                saldo_final = df_cashea['saldo'].iloc[-1]
+                st.metric("Saldo Actual en Cashea", f"Bs. {saldo_final:,.2f}")
+                
+                # Tabla limpia, expandida a todo el ancho y con formato profesional
+                st.dataframe(
+                    df_cashea, 
+                    use_container_width=True,  # Ocupa todo el ancho de la pantalla correctamente
+                    height=350,                # Altura controlada con scroll vertical si hay muchos registros
+                    column_config={
+                        "fecha": st.column_config.DateColumn("Fecha"),
+                        "descripcion": st.column_config.TextColumn("Descripción"),
+                        "ref": st.column_config.TextColumn("Referencia"),
+                        "debe": st.column_config.NumberColumn("Pago (Debe)", format="Bs. %.2f"),
+                        "haber": st.column_config.NumberColumn("Crédito (Haber)", format="Bs. %.2f"),
+                        "saldo": st.column_config.NumberColumn("Saldo Acumulado", format="Bs. %.2f")
+                    }
+                )
+            else:
+                st.info(f"No hay movimientos registrados para Cashea en este periodo.")
+        else:
+            st.warning("⚠️ Selecciona una empresa para ver los créditos de Cashea.")
+
+        # --- FILA 8: TIPO DE CAMBIO BANCO CENTRAL DE VENEZUELA ---
+        st.divider()
         st.markdown("### 🏦 Indicadores Cambiarios")
 
-        # 1. Traer la tasa normal de la BD o Web
-        tasa_dolar, origen_datos = obtener_tasa_bcv_hoy(conn)
+        if db_actual and db_actual != "{db}" and db_actual != "None":
+            try: 
+                conn_bcv = conectar_db(db_actual)
+                tasa_dolar, origen_datos = obtener_tasa_bcv_hoy(conn_bcv)
 
-        col_tasa, col_info = st.columns([1, 2])
+                col_tasa, col_info = st.columns([1, 2])
 
-        with col_tasa:
-            s = f"{tasa_dolar:,.8f}"
-            tasa_formateada = f"Bs. {s.replace(',', 'X').replace('.', ',').replace('X', '.')}"
-            st.metric(label="💵 Tasa Oficial BCV (USD/VES)", value=tasa_formateada)
+                with col_tasa:
+                    s = f"{tasa_dolar:,.8f}"
+                    tasa_formateada = f"Bs. {s.replace(',', 'X').replace('.', ',').replace('X', '.')}"
+                    st.metric(label="💵 Tasa Oficial BCV (USD/VES)", value=tasa_formateada)
 
-        with col_info:
-            st.caption("ℹ️ **Actualización Automática:**")
-            st.info(f"El sistema sincroniza directamente con el Banco Central de Venezuela. \n\n**Fuente de lectura actual:** {origen_datos}")
-            
-            # 🔥 EL BOTÓN MÁGICO DE ACTUALIZACIÓN FORZADA
-            if st.button("🔄 Forzar Sincronización BCV"):
-                from datetime import date
-                try:
-                    # Limpiamos conexiones pegadas
-                    if conn.is_connected():
-                        conn.handle_unread_result()
-                        
-                    # Forzamos la consulta directa a la web saltándonos la BD
-                    tasa_fresca, origen_fresco = consultar_bcv_directo_sin_bd()
+                with col_info:
+                    st.caption("ℹ️ **Actualización Automática:**")
+                    st.info(f"El sistema sincroniza directamente con el Banco Central de Venezuela. \n\n**Fuente de lectura actual:** {origen_datos}")
                     
-                    if "Error" not in origen_fresco:
-                        hoy = date.today()
-                        cursor = conn.cursor()
-                        # Metemos el valor actualizado a la fuerza
-                        cursor.execute("""
-                            INSERT INTO kingdirver_ca.tasas_diarias (fecha, tasa_valor) 
-                            VALUES (%s, %s)
-                            ON DUPLICATE KEY UPDATE tasa_valor = %s
-                        """, (hoy, tasa_fresca, tasa_fresca))
-                        conn.commit()
-                        cursor.close()
-                        st.success("¡Tasa actualizada con éxito desde el BCV!")
-                        st.rerun()
-                    else:
-                        st.error("No se pudo conectar a la web del BCV en este momento.")
-                except Exception as e:
-                    st.error(f"Error al sincronizar: {e}")
-        # --- SECCIÓN VISUAL: REPORTE CONTABLE MULTIMONEDA ---
-        st.markdown("---")
-        st.markdown("## 📊 Reporte de Libro Diario Multimoneda")
+                    # 🔥 BOTÓN DE ACTUALIZACIÓN FORZADA
+                    if st.button("🔄 Forzar Sincronización BCV"):
+                        from datetime import date
+                        try:
+                            if conn_bcv.is_connected():
+                                conn_bcv.handle_unread_result()
+                                
+                            tasa_fresca, origen_fresco = consultar_bcv_directo_sin_bd(conn_bcv)
+                            
+                # Abrimos conexión a la BD actual para
+                            if "Error" not in origen_fresco:
+                                hoy = date.today()
+                                cursor = conn_bcv.cursor()
+                                # Inserción dinámica usando la base de datos activa
+                                cursor.execute(f"""
+                                    INSERT INTO `{db_actual}`.tasas_diarias (fecha, tasa_valor) 
+                                    VALUES (%s, %s)
+                                    ON DUPLICATE KEY UPDATE tasa_valor = %s
+                                """, (hoy, tasa_fresca, tasa_fresca))
+                                conn_bcv.commit()
+                                cursor.close()
+                                st.success("¡Tasa actualizada con éxito desde el BCV!")
+                                st.rerun()
+                            else:
+                                st.error("No se pudo conectar a la web del BCV en este momento.")
+                        except Exception as e:
+                            st.error(f"Error al sincronizar: {e}")
+                
+                conn_bcv.close()
+            except Exception as e:
+                st.error(f"Error al cargar indicadores cambiarios: {e}")
+        else:
+            st.warning("⚠️ Selecciona una empresa para ver los indicadores cambiarios.")
 
+        # --- FILA 8: SECCIÓN VISUAL: REPORTE CONTABLE MULTIMONEDA ---
+        # --- FILA 8: SECCIÓN VISUAL: REPORTE CONTABLE MULTIMONEDA ---
+        st.divider()
+        st.markdown("## 📊 Reporte de Libro Diario Multimoneda")
+        
         # 1. Filtros de búsqueda y acciones (Agregamos una 4ta columna para el botón)
         col_filtro1, col_filtro2, col_filtro3, col_boton = st.columns([1.5, 1.5, 2, 2])
 
         with col_filtro1:
-            mes_seleccionado = st.selectbox(
+            meses_lista = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
+            
+            # Buscamos si ya hay un mes seleccionado globalmente, si no, usamos el actual
+            mes_actual_global = st.session_state.get('mes_seleccionado', meses_lista[date.today().month - 1])
+            
+            # Si el valor global es un número (1-12), lo convertimos a texto para el selectbox
+            if isinstance(mes_actual_global, int):
+                mes_actual_str = meses_lista[mes_actual_global - 1]
+            else:
+                mes_actual_str = mes_actual_global if mes_actual_global in meses_lista else "Enero"
+                
+            idx_mes = meses_lista.index(mes_actual_str)
+
+            # ✅ Usamos una KEY totalmente independiente para este selectbox sin romper el session_state
+            mes_seleccionado_str = st.selectbox(
                 "Seleccione el Mes:", 
-                options=list(range(1, 13)), 
-                format_func=lambda x: ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"][x-1],
-                index=date.today().month - 1
+                meses_lista, 
+                index=idx_mes, 
+                key="selectbox_mes_multimoneda"
             )
+            
+            # Convertimos el texto seleccionado a su valor numérico (1-12) para las consultas SQL
+            dic_m_inv = {m: i+1 for i, m in enumerate(meses_lista)}
+            mes_seleccionado = dic_m_inv.get(mes_seleccionado_str, 1)
 
         with col_filtro2:
-            ano_seleccionado = st.selectbox(
+            anio_actual_global = st.session_state.get('año_seleccionado', 2026)
+            
+            # ✅ Usamos una KEY independiente para el año
+            ano_seleccionado = st.number_input(
                 "Seleccione el Año:", 
-                options=[2024, 2025, 2026, 2027], 
-                index=2  # Fijo en 2026 por defecto
+                min_value=2024, 
+                max_value=2030, 
+                value=int(anio_actual_global), 
+                step=1, 
+                key="number_input_anio_multimoneda"
             )
 
         with col_filtro3:
             # Metemos un espacio en blanco arriba para alinear verticalmente el toggle con los selectores
             st.markdown("<div style='padding-top: 25px;'></div>", unsafe_allow_html=True)
-            moneda_vista = "Dólares (USD)" if st.toggle("🇺🇸 Ver reporte en USD", value=False) else "Bolívares (VES)"
+            moneda_vista = "Dólares (USD)" if st.toggle("🇺🇸 Ver reporte en USD", value=False, key="toggle_moneda_multimoneda") else "Bolívares (VES)"
         # --- BLOQUE LÓGICO DE DATOS (Debe ejecutarse antes para poder descargar) ---
+        # --- BLOQUE LÓGICO DE DATOS (Conexión local blindada) ---
         try:
-            df_diario = generar_reporte_multimoneda(conn, mes_seleccionado, ano_seleccionado)
+            # 1. Abrimos una conexión fresca y exclusiva para este reporte
+            # (Asegúrate de pasarle la variable o función que usas en tu app para conectar, ej: conectar_db(db) o mysql.connector.connect)
+            conn_local = conectar_db() # ⚠️ Ajusta esto según tu función de conexión existente
             
+            if not conn_local or not conn_local.is_connected():
+                st.error("⚠️ No se pudo establecer una conexión activa con la base de datos para generar el reporte.")
+                st.stop()
+
+            # 2. Ejecutamos la consulta pasando la conexión local recién abierta
+            df_diario = generar_reporte_multimoneda(conn_local, mes_seleccionado, ano_seleccionado)
+            
+            # 3. Cerramos la conexión local de forma limpia para liberar recursos
+            if conn_local.is_connected():
+                conn_local.close()
+             
             if df_diario.empty:
                 st.warning(f"⚠️ No se encontraron registros en el Libro Diario para el período {mes_seleccionado}/{ano_seleccionado}.")
             else:
@@ -6521,7 +7667,7 @@ if "Inicio" in opcion_menu:
                 col_t2.metric("Total Haber Acumulado", f"{simbolo} {tot_haber:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.'))
 
                 # =========================================================================
-                # 🔥 AQUÍ SE INTEGRA LA ZONA DE REPORTES FINANCIEROS EN DIVISAS
+                # 🔥 ZONA DE REPORTES FINANCIEROS EN DIVISAS
                 # =========================================================================
                 st.markdown("<br>", unsafe_allow_html=True) 
                 
@@ -6531,7 +7677,6 @@ if "Inicio" in opcion_menu:
                     
                     if st.button("🧮 Generar Balance de Comprobación", use_container_width=True):
                         
-                        # Definimos qué columnas numéricas usar según la divisa seleccionada
                         col_debe_calc = 'debe_usd' if moneda_vista == "Dólares (USD)" else 'debe'
                         col_haber_calc = 'haber_usd' if moneda_vista == "Dólares (USD)" else 'haber'
                         
@@ -6541,7 +7686,6 @@ if "Inicio" in opcion_menu:
                         # --- PASO 2: Agrupar por Cuenta y Plan de Cuentas (Código) ---
                         balance_data = []
                         
-                        # Agrupamos por la combinación de código y nombre
                         for (codigo, cuenta), group in df_diario.groupby(['plan_cuentas', 'cuenta_contable']):
                             
                             grupo_inicial = group[group['es_inicial']]
@@ -6569,8 +7713,6 @@ if "Inicio" in opcion_menu:
                             })
                         
                         df_balance = pd.DataFrame(balance_data)
-                        
-                        # Ordenamos el dataframe por el código contable para que se vea estructurado (1.1, 1.2, etc.)
                         df_balance = df_balance.sort_values(by='Código Contable').reset_index(drop=True)
                         
                         # --- PASO 3: Formatear las 6 columnas con el diseño premium ---
@@ -6611,11 +7753,18 @@ if "Inicio" in opcion_menu:
                             st.success("✨ ¡Partida Doble verificada! Los movimientos del mes cargaron perfectamente cuadrados.")
                         else:
                             st.error("⚠️ Alerta contable: Los movimientos cargados en el Debe y Haber del mes difieren.")
-            # =========================================================================
-            # 🔥 NUEVO MÓDULO PREMIUM: AUDITORÍA FORENSE CON IA
-            # =========================================================================
-            st.markdown("<br>", unsafe_allow_html=True)
+
+        except Exception as e:
+            st.error(f"❌ Ocurrió un error al procesar el Libro Diario o el Balance de Comprobación: {e}")
+
+        # FILA 9 ..... NUEVO MÓDULO PREMIUM: AUDITORÍA FORENSE CON IA
             
+            query_completa = "SELECT * FROM asientos_contables"
+            df_diario = pd.read_sql(query_completa, conn) 
+            col_analisis = 'debe' 
+            simb = "Bs."
+            st.divider()
+            st.markdown("<br>", unsafe_allow_html=True)
             with st.expander("🕵️‍♂️ Módulo de Auditoría Forense con IA (Antifraude)", expanded=False):
                 st.markdown("### 🔍 Análisis de Patrones y Detección Automatizada de Anomalías")
                 st.write("La IA analiza los asientos del mes buscando importes atípicos, desviaciones estadísticas y registros duplicados.")
@@ -6623,106 +7772,791 @@ if "Inicio" in opcion_menu:
                 if st.button("🚀 Ejecutar Escáner Antifraude", use_container_width=True):
                     st.info("Procesando algoritmos estadísticos sobre el Libro Diario...")
                     
-                    # Definimos la columna numérica a evaluar según la moneda visual actual
-                    col_analisis = 'debe_usd' if moneda_vista == "Dólares (USD)" else 'debe'
-                    simb = "$" if moneda_vista == "Dólares (USD)" else "Bs."
+                    # 1. Preparación de datos
+                    # Limpieza de columnas numéricas
+                    df_diario['debe'] = pd.to_numeric(df_diario['debe'], errors='coerce').fillna(0)
+                    df_diario['haber'] = pd.to_numeric(df_diario['haber'], errors='coerce').fillna(0)
                     
-                    # 🔥 CORRECCIÓN CRÍTICA: Aseguramos que la columna descripción no tenga nulos (NaN) para que no rompa el filtro
-                    df_diario['descripcion'] = df_diario['descripcion'].fillna("").astype(str)
+                    # Cálculo de monto auditable (ajustado por moneda)
+                    if moneda_vista == "Dólares (USD)":
+                        # Asegúrate que las columnas debe_usd/haber_usd existan en tu tabla
+                        df_diario['monto_auditable'] = df_diario['debe_usd'] + df_diario['haber_usd']
+                    else:
+                        df_diario['monto_auditable'] = df_diario['debe'] + df_diario['haber']
                     
-                    # Filtramos los movimientos operativos reales del mes (ignorando los registros que correspondan a la apertura de saldos iniciales)
+                    # 2. Filtrado: Excluir saldos iniciales y montos cero
                     df_asientos = df_diario[
-                        ~(df_diario['descripcion'].str.contains("SALDOS INICIALES", case=False, na=False)) & 
-                        (df_diario[col_analisis] > 0)  # Solo auditamos donde se mueva dinero (mayor a cero)
+                        (~df_diario['descripcion'].str.contains("SALDOS INICIALES", case=False, na=False)) & 
+                        (df_diario['monto_auditable'] != 0)
                     ].copy()
                     
-                    anomalies_found = False
-                    alertas_duplicados = []
-                    alertas_montos = []
-
+                    # --- BLOQUE DE DEPURACIÓN (AUTOPSIA DE DATOS) ---
                     if df_asientos.empty:
-                        # Mensaje inteligente si de verdad el mes no tiene movimientos operativos individuales
-                        st.warning("📊 El sistema determinó que este período no registra transacciones operativas o de gastos en el Libro Diario para ser evaluadas por el modelo estadístico.")
+                        st.warning("⚠️ El escáner no encontró movimientos. Ejecutando diagnóstico de integridad:")
+                        st.write(f"Total registros en diario: {len(df_diario)}")
+                        # --- DEPURACIÓN PREVIA ---
+                        st.write("Registros disponibles en el objeto df_diario:", len(df_diario))
+                        st.write(df_diario.head(5)) # Esto te confirmará si los gastos de mayo están presentes
+                                                
+                        # Ver qué descartó el filtro
+                        ejemplo_descartados = df_diario[df_diario['descripcion'].str.contains("SALDO", case=False, na=False)].head(3)
+                        if not ejemplo_descartados.empty:
+                            st.write("Registros descartados por coincidir con 'SALDO':")
+                            st.dataframe(ejemplo_descartados[['fecha', 'descripcion', 'monto_auditable']])
+                        
+                        st.error("📊 Ninguna fila superó los filtros. Revisa si tus gastos reales contienen la palabra 'SALDO' o si el monto es 0.")
+                        
                     else:
                         # -----------------------------------------------------------------
-                        # ALGORITMO 1: DETECCIÓN DE FACTURAS / REGISTROS DUPLICADOS
+                        # ALGORITMO 1: DETECCIÓN DE DUPLICADOS
                         # -----------------------------------------------------------------
-                        # Buscamos registros que compartan exactamente la misma fecha, cuenta e importe el mismo día
-                        duplicados = df_asientos[df_asientos.duplicated(subset=['fecha', 'cuenta_contable', col_analisis], keep=False)]
+                        anomalies_found = False
+                        alertas_duplicados = []
+                        alertas_montos = []
                         
+                        duplicados = df_asientos[df_asientos.duplicated(subset=['fecha', 'cuenta_contable', col_analisis], keep=False)]
                         if not duplicados.empty:
                             anomalies_found = True
                             for cuenta, gp in duplicados.groupby('cuenta_contable'):
                                 monto_dup = gp[col_analisis].iloc[0]
-                                alertas_duplicados.append(
-                                    f"🚩 **Sospecha de Duplicidad:** Se encontraron {len(gp)} registros idénticos el mismo día en la cuenta **{cuenta}** por un monto de {simb} {monto_dup:,.2f}."
-                                )
-
+                                alertas_duplicados.append(f"🚩 **Sospecha de Duplicidad:** Se encontraron {len(gp)} registros idénticos el mismo día en la cuenta **{cuenta}** por {simb} {monto_dup:,.2f}.")
                         # -----------------------------------------------------------------
-                        # ALGORITMO 2: DESVIACIÓN ESTÁNDAR (Z-SCORE CONTABLE MULTIVARIABLE)
+                        # ALGORITMO 2: Z-SCORE (DESVIACIÓN) - SEGURO CONTRA Nulos
                         # -----------------------------------------------------------------
-                        # Calculamos la media y desviación agrupada por cuenta contable
+                        # Calculamos la media y la desviación estándar de forma segura
                         stats = df_asientos.groupby('cuenta_contable')[col_analisis].agg(['mean', 'std']).reset_index()
                         
-                        # Cruzamos estadísticas con el df de auditoría
+                        # Si hay un solo registro por cuenta, la std es NaN. La rellenamos con 0.
+                        stats['std'] = stats['std'].fillna(0.0)
+                        
                         df_audit = df_asientos.merge(stats, on='cuenta_contable', how='left')
                         
-                        # Si hay un solo movimiento, la desviación da NaN. Reemplazamos por 1.0 de forma segura para evitar divisiones por cero
-                        df_audit['std'] = df_audit['std'].fillna(0.0).replace(0.0, 1.0)
+                        # Si la desviación estándar es 0 (porque la cuenta solo tiene 1 registro o todos valen igual), 
+                        # asignamos un valor artificial seguro para evitar divisiones por cero, pero marcando que no hay dispersión real.
+                        df_audit['std_safe'] = df_audit['std'].replace(0.0, 1.0)
                         
-                        # Calculamos el Z-score real
-                        df_audit['z_score'] = (df_audit[col_analisis] - df_audit['mean']) / df_audit['std']
+                        df_audit['z_score'] = (df_audit[col_analisis] - df_audit['mean']) / df_audit['std_safe']
                         
-                        # Marcamos como anomalía si el Z-score supera el umbral estadístico (Z > 2.0)
-                        # y además el monto supera en un 50% la media histórica (evita falsos positivos con montos pequeños)
-                        anomalas_std = df_audit[(df_audit['z_score'] > 2.0) & (df_audit[col_analisis] > df_audit['mean'] * 1.5)]
+                        # Solo evaluamos Z-score en cuentas donde realmente hubo variación (std > 0)
+                        anomalas_std = df_audit[(df_audit['std'] > 0) & (df_audit['z_score'] > 2.0) & (df_audit[col_analisis] > df_audit['mean'] * 1.5)]
                         
                         if not anomalas_std.empty:
                             for idx, row in anomalas_std.iterrows():
                                 porcentaje_desvio = ((row[col_analisis] - row['mean']) / row['mean']) * 100 if row['mean'] > 0 else 100
-                                
-                                # Filtro de ruido contable para transacciones insignificantes
                                 if porcentaje_desvio > 15:
                                     anomalies_found = True
-                                    alertas_montos.append(
-                                        f"🚨 **Monto Atípico Detectado:** En la cuenta **{row['cuenta_contable']}**, el registro *'{row['descripcion']}'* tiene un importe de **{simb} {row[col_analisis]:,.2f}**. "
-                                        f"¡Esto representa un desvío del **{porcentaje_desvio:.0f}% por encima** de su comportamiento transaccional promedio!"
-                                    )
+                                    alertas_montos.append(f"🚨 **Monto Atípico:** Cuenta **{row['cuenta_contable']}**, registro *'{row['descripcion']}'* ({simb} {row[col_analisis]:,.2f}). ¡{porcentaje_desvio:.0f}% por encima del promedio!")
 
                         # -----------------------------------------------------------------
-                        # RENDERIZADO DE ALERTAS EN LA INTERFAZ CONTABLE
+                        # RENDERIZADO
                         # -----------------------------------------------------------------
                         if anomalies_found:
-                            st.error("❌ ¡Alerta del Sistema! Se detectaron inconsistencias de riesgo en el período analizado.")
-                            
-                            # Mostramos las alertas de montos atípicos
-                            if alertas_montos:
-                                st.markdown("#### 📉 Alertas de Desviación Presupuestaria e Importes Atípicos")
-                                for alerta in alertas_montos:
-                                    st.warning(alerta)
-                                    
-                            # Mostramos las alertas de registros duplicados
-                            if alertas_duplicados:
-                                st.markdown("#### 📑 Alertas de Posibles Registros o Facturas Duplicadas")
-                                for alerta in alertas_duplicados:
-                                    st.info(alerta)
-                                    
-                            st.markdown("---")
-                            st.caption("💡 *Recomendación de la IA: Solicite los soportes físicos de estos asientos y verifique los números de control antes de proceder con el cierre de mes.*")
+                            st.error("❌ ¡Alerta del Sistema! Se detectaron inconsistencias.")
+                            for a in alertas_montos: st.warning(a)
+                            for a in alertas_duplicados: st.info(a)
                         else:
-                            st.success("✨ ¡Análisis Completo! La IA ejecutó los modelos de varianza y la data operativa está perfectamente limpia y alineada con los parámetros habituales.")
-                  
+                            st.success("✨ ¡Análisis Completo! Data limpia y alineada.")
+        # --- FILA 10: REPORTE DE CONTABLE ---
+        st.divider()
+        st.divider()
+        try:
+            año_val = st.session_state.get('año_seleccionado', st.session_state.get('f_anio_global', 2026))
+            mes_elegido = st.session_state.get('mes_seleccionado', st.session_state.get('f_mes_global', 'Junio'))
+
+            # Blindaje y conversión del año
+            try:
+                año = int(str(año_val).strip())
+            except Exception:
+                año = 2026
+
+            # Mapeo robusto de meses
+            meses_map = {
+                'Enero': 1, 'Febrero': 2, 'Marzo': 3, 'Abril': 4, 'Mayo': 5, 'Junio': 6,
+                'Julio': 7, 'Agosto': 8, 'Septiembre': 9, 'Octubre': 10, 'Noviembre': 11, 'Diciembre': 12
+            }
+
+            # Procesar mes dinámicamente según la selección del usuario (OJO: Cuidado con los filtros de fecha)
+            if isinstance(mes_elegido, (int, float)):
+                num_mes = int(mes_elegido)
+                inv_map = {v: k for k, v in meses_map.items()}
+                mes_elegido_str = inv_map.get(num_mes, 'Enero')
+            else:
+                mes_limpio = str(mes_elegido).strip().capitalize()
+                num_mes = meses_map.get(mes_limpio, 1)
+                mes_elegido_str = mes_limpio
+
+            # Construcción matemática y limpia de fechas límites para el SQL basadas estrictamente en el filtro activo
+            s_anio = str(año).zfill(4)
+            s_mes = str(num_mes).zfill(2)
+            ultimo_dia = int(calendar.monthrange(año, num_mes)[1])
+            s_dia = str(ultimo_dia).zfill(2)
+
+            f_i = f"{s_anio}-{s_mes}-01"
+            f_f = f"{s_anio}-{s_mes}-{s_dia}"
+
+            # Cuadro informativo de depuración en tiempo real respetando los filtros
+            st.info(f"📅 Período Activo: **{mes_elegido_str} {año}** | Rango SQL: **{f_i} al {f_f}**")
+
+            # Validar Base de Datos activa
+            db = st.session_state.get('DB_ACTUAL')
+            if db and db != "{db}" and db != "None" and str(db).strip() != "":
+                try:
+                    df_acc = obtener_analisis_accionista_detallado(db, f_i, f_f)
+                    utilidad = obtener_historico_utilidad(db, f_inicio=f_i, f_fin=f_f)
+                except Exception as err:
+                    st.error(f"Error interno en la función de datos: {err}")
+                    st.stop()
+            else:
+                st.warning("⚠️ Selecciona una empresa.")
+                st.stop()
+
+            st.subheader(f"📊 Análisis Contable: {db}")
+            tab1, tab2, tab3, tab4, tab5 = st.tabs([
+                "👥 Accionistas", 
+                "📉 Gastos Operativos", 
+                "📈 Resumen Utilidad", 
+                "💳 Cuentas por Pagar Accionista", 
+                "💰 Otros Ingresos"
+            ])
+
+            with tab1:
+                st.markdown("### Clausula 4ta del Contrato")
+                
+                # Procesamiento ultra-seguro de la utilidad devuelta
+                utilidad_bruta = 0.0
+                if utilidad is not None:
+                    if isinstance(utilidad, pd.DataFrame) and not utilidad.empty:
+                        if 'utilidad_mensual' in utilidad.columns:
+                            utilidad_bruta = float(utilidad['utilidad_mensual'].iloc[0])
+                        else:
+                            utilidad_bruta = float(utilidad.iloc[0, 0])
+                    elif isinstance(utilidad, (int, float)):
+                        utilidad_bruta = float(utilidad)
+                    elif isinstance(utilidad, (list, tuple)) and len(utilidad) > 0:
+                        try:
+                            utilidad_bruta = float(utilidad[0])
+                        except Exception:
+                            utilidad_bruta = 0.0
+
+                neto_disponible = utilidad_bruta * 0.66
+
+                # Consulta SQL a base de datos de accionistas
+                conn = conectar_db(db)
+                df_config_accionistas = pd.read_sql(f"SELECT * FROM `{db}`.accionistas", conn)
+                conn.close()
+
+                nombres_grafico = []
+                valores_grafico = []
+                colores_grafico = []
+
+                if df_config_accionistas is not None and not df_config_accionistas.empty:
+                    for _, row in df_config_accionistas.iterrows():
+                        cuenta = str(row['codigo_cuenta_asociada']).strip()
+                        nombre = str(row['nombre']).strip()
+                        total_retiro = 0.0
+
+                        if df_acc is not None and not df_acc.empty and 'plan_cuentas' in df_acc.columns:
+                            df_acc['plan_cuentas'] = df_acc['plan_cuentas'].astype(str).str.strip()
+                            filtro_acc = df_acc[df_acc['plan_cuentas'] == cuenta]
+                            if not filtro_acc.empty:
+                                total_retiro = float(filtro_acc['neto'].sum())
+
+                        nombres_grafico.append(nombre)
+                        valores_grafico.append(total_retiro)
+                        colores_grafico.append('#1f77b4' if "Jean Marco" in nombre else '#33a02c')
+
+                    # Agregar métricas globales al final
+                    nombres_grafico.extend(['Utilidad Contable', 'Utilidad Neta'])
+                    valores_grafico.extend([utilidad_bruta, neto_disponible])
+                    colores_grafico.extend(['#ff7f0e', '#7f7f7f'])
+
+                if len(valores_grafico) > 0:
+                    valores_grafico_limpios = [float(v) if pd.notnull(v) else 0.0 for v in valores_grafico]
+                    
+                    fig = go.Figure(go.Bar(
+                        x=valores_grafico_limpios,
+                        y=nombres_grafico,
+                        orientation='h',
+                        marker_color=colores_grafico,
+                        texttemplate='%{x:,.2f}',
+                        textposition='outside'
+                    ))
+                    
+                    fig.update_layout(
+                        title=f"Comparativa: Retiros vs Utilidades (Mes: {mes_elegido_str} {año})",
+                        height=450,
+                        xaxis=dict(title="Valor (Bs.)", zeroline=True, showgrid=True, autorange=True),
+                        yaxis=dict(type='category', autorange="reversed"),
+                        margin=dict(l=20, r=100, t=50, b=20)
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.warning("No hay datos disponibles para mostrar en el gráfico de este periodo.")
+
+            with tab2:
+                st.markdown("### 📉 Detalle de Gastos Operativos")
+
+                # --- 1. SECCIÓN CLASE 5 (Costos) ---
+                st.subheader("Costos (Clase 5)")
+                df_gastos_c5 = obtener_analisis_gastos_clase5(db, f_i, f_f)
+
+                if df_gastos_c5 is not None and not df_gastos_c5.empty:
+                    df_gastos_c5.columns = [str(c).strip().lower() for c in df_gastos_c5.columns]
+                    
+                    col_cuenta = 'plan_cuentas' if 'plan_cuentas' in df_gastos_c5.columns else df_gastos_c5.columns[0]
+                    col_desc = 'descripcion' if 'descripcion' in df_gastos_c5.columns else df_gastos_c5.columns[1]
+                    col_total = 'total_gasto' if 'total_gasto' in df_gastos_c5.columns else df_gastos_c5.columns[2]
+
+                    # --- EXCLUIR CUENTAS QUE EMPIECEN POR '7' ---
+                    df_gastos_c5[col_cuenta] = df_gastos_c5[col_cuenta].astype(str).str.strip()
+                    df_gastos_c5 = df_gastos_c5[~df_gastos_c5[col_cuenta].str.startswith('7')]
+
+                if df_gastos_c5 is not None and not df_gastos_c5.empty:
+                    st.markdown(f"**Resumen de Costos del Período ({mes_elegido_str} {año}):**")
+                    lineas_c5 = []
+                    for _, row in df_gastos_c5.iterrows():
+                        cta = str(row[col_cuenta]).strip()
+                        desc = str(row[col_desc]).strip()
+                        monto = float(row[col_total]) if pd.notnull(row[col_total]) else 0.0
+                        lineas_c5.append(f"- **{cta} - {desc}**: Bs. {monto:,.2f}")
+                    
+                    st.markdown("\n".join(lineas_c5))
+
+                    # Gráfico Clase 5
+                    df_gastos_c5['etiqueta'] = df_gastos_c5[col_cuenta].astype(str) + ' - ' + df_gastos_c5[col_desc].astype(str)
+                    import plotly.express as px
+                    fig5 = px.bar(
+                        df_gastos_c5.sort_values(col_total, ascending=True), 
+                        x=col_total, y='etiqueta', orientation='h',
+                        title=f"Totalización: Cuentas Clase 5 ({mes_elegido_str} {año})",
+                        color_discrete_sequence=['#d62728'], text=col_total
+                    )
+                    fig5.update_traces(texttemplate='%{text:,.2f}', textposition='outside')
+                    fig5.update_layout(height=300, margin=dict(l=20, r=40, t=40, b=20), xaxis=dict(title="Monto (Bs.)"), yaxis=dict(title=""))
+                    st.plotly_chart(fig5, use_container_width=True)
+                else:
+                    st.info(f"No hay movimientos en cuentas de Clase 5 para el período del {f_i} al {f_f}.")
+
+                st.divider()
+
+                # --- 2. SECCIÓN CLASE 6 (Gastos Operativos) ---
+                st.subheader("Gastos Operativos (Clase 6)")
+                
+                try:
+                    df_gastos_c6 = obtener_analisis_gastos_clase6(db, f_i, f_f)
+                except Exception:
+                    df_gastos_c6 = pd.DataFrame()
+
+                if df_gastos_c6 is not None and not df_gastos_c6.empty:
+                    df_gastos_c6.columns = [str(c).strip().lower() for c in df_gastos_c6.columns]
+                    
+                    c6_cuenta = 'plan_cuentas'
+                    c6_nombre = 'cuenta_contable'
+                    c6_total = 'total_gasto'
+
+                    st.markdown(f"**Totalizado por Cuenta - Gastos Operativos ({mes_elegido_str} {año}):**")
+                    lineas_c6 = []
+                    for _, row in df_gastos_c6.iterrows():
+                        num_cta = str(row[c6_cuenta]).strip()
+                        nom_cta = str(row[c6_nombre]).strip()
+                        monto = float(row[c6_total]) if pd.notnull(row[c6_total]) else 0.0
+                        lineas_c6.append(f"- **{num_cta} - {nom_cta}**: Bs. {monto:,.2f}")
+                    
+                    st.markdown("\n".join(lineas_c6))
+
+                    # Gráfico limpio basado exclusivamente en el número y nombre de la cuenta
+                    df_gastos_c6['etiqueta'] = df_gastos_c6[c6_cuenta].astype(str) + ' - ' + df_gastos_c6[c6_nombre].astype(str)
+                    fig6 = px.bar(
+                        df_gastos_c6.sort_values(c6_total, ascending=True), 
+                        x=c6_total, y='etiqueta', orientation='h',
+                        title=f"Total Gastos Operativos por Cuenta ({mes_elegido_str} {año})",
+                        color_discrete_sequence=['#1f77b4'], text=c6_total
+                    )
+                    fig6.update_traces(texttemplate='%{text:,.2f}', textposition='outside')
+                    fig6.update_layout(height=350, margin=dict(l=20, r=40, t=40, b=20), xaxis=dict(title="Monto (Bs.)"), yaxis=dict(title=""))
+                    st.plotly_chart(fig6, use_container_width=True)
+                else:
+                    st.info(f"No hay movimientos en cuentas de Clase 6 para el período del {f_i} al {f_f}.")
+
+
+            with tab3:
+                st.markdown("### 📊 Evolución de Saldo Neto Acumulado")
+                df_utilidad = obtener_historico_utilidad_acumulada(db) 
+                
+                if not df_utilidad.empty:
+                    meses_nombres = {1:'Ene', 2:'Feb', 3:'Mar', 4:'Abr', 5:'May', 6:'Jun', 7:'Jul', 8:'Ago', 9:'Sep', 10:'Oct', 11:'Nov', 12:'Dic'}
+                    df_utilidad['nombre_mes'] = df_utilidad['mes'].map(meses_nombres)
+                    
+                    # 1. Suma total acumulada hasta la fecha
+                    utilidad_acumulada_total = df_utilidad['utilidad_mensual'].sum()
+                    
+                    # Creamos columnas para organizar la métrica total y el desglose mensual al lado
+                    col_total, col_detalle = st.columns([1, 2])
+                    
+                    with col_total:
+                        st.metric("Saldo Neto Acumulado al Periodo", f"Bs. {utilidad_acumulada_total:,.2f}")
+                        
+                    with col_detalle:
+                        st.markdown("**Utilidad por Mes del Periodo:**")
+                        etiquetas_meses = []
+                        for _, row in df_utilidad.iterrows():
+                            mes_str = row['nombre_mes']
+                            val = row['utilidad_mensual']
+                            etiquetas_meses.append(f"**{mes_str}:** Bs. {val:,.2f}")
+                        
+                        st.markdown(" | ".join(etiquetas_meses))
+                    
+                    # 2. Gráfico de barras mensual
+                    df_utilidad['color'] = df_utilidad['utilidad_mensual'].apply(lambda x: 'Ganancia' if x >= 0 else 'Pérdida')
+                    
+                    import plotly.express as px
+                    fig = px.bar(
+                        df_utilidad, 
+                        x='nombre_mes', 
+                        y='utilidad_mensual', 
+                        color='color',
+                        color_discrete_map={'Ganancia': '#2ecc71', 'Pérdida': '#e74c3c'},
+                        title="Desglose Mensual",
+                        text_auto='.2s'
+                    )
+                    
+                    fig.update_layout(plot_bgcolor='rgba(0,0,0,0)', showlegend=False)
+                    st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.info("No hay datos disponibles para el periodo seleccionado.")
+
+            with tab4:
+                # --- SECCIÓN: ASIENTO CONTABLE COMPLETO POR COMPROBANTE ---
+                st.divider()
+                st.subheader("👥 Detalle de Comprobantes - Cuentas por Pagar Accionistas")
+
+                db_actual = st.session_state.get('DB_ACTUAL')
+
+                if db_actual and db_actual != "{db}" and db_actual != "None":
+                    # Obtenemos la lista de comprobantes filtrando por el rango de fechas global
+                    conn_tmp = conectar_db(db_actual)
+                    if conn_tmp:
+                        query_comps = f"""
+                            SELECT DISTINCT n_comprobante, fecha 
+                            FROM `{db_actual}`.asientos_contables 
+                            WHERE plan_cuentas LIKE '2.2.1.01.001%'
+                            AND fecha BETWEEN %s AND %s
+                            ORDER BY fecha DESC, n_comprobante DESC
+                        """
+                        df_comps = pd.read_sql(query_comps, conn_tmp, params=(f_inicio_global, f_fin_global))
+                        conn_tmp.close()
+                    else:
+                        df_comps = pd.DataFrame()
+
+                    if not df_comps.empty:
+                        # Función local para formatear los números al estilo latino (ej: 257.896,45)
+                        def formato_latino(val):
+                            try:
+                                s = f"{float(val):,.2f}"
+                                s = s.replace(",", "X").replace(".", ",").replace("X", ".")
+                                return s
+                            except:
+                                return val
+
+                        # --- MÉTRICAS GLOBALES DEL PERIODO ---
+                        total_debe_periodo = 0.0
+                        total_haber_periodo = 0.0
+                        
+                        conn_totales = conectar_db(db_actual)
+                        if conn_totales and 'n_comprobante' in df_comps.columns:
+                            lista_n_comps = tuple(df_comps['n_comprobante'].astype(str).unique())
+                            if lista_n_comps:
+                                placeholders = ','.join(['%s'] * len(lista_n_comps))
+                                query_totales = f"""
+                                    SELECT SUM(debe) as total_debe, SUM(haber) as total_haber 
+                                    FROM `{db_actual}`.asientos_contables 
+                                    WHERE n_comprobante IN ({placeholders})
+                                """
+                                df_t = pd.read_sql(query_totales, conn_totales, params=lista_n_comps)
+                                conn_totales.close()
+                                if not df_t.empty:
+                                    total_debe_periodo = df_t['total_debe'].iloc[0] or 0.0
+                                    total_haber_periodo = df_t['total_haber'].iloc[0] or 0.0
+
+                        # Mostramos las métricas generales del rango de fechas arriba
+                        col_m1, col_m2, col_m3 = st.columns(3)
+                        col_m1.metric("Comprobantes en el Periodo", len(df_comps))
+                        col_m2.metric("Total Debe Global", f"Bs. {formato_latino(total_debe_periodo)}")
+                        col_m3.metric("Total Haber Global", f"Bs. {formato_latino(total_haber_periodo)}")
+                        
+                        st.divider()
+
+                        # Creamos opciones claras combinando número de comprobante y fecha
+                        df_comps['opcion'] = df_comps['n_comprobante'].astype(str) + " (Fecha: " + df_comps['fecha'].astype(str) + ")"
+                        lista_opciones = df_comps['opcion'].tolist()
+                        
+                        seleccion_opcion = st.selectbox("📂 Selecciona el comprobante a visualizar:", lista_opciones, key="select_accionistas")
+                        
+                        if seleccion_opcion:
+                            comprobante_activo = seleccion_opcion.split(" ")[0]
+                            df_asiento = obtener_asiento_por_comprobante(db_actual, comprobante_activo)
+                            
+                            if not df_asiento.empty:
+                                st.markdown(f"**Asiento Contable Completo del Comprobante N°: `{comprobante_activo}`**")
+                                
+                                df_mostrar = df_asiento.copy()
+                                df_mostrar['debe'] = df_mostrar['debe'].apply(formato_latino)
+                                df_mostrar['haber'] = df_mostrar['haber'].apply(formato_latino)
+                                
+                                st.dataframe(
+                                    df_mostrar,
+                                    use_container_width=True,
+                                    height=350,
+                                    column_config={
+                                        "id": st.column_config.NumberColumn("id", format="%d"),
+                                        "n_comprobante": st.column_config.TextColumn("N° Comprobante"),
+                                        "descripcion": st.column_config.TextColumn("Descripción"),
+                                        "fecha": st.column_config.DateColumn("Fecha"),
+                                        "plan_cuentas": st.column_config.TextColumn("Plan de Cuentas"),
+                                        "cuenta_contable": st.column_config.TextColumn("Cuenta Contable"),
+                                        "referencia": st.column_config.TextColumn("Referencia"),
+                                        "debe": st.column_config.TextColumn("Debe"),
+                                        "haber": st.column_config.TextColumn("Haber")
+                                    }
+                                )
+                                
+                                total_debe = df_asiento['debe'].sum()
+                                total_haber = df_asiento['haber'].sum()
+                                
+                                col1, col2 = st.columns(2)
+                                col1.metric("Total Debe (Comprobante)", f"Bs. {formato_latino(total_debe)}")
+                                col2.metric("Total Haber (Comprobante)", f"Bs. {formato_latino(total_haber)}")
+                            else:
+                                st.info("No se encontraron detalles para este comprobante.")
+                    else:
+                        st.info("No hay comprobantes asociados al filtro seleccionado.")
+                else:
+                    st.warning("⚠️ Selecciona una empresa.")
+                    
+            with tab5:
+                # --- SECCIÓN: DETALLE DE OTROS INGRESOS (7.1.1.01.001) ---
+                st.divider()
+                st.subheader("💰 Detalle de Comprobantes - Otros Ingresos (7.1.1.01.001)")
+
+                db_actual = st.session_state.get('DB_ACTUAL')
+
+                if db_actual and db_actual != "{db}" and db_actual != "None":
+                    # Pasamos las fechas globales para que aplique el filtro correctamente
+                    df_comps = obtener_comprobantes_ingresos(db_actual, f_inicio_global, f_fin_global)
+
+                    if not df_comps.empty:
+                        # Función local para formatear al estilo latino (ej: 257.896,45)
+                        def formato_latino(val):
+                            try:
+                                s = f"{float(val):,.2f}"
+                                s = s.replace(",", "X").replace(".", ",").replace("X", ".")
+                                return s
+                            except:
+                                return val
+
+                        # --- MÉTRICAS GLOBALES DEL PERIODO ---
+                        # Opcional: calculamos los totales generales de estos comprobantes en el rango
+                        total_debe_periodo = 0.0
+                        total_haber_periodo = 0.0
+                        
+                        conn_totales = conectar_db(db_actual)
+                        if conn_totales and 'n_comprobante' in df_comps.columns:
+                            lista_n_comps = tuple(df_comps['n_comprobante'].astype(str).unique())
+                            if lista_n_comps:
+                                placeholders = ','.join(['%s'] * len(lista_n_comps))
+                                query_totales = f"""
+                                    SELECT SUM(debe) as total_debe, SUM(haber) as total_haber 
+                                    FROM `{db_actual}`.asientos_contables 
+                                    WHERE n_comprobante IN ({placeholders})
+                                """
+                                df_t = pd.read_sql(query_totales, conn_totales, params=lista_n_comps)
+                                conn_totales.close()
+                                if not df_t.empty:
+                                    total_debe_periodo = df_t['total_debe'].iloc[0] or 0.0
+                                    total_haber_periodo = df_t['total_haber'].iloc[0] or 0.0
+
+                        # Mostramos las métricas generales del rango de fechas arriba
+                        col_m1, col_m2, col_m3 = st.columns(3)
+                        col_m1.metric("Comprobantes en el Periodo", len(df_comps))
+                        col_m2.metric("Total Debe Global", f"Bs. {formato_latino(total_debe_periodo)}")
+                        col_m3.metric("Total Haber Global", f"Bs. {formato_latino(total_haber_periodo)}")
+                        
+                        st.divider()
+
+                        # --- SELECTOR DE COMPROBANTE ---
+                        df_comps['opcion'] = df_comps['n_comprobante'].astype(str) + " (Fecha: " + df_comps['fecha'].astype(str) + ")"
+                        lista_opciones = df_comps['opcion'].tolist()
+                        
+                        seleccion_opcion = st.selectbox("📂 Selecciona el comprobante de Ingreso a visualizar:", lista_opciones, key="select_ingresos")
+                        
+                        if seleccion_opcion:
+                            comprobante_activo = seleccion_opcion.split(" ")[0]
+                            df_asiento = obtener_asiento_por_comprobante(db_actual, comprobante_activo)
+                            
+                            if not df_asiento.empty:
+                                st.markdown(f"**Asiento Contable Completo del Comprobante N°: `{comprobante_activo}`**")
+                                
+                                # Preparamos una copia del dataframe con los valores formateados como texto
+                                df_mostrar = df_asiento.copy()
+                                df_mostrar['debe'] = df_mostrar['debe'].apply(formato_latino)
+                                df_mostrar['haber'] = df_mostrar['haber'].apply(formato_latino)
+                                
+                                st.dataframe(
+                                    df_mostrar,
+                                    use_container_width=True,
+                                    height=350,
+                                    column_config={
+                                        "id": st.column_config.NumberColumn("id", format="%d"),
+                                        "n_comprobante": st.column_config.TextColumn("N° Comprobante"),
+                                        "descripcion": st.column_config.TextColumn("Descripción"),
+                                        "fecha": st.column_config.DateColumn("Fecha"),
+                                        "plan_cuentas": st.column_config.TextColumn("Plan de Cuentas"),
+                                        "cuenta_contable": st.column_config.TextColumn("Cuenta Contable"),
+                                        "referencia": st.column_config.TextColumn("Referencia"),
+                                        "debe": st.column_config.TextColumn("Debe"),
+                                        "haber": st.column_config.TextColumn("Haber")
+                                    }
+                                )
+                                
+                                # Totales calculados del comprobante individual
+                                total_debe = df_asiento['debe'].sum()
+                                total_haber = df_asiento['haber'].sum()
+                                
+                                col1, col2 = st.columns(2)
+                                col1.metric("Total Debe (Comprobante)", f"Bs. {formato_latino(total_debe)}")
+                                col2.metric("Total Haber (Comprobante)", f"Bs. {formato_latino(total_haber)}")
+                            else:
+                                st.info("No se encontraron detalles para este comprobante.")
+                    else:
+                        st.info("No hay comprobantes asociados a Otros Ingresos en este rango de fechas.")
+                else:
+                    st.warning("⚠️ Selecciona una empresa.")
+
         except Exception as e:
-            st.error(f"❌ Error al procesar el reporte: {e}")
+            st.error(f"Error procesando el reporte contable: {e}")
+
+
+        # 1. CONDICIONAL: Solo mostrar si el cliente actual es "pedacito_de_cielo_ca" (o el nombre de su BD)
+        if db == "pedacito_de_cielo_ca":
+    
+            with tab1:
+                # ==========================================
+                # 1. LÍNEA DIVISORIA ANTES DE LAS ALERTAS
+                # ==========================================
+                st.divider()
+
+                # ==========================================
+                # 2. SISTEMA DE ALERTAS Y CONTROL DE PAGOS
+                # ==========================================
+                st.markdown("### 🔔 Estado de Alertas Fiscales Próximas")
+
+                hoy = date.today()
+                
+                eventos_fiscales = [
+                    {"id": "iva_1", "concepto": "IVA / Anticipos (1era Quincena)", "fecha": date(2026, 8, 31), "mes_idx": 7},
+                    {"id": "iva_2", "concepto": "IVA / Anticipos (2da Quincena)", "fecha": date(2026, 8, 14), "mes_idx": 7},
+                    {"id": "islr", "concepto": "Retenciones de ISLR", "fecha": date(2026, 8, 7), "mes_idx": 7},
+                    {"id": "pensiones", "concepto": "Ley de Protección de Pensiones", "fecha": date(2026, 8, 17), "mes_idx": 7},
+                ]
+
+                # Contenedor para que el cliente pueda marcar si ya pagó
+                st.markdown("##### 📝 Control de Pagos Realizados:")
+                
+                pagos_realizados = {}
+                
+                col_c1, col_c2 = st.columns(2)
+                with col_c1:
+                    pagos_realizados["iva_2"] = st.checkbox("✅ IVA 2da Quincena Pagado", value=False)
+                    pagos_realizados["islr"] = st.checkbox("✅ Retenciones ISLR Pagadas", value=False)
+                with col_c2:
+                    pagos_realizados["pensiones"] = st.checkbox("✅ Ley de Pensiones Pagada", value=False)
+                    pagos_realizados["iva_1"] = st.checkbox("✅ IVA 1era Quincena Pagado", value=False)
+
+                # Evaluador de Alertas y Sonido
+                # Evaluador de Alertas y Sonido
+                alerta_activa = False
+                mensajes_urgentes = []
+                
+                for evento in eventos_fiscales:
+                    dias_restantes = (evento["fecha"] - hoy).days
+                    pagado = pagos_realizados.get(evento["id"], False)
+                    
+                    if pagado:
+                        st.info(f"✔️ **{evento['concepto']}**: Declarado y pagado a tiempo. ¡Sin deudas pendientes para esta fecha!")
+                    elif 0 <= dias_restantes <= 3:
+                        alerta_activa = True
+                        mensaje_alerta = f"⚠️ **¡ATENCIÓN!** Se acerca la declaración y pago de **{evento['concepto']}** programada para la fecha **{evento['fecha'].strftime('%d/%m/%Y')}** (Faltan {dias_restantes} días)."
+                        mensajes_urgentes.append(mensaje_alerta)
+
+                if alerta_activa:
+                    # Reproductor de audio oculto
+                    audio_html = """
+                        <audio autoplay style="display:none;">
+                          <source src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3" type="audio/mpeg">
+                        </audio>
+                    """
+                    st.markdown(audio_html, unsafe_allow_html=True)
+
+                    # Notificación flotante estilo bancario (toast superior) que desaparece en 5 segundos
+                    texto_notificacion = "<br>".join(mensajes_urgentes)
+                    banco_notif_html = f"""
+                        <div id="banco-toast-alerta" style="
+                            position: fixed;
+                            top: 20px;
+                            right: 20px;
+                            z-index: 999999;
+                            background-color: #fff3cd;
+                            color: #856404;
+                            padding: 16px 20px;
+                            border-radius: 8px;
+                            border-left: 6px solid #ffeeba;
+                            border: 1px solid #ffeeba;
+                            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+                            font-family: sans-serif;
+                            max-width: 400px;
+                            animation: slideIn 0.5s ease-out;
+                        ">
+                            <div style="font-weight: bold; margin-bottom: 5px; font-size: 15px;">🔔 Notificación Fiscal Urgente</div>
+                            <div style="font-size: 13px; line-height: 1.4;">{texto_notificacion}</div>
+                        </div>
+
+                        <style>
+                        @keyframes slideIn {{
+                            from {{ transform: translateX(100%); opacity: 0; }}
+                            to {{ transform: translateX(0); opacity: 1; }}
+                        }}
+                        @keyframes fadeOut {{
+                            from {{ opacity: 1; }}
+                            to {{ opacity: 0; }}
+                        }}
+                        </style>
+
+                        <script>
+                            setTimeout(function() {{
+                                var toast = document.getElementById('banco-toast-alerta');
+                                if (toast) {{
+                                    toast.style.animation = 'fadeOut 0.5s ease-out forwards';
+                                    setTimeout(function() {{
+                                        toast.remove();
+                                    }}, 500);
+                                }}
+                            }}, 5000);
+                        </script>
+                    """
+                    st.markdown(banco_notif_html, unsafe_allow_html=True)
+                    
+                else:
+                    if not any(pagos_realizados.values()) and not any(0 <= (e["fecha"] - hoy).days <= 3 for e in eventos_fiscales):
+                        st.success("✅ No hay obligaciones fiscales críticas a menos de 3 días de vencimiento en este momento.")
+
+                # ==========================================
+                # 3. LÍNEA DIVISORIA ANTES DEL CALENDARIO FISCAL
+                # ==========================================
+                st.divider()
+
+                # ==========================================
+                # 4. TÍTULOS Y TABLAS DEL CALENDARIO FISCAL
+                # ==========================================
+                st.subheader("📊 Calendario Fiscal 2026 - Sujeto Especial (SENIAT)")
+                st.markdown("### 🗓️ Cronograma de Declaraciones y Pagos")
+                
+                # Estilo visual moderno para las tablas
+                st.markdown("""
+                <style>
+                    .fiscal-table {
+                        width: 100%;
+                        border-collapse: collapse;
+                        margin-bottom: 20px;
+                        font-family: sans-serif;
+                        font-size: 14px;
+                    }
+                    .fiscal-table th {
+                        background-color: #2b313e;
+                        color: white;
+                        text-align: center;
+                        padding: 8px;
+                        border: 1px solid #ddd;
+                    }
+                    .fiscal-table td {
+                        text-align: center;
+                        padding: 8px;
+                        border: 1px solid #ddd;
+                    }
+                    .header-iva { background-color: #d4edda; color: #155724; font-weight: bold; text-align: left; padding: 8px; }
+                    .header-islr { background-color: #fff3cd; color: #856404; font-weight: bold; text-align: left; padding: 8px; }
+                    .header-pensiones { background-color: #cce5ff; color: #004085; font-weight: bold; text-align: left; padding: 8px; }
+                </style>
+                """, unsafe_allow_html=True)
+
+                meses = ["ENE", "FEB", "MAR", "ABR", "MAY", "JUN", "JUL", "AGO", "SEPT", "OCT", "NOV", "DIC"]
+                
+                q1_vals = ["❌", "❌", "❌", "❌", "❌", "❌", "❌", "31", "29", "20", "27", "16"]
+                q2_vals = ["❌", "❌", "❌", "❌", "❌", "❌", "❌", "14", "14", "05", "13", "03"]
+                islr_vals = ["❌", "❌", "❌", "❌", "❌", "❌", "❌", "07", "08", "09", "06", "09"]
+                pensiones_vals = ["❌", "❌", "❌", "❌", "❌", "❌", "❌", "17", "29", "20", "27", "16"]
+
+                if pagos_realizados["iva_1"]:
+                    q1_vals[7] = "✅ Pagado"
+                if pagos_realizados["iva_2"]:
+                    q2_vals[7] = "✅ Pagado"
+                if pagos_realizados["islr"]:
+                    islr_vals[7] = "✅ Pagado"
+                if pagos_realizados["pensiones"]:
+                    pensiones_vals[7] = "✅ Pagado"
+
+                # Renderizar Tabla 1: IVA 1era Quincena
+                st.markdown("#### 1. IVA, Anticipos de ISLR, IGTF y Retenciones de IVA")
+                html_iva_1 = f"""
+                <table class="fiscal-table">
+                    <tr><th colspan="13" class="header-iva">Primera Quincena (01 al 15) - R.I.F. Terminado en 0</th></tr>
+                    <tr><th>R.I.F.</th>{"".join([f"<th>{m}</th>" for m in meses])}</tr>
+                    <tr><td><b>0</b></td>{"".join([f"<td>{val}</td>" for val in q1_vals])}</tr>
+                </table>
+                """
+                st.markdown(html_iva_1, unsafe_allow_html=True)
+
+                # Renderizar Tabla 2: IVA 2da Quincena
+                html_iva_2 = f"""
+                <table class="fiscal-table">
+                    <tr><th colspan="13" class="header-iva" style="background-color: #e2f0d9;">Segunda Quincena (16 al último) - R.I.F. Terminado en 0</th></tr>
+                    <tr><th>R.I.F.</th>{"".join([f"<th>{m}</th>" for m in meses])}</tr>
+                    <tr><td><b>0</b></td>{"".join([f"<td>{val}</td>" for val in q2_vals])}</tr>
+                </table>
+                """
+                st.markdown(html_iva_2, unsafe_allow_html=True)
+
+                # Renderizar Retenciones ISLR
+                st.markdown("#### 2. Retenciones de Impuesto Sobre la Renta")
+                html_islr = f"""
+                <table class="fiscal-table">
+                    <tr><th>R.I.F.</th>{"".join([f"<th>{m}</th>" for m in meses])}</tr>
+                    <tr><td><b>0</b></td>{"".join([f"<td>{val}</td>" for val in islr_vals])}</tr>
+                </table>
+                """
+                st.markdown(html_islr, unsafe_allow_html=True)
+
+                # Renderizar Ley de Pensiones
+                st.markdown("#### 3. Ley de Protección de las Pensiones de Seguridad Social")
+                html_pensiones = f"""
+                <table class="fiscal-table">
+                    <tr><th>R.I.F.</th>{"".join([f"<th>{m}</th>" for m in meses])}</tr>
+                    <tr><td><b>0</b></td>{"".join([f"<td>{val}</td>" for val in pensiones_vals])}</tr>
+                </table>
+                """
+                st.markdown(html_pensiones, unsafe_allow_html=True)
+
+        else:
+            pass
 
     except Exception as e:
         st.error(f"❌ Error al procesar el reporte: {e}")
     finally:
-        # Cierre de conexión seguro
-        if 'conn' in st.session_state and st.session_state.conn.is_connected():
-            st.session_state.conn.close()
+        # Cierre de conexión seguro si aplica
+        if 'conn' in st.session_state and st.session_state.conn and hasattr(st.session_state.conn, 'is_connected') and st.session_state.conn.is_connected():
+            pass # Mantiene la conexión activa para el flujo de Streamlit
 
 
+        
 elif opcion_menu == "📂 Plan de Cuentas":
     st.subheader("Gestión de Plan de Cuentas")
     
@@ -6895,7 +8729,6 @@ elif opcion_menu == "📝 Asientos Contables":
                 conn_temp.close()
                 
                 # --- 3. Visualización limpia ---
-                # --- 3. Visualización y Edición ---
                 if df_diario is not None and not df_diario.empty:
                     # Normalización
                     df_diario.columns = [c.lower() for c in df_diario.columns]
@@ -6967,8 +8800,16 @@ elif opcion_menu == "📝 Asientos Contables":
                     try:
                         # 1. Lectura segura
                         df_subido = pd.read_excel(archivo_excel, header=None, skiprows=1, dtype=object)
-                        df_subido.columns = ['id_ex', 'N_comprobante', 'Descripcion', 'Fecha', 
-                                           'plan_de_cuentas', 'cuenta_contable', 'Ref', 'Debe', 'Haber']
+                        
+                        # Si el Excel trae más de 9 columnas, recortamos o ajustamos para evitar el error de tamaño
+                        columnas_esperadas = ['id_ex', 'N_comprobante', 'Descripcion', 'Fecha', 'plan_de_cuentas', 'cuenta_contable', 'Ref', 'Debe', 'Haber']
+                        
+                        if len(df_subido.columns) > len(columnas_esperadas):
+                            # Si sobra una columna (ej. la primera es un índice de Excel), nos quedamos con las necesarias desde la 0 o desde la 1
+                            # Aquí asumimos que tomamos las columnas que coinciden con el total esperado
+                            df_subido = df_subido.iloc[:, :len(columnas_esperadas)]
+                        
+                        df_subido.columns = columnas_esperadas
                         df_subido = df_subido.drop(columns=['id_ex'])
                         
                         # Limpieza
@@ -6981,7 +8822,6 @@ elif opcion_menu == "📝 Asientos Contables":
 
                         # 2. Importación segura
                         if st.button("🚀 Confirmar e Importar al Diario"):
-                            # Usamos db_actual (la que validamos al principio del módulo)
                             conn = conectar_db(db_actual) 
                             
                             if conn and conn.is_connected():
@@ -6993,7 +8833,7 @@ elif opcion_menu == "📝 Asientos Contables":
                                 except Exception as e:
                                     st.error(f"Error crítico en la inserción: {e}")
                                 finally:
-                                    conn.close() # Cierre garantizado
+                                    conn.close()
                             else:
                                 st.error("❌ No se pudo establecer conexión con la base de datos.")
                     
@@ -7576,7 +9416,7 @@ elif opcion_menu == "📝 Asientos Contables":
                         try:
                             df_subido = pd.read_excel(archivo_excel, header=None, skiprows=1, dtype=object)
                             df_subido.columns = ['id_ex', 'N_comprobante', 'Descripcion', 'Fecha', 
-                                                'plan_de_cuentas', 'cuenta_contable', 'Ref', 'Debe', 'Haber']
+                                                 'plan_de_cuentas', 'cuenta_contable', 'Ref', 'Debe', 'Haber']
                             df_subido = df_subido.drop(columns=['id_ex'])
                             
                             if str(df_subido.iloc[0, 0]).lower() in ['n_comprobante', 'nan']:
@@ -7584,10 +9424,11 @@ elif opcion_menu == "📝 Asientos Contables":
 
                             df_subido['Fecha'] = pd.to_datetime(df_subido['Fecha'], errors='coerce').dt.date
 
-                            st.write("### ✅ Vista previa:")
-                            v_debe = df_subido['Debe'].apply(limpiar_monto_contable).sum()
-                            v_haber = df_subido['Haber'].apply(limpiar_monto_contable).sum()
+                            # Limpiamos los montos numéricamente para calcular bien
+                            df_subido['Debe_num'] = df_subido['Debe'].apply(limpiar_monto_contable)
+                            df_subido['Haber_num'] = df_subido['Haber'].apply(limpiar_monto_contable)
 
+                            st.write("### ✅ Vista previa del archivo:")
                             st.dataframe(
                                 df_subido.style.format({
                                     'Debe': lambda x: formato_contable(limpiar_monto_contable(x)),
@@ -7596,20 +9437,40 @@ elif opcion_menu == "📝 Asientos Contables":
                                 hide_index=True, use_container_width=True
                             )
 
-                            c1, c2, c3 = st.columns(3)
-                            c1.metric("TOTAL DEBE", formato_contable(v_debe))
-                            c2.metric("TOTAL HABER", formato_contable(v_haber))
+                            # Validación por cada comprobante individual
+                            resumen_comprobantes = df_subido.groupby('N_comprobante')[['Debe_num', 'Haber_num']].sum().reset_index()
                             
-                            if abs(v_debe - v_haber) < 0.01:
-                                c3.success("✅ CUADRADO")
+                            st.write("### 📊 Auditoría por Comprobante:")
+                            todo_cuadrado = True
+                            
+                            for index, row in resumen_comprobantes.iterrows():
+                                comp = row['N_comprobante']
+                                t_debe = row['Debe_num']
+                                t_haber = row['Haber_num']
+                                diferencia = abs(t_debe - t_haber)
+                                
+
+                            # Totales globales del archivo
+                            v_debe = df_subido['Debe_num'].sum()
+                            v_haber = df_subido['Haber_num'].sum()
+
+                            st.markdown("---")
+                            c1, c2, c3 = st.columns(3)
+                            c1.metric("TOTAL GENERAL DEBE", formato_contable(v_debe))
+                            c2.metric("TOTAL GENERAL HABER", formato_contable(v_haber))
+                            
+                            if todo_cuadrado and abs(v_debe - v_haber) < 0.01:
+                                c3.success("✅ TODO EL ARCHIVO CUADRA")
                                 if st.button("🚀 Confirmar e Importar"):
-                                    # PASAMOS db_actual PARA QUE LA FUNCIÓN SEPA DÓNDE INSERTAR
-                                    if cargar_saldos_iniciales_db(df_subido, db_name=db_actual):
+                                    df_final_import = df_subido.drop(columns=['Debe_num', 'Haber_num'])
+                                    if cargar_saldos_iniciales_db(df_final_import, nombre_db=db_actual):
                                         st.balloons()
-                                        st.success("✅ ¡ASIENTO DE APERTURA GUARDADO!")
+                                        st.success("✅ ¡ASIENTOS GUARDADOS EXITOSAMENTE!")
                                         st.rerun()
                             else:
-                                c3.error(f"❌ DESCUADRE: {formato_contable(abs(v_debe - v_haber))}")
+                                c3.error("❌ HAY COMPROBANTES DESCUADRADOS EN EL ARCHIVO")
+                                st.warning("⚠️ Revisa las filas del comprobante 110002 en tu Excel, ya que tienen montos en el Debe pero les falta su contrapartida en el Haber.")
+
                         except Exception as e:
                             st.error(f"Error crítico: {e}")
 
@@ -9128,8 +10989,19 @@ elif opcion_menu == "📚 Libros Fiscales":
         VALOR_UT = 43.00
         FACTOR = 83.333333
         
-        def calcular_sustraendo(porcentaje):
-            return VALOR_UT * (porcentaje / 100) * FACTOR
+        def calcular_sustraendo(porcentaje_retencion):
+            sustraendos = {
+                1.0: (FACTOR * 0.01) * VALOR_UT,
+                2.0: (FACTOR * 0.02) * VALOR_UT,
+                3.0: (FACTOR * 0.03) * VALOR_UT,
+                5.0: (FACTOR * 0.05) * VALOR_UT
+            }
+            
+            # Obtenemos el valor, si no existe devolvemos 0.00
+            resultado = sustraendos.get(float(porcentaje_retencion), 0.00)
+            
+            # Redondeamos a 2 decimales para el formato Bs. XX.XX
+            return round(resultado, 2)
 
         import xml.etree.ElementTree as ET
         from xml.dom import minidom
@@ -9149,15 +11021,18 @@ elif opcion_menu == "📚 Libros Fiscales":
                 ET.SubElement(detalle, "NumeroFactura").text = "".join(filter(str.isalnum, str(row['numero_factura'])))
                 ET.SubElement(detalle, "NumeroControl").text = "".join(filter(str.isalnum, str(row['numero_control'])))
                 
-                # 3. Fecha Operación (CAMBIADO A DD/MM/AAAA)
+                # 3. Fecha Operación
                 fecha_obj = row['fecha_operacion']
                 fecha_str = fecha_obj.strftime("%d/%m/%Y") 
                 ET.SubElement(detalle, "FechaOperacion").text = fecha_str
                 
-                # 4. Concepto y Montos
+                # 4. Concepto y Montos (SIN EL SUSTRAENDO)
                 ET.SubElement(detalle, "CodigoConcepto").text = str(row['codigo_concepto']).zfill(3)
                 ET.SubElement(detalle, "MontoOperacion").text = f"{float(row['monto_operacion']):.2f}"
                 ET.SubElement(detalle, "PorcentajeRetencion").text = f"{float(row['porcentaje_retencion']):.2f}"
+
+                # ELIMINA O COMENTA ESTA LÍNEA QUE TE ESTÁ DANDO EL ERROR:
+                # ET.SubElement(detalle, "Sustraendo").text = f"{float(sustraendo_val):.2f}"
                 
                 # NOTA: He eliminado Sustraendo, MontoRetenido y NumeroComprobante 
                 # porque el SENIAT dio "Elemento no esperado" para esos campos.
@@ -9227,8 +11102,8 @@ elif opcion_menu == "📚 Libros Fiscales":
             st.markdown("### 🆕 Generar Nueva Retención")
 
             col_fecha1, col_fecha2 = st.columns(2)
-            f_xml_desde_n = col_fecha1.date_input("Desde", value=datetime(2026, 10, 1), key="nueva_desde")
-            f_xml_hasta_n = col_fecha2.date_input("Hasta", value=datetime(2026, 10, 31), key="nueva_hasta")
+            f_xml_desde_n = col_fecha1.date_input("Desde", value=datetime.datetime(2026, 10, 1), key="nueva_desde")
+            f_xml_hasta_n = col_fecha2.date_input("Hasta", value=datetime.datetime(2026, 10, 31), key="nueva_hasta")
 
             col_c1, col_c2 = st.columns(2)
 
@@ -9338,11 +11213,26 @@ elif opcion_menu == "📚 Libros Fiscales":
                         codigo_r = c9.text_input("Código Concepto", value="001", help="Ingresa el código del SENIAT (ej. 001, 002)")
                         
                         # Asegúrate de que el resultado sea siempre un float válido antes de pasarlo al input
-                        valor_calculado = calcular_sustraendo(porc_r) if rif_r.upper().startswith(('V', 'E')) else 0.0
-                        # Forzamos a float y redondeamos a 2 decimales para evitar el error de truncamiento
-                        val_sust = round(float(valor_calculado), 2)
+                        # --- Lógica de cálculo blindada ---
+                        # Aseguramos que 'porc_r' sea un número válido
+                        try:
+                            porc_actual = float(porc_r) if porc_r is not None else 0.0
+                        except ValueError:
+                            porc_actual = 0.0
 
-                        sust_r = c9.number_input("Sustraendo", value=val_sust, format="%.2f")
+                        # Lógica del sustraendo
+                        if rif_r.upper().startswith(('V', 'E')) and porc_actual > 0:
+                            val_sust = calcular_sustraendo(porc_actual)
+                        else:
+                            val_sust = 0.00 
+
+                        # Campo de entrada vinculado (usamos 'key' para evitar conflictos de estado)
+                        sust_r = c9.number_input(
+                            "Sustraendo", 
+                            value=float(val_sust), 
+                            format="%.2f", 
+                            key=f"sust_{f_data['id']}" # Esto permite que se refresque al cambiar de factura
+                        )
                         
                         btn_procesar = st.form_submit_button("🚀 Procesar y Guardar")
                         
@@ -9421,9 +11311,8 @@ elif opcion_menu == "📚 Libros Fiscales":
                     col_f1, col_f2 = st.columns(2)
                     
                     # Keys únicas para evitar conflictos
-                    f_inicio_h = col_f1.date_input("Desde", datetime(2026, 8, 1), key="h_desde_editor")
-                    f_fin_h = col_f2.date_input("Hasta", datetime(2026, 8, 31), key="h_hasta_editor")
-                    
+                    f_inicio_h = col_f1.date_input("Desde", datetime.datetime(2026, 8, 1), key="h_desde_editor")
+                    f_fin_h = col_f2.date_input("Hasta", datetime.datetime(2026, 8, 31), key="h_hasta_editor")
                     st.write("") 
                     btn_cargar = st.button("📂 Cargar Historial para Editar", use_container_width=True, type="primary")
 
@@ -9481,44 +11370,58 @@ elif opcion_menu == "📚 Libros Fiscales":
 
                     # --- 3. Sincronización ---
                     if st.button("💾 Sincronizar Historial con DB", type="primary", use_container_width=True):
-                        estado = st.session_state["editor_tabla_retenciones"]
+                        estado = st.session_state.get("editor_tabla_retenciones", None)
                         db_actual = st.session_state.get('DB_ACTUAL')
                         conn = conectar_db()
                         
                         if conn and db_actual:
                             try:
                                 cursor = conn.cursor()
-                                # Aseguramos el contexto de la base de datos correcta
                                 cursor.execute(f"USE {db_actual}")
                                 
                                 total_eliminados = 0
                                 total_editados = 0
                                 
                                 # PROCESAR ELIMINACIONES
-                                for row_idx in estado["deleted_rows"]:
-                                    id_real = int(st.session_state.df_retenciones_editor.iloc[row_idx]["id"]) 
-                                    cursor.execute("DELETE FROM retenciones_islr WHERE id = %s", (id_real,))
-                                    total_eliminados += 1
+                                if estado and "deleted_rows" in estado:
+                                    for row_idx in estado["deleted_rows"]:
+                                        id_real = int(st.session_state.df_retenciones_editor.iloc[row_idx]["id"]) 
+                                        cursor.execute("DELETE FROM retenciones_islr WHERE id = %s", (id_real,))
+                                        total_eliminados += 1
 
                                 # PROCESAR EDICIONES
-                                for row_idx, cambios in estado["edited_rows"].items():
-                                    id_real = int(st.session_state.df_retenciones_editor.iloc[int(row_idx)]["id"])
-                                    
-                                    for campo, valor in cambios.items():
-                                        # Limpieza de tipos de datos de numpy
-                                        valor_final = valor.item() if hasattr(valor, 'item') else valor
+                                if estado and "edited_rows" in estado and estado["edited_rows"]:
+                                    for row_idx, cambios in estado["edited_rows"].items():
+                                        fila = st.session_state.df_retenciones_editor.iloc[int(row_idx)]
+                                        id_real = int(fila["id"])
                                         
-                                        # Importante: Esto funcionará siempre que el nombre de la columna en el editor
-                                        # sea igual al nombre real en la tabla MySQL.
-                                        cursor.execute(f"UPDATE retenciones_islr SET {campo} = %s WHERE id = %s", 
-                                                       (valor_final, id_real))
-                                    total_editados += 1
+                                        for campo_display, valor in cambios.items():
+                                            mapa = {
+                                                "Monto Retenido": "monto_retenido",
+                                                "Base": "monto_operacion",
+                                                "N° Factura": "numero_factura",
+                                                "RIF": "rif_retenido"
+                                            }
+                                            columna_db = mapa.get(campo_display, campo_display)
+                                            valor_final = valor.item() if hasattr(valor, 'item') else valor
+                                            
+                                            query_upd = f"UPDATE retenciones_islr SET {columna_db} = %s WHERE id = %s"
+                                            cursor.execute(query_upd, (valor_final, id_real))
+                                            total_editados += 1
 
                                 conn.commit()
                                 
                                 if total_eliminados > 0 or total_editados > 0:
-                                    st.success(f"✅ Sincronización exitosa en {db_actual}: se eliminaron {total_eliminados} y actualizaron {total_editados} registros.")
-                                    del st.session_state.df_retenciones_editor
+                                    # --- NOTIFICACIÓN MEJORADA ---
+                                    mensaje = f"✅ Cambios guardados: {total_eliminados} eliminados, {total_editados} editados."
+                                    st.success(mensaje)
+                                    st.toast(mensaje, icon="💾") # Notificación flotante
+                                    
+                                    import time
+                                    time.sleep(1.5) # Pausa breve para que el usuario lea el mensaje
+                                    
+                                    if "df_retenciones_editor" in st.session_state:
+                                        del st.session_state.df_retenciones_editor
                                     st.rerun()
                                 else:
                                     st.info("ℹ️ No se detectaron cambios para guardar.")
@@ -9692,8 +11595,8 @@ elif opcion_menu == "📚 Libros Fiscales":
                 
                 with st.container(border=True):
                     col_xml1, col_xml2 = st.columns(2)
-                    f_xml_desde = col_xml1.date_input("Desde", value=datetime(2026, 4, 1), key="xml_desde")
-                    f_xml_hasta = col_xml2.date_input("Hasta", value=datetime(2026, 4, 30), key="xml_hasta")
+                    f_xml_desde = col_xml1.date_input("Desde", value=datetime.datetime(2026, 4, 1), key="xml_desde")
+                    f_xml_hasta = col_xml2.date_input("Hasta", value=datetime.datetime(2026, 4, 30), key="xml_hasta")
                     
                     # Botón de procesamiento
                     if st.button("🚀 Procesar Datos XML", use_container_width=False):
@@ -9824,3 +11727,11 @@ elif "Proveedores" in opcion_menu:
 elif "Inventarios" in opcion_menu:
     # Invocamos el módulo exclusivo pasando la conexión a la base de datos
     modulo_inventario_pedacito_cielo(conn)
+
+
+
+
+
+
+
+
