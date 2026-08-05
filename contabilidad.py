@@ -106,7 +106,6 @@ if "DB_HOST" in st.secrets:
   }
 else:
   # Si no hay secrets, usa los datos públicos fijos que configuraste para Railway
-  # Datos fijos directos para anular cualquier secreto viejo de Streamlit Cloud
     DB_CONFIG = {
         "host": "reseau.proxy.rlwy.net",
         "port": 58667,
@@ -125,40 +124,25 @@ conn = None
 def conectar_db(nombre_db=None):
   global conn
 
-  # Forzamos a que si no se pasa nombre, tome siempre "railway" (la única en la nube)
-  if nombre_db is None:
-    nombre_db = DB_CONFIG.get("database", "railway")
-
-  # 1. ¿Ya tenemos una conexión activa en la sesión y es la misma DB?
-  db_actual_en_sesion = st.session_state.get("current_db_link")
-
-  if "conn" in st.session_state and st.session_state.conn is not None:
-    if db_actual_en_sesion == nombre_db:
+  # Forzamos siempre los datos públicos de Railway, ignorando ips internas o nombres viejos
+  try:
+    if "conn" in st.session_state and st.session_state.conn is not None:
       try:
         st.session_state.conn.ping(reconnect=True, attempts=3, delay=1)
         conn = st.session_state.conn
         return conn
       except Exception:
         st.session_state.conn = None
-    else:
-      try:
-        st.session_state.conn.close()
-      except:
-        pass
-      st.session_state.conn = None
 
-  # 2. Creamos una nueva conexión limpia apuntando a la base de datos correcta
-  try:
-    config = DB_CONFIG.copy()
-    config["database"] = nombre_db
-    new_conn = mysql.connector.connect(**config)
+    # Creamos una nueva conexión limpia con los parámetros públicos
+    new_conn = mysql.connector.connect(**DB_CONFIG)
 
     st.session_state.conn = new_conn
-    st.session_state["current_db_link"] = nombre_db
+    st.session_state["current_db_link"] = "railway"
     conn = new_conn
     return conn
   except Exception as e:
-    st.error(f"❌ Error al conectar a {nombre_db}: {e}")
+    st.error(f"❌ Error al conectar a Railway: {e}")
     conn = None
     return None
 # =========================================================
