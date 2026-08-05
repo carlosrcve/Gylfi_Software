@@ -94,16 +94,17 @@ if 'stats' not in st.session_state:
 
 # Configuración base para el servidor de Railway (Central/Control)
 # Configuración base reforzada contra cortes de red (Lost connection)
+# Configuración optimizada para evitar cortes de red desde la nube de Streamlit
 DB_CONFIG_BASE = {
     "host": "reseau.proxy.rlwy.net",
     "port": 58667,
     "user": "root",
     "password": "ptCOCcKAWIhukQZtIhyrLDwdXboCZqyI",
     "raise_on_warnings": True,
-    "connection_timeout": 60,  # Aumentado a 60 segundos
-    "read_timeout": 60,        # Evita que se corte leyendo tablas grandes
-    "write_timeout": 60,
-    "use_pure": True,
+    "connection_timeout": 60,  # Tiempo de espera amplio para la conexión inicial
+    "read_timeout": 120,       # Evita que se caiga leyendo datos pesados de la nube
+    "write_timeout": 120,
+    "use_pure": True,          # Forzar el driver puro en Python para mayor estabilidad en la nube
 }
 
 conn = None
@@ -113,7 +114,7 @@ def conectar_db(nombre_db=None):
     db_name = nombre_db if nombre_db else st.secrets.get("DB_NAME", "control_central")
 
     try:
-        # Validar si la sesión anterior sigue viva con un ping real
+        # Validar si la sesión anterior sigue viva
         if "conn" in st.session_state and st.session_state.conn is not None:
             try:
                 st.session_state.conn.ping(reconnect=True, attempts=5, delay=2)
@@ -125,25 +126,17 @@ def conectar_db(nombre_db=None):
         config = DB_CONFIG_BASE.copy()
         config["database"] = db_name
 
-        # Creamos la nueva conexión con los timeouts extendidos
+        # Creamos la nueva conexión con los parámetros de la nube
         new_conn = mysql.connector.connect(**config)
         
-        # Forzar un comando rápido para asegurar que el canal está abierto
-        cursor = new_conn.cursor()
-        cursor.execute("SELECT 1")
-        cursor.close()
-
         st.session_state.conn = new_conn
         st.session_state["current_db_link"] = db_name
         conn = new_conn
         return conn
     except Exception as e:
-        st.error(f"❌ Error al conectar a la BD '{db_name}': {e}")
+        st.error(f"❌ Error al conectar a la BD '{db_name}' (Cloud): {e}")
         conn = None
         return None
-
-def conectar_db_cliente(nombre_bd_cliente):
-    return conectar_db(nombre_bd_cliente)
 
 # =========================================================
 # 2. IDENTIDAD DINÁMICA
