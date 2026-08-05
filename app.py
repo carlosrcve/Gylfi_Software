@@ -53,7 +53,7 @@ with st.sidebar:
     user_rol = st.session_state.get('rol')
     user_cliente_id = st.session_state.get('cliente_id')
     
-    conn_ctrl = conectar_db('control_central')
+    conn_ctrl = conectar_db()
     if user_rol == 'admin':
         query = "SELECT id, nombre_empresa, nombre_bd FROM clientes"
     else:
