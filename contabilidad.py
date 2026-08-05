@@ -189,7 +189,7 @@ def log_ejecucion(func):
 def obtener_cursor_seguro(conn):
     if conn is None or not conn.is_connected():
         # Intentamos recuperar la conexión de la sesión antes de que explote
-        conn = conectar_db(st.session_state.get('current_db_link', 'control_central'))
+        conn = conectar_db(st.session_state.get('current_db_link', 'railway'))
         
     if conn is None:
         raise Exception("Error crítico: La conexión a la base de datos se perdió y no pudo recuperarse.")
@@ -1476,14 +1476,14 @@ def panel_administracion(conn):
                 
                 # Buscamos las empresas disponibles para asociar
                 try:
-                    query_cli = "SELECT id, nombre_empresa FROM control_central.clientes"
+                    query_cli = "SELECT id, nombre_empresa FROM clientes"
                     df_cli = pd.read_sql(query_cli, conn)
                     opciones_clientes = {row['nombre_empresa']: row['id'] for _, row in df_cli.iterrows()}
                     
                     nombre_sel = st.selectbox("Asociar a Empresa (Solo para rol cliente)", 
-                                            ["Ninguna / Acceso Total"] + list(opciones_clientes.keys()))
+                                              ["Ninguna / Acceso Total"] + list(opciones_clientes.keys()))
                 except:
-                    st.warning("⚠️ No se pudieron cargar las empresas de 'control_central'")
+                    st.warning("⚠️ No se pudieron cargar las empresas de la base de datos")
                     opciones_clientes = {}
 
             btn_crear = st.form_submit_button("Guardar Usuario en Base de Datos")
@@ -1500,7 +1500,7 @@ def panel_administracion(conn):
                         c_id = opciones_clientes.get(nombre_sel) if rol == "cliente" and nombre_sel != "Ninguna / Acceso Total" else None
                         
                         cursor = conn.cursor()
-                        sql = """INSERT INTO control_central.usuarios (usuario, clave_hash, rol, cliente_id) 
+                        sql = """INSERT INTO usuarios (usuario, clave_hash, rol, cliente_id) 
                                  VALUES (%s, %s, %s, %s)"""
                         
                         cursor.execute(sql, (nuevo_u, hash_cifrado.decode('utf-8'), rol, c_id))
@@ -4134,7 +4134,8 @@ def obtener_metricas_iva(conn, mes_n, ano):
 
 @log_ejecucion
 def obtener_datos_agente_db(valor_busqueda):
-    conn_central = conectar_db("control_central")
+    # Forzamos a que use la conexión principal de Railway y no busque "control_central"
+    conn_central = conectar_db() 
     if not conn_central: return None
 
     try:
@@ -4150,14 +4151,11 @@ def obtener_datos_agente_db(valor_busqueda):
         cursor.close()
         return datos
     except Exception as e:
-        # Aquí es donde ocurre el error 1292. Si ves esto en pantalla, 
-        # sabrás exactamente qué valor está fallando.
         st.error(f"Error en consulta DB: {e} | Valor buscado: {valor_busqueda}")
         return None
     finally:
         if conn_central and conn_central.is_connected():
             conn_central.close()
-
 
 @log_ejecucion
 def obtener_empresa_activa():
@@ -4213,7 +4211,7 @@ def marcar_retencion_completada(conn, id_factura, n_comprobante):
 
 @log_ejecucion
 def obtener_todas_las_empresas():
-    conn_central = conectar_db("control_central")
+    conn_central = conectar_db()
     if not conn_central: return []
     try:
         cursor = conn_central.cursor(dictionary=True)
@@ -4233,7 +4231,7 @@ def obtener_todas_las_empresas():
 
 @log_ejecucion
 def obtener_empresas_del_usuario(db_nombre_en_sesion):
-    conn = conectar_db("control_central")
+    conn = conectar_db()
     if not conn: return []
 
     try:
@@ -4249,7 +4247,6 @@ def obtener_empresas_del_usuario(db_nombre_en_sesion):
         return []
     finally:
         if conn and conn.is_connected(): conn.close()
-
 
 @log_ejecucion
 def actualizar_registro_retencion(fila):
@@ -6868,8 +6865,7 @@ if 'stats' not in st.session_state:
 
 # --- VALIDACIÓN DE CONEXIÓN GLOBAL ---
 if 'conn' not in st.session_state or not st.session_state.conn.is_connected():
-    st.session_state.conn = conectar_db("control_central")
-
+    st.session_state.conn = conectar_db()
 conn = st.session_state.conn
 
 
@@ -6880,7 +6876,7 @@ if menu == "⚙️ Gestión de Usuarios":
     try:
         # 1. Aseguramos conexión
         if not conn or not conn.is_connected():
-            conn = conectar_db("control_central")
+            conn = conectar_db()
 
         # 2. ELIMINAMOS ESTE BLOQUE QUE CAUSA EL ERROR:
         # with conn.cursor() as cursor:
@@ -6928,7 +6924,7 @@ EMPRESA = st.session_state.get('CLIENTE_NOMBRE', 'N/A')
 
 # 1. INICIALIZACIÓN GLOBAL (Aquí va tu código)
 if 'db_a_conectar' not in st.session_state:
-    st.session_state.db_a_conectar = "control_central"
+    st.session_state.db_a_conectar = "railway"
     st.session_state.nombre_empresa_seleccionada = "Seleccione Cliente"
 
 
@@ -6949,14 +6945,21 @@ def actualizar_empresa():
 
 
 # 1. Obtenemos los valores del estado
-BD_A_CONECTAR = st.session_state.get('db_a_conectar', "control_central")
+BD_A_CONECTAR = st.session_state.get('db_a_conectar', "railway")
 EMPRESA = st.session_state.get('nombre_empresa_seleccionada', "Seleccione Cliente")
 
 # 2. Conexión centralizada
-if BD_A_CONECTAR != "control_central":
+if BD_A_CONECTAR != "railway":
     # Solo conectamos si no hay una conexión válida en el estado
     if 'conn' not in st.session_state or st.session_state.conn is None:
         conn = conectar_db(BD_A_CONECTAR)
+        st.session_state.conn = conn
+    else:
+        conn = st.session_state.conn
+else:
+    # Si es railway o por defecto
+    if 'conn' not in st.session_state or st.session_state.conn is None:
+        conn = conectar_db()
         st.session_state.conn = conn
     else:
         conn = st.session_state.conn
@@ -11671,7 +11674,7 @@ elif opcion_menu == "📚 Libros Fiscales":
         import datetime as dt 
         
         # 2. Validamos la conexión antes de entrar a la interfaz pesada
-        db_actual = st.session_state.get('DB_ACTUAL', 'control_central')
+        db_actual = st.session_state.get('DB_ACTUAL', 'railway')
         conn_valida = conectar_db(db_actual)
         
         if conn_valida:
