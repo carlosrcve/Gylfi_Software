@@ -124,9 +124,9 @@ conn = None
 def conectar_db(nombre_db=None):
   global conn
 
-  # Si no se especifica nombre, toma por defecto el que está configurado en DB_CONFIG
+  # Forzamos a que si no se pasa nombre, tome siempre "railway" (la única en la nube)
   if nombre_db is None:
-    nombre_db = DB_CONFIG.get("database")
+    nombre_db = DB_CONFIG.get("database", "railway")
 
   # 1. ¿Ya tenemos una conexión activa en la sesión y es la misma DB?
   db_actual_en_sesion = st.session_state.get("current_db_link")
@@ -134,21 +134,19 @@ def conectar_db(nombre_db=None):
   if "conn" in st.session_state and st.session_state.conn is not None:
     if db_actual_en_sesion == nombre_db:
       try:
-        # El "ping" garantiza que no nos diga "Connection not available"
         st.session_state.conn.ping(reconnect=True, attempts=3, delay=1)
         conn = st.session_state.conn
         return conn
       except Exception:
-        st.session_state.conn = None  # Conexión muerta, forzamos recreación
+        st.session_state.conn = None
     else:
-      # Cambio de base de datos: Cerramos la vieja correctamente
       try:
         st.session_state.conn.close()
       except:
         pass
       st.session_state.conn = None
 
-  # 2. Si no hay conexión o cambió la DB, creamos una nueva
+  # 2. Creamos una nueva conexión limpia apuntando a la base de datos correcta
   try:
     config = DB_CONFIG.copy()
     config["database"] = nombre_db
