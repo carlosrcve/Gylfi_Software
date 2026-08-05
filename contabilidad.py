@@ -1226,18 +1226,37 @@ def registrar_log(db_conn, usuario_id, accion, detalles, cliente_id):
 import bcrypt
 
 def verificar_usuario(conn, user, password):
-    # 0. Blindaje: Asegurar que hay conexión válida
-    if conn is None or not conn.is_connected():
+    # 0. Blindaje: Asegurar que hay conexión válida y activa
+    if conn is None:
         try:
             conn = conectar_db()
         except:
-            return None # Si no conecta, no puede verificar
+            return None 
 
-    # 1. Obtenemos el usuario de la base de datos (sin el prefijo control_central)
-    cursor = conn.cursor(dictionary=True)
-    cursor.execute("SELECT * FROM usuarios WHERE usuario = %s", (user,))
-    user_data = cursor.fetchone()
-    
+    # Intentar ejecutar la consulta con reintento automático si se cae la conexión (Error 2013 o similar)
+    for intento in range(2):
+        try:
+            if not conn.is_connected():
+                conn = conectar_db()
+                
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute("SELECT * FROM usuarios WHERE usuario = %s", (user,))
+            user_data = cursor.fetchone()
+            break # Si sale bien, rompemos el ciclo de reintentos
+        except Exception as e:
+            if intento == 0: # Si falla la primera vez, intentamos reconectar forzosamente
+                try:
+                    conn.reconnect(attempts=3, delay=2)
+                    continue
+                except:
+                    try:
+                        conn = conectar_db()
+                        continue
+                    except:
+                        return None
+            else:
+                return None
+
     if not user_data:
         cursor.close()
         return None # Usuario no existe
@@ -1247,7 +1266,6 @@ def verificar_usuario(conn, user, password):
     login_exitoso = False
     
     # --- LÓGICA HÍBRIDA ---
-    # Los hashes de bcrypt generados con esta librería empiezan por '$2b$'
     if clave_en_bd and clave_en_bd.startswith('$2b$'):
         # Es un hash bcrypt, verificamos normalmente
         if bcrypt.checkpw(password.encode('utf-8'), clave_en_bd.encode('utf-8')):
@@ -1261,10 +1279,12 @@ def verificar_usuario(conn, user, password):
             salt = bcrypt.gensalt()
             nuevo_hash = bcrypt.hashpw(password.encode('utf-8'), salt).decode('utf-8')
             
-            # Actualizamos la BD con el nuevo hash (sin el prefijo control_central)
-            cursor.execute("UPDATE usuarios SET clave_hash = %s WHERE id = %s", 
-                           (nuevo_hash, user_data['id']))
-            conn.commit()
+            try:
+                cursor.execute("UPDATE usuarios SET clave_hash = %s WHERE id = %s", 
+                               (nuevo_hash, user_data['id']))
+                conn.commit()
+            except:
+                pass
     
     cursor.close()
     
