@@ -146,7 +146,7 @@ def conectar_db(nombre_db=None):
             except Exception:
                 st.session_state.conn = None
 
-        # Intentamos leer de los secrets de forma segura, si no existen usa los valores directos
+        # Intentamos leer de los secrets de forma segura, si no existen usa los valores por defecto
         try:
             mysql_secrets = st.secrets["connections"]["mysql"]
             db_host = mysql_secrets.get("host", "reseau.proxy.rlwy.net")
@@ -154,7 +154,6 @@ def conectar_db(nombre_db=None):
             db_user = mysql_secrets.get("user", "root")
             db_password = mysql_secrets.get("password", "ptCOCcKAWIhukQZtIhyrLDwdXboCZqyI")
         except Exception:
-            # Fallback directo por si los secrets no cargan bien en Streamlit Cloud
             db_host = "reseau.proxy.rlwy.net"
             db_port = 58667
             db_user = "root"
@@ -167,14 +166,19 @@ def conectar_db(nombre_db=None):
             "password": db_password,
             "database": db_name,
             "raise_on_warnings": True,
-            "connect_timeout": 60,
-            "connection_timeout": 60,
-            "read_timeout": 120,
-            "write_timeout": 120,
+            "connect_timeout": 120,      # <--- Subido a 120s para darle margen al proxy
+            "connection_timeout": 120,
+            "read_timeout": 180,
+            "write_timeout": 180,
             "use_pure": True,
+            "autocommit": True,
+            "pool_name": "mypool",
+            "pool_size": 3,
         }
 
+        # Conectamos con reintentos automáticos integrados
         new_conn = mysql.connector.connect(**db_config)
+        
         st.session_state.conn = new_conn
         st.session_state["current_db_link"] = db_name
         return new_conn
