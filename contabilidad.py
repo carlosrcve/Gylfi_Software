@@ -95,11 +95,12 @@ if 'stats' not in st.session_state:
 # Configuración base para el servidor de Railway (Central/Control)
 # Configuración base reforzada contra cortes de red (Lost connection)
 # Configuración optimizada para evitar cortes de red desde la nube de Streamlit
+# Configuración base corregida para Railway
 DB_CONFIG_BASE = {
     "host": "reseau.proxy.rlwy.net",
     "port": 58667,
-    "user": "carlos_admin",  # <--- Cámbialo aquí
-    "password": "ptCOCcKAWIhukQZtIhyrLDwdXboCZqyI", # (Asegúrate de que la clave coincida exactamente con la que creaste)
+    "user": "carlos_admin",
+    "password": "ptCOcCKAWIhukQZtIHyrLDWdXboCZqyI",  # <--- Clave exacta corregida
     "raise_on_warnings": True,
     "connection_timeout": 60,
     "read_timeout": 120,
