@@ -121,7 +121,7 @@ import streamlit as st
 DB_HOST = "localhost"
 DB_PORT = 3306
 DB_USER = "root"          # O el usuario que uses en tu PC
-DB_PASSWORD = "TU_CONTRASEÑA_LOCAL"  # La contraseña de tu MySQL local
+DB_PASSWORD = "Ca22021956*"  # La contraseña de tu MySQL local
 
 def inicializar_base_de_datos():
     config_servidor = {
