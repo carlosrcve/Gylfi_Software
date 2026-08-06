@@ -120,10 +120,10 @@ except Exception as ex:
 DB_CONFIG_BASE = {
     "host": "reseau.proxy.rlwy.net",
     "port": 58667,
-    "user": "root",
-    "password": "ptCOCcKAWIhukQZtIhyrLDwdXboCZqyI",
+    "user": "carlos_admin",                  # <--- Usamos el usuario externo que creamos
+    "password": "Ca22021956*",          # <--- La contraseña que le pusiste al crearlo
     "raise_on_warnings": True,
-    "connect_timeout": 30,  # <--- Tiempo de espera amplio para el proxy externo
+    "connect_timeout": 30,
     "connection_timeout": 60,
     "read_timeout": 120,
     "write_timeout": 120,
@@ -149,7 +149,7 @@ def conectar_db(nombre_db=None):
         db_config = DB_CONFIG_BASE.copy()
         db_config["database"] = db_name
 
-        # Creamos la nueva conexión usando el proxy público de Railway
+        # Creamos la nueva conexión
         new_conn = mysql.connector.connect(**db_config)
         
         st.session_state.conn = new_conn
