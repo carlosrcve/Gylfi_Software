@@ -1,14 +1,3 @@
-        usuario = st.session_state.get('username', 'Desconocido')
-        cliente_id = st.session_state.get('cliente_id', 'N/A')
-        detalles = f"Usuario {usuario} ejecutó {func.__name__} para cliente {cliente_id}"
-        
-        # Solo registramos si logramos identificar una conexión válida
-        if conn:
-            registrar_log_automatico(conn, accion, detalles)
-        
-        return func(*args, **kwargs)
-    return wrapper
-
 #contabilidad.py
 import os
 import pytesseract
