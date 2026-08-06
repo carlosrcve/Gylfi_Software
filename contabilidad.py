@@ -123,7 +123,13 @@ import streamlit as st
 DB_HOST = "gateway01.us-east-1.prod.aws.tidbcloud.com"
 DB_PORT = 4000
 DB_USER = "4K4VAw4t4ZPFUTF.root"
-DB_PASSWORD = "OhAcM2lizBMDXDgD"  # Tu contraseña generada en TiDB Cloud
+DB_PASSWORD = "OhAcM2lizBMDXDgD"
+
+# Si descargas el certificado de TiDB Cloud y lo guardas en tu carpeta como 'ca.pem':
+DB_SSL_CONFIG = {
+    "ssl_ca": "ca.pem",  # El archivo del certificado que descargas de la interfaz
+    "ssl_verify_cert": True
+}
 
 def inicializar_base_de_datos():
     # 1. Conectamos primero a la base genérica 'sys' para asegurar que 'control_central' exista
