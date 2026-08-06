@@ -6837,7 +6837,7 @@ with st.sidebar:
             unsafe_allow_html=True
         )
 
-        query_sidebar = "SELECT id, nombre_empresa, db_nombre FROM control_central.clientes"
+        query_sidebar = "SELECT id, nombre_empresa FROM control_central.clientes"
         if st.session_state.get('rol') != 'admin':
             c_id = st.session_state.get('cliente_id')
             query_sidebar += f" WHERE id = {c_id}"
@@ -6858,7 +6858,7 @@ with st.sidebar:
             
             # 2. Sincronización de datos
             datos_sel = df_sidebar[df_sidebar['nombre_empresa'] == seleccion].iloc[0]
-            st.session_state['DB_ACTUAL'] = datos_sel['db_nombre']
+            st.session_state['DB_ACTUAL'] = "control_central"
             st.session_state['CLIENTE_NOMBRE'] = seleccion
 
             st.subheader("Módulos")
