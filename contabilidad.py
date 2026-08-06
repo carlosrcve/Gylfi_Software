@@ -98,13 +98,13 @@ if 'stats' not in st.session_state:
 DB_CONFIG_BASE = {
     "host": "reseau.proxy.rlwy.net",
     "port": 58667,
-    "user": "root",
-    "password": "ptCOCcKAWIhukQZtIhyrLDwdXboCZqyI",
+    "user": "carlos_admin",  # <--- Cámbialo aquí
+    "password": "ptCOCcKAWIhukQZtIhyrLDwdXboCZqyI", # (Asegúrate de que la clave coincida exactamente con la que creaste)
     "raise_on_warnings": True,
-    "connection_timeout": 60,  # Tiempo de espera amplio para la conexión inicial
-    "read_timeout": 120,       # Evita que se caiga leyendo datos pesados de la nube
+    "connection_timeout": 60,
+    "read_timeout": 120,
     "write_timeout": 120,
-    "use_pure": True,          # Forzar el driver puro en Python para mayor estabilidad en la nube
+    "use_pure": True,
 }
 
 conn = None
