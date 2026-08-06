@@ -93,6 +93,37 @@ if 'stats' not in st.session_state:
     stats = {'retenido': 0.0, 'ventas': 0.0, 'compras': 0.0}
 import mysql.connector
 import streamlit as st
+def inicializar_base_de_datos():
+    # 1. Conectamos sin especificar base de datos para asegurarnos de que exista
+    config_servidor = {
+        "host": "reseau.proxy.rlwy.net",
+        "port": 58667,
+        "user": "root",
+        "password": "MiPassword2026*",
+        "use_pure": True
+    }
+    
+    try:
+        conn = mysql.connector.connect(**config_servidor)
+        cursor = conn.cursor()
+        
+        # 2. Creamos la base de datos si no existe
+        cursor.execute("CREATE DATABASE IF NOT EXISTS control_central;")
+        cursor.execute("USE control_central;")
+        
+        # 3. Aquí creas tus tablas necesarias, por ejemplo:
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS usuarios (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                username VARCHAR(50) NOT NULL,
+                password VARCHAR(255) NOT NULL
+            );
+        """)
+        
+        cursor.close()
+        conn.close()
+    except Exception as e:
+        print(f"Error inicializando la BD: {e}")
 
 # ==========================================
 # 1. AUTOCREADOR DE LA BASE DE DATOS AL ARRANCAR
