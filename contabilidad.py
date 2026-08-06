@@ -1238,22 +1238,20 @@ def registrar_log(db_conn, usuario_id, accion, detalles, cliente_id):
 
 
 def verificar_usuario(conn, user, password):
-    # 0. Blindaje: Asegurar que hay conexión válida y activa
     if conn is None:
         try:
             conn = conectar_db()
         except:
             return None 
 
-    # Intentar ejecutar la consulta con reintento automático
     for intento in range(2):
         try:
             if not conn.is_connected():
                 conn = conectar_db()
                 
             cursor = conn.cursor(dictionary=True)
-            # CORREGIDO: Usamos 'username' en lugar de 'usuario'
-            cursor.execute("SELECT * FROM usuarios WHERE username = %s", (user,))
+            # Buscamos usando el nombre de columna correcto de tu tabla
+            cursor.execute("SELECT * FROM usuarios WHERE usuario = %s", (user,))
             user_data = cursor.fetchone()
             break 
         except Exception as e:
@@ -1262,11 +1260,7 @@ def verificar_usuario(conn, user, password):
                     conn.reconnect(attempts=3, delay=2)
                     continue
                 except:
-                    try:
-                        conn = conectar_db()
-                        continue
-                    except:
-                        return None
+                    return None
             else:
                 return None
 
@@ -1275,45 +1269,47 @@ def verificar_usuario(conn, user, password):
             cursor.close()
         except:
             pass
-        return None # Usuario no existe
+        return None 
     
-    # CORREGIDO: Usamos 'password' en lugar de 'clave_hash'
-    clave_en_bd = user_data.get('password') or user_data.get('clave_hash')
+    # Obtenemos la clave de la base de datos de forma segura
+    clave_en_bd = user_data.get('clave_hash') or user_data.get('password')
     login_exitoso = False
     
-    # --- LÓGICA HÍBRIDA ---
-    if clave_en_bd and clave_en_bd.startswith('$2b$'):
-        if bcrypt.checkpw(password.encode('utf-8'), clave_en_bd.encode('utf-8')):
-            login_exitoso = True
-    else:
-        # Si la contraseña coincide en texto plano
-        if password == clave_en_bd:
-            login_exitoso = True
-            
-            # MIGRACIÓN AUTOMÁTICA: Convertimos a hash si quieres seguridad
+    if clave_en_bd:
+        # Verificamos si es un hash de bcrypt
+        if str(clave_en_bd).startswith('$2b$'):
             try:
-                salt = bcrypt.gensalt()
-                nuevo_hash = bcrypt.hashpw(password.encode('utf-8'), salt).decode('utf-8')
-                cursor.execute("UPDATE usuarios SET password = %s WHERE id = %s", (nuevo_hash, user_data['id']))
-                conn.commit()
+                if bcrypt.checkpw(password.encode('utf-8'), clave_en_bd.encode('utf-8')):
+                    login_exitoso = True
             except:
                 pass
+        else:
+            # Si está en texto plano
+            if password == str(clave_en_bd):
+                login_exitoso = True
+                # Intentamos actualizar a hash de forma silenciosa para mejorar seguridad
+                try:
+                    salt = bcrypt.gensalt()
+                    nuevo_hash = bcrypt.hashpw(password.encode('utf-8'), salt).decode('utf-8')
+                    cursor.execute("UPDATE usuarios SET clave_hash = %s WHERE id = %s", (nuevo_hash, user_data['id']))
+                    conn.commit()
+                except:
+                    pass
     
     try:
         cursor.close()
     except:
         pass
     
-    # 3. Retorno del resultado asegurando que existan las llaves de rol y cliente_id para que no rompa el login
     if login_exitoso:
-        if 'rol' not in user_data:
-            user_data['rol'] = 'admin' # Rol por defecto si no lo tiene la tabla
+        # Aseguramos llaves por defecto para que la sesión no explote
+        if 'rol' not in user_data or not user_data['rol']:
+            user_data['rol'] = 'admin'
         if 'cliente_id' not in user_data:
-            user_data['cliente_id'] = 1 # ID por defecto
+            user_data['cliente_id'] = None
         return user_data
     else:
         return None
-
 import bcrypt
 
 def migrar_contraseñas_a_hash(conn):
