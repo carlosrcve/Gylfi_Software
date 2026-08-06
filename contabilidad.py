@@ -213,6 +213,7 @@ def conectar_db():
         
     except Exception as e:
         st.error(f"❌ Error al conectar: {e}")
+        print(f"ERROR REAL DE CONEXIÓN: {e}") # <-- Esto saldrá en tu terminal negra de Python
         return None
 # =========================================================
 # 2. IDENTIDAD DINÁMICA
