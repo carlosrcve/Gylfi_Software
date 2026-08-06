@@ -105,6 +105,7 @@ def inicializar_base_de_datos():
         "port": DB_PORT,
         "user": "root",
         "password": DB_PASSWORD,
+        "database": "railway",  # <-- Nos conectamos primero a la por defecto
         "use_pure": True
     }
     
@@ -112,6 +113,7 @@ def inicializar_base_de_datos():
         conn = mysql.connector.connect(**config_servidor)
         cursor = conn.cursor()
         
+        # Creamos la base de datos control_central si no existe
         cursor.execute("CREATE DATABASE IF NOT EXISTS control_central;")
         cursor.execute("USE control_central;")
         
@@ -128,41 +130,15 @@ def inicializar_base_de_datos():
     except Exception as e:
         print(f"Error inicializando la BD: {e}")
 
-# ==========================================
-# 1. AUTOCREADOR DE LA BASE DE DATOS AL ARRANCAR (RED INTERNA)
-# ==========================================
+# Ejecutamos la inicialización al arrancar la app de forma segura por el proxy
 try:
-    init_conn = mysql.connector.connect(
-        host="mysql.railway.internal",
-        port=3306,
-        user="root",
-        password=DB_PASSWORD,
-        database="railway",
-        connect_timeout=30
-    )
-    cursor = init_conn.cursor()
-    cursor.execute("CREATE DATABASE IF NOT EXISTS control_central;")
-    cursor.close()
-    init_conn.close()
+    inicializar_base_de_datos()
 except Exception as ex:
     pass
 
 # ==========================================
-# 2. CONFIGURACIÓN BASE DE CONEXIÓN (CLOUD / PROXY)
+# CONFIGURACIÓN BASE DE CONEXIÓN (CLOUD / PROXY)
 # ==========================================
-DB_CONFIG_BASE = {
-    "host": DB_HOST,
-    "port": DB_PORT,
-    "user": "root",
-    "password": DB_PASSWORD,
-    "raise_on_warnings": True,
-    "connect_timeout": 60,
-    "connection_timeout": 60,
-    "read_timeout": 120,
-    "write_timeout": 120,
-    "use_pure": True,
-}
-
 def conectar_db(nombre_db=None):
     db_name = nombre_db if nombre_db else "control_central"
 
