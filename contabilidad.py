@@ -95,12 +95,11 @@ if 'stats' not in st.session_state:
 # Configuración base para el servidor de Railway (Central/Control)
 # Configuración base reforzada contra cortes de red (Lost connection)
 # Configuración optimizada para evitar cortes de red desde la nube de Streamlit
-# Configuración base corregida para Railway
 DB_CONFIG_BASE = {
     "host": "reseau.proxy.rlwy.net",
     "port": 58667,
-    "user": "carlos_admin",
-    "password": "ptCOcCKAWIhukQZtIHyrLDWdXboCZqyI",  # <--- Clave exacta corregida
+    "user": "carlos_admin",  # <--- Cámbialo aquí
+    "password": "ptCOCcKAWIhukQZtIhyrLDwdXboCZqyI", # (Asegúrate de que la clave coincida exactamente con la que creaste)
     "raise_on_warnings": True,
     "connection_timeout": 60,
     "read_timeout": 120,
@@ -112,31 +111,41 @@ conn = None
 
 def conectar_db(nombre_db=None):
     global conn
-    db_name = nombre_db if nombre_db else st.secrets.get("DB_NAME", "control_central")
+    db_name = nombre_db if nombre_db else "control_central"
 
     try:
         # Validar si la sesión anterior sigue viva
         if "conn" in st.session_state and st.session_state.conn is not None:
             try:
                 st.session_state.conn.ping(reconnect=True, attempts=5, delay=2)
-                conn = st.session_state.conn
-                return conn
+                return st.session_state.conn
             except Exception:
                 st.session_state.conn = None
 
-        config = DB_CONFIG_BASE.copy()
-        config["database"] = db_name
+        # Si estás en local y no usas secrets.toml, puedes respaldarlo con tus variables directas
+        # Pero lo ideal es leerlo de st.secrets:
+        db_config = {
+            "host": st.secrets["connections"]["mysql"]["host"],
+            "port": int(st.secrets["connections"]["mysql"]["port"]),
+            "user": st.secrets["connections"]["mysql"]["user"],
+            "password": st.secrets["connections"]["mysql"]["password"],
+            "database": db_name,
+            "raise_on_warnings": True,
+            "connection_timeout": 60,
+            "read_timeout": 120,
+            "write_timeout": 120,
+            "use_pure": True,
+        }
 
-        # Creamos la nueva conexión con los parámetros de la nube
-        new_conn = mysql.connector.connect(**config)
+        # Creamos la nueva conexión
+        new_conn = mysql.connector.connect(**db_config)
         
         st.session_state.conn = new_conn
         st.session_state["current_db_link"] = db_name
-        conn = new_conn
-        return conn
+        return new_conn
+        
     except Exception as e:
         st.error(f"❌ Error al conectar a la BD '{db_name}' (Cloud): {e}")
-        conn = None
         return None
 
 # =========================================================
