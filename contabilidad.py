@@ -146,39 +146,22 @@ def conectar_db(nombre_db=None):
             except Exception:
                 st.session_state.conn = None
 
-        # Intentamos leer de los secrets de forma segura, si no existen usa los valores por defecto
-        try:
-            mysql_secrets = st.secrets["connections"]["mysql"]
-            db_host = mysql_secrets.get("host", "reseau.proxy.rlwy.net")
-            db_port = int(mysql_secrets.get("port", 58667))
-            db_user = mysql_secrets.get("user", "root")
-            db_password = mysql_secrets.get("password", "ptCOCcKAWIhukQZtIhyrLDwdXboCZqyI")
-        except Exception:
-            db_host = "reseau.proxy.rlwy.net"
-            db_port = 58667
-            db_user = "root"
-            db_password = "ptCOCcKAWIhukQZtIhyrLDwdXboCZqyI"
-
         db_config = {
-            "host": db_host,
-            "port": db_port,
-            "user": db_user,
-            "password": db_password,
+            "host": "reseau.proxy.rlwy.net",
+            "port": 58667,
+            "user": "root",
+            "password": "ptCOCcKAWIhukQZtIhyrLDwdXboCZqyI",
             "database": db_name,
             "raise_on_warnings": True,
-            "connect_timeout": 120,      # <--- Subido a 120s para darle margen al proxy
+            "connect_timeout": 120,
             "connection_timeout": 120,
             "read_timeout": 180,
             "write_timeout": 180,
             "use_pure": True,
-            "autocommit": True,
-            "pool_name": "mypool",
-            "pool_size": 3,
+            "autocommit": True
         }
 
-        # Conectamos con reintentos automáticos integrados
         new_conn = mysql.connector.connect(**db_config)
-        
         st.session_state.conn = new_conn
         st.session_state["current_db_link"] = db_name
         return new_conn
