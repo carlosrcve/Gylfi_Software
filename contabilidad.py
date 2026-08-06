@@ -91,11 +91,37 @@ f_fin_global = datetime.date(anio_seleccionado, mes_n, ultimo_dia_mes)
 # Inicializamos stats por seguridad si no existen
 if 'stats' not in st.session_state:
     stats = {'retenido': 0.0, 'ventas': 0.0, 'compras': 0.0}
+import mysql.connector
+import streamlit as st
 
+# ==========================================
+# 1. AUTOCREADOR DE LA BASE DE DATOS AL ARRANCAR
+# ==========================================
+try:
+    # Conectamos primero al esquema base 'railway' usando la red interna
+    init_conn = mysql.connector.connect(
+        host="mysql.railway.internal",
+        port=3306,
+        user="root",
+        password="ptCOCcKAWIhukQZtIhyrLDwdXboCZqyI",
+        database="railway"
+    )
+    cursor = init_conn.cursor()
+    cursor.execute("CREATE DATABASE IF NOT EXISTS control_central;")
+    cursor.close()
+    init_conn.close()
+except Exception as ex:
+    # Si falla la red interna (ej. si estás probando local en tu PC), no se cae la app, pasa al proxy externo
+    pass
+
+
+# ==========================================
+# 2. CONFIGURACIÓN BASE DE CONEXIÓN
+# ==========================================
 DB_CONFIG_BASE = {
     "host": "reseau.proxy.rlwy.net",
     "port": 58667,
-    "user": "root",  # <--- Cambiado a root, que es el usuario real en Railway
+    "user": "root",  # <--- Cambiado de 'carlos_admin' a 'root' que es el usuario real de Railway
     "password": "ptCOCcKAWIhukQZtIhyrLDwdXboCZqyI",
     "raise_on_warnings": True,
     "connection_timeout": 60,
@@ -119,11 +145,11 @@ def conectar_db(nombre_db=None):
             except Exception:
                 st.session_state.conn = None
 
-        # Copiamos la configuración base y le asignamos la base de datos
+        # Copiamos la configuración base y le inyectamos la base de datos correspondiente
         db_config = DB_CONFIG_BASE.copy()
         db_config["database"] = db_name
 
-        # Creamos la nueva conexión con el usuario root de Railway
+        # Creamos la nueva conexión
         new_conn = mysql.connector.connect(**db_config)
         
         st.session_state.conn = new_conn
