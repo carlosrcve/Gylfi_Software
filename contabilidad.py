@@ -1,3 +1,14 @@
+        usuario = st.session_state.get('username', 'Desconocido')
+        cliente_id = st.session_state.get('cliente_id', 'N/A')
+        detalles = f"Usuario {usuario} ejecutó {func.__name__} para cliente {cliente_id}"
+        
+        # Solo registramos si logramos identificar una conexión válida
+        if conn:
+            registrar_log_automatico(conn, accion, detalles)
+        
+        return func(*args, **kwargs)
+    return wrapper
+
 #contabilidad.py
 import os
 import pytesseract
@@ -93,13 +104,18 @@ if 'stats' not in st.session_state:
     stats = {'retenido': 0.0, 'ventas': 0.0, 'compras': 0.0}
 import mysql.connector
 import streamlit as st
+
+# Contraseña oficial actual de tu MySQL en Railway
+DB_PASSWORD = "baM0OIFCPFFqTvnAryhqNZAbdJMsz"
+DB_HOST = "reseau.proxy.rlwy.net"
+DB_PORT = 58667
+
 def inicializar_base_de_datos():
-    # 1. Conectamos sin especificar base de datos para asegurarnos de que exista
     config_servidor = {
-        "host": "reseau.proxy.rlwy.net",
-        "port": 58667,
+        "host": DB_HOST,
+        "port": DB_PORT,
         "user": "root",
-        "password": "MiPassword2026*",
+        "password": DB_PASSWORD,
         "use_pure": True
     }
     
@@ -107,11 +123,9 @@ def inicializar_base_de_datos():
         conn = mysql.connector.connect(**config_servidor)
         cursor = conn.cursor()
         
-        # 2. Creamos la base de datos si no existe
         cursor.execute("CREATE DATABASE IF NOT EXISTS control_central;")
         cursor.execute("USE control_central;")
         
-        # 3. Aquí creas tus tablas necesarias, por ejemplo:
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS usuarios (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -126,14 +140,14 @@ def inicializar_base_de_datos():
         print(f"Error inicializando la BD: {e}")
 
 # ==========================================
-# 1. AUTOCREADOR DE LA BASE DE DATOS AL ARRANCAR
+# 1. AUTOCREADOR DE LA BASE DE DATOS AL ARRANCAR (RED INTERNA)
 # ==========================================
 try:
     init_conn = mysql.connector.connect(
         host="mysql.railway.internal",
         port=3306,
         user="root",
-        password="ptCOCcKAWIhukQZtIhyrLDwdXboCZqyI",
+        password=DB_PASSWORD,
         database="railway",
         connect_timeout=30
     )
@@ -144,27 +158,21 @@ try:
 except Exception as ex:
     pass
 
-
 # ==========================================
-# 2. CONFIGURACIÓN BASE DE CONEXIÓN (RED INTERNA)
-# ==========================================
-# ==========================================
-# CONFIGURACIÓN BASE DE CONEXIÓN (CLOUD / PROXY)
+# 2. CONFIGURACIÓN BASE DE CONEXIÓN (CLOUD / PROXY)
 # ==========================================
 DB_CONFIG_BASE = {
-    "host": "reseau.proxy.rlwy.net",
-    "port": 58667,
+    "host": DB_HOST,
+    "port": DB_PORT,
     "user": "root",
-    "password": "ptCOCcKAWIhukQZtIhyrLDwdXboCZqyI",
+    "password": DB_PASSWORD,
     "raise_on_warnings": True,
-    "connect_timeout": 60,    # <--- Ampliado para evitar cortes del proxy
+    "connect_timeout": 60,
     "connection_timeout": 60,
     "read_timeout": 120,
     "write_timeout": 120,
     "use_pure": True,
 }
-
-conn = None
 
 def conectar_db(nombre_db=None):
     db_name = nombre_db if nombre_db else "control_central"
@@ -178,10 +186,10 @@ def conectar_db(nombre_db=None):
                 st.session_state.conn = None
 
         db_config = {
-            "host": "reseau.proxy.rlwy.net",
-            "port": 58667,
+            "host": DB_HOST,
+            "port": DB_PORT,
             "user": "root",
-            "password": "MiPassword2026*",
+            "password": DB_PASSWORD,
             "database": db_name,
             "raise_on_warnings": True,
             "connect_timeout": 120,
@@ -228,17 +236,6 @@ def log_ejecucion(func):
         conn = args[0] if args and hasattr(args[0], 'cursor') else None
         
         accion = func.__name__.upper()
-        usuario = st.session_state.get('username', 'Desconocido')
-        cliente_id = st.session_state.get('cliente_id', 'N/A')
-        detalles = f"Usuario {usuario} ejecutó {func.__name__} para cliente {cliente_id}"
-        
-        # Solo registramos si logramos identificar una conexión válida
-        if conn:
-            registrar_log_automatico(conn, accion, detalles)
-        
-        return func(*args, **kwargs)
-    return wrapper
-
 
 
 @log_ejecucion
