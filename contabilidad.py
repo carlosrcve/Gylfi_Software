@@ -150,7 +150,7 @@ def conectar_db(nombre_db=None):
             "host": "reseau.proxy.rlwy.net",
             "port": 58667,
             "user": "root",
-            "password": "ptCOCcKAWIhukQZtIhyrLDwdXboCZqyI",
+            "password": "MiPassword2026*",
             "database": db_name,
             "raise_on_warnings": True,
             "connect_timeout": 120,
