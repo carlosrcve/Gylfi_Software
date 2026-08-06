@@ -95,7 +95,7 @@ if 'stats' not in st.session_state:
 DB_CONFIG_BASE = {
     "host": "reseau.proxy.rlwy.net",
     "port": 58667,
-    "user": "carlos_admin",
+    "user": "root",  # <--- Cambiado a root, que es el usuario real en Railway
     "password": "ptCOCcKAWIhukQZtIhyrLDwdXboCZqyI",
     "raise_on_warnings": True,
     "connection_timeout": 60,
@@ -119,11 +119,11 @@ def conectar_db(nombre_db=None):
             except Exception:
                 st.session_state.conn = None
 
-        # Copiamos la configuración base y le inyectamos la base de datos correspondiente
+        # Copiamos la configuración base y le asignamos la base de datos
         db_config = DB_CONFIG_BASE.copy()
         db_config["database"] = db_name
 
-        # Creamos la nueva conexión usando tus variables directas
+        # Creamos la nueva conexión con el usuario root de Railway
         new_conn = mysql.connector.connect(**db_config)
         
         st.session_state.conn = new_conn
