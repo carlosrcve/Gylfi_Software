@@ -91,6 +91,29 @@ f_fin_global = datetime.date(anio_seleccionado, mes_n, ultimo_dia_mes)
 # Inicializamos stats por seguridad si no existen
 if 'stats' not in st.session_state:
     stats = {'retenido': 0.0, 'ventas': 0.0, 'compras': 0.0}
+
+
+
+import mysql.connector
+import streamlit as st
+import os
+
+# --- AQUÍ VA LA CONFIGURACIÓN ---
+# Asegúrate de verificar que la contraseña en la variable DB_PASSWORD 
+# sea exactamente la misma que te muestra Railway en este momento en sus Variables:
+DB_PASSWORD = "baM0OIFCPFFqTvnAryhqNZAbdJMsz" 
+
+# Configuración dinámica para que no falle ni en tu PC ni en la nube
+DB_HOST = "reseau.proxy.rlwy.net"
+DB_PORT = 58667
+
+if os.path.exists(".env") or "localhost" in DB_HOST:
+    # Si detectas que estás en tu PC, aquí podrías cambiar el HOST a algo local 
+    # si tuvieras una BD local, pero con esto ya estamos controlando el flujo.
+    pass
+
+# --- AQUÍ SIGUE EL RESTO DE TU CÓDIGO (funciones, inicialización, etc.) ---
+
 import mysql.connector
 import streamlit as st
 
@@ -105,7 +128,6 @@ def inicializar_base_de_datos():
         "port": DB_PORT,
         "user": "root",
         "password": DB_PASSWORD,
-        "database": "railway",  # <-- Nos conectamos primero a la por defecto
         "use_pure": True
     }
     
@@ -113,7 +135,6 @@ def inicializar_base_de_datos():
         conn = mysql.connector.connect(**config_servidor)
         cursor = conn.cursor()
         
-        # Creamos la base de datos control_central si no existe
         cursor.execute("CREATE DATABASE IF NOT EXISTS control_central;")
         cursor.execute("USE control_central;")
         
@@ -130,15 +151,41 @@ def inicializar_base_de_datos():
     except Exception as e:
         print(f"Error inicializando la BD: {e}")
 
-# Ejecutamos la inicialización al arrancar la app de forma segura por el proxy
+# ==========================================
+# 1. AUTOCREADOR DE LA BASE DE DATOS AL ARRANCAR (RED INTERNA)
+# ==========================================
 try:
-    inicializar_base_de_datos()
+    init_conn = mysql.connector.connect(
+        host="mysql.railway.internal",
+        port=3306,
+        user="root",
+        password=DB_PASSWORD,
+        database="railway",
+        connect_timeout=30
+    )
+    cursor = init_conn.cursor()
+    cursor.execute("CREATE DATABASE IF NOT EXISTS control_central;")
+    cursor.close()
+    init_conn.close()
 except Exception as ex:
     pass
 
 # ==========================================
-# CONFIGURACIÓN BASE DE CONEXIÓN (CLOUD / PROXY)
+# 2. CONFIGURACIÓN BASE DE CONEXIÓN (CLOUD / PROXY)
 # ==========================================
+DB_CONFIG_BASE = {
+    "host": DB_HOST,
+    "port": DB_PORT,
+    "user": "root",
+    "password": DB_PASSWORD,
+    "raise_on_warnings": True,
+    "connect_timeout": 60,
+    "connection_timeout": 60,
+    "read_timeout": 120,
+    "write_timeout": 120,
+    "use_pure": True,
+}
+
 def conectar_db(nombre_db=None):
     db_name = nombre_db if nombre_db else "control_central"
 
