@@ -120,8 +120,8 @@ except Exception as ex:
 DB_CONFIG_BASE = {
     "host": "reseau.proxy.rlwy.net",
     "port": 58667,
-    "user": "carlos_admin",                  # <--- Usamos el usuario externo que creamos
-    "password": "Ca22021956*",          # <--- La contraseña que le pusiste al crearlo
+    "user": "carlos_admin",
+    "password": "ptCOCcKAWIhukQZtIhyrLDwdXboCZqyI",
     "raise_on_warnings": True,
     "connect_timeout": 30,
     "connection_timeout": 60,
