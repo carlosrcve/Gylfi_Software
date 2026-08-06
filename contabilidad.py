@@ -117,13 +117,16 @@ except Exception as ex:
 # ==========================================
 # 2. CONFIGURACIÓN BASE DE CONEXIÓN (RED INTERNA)
 # ==========================================
+# ==========================================
+# CONFIGURACIÓN BASE DE CONEXIÓN (CLOUD / PROXY)
+# ==========================================
 DB_CONFIG_BASE = {
     "host": "reseau.proxy.rlwy.net",
     "port": 58667,
-    "user": "carlos_admin",
+    "user": "root",
     "password": "ptCOCcKAWIhukQZtIhyrLDwdXboCZqyI",
     "raise_on_warnings": True,
-    "connect_timeout": 30,
+    "connect_timeout": 60,    # <--- Ampliado para evitar cortes del proxy
     "connection_timeout": 60,
     "read_timeout": 120,
     "write_timeout": 120,
