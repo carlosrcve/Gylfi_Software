@@ -166,7 +166,38 @@ def conectar_db():
             except:
                 pass
         
-        # Conexión directa y blindada con los datos oficiales de TiDB Cloud
+        # 1. Intentamos conectar usando st.secrets (Ideal para Streamlit Cloud)
+        if "connections" in st.secrets and "mysql" in st.secrets["connections"]:
+            sec = st.secrets["connections"]["mysql"]
+            st.session_state.conn = mysql.connector.connect(
+                host=sec.get("host", "gateway01.us-east-1.prod.aws.tidbcloud.com"),
+                port=int(sec.get("port", 4000)),
+                user=sec.get("user", "4K4VAw4t4ZPFUTF.root"),
+                password=sec.get("password", "OhAcM2lizBMDXDgD"),
+                database=sec.get("database", "control_central"),
+                use_pure=True,
+                connect_timeout=10,
+                ssl_verify_cert=False,
+                ssl_disabled=False
+            )
+            return st.session_state.conn
+            
+        elif "mysql" in st.secrets:
+            sec = st.secrets["mysql"]
+            st.session_state.conn = mysql.connector.connect(
+                host=sec.get("host", "gateway01.us-east-1.prod.aws.tidbcloud.com"),
+                port=int(sec.get("port", 4000)),
+                user=sec.get("user", "4K4VAw4t4ZPFUTF.root"),
+                password=sec.get("password", "OhAcM2lizBMDXDgD"),
+                database=sec.get("database", "control_central"),
+                use_pure=True,
+                connect_timeout=10,
+                ssl_verify_cert=False,
+                ssl_disabled=False
+            )
+            return st.session_state.conn
+
+        # 2. Si no hay secretos configurados, usamos los datos directos (Fallback local)
         st.session_state.conn = mysql.connector.connect(
             host="gateway01.us-east-1.prod.aws.tidbcloud.com",
             port=4000,
