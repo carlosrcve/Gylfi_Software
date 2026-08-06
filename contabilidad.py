@@ -117,18 +117,22 @@ if os.path.exists(".env") or "localhost" in DB_HOST:
 import mysql.connector
 import streamlit as st
 
-# Configuración para tu MySQL local (en tu máquina)
-DB_HOST = "localhost"
-DB_PORT = 3306
-DB_USER = "root"          # O el usuario que uses en tu PC
-DB_PASSWORD = "Ca22021956*"  # La contraseña de tu MySQL local
+# ==========================================
+# CONFIGURACIÓN DE TIDB CLOUD (NUBE)
+# ==========================================
+DB_HOST = "gateway01.us-east-1.prod.aws.tidbcloud.com"
+DB_PORT = 4000
+DB_USER = "4K4VAw4t4ZPFUTF.root"
+DB_PASSWORD = "OhAcM2lizBMDXDgD"  # Tu contraseña generada en TiDB Cloud
 
 def inicializar_base_de_datos():
+    # 1. Conectamos primero a la base genérica 'sys' para asegurar que 'control_central' exista
     config_servidor = {
         "host": DB_HOST,
         "port": DB_PORT,
-        "user": "root",
+        "user": DB_USER,
         "password": DB_PASSWORD,
+        "database": "sys",
         "use_pure": True
     }
     
@@ -137,9 +141,23 @@ def inicializar_base_de_datos():
         cursor = conn.cursor()
         
         cursor.execute("CREATE DATABASE IF NOT EXISTS control_central;")
-        cursor.execute("USE control_central;")
+        cursor.close()
+        conn.close()
+
+        # 2. Ahora conectamos directo a 'control_central' para crear las tablas necesarias
+        config_db = {
+            "host": DB_HOST,
+            "port": DB_PORT,
+            "user": DB_USER,
+            "password": DB_PASSWORD,
+            "database": "control_central",
+            "use_pure": True
+        }
         
-        cursor.execute("""
+        conn_db = mysql.connector.connect(**config_db)
+        cursor_db = conn_db.cursor()
+        
+        cursor_db.execute("""
             CREATE TABLE IF NOT EXISTS usuarios (
                 id INT AUTO_INCREMENT PRIMARY KEY,
                 username VARCHAR(50) NOT NULL,
@@ -147,22 +165,24 @@ def inicializar_base_de_datos():
             );
         """)
         
-        cursor.close()
-        conn.close()
+        cursor_db.close()
+        conn_db.close()
+        print("¡Base de datos y tablas inicializadas con éxito en TiDB Cloud!")
     except Exception as e:
-        print(f"Error inicializando la BD: {e}")
+        print(f"Error inicializando la BD en la nube: {e}")
 
 # ==========================================
-# 1. AUTOCREADOR DE LA BASE DE DATOS AL ARRANCAR (RED INTERNA)
+# 1. AUTOCREADOR DE LA BASE DE DATOS AL ARRANCAR
 # ==========================================
 try:
     init_conn = mysql.connector.connect(
-        host="mysql.railway.internal",
-        port=3306,
-        user="root",
+        host=DB_HOST,
+        port=DB_PORT,
+        user=DB_USER,
         password=DB_PASSWORD,
-        database="railway",
-        connect_timeout=30
+        database="sys",
+        connect_timeout=30,
+        use_pure=True
     )
     cursor = init_conn.cursor()
     cursor.execute("CREATE DATABASE IF NOT EXISTS control_central;")
@@ -172,12 +192,12 @@ except Exception as ex:
     pass
 
 # ==========================================
-# 2. CONFIGURACIÓN BASE DE CONEXIÓN (CLOUD / PROXY)
+# 2. CONFIGURACIÓN BASE DE CONEXIÓN (CLOUD / TIDB)
 # ==========================================
 DB_CONFIG_BASE = {
     "host": DB_HOST,
     "port": DB_PORT,
-    "user": "root",
+    "user": DB_USER,
     "password": DB_PASSWORD,
     "raise_on_warnings": True,
     "connect_timeout": 60,
@@ -201,7 +221,7 @@ def conectar_db(nombre_db=None):
         db_config = {
             "host": DB_HOST,
             "port": DB_PORT,
-            "user": "root",
+            "user": DB_USER,
             "password": DB_PASSWORD,
             "database": db_name,
             "raise_on_warnings": True,
@@ -219,7 +239,7 @@ def conectar_db(nombre_db=None):
         return new_conn
         
     except Exception as e:
-        st.error(f"❌ Error al conectar a la BD '{db_name}' (Cloud): {e}")
+        st.error(f"❌ Error al conectar a la BD '{db_name}' (TiDB Cloud): {e}")
         return None
 # =========================================================
 # 2. IDENTIDAD DINÁMICA
