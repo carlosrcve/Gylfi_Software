@@ -146,12 +146,25 @@ def conectar_db(nombre_db=None):
             except Exception:
                 st.session_state.conn = None
 
-        # Leemos los datos directamente desde los secrets de Streamlit Cloud
+        # Intentamos leer de los secrets de forma segura, si no existen usa los valores directos
+        try:
+            mysql_secrets = st.secrets["connections"]["mysql"]
+            db_host = mysql_secrets.get("host", "reseau.proxy.rlwy.net")
+            db_port = int(mysql_secrets.get("port", 58667))
+            db_user = mysql_secrets.get("user", "root")
+            db_password = mysql_secrets.get("password", "ptCOCcKAWIhukQZtIhyrLDwdXboCZqyI")
+        except Exception:
+            # Fallback directo por si los secrets no cargan bien en Streamlit Cloud
+            db_host = "reseau.proxy.rlwy.net"
+            db_port = 58667
+            db_user = "root"
+            db_password = "ptCOCcKAWIhukQZtIhyrLDwdXboCZqyI"
+
         db_config = {
-            "host": st.secrets["connections.mysql"]["host"],
-            "port": int(st.secrets["connections.mysql"]["port"]),
-            "user": st.secrets["connections.mysql"]["user"],
-            "password": st.secrets["connections.mysql"]["password"],
+            "host": db_host,
+            "port": db_port,
+            "user": db_user,
+            "password": db_password,
             "database": db_name,
             "raise_on_warnings": True,
             "connect_timeout": 60,
