@@ -136,11 +136,9 @@ DB_CONFIG_BASE = {
 conn = None
 
 def conectar_db(nombre_db=None):
-    global conn
     db_name = nombre_db if nombre_db else "control_central"
 
     try:
-        # Validar si la sesión anterior sigue viva
         if "conn" in st.session_state and st.session_state.conn is not None:
             try:
                 st.session_state.conn.ping(reconnect=True, attempts=5, delay=2)
@@ -148,13 +146,22 @@ def conectar_db(nombre_db=None):
             except Exception:
                 st.session_state.conn = None
 
-        # Copiamos la configuración base y le inyectamos la base de datos
-        db_config = DB_CONFIG_BASE.copy()
-        db_config["database"] = db_name
+        # Leemos los datos directamente desde los secrets de Streamlit Cloud
+        db_config = {
+            "host": st.secrets["connections.mysql"]["host"],
+            "port": int(st.secrets["connections.mysql"]["port"]),
+            "user": st.secrets["connections.mysql"]["user"],
+            "password": st.secrets["connections.mysql"]["password"],
+            "database": db_name,
+            "raise_on_warnings": True,
+            "connect_timeout": 60,
+            "connection_timeout": 60,
+            "read_timeout": 120,
+            "write_timeout": 120,
+            "use_pure": True,
+        }
 
-        # Creamos la nueva conexión
         new_conn = mysql.connector.connect(**db_config)
-        
         st.session_state.conn = new_conn
         st.session_state["current_db_link"] = db_name
         return new_conn
