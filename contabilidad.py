@@ -99,7 +99,7 @@ DB_PORT = 4000
 DB_USER = "4K4VAw4t4ZPFUTF.root"
 DB_PASSWORD = "OhAcM2lizBMDXDgD"
 
-# Configuración base de conexión (Añadimos parámetros de seguridad para TiDB)
+# Configuración base de conexión con soporte SSL requerido por TiDB
 DB_CONFIG_BASE = {
     "host": DB_HOST,
     "port": DB_PORT,
@@ -108,9 +108,8 @@ DB_CONFIG_BASE = {
     "use_pure": True,
     "autocommit": True,
     "connect_timeout": 60,
-    "ssl_verify_cert": False, # Desactivamos verificación estricta para evitar bloqueos
-    "ssl_verify_identity": False,
-    "auth_plugin": 'mysql_native_password' # Forzamos el plugin correcto para evitar error de credenciales
+    "ssl_verify_cert": True,
+    "ssl_disabled": False
 }
 
 # ==========================================
