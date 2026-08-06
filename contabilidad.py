@@ -92,14 +92,11 @@ f_fin_global = datetime.date(anio_seleccionado, mes_n, ultimo_dia_mes)
 if 'stats' not in st.session_state:
     stats = {'retenido': 0.0, 'ventas': 0.0, 'compras': 0.0}
 
-# Configuración base para el servidor de Railway (Central/Control)
-# Configuración base reforzada contra cortes de red (Lost connection)
-# Configuración optimizada para evitar cortes de red desde la nube de Streamlit
 DB_CONFIG_BASE = {
     "host": "reseau.proxy.rlwy.net",
     "port": 58667,
-    "user": "carlos_admin",  # <--- Cámbialo aquí
-    "password": "ptCOCcKAWIhukQZtIhyrLDwdXboCZqyI", # (Asegúrate de que la clave coincida exactamente con la que creaste)
+    "user": "carlos_admin",
+    "password": "ptCOCcKAWIhukQZtIhyrLDwdXboCZqyI",
     "raise_on_warnings": True,
     "connection_timeout": 60,
     "read_timeout": 120,
@@ -122,22 +119,11 @@ def conectar_db(nombre_db=None):
             except Exception:
                 st.session_state.conn = None
 
-        # Si estás en local y no usas secrets.toml, puedes respaldarlo con tus variables directas
-        # Pero lo ideal es leerlo de st.secrets:
-        db_config = {
-            "host": st.secrets["connections"]["mysql"]["host"],
-            "port": int(st.secrets["connections"]["mysql"]["port"]),
-            "user": st.secrets["connections"]["mysql"]["user"],
-            "password": st.secrets["connections"]["mysql"]["password"],
-            "database": db_name,
-            "raise_on_warnings": True,
-            "connection_timeout": 60,
-            "read_timeout": 120,
-            "write_timeout": 120,
-            "use_pure": True,
-        }
+        # Copiamos la configuración base y le inyectamos la base de datos correspondiente
+        db_config = DB_CONFIG_BASE.copy()
+        db_config["database"] = db_name
 
-        # Creamos la nueva conexión
+        # Creamos la nueva conexión usando tus variables directas
         new_conn = mysql.connector.connect(**db_config)
         
         st.session_state.conn = new_conn
