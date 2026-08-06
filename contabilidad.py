@@ -118,11 +118,12 @@ except Exception as ex:
 # 2. CONFIGURACIÓN BASE DE CONEXIÓN (RED INTERNA)
 # ==========================================
 DB_CONFIG_BASE = {
-    "host": "mysql.railway.internal",  # <--- Usamos la red interna directa de Railway
-    "port": 3306,                      # <--- Puerto nativo de MySQL
+    "host": "reseau.proxy.rlwy.net",
+    "port": 58667,
     "user": "root",
     "password": "ptCOCcKAWIhukQZtIhyrLDwdXboCZqyI",
     "raise_on_warnings": True,
+    "connect_timeout": 30,  # <--- Tiempo de espera amplio para el proxy externo
     "connection_timeout": 60,
     "read_timeout": 120,
     "write_timeout": 120,
@@ -148,7 +149,7 @@ def conectar_db(nombre_db=None):
         db_config = DB_CONFIG_BASE.copy()
         db_config["database"] = db_name
 
-        # Creamos la nueva conexión por red interna
+        # Creamos la nueva conexión usando el proxy público de Railway
         new_conn = mysql.connector.connect(**db_config)
         
         st.session_state.conn = new_conn
@@ -158,7 +159,6 @@ def conectar_db(nombre_db=None):
     except Exception as e:
         st.error(f"❌ Error al conectar a la BD '{db_name}' (Cloud): {e}")
         return None
-
 # =========================================================
 # 2. IDENTIDAD DINÁMICA
 # =========================================================
