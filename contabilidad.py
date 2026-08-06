@@ -156,15 +156,28 @@ if 'db_init' not in st.session_state:
 # ==========================================
 def conectar_db():
     try:
+        # Verificamos si ya hay una conexión activa guardada para no abrir otra
         if "conn" in st.session_state and st.session_state.conn is not None:
-            if st.session_state.conn.is_connected():
-                return st.session_state.conn
+            try:
+                if st.session_state.conn.is_connected():
+                    return st.session_state.conn
+            except:
+                pass
         
-        config = DB_CONFIG_BASE.copy()
-        config["database"] = "control_central"
-        
-        st.session_state.conn = mysql.connector.connect(**config)
+        # Conexión directa y blindada con los datos oficiales de TiDB Cloud
+        st.session_state.conn = mysql.connector.connect(
+            host="gateway01.us-east-1.prod.aws.tidbcloud.com",
+            port=4000,
+            user="4K4VAw4t4ZPFUTF.root",
+            password="OhAcM2lizBMDXDgD",
+            database="control_central",
+            use_pure=True,
+            connect_timeout=10,
+            ssl_verify_cert=False,
+            ssl_disabled=False
+        )
         return st.session_state.conn
+        
     except Exception as e:
         st.error(f"❌ Error al conectar: {e}")
         return None
