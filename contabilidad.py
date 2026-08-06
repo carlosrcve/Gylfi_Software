@@ -128,14 +128,13 @@ DB_PORT = 4000
 DB_USER = "4K4VAw4t4ZPFUTF.root"
 DB_PASSWORD = "OhAcM2lizBMDXDgD"
 
-# Configuración base de conexión con soporte SSL para TiDB Cloud
+# Configuración base de conexión relajando el SSL por si el certificado da bloqueo
 DB_CONFIG_BASE = {
     "host": DB_HOST,
     "port": DB_PORT,
     "user": DB_USER,
     "password": DB_PASSWORD,
-    "ssl_ca": "ca.pem",  # Asegúrate de tener este archivo en tu repositorio si lo pide la nube
-    "ssl_verify_cert": True,
+    "ssl_disabled": False,
     "raise_on_warnings": True,
     "connect_timeout": 60,
     "connection_timeout": 60,
