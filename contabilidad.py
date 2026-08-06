@@ -205,12 +205,11 @@ DB_CONFIG_BASE = {
     "port": DB_PORT,
     "user": DB_USER,
     "password": DB_PASSWORD,
-    "raise_on_warnings": True,
-    "connect_timeout": 60,
-    "connection_timeout": 60,
-    "read_timeout": 120,
-    "write_timeout": 120,
+    "database": db_name,
+    "ssl_ca": "ca.pem",  # <-- Nombre del archivo de certificado que descargaste
+    "ssl_verify_cert": True,
     "use_pure": True,
+    "autocommit": True
 }
 
 def conectar_db(nombre_db=None):
