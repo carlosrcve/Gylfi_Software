@@ -94,119 +94,78 @@ if 'stats' not in st.session_state:
 
 
 
-import mysql.connector
-import streamlit as st
-import os
-
-# --- AQUÍ VA LA CONFIGURACIÓN ---
-# Asegúrate de verificar que la contraseña en la variable DB_PASSWORD 
-# sea exactamente la misma que te muestra Railway en este momento en sus Variables:
-DB_PASSWORD = "baM0OIFCPFFqTvnAryhqNZAbdJMsz" 
-
-# Configuración dinámica para que no falle ni en tu PC ni en la nube
-DB_HOST = "reseau.proxy.rlwy.net"
-DB_PORT = 58667
-
-if os.path.exists(".env") or "localhost" in DB_HOST:
-    # Si detectas que estás en tu PC, aquí podrías cambiar el HOST a algo local 
-    # si tuvieras una BD local, pero con esto ya estamos controlando el flujo.
-    pass
-
-# --- AQUÍ SIGUE EL RESTO DE TU CÓDIGO (funciones, inicialización, etc.) ---
-
-import mysql.connector
-import streamlit as st
-
 # ==========================================
-# CONFIGURACIÓN DE TIDB CLOUD (NUBE)
-# ==========================================
-# ==========================================
-# CONFIGURACIÓN OFICIAL DE TIDB CLOUD (NUBE)
+# CONFIGURACIÓN TIDB CLOUD (NUBE)
 # ==========================================
 DB_HOST = "gateway01.us-east-1.prod.aws.tidbcloud.com"
 DB_PORT = 4000
 DB_USER = "4K4VAw4t4ZPFUTF.root"
 DB_PASSWORD = "OhAcM2lizBMDXDgD"
 
-# Configuración base de conexión relajando el SSL por si el certificado da bloqueo
+# Configuración base de conexión
 DB_CONFIG_BASE = {
     "host": DB_HOST,
     "port": DB_PORT,
     "user": DB_USER,
     "password": DB_PASSWORD,
-    "ssl_disabled": False,
-    "raise_on_warnings": True,
-    "connect_timeout": 60,
-    "connection_timeout": 60,
-    "read_timeout": 120,
-    "write_timeout": 120,
     "use_pure": True,
-    "autocommit": True
+    "autocommit": True,
+    "connect_timeout": 60
 }
 
 # ==========================================
-# INICIALIZACIÓN DE LA BASE DE DATOS Y TABLAS
+# INICIALIZACIÓN
 # ==========================================
 def inicializar_base_de_datos():
     try:
-        # 1. Conectamos a 'sys' para asegurar que la base de datos 'control_central' exista
-        config_servidor = DB_CONFIG_BASE.copy()
-        config_servidor["database"] = "sys"
+        # Conectar a 'sys' para crear la BD
+        config = DB_CONFIG_BASE.copy()
+        config["database"] = "sys"
         
-        conn = mysql.connector.connect(**config_servidor)
+        conn = mysql.connector.connect(**config)
         cursor = conn.cursor()
         cursor.execute("CREATE DATABASE IF NOT EXISTS control_central;")
         cursor.close()
         conn.close()
 
-        # 2. Conectamos directo a 'control_central' para crear las tablas necesarias
-        config_db = DB_CONFIG_BASE.copy()
-        config_db["database"] = "control_central"
-        
-        conn_db = mysql.connector.connect(**config_db)
-        cursor_db = conn_db.cursor()
-        cursor_db.execute("""
+        # Crear tabla de usuarios
+        config["database"] = "control_central"
+        conn = mysql.connector.connect(**config)
+        cursor = conn.cursor()
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS usuarios (
                 id INT AUTO_INCREMENT PRIMARY KEY,
                 username VARCHAR(50) NOT NULL,
                 password VARCHAR(255) NOT NULL
             );
         """)
-        cursor_db.close()
-        conn_db.close()
-        
+        cursor.close()
+        conn.close()
+        st.success("✅ Conexión exitosa a TiDB Cloud")
     except Exception as e:
-        print(f"Error inicializando la BD en la nube: {e}")
+        st.error(f"❌ Error al inicializar BD: {e}")
 
-# Ejecutamos la inicialización al arrancar el script
-inicializar_base_de_datos()
+# Ejecutar inicialización solo una vez
+if 'db_init' not in st.session_state:
+    inicializar_base_de_datos()
+    st.session_state.db_init = True
 
 # ==========================================
-# GESTOR DE CONEXIÓN DINÁMICA (STREAMLIT)
+# GESTOR DE CONEXIÓN
 # ==========================================
-def conectar_db(nombre_db=None):
-    db_name = nombre_db if nombre_db else "control_central"
-
+def conectar_db():
     try:
-        # Reutilizamos la conexión si ya está activa en la sesión
         if "conn" in st.session_state and st.session_state.conn is not None:
-            try:
-                st.session_state.conn.ping(reconnect=True, attempts=5, delay=2)
+            if st.session_state.conn.is_connected():
                 return st.session_state.conn
-            except Exception:
-                st.session_state.conn = None
-
-        # Creamos una nueva conexión limpia
-        db_config = DB_CONFIG_BASE.copy()
-        db_config["database"] = db_name
-
-        new_conn = mysql.connector.connect(**db_config)
-        st.session_state.conn = new_conn
-        st.session_state["current_db_link"] = db_name
-        return new_conn
         
+        config = DB_CONFIG_BASE.copy()
+        config["database"] = "control_central"
+        
+        st.session_state.conn = mysql.connector.connect(**config)
+        return st.session_state.conn
     except Exception as e:
-        st.error(f"❌ Error al conectar a la BD '{db_name}' (TiDB Cloud): {e}")
+        st.error(f"❌ Error al conectar: {e}")
         return None
 # =========================================================
 # 2. IDENTIDAD DINÁMICA
