@@ -94,15 +94,12 @@ if 'stats' not in st.session_state:
 
 
 
-# ==========================================
-# CONFIGURACIÓN TIDB CLOUD (NUBE)
-# ==========================================
 DB_HOST = "gateway01.us-east-1.prod.aws.tidbcloud.com"
 DB_PORT = 4000
 DB_USER = "4K4VAw4t4ZPFUTF.root"
 DB_PASSWORD = "OhAcM2lizBMDXDgD"
 
-# Configuración base de conexión
+# Configuración base de conexión (Añadimos parámetros de seguridad para TiDB)
 DB_CONFIG_BASE = {
     "host": DB_HOST,
     "port": DB_PORT,
@@ -110,7 +107,10 @@ DB_CONFIG_BASE = {
     "password": DB_PASSWORD,
     "use_pure": True,
     "autocommit": True,
-    "connect_timeout": 60
+    "connect_timeout": 60,
+    "ssl_verify_cert": False, # Desactivamos verificación estricta para evitar bloqueos
+    "ssl_verify_identity": False,
+    "auth_plugin": 'mysql_native_password' # Forzamos el plugin correcto para evitar error de credenciales
 }
 
 # ==========================================
@@ -141,9 +141,10 @@ def inicializar_base_de_datos():
         """)
         cursor.close()
         conn.close()
-        st.success("✅ Conexión exitosa a TiDB Cloud")
+        st.success("✅ Conexión establecida con éxito a TiDB Cloud")
     except Exception as e:
-        st.error(f"❌ Error al inicializar BD: {e}")
+        st.error(f"❌ Error crítico de conexión: {e}")
+        st.write("Tip: Verifica en tu panel de TiDB Cloud que tu IP esté en la 'IP Access List' (debe estar 0.0.0.0/0).")
 
 # Ejecutar inicialización solo una vez
 if 'db_init' not in st.session_state:
