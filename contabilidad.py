@@ -117,10 +117,11 @@ if os.path.exists(".env") or "localhost" in DB_HOST:
 import mysql.connector
 import streamlit as st
 
-# Contraseña oficial actual de tu MySQL en Railway
-DB_PASSWORD = "baM0OIFCPFFqTvnAryhqNZAbdJMsz"
-DB_HOST = "reseau.proxy.rlwy.net"
-DB_PORT = 58667
+# Configuración para tu MySQL local (en tu máquina)
+DB_HOST = "localhost"
+DB_PORT = 3306
+DB_USER = "root"          # O el usuario que uses en tu PC
+DB_PASSWORD = "TU_CONTRASEÑA_LOCAL"  # La contraseña de tu MySQL local
 
 def inicializar_base_de_datos():
     config_servidor = {
