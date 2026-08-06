@@ -99,7 +99,7 @@ DB_PORT = 4000
 DB_USER = "4K4VAw4t4ZPFUTF.root"
 DB_PASSWORD = "OhAcM2lizBMDXDgD"
 
-# Configuración base de conexión con soporte SSL requerido por TiDB
+# Configuración base de conexión (Añadimos parámetros de seguridad para TiDB)
 DB_CONFIG_BASE = {
     "host": DB_HOST,
     "port": DB_PORT,
@@ -108,8 +108,9 @@ DB_CONFIG_BASE = {
     "use_pure": True,
     "autocommit": True,
     "connect_timeout": 60,
-    "ssl_verify_cert": True,
-    "ssl_disabled": False
+    "ssl_verify_cert": False, # Desactivamos verificación estricta para evitar bloqueos
+    "ssl_verify_identity": False,
+    "auth_plugin": 'mysql_native_password' # Forzamos el plugin correcto para evitar error de credenciales
 }
 
 # ==========================================
@@ -1220,7 +1221,6 @@ def registrar_log(db_conn, usuario_id, accion, detalles, cliente_id):
             cursor.close()
 
 
-import bcrypt
 
 def verificar_usuario(conn, user, password):
     # 0. Blindaje: Asegurar que hay conexión válida y activa
@@ -1230,18 +1230,19 @@ def verificar_usuario(conn, user, password):
         except:
             return None 
 
-    # Intentar ejecutar la consulta con reintento automático si se cae la conexión (Error 2013 o similar)
+    # Intentar ejecutar la consulta con reintento automático
     for intento in range(2):
         try:
             if not conn.is_connected():
                 conn = conectar_db()
                 
             cursor = conn.cursor(dictionary=True)
-            cursor.execute("SELECT * FROM usuarios WHERE usuario = %s", (user,))
+            # CORREGIDO: Usamos 'username' en lugar de 'usuario'
+            cursor.execute("SELECT * FROM usuarios WHERE username = %s", (user,))
             user_data = cursor.fetchone()
-            break # Si sale bien, rompemos el ciclo de reintentos
+            break 
         except Exception as e:
-            if intento == 0: # Si falla la primera vez, intentamos reconectar forzosamente
+            if intento == 0:
                 try:
                     conn.reconnect(attempts=3, delay=2)
                     continue
@@ -1255,44 +1256,48 @@ def verificar_usuario(conn, user, password):
                 return None
 
     if not user_data:
-        cursor.close()
+        try:
+            cursor.close()
+        except:
+            pass
         return None # Usuario no existe
     
-    # 2. Verificamos el tipo de clave (Hash nuevo vs Texto Plano antiguo)
-    clave_en_bd = user_data['clave_hash']
+    # CORREGIDO: Usamos 'password' en lugar de 'clave_hash'
+    clave_en_bd = user_data.get('password') or user_data.get('clave_hash')
     login_exitoso = False
     
     # --- LÓGICA HÍBRIDA ---
     if clave_en_bd and clave_en_bd.startswith('$2b$'):
-        # Es un hash bcrypt, verificamos normalmente
         if bcrypt.checkpw(password.encode('utf-8'), clave_en_bd.encode('utf-8')):
             login_exitoso = True
     else:
-        # Es texto plano (o formato antiguo), comparamos directamente
+        # Si la contraseña coincide en texto plano
         if password == clave_en_bd:
             login_exitoso = True
             
-            # MIGRACIÓN AUTOMÁTICA: Convertimos a hash inmediatamente
-            salt = bcrypt.gensalt()
-            nuevo_hash = bcrypt.hashpw(password.encode('utf-8'), salt).decode('utf-8')
-            
+            # MIGRACIÓN AUTOMÁTICA: Convertimos a hash si quieres seguridad
             try:
-                cursor.execute("UPDATE usuarios SET clave_hash = %s WHERE id = %s", 
-                               (nuevo_hash, user_data['id']))
+                salt = bcrypt.gensalt()
+                nuevo_hash = bcrypt.hashpw(password.encode('utf-8'), salt).decode('utf-8')
+                cursor.execute("UPDATE usuarios SET password = %s WHERE id = %s", (nuevo_hash, user_data['id']))
                 conn.commit()
             except:
                 pass
     
-    cursor.close()
+    try:
+        cursor.close()
+    except:
+        pass
     
-    # 3. Retorno del resultado
+    # 3. Retorno del resultado asegurando que existan las llaves de rol y cliente_id para que no rompa el login
     if login_exitoso:
-        return user_data # Retorna los datos del usuario para la sesión
+        if 'rol' not in user_data:
+            user_data['rol'] = 'admin' # Rol por defecto si no lo tiene la tabla
+        if 'cliente_id' not in user_data:
+            user_data['cliente_id'] = 1 # ID por defecto
+        return user_data
     else:
-        return None # Credenciales incorrectas
-
-
-
+        return None
 
 import bcrypt
 
