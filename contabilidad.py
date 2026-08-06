@@ -98,30 +98,29 @@ import streamlit as st
 # 1. AUTOCREADOR DE LA BASE DE DATOS AL ARRANCAR
 # ==========================================
 try:
-    # Conectamos primero al esquema base 'railway' usando la red interna
     init_conn = mysql.connector.connect(
         host="mysql.railway.internal",
         port=3306,
         user="root",
         password="ptCOCcKAWIhukQZtIhyrLDwdXboCZqyI",
-        database="railway"
+        database="railway",
+        connect_timeout=30
     )
     cursor = init_conn.cursor()
     cursor.execute("CREATE DATABASE IF NOT EXISTS control_central;")
     cursor.close()
     init_conn.close()
 except Exception as ex:
-    # Si falla la red interna (ej. si estás probando local en tu PC), no se cae la app, pasa al proxy externo
     pass
 
 
 # ==========================================
-# 2. CONFIGURACIÓN BASE DE CONEXIÓN
+# 2. CONFIGURACIÓN BASE DE CONEXIÓN (RED INTERNA)
 # ==========================================
 DB_CONFIG_BASE = {
-    "host": "reseau.proxy.rlwy.net",
-    "port": 58667,
-    "user": "root",  # <--- Cambiado de 'carlos_admin' a 'root' que es el usuario real de Railway
+    "host": "mysql.railway.internal",  # <--- Usamos la red interna directa de Railway
+    "port": 3306,                      # <--- Puerto nativo de MySQL
+    "user": "root",
     "password": "ptCOCcKAWIhukQZtIhyrLDwdXboCZqyI",
     "raise_on_warnings": True,
     "connection_timeout": 60,
@@ -145,11 +144,11 @@ def conectar_db(nombre_db=None):
             except Exception:
                 st.session_state.conn = None
 
-        # Copiamos la configuración base y le inyectamos la base de datos correspondiente
+        # Copiamos la configuración base y le inyectamos la base de datos
         db_config = DB_CONFIG_BASE.copy()
         db_config["database"] = db_name
 
-        # Creamos la nueva conexión
+        # Creamos la nueva conexión por red interna
         new_conn = mysql.connector.connect(**db_config)
         
         st.session_state.conn = new_conn
