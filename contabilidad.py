@@ -120,49 +120,52 @@ import streamlit as st
 # ==========================================
 # CONFIGURACIÓN DE TIDB CLOUD (NUBE)
 # ==========================================
+# ==========================================
+# CONFIGURACIÓN OFICIAL DE TIDB CLOUD (NUBE)
+# ==========================================
 DB_HOST = "gateway01.us-east-1.prod.aws.tidbcloud.com"
 DB_PORT = 4000
 DB_USER = "4K4VAw4t4ZPFUTF.root"
 DB_PASSWORD = "OhAcM2lizBMDXDgD"
 
-# Si descargas el certificado de TiDB Cloud y lo guardas en tu carpeta como 'ca.pem':
-DB_SSL_CONFIG = {
-    "ssl_ca": "ca.pem",  # El archivo del certificado que descargas de la interfaz
-    "ssl_verify_cert": True
+# Configuración base de conexión con soporte SSL para TiDB Cloud
+DB_CONFIG_BASE = {
+    "host": DB_HOST,
+    "port": DB_PORT,
+    "user": DB_USER,
+    "password": DB_PASSWORD,
+    "ssl_ca": "ca.pem",  # Asegúrate de tener este archivo en tu repositorio si lo pide la nube
+    "ssl_verify_cert": True,
+    "raise_on_warnings": True,
+    "connect_timeout": 60,
+    "connection_timeout": 60,
+    "read_timeout": 120,
+    "write_timeout": 120,
+    "use_pure": True,
+    "autocommit": True
 }
 
+# ==========================================
+# INICIALIZACIÓN DE LA BASE DE DATOS Y TABLAS
+# ==========================================
 def inicializar_base_de_datos():
-    # 1. Conectamos primero a la base genérica 'sys' para asegurar que 'control_central' exista
-    config_servidor = {
-        "host": DB_HOST,
-        "port": DB_PORT,
-        "user": DB_USER,
-        "password": DB_PASSWORD,
-        "database": "sys",
-        "use_pure": True
-    }
-    
     try:
+        # 1. Conectamos a 'sys' para asegurar que la base de datos 'control_central' exista
+        config_servidor = DB_CONFIG_BASE.copy()
+        config_servidor["database"] = "sys"
+        
         conn = mysql.connector.connect(**config_servidor)
         cursor = conn.cursor()
-        
         cursor.execute("CREATE DATABASE IF NOT EXISTS control_central;")
         cursor.close()
         conn.close()
 
-        # 2. Ahora conectamos directo a 'control_central' para crear las tablas necesarias
-        config_db = {
-            "host": DB_HOST,
-            "port": DB_PORT,
-            "user": DB_USER,
-            "password": DB_PASSWORD,
-            "database": "control_central",
-            "use_pure": True
-        }
+        # 2. Conectamos directo a 'control_central' para crear las tablas necesarias
+        config_db = DB_CONFIG_BASE.copy()
+        config_db["database"] = "control_central"
         
         conn_db = mysql.connector.connect(**config_db)
         cursor_db = conn_db.cursor()
-        
         cursor_db.execute("""
             CREATE TABLE IF NOT EXISTS usuarios (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -170,52 +173,23 @@ def inicializar_base_de_datos():
                 password VARCHAR(255) NOT NULL
             );
         """)
-        
         cursor_db.close()
         conn_db.close()
-        print("¡Base de datos y tablas inicializadas con éxito en TiDB Cloud!")
+        
     except Exception as e:
         print(f"Error inicializando la BD en la nube: {e}")
 
-# ==========================================
-# 1. AUTOCREADOR DE LA BASE DE DATOS AL ARRANCAR
-# ==========================================
-try:
-    init_conn = mysql.connector.connect(
-        host=DB_HOST,
-        port=DB_PORT,
-        user=DB_USER,
-        password=DB_PASSWORD,
-        database="sys",
-        connect_timeout=30,
-        use_pure=True
-    )
-    cursor = init_conn.cursor()
-    cursor.execute("CREATE DATABASE IF NOT EXISTS control_central;")
-    cursor.close()
-    init_conn.close()
-except Exception as ex:
-    pass
+# Ejecutamos la inicialización al arrancar el script
+inicializar_base_de_datos()
 
 # ==========================================
-# 2. CONFIGURACIÓN BASE DE CONEXIÓN (CLOUD / TIDB)
+# GESTOR DE CONEXIÓN DINÁMICA (STREAMLIT)
 # ==========================================
-DB_CONFIG_BASE = {
-    "host": DB_HOST,
-    "port": DB_PORT,
-    "user": DB_USER,
-    "password": DB_PASSWORD,
-    "database": db_name,
-    "ssl_ca": "ca.pem",  # <-- Nombre del archivo de certificado que descargaste
-    "ssl_verify_cert": True,
-    "use_pure": True,
-    "autocommit": True
-}
-
 def conectar_db(nombre_db=None):
     db_name = nombre_db if nombre_db else "control_central"
 
     try:
+        # Reutilizamos la conexión si ya está activa en la sesión
         if "conn" in st.session_state and st.session_state.conn is not None:
             try:
                 st.session_state.conn.ping(reconnect=True, attempts=5, delay=2)
@@ -223,20 +197,9 @@ def conectar_db(nombre_db=None):
             except Exception:
                 st.session_state.conn = None
 
-        db_config = {
-            "host": DB_HOST,
-            "port": DB_PORT,
-            "user": DB_USER,
-            "password": DB_PASSWORD,
-            "database": db_name,
-            "raise_on_warnings": True,
-            "connect_timeout": 120,
-            "connection_timeout": 120,
-            "read_timeout": 180,
-            "write_timeout": 180,
-            "use_pure": True,
-            "autocommit": True
-        }
+        # Creamos una nueva conexión limpia
+        db_config = DB_CONFIG_BASE.copy()
+        db_config["database"] = db_name
 
         new_conn = mysql.connector.connect(**db_config)
         st.session_state.conn = new_conn
