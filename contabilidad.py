@@ -6872,7 +6872,7 @@ with st.sidebar:
             st.error("❌ No se pudo conectar a la base de datos central.")
 
         if not df_sidebar.empty:
-            # 1. Selector de Empresa (Sin on_change para evitar cualquier fallo de NoneType)
+            # 1. Selector de Empresa
             seleccion = st.selectbox(
                 "Seleccione Empresa", 
                 df_sidebar['nombre_empresa'].tolist(), 
@@ -6880,10 +6880,13 @@ with st.sidebar:
             )
             st.write(f"Empresa seleccionada: '{seleccion.upper()}'")
             
-            # 2. Sincronización de datos
+            # 2. Sincronización de datos corregida
             datos_sel = df_sidebar[df_sidebar['nombre_empresa'] == seleccion].iloc[0]
-            st.session_state['DB_ACTUAL'] = "control_central"
+            
+            # Capturamos el nombre real de la base de datos desde la columna 'db_nombre'
+            st.session_state['DB_ACTUAL'] = datos_sel['db_nombre']  
             st.session_state['CLIENTE_NOMBRE'] = seleccion
+            st.session_state['cliente_id_seleccionado'] = datos_sel['id']
 
             st.subheader("Módulos")
 
