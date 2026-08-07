@@ -6901,7 +6901,9 @@ with st.sidebar:
         else:
             st.error("❌ No se pudo conectar a la base de datos central.")
 
+        df_sidebar = pd.read_sql(query_sidebar, conn_sidebar)
         if not df_sidebar.empty:
+            df_sidebar = df_sidebar.fillna("")
             # 1. Selector de Empresa
             nombres_empresas = df_sidebar['nombre_empresa'].tolist()
             
