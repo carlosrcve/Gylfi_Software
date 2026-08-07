@@ -6883,20 +6883,29 @@ with st.sidebar:
 
         if not df_sidebar.empty:
             # 1. Selector de Empresa
+            nombres_empresas = df_sidebar['nombre_empresa'].tolist()
+            
+            # Verificamos si ya hay una selección guardada para mantenerla de forma segura
+            empresa_previa = st.session_state.get('CLIENTE_NOMBRE')
+            indice_inicial = 0
+            if empresa_previa in nombres_empresas:
+                indice_inicial = nombres_empresas.index(empresa_previa)
+
             seleccion = st.selectbox(
                 "Seleccione Empresa", 
-                df_sidebar['nombre_empresa'].tolist(), 
+                nombres_empresas, 
+                index=indice_inicial,
                 key="selector_empresa"
             )
             
-            # Validación por seguridad si el selectbox llegara a retornar None
+            # Validación estricta para evitar que un valor nulo rompa el flujo
             if not seleccion:
-                st.warning("⚠️ Por favor, seleccione una empresa.")
+                st.warning("⚠️ Por favor, seleccione una empresa válida.")
                 st.stop()
                 
             st.write(f"Empresa seleccionada: '{str(seleccion).upper()}'")
             
-            # 2. Sincronización de datos segura
+            # 2. Sincronización de datos segura usando un filtro explícito
             empresa_filtrada = df_sidebar[df_sidebar['nombre_empresa'] == seleccion]
             if empresa_filtrada.empty:
                 st.error("❌ No se encontró la empresa seleccionada en los registros.")
@@ -6904,7 +6913,7 @@ with st.sidebar:
                 
             datos_sel = empresa_filtrada.iloc[0]
             
-            # Validamos que db_nombre no sea nulo antes de hacer el strip
+            # Validamos que db_nombre no sea nulo antes de procesarlo
             db_raw = datos_sel['db_nombre']
             if pd.isna(db_raw) or not db_raw:
                 st.error(f"⚠️ La empresa '{seleccion}' no tiene asignada una base de datos en 'control_central'.")
@@ -6912,9 +6921,10 @@ with st.sidebar:
                 
             DB_ACTUAL = str(db_raw).strip()
             
+            # Guardado blindado en session_state
             st.session_state['DB_ACTUAL'] = DB_ACTUAL
             st.session_state['CLIENTE_NOMBRE'] = seleccion
-            st.session_state['cliente_id_seleccionado'] = datos_sel['id']
+            st.session_state['cliente_id_seleccionado'] = int(datos_sel['id'])
 
             st.subheader("Módulos")
 
