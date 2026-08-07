@@ -3709,6 +3709,7 @@ f_inicio_global = datetime.datetime(anio_actual, 1, 1)
 f_fin_global = datetime.datetime(anio_actual, 12, 31)
 
 # --- EJECUCIÓN DE KPIS BLINDADA ---
+# --- EJECUCIÓN DE KPIS BLINDADA CONTRA NULOS ---
 db_actual = st.session_state.get('DB_ACTUAL')
 kpis = {}
 
@@ -3717,7 +3718,13 @@ if db_actual and db_actual != 'none':
         conn = conectar_db(db_actual)
         if conn is not None:
             try:
-                kpis = obtener_kpis_financieros(conn, f_inicio_global, f_fin_global, sucursal, db_actual)
+                # Verificamos de forma segura que la función exista y no sea None
+                func_kpis = globals().get('obtener_kpis_financieros')
+                
+                if func_kpis is not None and callable(func_kpis):
+                    kpis = func_kpis(conn, f_inicio_global, f_fin_global, sucursal, db_actual)
+                else:
+                    st.error("❌ Error crítico: La función 'obtener_kpis_financieros' no está definida o es nula.")
             except Exception as e:
                 st.error(f"Error al calcular los KPIs financieros: {e}")
             finally:
@@ -3728,7 +3735,7 @@ if db_actual and db_actual != 'none':
     except Exception as conn_err:
         st.error(f"Error crítico de conexión: {conn_err}")
 
-# Diccionario por defecto blindado por si falló la base de datos o viene vacía
+# Diccionario por defecto por si falla la función o la base de datos
 if not kpis:
     kpis = {k: 0 for k in ["activo", "pasivo", "patrimonio", "utilidad", "entradas_efectivo", "salidas_efectivo", "flujo_neto", "saldo_real_final"]}
     kpis["top_proveedor"] = "Seleccione Empresa"
