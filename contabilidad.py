@@ -687,7 +687,7 @@ def obtener_salud_fiscal(f_inicio, f_fin, db):
     else:
         fecha_str = str(f_fin).split()[0] + " 23:59:59"
 
-    if db == 'kingdriver_ca':
+    if db == 'kingdirver_ca':
         dpp_query = """
             SUM(CASE WHEN plan_cuentas LIKE '6.1.1.03.020%' THEN haber ELSE 0 END) as DPP_haber,
             SUM(CASE WHEN plan_cuentas LIKE '6.1.1.03.020%' THEN debe ELSE 0 END) as DPP_debe
@@ -1890,7 +1890,7 @@ def limpiar_moneda(valor):
 def cargar_asientos_contables_db(df, conn=None):
     registrar_log_automatico(conn, "CONSULTA_BALANCE_GENERAL", f"Usuario {st.session_state.usuario} consultó balance para {st.session_state.cliente_id}")
     if not conn:
-        db_actual = st.session_state.get('DB_ACTUAL', 'kingdriver_ca')
+        db_actual = st.session_state.get('DB_ACTUAL', 'kingdirver_ca')
         conn = conectar_db(db_actual)
     
     if not conn: return False
@@ -2201,7 +2201,7 @@ def formato_contable(valor):
 @log_ejecucion
 def disenar_reporte_asiento_contable(numero_comprobante):
     # 1. AJUSTE CLAVE: Obtener el nombre de la DB de la sesión
-    db_nombre = st.session_state.get('DB_ACTUAL', 'kingdriver_ca')
+    db_nombre = st.session_state.get('DB_ACTUAL', 'kingdirver_ca')
     conn = conectar_db(db_nombre) 
     
     if conn:
