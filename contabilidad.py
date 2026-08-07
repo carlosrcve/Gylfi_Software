@@ -6874,16 +6874,16 @@ if 'DB_ACTUAL' in st.session_state and st.session_state['DB_ACTUAL']:
             # 2. Definimos la sucursal de forma segura
             sucursal_actual = st.session_state.get('sucursal_seleccionada', None)
             
-            # 3. Ejecutamos las consultas pasando los parámetros de forma limpia
-            kpis = obtener_kpis_financieros(conn, f_inicio_global, f_fin_global, sucursal_actual, db_nombre)
-            df_bar, df_pie = obtener_datos_graficos(conn, f_inicio_global, f_fin_global, sucursal_actual)
+            # 3. Llamadas seguras validando que cada función exista realmente
+            kpis = obtener_kpis_financieros(conn, f_inicio_global, f_fin_global, sucursal_actual, db_nombre) if 'obtener_kpis_financieros' in globals() and callable(globals()['obtener_kpis_financieros']) else {}
             
-            # Llamada corregida a la función del libro diario usando argumentos nombrados o pasando las fechas globales
+            df_bar, df_pie = obtener_datos_graficos(conn, f_inicio_global, f_fin_global, sucursal_actual) if 'obtener_datos_graficos' in globals() and callable(globals()['obtener_datos_graficos']) else (pd.DataFrame(), pd.DataFrame())
+            
             df_diario_local = consultar_libro_diario_db(
                 conn_activa=conn, 
                 fecha_inicio=f_inicio_global, 
                 fecha_fin=f_fin_global
-            )
+            ) if 'consultar_libro_diario_db' in globals() and callable(globals()['consultar_libro_diario_db']) else pd.DataFrame()
             
             st.success(f"✅ Conectado a: {EMPRESA} ({db_nombre})")
             
