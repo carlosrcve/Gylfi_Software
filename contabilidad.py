@@ -858,24 +858,33 @@ def obtener_datos_barras(db, fecha_inicio, fecha_fin):
             conn.close()
         return df_vacio
 
-@log_ejecucion
 def obtener_datos_pie(db, f_fin):
+    df_vacio = pd.DataFrame(columns=['nombre', 'Saldo Final'])
+    
     conn = conectar_db(db)
-    # Esta mantiene el filtro por fecha acumulada (<= f_fin)
+    if not conn:
+        return df_vacio
+        
     query = f"""
         SELECT 
             descripcion as nombre,
             SUM(debe) as "Saldo Final"
         FROM `{db}`.asientos_contables 
-        WHERE plan_cuentas LIKE '6%%'
+        WHERE plan_cuentas LIKE '6%'
         AND CAST(fecha AS DATE) <= %s
         GROUP BY descripcion
         ORDER BY 2 DESC
         LIMIT 10
     """
-    df = pd.read_sql(query, conn, params=(f_fin,))
-    conn.close()
-    return df
+    
+    try:
+        df = pd.read_sql(query, conn, params=(f_fin,))
+        conn.close()
+        return df if not df.empty else df_vacio
+    except Exception as e:
+        if conn:
+            conn.close()
+        return df_vacio
 
 # --- COLOCA ESTA FUNCIÓN ANTES DE TU BLOQUE DE LA FILA 5 ---
 @st.cache_data(ttl=60) # ttl=60 significa que se refresca al menos cada minuto
