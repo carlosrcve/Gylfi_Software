@@ -1149,17 +1149,23 @@ def obtener_kpis_financieros(_conn, f_i, f_f, sucursal, db):
     }
 
 def obtener_datos_graficos(conn, f_i, f_f, sucursal):
-    # 1. Inicializamos para evitar el NameError
+    # 1. Inicializamos vacíos por defecto
     df_bar = pd.DataFrame(columns=['Categoría', 'Monto'])
     df_pie = pd.DataFrame(columns=['nombre', 'Saldo Final'])
     
-    # --- EL TRUCO: Recuperamos la DB activa ---
     db = st.session_state.get('DB_ACTUAL')
-    if not db:
-        return df_bar, df_pie # Si no hay DB, devolvemos vacíos sin error
+    if not db or db == 'control_central':
+        return df_bar, df_pie
 
     try:
-        # --- QUERY PARA BARRAS (Ahora con {db} y f-string) ---
+        # --- BLINDAJE: Verificamos si la tabla existe antes de consultar ---
+        with conn.cursor() as cursor:
+            cursor.execute(f"SHOW TABLES FROM `{db}` LIKE 'asientos_contables'")
+            if not cursor.fetchone():
+                # Si no existe, salimos sin error, solo devolvemos los vacíos
+                return df_bar, df_pie
+
+        # --- SI LLEGÓ AQUÍ, LA TABLA EXISTE, PROCEDEMOS CON SEGURIDAD ---
         query_bar = f"""
             SELECT 
                 CASE 
@@ -1174,7 +1180,6 @@ def obtener_datos_graficos(conn, f_i, f_f, sucursal):
         """
         df_bar = pd.read_sql(query_bar, conn, params=(f_i, f_f))
 
-        # --- QUERY PARA LA DONA (Ahora con {db} y f-string) ---
         query_pie = f"""
             SELECT plan_cuentas as nombre, ABS(SUM(debe - haber)) as `Saldo Final`
             FROM `{db}`.asientos_contables
@@ -1187,7 +1192,8 @@ def obtener_datos_graficos(conn, f_i, f_f, sucursal):
         df_pie = pd.read_sql(query_pie, conn, params=(f_i, f_f))
         
     except Exception as e:
-        st.error(f"Error técnico en gráficos: {e}")
+        # Esto capturará cualquier otro error sin matar la App
+        st.warning(f"No se pudieron cargar los gráficos: {e}")
 
     return df_bar, df_pie
 
@@ -7160,31 +7166,38 @@ def actualizar_empresa():
 
 
 # 1. Obtenemos los valores del estado de manera unificada
+# 1. Obtenemos los valores
 DB_ACTUAL = st.session_state.get('DB_ACTUAL', 'control_central')
 EMPRESA = st.session_state.get('CLIENTE_NOMBRE', "Seleccione Cliente")
 
-# 2. Conexión centralizada reutilizando el session_state
+# 2. Conexión centralizada con validación estricta
 if 'conn' not in st.session_state or st.session_state.conn is None:
     try:
         conn = conectar_db(DB_ACTUAL)
-    except TypeError:
-        conn = conectar_db()
-    st.session_state.conn = conn
+        st.session_state.conn = conn
+    except Exception as e:
+        st.error(f"Error crítico conectando: {e}")
+        st.session_state.conn = None
 else:
     conn = st.session_state.conn
 
-# 3. PROTECCIÓN CRÍTICA: Validamos que la conexión exista antes de usarla
+# 3. PROTECCIÓN Y VERIFICACIÓN
 if conn is not None:
-    # Bypass de seguridad (EL "USE" EN CALIENTE) solo si aplica
-    if DB_ACTUAL and DB_ACTUAL != "control_central":
-        try:
+    try:
+        # Verificamos si la conexión sigue viva
+        conn.ping(reconnect=True, attempts=3, delay=1)
+        
+        # Bypass de seguridad solo si aplica
+        if DB_ACTUAL and DB_ACTUAL != "control_central":
             with conn.cursor() as cursor:
                 cursor.execute(f"USE `{DB_ACTUAL}`")
-            st.success(f"✅ Conectado a la empresa: {EMPRESA}")
-        except Exception as e:
-            st.error(f"Error al cambiar de base de datos a {DB_ACTUAL}: {e}")
+            st.success(f"✅ Conectado a: {EMPRESA}")
+    except Exception as e:
+        st.warning(f"La conexión se perdió o la BD {DB_ACTUAL} no es accesible. Intentando reconectar...")
+        st.session_state.conn = None # Forzamos recarga en el próximo ciclo
+        st.rerun()
 else:
-    st.error("❌ No se pudo establecer la conexión con la base de datos. Por favor, recarga la página.")
+    st.error("❌ No hay conexión activa. Por favor, verifica tu configuración de TiDB Cloud.")
 
     
 if "Inicio" in opcion_menu:
