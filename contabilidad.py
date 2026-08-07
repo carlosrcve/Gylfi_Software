@@ -8604,6 +8604,14 @@ if "Inicio" in opcion_menu:
 
         # 1. CONDICIONAL: Solo mostrar si el cliente actual es "pedacito_de_cielo_ca" (o el nombre de su BD)
         if db == "pedacito_de_cielo_ca":
+            # Cambiar explícitamente el contexto desde control_central hacia la empresa activa
+            try:
+                cursor = st.session_state.conn.cursor()
+                cursor.execute("USE control_central;")  # Punto de partida seguro
+                cursor.execute("USE pedacito_de_cielo_ca;") # Cambio a la base de datos de la empresa
+                cursor.close()
+            except Exception as e:
+                st.error(f"Error al cambiar de contexto a la base de datos: {e}")
             with tab1:
                 # ==========================================
                 # 1. LÍNEA DIVISORIA ANTES DE LAS ALERTAS
