@@ -160,59 +160,47 @@ def conectar_db(nombre_db=None):
     try:
         db_a_usar = nombre_db if nombre_db else "control_central"
 
-        # Verificamos si ya hay una conexión y si está conectada
+        # 1. VERIFICAR Y CREAR LA BASE DE DATOS SI NO EXISTE (Multicliente Cloud)
+        if db_a_usar != "control_central":
+            try:
+                # Conexión temporal a control_central para asegurar la creación del cliente
+                conn_temp = mysql.connector.connect(
+                    host="gateway01.us-east-1.prod.aws.tidbcloud.com",
+                    port=4000,
+                    user="4K4VAw4t4ZPFUTF.root",
+                    password="OhAcM2lizBMDXDgD",
+                    database="control_central",
+                    use_pure=True,
+                    connect_timeout=10,
+                    ssl_verify_cert=False,
+                    ssl_disabled=False
+                )
+                cursor_temp = conn_temp.cursor()
+                cursor_temp.execute(f"CREATE DATABASE IF NOT EXISTS `{db_a_usar}`;")
+                cursor_temp.close()
+                conn_temp.close()
+            except Exception as ex:
+                print(f"Aviso al asegurar BD de cliente: {ex}")
+
+        # 2. VALIDAR CONEXIÓN EXISTENTE EN SESSION_STATE
         if "conn" in st.session_state and st.session_state.conn is not None:
             try:
                 if st.session_state.conn.is_connected():
-                    # --- NUEVO: Validamos si la conexión actual ya está usando la BD correcta ---
-                    # Obtenemos la base de datos actual de la conexión activa
                     cursor_test = st.session_state.conn.cursor()
                     cursor_test.execute("SELECT DATABASE()")
-                    db_actual_en_servidor = cursor_test.fetchone()[0]
+                    res = cursor_test.fetchone()
+                    db_actual_en_servidor = res[0] if res else None
                     cursor_test.close()
                     
-                    # Si la conexión activa ya está en la base de datos que pedimos, la reutilizamos
                     if db_actual_en_servidor == db_a_usar:
                         return st.session_state.conn
                     else:
-                        # Si pide OTRA base de datos, cerramos la vieja para forzar la nueva conexión
                         st.session_state.conn.close()
                         st.session_state.conn = None
             except:
                 st.session_state.conn = None
-        
-        # 1. Intentamos conectar usando st.secrets (Ideal para Streamlit Cloud)
-        if "connections" in st.secrets and "mysql" in st.secrets["connections"]:
-            sec = st.secrets["connections"]["mysql"]
-            st.session_state.conn = mysql.connector.connect(
-                host=sec.get("host", "gateway01.us-east-1.prod.aws.tidbcloud.com"),
-                port=int(sec.get("port", 4000)),
-                user=sec.get("user", "4K4VAw4t4ZPFUTF.root"),
-                password=sec.get("password", "OhAcM2lizBMDXDgD"),
-                database=db_a_usar,
-                use_pure=True,
-                connect_timeout=10,
-                ssl_verify_cert=False,
-                ssl_disabled=False
-            )
-            return st.session_state.conn
-            
-        elif "mysql" in st.secrets:
-            sec = st.secrets["mysql"]
-            st.session_state.conn = mysql.connector.connect(
-                host=sec.get("host", "gateway01.us-east-1.prod.aws.tidbcloud.com"),
-                port=int(sec.get("port", 4000)),
-                user=sec.get("user", "4K4VAw4t4ZPFUTF.root"),
-                password=sec.get("password", "OhAcM2lizBMDXDgD"),
-                database=db_a_usar,
-                use_pure=True,
-                connect_timeout=10,
-                ssl_verify_cert=False,
-                ssl_disabled=False
-            )
-            return st.session_state.conn
-
-        # 2. Si no hay secretos configurados, usamos los datos directos (Fallback local)
+      
+        # 3. CONEXIÓN OFICIAL A LA BASE DE DATOS REQUERIDA
         st.session_state.conn = mysql.connector.connect(
             host="gateway01.us-east-1.prod.aws.tidbcloud.com",
             port=4000,
@@ -229,7 +217,7 @@ def conectar_db(nombre_db=None):
     except Exception as e:
         st.error(f"❌ Error al conectar a '{db_a_usar}': {e}")
         print(f"ERROR REAL DE CONEXIÓN: {e}")
-        st.session_state.conn = None  # Limpiamos el estado si falla
+        st.session_state.conn = None
         return None
 # =========================================================
 # 2. IDENTIDAD DINÁMICA
