@@ -673,7 +673,7 @@ def obtener_saldos_acumulados(conexion, fecha_corte, nombre_db):
 
 
 
-@log_ejecucion
+
 def obtener_salud_fiscal(f_inicio, f_fin, db):
     conn = conectar_db(db)
     
