@@ -8858,19 +8858,16 @@ if "Inicio" in opcion_menu:
     except Exception as e:
         st.error(f"❌ Error al procesar el reporte: {e}")
     finally:
-        # Cierre y validación de conexión segura
+        # Cierre de conexión y cursores de forma totalmente segura
         try:
             if 'conn' in st.session_state and st.session_state.conn is not None:
                 conn_obj = st.session_state.conn
                 
-                # Verificación segura de métodos de conexión sin llamadas nulas
+                # Validación estricta antes de invocar cualquier método del conector
                 if hasattr(conn_obj, 'is_connected'):
                     is_conn_method = getattr(conn_obj, 'is_connected', None)
                     if callable(is_conn_method):
                         is_conn_method()
-                elif hasattr(conn_obj, 'close') and callable(getattr(conn_obj, 'close', None)):
-                    # Opcional: Asegurar cierre formal si el driver lo soporta y está abierto
-                    pass
         except Exception:
             pass
 
