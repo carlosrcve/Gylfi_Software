@@ -6872,12 +6872,11 @@ with st.sidebar:
             st.error("❌ No se pudo conectar a la base de datos central.")
 
         if not df_sidebar.empty:
-            # 1. Selector de Empresa
+            # 1. Selector de Empresa (Sin on_change para evitar cualquier fallo de NoneType)
             seleccion = st.selectbox(
                 "Seleccione Empresa", 
                 df_sidebar['nombre_empresa'].tolist(), 
-                key="selector_empresa",
-                on_change=reset_empresa  # <--- Directo, sin condiciones frágiles
+                key="selector_empresa"
             )
             st.write(f"Empresa seleccionada: '{seleccion.upper()}'")
             
