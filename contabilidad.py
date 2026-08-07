@@ -924,7 +924,6 @@ def obtener_detalle_movimientos_banco(db, f_i, f_f):
 
 @st.cache_data(ttl=300)
 def obtener_kpis_financieros(_conn, f_i, f_f, sucursal, db):
-    # 1. Inicialización de seguridad total (evita que cualquier variable falte en el return)
     data_vacia = {
         "activo": 0.0, "pasivo": 0.0, "patrimonio": 0.0, "liquidez": 0.0, 
         "utilidad": 0.0, "prueba_acida": 0.0, "capital_trabajo": 0.0, 
@@ -939,7 +938,6 @@ def obtener_kpis_financieros(_conn, f_i, f_f, sucursal, db):
     if not sucursal or not db or db == 'none':
         return data_vacia
 
-    # --- BLINDAJE DE CONEXIÓN ---
     try:
         if not _conn or not hasattr(_conn, 'is_connected') or not _conn.is_connected():
             conn = conectar_db(db)
@@ -952,7 +950,6 @@ def obtener_kpis_financieros(_conn, f_i, f_f, sucursal, db):
     if not conn:
         return data_vacia
 
-    # 2. Variables de cálculo inicializadas en 0.0 para evitar errores de referencia
     activo, pasivo, ingresos, egresos = 0.0, 0.0, 0.0, 0.0
     entradas, salidas, saldo_final_banco, saldo_inicial = 0.0, 0.0, 0.0, 0.0
     proveedor_nombre = "Sin datos"
@@ -960,7 +957,6 @@ def obtener_kpis_financieros(_conn, f_i, f_f, sucursal, db):
     ingresos_exentos, ingresos_gravados, compras_exentas, compras_16 = 0.0, 0.0, 0.0, 0.0
     iva_por_pagar, iva_debito, ret_prov, ret_islr = 0.0, 0.0, 0.0, 0.0
 
-    # 3. Obtener Balance Profesional (Roll-Up)
     try:
         df_bal = generar_balance_profesional(conn, f_i, f_f, sucursal)
         if df_bal is not None and not df_bal.empty:
@@ -970,7 +966,6 @@ def obtener_kpis_financieros(_conn, f_i, f_f, sucursal, db):
     except Exception as e:
         pass
 
-    # 4. Cálculo del Pasivo Real
     try:
         query_pasivo_total = f"""
             SELECT SUM(haber_total - debe_total) as saldo_real
@@ -990,10 +985,8 @@ def obtener_kpis_financieros(_conn, f_i, f_f, sucursal, db):
     except Exception as e:
         st.error(f"Error calculando pasivo real: {e}")
 
-    # 5. Bloque Único y Seguro de Consultas Directas (Sin redibujar el cursor mal)
     try:
         with conn.cursor(dictionary=True) as cursor:
-            # Indicadores fiscales
             cursor.execute(f"SELECT SUM(haber - debe) as total FROM `{db}`.asientos_contables WHERE plan_cuentas LIKE '4.1.1.01.001%%' AND fecha BETWEEN %s AND %s", (f_i, f_f))
             res = cursor.fetchone()
             ingresos_exentos = float(res['total'] or 0.0) if res else 0.0
@@ -1026,7 +1019,6 @@ def obtener_kpis_financieros(_conn, f_i, f_f, sucursal, db):
             res = cursor.fetchone()
             ret_islr = abs(float(res['total'] or 0.0)) if res else 0.0
 
-            # Utilidad
             query_utilidad = f"""
                 SELECT 
                     SUM(CASE WHEN plan_cuentas LIKE '4%%' THEN haber - debe ELSE 0 END) as ingresos,
@@ -1042,7 +1034,6 @@ def obtener_kpis_financieros(_conn, f_i, f_f, sucursal, db):
             
             utilidad = ingresos - egresos
 
-            # Saldo Inicial Banco
             query_saldo_inicial = f"""
                 SELECT (SUM(debe) - SUM(haber)) as saldo
                 FROM (
@@ -1056,7 +1047,6 @@ def obtener_kpis_financieros(_conn, f_i, f_f, sucursal, db):
             if res_inicial:
                 saldo_inicial = float(res_inicial['saldo'] or 0.0)
 
-            # Movimientos Banco
             query_movimientos = f"""
                 SELECT SUM(debe) as entradas, SUM(haber) as salidas 
                 FROM `{db}`.asientos_contables 
@@ -1071,7 +1061,6 @@ def obtener_kpis_financieros(_conn, f_i, f_f, sucursal, db):
 
             saldo_final_banco = saldo_inicial + entradas - salidas
 
-            # Salud Fiscal (Exento)
             query_exento = f"""
                 SELECT SUM(debe) as total_exento 
                 FROM `{db}`.asientos_contables 
@@ -1084,7 +1073,6 @@ def obtener_kpis_financieros(_conn, f_i, f_f, sucursal, db):
             if res_exento:
                 exento = float(res_exento['total_exento'] or 0.0)
 
-            # Top Proveedor
             query_top = f"""
                 SELECT p.nombre, SUM(a.haber - a.debe) as total 
                 FROM `{db}`.asientos_contables a 
@@ -1102,7 +1090,6 @@ def obtener_kpis_financieros(_conn, f_i, f_f, sucursal, db):
     except Exception as e:
         st.error(f"Error en consultas de KPIs: {e}")
 
-    # 6. RETORNO FINAL BLINDADO
     return {
         "activo": activo,
         "pasivo": pasivo,
