@@ -158,19 +158,28 @@ if 'db_init' not in st.session_state:
 
 def conectar_db(nombre_db=None):
     try:
-        # Definimos la base de datos a usar: si pasan un parámetro se usa ese, 
-        # de lo contrario busca en los secretos o usa "control_central" por defecto.
         db_a_usar = nombre_db if nombre_db else "control_central"
 
-        # Verificamos si ya hay una conexión activa guardada para no abrir otra
+        # Verificamos si ya hay una conexión y si está conectada
         if "conn" in st.session_state and st.session_state.conn is not None:
             try:
                 if st.session_state.conn.is_connected():
-                    # Si ya está conectada pero piden otra base de datos específica, 
-                    # podemos hacer un select o re-verificar, pero si es la misma la devolvemos.
-                    return st.session_state.conn
+                    # --- NUEVO: Validamos si la conexión actual ya está usando la BD correcta ---
+                    # Obtenemos la base de datos actual de la conexión activa
+                    cursor_test = st.session_state.conn.cursor()
+                    cursor_test.execute("SELECT DATABASE()")
+                    db_actual_en_servidor = cursor_test.fetchone()[0]
+                    cursor_test.close()
+                    
+                    # Si la conexión activa ya está en la base de datos que pedimos, la reutilizamos
+                    if db_actual_en_servidor == db_a_usar:
+                        return st.session_state.conn
+                    else:
+                        # Si pide OTRA base de datos, cerramos la vieja para forzar la nueva conexión
+                        st.session_state.conn.close()
+                        st.session_state.conn = None
             except:
-                pass
+                st.session_state.conn = None
         
         # 1. Intentamos conectar usando st.secrets (Ideal para Streamlit Cloud)
         if "connections" in st.secrets and "mysql" in st.secrets["connections"]:
@@ -180,7 +189,7 @@ def conectar_db(nombre_db=None):
                 port=int(sec.get("port", 4000)),
                 user=sec.get("user", "4K4VAw4t4ZPFUTF.root"),
                 password=sec.get("password", "OhAcM2lizBMDXDgD"),
-                database=db_a_usar,  # <--- AQUÍ USAMOS LA VARIABLE DINÁMICA
+                database=db_a_usar,
                 use_pure=True,
                 connect_timeout=10,
                 ssl_verify_cert=False,
@@ -195,7 +204,7 @@ def conectar_db(nombre_db=None):
                 port=int(sec.get("port", 4000)),
                 user=sec.get("user", "4K4VAw4t4ZPFUTF.root"),
                 password=sec.get("password", "OhAcM2lizBMDXDgD"),
-                database=db_a_usar,  # <--- AQUÍ USAMOS LA VARIABLE DINÁMICA
+                database=db_a_usar,
                 use_pure=True,
                 connect_timeout=10,
                 ssl_verify_cert=False,
@@ -209,7 +218,7 @@ def conectar_db(nombre_db=None):
             port=4000,
             user="4K4VAw4t4ZPFUTF.root",
             password="OhAcM2lizBMDXDgD",
-            database=db_a_usar,      # <--- AQUÍ USAMOS LA VARIABLE DINÁMICA
+            database=db_a_usar,
             use_pure=True,
             connect_timeout=10,
             ssl_verify_cert=False,
@@ -220,6 +229,7 @@ def conectar_db(nombre_db=None):
     except Exception as e:
         st.error(f"❌ Error al conectar a '{db_a_usar}': {e}")
         print(f"ERROR REAL DE CONEXIÓN: {e}")
+        st.session_state.conn = None  # Limpiamos el estado si falla
         return None
 # =========================================================
 # 2. IDENTIDAD DINÁMICA
