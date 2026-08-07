@@ -6862,21 +6862,36 @@ if 'DB_ACTUAL' in st.session_state and st.session_state['DB_ACTUAL']:
             # 2. Definimos la sucursal de forma segura
             sucursal_actual = st.session_state.get('sucursal_seleccionada', None)
             
-            # 3. Llamadas seguras validando que cada función exista realmente
-            kpis = obtener_kpis_financieros(conn, f_inicio_global, f_fin_global, sucursal_actual, db_nombre) if 'obtener_kpis_financieros' in globals() and callable(globals()['obtener_kpis_financieros']) else {}
+            # 3. Llamadas aisladas para identificar exactamente cuál falla
+            kpis = {}
+            if 'obtener_kpis_financieros' in globals() and callable(globals()['obtener_kpis_financieros']):
+                try:
+                    kpis = obtener_kpis_financieros(conn, f_inicio_global, f_fin_global, sucursal_actual, db_nombre)
+                except Exception as e_kpis:
+                    st.error(f"❌ Error en obtener_kpis_financieros: {e_kpis}")
+
+            df_bar, df_pie = pd.DataFrame(), pd.DataFrame()
+            if 'obtener_datos_graficos' in globals() and callable(globals()['obtener_datos_graficos']):
+                try:
+                    df_bar, df_pie = obtener_datos_graficos(conn, f_inicio_global, f_fin_global, sucursal_actual)
+                except Exception as e_graf:
+                    st.error(f"❌ Error en obtener_datos_graficos: {e_graf}")
             
-            df_bar, df_pie = obtener_datos_graficos(conn, f_inicio_global, f_fin_global, sucursal_actual) if 'obtener_datos_graficos' in globals() and callable(globals()['obtener_datos_graficos']) else (pd.DataFrame(), pd.DataFrame())
-            
-            df_diario_local = consultar_libro_diario_db(
-                conn_activa=conn, 
-                fecha_inicio=f_inicio_global, 
-                fecha_fin=f_fin_global
-            ) if 'consultar_libro_diario_db' in globals() and callable(globals()['consultar_libro_diario_db']) else pd.DataFrame()
+            df_diario_local = pd.DataFrame()
+            if 'consultar_libro_diario_db' in globals() and callable(globals()['consultar_libro_diario_db']):
+                try:
+                    df_diario_local = consultar_libro_diario_db(
+                        conn_activa=conn, 
+                        fecha_inicio=f_inicio_global, 
+                        fecha_fin=f_fin_global
+                    )
+                except Exception as e_diario:
+                    st.error(f"❌ Error en consultar_libro_diario_db: {e_diario}")
             
             st.success(f"✅ Conectado a: {EMPRESA} ({db_nombre})")
             
         except Exception as e:
-            st.error(f"❌ Error al procesar los datos de {EMPRESA}: {e}")
+            st.error(f"❌ Error general al procesar los datos de {EMPRESA}: {e}")
         finally:
             if conn and hasattr(conn, 'is_connected') and conn.is_connected():
                 conn.close()
