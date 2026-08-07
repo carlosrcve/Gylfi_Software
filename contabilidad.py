@@ -6871,17 +6871,23 @@ if 'DB_ACTUAL' in st.session_state and st.session_state['DB_ACTUAL']:
             # 2. Definimos la sucursal de forma segura
             sucursal_actual = st.session_state.get('sucursal_seleccionada', None)
             
-            # 3. Ejecutamos las consultas pasando 'sucursal_actual' correctamente
+            # 3. Ejecutamos las consultas
             kpis = obtener_kpis_financieros(conn, f_inicio_global, f_fin_global, sucursal_actual, db_nombre)
             df_bar, df_pie = obtener_datos_graficos(conn, f_inicio_global, f_fin_global, sucursal_actual)
-            df_diario_local = consultar_libro_diario_db(conn) 
+            
+            # 4. Validamos que la función existe antes de llamarla para evitar el error NoneType
+            if 'consultar_libro_diario_db' in globals() and callable(globals()['consultar_libro_diario_db']):
+                df_diario_local = consultar_libro_diario_db(conn) 
+            else:
+                st.warning("⚠️ La función 'consultar_libro_diario_db' no está definida correctamente.")
+                df_diario_local = None
             
             st.success(f"✅ Conectado a: {EMPRESA} ({db_nombre})")
             
         except Exception as e:
             st.error(f"❌ Error al procesar los datos de {EMPRESA}: {e}")
         finally:
-            if conn and conn.is_connected():
+            if conn and hasattr(conn, 'is_connected') and conn.is_connected():
                 conn.close()
 else:
     st.warning("⚠️ Por favor, seleccione una empresa en el panel lateral para comenzar.")
