@@ -2938,10 +2938,6 @@ def cargar_retenciones_islr_db(df):
             if conn and conn.is_connected():
                 conn.ping(reconnect=True)
 
-
-
-
-
 @log_ejecucion
 def resetear_estado_retencion(numero_factura):
     try:
@@ -2964,7 +2960,10 @@ def resetear_estado_retencion(numero_factura):
         return False
 
 
-
+def reset_empresa():
+    st.session_state.conn = None
+    st.session_state.pop('db_nombre_actual', None)
+    
 @log_ejecucion
 def registrar_retencion_islr_db(id_sec, rif, razon_social, direccion, factura, control, fecha, codigo, base, porc, sust, periodo, m_retenido, n_comprobante):
     db_actual = st.session_state.get('DB_ACTUAL')
@@ -6878,7 +6877,7 @@ with st.sidebar:
                 "Seleccione Empresa", 
                 df_sidebar['nombre_empresa'].tolist(), 
                 key="selector_empresa",
-                on_change=reset_empresa if 'reset_empresa' in globals() else None
+                on_change=reset_empresa  # <--- Directo, sin condiciones frágiles
             )
             st.write(f"Empresa seleccionada: '{seleccion.upper()}'")
             
