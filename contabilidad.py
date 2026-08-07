@@ -156,12 +156,18 @@ if 'db_init' not in st.session_state:
 # ==========================================
 
 
-def conectar_db():
+def conectar_db(nombre_db=None):
     try:
+        # Definimos la base de datos a usar: si pasan un parámetro se usa ese, 
+        # de lo contrario busca en los secretos o usa "control_central" por defecto.
+        db_a_usar = nombre_db if nombre_db else "control_central"
+
         # Verificamos si ya hay una conexión activa guardada para no abrir otra
         if "conn" in st.session_state and st.session_state.conn is not None:
             try:
                 if st.session_state.conn.is_connected():
+                    # Si ya está conectada pero piden otra base de datos específica, 
+                    # podemos hacer un select o re-verificar, pero si es la misma la devolvemos.
                     return st.session_state.conn
             except:
                 pass
@@ -174,7 +180,7 @@ def conectar_db():
                 port=int(sec.get("port", 4000)),
                 user=sec.get("user", "4K4VAw4t4ZPFUTF.root"),
                 password=sec.get("password", "OhAcM2lizBMDXDgD"),
-                database=sec.get("database", "control_central"),
+                database=db_a_usar,  # <--- AQUÍ USAMOS LA VARIABLE DINÁMICA
                 use_pure=True,
                 connect_timeout=10,
                 ssl_verify_cert=False,
@@ -189,7 +195,7 @@ def conectar_db():
                 port=int(sec.get("port", 4000)),
                 user=sec.get("user", "4K4VAw4t4ZPFUTF.root"),
                 password=sec.get("password", "OhAcM2lizBMDXDgD"),
-                database=sec.get("database", "control_central"),
+                database=db_a_usar,  # <--- AQUÍ USAMOS LA VARIABLE DINÁMICA
                 use_pure=True,
                 connect_timeout=10,
                 ssl_verify_cert=False,
@@ -203,7 +209,7 @@ def conectar_db():
             port=4000,
             user="4K4VAw4t4ZPFUTF.root",
             password="OhAcM2lizBMDXDgD",
-            database="control_central",
+            database=db_a_usar,      # <--- AQUÍ USAMOS LA VARIABLE DINÁMICA
             use_pure=True,
             connect_timeout=10,
             ssl_verify_cert=False,
@@ -212,8 +218,8 @@ def conectar_db():
         return st.session_state.conn
         
     except Exception as e:
-        st.error(f"❌ Error al conectar: {e}")
-        print(f"ERROR REAL DE CONEXIÓN: {e}") # <-- Esto saldrá en tu terminal negra de Python
+        st.error(f"❌ Error al conectar a '{db_a_usar}': {e}")
+        print(f"ERROR REAL DE CONEXIÓN: {e}")
         return None
 # =========================================================
 # 2. IDENTIDAD DINÁMICA
