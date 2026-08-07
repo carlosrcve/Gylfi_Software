@@ -8603,6 +8603,7 @@ if "Inicio" in opcion_menu:
 
 
         # 1. CONDICIONAL: Solo mostrar si el cliente actual es "pedacito_de_cielo_ca" (o el nombre de su BD)
+        # 1. CONDICIONAL: Solo mostrar si el cliente actual es "pedacito_de_cielo_ca" (o el nombre de su BD)
         if db == "pedacito_de_cielo_ca":
     
             with tab1:
@@ -8638,7 +8639,6 @@ if "Inicio" in opcion_menu:
                     pagos_realizados["pensiones"] = st.checkbox("✅ Ley de Pensiones Pagada", value=False)
                     pagos_realizados["iva_1"] = st.checkbox("✅ IVA 1era Quincena Pagado", value=False)
 
-                # Evaluador de Alertas y Sonido
                 # Evaluador de Alertas y Sonido
                 alerta_activa = False
                 mensajes_urgentes = []
