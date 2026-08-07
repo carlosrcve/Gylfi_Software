@@ -2993,7 +2993,7 @@ def resetear_estado_retencion(numero_factura):
 def reset_empresa():
     st.session_state.conn = None
     st.session_state.pop('db_nombre_actual', None)
-    
+
 @log_ejecucion
 def registrar_retencion_islr_db(id_sec, rif, razon_social, direccion, factura, control, fecha, codigo, base, porc, sust, periodo, m_retenido, n_comprobante):
     db_actual = st.session_state.get('DB_ACTUAL')
@@ -6883,21 +6883,29 @@ with st.sidebar:
 
         if conn_sidebar is not None:
             try:
-                # --- BLOQUE DE DEBUG SEGURO ---
-                cursor_debug = conn_sidebar.cursor()
-                cursor_debug.execute("SELECT COUNT(*) FROM control_central.clientes")
-                conteo = cursor_debug.fetchone()[0]
-                st.success(f"DEBUG: Conexión exitosa. Se encontraron {conteo} empresas en la tabla.")
-                cursor_debug.close()
-                # ---------------------------
-
-                # Leemos el DataFrame utilizando la misma conexión activa
+                # Verificamos y reconectamos si la sesión de TiDB Cloud se ha cerrado por inactividad o timeout
+                if hasattr(conn_sidebar, 'ping') and callable(conn_sidebar.ping):
+                    conn_sidebar.ping(reconnect=True)
+                
+                # Leemos el DataFrame utilizando la conexión activa y blindada
                 df_sidebar = pd.read_sql(query_sidebar, conn_sidebar)
             except Exception as e:
-                st.error(f"❌ Error en la consulta o conexión: {e}")
+                # Si ocurre un timeout o corte, intentamos reconectar una vez de emergencia
+                try:
+                    conn_sidebar = conectar_db()
+                    if conn_sidebar:
+                        df_sidebar = pd.read_sql(query_sidebar, conn_sidebar)
+                    else:
+                        st.error(f"❌ Error de conexión persistente: {e}")
+                except Exception as inner_e:
+                    st.error(f"❌ Error crítico al reconectar con la base de datos: {inner_e}")
             finally:
-                # Cerramos la conexión de forma segura al terminar todo
-                conn_sidebar.close()
+                # Cerramos la conexión de forma segura si sigue abierta
+                try:
+                    if conn_sidebar and hasattr(conn_sidebar, 'close'):
+                        conn_sidebar.close()
+                except:
+                    pass
         else:
             st.error("❌ No se pudo conectar a la base de datos central.")
 
