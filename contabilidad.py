@@ -6880,13 +6880,14 @@ with st.sidebar:
             )
             st.write(f"Empresa seleccionada: '{seleccion.upper()}'")
             
-            # 2. Sincronización de datos corregida
+            # 2. Sincronización de datos
             datos_sel = df_sidebar[df_sidebar['nombre_empresa'] == seleccion].iloc[0]
             
-            # Capturamos el nombre real de la base de datos desde la columna 'db_nombre'
-            st.session_state['DB_ACTUAL'] = datos_sel['db_nombre']  
+            # ---> PONLO AQUÍ <---
+            DB_ACTUAL = str(datos_sel['db_nombre']).strip()
+            
+            st.session_state['DB_ACTUAL'] = DB_ACTUAL
             st.session_state['CLIENTE_NOMBRE'] = seleccion
-            st.session_state['cliente_id_seleccionado'] = datos_sel['id']
 
             st.subheader("Módulos")
 
