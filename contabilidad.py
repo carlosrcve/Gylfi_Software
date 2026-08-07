@@ -626,6 +626,9 @@ def obtener_historico_utilidad_acumulada(db):
 
 @log_ejecucion
 def obtener_saldos_acumulados(conn, f_fin, db):
+    if not conn:
+        return {"activo": 0, "pasivo": 0, "patrimonio": 0}
+        
     cursor = conn.cursor(dictionary=True)
     
     # 1. Saldos iniciales puros de la apertura directos desde MySQL
