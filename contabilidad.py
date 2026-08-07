@@ -6827,11 +6827,15 @@ if 'DB_ACTUAL' in st.session_state and st.session_state['DB_ACTUAL']:
     
     if conn:
         try:
-            # Definimos sucursal por si no existe
+            # 1. Aseguramos el esquema activo en TiDB Cloud explícitamente
+            with conn.cursor() as cursor:
+                cursor.execute(f"USE `{db_nombre}`")
+
+            # 2. Definimos la sucursal de forma segura
             sucursal_actual = st.session_state.get('sucursal_seleccionada', None)
             
-            # Ejecutamos las consultas
-            kpis = obtener_kpis_financieros(conn, f_inicio_global, f_fin_global, sucursal, st.session_state.get('DB_ACTUAL'))
+            # 3. Ejecutamos las consultas pasando 'sucursal_actual' correctamente
+            kpis = obtener_kpis_financieros(conn, f_inicio_global, f_fin_global, sucursal_actual, db_nombre)
             df_bar, df_pie = obtener_datos_graficos(conn, f_inicio_global, f_fin_global, sucursal_actual)
             df_diario_local = consultar_libro_diario_db(conn) 
             
@@ -6844,8 +6848,6 @@ if 'DB_ACTUAL' in st.session_state and st.session_state['DB_ACTUAL']:
                 conn.close()
 else:
     st.warning("⚠️ Por favor, seleccione una empresa en el panel lateral para comenzar.")
-
-
 
 # =========================================================================
 # 1. TODO EL BLOQUE DEL SIDEBAR (Únicamente controles y navegación)
@@ -7152,6 +7154,8 @@ if conn is not None:
             st.error(f"Error al cambiar de base de datos a {DB_ACTUAL}: {e}")
 else:
     st.error("❌ No se pudo establecer la conexión con la base de datos. Por favor, recarga la página.")
+
+    
 if "Inicio" in opcion_menu:
     # 1. Recuperamos la DB seleccionada
     db_actual = st.session_state.get('DB_ACTUAL', 'No seleccionada')
