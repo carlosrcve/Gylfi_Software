@@ -6890,14 +6890,20 @@ with st.sidebar:
             )
             st.write(f"Empresa seleccionada: '{seleccion.upper()}'")
             
-            # 2. Sincronización de datos
+            # 2. Sincronización de datos segura
             datos_sel = df_sidebar[df_sidebar['nombre_empresa'] == seleccion].iloc[0]
             
-            # ---> PONLO AQUÍ <---
-            DB_ACTUAL = str(datos_sel['db_nombre']).strip()
+            # Validamos que db_nombre no sea nulo antes de hacer el strip
+            db_raw = datos_sel['db_nombre']
+            if pd.isna(db_raw) or not db_raw:
+                st.error(f"⚠️ La empresa '{seleccion}' no tiene asignada una base de datos en 'control_central'.")
+                st.stop()
+                
+            DB_ACTUAL = str(db_raw).strip()
             
             st.session_state['DB_ACTUAL'] = DB_ACTUAL
             st.session_state['CLIENTE_NOMBRE'] = seleccion
+            st.session_state['cliente_id_seleccionado'] = datos_sel['id']
 
             st.subheader("Módulos")
 
