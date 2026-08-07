@@ -7101,16 +7101,22 @@ if "Inicio" in opcion_menu:
 
     # 3. Si no hay conexión O no coincide con la empresa seleccionada, reconectamos
     if 'conn' not in st.session_state or st.session_state.conn is None or not conexion_coincide:
+        if db_actual == 'No seleccionada':
+            st.warning("⚠️ Por favor seleccione una empresa válida.")
+            st.stop()
+            
         st.info(f"🔄 Conectando a la base de datos: {db_actual}...")
         
+        # Intentamos conectar
         nueva_conn = conectar_db(db_actual)
         
-        if nueva_conn:
+        # VALIDACIÓN CLAVE: Si conectar_db devolvió None, detenemos aquí para evitar el NoneType
+        if nueva_conn is not None:
             st.session_state.conn = nueva_conn
             st.session_state.ultima_db_conectada = db_actual
             st.rerun() 
         else:
-            st.error(f"❌ No se pudo conectar a {db_actual}")
+            st.error(f"❌ No se pudo establecer la conexión con la base de datos '{db_actual}'. Verifica que ya haya sido creada en TiDB Cloud.")
             st.stop()
 
     # 4. ENCABEZADO DINÁMICO
