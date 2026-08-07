@@ -625,33 +625,50 @@ def obtener_historico_utilidad_acumulada(db):
         return df_default
 
 # Quítale temporalmente el @log_ejecucion a esta función para probar
+@log_ejecucion
 def obtener_saldos_acumulados(conn, f_fin, db):
     if not conn:
         return {"activo": 0, "pasivo": 0, "patrimonio": 0}
         
     cursor = conn.cursor(dictionary=True)
     
-    cursor.execute(f"""
-        SELECT 
-            COALESCE(SUM(CASE WHEN plan_cuentas LIKE '1%' THEN (debe - haber) ELSE 0 END), 0) as activo_ini,
-            COALESCE(SUM(CASE WHEN plan_cuentas LIKE '2%' THEN (haber - debe) ELSE 0 END), 0) as pasivo_ini,
-            COALESCE(SUM(CASE WHEN plan_cuentas LIKE '3%' THEN (haber - debe) ELSE 0 END), 0) as patrimonio_ini
-        FROM `{db}`.saldos_iniciales
-    """)
-    res_ini = cursor.fetchone() or {'activo_ini': 0, 'pasivo_ini': 0, 'patrimonio_ini': 0}
+    res_ini = {'activo_ini': 0, 'pasivo_ini': 0, 'patrimonio_ini': 0}
+    try:
+        # 1. Saldos iniciales puros (Blindado por si la tabla no existe en alguna BD)
+        cursor.execute(f"""
+            SELECT 
+                COALESCE(SUM(CASE WHEN plan_cuentas LIKE '1%' THEN (debe - haber) ELSE 0 END), 0) as activo_ini,
+                COALESCE(SUM(CASE WHEN plan_cuentas LIKE '2%' THEN (haber - debe) ELSE 0 END), 0) as pasivo_ini,
+                COALESCE(SUM(CASE WHEN plan_cuentas LIKE '3%' THEN (haber - debe) ELSE 0 END), 0) as patrimonio_ini
+            FROM `{db}`.saldos_iniciales
+        """)
+        resultado_fetch = cursor.fetchone()
+        if resultado_fetch:
+            res_ini = resultado_fetch
+    except Exception:
+        # Si la tabla 'saldos_iniciales' no existe en esta empresa, continuamos con ceros
+        pass
     
-    cursor.execute(f"""
-        SELECT 
-            COALESCE(SUM(CASE WHEN plan_cuentas LIKE '1%' THEN (debe - haber) ELSE 0 END), 0) as activo_mov,
-            COALESCE(SUM(CASE WHEN plan_cuentas LIKE '2%' THEN (haber - debe) ELSE 0 END), 0) as pasivo_mov,
-            COALESCE(SUM(CASE WHEN plan_cuentas LIKE '3%' THEN (haber - debe) ELSE 0 END), 0) as patrimonio_mov
-        FROM `{db}`.asientos_contables 
-        WHERE fecha <= %s
-    """, (f_fin,))
-    res_mov = cursor.fetchone() or {'activo_mov': 0, 'pasivo_mov': 0, 'patrimonio_mov': 0}
+    # 2. Movimientos contables hasta la fecha de corte
+    res_mov = {'activo_mov': 0, 'pasivo_mov': 0, 'patrimonio_mov': 0}
+    try:
+        cursor.execute(f"""
+            SELECT 
+                COALESCE(SUM(CASE WHEN plan_cuentas LIKE '1%' THEN (debe - haber) ELSE 0 END), 0) as activo_mov,
+                COALESCE(SUM(CASE WHEN plan_cuentas LIKE '2%' THEN (haber - debe) ELSE 0 END), 0) as pasivo_mov,
+                COALESCE(SUM(CASE WHEN plan_cuentas LIKE '3%' THEN (haber - debe) ELSE 0 END), 0) as patrimonio_mov
+            FROM `{db}`.asientos_contables 
+            WHERE fecha <= %s
+        """, (f_fin,))
+        resultado_mov = cursor.fetchone()
+        if resultado_mov:
+            res_mov = resultado_mov
+    except Exception:
+        pass
     
     cursor.close()
     
+    # Sumatoria total calculada de forma segura
     activo_total = float(res_ini.get('activo_ini', 0) or 0) + float(res_mov.get('activo_mov', 0) or 0)
     pasivo_total = float(res_ini.get('pasivo_ini', 0) or 0) + float(res_mov.get('pasivo_mov', 0) or 0)
     patrimonio_total = float(res_ini.get('patrimonio_ini', 0) or 0) + float(res_mov.get('patrimonio_mov', 0) or 0)
