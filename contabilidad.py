@@ -237,16 +237,15 @@ def conectar_db(nombre_db=None):
 
 
 # Sacamos los datos directamente de lo que ya se seleccionó en el Sidebar
-# (Asumiendo que el bloque 1.3 que pusimos antes ya definió estas variables)
-if 'DB_ACTUAL' in st.session_state:
-    EMPRESA = st.session_state.get('nombre_empresa_seleccionada', "Empresa Seleccionada")
+if 'DB_ACTUAL' in st.session_state and st.session_state.get('DB_ACTUAL'):
+    EMPRESA = st.session_state.get('CLIENTE_NOMBRE', "Empresa Seleccionada")
+    # Si también guardas el RIF en el session_state, lo buscas aquí:
     RIF = st.session_state.get('rif_empresa_seleccionada', "J-00000000-0")
 else:
     EMPRESA = "Seleccione Cliente"
     RIF = "J-00000000-0"
 
 DATOS_EMPRESA = {"nombre": EMPRESA, "rif": RIF}
-
 
 
 import functools
@@ -7112,10 +7111,11 @@ fecha_fin_str = f_fin_global.strftime('%Y-%m-%d')
 EMPRESA = st.session_state.get('CLIENTE_NOMBRE', 'N/A')
 
 
-# 1. INICIALIZACIÓN GLOBAL (Aquí va tu código)
-if 'db_a_conectar' not in st.session_state:
-    st.session_state.db_a_conectar = "railway"
-    st.session_state.nombre_empresa_seleccionada = "Seleccione Cliente"
+# --- 1. INICIALIZACIÓN GLOBAL ---
+if 'DB_ACTUAL' not in st.session_state:
+    st.session_state.CLIENTE_NOMBRE = "Seleccione Cliente"
+    st.session_state['DB_ACTUAL'] = None
+    st.session_state['cliente_id_seleccionado'] = None
 
 
 
@@ -7134,9 +7134,9 @@ def actualizar_empresa():
 
 
 
-# 1. Obtenemos los valores del estado
-DB_ACTUAL = st.session_state.get('db_nombre_actual', 'control_central')
-EMPRESA = st.session_state.get('nombre_empresa_seleccionada', "Seleccione Cliente")
+# 1. Obtenemos los valores del estado de manera unificada
+DB_ACTUAL = st.session_state.get('DB_ACTUAL', 'control_central')
+EMPRESA = st.session_state.get('CLIENTE_NOMBRE', "Seleccione Cliente")
 
 # 2. Conexión centralizada reutilizando el session_state
 if 'conn' not in st.session_state or st.session_state.conn is None:
@@ -7151,7 +7151,7 @@ else:
 # 3. PROTECCIÓN CRÍTICA: Validamos que la conexión exista antes de usarla
 if conn is not None:
     # Bypass de seguridad (EL "USE" EN CALIENTE) solo si aplica
-    if DB_ACTUAL != "control_central":
+    if DB_ACTUAL and DB_ACTUAL != "control_central":
         try:
             with conn.cursor() as cursor:
                 cursor.execute(f"USE `{DB_ACTUAL}`")
@@ -7160,7 +7160,6 @@ if conn is not None:
             st.error(f"Error al cambiar de base de datos a {DB_ACTUAL}: {e}")
 else:
     st.error("❌ No se pudo establecer la conexión con la base de datos. Por favor, recarga la página.")
-
 if "Inicio" in opcion_menu:
     # 1. Recuperamos la DB seleccionada
     db_actual = st.session_state.get('DB_ACTUAL', 'No seleccionada')
