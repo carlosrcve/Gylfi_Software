@@ -8606,12 +8606,21 @@ if "Inicio" in opcion_menu:
         if db == "pedacito_de_cielo_ca":
             # Cambiar explícitamente el contexto desde control_central hacia la empresa activa
             try:
-                cursor = st.session_state.conn.cursor()
-                cursor.execute("USE control_central;")  # Punto de partida seguro
-                cursor.execute("USE pedacito_de_cielo_ca;") # Cambio a la base de datos de la empresa
-                cursor.close()
+                # 1. Asegurar que la conexión principal existe
+                if 'conn' in st.session_state and st.session_state.conn is not None:
+                    cursor = st.session_state.conn.cursor()
+                    
+                    # 2. Cambiar explícitamente al contexto correcto
+                    cursor.execute("USE control_central;")
+                    cursor.execute("USE pedacito_de_cielo_ca;")
+                    
+                    # Ejemplo de consulta segura
+                    cursor.execute("SELECT 1;") 
+                    cursor.close()
+                else:
+                    st.error("❌ No hay una conexión activa a la base de datos.")
             except Exception as e:
-                st.error(f"Error al cambiar de contexto a la base de datos: {e}")
+                st.error(f"❌ Error al conectar con la base de datos de la empresa: {e}")
             with tab1:
                 # ==========================================
                 # 1. LÍNEA DIVISORIA ANTES DE LAS ALERTAS
