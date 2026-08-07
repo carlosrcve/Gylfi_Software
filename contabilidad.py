@@ -8850,12 +8850,17 @@ if "Inicio" in opcion_menu:
     except Exception as e:
         st.error(f"❌ Error al procesar el reporte: {e}")
     finally:
-        if 'conn' in st.session_state and st.session_state.conn:
+        # Cierre de conexión seguro si aplica
+        if 'conn' in st.session_state and st.session_state.conn is not None:
             try:
-                if hasattr(st.session_state.conn, 'is_connected') and callable(st.session_state.conn.is_connected):
-                    if st.session_state.conn.is_connected():
+                # Verificamos si is_connected es un método llamable
+                if hasattr(st.session_state.conn, 'is_connected'):
+                    is_conn_attr = st.session_state.conn.is_connected
+                    if callable(is_conn_attr) and is_conn_attr():
                         pass
-                elif hasattr(st.session_state.conn, 'open') and st.session_state.conn.open:
+                    elif not callable(is_conn_attr) and is_conn_attr:
+                        pass
+                else:
                     pass
             except Exception:
                 pass
