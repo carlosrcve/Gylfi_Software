@@ -624,14 +624,13 @@ def obtener_historico_utilidad_acumulada(db):
             conn.close()
         return df_default
 
-@log_ejecucion
+# Quítale temporalmente el @log_ejecucion a esta función para probar
 def obtener_saldos_acumulados(conn, f_fin, db):
     if not conn:
         return {"activo": 0, "pasivo": 0, "patrimonio": 0}
         
     cursor = conn.cursor(dictionary=True)
     
-    # 1. Saldos iniciales puros de la apertura directos desde MySQL
     cursor.execute(f"""
         SELECT 
             COALESCE(SUM(CASE WHEN plan_cuentas LIKE '1%' THEN (debe - haber) ELSE 0 END), 0) as activo_ini,
@@ -641,7 +640,6 @@ def obtener_saldos_acumulados(conn, f_fin, db):
     """)
     res_ini = cursor.fetchone() or {'activo_ini': 0, 'pasivo_ini': 0, 'patrimonio_ini': 0}
     
-    # 2. Movimientos contables hasta la fecha de corte directos desde MySQL
     cursor.execute(f"""
         SELECT 
             COALESCE(SUM(CASE WHEN plan_cuentas LIKE '1%' THEN (debe - haber) ELSE 0 END), 0) as activo_mov,
@@ -654,7 +652,6 @@ def obtener_saldos_acumulados(conn, f_fin, db):
     
     cursor.close()
     
-    # Sumatoria total calculada puramente con los datos devueltos por MySQL
     activo_total = float(res_ini.get('activo_ini', 0) or 0) + float(res_mov.get('activo_mov', 0) or 0)
     pasivo_total = float(res_ini.get('pasivo_ini', 0) or 0) + float(res_mov.get('pasivo_mov', 0) or 0)
     patrimonio_total = float(res_ini.get('patrimonio_ini', 0) or 0) + float(res_mov.get('patrimonio_mov', 0) or 0)
@@ -7293,13 +7290,22 @@ if "Inicio" in opcion_menu:
         db = st.session_state.get('DB_ACTUAL', 'kingdirver_ca')
 
         with st.spinner(f'Comunicando con MySQL para {db}...'):
+            # Llamadas blindadas para evitar que un None rompa el reporte
             kpis = obtener_saldos_acumulados(conn, f_fin_global, db)
+            if kpis is None:
+                kpis = {"activo": 0, "pasivo": 0, "patrimonio": 0}
+
             df_utilidad = obtener_historico_utilidad(db, f_inicio=f_inicio_global, f_fin=f_fin_global)
+            if df_utilidad is None:
+                df_utilidad = pd.DataFrame()
 
         valor_activo = kpis.get('activo', 0)
         valor_pasivo = kpis.get('pasivo', 0)
         valor_patrimonio = kpis.get('patrimonio', 0)
-        u_v = df_utilidad['utilidad_mensual'].iloc[0] if not df_utilidad.empty else 0
+
+        u_v = 0
+        if not df_utilidad.empty and 'utilidad_mensual' in df_utilidad.columns:
+            u_v = df_utilidad['utilidad_mensual'].iloc[0]
 
         col1, col2, col3, col4 = st.columns(4)
         with col1:
