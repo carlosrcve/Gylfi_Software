@@ -7210,9 +7210,9 @@ if "Inicio" in opcion_menu:
             st.warning("⚠️ Por favor seleccione una empresa válida.")
             st.stop()
             
-        st.info(f"🔄 Conectando a la base de datos: {db_actual}...")
+        st.info(f"🔄 Conectando a la base de datos del cliente: {db_actual}...")
         
-        # Intentamos conectar
+        # Intentamos conectar pasando la base de datos multicliente
         nueva_conn = conectar_db(db_actual)
         
         # VALIDACIÓN CLAVE: Si conectar_db devolvió None, detenemos aquí para evitar el NoneType
@@ -7221,7 +7221,8 @@ if "Inicio" in opcion_menu:
             st.session_state.ultima_db_conectada = db_actual
             st.rerun() 
         else:
-            st.error(f"❌ No se pudo establecer la conexión con la base de datos '{db_actual}'. Verifica que ya haya sido creada en TiDB Cloud.")
+            st.session_state.conn = None
+            st.error(f"❌ No se pudo establecer la conexión con la base de datos multicliente '{db_actual}'. Verifica que ya haya sido creada en TiDB Cloud.")
             st.stop()
 
     # 4. ENCABEZADO DINÁMICO
