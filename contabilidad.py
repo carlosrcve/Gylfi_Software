@@ -828,28 +828,35 @@ def obtener_detalle_cashea(db, f_inicio, f_fin):
     return df
 
 
-
-@log_ejecucion
 def obtener_datos_barras(db, fecha_inicio, fecha_fin):
-    # Asegúrate de conectar a la base de datos correcta
-    conn = conectar_db(db)
+    # Retorna un DataFrame vacío por defecto para prevenir que explote
+    df_vacio = pd.DataFrame(columns=['Categoría', 'Monto'])
     
+    conn = conectar_db(db)
+    if not conn:
+        return df_vacio
+        
     query = f"""
         SELECT 
             CASE 
-                WHEN plan_cuentas LIKE '4%%' THEN 'Ingresos' 
-                WHEN plan_cuentas LIKE '5%%' THEN 'Egresos' 
+                WHEN plan_cuentas LIKE '4%' THEN 'Ingresos' 
+                WHEN plan_cuentas LIKE '5%' THEN 'Egresos' 
                 ELSE 'Otros' 
             END as Categoría, 
-            SUM(debe + haber) as Monto 
+            SUM(haber - debe) as Monto 
         FROM `{db}`.asientos_contables 
         WHERE fecha BETWEEN %s AND %s
         GROUP BY 1
     """
     
-    df = pd.read_sql(query, conn, params=(fecha_inicio, fecha_fin))
-    conn.close()
-    return df
+    try:
+        df = pd.read_sql(query, conn, params=(fecha_inicio, fecha_fin))
+        conn.close()
+        return df if not df.empty else df_vacio
+    except Exception as e:
+        if conn:
+            conn.close()
+        return df_vacio
 
 @log_ejecucion
 def obtener_datos_pie(db, f_fin):
