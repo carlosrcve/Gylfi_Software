@@ -6888,10 +6888,21 @@ with st.sidebar:
                 df_sidebar['nombre_empresa'].tolist(), 
                 key="selector_empresa"
             )
-            st.write(f"Empresa seleccionada: '{seleccion.upper()}'")
+            
+            # Validación por seguridad si el selectbox llegara a retornar None
+            if not seleccion:
+                st.warning("⚠️ Por favor, seleccione una empresa.")
+                st.stop()
+                
+            st.write(f"Empresa seleccionada: '{str(seleccion).upper()}'")
             
             # 2. Sincronización de datos segura
-            datos_sel = df_sidebar[df_sidebar['nombre_empresa'] == seleccion].iloc[0]
+            empresa_filtrada = df_sidebar[df_sidebar['nombre_empresa'] == seleccion]
+            if empresa_filtrada.empty:
+                st.error("❌ No se encontró la empresa seleccionada en los registros.")
+                st.stop()
+                
+            datos_sel = empresa_filtrada.iloc[0]
             
             # Validamos que db_nombre no sea nulo antes de hacer el strip
             db_raw = datos_sel['db_nombre']
