@@ -157,13 +157,12 @@ if 'db_init' not in st.session_state:
 
 
 def conectar_db(nombre_db=None):
+    db_a_usar = nombre_db if nombre_db else "control_central"
+    
     try:
-        db_a_usar = nombre_db if nombre_db else "control_central"
-
         # 1. VERIFICAR Y CREAR LA BASE DE DATOS SI NO EXISTE (Multicliente Cloud)
         if db_a_usar != "control_central":
             try:
-                # Conexión temporal a control_central para asegurar la creación del cliente
                 conn_temp = mysql.connector.connect(
                     host="gateway01.us-east-1.prod.aws.tidbcloud.com",
                     port=4000,
@@ -185,6 +184,7 @@ def conectar_db(nombre_db=None):
         # 2. VALIDAR CONEXIÓN EXISTENTE EN SESSION_STATE
         if "conn" in st.session_state and st.session_state.conn is not None:
             try:
+                # CORRECCIÓN AQUÍ: is_connected es un método con paréntesis
                 if st.session_state.conn.is_connected():
                     cursor_test = st.session_state.conn.cursor()
                     cursor_test.execute("SELECT DATABASE()")
@@ -197,7 +197,7 @@ def conectar_db(nombre_db=None):
                     else:
                         st.session_state.conn.close()
                         st.session_state.conn = None
-            except:
+            except Exception:
                 st.session_state.conn = None
       
         # 3. CONEXIÓN OFICIAL A LA BASE DE DATOS REQUERIDA
@@ -215,7 +215,7 @@ def conectar_db(nombre_db=None):
         return st.session_state.conn
         
     except Exception as e:
-        st.error(f"❌ Error al conectar a '{db_a_usar}': {e}")
+        st.error(f"❌ Error al conectar a la base de datos '{db_a_usar}': {e}")
         print(f"ERROR REAL DE CONEXIÓN: {e}")
         st.session_state.conn = None
         return None
