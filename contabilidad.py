@@ -935,7 +935,7 @@ def obtener_kpis_financieros(_conn, f_i, f_f, sucursal, db):
         "retencion_proveedores": 0.0, "retencion_islr": 0.0
     }
 
-    if not sucursal or not db or db == 'none':
+    if not db or db == 'none':
         return data_vacia
 
     try:
@@ -956,37 +956,57 @@ def obtener_kpis_financieros(_conn, f_i, f_f, sucursal, db):
     porcentaje_compras, exento = 0.0, 0.0
     ingresos_exentos, ingresos_gravados, compras_exentas, compras_16 = 0.0, 0.0, 0.0, 0.0
     iva_por_pagar, iva_debito, ret_prov, ret_islr = 0.0, 0.0, 0.0, 0.0
+    utilidad = 0.0  # Inicializada por seguridad para evitar el error de variable local
 
     try:
-        df_bal = generar_balance_profesional(conn, f_i, f_f, sucursal)
-        if df_bal is not None and not df_bal.empty:
-            df_bal['codigo'] = df_bal['codigo'].astype(str).str.strip()
-            df_bal['Saldo Final'] = pd.to_numeric(df_bal['Saldo Final'], errors='coerce').fillna(0)
-            activo = float(df_bal[(df_bal['codigo'].astype(str).str.startswith('1')) & (df_bal['nivel'] == 5)]['Saldo Final'].sum())
-    except Exception as e:
-        pass
+        with conn.cursor() as cursor:
+            # Validamos qué tablas existen realmente en este esquema antes de consultar
+            cursor.execute(f"SHOW TABLES FROM `{db}`")
+            tablas_existentes = {row[0] for row in cursor.fetchall()}
+            
+            if 'asientos_contables' not in tablas_existentes:
+                return data_vanca if 'data_vanca' in locals() else data_vacia
 
-    try:
-        query_pasivo_total = f"""
-            SELECT SUM(haber_total - debe_total) as saldo_real
-            FROM (
-                SELECT SUM(debe) as debe_total, SUM(haber) as haber_total 
-                FROM `{db}`.saldos_iniciales WHERE (plan_cuentas LIKE '2%%')
-                UNION ALL
-                SELECT SUM(debe) as debe_total, SUM(haber) as haber_total 
-                FROM `{db}`.asientos_contables WHERE (plan_cuentas LIKE '2%%') AND fecha <= %s
-            ) as consolidado
-        """
+        # 1. Balance profesional (si la función existe y la tabla de cuentas está)
+        try:
+            if 'plan_cuentas' in tablas_existentes and sucursal:
+                df_bal = generar_balance_profesional(conn, f_i, f_f, sucursal)
+                if df_bal is not None and not df_bal.empty:
+                    df_bal['codigo'] = df_bal['codigo'].astype(str).str.strip()
+                    df_bal['Saldo Final'] = pd.to_numeric(df_bal['Saldo Final'], errors='coerce').fillna(0)
+                    activo = float(df_bal[(df_bal['codigo'].astype(str).str.startswith('1')) & (df_bal['nivel'] == 5)]['Saldo Final'].sum())
+        except Exception:
+            pass
+
         with conn.cursor(dictionary=True) as cursor_p:
-            cursor_p.execute(query_pasivo_total, (f_f,))
-            res_p = cursor_p.fetchone()
-            if res_p and res_p.get('saldo_real'):
-                pasivo = float(res_p['saldo_real'] or 0.0)
-    except Exception as e:
-        st.error(f"Error calculando pasivo real: {e}")
+            # 2. Pasivo real
+            if 'saldos_iniciales' in tablas_existentes:
+                query_pasivo_total = f"""
+                    SELECT SUM(haber_total - debe_total) as saldo_real
+                    FROM (
+                        SELECT SUM(debe) as debe_total, SUM(haber) as haber_total 
+                        FROM `{db}`.saldos_iniciales WHERE (plan_cuentas LIKE '2%%')
+                        UNION ALL
+                        SELECT SUM(debe) as debe_total, SUM(haber) as haber_total 
+                        FROM `{db}`.asientos_contables WHERE (plan_cuentas LIKE '2%%') AND fecha <= %s
+                    ) as consolidado
+                """
+                cursor_p.execute(query_pasivo_total, (f_f,))
+                res_p = cursor_p.fetchone()
+                if res_p and res_p.get('saldo_real'):
+                    pasivo = float(res_p['saldo_real'] or 0.0)
+            else:
+                query_pasivo_simple = f"""
+                    SELECT SUM(haber - debe) as saldo_real 
+                    FROM `{db}`.asientos_contables WHERE plan_cuentas LIKE '2%%' AND fecha <= %s
+                """
+                cursor_p.execute(query_pasivo_simple, (f_f,))
+                res_p = cursor_p.fetchone()
+                if res_p and res_p.get('saldo_real'):
+                    pasivo = float(res_p['saldo_real'] or 0.0)
 
-    try:
         with conn.cursor(dictionary=True) as cursor:
+            # 3. Consultas de ingresos y compras detalladas
             cursor.execute(f"SELECT SUM(haber - debe) as total FROM `{db}`.asientos_contables WHERE plan_cuentas LIKE '4.1.1.01.001%%' AND fecha BETWEEN %s AND %s", (f_i, f_f))
             res = cursor.fetchone()
             ingresos_exentos = float(res['total'] or 0.0) if res else 0.0
@@ -1019,6 +1039,7 @@ def obtener_kpis_financieros(_conn, f_i, f_f, sucursal, db):
             res = cursor.fetchone()
             ret_islr = abs(float(res['total'] or 0.0)) if res else 0.0
 
+            # Utilidad
             query_utilidad = f"""
                 SELECT 
                     SUM(CASE WHEN plan_cuentas LIKE '4%%' THEN haber - debe ELSE 0 END) as ingresos,
@@ -1034,15 +1055,24 @@ def obtener_kpis_financieros(_conn, f_i, f_f, sucursal, db):
             
             utilidad = ingresos - egresos
 
-            query_saldo_inicial = f"""
-                SELECT (SUM(debe) - SUM(haber)) as saldo
-                FROM (
-                    SELECT debe, haber FROM `{db}`.saldos_iniciales WHERE plan_cuentas LIKE '1.1.1.02%%'
-                    UNION ALL
-                    SELECT debe, haber FROM `{db}`.asientos_contables WHERE plan_cuentas LIKE '1.1.1.02%%' AND fecha < %s
-                ) as t
-            """
-            cursor.execute(query_saldo_inicial, (f_i,))
+            # Saldo Inicial Banco (condicionado a si existe saldos_iniciales)
+            if 'saldos_iniciales' in tablas_existentes:
+                query_saldo_inicial = f"""
+                    SELECT (SUM(debe) - SUM(haber)) as saldo
+                    FROM (
+                        SELECT debe, haber FROM `{db}`.saldos_iniciales WHERE plan_cuentas LIKE '1.1.1.02%%'
+                        UNION ALL
+                        SELECT debe, haber FROM `{db}`.asientos_contables WHERE plan_cuentas LIKE '1.1.1.02%%' AND fecha < %s
+                    ) as t
+                """
+                cursor.execute(query_saldo_inicial, (f_i,))
+            else:
+                query_saldo_inicial = f"""
+                    SELECT (SUM(debe) - SUM(haber)) as saldo
+                    FROM `{db}`.asientos_contables WHERE plan_cuentas LIKE '1.1.1.02%%' AND fecha < %s
+                """
+                cursor.execute(query_saldo_inicial, (f_i,))
+
             res_inicial = cursor.fetchone()
             if res_inicial:
                 saldo_inicial = float(res_inicial['saldo'] or 0.0)
@@ -1061,31 +1091,33 @@ def obtener_kpis_financieros(_conn, f_i, f_f, sucursal, db):
 
             saldo_final_banco = saldo_inicial + entradas - salidas
 
-            query_exento = f"""
-                SELECT SUM(debe) as total_exento 
-                FROM `{db}`.asientos_contables 
-                WHERE (plan_cuentas LIKE '5.%%' OR plan_cuentas LIKE '6.%%') 
-                AND plan_cuentas NOT IN (SELECT codigo FROM `{db}`.plan_cuentas WHERE nombre LIKE '%%IVA%%') 
-                AND fecha BETWEEN %s AND %s
-            """
-            cursor.execute(query_exento, (f_i, f_f))
-            res_exento = cursor.fetchone()
-            if res_exento:
-                exento = float(res_exento['total_exento'] or 0.0)
+            # Exento
+            if 'plan_cuentas' in tablas_existentes:
+                query_exento = f"""
+                    SELECT SUM(debe) as total_exento 
+                    FROM `{db}`.asientos_contables 
+                    WHERE (plan_cuentas LIKE '5.%%' OR plan_cuentas LIKE '6.%%') 
+                    AND plan_cuentas NOT IN (SELECT codigo FROM `{db}`.plan_cuentas WHERE nombre LIKE '%%IVA%%') 
+                    AND fecha BETWEEN %s AND %s
+                """
+                cursor.execute(query_exento, (f_i, f_f))
+                res_exento = cursor.fetchone()
+                if res_exento:
+                    exento = float(res_exento['total_exento'] or 0.0)
 
-            query_top = f"""
-                SELECT p.nombre, SUM(a.haber - a.debe) as total 
-                FROM `{db}`.asientos_contables a 
-                JOIN `{db}`.plan_cuentas p ON a.plan_cuentas = p.codigo 
-                WHERE a.plan_cuentas LIKE '2.1.1.01%%' AND a.fecha BETWEEN %s AND %s 
-                GROUP BY p.nombre ORDER BY total DESC LIMIT 1
-            """
-            cursor.execute(query_top, (f_i, f_f))
-            top = cursor.fetchone()
-            if top:
-                proveedor_nombre = top['nombre']
-                ref = egresos if egresos > 0 else salidas
-                porcentaje_compras = (float(top['total']) / ref * 100) if ref > 0 else 0
+                query_top = f"""
+                    SELECT p.nombre, SUM(a.haber - a.debe) as total 
+                    FROM `{db}`.asientos_contables a 
+                    JOIN `{db}`.plan_cuentas p ON a.plan_cuentas = p.codigo 
+                    WHERE a.plan_cuentas LIKE '2.1.1.01%%' AND a.fecha BETWEEN %s AND %s 
+                    GROUP BY p.nombre ORDER BY total DESC LIMIT 1
+                """
+                cursor.execute(query_top, (f_i, f_f))
+                top = cursor.fetchone()
+                if top:
+                    proveedor_nombre = top['nombre']
+                    ref = egresos if egresos > 0 else salidas
+                    porcentaje_compras = (float(top['total']) / ref * 100) if ref > 0 else 0
 
     except Exception as e:
         st.error(f"Error en consultas de KPIs: {e}")
@@ -1115,7 +1147,6 @@ def obtener_kpis_financieros(_conn, f_i, f_f, sucursal, db):
         "salidas_efectivo": salidas,
         "saldo_real_final": saldo_final_banco
     }
-
 
 def obtener_datos_graficos(conn, f_i, f_f, sucursal):
     # 1. Inicializamos para evitar el NameError
