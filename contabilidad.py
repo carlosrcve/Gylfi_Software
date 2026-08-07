@@ -8604,7 +8604,6 @@ if "Inicio" in opcion_menu:
 
         # 1. CONDICIONAL: Solo mostrar si el cliente actual es "pedacito_de_cielo_ca" (o el nombre de su BD)
         try:
-            # 1. CONDICIONAL: Solo mostrar si el cliente actual es "pedacito_de_cielo_ca" (o el nombre de su BD)
             if db == "pedacito_de_cielo_ca":
                 with tab1:
                     # ==========================================
@@ -8817,9 +8816,8 @@ if "Inicio" in opcion_menu:
         except Exception as e:
             st.error(f"❌ Error al procesar el reporte: {e}")
         finally:
-            # Cierre de conexión seguro si aplica
             if 'conn' in st.session_state and st.session_state.conn and hasattr(st.session_state.conn, 'is_connected') and st.session_state.conn.is_connected():
-                pass # Mantiene la conexión activa para el flujo de Streamlit
+                pass
 
 
         
@@ -11993,7 +11991,6 @@ elif "Proveedores" in opcion_menu:
 elif "Inventarios" in opcion_menu:
     # Invocamos el módulo exclusivo pasando la conexión a la base de datos
     modulo_inventario_pedacito_cielo(conn)
-
 
 
 
