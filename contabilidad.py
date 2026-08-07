@@ -3696,31 +3696,42 @@ def generar_balance_profesional(conn, f_i, f_f, sucursal):
 
 # --- CONFIGURACIÓN DE FILTROS (DEBE IR PRIMERO) ---
 # Definir sucursal primero para que exista cuando los KPIs la llamen
+# --- CONFIGURACIÓN DE FILTROS SEGURA ---
+# Aseguramos que el año tenga un valor por defecto si el session_state aún no lo carga
+anio_actual = st.session_state.get('año_seleccionado', 2026)
+if anio_actual is None:
+    anio_actual = 2026
+
 sucursal = st.sidebar.multiselect("Sucursal", ["Sede Principal"], default=["Sede Principal"])
 
-# Definir fechas (Asegúrate que anio_seleccionado ya exista)
-f_inicio_global = datetime.datetime(anio_seleccionado, 1, 1)
-f_fin_global = datetime.datetime(anio_seleccionado, 12, 31)
+# Definir fechas de forma segura
+f_inicio_global = datetime.datetime(anio_actual, 1, 1)
+f_fin_global = datetime.datetime(anio_actual, 12, 31)
 
-# --- AHORA SÍ, LA EJECUCIÓN DE KPIs ---
+# --- EJECUCIÓN DE KPIS BLINDADA ---
 db_actual = st.session_state.get('DB_ACTUAL')
+kpis = {}
 
 if db_actual and db_actual != 'none':
-    conn = conectar_db(db_actual)
-    if conn:
-        try:
-            # Ahora 'sucursal' ya existe y no dará error
-            kpis = obtener_kpis_financieros(conn, f_inicio_global, f_fin_global, sucursal, st.session_state.get('DB_ACTUAL'))
-        except Exception as e:
-            st.error(f"Error al generar el Dashboard: {e}")
-        finally:
-            if conn.is_connected():
-                conn.close() # Esto libera el puerto para el resto del sistema
-else:
-    # Diccionario por defecto para que el dashboard no quede en blanco
+    try:
+        conn = conectar_db(db_actual)
+        if conn is not None:
+            try:
+                kpis = obtener_kpis_financieros(conn, f_inicio_global, f_fin_global, sucursal, db_actual)
+            except Exception as e:
+                st.error(f"Error al calcular los KPIs financieros: {e}")
+            finally:
+                if hasattr(conn, 'is_connected') and conn.is_connected():
+                    conn.close()
+        else:
+            st.warning(f"⚠️ No se pudo establecer conexión con la base de datos de la empresa: {db_actual}")
+    except Exception as conn_err:
+        st.error(f"Error crítico de conexión: {conn_err}")
+
+# Diccionario por defecto blindado por si falló la base de datos o viene vacía
+if not kpis:
     kpis = {k: 0 for k in ["activo", "pasivo", "patrimonio", "utilidad", "entradas_efectivo", "salidas_efectivo", "flujo_neto", "saldo_real_final"]}
     kpis["top_proveedor"] = "Seleccione Empresa"
-
 
 
 @log_ejecucion
