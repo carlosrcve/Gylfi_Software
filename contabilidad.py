@@ -6887,7 +6887,7 @@ with st.sidebar:
                 if hasattr(conn_sidebar, 'ping') and callable(conn_sidebar.ping):
                     conn_sidebar.ping(reconnect=True)
                 
-                # Leemos el DataFrame utilizando la conexión activa y blindada
+                # Leemos el DataFrame utilizando la conexión activa
                 df_sidebar = pd.read_sql(query_sidebar, conn_sidebar)
             except Exception as e:
                 # Si ocurre un timeout o corte, intentamos reconectar una vez de emergencia
@@ -6900,7 +6900,7 @@ with st.sidebar:
                 except Exception as inner_e:
                     st.error(f"❌ Error crítico al reconectar con la base de datos: {inner_e}")
             finally:
-                # Cerramos la conexión de forma segura si sigue abierta
+                # Cerramos la conexión de forma segura al terminar la consulta
                 try:
                     if conn_sidebar and hasattr(conn_sidebar, 'close'):
                         conn_sidebar.close()
@@ -6908,10 +6908,12 @@ with st.sidebar:
                     pass
         else:
             st.error("❌ No se pudo conectar a la base de datos central.")
+            st.stop()
 
-        df_sidebar = pd.read_sql(query_sidebar, conn_sidebar)
+        # --- A partir de aquí ya df_sidebar tiene los datos guardados en memoria ---
         if not df_sidebar.empty:
             df_sidebar = df_sidebar.fillna("")
+            
             # 1. Selector de Empresa
             nombres_empresas = df_sidebar['nombre_empresa'].tolist()
             
@@ -6955,7 +6957,6 @@ with st.sidebar:
             st.session_state['DB_ACTUAL'] = DB_ACTUAL
             st.session_state['CLIENTE_NOMBRE'] = seleccion
             st.session_state['cliente_id_seleccionado'] = int(datos_sel['id'])
-
             st.subheader("Módulos")
 
             # 3. Lista base de módulos
