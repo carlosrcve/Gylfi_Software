@@ -7047,32 +7047,32 @@ def actualizar_empresa():
 
 
 
-# 1. Obtenemos los valores del estado (asegúrate de usar el db_nombre real)
-# Supongamos que guardas el nombre de la BD en st.session_state.db_nombre_actual
+# 1. Obtenemos los valores del estado
 DB_ACTUAL = st.session_state.get('db_nombre_actual', 'control_central')
 EMPRESA = st.session_state.get('nombre_empresa_seleccionada', "Seleccione Cliente")
 
 # 2. Conexión centralizada reutilizando el session_state
 if 'conn' not in st.session_state or st.session_state.conn is None:
-    # Si tu función conectar_db acepta el nombre de la BD:
     try:
         conn = conectar_db(DB_ACTUAL)
     except TypeError:
-        # Por si tu conectar_db todavía no acepta parámetros, se conecta a la central
         conn = conectar_db()
     st.session_state.conn = conn
 else:
     conn = st.session_state.conn
 
-# 3. Bypass de seguridad (EL "USE" EN CALIENTE) solo si aplica
-if conn is not None and DB_ACTUAL != "control_central":
-    try:
-        with conn.cursor() as cursor:
-            cursor.execute(f"USE `{DB_ACTUAL}`")
-        st.success(f"✅ Conectado a la empresa: {EMPRESA}")
-    except Exception as e:
-        st.error(f"Error al cambiar de base de datos a {DB_ACTUAL}: {e}")
-
+# 3. PROTECCIÓN CRÍTICA: Validamos que la conexión exista antes de usarla
+if conn is not None:
+    # Bypass de seguridad (EL "USE" EN CALIENTE) solo si aplica
+    if DB_ACTUAL != "control_central":
+        try:
+            with conn.cursor() as cursor:
+                cursor.execute(f"USE `{DB_ACTUAL}`")
+            st.success(f"✅ Conectado a la empresa: {EMPRESA}")
+        except Exception as e:
+            st.error(f"Error al cambiar de base de datos a {DB_ACTUAL}: {e}")
+else:
+    st.error("❌ No se pudo establecer la conexión con la base de datos. Por favor, recarga la página.")
 
 if "Inicio" in opcion_menu:
     # 1. Recuperamos la DB seleccionada
