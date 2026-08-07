@@ -3698,17 +3698,16 @@ def generar_balance_profesional(conn, f_i, f_f, sucursal):
 # Definir sucursal primero para que exista cuando los KPIs la llamen
 # --- CONFIGURACIÓN DE FILTROS SEGURA ---
 # Aseguramos que el año tenga un valor por defecto si el session_state aún no lo carga
+# --- CONFIGURACIÓN DE FILTROS Y FECHAS SEGURA ---
 anio_actual = st.session_state.get('año_seleccionado', 2026)
 if anio_actual is None:
     anio_actual = 2026
 
 sucursal = st.sidebar.multiselect("Sucursal", ["Sede Principal"], default=["Sede Principal"])
 
-# Definir fechas de forma segura
 f_inicio_global = datetime.datetime(anio_actual, 1, 1)
 f_fin_global = datetime.datetime(anio_actual, 12, 31)
 
-# --- EJECUCIÓN DE KPIS BLINDADA ---
 # --- EJECUCIÓN DE KPIS BLINDADA CONTRA NULOS ---
 db_actual = st.session_state.get('DB_ACTUAL')
 kpis = {}
@@ -3718,13 +3717,13 @@ if db_actual and db_actual != 'none':
         conn = conectar_db(db_actual)
         if conn is not None:
             try:
-                # Verificamos de forma segura que la función exista y no sea None
+                # Verificamos de forma segura si la función existe en el espacio global del script
                 func_kpis = globals().get('obtener_kpis_financieros')
                 
                 if func_kpis is not None and callable(func_kpis):
                     kpis = func_kpis(conn, f_inicio_global, f_fin_global, sucursal, db_actual)
                 else:
-                    st.error("❌ Error crítico: La función 'obtener_kpis_financieros' no está definida o es nula.")
+                    st.error("❌ Error crítico: La función 'obtener_kpis_financieros' no está importada o es nula. Revisa tus importaciones al inicio de 'contabilidad.py'.")
             except Exception as e:
                 st.error(f"Error al calcular los KPIs financieros: {e}")
             finally:
