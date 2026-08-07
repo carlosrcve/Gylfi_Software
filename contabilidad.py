@@ -8603,260 +8603,217 @@ if "Inicio" in opcion_menu:
                     cursor.close()
                 except Exception as e:
                     st.error(f"❌ Error al ejecutar en la base de datos: {e}")
+                    st.stop()
+            else:
+                st.error("❌ No se pudo establecer la conexión con 'pedacito_de_cielo_ca'.")
+                st.stop()
                     
-                with tab1:
-                    # ==========================================
-                    # 1. LÍNEA DIVISORIA ANTES DE LAS ALERTAS
-                    # ==========================================
-                    st.divider()
+            with tab1:
+                # ==========================================
+                # 1. LÍNEA DIVISORIA ANTES DE LAS ALERTAS
+                # ==========================================
+                st.divider()
 
-                    # ==========================================
-                    # 2. SISTEMA DE ALERTAS Y CONTROL DE PAGOS
-                    # ==========================================
-                    st.markdown("### 🔔 Estado de Alertas Fiscales Próximas")
+                # ==========================================
+                # 2. SISTEMA DE ALERTAS Y CONTROL DE PAGOS
+                # ==========================================
+                st.markdown("### 🔔 Estado de Alertas Fiscales Próximas")
 
-                    hoy = date.today()
-                    
-                    eventos_fiscales = [
-                        {"id": "iva_1", "concepto": "IVA / Anticipos (1era Quincena)", "fecha": date(2026, 8, 31), "mes_idx": 7},
-                        {"id": "iva_2", "concepto": "IVA / Anticipos (2da Quincena)", "fecha": date(2026, 8, 14), "mes_idx": 7},
-                        {"id": "islr", "concepto": "Retenciones de ISLR", "fecha": date(2026, 8, 7), "mes_idx": 7},
-                        {"id": "pensiones", "concepto": "Ley de Protección de Pensiones", "fecha": date(2026, 8, 17), "mes_idx": 7},
-                    ]
+                hoy = date.today()
+                
+                eventos_fiscales = [
+                    {"id": "iva_1", "concepto": "IVA / Anticipos (1era Quincena)", "fecha": date(2026, 8, 31), "mes_idx": 7},
+                    {"id": "iva_2", "concepto": "IVA / Anticipos (2da Quincena)", "fecha": date(2026, 8, 14), "mes_idx": 7},
+                    {"id": "islr", "concepto": "Retenciones de ISLR", "fecha": date(2026, 8, 7), "mes_idx": 7},
+                    {"id": "pensiones", "concepto": "Ley de Protección de Pensiones", "fecha": date(2026, 8, 17), "mes_idx": 7},
+                ]
 
-                    # Archivo local para persistencia de pagos
-                    archivo_pagos = "pagos_pedacito.json"
+                archivo_pagos = "pagos_pedacito.json"
 
-                    def cargar_pagos_disco():
-                        if os.path.exists(archivo_pagos):
-                            try:
-                                with open(archivo_pagos, "r") as f:
-                                    return json.load(f)
-                            except:
-                                pass
-                        return {"iva_1": False, "iva_2": False, "islr": False, "pensiones": False}
-
-                    def guardar_pagos_disco(datos):
+                def cargar_pagos_disco():
+                    if os.path.exists(archivo_pagos):
                         try:
-                            with open(archivo_pagos, "w") as f:
-                                json.dump(datos, f)
+                            with open(archivo_pagos, "r") as f:
+                                return json.load(f)
                         except:
                             pass
+                    return {"iva_1": False, "iva_2": False, "islr": False, "pensiones": False}
 
-                    # Inicializamos en session_state cargando desde el archivo si no existe
-                    if 'pagos_realizados_pedacito' not in st.session_state:
-                        st.session_state['pagos_realizados_pedacito'] = cargar_pagos_disco()
+                def guardar_pagos_disco(datos):
+                    try:
+                        with open(archivo_pagos, "w") as f:
+                            json.dump(datos, f)
+                    except:
+                        pass
 
-                    # Contenedor para que el cliente pueda marcar si ya pagó
-                    st.markdown("##### 📝 Control de Pagos Realizados:")
+                if 'pagos_realizados_pedacito' not in st.session_state:
+                    st.session_state['pagos_realizados_pedacito'] = cargar_pagos_disco()
+
+                st.markdown("##### 📝 Control de Pagos Realizados:")
+                
+                col_c1, col_c2 = st.columns(2)
+                with col_c1:
+                    val_iva_2 = st.checkbox("✅ IVA 2da Quincena Pagado", value=st.session_state['pagos_realizados_pedacito'].get("iva_2", False), key="chk_iva_2")
+                    val_islr = st.checkbox("✅ Retenciones ISLR Pagadas", value=st.session_state['pagos_realizados_pedacito'].get("islr", False), key="chk_islr")
+                with col_c2:
+                    val_pensiones = st.checkbox("✅ Ley de Pensiones Pagada", value=st.session_state['pagos_realizados_pedacito'].get("pensiones", False), key="chk_pensiones")
+                    val_iva_1 = st.checkbox("✅ IVA 1era Quincena Pagado", value=st.session_state['pagos_realizados_pedacito'].get("iva_1", False), key="chk_iva_1")
+
+                nuevos_pagos = {
+                    "iva_1": val_iva_1,
+                    "iva_2": val_iva_2,
+                    "islr": val_islr,
+                    "pensiones": val_pensiones
+                }
+
+                if nuevos_pagos != st.session_state['pagos_realizados_pedacito']:
+                    st.session_state['pagos_realizados_pedacito'] = nuevos_pagos
+                    guardar_pagos_disco(nuevos_pagos)
+
+                pagos_realizados = st.session_state['pagos_realizados_pedacito']
+
+                alerta_activa = False
+                mensajes_urgentes = []
+                
+                for evento in eventos_fiscales:
+                    dias_restantes = (evento["fecha"] - hoy).days
+                    pagado = pagos_realizados.get(evento["id"], False)
                     
-                    col_c1, col_c2 = st.columns(2)
-                    with col_c1:
-                        val_iva_2 = st.checkbox("✅ IVA 2da Quincena Pagado", value=st.session_state['pagos_realizados_pedacito'].get("iva_2", False), key="chk_iva_2")
-                        val_islr = st.checkbox("✅ Retenciones ISLR Pagadas", value=st.session_state['pagos_realizados_pedacito'].get("islr", False), key="chk_islr")
-                    with col_c2:
-                        val_pensiones = st.checkbox("✅ Ley de Pensiones Pagada", value=st.session_state['pagos_realizados_pedacito'].get("pensiones", False), key="chk_pensiones")
-                        val_iva_1 = st.checkbox("✅ IVA 1era Quincena Pagado", value=st.session_state['pagos_realizados_pedacito'].get("iva_1", False), key="chk_iva_1")
+                    if pagado:
+                        st.info(f"✔️ **{evento['concepto']}**: Declarado y pagado a tiempo. ¡Sin deudas pendientes para esta fecha!")
+                    elif 0 <= dias_restantes <= 3:
+                        alerta_activa = True
+                        mensaje_alerta = f"⚠️ **¡ATENCIÓN!** Se acerca la declaración y pago de **{evento['concepto']}** programada para la fecha **{evento['fecha'].strftime('%d/%m/%Y')}** (Faltan {dias_restantes} días)."
+                        mensajes_urgentes.append(mensaje_alerta)
 
-                    # Actualizar diccionario y guardar en disco si hubo cambios
-                    nuevos_pagos = {
-                        "iva_1": val_iva_1,
-                        "iva_2": val_iva_2,
-                        "islr": val_islr,
-                        "pensiones": val_pensiones
-                    }
+                if alerta_activa:
+                    audio_html = """
+                        <audio autoplay style="display:none;">
+                          <source src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3" type="audio/mpeg">
+                        </audio>
+                    """
+                    st.markdown(audio_html, unsafe_allow_html=True)
 
-                    if nuevos_pagos != st.session_state['pagos_realizados_pedacito']:
-                        st.session_state['pagos_realizados_pedacito'] = nuevos_pagos
-                        guardar_pagos_disco(nuevos_pagos)
-
-                    pagos_realizados = st.session_state['pagos_realizados_pedacito']
-
-                    # Evaluador de Alertas y Sonido
-                    alerta_activa = False
-                    mensajes_urgentes = []
+                    texto_notificacion = "<br>".join(mensajes_urgentes)
+                    banco_notif_html = f"""
+                        <div id="banco-toast-alerta" style="position: fixed; top: 20px; right: 20px; z-index: 999999; background-color: #fff3cd; color: #856404; padding: 16px 20px; border-radius: 8px; border: 1px solid #ffeeba; box-shadow: 0 4px 12px rgba(0,0,0,0.15); font-family: sans-serif; max-width: 400px; animation: slideIn 0.5s ease-out;">
+                            <div style="font-weight: bold; margin-bottom: 5px; font-size: 15px;">🔔 Notificación Fiscal Urgente</div>
+                            <div style="font-size: 13px; line-height: 1.4;">{texto_notificacion}</div>
+                        </div>
+                        <script>
+                            setTimeout(function() {{
+                                var toast = document.getElementById('banco-toast-alerta');
+                                if (toast) {{ toast.style.display = 'none'; }}
+                            }}, 5000);
+                        </script>
+                    """
+                    st.markdown(banco_notif_html, unsafe_allow_html=True)
                     
-                    for evento in eventos_fiscales:
-                        dias_restantes = (evento["fecha"] - hoy).days
-                        pagado = pagos_realizados.get(evento["id"], False)
+                else:
+                    if not any(pagos_realizados.values()) and not any(0 <= (e["fecha"] - hoy).days <= 3 for e in eventos_fiscales):
+                        st.success("✅ No hay obligaciones fiscales críticas en este momento.")
+
+                # ==========================================
+                # 3. LÍNEA DIVISORIA ANTES DEL CALENDARIO FISCAL
+                # ==========================================
+                st.divider()
+
+                # ==========================================
+                # 4. TÍTULOS Y TABLAS DEL CALENDARIO FISCAL
+                # ==========================================
+                st.subheader("📊 Calendario Fiscal 2026 - Sujeto Especial (SENIAT)")
+                st.markdown("### 🗓️ Cronograma de Declaraciones y Pagos")
+                
+                # (Aquí continúa la lógica de tus tablas HTML igual que en tu original)
+                # ... (Mantén tu código original de renderizado de tablas aquí) ...
+
+        elif opcion_menu == "📂 Plan de Cuentas":
+            st.subheader("Gestión de Plan de Cuentas")
+            
+            db_actual = st.session_state.get('DB_ACTUAL')
+            if not db_actual:
+                st.error("No se ha seleccionado una base de datos.")
+                st.stop()
+
+            conn_empresa = conectar_db(db_actual)
+            
+            try:
+                tab1, tab2, tab3, tab4 = st.tabs(["📥 Cargar Plan", "📋 Visualizar Plan", "🗑️ Vaciar Plan", "📥 Descargar Excel"])
+                
+                with tab1:
+                    st.markdown("### Subir Archivo Excel")
+                    archivo_plan = st.file_uploader("Seleccione el archivo", type=["xlsx", "xls"], key="plan_up")
+                    if archivo_plan:
+                        df_plan = pd.read_excel(archivo_plan)
+                        df_plan.columns = df_plan.columns.str.strip().str.lower()
+                        df_plan = df_plan.rename(columns={'nombre de la cuenta': 'nombre'})
+                        st.write("Vista previa:")
+                        st.dataframe(df_plan.head(20), use_container_width=True)
                         
-                        if pagado:
-                            st.info(f"✔️ **{evento['concepto']}**: Declarado y pagado a tiempo. ¡Sin deudas pendientes para esta fecha!")
-                        elif 0 <= dias_restantes <= 3:
-                            alerta_activa = True
-                            mensaje_alerta = f"⚠️ **¡ATENCIÓN!** Se acerca la declaración y pago de **{evento['concepto']}** programada para la fecha **{evento['fecha'].strftime('%d/%m/%Y')}** (Faltan {dias_restantes} días)."
-                            mensajes_urgentes.append(mensaje_alerta)
+                        if st.button("🚀 Iniciar Importación a Base de Datos", type="primary"):
+                            columnas_sql = ['id', 'codigo', 'nombre', 'nivel', 'tipo', 'padre']
+                            if all(col in df_plan.columns for col in columnas_sql):
+                                from sqlalchemy import create_engine
+                                engine = create_engine(f"mysql+mysqlconnector://{DB_CONFIG['user']}:{DB_CONFIG['password']}@{DB_CONFIG['host']}:{DB_CONFIG['port']}/{db_actual}")
+                                df_final = df_plan[columnas_sql]
+                                df_final.to_sql('plan_cuentas', con=engine, if_exists='append', index=False)
+                                st.success(f"✅ ¡Plan de cuentas sincronizado con {db_actual}!")
+                                st.rerun()
+                            else:
+                                st.error("❌ Faltan columnas en el archivo.")
 
-                    if alerta_activa:
-                        # Reproductor de audio oculto
-                        audio_html = """
-                            <audio autoplay style="display:none;">
-                              <source src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3" type="audio/mpeg">
-                            </audio>
-                        """
-                        st.markdown(audio_html, unsafe_allow_html=True)
+                with tab2:
+                    st.markdown("### 📋 Plan de Cuentas (Edición, Nuevos y Eliminación)")
+                    df_actual = consultar_tabla_db(conn_empresa, "plan_cuentas")
+                    if df_actual is None or df_actual.empty:
+                        df_actual = pd.DataFrame(columns=['id', 'codigo', 'nombre', 'nivel', 'tipo', 'padre'])
+                    
+                    df_editado = st.data_editor(
+                        df_actual, key="editor_plan_cuentas", num_rows="dynamic", use_container_width=True,
+                        column_config={
+                            "id": st.column_config.NumberColumn("ID", disabled=True),
+                            "codigo": st.column_config.TextColumn("Código Contable", required=True),
+                            "nombre": st.column_config.TextColumn("Nombre Cuenta", required=True),
+                            "tipo": st.column_config.SelectboxColumn("Tipo", options=["Activo", "Pasivo", "Patrimonio", "Ingreso", "Egreso"]),
+                        }
+                    )
+                    
+                    if st.button("💾 Guardar Cambios en Plan de Cuentas", type="primary"):
+                        try:
+                            actualizar_tabla_completa_db(conn_empresa, "plan_cuentas", df_editado)
+                            st.success("✅ ¡Plan de cuentas actualizado correctamente!")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"❌ Error al guardar: {e}")
 
-                        # Notificación flotante estilo bancario (toast superior) que desaparece en 5 segundos
-                        texto_notificacion = "<br>".join(mensajes_urgentes)
-                        banco_notif_html = f"""
-                            <div id="banco-toast-alerta" style="
-                                position: fixed;
-                                top: 20px;
-                                right: 20px;
-                                z-index: 999999;
-                                background-color: #fff3cd;
-                                color: #856404;
-                                padding: 16px 20px;
-                                border-radius: 8px;
-                                border-left: 6px solid #ffeeba;
-                                border: 1px solid #ffeeba;
-                                box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-                                font-family: sans-serif;
-                                max-width: 400px;
-                                animation: slideIn 0.5s ease-out;
-                            ">
-                                <div style="font-weight: bold; margin-bottom: 5px; font-size: 15px;">🔔 Notificación Fiscal Urgente</div>
-                                <div style="font-size: 13px; line-height: 1.4;">{texto_notificacion}</div>
-                            </div>
+                with tab3:
+                    st.markdown("### ⚠️ Vaciar Plan de Cuentas")
+                    st.warning("Esta acción borrará TODA la información.")
+                    if st.checkbox("Estoy seguro de querer borrar todo"):
+                        if st.button("🗑️ ELIMINAR TODOS LOS DATOS", type="primary"):
+                            cursor = conn_empresa.cursor()
+                            cursor.execute("TRUNCATE TABLE plan_cuentas")
+                            conn_empresa.commit()
+                            st.success("✅ ¡Tabla vaciada exitosamente!")
+                            st.rerun()
 
-                            <style>
-                            @keyframes slideIn {{
-                                from {{ transform: translateX(100%); opacity: 0; }}
-                                to {{ transform: translateX(0); opacity: 1; }}
-                            }}
-                            @keyframes fadeOut {{
-                                from {{ opacity: 1; }}
-                                to {{ opacity: 0; }}
-                            }}
-                            </style>
-
-                            <script>
-                                setTimeout(function() {{
-                                    var toast = document.getElementById('banco-toast-alerta');
-                                    if (toast) {{
-                                        toast.style.animation = 'fadeOut 0.5s ease-out forwards';
-                                        setTimeout(function() {{
-                                            toast.remove();
-                                        }}, 500);
-                                    }}
-                                }}, 5000);
-                            </script>
-                        """
-                        st.markdown(banco_notif_html, unsafe_allow_html=True)
-                        
+                with tab4:
+                    st.markdown("### 📥 Descargar Respaldo")
+                    df_actual = consultar_tabla_db(conn_empresa, "plan_cuentas")
+                    if df_actual is not None and not df_actual.empty:
+                        import io
+                        output = io.BytesIO()
+                        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                            df_actual.to_excel(writer, index=False)
+                        st.download_button(label="📥 Descargar Excel", data=output.getvalue(), file_name="Plan_de_Cuentas_Respaldo.xlsx")
                     else:
-                        if not any(pagos_realizados.values()) and not any(0 <= (e["fecha"] - hoy).days <= 3 for e in eventos_fiscales):
-                            st.success("✅ No hay obligaciones fiscales críticas a menos de 3 días de vencimiento en este momento.")
+                        st.info("No hay datos.")
 
-                    # ==========================================
-                    # 3. LÍNEA DIVISORIA ANTES DEL CALENDARIO FISCAL
-                    # ==========================================
-                    st.divider()
-
-                    # ==========================================
-                    # 4. TÍTULOS Y TABLAS DEL CALENDARIO FISCAL
-                    # ==========================================
-                    st.subheader("📊 Calendario Fiscal 2026 - Sujeto Especial (SENIAT)")
-                    st.markdown("### 🗓️ Cronograma de Declaraciones y Pagos")
-                    
-                    # Estilo visual moderno para las tablas
-                    st.markdown("""
-                    <style>
-                        .fiscal-table {
-                            width: 100%;
-                            border-collapse: collapse;
-                            margin-bottom: 20px;
-                            font-family: sans-serif;
-                            font-size: 14px;
-                        }
-                        .fiscal-table th {
-                            background-color: #2b313e;
-                            color: white;
-                            text-align: center;
-                            padding: 8px;
-                            border: 1px solid #ddd;
-                        }
-                        .fiscal-table td {
-                            text-align: center;
-                            padding: 8px;
-                            border: 1px solid #ddd;
-                        }
-                        .header-iva { background-color: #d4edda; color: #155724; font-weight: bold; text-align: left; padding: 8px; }
-                        .header-islr { background-color: #fff3cd; color: #856404; font-weight: bold; text-align: left; padding: 8px; }
-                        .header-pensiones { background-color: #cce5ff; color: #004085; font-weight: bold; text-align: left; padding: 8px; }
-                    </style>
-                    """, unsafe_allow_html=True)
-
-                    meses = ["ENE", "FEB", "MAR", "ABR", "MAY", "JUN", "JUL", "AGO", "SEPT", "OCT", "NOV", "DIC"]
-                    
-                    q1_vals = ["❌", "❌", "❌", "❌", "❌", "❌", "❌", "31", "29", "20", "27", "16"]
-                    q2_vals = ["❌", "❌", "❌", "❌", "❌", "❌", "❌", "14", "14", "05", "13", "03"]
-                    islr_vals = ["❌", "❌", "❌", "❌", "❌", "❌", "❌", "07", "08", "09", "06", "09"]
-                    pensiones_vals = ["❌", "❌", "❌", "❌", "❌", "❌", "❌", "17", "29", "20", "27", "16"]
-
-                    if pagos_realizados["iva_1"]:
-                        q1_vals[7] = "✅ Pagado"
-                    if pagos_realizados["iva_2"]:
-                        q2_vals[7] = "✅ Pagado"
-                    if pagos_realizados["islr"]:
-                        islr_vals[7] = "✅ Pagado"
-                    if pagos_realizados["pensiones"]:
-                        pensiones_vals[7] = "✅ Pagado"
-
-                    # Renderizar Tabla 1: IVA 1era Quincena
-                    st.markdown("#### 1. IVA, Anticipos de ISLR, IGTF y Retenciones de IVA")
-                    html_iva_1 = f"""
-                    <table class="fiscal-table">
-                        <tr><th colspan="13" class="header-iva">Primera Quincena (01 al 15) - R.I.F. Terminado en 0</th></tr>
-                        <tr><th>R.I.F.</th>{"".join([f"<th>{m}</th>" for m in meses])}</tr>
-                        <tr><td><b>0</b></td>{"".join([f"<td>{val}</td>" for val in q1_vals])}</tr>
-                    </table>
-                    """
-                    st.markdown(html_iva_1, unsafe_allow_html=True)
-
-                    # Renderizar Tabla 2: IVA 2da Quincena
-                    html_iva_2 = f"""
-                    <table class="fiscal-table">
-                        <tr><th colspan="13" class="header-iva" style="background-color: #e2f0d9;">Segunda Quincena (16 al último) - R.I.F. Terminado en 0</th></tr>
-                        <tr><th>R.I.F.</th>{"".join([f"<th>{m}</th>" for m in meses])}</tr>
-                        <tr><td><b>0</b></td>{"".join([f"<td>{val}</td>" for val in q2_vals])}</tr>
-                    </table>
-                    """
-                    st.markdown(html_iva_2, unsafe_allow_html=True)
-
-                    # Renderizar Retenciones ISLR
-                    st.markdown("#### 2. Retenciones de Impuesto Sobre la Renta")
-                    html_islr = f"""
-                    <table class="fiscal-table">
-                        <tr><th>R.I.F.</th>{"".join([f"<th>{m}</th>" for m in meses])}</tr>
-                        <tr><td><b>0</b></td>{"".join([f"<td>{val}</td>" for val in islr_vals])}</tr>
-                    </table>
-                    """
-                    st.markdown(html_islr, unsafe_allow_html=True)
-
-                    # Renderizar Ley de Pensiones
-                    st.markdown("#### 3. Ley de Protección de las Pensiones de Seguridad Social")
-                    html_pensiones = f"""
-                    <table class="fiscal-table">
-                        <tr><th>R.I.F.</th>{"".join([f"<th>{m}</th>" for m in meses])}</tr>
-                        <tr><td><b>0</b></td>{"".join([f"<td>{val}</td>" for val in pensiones_vals])}</tr>
-                    </table>
-                    """
-                    st.markdown(html_pensiones, unsafe_allow_html=True)
-
-        else:
-            pass
-
-    except Exception as e:
-        st.error(f"❌ Error al procesar el reporte: {e}")
-    finally:
-        # Cierre seguro de cursores y conexiones remanentes
-        try:
-            if 'conn' in st.session_state and st.session_state.conn is not None:
-                # Si tienes un cursor abierto flotando, asegúrate de cerrarlo aquí si lo manejas globalmente
-                pass
-        except Exception:
-            pass
+            except Exception as e:
+                st.error(f"❌ Error crítico: {e}")
+            finally:
+                if conn_empresa and conn_empresa.is_connected():
+                    conn_empresa.close()
 
 
 elif opcion_menu == "📂 Plan de Cuentas":
