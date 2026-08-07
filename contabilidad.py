@@ -6842,28 +6842,29 @@ with st.sidebar:
             c_id = st.session_state.get('cliente_id')
             query_sidebar += f" WHERE id = {c_id}"
 
+        # Abrimos una única conexión fresca para todo este bloque
         conn_sidebar = conectar_db()
-        
-        # --- BLOQUE DE DEBUG SEGURO ---
-        try:
-            if conn_sidebar is not None:
+        df_sidebar = pd.DataFrame()
+
+        if conn_sidebar is not None:
+            try:
+                # --- BLOQUE DE DEBUG SEGURO ---
                 cursor_debug = conn_sidebar.cursor()
                 cursor_debug.execute("SELECT COUNT(*) FROM control_central.clientes")
                 conteo = cursor_debug.fetchone()[0]
                 st.success(f"DEBUG: Conexión exitosa. Se encontraron {conteo} empresas en la tabla.")
                 cursor_debug.close()
-            else:
-                st.error("❌ ERROR: La función conectar_db() devolvió None (sin conexión).")
-        except Exception as err_debug:
-            st.error(f"❌ ERROR EXACTO EN QUERY: {err_debug}")
-        # ---------------------------
+                # ---------------------------
 
-        df_sidebar = pd.read_sql(query_sidebar, conn_sidebar)
-        conn_sidebar.close()
-        # -----------------------------------
-
-        df_sidebar = pd.read_sql(query_sidebar, conn_sidebar)
-        conn_sidebar.close()
+                # Leemos el DataFrame utilizando la misma conexión activa
+                df_sidebar = pd.read_sql(query_sidebar, conn_sidebar)
+            except Exception as e:
+                st.error(f"❌ Error en la consulta o conexión: {e}")
+            finally:
+                # Cerramos la conexión de forma segura al terminar todo
+                conn_sidebar.close()
+        else:
+            st.error("❌ No se pudo conectar a la base de datos central.")
 
         if not df_sidebar.empty:
             # 1. Selector de Empresa
