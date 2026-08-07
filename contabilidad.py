@@ -8851,23 +8851,19 @@ if "Inicio" in opcion_menu:
         st.error(f"❌ Error al procesar el reporte: {e}")
     finally:
         # Cierre de conexión seguro si aplica
-        if 'conn' in st.session_state and st.session_state.conn is not None:
-            try:
-                # Verificamos si is_connected es un método llamable
-                if hasattr(st.session_state.conn, 'is_connected'):
-                    is_conn_attr = st.session_state.conn.is_connected
-                    if callable(is_conn_attr) and is_conn_attr():
-                        pass
-                    elif not callable(is_conn_attr) and is_conn_attr:
-                        pass
-                else:
+        try:
+            if 'conn' in st.session_state and st.session_state.conn is not None:
+                conn_obj = st.session_state.conn
+                if hasattr(conn_obj, 'is_connected'):
+                    is_conn_method = getattr(conn_obj, 'is_connected', None)
+                    if callable(is_conn_method):
+                        is_conn_method()
+                elif hasattr(conn_obj, 'open'):
                     pass
-            except Exception:
-                pass
+        except Exception:
+            pass
 
 
-
-        
 elif opcion_menu == "📂 Plan de Cuentas":
     st.subheader("Gestión de Plan de Cuentas")
     
