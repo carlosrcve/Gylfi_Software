@@ -1171,19 +1171,38 @@ def obtener_datos_graficos(conn, f_i, f_f, sucursal):
 
 
 # Lógica conceptual para tu Sidebar
+# Lógica blindada para tu Sidebar
 def gestionar_sidebar():
     user_rol = st.session_state.get('rol')
     user_cliente_id = st.session_state.get('cliente_id')
 
+    # Aseguramos que conn exista
+    conn = st.session_state.get('conn')
+    if conn is None:
+        st.sidebar.error("❌ No hay conexión activa a la base de datos.")
+        return
+
+    lista_empresas = []
+
     if user_rol == 'admin':
         # El admin ve la lista completa de la tabla clientes
-        lista_empresas = obtener_todas_las_empresas(conn) 
+        res = obtener_todas_las_empresas(conn)
+        if res is not None:
+            lista_empresas = res
     else:
         # El cliente SOLO ve la empresa que le pertenece
-        lista_empresas = obtener_empresa_especifica(conn, user_cliente_id)
+        res = obtener_empresa_especifica(conn, user_cliente_id)
+        if res is not None:
+            lista_empresas = res
 
-    # El selectbox ahora solo mostrará lo permitido
+    # PROTECCIÓN CLAVE: Si la lista está vacía o es None, evitamos que el selectbox reviente
+    if not lista_empresas:
+        st.sidebar.warning("⚠️ No hay empresas disponibles para mostrar.")
+        return
+
+    # El selectbox ahora está protegido
     empresa_seleccionada = st.sidebar.selectbox("Seleccione Empresa", lista_empresas)
+    st.session_state['CLIENTE_NOMBRE'] = empresa_seleccionada
 
 def mostrar_bitacora_auditoria(conn):
     st.subheader("📋 Bitácora de Auditoría")
@@ -1569,14 +1588,15 @@ def panel_administracion(conn):
                 
                 # Buscamos las empresas disponibles para asociar
                 try:
-                    query_cli = "SELECT id, nombre_empresa FROM clientes"
+                    # Forzamos el esquema central para evitar errores si la conexión cambió de base de datos
+                    query_cli = "SELECT id, nombre_empresa FROM control_central.clientes"
                     df_cli = pd.read_sql(query_cli, conn)
                     opciones_clientes = {row['nombre_empresa']: row['id'] for _, row in df_cli.iterrows()}
                     
                     nombre_sel = st.selectbox("Asociar a Empresa (Solo para rol cliente)", 
                                               ["Ninguna / Acceso Total"] + list(opciones_clientes.keys()))
-                except:
-                    st.warning("⚠️ No se pudieron cargar las empresas de la base de datos")
+                except Exception as e:
+                    st.warning(f"⚠️ No se pudieron cargar las empresas de la base de datos: {e}")
                     opciones_clientes = {}
 
             btn_crear = st.form_submit_button("Guardar Usuario en Base de Datos")
