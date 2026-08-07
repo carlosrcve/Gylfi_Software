@@ -1984,10 +1984,15 @@ def consultar_libro_diario_db(conn_activa=None, fecha_inicio=None, fecha_fin=Non
     if not db_a_usar:
         return pd.DataFrame()
 
-    # 2. Conexión Inteligente (Solo conecta si no pasaste una activa)
-    conn = conn_activa if conn_activa else conectar_db(db_a_usar)
+    # 2. Conexión Inteligente
+    es_conexion_interna = False
+    if conn_activa:
+        conn = conn_activa
+    else:
+        conn = conectar_db(db_a_usar)
+        es_conexion_interna = True
     
-    if not conn or not conn.is_connected():
+    if not conn or not hasattr(conn, 'is_connected') or not conn.is_connected():
         return pd.DataFrame()
 
     try:
@@ -1999,7 +2004,7 @@ def consultar_libro_diario_db(conn_activa=None, fecha_inicio=None, fecha_fin=Non
             query = "SELECT * FROM asientos_contables ORDER BY id ASC"
             params = None
         
-        # 2. Ejecución con pandas (pd.read_sql maneja su propio cursor, no necesitamos crear uno)
+        # 2. Ejecución con pandas
         df = pd.read_sql(query, conn, params=params)
         
         # 3. Normalización Universal
@@ -2017,8 +2022,8 @@ def consultar_libro_diario_db(conn_activa=None, fecha_inicio=None, fecha_fin=Non
             df.rename(columns=mapeo, inplace=True)
             
             # Verificación de integridad
-            if not all(col in df.columns for col in ['debe', 'haber']):
-                st.error(f"⚠️ Estructura incompatible. Columnas: {df.columns.tolist()}")
+            if 'debe' not in df.columns or 'haber' not in df.columns:
+                st.warning(f"⚠️ Estructura incompatible. Columnas detectadas: {df.columns.tolist()}")
                 return pd.DataFrame()
             
             return df
@@ -2026,15 +2031,13 @@ def consultar_libro_diario_db(conn_activa=None, fecha_inicio=None, fecha_fin=Non
         return pd.DataFrame()
         
     except Exception as e:
-        st.error(f"Error procesando base de datos: {e}")
+        st.error(f"Error procesando libro diario: {e}")
         return pd.DataFrame()
         
     finally:
-        # Solo hacemos ping si la conexión fue creada DENTRO de la función.
-        # Si la pasamos desde fuera (conn_activa), es mejor que el código que la abrió la cierre.
-        if not conn_activa and conn and conn.is_connected():
-            conn.ping(reconnect=True)
-
+        # Solo cerramos si la creamos nosotros y la conexión sigue abierta
+        if es_conexion_interna and conn and hasattr(conn, 'is_connected') and conn.is_connected():
+            conn.close()
 @log_ejecucion
 def ejecutar_mayor_analitico(db_nombre, cuenta, fecha_desde, fecha_hasta):
     conn = None
@@ -6871,16 +6874,16 @@ if 'DB_ACTUAL' in st.session_state and st.session_state['DB_ACTUAL']:
             # 2. Definimos la sucursal de forma segura
             sucursal_actual = st.session_state.get('sucursal_seleccionada', None)
             
-            # 3. Ejecutamos las consultas
+            # 3. Ejecutamos las consultas pasando los parámetros de forma limpia
             kpis = obtener_kpis_financieros(conn, f_inicio_global, f_fin_global, sucursal_actual, db_nombre)
             df_bar, df_pie = obtener_datos_graficos(conn, f_inicio_global, f_fin_global, sucursal_actual)
             
-            # 4. Validamos que la función existe antes de llamarla para evitar el error NoneType
-            if 'consultar_libro_diario_db' in globals() and callable(globals()['consultar_libro_diario_db']):
-                df_diario_local = consultar_libro_diario_db(conn) 
-            else:
-                st.warning("⚠️ La función 'consultar_libro_diario_db' no está definida correctamente.")
-                df_diario_local = None
+            # Llamada corregida a la función del libro diario usando argumentos nombrados o pasando las fechas globales
+            df_diario_local = consultar_libro_diario_db(
+                conn_activa=conn, 
+                fecha_inicio=f_inicio_global, 
+                fecha_fin=f_fin_global
+            )
             
             st.success(f"✅ Conectado a: {EMPRESA} ({db_nombre})")
             
