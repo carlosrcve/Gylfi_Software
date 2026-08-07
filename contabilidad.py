@@ -923,20 +923,25 @@ def obtener_detalle_movimientos_banco(db, f_i, f_f):
 
 
 @st.cache_data(ttl=300)
-def obtener_kpis_financieros(_conn, f_i, f_f, sucursal, db): # <--- ¡Aquí debe estar la 'db' adentro!
-    # 2. Inicialización de seguridad (Borra el comentario # y la línea si quieres, 
-    #    pero asegúrate de que 'db' no se redefina aquí adentro si ya la recibes)
-    data_vacia = {k: 0.0 for k in ["activo", "pasivo", "patrimonio", "liquidez", "utilidad", "prueba_acida", "capital_trabajo", "margen_utilidad", "entradas_efectivo", "salidas_efectivo", "flujo_neto", "top_proveedor", "top_porcentaje", "alertas_retencion", "saldo_real_final", "exento"]}
-    data_vacia["top_proveedor"] = "Sin datos"
+def obtener_kpis_financieros(_conn, f_i, f_f, sucursal, db):
+    # 1. Inicialización de seguridad total (evita que cualquier variable falte en el return)
+    data_vacia = {
+        "activo": 0.0, "pasivo": 0.0, "patrimonio": 0.0, "liquidez": 0.0, 
+        "utilidad": 0.0, "prueba_acida": 0.0, "capital_trabajo": 0.0, 
+        "margen_utilidad": 0.0, "entradas_efectivo": 0.0, "salidas_efectivo": 0.0, 
+        "flujo_neto": 0.0, "top_proveedor": "Sin datos", "top_porcentaje": 0.0, 
+        "alertas_retencion": 0, "saldo_real_final": 0.0, "exento": 0.0,
+        "ingresos_exentos": 0.0, "ingresos_gravados": 0.0, "compras_exentas": 0.0, 
+        "compras_16": 0.0, "iva_por_pagar": 0.0, "iva_debito_fiscal": 0.0, 
+        "retencion_proveedores": 0.0, "retencion_islr": 0.0
+    }
 
-    # Ahora Python ya sabe qué es 'db' porque la recibiste en la primera línea
     if not sucursal or not db or db == 'none':
         return data_vacia
 
     # --- BLINDAJE DE CONEXIÓN ---
-    # Nota: Aquí usamos el objeto _conn que pasaste a la función
     try:
-        if not _conn or not _conn.is_connected():
+        if not _conn or not hasattr(_conn, 'is_connected') or not _conn.is_connected():
             conn = conectar_db(db)
         else:
             _conn.ping(reconnect=True, attempts=3, delay=1)
@@ -947,25 +952,25 @@ def obtener_kpis_financieros(_conn, f_i, f_f, sucursal, db): # <--- ¡Aquí debe
     if not conn:
         return data_vacia
 
-    # 2. Variables de cálculo
+    # 2. Variables de cálculo inicializadas en 0.0 para evitar errores de referencia
     activo, pasivo, ingresos, egresos = 0.0, 0.0, 0.0, 0.0
-    entradas, salidas, saldo_final_banco = 0.0, 0.0, 0.0
+    entradas, salidas, saldo_final_banco, saldo_inicial = 0.0, 0.0, 0.0, 0.0
     proveedor_nombre = "Sin datos"
     porcentaje_compras, exento = 0.0, 0.0
+    ingresos_exentos, ingresos_gravados, compras_exentas, compras_16 = 0.0, 0.0, 0.0, 0.0
+    iva_por_pagar, iva_debito, ret_prov, ret_islr = 0.0, 0.0, 0.0, 0.0
 
     # 3. Obtener Balance Profesional (Roll-Up)
-    df_bal = generar_balance_profesional(conn, f_i, f_f, sucursal)
+    try:
+        df_bal = generar_balance_profesional(conn, f_i, f_f, sucursal)
+        if df_bal is not None and not df_bal.empty:
+            df_bal['codigo'] = df_bal['codigo'].astype(str).str.strip()
+            df_bal['Saldo Final'] = pd.to_numeric(df_bal['Saldo Final'], errors='coerce').fillna(0)
+            activo = float(df_bal[(df_bal['codigo'].astype(str).str.startswith('1')) & (df_bal['nivel'] == 5)]['Saldo Final'].sum())
+    except Exception as e:
+        pass
 
-    # 3. PROCESAMIENTO DEL DATAFRAME (Aquí calculamos el Activo Real)
-    if df_bal is not None and not df_bal.empty:
-        # Limpieza
-        df_bal['codigo'] = df_bal['codigo'].astype(str).str.strip()
-        df_bal['Saldo Final'] = pd.to_numeric(df_bal['Saldo Final'], errors='coerce').fillna(0)
-
-        # Calculamos Activo Nivel 5 y lo guardamos en la variable 'activo'
-        activo = float(df_bal[(df_bal['codigo'].astype(str).str.startswith('1')) & (df_bal['nivel'] == 5)]['Saldo Final'].sum())
-
-
+    # 4. Cálculo del Pasivo Real
     try:
         query_pasivo_total = f"""
             SELECT SUM(haber_total - debe_total) as saldo_real
@@ -980,46 +985,48 @@ def obtener_kpis_financieros(_conn, f_i, f_f, sucursal, db): # <--- ¡Aquí debe
         with conn.cursor(dictionary=True) as cursor_p:
             cursor_p.execute(query_pasivo_total, (f_f,))
             res_p = cursor_p.fetchone()
-            pasivo = float(res_p['saldo_real'] or 0.0)
+            if res_p and res_p.get('saldo_real'):
+                pasivo = float(res_p['saldo_real'] or 0.0)
     except Exception as e:
         st.error(f"Error calculando pasivo real: {e}")
-    
-    utilidad = ingresos - egresos
 
-    # 4. Bloque de Consultas Directas
+    # 5. Bloque Único y Seguro de Consultas Directas (Sin redibujar el cursor mal)
     try:
         with conn.cursor(dictionary=True) as cursor:
-            # --- NUEVO: INDICADORES FISCALES ---
-            
+            # Indicadores fiscales
             cursor.execute(f"SELECT SUM(haber - debe) as total FROM `{db}`.asientos_contables WHERE plan_cuentas LIKE '4.1.1.01.001%%' AND fecha BETWEEN %s AND %s", (f_i, f_f))
-            ingresos_exentos = float(cursor.fetchone()['total'] or 0.0)
+            res = cursor.fetchone()
+            ingresos_exentos = float(res['total'] or 0.0) if res else 0.0
 
             cursor.execute(f"SELECT SUM(haber - debe) as total FROM `{db}`.asientos_contables WHERE plan_cuentas LIKE '4.1.1.01.002%%' AND fecha BETWEEN %s AND %s", (f_i, f_f))
-            ingresos_gravados = float(cursor.fetchone()['total'] or 0.0)
+            res = cursor.fetchone()
+            ingresos_gravados = float(res['total'] or 0.0) if res else 0.0
 
             cursor.execute(f"SELECT SUM(haber - debe) as total FROM `{db}`.asientos_contables WHERE plan_cuentas LIKE '5.1.1.01.001%%' AND fecha BETWEEN %s AND %s", (f_i, f_f))
-            compras_exentas = abs(float(cursor.fetchone()['total'] or 0.0))
+            res = cursor.fetchone()
+            compras_exentas = abs(float(res['total'] or 0.0)) if res else 0.0
 
             cursor.execute(f"SELECT SUM(haber - debe) as total FROM `{db}`.asientos_contables WHERE plan_cuentas LIKE '5.1.1.01.002%%' AND fecha BETWEEN %s AND %s", (f_i, f_f))
-            compras_16 = abs(float(cursor.fetchone()['total'] or 0.0))
+            res = cursor.fetchone()
+            compras_16 = abs(float(res['total'] or 0.0)) if res else 0.0
 
             cursor.execute(f"SELECT SUM(haber - debe) as total FROM `{db}`.asientos_contables WHERE plan_cuentas LIKE '2.1.2.01.002%%' AND fecha BETWEEN %s AND %s", (f_i, f_f))
-            iva_por_pagar = abs(float(cursor.fetchone()['total'] or 0.0))
+            res = cursor.fetchone()
+            iva_por_pagar = abs(float(res['total'] or 0.0)) if res else 0.0
 
-            # 2. IVA Débito Fiscal (2.1.2.01.001)
             cursor.execute(f"SELECT SUM(haber - debe) as total FROM `{db}`.asientos_contables WHERE plan_cuentas LIKE '2.1.2.01.001%%' AND fecha BETWEEN %s AND %s", (f_i, f_f))
-            iva_debito = abs(float(cursor.fetchone()['total'] or 0.0))
+            res = cursor.fetchone()
+            iva_debito = abs(float(res['total'] or 0.0)) if res else 0.0
 
-            # 3. Retenciones Proveedores (2.1.2.01.003)
             cursor.execute(f"SELECT SUM(haber - debe) as total FROM `{db}`.asientos_contables WHERE plan_cuentas LIKE '2.1.2.01.003%%' AND fecha BETWEEN %s AND %s", (f_i, f_f))
-            ret_prov = abs(float(cursor.fetchone()['total'] or 0.0))
+            res = cursor.fetchone()
+            ret_prov = abs(float(res['total'] or 0.0)) if res else 0.0
 
-            # 4. Retenciones ISLR (2.1.2.01.007)
             cursor.execute(f"SELECT SUM(haber - debe) as total FROM `{db}`.asientos_contables WHERE plan_cuentas LIKE '2.1.2.01.007%%' AND fecha BETWEEN %s AND %s", (f_i, f_f))
-            ret_islr = abs(float(cursor.fetchone()['total'] or 0.0))
+            res = cursor.fetchone()
+            ret_islr = abs(float(res['total'] or 0.0)) if res else 0.0
 
-
-            # --- NUEVO: Cálculo de Utilidad (Ingresos - Gastos) ---
+            # Utilidad
             query_utilidad = f"""
                 SELECT 
                     SUM(CASE WHEN plan_cuentas LIKE '4%%' THEN haber - debe ELSE 0 END) as ingresos,
@@ -1029,87 +1036,86 @@ def obtener_kpis_financieros(_conn, f_i, f_f, sucursal, db): # <--- ¡Aquí debe
             """
             cursor.execute(query_utilidad, (f_i, f_f))
             res_utilidad = cursor.fetchone()
-            ingresos = float(res_utilidad['ingresos'] or 0.0)
-            egresos = float(res_utilidad['gastos'] or 0.0)
-            utilidad = ingresos - egresos # <-- AQUÍ se calcula el valor real
+            if res_utilidad:
+                ingresos = float(res_utilidad['ingresos'] or 0.0)
+                egresos = float(res_utilidad['gastos'] or 0.0)
+            
+            utilidad = ingresos - egresos
 
-            # Asegúrate de que esta consulta tome el saldo inicial Y los movimientos
-           # A. Saldo Inicial hasta la fecha de inicio (f_i)
+            # Saldo Inicial Banco
             query_saldo_inicial = f"""
-                SELECT 
-                    (SUM(debe) - SUM(haber)) as saldo
+                SELECT (SUM(debe) - SUM(haber)) as saldo
                 FROM (
                     SELECT debe, haber FROM `{db}`.saldos_iniciales WHERE plan_cuentas LIKE '1.1.1.02%%'
                     UNION ALL
                     SELECT debe, haber FROM `{db}`.asientos_contables WHERE plan_cuentas LIKE '1.1.1.02%%' AND fecha < %s
                 ) as t
             """
+            cursor.execute(query_saldo_inicial, (f_i,))
+            res_inicial = cursor.fetchone()
+            if res_inicial:
+                saldo_inicial = float(res_inicial['saldo'] or 0.0)
 
-            # B. Movimientos del periodo (f_i al f_f)
+            # Movimientos Banco
             query_movimientos = f"""
-                SELECT 
-                    SUM(debe) as entradas, 
-                    SUM(haber) as salidas 
+                SELECT SUM(debe) as entradas, SUM(haber) as salidas 
                 FROM `{db}`.asientos_contables 
                 WHERE plan_cuentas LIKE '1.1.1.02%%' 
                 AND fecha BETWEEN %s AND %s
             """
-            
-            cursor = conn.cursor(dictionary=True)
-
-            # 1. Obtener Saldo Inicial
-            cursor.execute(query_saldo_inicial, (f_i,))
-            res_inicial = cursor.fetchone()
-            saldo_inicial = float(res_inicial['saldo'] or 0.0)
-
-            # 2. Obtener Movimientos
             cursor.execute(query_movimientos, (f_i, f_f))
             res_mov = cursor.fetchone()
-            entradas = float(res_mov['entradas'] or 0.0)
-            salidas = float(res_mov['salidas'] or 0.0)
+            if res_mov:
+                entradas = float(res_mov['entradas'] or 0.0)
+                salidas = float(res_mov['salidas'] or 0.0)
 
-            # 3. Calcular Total
             saldo_final_banco = saldo_inicial + entradas - salidas
-            # B. MOVIMIENTOS DEL MES
-            cursor.execute(f"SELECT SUM(debe) as ent, SUM(haber) as sal FROM `{db}`.asientos_contables WHERE plan_cuentas LIKE '1.1.1.02%%' AND fecha BETWEEN %s AND %s", (f_i, f_f))
-            res_mes = cursor.fetchone()
-            if res_mes:
-                entradas = float(res_mes['ent'] or 0)
-                salidas = float(res_mes['sal'] or 0)
 
-            # C. SALUD FISCAL
-            cursor.execute(f"SELECT SUM(debe) as total_exento FROM `{db}`.asientos_contables WHERE (plan_cuentas LIKE '5.%%' OR plan_cuentas LIKE '6.%%') AND plan_cuentas NOT IN (SELECT codigo FROM `{db}`.plan_cuentas WHERE nombre LIKE '%%IVA%%') AND fecha BETWEEN %s AND %s", (f_i, f_f))
+            # Salud Fiscal (Exento)
+            query_exento = f"""
+                SELECT SUM(debe) as total_exento 
+                FROM `{db}`.asientos_contables 
+                WHERE (plan_cuentas LIKE '5.%%' OR plan_cuentas LIKE '6.%%') 
+                AND plan_cuentas NOT IN (SELECT codigo FROM `{db}`.plan_cuentas WHERE nombre LIKE '%%IVA%%') 
+                AND fecha BETWEEN %s AND %s
+            """
+            cursor.execute(query_exento, (f_i, f_f))
             res_exento = cursor.fetchone()
-            exento = float(res_exento['total_exento'] or 0.0)
-            
+            if res_exento:
+                exento = float(res_exento['total_exento'] or 0.0)
 
-            # D. TOP PROVEEDOR
-            cursor.execute(f"SELECT p.nombre, SUM(a.haber - a.debe) as total FROM `{db}`.asientos_contables a JOIN `{db}`.plan_cuentas p ON a.plan_cuentas = p.codigo WHERE a.plan_cuentas LIKE '2.1.1.01%%' AND a.fecha BETWEEN %s AND %s GROUP BY p.nombre ORDER BY total DESC LIMIT 1", (f_i, f_f))
+            # Top Proveedor
+            query_top = f"""
+                SELECT p.nombre, SUM(a.haber - a.debe) as total 
+                FROM `{db}`.asientos_contables a 
+                JOIN `{db}`.plan_cuentas p ON a.plan_cuentas = p.codigo 
+                WHERE a.plan_cuentas LIKE '2.1.1.01%%' AND a.fecha BETWEEN %s AND %s 
+                GROUP BY p.nombre ORDER BY total DESC LIMIT 1
+            """
+            cursor.execute(query_top, (f_i, f_f))
             top = cursor.fetchone()
             if top:
                 proveedor_nombre = top['nombre']
                 ref = egresos if egresos > 0 else salidas
                 porcentaje_compras = (float(top['total']) / ref * 100) if ref > 0 else 0
 
-
     except Exception as e:
         st.error(f"Error en consultas de KPIs: {e}")
 
-    # 5. RETORNO FINAL
+    # 6. RETORNO FINAL BLINDADO
     return {
         "activo": activo,
-        "pasivo": pasivo, # Ahora es el neto real
+        "pasivo": pasivo,
         "utilidad": utilidad,
-        "liquidez": activo / pasivo if pasivo != 0 else 0,
-        "prueba_acida": (activo * 0.8) / pasivo if pasivo != 0 else 0,
+        "liquidez": activo / pasivo if pasivo != 0 else 0.0,
+        "prueba_acida": (activo * 0.8) / pasivo if pasivo != 0 else 0.0,
         "capital_trabajo": activo - pasivo,
-        "margen_utilidad": (utilidad / ingresos * 100) if ingresos > 0 else 0,
+        "margen_utilidad": (utilidad / ingresos * 100) if ingresos > 0 else 0.0,
         "flujo_neto": entradas - salidas,
         "top_proveedor": proveedor_nombre,
         "top_porcentaje": round(porcentaje_compras, 2),
         "alertas_retencion": 0,
         "exento": exento,
-        # Añade estos nuevos:
         "ingresos_exentos": ingresos_exentos,
         "ingresos_gravados": ingresos_gravados,
         "compras_exentas": compras_exentas, 
@@ -1118,10 +1124,9 @@ def obtener_kpis_financieros(_conn, f_i, f_f, sucursal, db): # <--- ¡Aquí debe
         "iva_debito_fiscal": iva_debito,
         "retencion_proveedores": ret_prov,
         "retencion_islr": ret_islr,
-        "entradas_efectivo": entradas,    # Asegúrate que sea 'entradas_efectivo'
-        "salidas_efectivo": salidas,      # Asegúrate que sea 'salidas_efectivo'
-        "saldo_real_final": saldo_final_banco # Asegúrate que sea 'saldo_real_final'
-
+        "entradas_efectivo": entradas,
+        "salidas_efectivo": salidas,
+        "saldo_real_final": saldo_final_banco
     }
 
 
