@@ -636,7 +636,7 @@ def obtener_saldos_acumulados(conn, f_fin, db):
             COALESCE(SUM(CASE WHEN plan_cuentas LIKE '3%' THEN (haber - debe) ELSE 0 END), 0) as patrimonio_ini
         FROM `{db}`.saldos_iniciales
     """)
-    res_ini = cursor.fetchone()
+    res_ini = cursor.fetchone() or {'activo_ini': 0, 'pasivo_ini': 0, 'patrimonio_ini': 0}
     
     # 2. Movimientos contables hasta la fecha de corte directos desde MySQL
     cursor.execute(f"""
@@ -647,14 +647,14 @@ def obtener_saldos_acumulados(conn, f_fin, db):
         FROM `{db}`.asientos_contables 
         WHERE fecha <= %s
     """, (f_fin,))
-    res_mov = cursor.fetchone()
+    res_mov = cursor.fetchone() or {'activo_mov': 0, 'pasivo_mov': 0, 'patrimonio_mov': 0}
     
     cursor.close()
     
     # Sumatoria total calculada puramente con los datos devueltos por MySQL
-    activo_total = res_ini.get('activo_ini') + res_mov.get('activo_mov')
-    pasivo_total = res_ini.get('pasivo_ini') + res_mov.get('pasivo_mov')
-    patrimonio_total = res_ini.get('patrimonio_ini') + res_mov.get('patrimonio_mov')
+    activo_total = float(res_ini.get('activo_ini', 0) or 0) + float(res_mov.get('activo_mov', 0) or 0)
+    pasivo_total = float(res_ini.get('pasivo_ini', 0) or 0) + float(res_mov.get('pasivo_mov', 0) or 0)
+    patrimonio_total = float(res_ini.get('patrimonio_ini', 0) or 0) + float(res_mov.get('patrimonio_mov', 0) or 0)
     
     return {
         "activo": activo_total,
