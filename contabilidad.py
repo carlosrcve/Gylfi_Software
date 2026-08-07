@@ -7096,9 +7096,22 @@ if 'stats' not in st.session_state:
 # =========================================================================
 
 # --- VALIDACIÓN DE CONEXIÓN GLOBAL ---
-if 'conn' not in st.session_state or not st.session_state.conn.is_connected():
+if 'conn' not in st.session_state or st.session_state.conn is None:
     st.session_state.conn = conectar_db()
+else:
+    # Verificamos de forma segura si sigue conectada sin rompernos si es None
+    try:
+        if not st.session_state.conn.is_connected():
+            st.session_state.conn = conectar_db()
+    except Exception:
+        st.session_state.conn = conectar_db()
+
 conn = st.session_state.conn
+
+# Doble validación final de seguridad
+if conn is None:
+    st.error("❌ No se pudo establecer una conexión válida con la base de datos.")
+    st.stop()
 
 
 # --- INTERRUPTOR DE PANTALLAS ---
@@ -7174,8 +7187,6 @@ def actualizar_empresa():
     else:
         st.session_state.nombre_empresa_seleccionada = "REPRESENTACIONES PEDACITO DE CIELO, C.A."
         st.session_state.db_a_conectar = "pedacito_cielo_ca" # Nombre técnico exacto
-
-
 
 # 1. Obtenemos los valores del estado de manera unificada
 # 1. Obtenemos los valores
@@ -8867,7 +8878,9 @@ if "Inicio" in opcion_menu:
             pass
 
     except Exception as e:
-        st.error(f"❌ Error al procesar el reporte: {e}")
+        import traceback
+        st.error(f"❌ Error al procesar el reporte:")
+        st.code(traceback.format_exc()) # Esto te dirá la línea exacta del archivo que falla
     finally:
         # Cierre seguro de cursores y conexiones remanentes
         try:
