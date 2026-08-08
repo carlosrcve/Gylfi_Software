@@ -7150,7 +7150,7 @@ if 'mes_seleccionado' not in st.session_state:
 
 # Widgets en el Sidebar ligados directamente al session_state
 col_anio, col_mes = st.sidebar.columns(2)
-col_anio.number_input("Año", value=st.session_state['año_seleccionado'], step=1, key="año_seleccionado")
+col_anio.number_input("Año", value=2026, step=1, key="año_seleccionado_reporte")
 
 meses_lista = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
 col_mes.selectbox("Mes", meses_lista, key="mes_seleccionado")
