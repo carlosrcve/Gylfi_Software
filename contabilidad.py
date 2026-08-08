@@ -118,17 +118,16 @@ DB_CONFIG_BASE = {
 # ==========================================
 def inicializar_base_de_datos():
     try:
-        # Conectar a 'sys' para crear la BD
         config = DB_CONFIG_BASE.copy()
         config["database"] = "sys"
         
+        # 1. Crear control_central y tabla usuarios
         conn = mysql.connector.connect(**config)
         cursor = conn.cursor()
         cursor.execute("CREATE DATABASE IF NOT EXISTS control_central;")
         cursor.close()
         conn.close()
 
-        # Crear tabla de usuarios
         config["database"] = "control_central"
         conn = mysql.connector.connect(**config)
         cursor = conn.cursor()
@@ -141,7 +140,46 @@ def inicializar_base_de_datos():
         """)
         cursor.close()
         conn.close()
-        #st.success("✅ Conexión establecida con éxito a TiDB Cloud")
+
+        # 2. ASEGURAR TABLAS EN LAS BD DE LOS CLIENTES (¡Esto era lo que faltaba!)
+        # Lista de tus clientes actuales en la nube
+        clientes_bd = ["kingdirver_ca", "pedacito_de_cielo_ca"] # Agrega aquí las demás si tienes
+        
+        for cliente_db in clientes_bd:
+            try:
+                config_cliente = DB_CONFIG_BASE.copy()
+                config_cliente["database"] = cliente_db
+                conn_cli = mysql.connector.connect(**config_cliente)
+                cursor_cli = conn_cli.cursor()
+                
+                # Crear tabla de asientos contables
+                cursor_cli.execute("""
+                    CREATE TABLE IF NOT EXISTS asientos_contables (
+                        id INT AUTO_INCREMENT PRIMARY KEY,
+                        fecha DATE,
+                        plan_cuentas VARCHAR(50),
+                        debe DECIMAL(18,2) DEFAULT 0.00,
+                        haber DECIMAL(18,2) DEFAULT 0.00,
+                        descripcion TEXT
+                    );
+                """)
+                
+                # Crear tabla de saldos iniciales
+                cursor_cli.execute("""
+                    CREATE TABLE IF NOT EXISTS saldos_iniciales (
+                        id INT AUTO_INCREMENT PRIMARY KEY,
+                        plan_cuentas VARCHAR(50),
+                        debe DECIMAL(18,2) DEFAULT 0.00,
+                        haber DECIMAL(18,2) DEFAULT 0.00
+                    );
+                """)
+                
+                conn_cli.commit()
+                cursor_cli.close()
+                conn_cli.close()
+            except Exception as ex:
+                print(f"Aviso al inicializar tablas para {cliente_db}: {ex}")
+
     except Exception as e:
         st.error(f"❌ Error crítico de conexión: {e}")
         st.write("Tip: Verifica en tu panel de TiDB Cloud que tu IP esté en la 'IP Access List' (debe estar 0.0.0.0/0).")
@@ -7358,7 +7396,7 @@ if "Inicio" in opcion_menu:
         cur_cloud.close()
     except Exception as e:
         st.sidebar.error(f"Error explorando TiDB Cloud: {e}")
-        
+
     try:
         col_kpi, col_btn = st.columns([0.8, 0.2])
         
