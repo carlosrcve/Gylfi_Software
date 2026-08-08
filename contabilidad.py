@@ -301,24 +301,25 @@ def obtener_analisis_accionista_detallado(db, f_i, f_f):
 
     s_fi = str(f_i).split()[0]
     s_ff = str(f_f).split()[0]
+    db_clean = str(db).strip().lower()  # Normalizamos a minúsculas para evitar problemas con information_schema
 
     df = pd.DataFrame()
     try:
         cursor = conn.cursor()
-        # 🛡️ Blindaje: Verificamos si la tabla asientos_contables existe en esta base de datos
-        cursor.execute(f"""
+        
+        # Validación robusta normalizando el esquema a minúsculas
+        cursor.execute("""
             SELECT COUNT(*) 
             FROM information_schema.tables 
-            WHERE table_schema = %s AND table_name = 'asientos_contables'
-        """, (db,))
+            WHERE LOWER(table_schema) = %s AND table_name = 'asientos_contables'
+        """, (db_clean,))
         existe_asientos = cursor.fetchone()[0]
 
-        # Verificamos también si existe la tabla accionistas
-        cursor.execute(f"""
+        cursor.execute("""
             SELECT COUNT(*) 
             FROM information_schema.tables 
-            WHERE table_schema = %s AND table_name = 'accionistas'
-        """, (db,))
+            WHERE LOWER(table_schema) = %s AND table_name = 'accionistas'
+        """, (db_clean,))
         existe_accionistas = cursor.fetchone()[0]
         cursor.close()
 
@@ -8332,18 +8333,11 @@ if "Inicio" in opcion_menu:
                 # Consulta SQL a base de datos de accionistas
                 conn = conectar_db(db)
                 df_config_accionistas = pd.DataFrame()
-                
                 if conn:
                     try:
-                        cursor = conn.cursor()
-                        # Forzamos explícitamente el uso de la base de datos activa
-                        cursor.execute(f"USE `{db}`;")
-                        cursor.close()
-                        
-                        # Leemos la tabla asegurando el esquema correcto
                         df_config_accionistas = pd.read_sql(f"SELECT * FROM `{db}`.accionistas", conn)
                     except Exception as err:
-                        st.error(f"❌ Error al leer la tabla 'accionistas' en la base de datos `{db}`: {err}")
+                        st.warning(f"⚠️ No se pudo cargar la configuración de accionistas para `{db}`: {err}")
                     finally:
                         conn.close()
 
