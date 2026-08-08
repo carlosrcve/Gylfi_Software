@@ -7296,7 +7296,7 @@ if "Inicio" in opcion_menu:
     # 2. Verificamos si la conexión actual coincide con la DB seleccionada
     conexion_coincide = st.session_state.get('ultima_db_conectada') == db_actual
 
-    # 3. Si no hay conexión O no coincide con la empresa seleccionada, reconectamos
+    # 3. Si no hay conexión O no coincide, reconectamos
     if 'conn' not in st.session_state or st.session_state.conn is None or not conexion_coincide:
         if db_actual == 'No seleccionada':
             st.warning("⚠️ Por favor seleccione una empresa válida.")
@@ -7304,30 +7304,27 @@ if "Inicio" in opcion_menu:
             
         st.info(f"🔄 Conectando a la base de datos del cliente: {db_actual}...")
         
-        # Intentamos conectar pasando la base de datos multicliente
         nueva_conn = conectar_db(db_actual)
-        
-        # VALIDACIÓN CLAVE: Si conectar_db devolvió None, detenemos aquí para evitar el NoneType
         if nueva_conn is not None:
             st.session_state.conn = nueva_conn
             st.session_state.ultima_db_conectada = db_actual
             st.rerun() 
         else:
             st.session_state.conn = None
-            st.error(f"❌ No se pudo establecer la conexión con la base de datos multicliente '{db_actual}'. Verifica que ya haya sido creada en TiDB Cloud.")
+            st.error(f"❌ No se pudo establecer la conexión con la base de datos '{db_actual}'.")
             st.stop()
 
-    # 4. ENCABEZADO DINÁMICO
+    # 4. ENCABEZADO Y FECHAS 100% SINCRONIZADAS CON EL SIDEBAR
     meses_lista = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
     
-    # LEEMOS DIRECTAMENTE DE LAS KEYS UNIFICADAS DEL SIDEBAR
+    # LEEMOS DIRECTAMENTE DE LAS KEYS OFICIALES DEL SIDEBAR
     anio_f = int(st.session_state.get('año_seleccionado_contabilidad', 2026))
     mes_nombre_f = st.session_state.get('mes_seleccionado_contabilidad', 'Mayo')
     
-    # Obtenemos el índice numérico exacto del mes (1 al 12)
+    # Índice numérico exacto del mes (1 al 12)
     m_idx = meses_lista.index(mes_nombre_f) + 1 if mes_nombre_f in meses_lista else 5
     
-    # Generamos las fechas reales del mes seleccionado para las consultas SQL
+    # Generamos las fechas reales del mes seleccionado
     f_inicio_global = datetime.date(anio_f, m_idx, 1)
     if m_idx == 12:
         f_fin_global = datetime.date(anio_f, 12, 31)
