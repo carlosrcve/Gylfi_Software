@@ -8349,7 +8349,7 @@ if "Inicio" in opcion_menu:
 
                 df_config_accionistas = pd.DataFrame()
 
-               if conn is None:
+                if conn is None:
                     st.error("ERROR CRÍTICO: conectar_db(db) devolvió None. Revisa tu función de conexión.")
                 else:
                     st.success("¡Conexión establecida correctamente!")
