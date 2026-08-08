@@ -363,7 +363,11 @@ def obtener_analisis_accionista_detallado(db, f_i, f_f):
 
 
 def obtener_historico_utilidad(db, f_inicio=None, f_fin=None):
-    conn = conectar_db(db)
+    # REUTILIZAMOS la conexión activa de st.session_state si existe, si no, abrimos una
+    conn = st.session_state.get('conn')
+    if not conn or not conn.is_connected():
+        conn = conectar_db(db)
+        
     df_default = pd.DataFrame({'utilidad_mensual': [0.0]})
     
     if not conn:
@@ -391,24 +395,26 @@ def obtener_historico_utilidad(db, f_inicio=None, f_fin=None):
         partes = fecha_fin_str.split('-')
         fecha_inicio_str = f"{partes[0]}-{partes[1]}-01"
     
+    # Consulta SQL optimizada (quitando el STR_TO_DATE en la columna si ya es tipo fecha, 
+    # o dejándolo directo asegurando el formato estándar)
     query = f"""
         SELECT 
-            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '4%%' THEN haber ELSE 0 END) as ing_haber,
-            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '4%%' THEN debe ELSE 0 END) as ing_debe,
+            COALESCE(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '4%' THEN haber ELSE 0 END), 0) as ing_haber,
+            COALESCE(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '4%' THEN debe ELSE 0 END), 0) as ing_debe,
             
-            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '5%%' THEN debe ELSE 0 END) as cos_debe,
-            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '5%%' THEN haber ELSE 0 END) as cos_haber,
+            COALESCE(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '5%' THEN debe ELSE 0 END), 0) as cos_debe,
+            COALESCE(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '5%' THEN haber ELSE 0 END), 0) as cos_haber,
             
-            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '6%%' THEN debe ELSE 0 END) as gas_debe,
-            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '6%%' THEN haber ELSE 0 END) as gas_haber,
+            COALESCE(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '6%' THEN debe ELSE 0 END), 0) as gas_debe,
+            COALESCE(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '6%' THEN haber ELSE 0 END), 0) as gas_haber,
 
-            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '7%%' THEN haber ELSE 0 END) as oing_haber,
-            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '7%%' THEN debe ELSE 0 END) as oing_debe,
+            COALESCE(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '7%' THEN haber ELSE 0 END), 0) as oing_haber,
+            COALESCE(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '7%' THEN debe ELSE 0 END), 0) as oing_debe,
             
-            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '8%%' THEN debe ELSE 0 END) as oeg_debe,
-            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '8%%' THEN haber ELSE 0 END) as oeg_haber
+            COALESCE(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '8%' THEN debe ELSE 0 END), 0) as oeg_debe,
+            COALESCE(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '8%' THEN haber ELSE 0 END), 0) as oeg_haber
         FROM `{db}`.asientos_contables 
-        WHERE STR_TO_DATE(fecha, '%Y-%m-%d') BETWEEN STR_TO_DATE(%s, '%Y-%m-%d') AND STR_TO_DATE(%s, '%Y-%m-%d')
+        WHERE fecha BETWEEN %s AND %s
     """
     
     try:
@@ -439,12 +445,10 @@ def obtener_historico_utilidad(db, f_inicio=None, f_fin=None):
         return df
         
     except Exception as e:
-        print(f"Error al calcular la utilidad: {e}")
+        print(f"❌ Error al calcular la utilidad para {fecha_inicio_str} al {fecha_fin_str}: {e}")
         return df_default
         
-    finally:
-        if conn and conn.is_connected():
-            conn.close()
+    # Nota: No cerramos 'conn' aquí si es la global de la sesión para evitar tumbar la conexión principal de Streamlit.
 
 
 @log_ejecucion
@@ -656,16 +660,17 @@ def obtener_historico_utilidad_acumulada(db):
             conn.close()
         return df_default
 
-# Quítale temporalmente el @log_ejecucion a esta función para probar
-# --- DEFINICIÓN DE EMERGENCIA PARA EVITAR EL NONE ---
 def obtener_saldos_acumulados(conexion, fecha_corte, nombre_db):
     if not conexion:
+        print("❌ Error: No hay conexión activa en obtener_saldos_acumulados")
         return {"activo": 0, "pasivo": 0, "patrimonio": 0}
     
     cur = conexion.cursor(dictionary=True)
     res_ini = {'activo_ini': 0, 'pasivo_ini': 0, 'patrimonio_ini': 0}
     
     try:
+        # Nota: Si tu tabla saldos_iniciales tiene columna de fecha o periodo, 
+        # asegúrate de filtrarla aquí si corresponde. De lo contrario, suma el histórico total.
         cur.execute(f"""
             SELECT 
                 COALESCE(SUM(CASE WHEN plan_cuentas LIKE '1%' THEN (debe - haber) ELSE 0 END), 0) as activo_ini,
@@ -676,11 +681,12 @@ def obtener_saldos_acumulados(conexion, fecha_corte, nombre_db):
         f_ini = cur.fetchone()
         if f_ini:
             res_ini = f_ini
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"⚠️ Error al leer saldos_iniciales: {e}")
         
     res_mov = {'activo_mov': 0, 'pasivo_mov': 0, 'patrimonio_mov': 0}
     try:
+        # Aquí sí filtra correctamente hasta la fecha de corte seleccionada (ej. 31/05/2026)
         cur.execute(f"""
             SELECT 
                 COALESCE(SUM(CASE WHEN plan_cuentas LIKE '1%' THEN (debe - haber) ELSE 0 END), 0) as activo_mov,
@@ -692,11 +698,12 @@ def obtener_saldos_acumulados(conexion, fecha_corte, nombre_db):
         f_mov = cur.fetchone()
         if f_mov:
             res_mov = f_mov
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"⚠️ Error al leer asientos_contables para la fecha {fecha_corte}: {e}")
         
     cur.close()
     
+    # Retorno seguro convertido a float
     return {
         "activo": float(res_ini.get('activo_ini', 0) or 0) + float(res_mov.get('activo_mov', 0) or 0),
         "pasivo": float(res_ini.get('pasivo_ini', 0) or 0) + float(res_mov.get('pasivo_mov', 0) or 0),
