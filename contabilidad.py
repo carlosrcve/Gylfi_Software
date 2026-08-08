@@ -1488,6 +1488,25 @@ def migrar_contraseñas_a_hash(conn):
             
     cursor.close()
 
+'''
+# --- INSPECTOR TEMPORAL DE USUARIOS ---
+if st.checkbox("🔍 Mostrar usuarios registrados en la BD (Debug)"):
+    conn_debug = conectar_db()
+    if conn_debug:
+        try:
+            cursor_debug = conn_debug.cursor(dictionary=True)
+            cursor_debug.execute("SELECT id, usuario, rol, cliente_id FROM usuarios;")
+            usuarios_db = cursor_debug.fetchall()
+            cursor_debug.close()
+            conn_debug.close()
+            
+            st.write("Usuarios encontrados en TiDB Cloud:")
+            for u in usuarios_db:
+                st.code(f"ID: {u['id']} | Usuario: {u['usuario']} | Rol: {u['rol']}")
+        except Exception as e:
+            st.error(f"No se pudo leer la tabla: {e}")
+'''
+
 def login_screen():
     # --- ESTILOS CSS PROFESIONALES ---
     st.markdown("""
@@ -4591,7 +4610,6 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
             st.stop()
 
         conn.ping(reconnect=True, attempts=3, delay=1)
-        st.write(f"Conectado a: **{db_actual}**")
 
         # Filtros
         col_b1, col_b2 = st.columns(2)
@@ -7120,6 +7138,9 @@ with st.sidebar:
             st.stop()
 
 # --- 1. BLOQUE DE FECHAS GLOBAL (DEBE IR PRIMERO QUE TODO) ---
+st.sidebar.subheader("📅 Período de Consulta")
+
+# Inicializar valores en session_state si no existen
 if 'año_seleccionado' not in st.session_state:
     st.session_state['año_seleccionado'] = datetime.datetime.now().year
 
@@ -7127,25 +7148,35 @@ if 'mes_seleccionado' not in st.session_state:
     meses_nombres = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
     st.session_state['mes_seleccionado'] = meses_nombres[datetime.datetime.now().month - 1]
 
+# Widgets en el Sidebar ligados directamente al session_state
+col_anio, col_mes = st.sidebar.columns(2)
+col_anio.number_input("Año", value=st.session_state['año_seleccionado'], step=1, key="año_seleccionado")
+
+meses_lista = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
+col_mes.selectbox("Mes", meses_lista, key="mes_seleccionado")
+
+st.sidebar.divider()
+
+# Diccionario de conversión de meses
 dic_meses = {
     "Enero": 1, "Febrero": 2, "Marzo": 3, "Abril": 4, 
     "Mayo": 5, "Junio": 6, "Julio": 7, "Agosto": 8, 
     "Septiembre": 9, "Octubre": 10, "Noviembre": 11, "Diciembre": 12
 }
 
-anio_seleccionado = st.session_state.get('año_seleccionado', datetime.datetime.now().year)
-mes_elegido_str = st.session_state.get('mes_seleccionado', "Enero")
+# Obtener valores limpios y reactivos
+anio_seleccionado = st.session_state['año_seleccionado']
+mes_elegido_str = st.session_state['mes_seleccionado']
+mes_n = dic_meses.get(mes_elegido_str, 5) # 5 por defecto para Mayo si hubiera algún fallo
 
-mes_n = dic_meses.get(mes_elegido_str, 1)
-
-# Cálculo exacto de las cadenas de fecha para MySQL
-ultimo_dia_mes = calendar.monthrange(anio_seleccionado, mes_n)[1]
+# Cálculo exacto de las fechas para los queries SQL
+ultimo_dia_mes = calendar.monthrange(int(anio_seleccionado), mes_n)[1]
 fecha_inicio_str = f"{anio_seleccionado}-{mes_n:02d}-01"
 fecha_fin_str = f"{anio_seleccionado}-{mes_n:02d}-{ultimo_dia_mes:02d}"
 
-# 5. Variables de compatibilidad globales para consultas SQL (como tu Flujo de Efectivo)
-f_inicio_global = datetime.date(anio_seleccionado, mes_n, 1)
-f_fin_global = datetime.date(anio_seleccionado, mes_n, ultimo_dia_mes)
+# Variables de compatibilidad en formato datetime.date
+f_i = datetime.date(int(anio_seleccionado), mes_n, 1)
+f_f = datetime.date(int(anio_seleccionado), mes_n, ultimo_dia_mes)
 
 # Inicializamos stats por seguridad si no existen
 if 'stats' not in st.session_state:
