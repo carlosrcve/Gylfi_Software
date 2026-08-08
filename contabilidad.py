@@ -7138,9 +7138,7 @@ with st.sidebar:
             st.stop()
 
 # --- 1. BLOQUE DE FECHAS GLOBAL (DEBE IR PRIMERO QUE TODO) ---
-st.sidebar.subheader("📅 Período de Consulta")
-
-# Inicializar valores en session_state si no existen
+# 1. Inicializar el estado de la sesión si no existen
 if 'año_seleccionado' not in st.session_state:
     st.session_state['año_seleccionado'] = datetime.datetime.now().year
 
@@ -7148,35 +7146,40 @@ if 'mes_seleccionado' not in st.session_state:
     meses_nombres = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
     st.session_state['mes_seleccionado'] = meses_nombres[datetime.datetime.now().month - 1]
 
-# Widgets en el Sidebar ligados directamente al session_state
+# 2. Dibujar los widgets en el Sidebar de forma limpia (Única declaración)
+st.sidebar.divider()
+st.sidebar.subheader("📅 Período de Consulta")
 col_anio, col_mes = st.sidebar.columns(2)
-col_anio.number_input("Año", value=2026, step=1, key="año_seleccionado_reporte")
+
+col_anio.number_input("Año", value=st.session_state['año_seleccionado'], step=1, key="año_seleccionado")
 
 meses_lista = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
 col_mes.selectbox("Mes", meses_lista, key="mes_seleccionado")
 
 st.sidebar.divider()
 
-# Diccionario de conversión de meses
+# 3. Diccionario de conversión de meses
 dic_meses = {
     "Enero": 1, "Febrero": 2, "Marzo": 3, "Abril": 4, 
     "Mayo": 5, "Junio": 6, "Julio": 7, "Agosto": 8, 
     "Septiembre": 9, "Octubre": 10, "Noviembre": 11, "Diciembre": 12
 }
 
-# Obtener valores limpios y reactivos
-anio_seleccionado = st.session_state['año_seleccionado']
+# 4. Obtener los valores actuales y reactivos desde session_state
+anio_seleccionado = int(st.session_state['año_seleccionado'])
 mes_elegido_str = st.session_state['mes_seleccionado']
-mes_n = dic_meses.get(mes_elegido_str, 5) # 5 por defecto para Mayo si hubiera algún fallo
+mes_n = dic_meses.get(mes_elegido_str, 1)
 
-# Cálculo exacto de las fechas para los queries SQL
-ultimo_dia_mes = calendar.monthrange(int(anio_seleccionado), mes_n)[1]
+# 5. Cálculo exacto de rangos para MySQL y consultas SQL
+ultimo_dia_mes = calendar.monthrange(anio_seleccionado, mes_n)[1]
 fecha_inicio_str = f"{anio_seleccionado}-{mes_n:02d}-01"
 fecha_fin_str = f"{anio_seleccionado}-{mes_n:02d}-{ultimo_dia_mes:02d}"
 
-# Variables de compatibilidad en formato datetime.date
-f_i = datetime.date(int(anio_seleccionado), mes_n, 1)
-f_f = datetime.date(int(anio_seleccionado), mes_n, ultimo_dia_mes)
+# Variables globales de compatibilidad (usadas por tus funciones tipo f_i, f_f)
+f_i = datetime.date(anio_seleccionado, mes_n, 1)
+f_f = datetime.date(anio_seleccionado, mes_n, ultimo_dia_mes)
+f_inicio_global = f_i
+f_fin_global = f_f
 
 # Inicializamos stats por seguridad si no existen
 if 'stats' not in st.session_state:
