@@ -181,7 +181,7 @@ def conectar_db(nombre_db=None):
             except Exception as ex:
                 print(f"Aviso al asegurar BD de cliente: {ex}")
 
-        # 2. VALIDAR CONEXIÓN EXISTENTE EN SESSION_STATE
+        # 2. VALIDAR CONEXIÓN EXISTENTE EN SESSION_STATE Y FORZAR EL CAMBIO DE ESQUEMA SI ES NECESARIO
         if "conn" in st.session_state and st.session_state.conn is not None:
             try:
                 if st.session_state.conn.is_connected():
@@ -194,7 +194,7 @@ def conectar_db(nombre_db=None):
                         cursor_test.close()
                         return st.session_state.conn
                     else:
-                        # Si la conexión está en otra BD, la forzamos a cambiar de base de datos con USE
+                        # Forzamos al conector reutilizado a cambiar al nuevo esquema de la empresa
                         cursor_test.execute(f"USE `{db_a_usar}`;")
                         cursor_test.close()
                         return st.session_state.conn
