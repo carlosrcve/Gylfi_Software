@@ -296,29 +296,48 @@ def obtener_analisis_accionista_detallado(db, f_i, f_f):
         return pd.DataFrame()
 
     conn = conectar_db(db)
-    if not conn:
+    if not conn or not conn.is_connected():
         return pd.DataFrame()
 
     s_fi = str(f_i).split()[0]
     s_ff = str(f_f).split()[0]
 
-    query = f"""
-        SELECT 
-            a.plan_cuentas, 
-            a.fecha, 
-            a.descripcion, 
-            a.debe, 
-            a.haber, 
-            (a.debe - a.haber) as neto,
-            acc.nombre as nombre_accionista
-        FROM `{db}`.asientos_contables a
-        INNER JOIN `{db}`.accionistas acc ON a.plan_cuentas = acc.codigo_cuenta_asociada
-        WHERE a.fecha BETWEEN %s AND %s
-        ORDER BY a.fecha DESC
-    """
-    
+    df = pd.DataFrame()
     try:
-        df = pd.read_sql(query, conn, params=(s_fi, s_ff))
+        cursor = conn.cursor()
+        # 🛡️ Blindaje: Verificamos si la tabla asientos_contables existe en esta base de datos
+        cursor.execute(f"""
+            SELECT COUNT(*) 
+            FROM information_schema.tables 
+            WHERE table_schema = %s AND table_name = 'asientos_contables'
+        """, (db,))
+        existe_asientos = cursor.fetchone()[0]
+
+        # Verificamos también si existe la tabla accionistas
+        cursor.execute(f"""
+            SELECT COUNT(*) 
+            FROM information_schema.tables 
+            WHERE table_schema = %s AND table_name = 'accionistas'
+        """, (db,))
+        existe_accionistas = cursor.fetchone()[0]
+        cursor.close()
+
+        if existe_asientos > 0 and existe_accionistas > 0:
+            query = f"""
+                SELECT 
+                    a.plan_cuentas, 
+                    a.fecha, 
+                    a.descripcion, 
+                    a.debe, 
+                    a.haber, 
+                    (a.debe - a.haber) as neto,
+                    acc.nombre as nombre_accionista
+                FROM `{db}`.asientos_contables a
+                INNER JOIN `{db}`.accionistas acc ON a.plan_cuentas = acc.codigo_cuenta_asociada
+                WHERE a.fecha BETWEEN %s AND %s
+                ORDER BY a.fecha DESC
+            """
+            df = pd.read_sql(query, conn, params=(s_fi, s_ff))
     except Exception as e:
         st.error(f"Error en la consulta de accionistas: {e}")
         df = pd.DataFrame()
