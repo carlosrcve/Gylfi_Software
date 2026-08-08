@@ -561,8 +561,7 @@ def obtener_asiento_por_comprobante(db, n_comprobante):
         return pd.DataFrame()
 
 
-
-@log_ejecucion
+# Quítale el decorador temporalmente para probar si era eso:
 def obtener_comprobantes_ingresos(db, f_inicio, f_fin):
     conn = conectar_db(db)
     if not conn:
