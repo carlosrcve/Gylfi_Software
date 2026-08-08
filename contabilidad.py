@@ -8814,6 +8814,7 @@ if "Inicio" in opcion_menu:
 
         except Exception as e:
             st.error(f"Error procesando el reporte contable: {e}")
+            st.code(traceback.format_exc())  # Es
 
 
         # 1. CONDICIONAL: Solo mostrar si el cliente actual es "pedacito_de_cielo_ca" (o el nombre de su BD)
