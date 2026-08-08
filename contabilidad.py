@@ -7949,17 +7949,17 @@ if "Inicio" in opcion_menu:
             moneda_vista = "Dólares (USD)" if st.toggle("🇺🇸 Ver reporte en USD", value=False, key="toggle_moneda_multimoneda") else "Bolívares (VES)"
         # --- BLOQUE LÓGICO DE DATOS (Debe ejecutarse antes para poder descargar) ---
         # --- BLOQUE LÓGICO DE DATOS (Conexión local blindada) ---
+        # --- BLOQUE LÓGICO DE DATOS (Conexión local blindada) ---
         try:
             # 1. Abrimos una conexión fresca y exclusiva para este reporte
-            # (Asegúrate de pasarle la variable o función que usas en tu app para conectar, ej: conectar_db(db) o mysql.connector.connect)
-            conn_local = conectar_db() # ⚠️ Ajusta esto según tu función de conexión existente
+            conn_local = conectar_db(db_actual) # Ajustado para recibir la empresa actual
             
             if not conn_local or not conn_local.is_connected():
                 st.error("⚠️ No se pudo establecer una conexión activa con la base de datos para generar el reporte.")
                 st.stop()
 
             # 2. Ejecutamos la consulta pasando la conexión local recién abierta
-            df_diario = generar_reporte_multimoneda(conn_local, mes_seleccionado, ano_seleccionado)
+            df_diario = generar_reporte_multimoneda(conn_local, mes_seleccionado, ano_seleccionado, db_actual)
             
             # 3. Cerramos la conexión local de forma limpia para liberar recursos
             if conn_local.is_connected():
@@ -8109,6 +8109,8 @@ if "Inicio" in opcion_menu:
                                     st.success("✨ ¡Partida Doble verificada! Los movimientos del mes cargaron perfectamente cuadrados.")
                                 else:
                                     st.error("⚠️ Alerta contable: Los movimientos cargados en el Debe y Haber del mes difieren.")
+                            except Exception as inner_e:
+                                st.error(f"Error interno al calcular el balance: {inner_e}")
 
         except Exception as e:
             st.error(f"❌ Ocurrió un error al procesar el Libro Diario o el Balance de Comprobación: {e}")
