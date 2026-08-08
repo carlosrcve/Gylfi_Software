@@ -8342,27 +8342,29 @@ if "Inicio" in opcion_menu:
 
                 neto_disponible = utilidad_bruta * 0.66
 
-                # Consulta SQL a base de datos de accionistas
+                # --- CARGA CORRECTA Y SEGURA DE LA CONFIGURACIÓN DE ACCIONISTAS ---
+                st.write(f"DEBUG: Intentando conectar a la base de datos: {db}")
                 conn = conectar_db(db)
-                
-                # 2. Validar que la conexión exista y sea un objeto válido
+
+                df_config_accionistas = pd.DataFrame()
+
                 if conn is None:
-                    st.error(f"❌ Error crítico: La función `conectar_db('{db}')` devolvió `None`. Revisa las credenciales o el estado del servidor MySQL.")
-                    df_config_accionistas = pd.DataFrame()
+                    st.error("ERROR CRÍTICO: conectar_db(db) devolvió None. Revisa tu función de conexión.")
                 else:
-                    # 3. Intentar leer la configuración de accionistas de forma segura
-                    df_config_accionistas = pd.DataFrame()
+                    st.success("¡Conexión establecida correctamente!")
                     try:
-                        df_config_accionistas = pd.read_sql(f"SELECT * FROM `{db}`.accionistas", conn)
-                    except Exception as err:
-                        st.warning(f"⚠️ La tabla 'accionistas' no fue encontrada o no pudo leerse en `{db}`: {err}")
+                        cursor = conn.cursor()
+                        # Forzamos el uso de la base de datos para asegurar el contexto
+                        cursor.execute(f"USE `{db}`;")
+                        cursor.close()
+                        
+                        # LEEMOS DIRECTAMENTE LA TABLA YA QUE EL 'USE' LA POSICIONA
+                        df_config_accionistas = pd.read_sql("SELECT * FROM accionistas", conn)
+                    except Exception as e:
+                        st.error(f"Error al leer la tabla de accionistas: {e}")
                     finally:
-                        # Asegurarnos de cerrar la conexión de manera segura solo si existe el método
                         try:
-                            if hasattr(conn, "is_connected") and conn.is_connected():
-                                conn.close()
-                            elif hasattr(conn, "close"):
-                                conn.close()
+                            conn.close()
                         except Exception:
                             pass
 
@@ -8386,10 +8388,10 @@ if "Inicio" in opcion_menu:
                         valores_grafico.append(total_retiro)
                         colores_grafico.append('#1f77b4' if "Jean Marco" in nombre else '#33a02c')
 
-                    # Agregar métricas globales al final
-                    nombres_grafico.extend(['Utilidad Contable', 'Utilidad Neta'])
-                    valores_grafico.extend([utilidad_bruta, neto_disponible])
-                    colores_grafico.extend(['#ff7f0e', '#7f7f7f'])
+                # Agregar métricas globales al final
+                nombres_grafico.extend(['Utilidad Contable', 'Utilidad Neta'])
+                valores_grafico.extend([utilidad_bruta, neto_disponible])
+                colores_grafico.extend(['#ff7f0e', '#7f7f7f'])
 
                 if len(valores_grafico) > 0:
                     valores_grafico_limpios = [float(v) if pd.notnull(v) else 0.0 for v in valores_grafico]
