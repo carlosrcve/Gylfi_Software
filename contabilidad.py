@@ -184,19 +184,20 @@ def conectar_db(nombre_db=None):
         # 2. VALIDAR CONEXIÓN EXISTENTE EN SESSION_STATE
         if "conn" in st.session_state and st.session_state.conn is not None:
             try:
-                # CORRECCIÓN AQUÍ: is_connected es un método con paréntesis
                 if st.session_state.conn.is_connected():
                     cursor_test = st.session_state.conn.cursor()
                     cursor_test.execute("SELECT DATABASE()")
                     res = cursor_test.fetchone()
                     db_actual_en_servidor = res[0] if res else None
-                    cursor_test.close()
                     
                     if db_actual_en_servidor == db_a_usar:
+                        cursor_test.close()
                         return st.session_state.conn
                     else:
-                        st.session_state.conn.close()
-                        st.session_state.conn = None
+                        # Si la conexión está en otra BD, la forzamos a cambiar de base de datos con USE
+                        cursor_test.execute(f"USE `{db_a_usar}`;")
+                        cursor_test.close()
+                        return st.session_state.conn
             except Exception:
                 st.session_state.conn = None
       
