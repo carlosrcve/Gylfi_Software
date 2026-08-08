@@ -7318,22 +7318,21 @@ if "Inicio" in opcion_menu:
             st.stop()
 
     # 4. ENCABEZADO DINÁMICO
-    # 3.5. RECALCULAMOS LAS FECHAS BASADAS EN LOS SELECTORES DEL SIDEBAR
     meses_lista = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
     
-    anio_f = st.session_state.get('f_anio_global', 2026)
-    mes_nombre_f = st.session_state.get('mes_seleccionado', 'Junio')
+    # LEEMOS DIRECTAMENTE DE LAS KEYS UNIFICADAS DEL SIDEBAR
+    anio_f = int(st.session_state.get('año_seleccionado_contabilidad', 2026))
+    mes_nombre_f = st.session_state.get('mes_seleccionado_contabilidad', 'Mayo')
     
-    # Obtenemos el índice numérico del mes (1 al 12)
-    m_idx = meses_lista.index(mes_nombre_f) + 1 if mes_nombre_f in meses_lista else 6
+    # Obtenemos el índice numérico exacto del mes (1 al 12)
+    m_idx = meses_lista.index(mes_nombre_f) + 1 if mes_nombre_f in meses_lista else 5
     
-    # Generamos las fechas reales del mes seleccionado
+    # Generamos las fechas reales del mes seleccionado para las consultas SQL
     f_inicio_global = datetime.date(anio_f, m_idx, 1)
     if m_idx == 12:
         f_fin_global = datetime.date(anio_f, 12, 31)
     else:
         f_fin_global = datetime.date(anio_f, m_idx + 1, 1) - datetime.timedelta(days=1)
-
 
     st.title(f"📊 Auditoría Profesional: {db_actual}")
     st.markdown(f"**Período de Análisis:** {f_inicio_global.strftime('%d/%m/%Y')} al {f_fin_global.strftime('%d/%m/%Y')}")
