@@ -8424,7 +8424,7 @@ if "Inicio" in opcion_menu:
                 try:
                     df_gastos_c5 = obtener_analisis_gastos_clase5(db, f_i, f_f)
                 except Exception as err:
-                    st.error(Error al obtener costos de Clase 5: {err})
+                    st.error(f"Error al obtener costos de Clase 5: {err}")
                     df_gastos_c5 = pd.DataFrame()
 
                 if df_gastos_c5 is not None and not df_gastos_c5.empty:
