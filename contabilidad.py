@@ -251,7 +251,7 @@ def inicializar_tablas_clientes_en_nube():
 if 'tablas_nube_listas' not in st.session_state:
     inicializar_tablas_clientes_en_nube()
     st.session_state.tablas_nube_listas = True
-    
+
 def conectar_db(nombre_db=None):
     db_a_usar = nombre_db if nombre_db else "control_central"
     
@@ -7434,26 +7434,41 @@ if "Inicio" in opcion_menu:
     conn = st.session_state.conn
 
     # 5. LÓGICA PRINCIPAL PROTEGIDA CON TRY-EXCEPT-FINALLY
-    # PRUEBA DE COMUNICACIÓN DIRECTA
-    # VERIFICACIÓN DE ESQUEMA EN CLOUD
     try:
-        cur_cloud = conn.cursor()
-        # Vemos exactamente qué bases de datos ve el usuario en TiDB Cloud
-        cur_cloud.execute("SHOW DATABASES;")
-        dbs_nube = [row[0] for row in cur_cloud.fetchall()]
-        st.sidebar.success(f"Conectado a TiDB Cloud con éxito. DBs disponibles: {dbs_nube}")
+        st.sidebar.markdown("---")
+        st.sidebar.subheader("🔍 Auditoría de tablas en TiDB")
         
-        # Verificamos si la base de datos actual existe tal cual en la nube
-        if db_actual in dbs_nube:
-            cur_cloud.execute(f"SHOW TABLES FROM `{db_actual}`;")
-            tablas_nube = [row[0] for row in cur_cloud.fetchall()]
-            st.sidebar.write(f"Tablas reales en {db_actual}:", tablas_nube)
-        else:
-            st.sidebar.error(f"¡Alerta! La base de datos '{db_actual}' no aparece en la lista de TiDB Cloud.")
+        # Conectamos para listar todo
+        config_debug = {
+            "host": "gateway01.us-east-1.prod.aws.tidbcloud.com",
+            "port": 4000,
+            "user": "4K4VAw4t4ZPFUTF.root",
+            "password": "OhAcM2lizBMDXDgD",
+            "database": st.session_state.get('DB_ACTUAL', 'kingdirver_ca'),
+            "use_pure": True,
+            "ssl_verify_cert": False,
+            "ssl_disabled": False
+        }
+        
+        conn_debug = mysql.connector.connect(**config_debug)
+        cursor_debug = conn_debug.cursor()
+        
+        # 1. Listar tablas reales con su tamaño
+        cursor_debug.execute("""
+            SELECT TABLE_NAME, TABLE_ROWS 
+            FROM information_schema.tables 
+            WHERE TABLE_SCHEMA = DATABASE();
+        """)
+        tablas_info = cursor_debug.fetchall()
+        
+        st.sidebar.write("Tablas encontradas y número de registros:")
+        for t_name, t_rows in tablas_info:
+            st.sidebar.write(f"- **{t_name}**: {t_rows} registros")
             
-        cur_cloud.close()
+        cursor_debug.close()
+        conn_debug.close()
     except Exception as e:
-        st.sidebar.error(f"Error explorando TiDB Cloud: {e}")
+        st.sidebar.error(f"Error en debug: {e}")
 
     try:
         col_kpi, col_btn = st.columns([0.8, 0.2])
