@@ -8717,8 +8717,8 @@ if "Inicio" in opcion_menu:
                 db_actual = st.session_state.get('DB_ACTUAL')
 
                 if db_actual and db_actual != "{db}" and db_actual != "None":
-                    # Pasamos las fechas globales para que aplique el filtro correctamente
-                    df_comps = obtener_comprobantes_ingresos(db_actual, f_inicio_global, f_fin_global)
+                    # Usamos f_i y f_f para mantener la consistencia con el período activo
+                    df_comps = obtener_comprobantes_ingresos(db_actual, f_i, f_f)
 
                     if not df_comps.empty:
                         # Función local para formatear al estilo latino (ej: 257.896,45)
