@@ -7339,14 +7339,25 @@ if "Inicio" in opcion_menu:
 
     # 5. LÓGICA PRINCIPAL PROTEGIDA CON TRY-EXCEPT-FINALLY
     # PRUEBA DE COMUNICACIÓN DIRECTA
+    # VERIFICACIÓN DE ESQUEMA EN CLOUD
     try:
-        cur_test = conn.cursor(dictionary=True)
-        cur_test.execute(f"SELECT COUNT(*) as total, MIN(fecha) as min_f, MAX(fecha) as max_f FROM `{db_actual}`.asientos_contables")
-        test_res = cur_test.fetchone()
-        cur_test.close()
-        st.sidebar.success(f"Conexión OK. Total asientos en tabla: {test_res['total']} (Desde {test_res['min_f']} hasta {test_res['max_f']})")
+        cur_cloud = conn.cursor()
+        # Vemos exactamente qué bases de datos ve el usuario en TiDB Cloud
+        cur_cloud.execute("SHOW DATABASES;")
+        dbs_nube = [row[0] for row in cur_cloud.fetchall()]
+        st.sidebar.success(f"Conectado a TiDB Cloud con éxito. DBs disponibles: {dbs_nube}")
+        
+        # Verificamos si la base de datos actual existe tal cual en la nube
+        if db_actual in dbs_nube:
+            cur_cloud.execute(f"SHOW TABLES FROM `{db_actual}`;")
+            tablas_nube = [row[0] for row in cur_cloud.fetchall()]
+            st.sidebar.write(f"Tablas reales en {db_actual}:", tablas_nube)
+        else:
+            st.sidebar.error(f"¡Alerta! La base de datos '{db_actual}' no aparece en la lista de TiDB Cloud.")
+            
+        cur_cloud.close()
     except Exception as e:
-        st.sidebar.error(f"Falla de comunicación con la tabla: {e}")
+        st.sidebar.error(f"Error explorando TiDB Cloud: {e}")
         
     try:
         col_kpi, col_btn = st.columns([0.8, 0.2])
