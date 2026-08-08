@@ -7616,7 +7616,6 @@ if "Inicio" in opcion_menu:
                         st.warning("No hay gastos.")
                 st.markdown('</div>', unsafe_allow_html=True)
 
-       # --- FILA 5: FLUJO DE EFECTIVO ---
         # --- FILA 5: FLUJO DE EFECTIVO ---
         st.divider()
         st.subheader("💸 Movimiento de Caja (Efectivo Real)")
@@ -7633,42 +7632,57 @@ if "Inicio" in opcion_menu:
                 conn = conectar_db(db)
                 cursor = conn.cursor(dictionary=True)
                 
-                # A. Saldo Inicial Fijo (Caja y Bancos)
-                cursor.execute(f"SELECT COALESCE(SUM(debe), 0) as d, COALESCE(SUM(haber), 0) as h FROM `{db}`.saldos_iniciales WHERE plan_cuentas LIKE '1.1.1.02%'")
-                res_s_ini = cursor.fetchone()
-                debe_s_ini = float(res_s_ini['d'] or 0.0) if res_s_ini else 0.0
-                haber_s_ini = float(res_s_ini['h'] or 0.0) if res_s_ini else 0.0
+                # A. Saldo Inicial Fijo (Protegido por si la tabla no existe)
+                debe_s_ini, haber_s_ini = 0.0, 0.0
+                try:
+                    cursor.execute(f"SELECT COALESCE(SUM(debe), 0) as d, COALESCE(SUM(haber), 0) as h FROM `{db}`.saldos_iniciales WHERE plan_cuentas LIKE '1.1.1.02%'")
+                    res_s_ini = cursor.fetchone()
+                    if res_s_ini:
+                        debe_s_ini = float(res_s_ini['d'] or 0.0)
+                        haber_s_ini = float(res_s_ini['h'] or 0.0)
+                except Exception:
+                    # Si la tabla saldos_iniciales no existe, continúa sin interrumpir
+                    pass
 
                 # B. Movimientos históricos anteriores a f_i
-                cursor.execute(f"SELECT COALESCE(SUM(debe), 0) as d, COALESCE(SUM(haber), 0) as h FROM `{db}`.asientos_contables WHERE plan_cuentas LIKE '1.1.1.02%' AND fecha < %s", (f_i,))
-                res_hist = cursor.fetchone()
-                debe_hist = float(res_hist['d'] or 0.0) if res_hist else 0.0
-                haber_hist = float(res_hist['h'] or 0.0) if res_hist else 0.0
+                debe_hist, haber_hist = 0.0, 0.0
+                try:
+                    cursor.execute(f"SELECT COALESCE(SUM(debe), 0) as d, COALESCE(SUM(haber), 0) as h FROM `{db}`.asientos_contables WHERE plan_cuentas LIKE '1.1.1.02%' AND fecha < %s", (f_i,))
+                    res_hist = cursor.fetchone()
+                    if res_hist:
+                        debe_hist = float(res_hist['d'] or 0.0)
+                        haber_hist = float(res_hist['h'] or 0.0)
+                except Exception:
+                    pass
 
                 saldo_inicial_neto = (debe_s_ini + debe_hist) - (haber_s_ini + haber_hist)
 
                 # C. Movimientos del Periodo (f_i a f_f)
-                query_mes = f"""
-                    SELECT COALESCE(SUM(debe), 0) as ent, COALESCE(SUM(haber), 0) as sal 
-                    FROM `{db}`.asientos_contables
-                    WHERE plan_cuentas LIKE '1.1.1.02%' AND fecha BETWEEN %s AND %s
-                """
-                cursor.execute(query_mes, (f_i, f_f))
-                res_mes = cursor.fetchone()
+                entradas_mes, salidas_mes = 0.0, 0.0
+                try:
+                    query_mes = f"""
+                        SELECT COALESCE(SUM(debe), 0) as ent, COALESCE(SUM(haber), 0) as sal 
+                        FROM `{db}`.asientos_contables
+                        WHERE plan_cuentas LIKE '1.1.1.02%' AND fecha BETWEEN %s AND %s
+                    """
+                    cursor.execute(query_mes, (f_i, f_f))
+                    res_mes = cursor.fetchone()
+                    if res_mes:
+                        entradas_mes = float(res_mes['ent'] or 0.0)
+                        salidas_mes = float(res_mes['sal'] or 0.0)
+                except Exception:
+                    pass
 
-                entradas_mes = float(res_mes['ent'] or 0.0) if res_mes else 0.0
-                salidas_mes = float(res_mes['sal'] or 0.0) if res_mes else 0.0
                 saldo_real = saldo_inicial_neto + entradas_mes - salidas_mes
 
                 # D. INTENTO AUTOMÁTICO DE CUENTAS POR COBRAR DESDE LA DB
                 cxc_db = 0.0
                 try:
-                    # Intento buscar en plan contable de cuentas por cobrar (Ej: cuentas que empiezan por 1.1.2)
                     cursor.execute(f"SELECT COALESCE(SUM(debe - haber), 0) as cxc FROM `{db}`.asientos_contables WHERE plan_cuentas LIKE '1.1.2%'")
                     res_cxc = cursor.fetchone()
                     if res_cxc and res_cxc['cxc']:
                         cxc_db = float(res_cxc['cxc'])
-                except:
+                except Exception:
                     cxc_db = 0.0
 
                 conn.close()
@@ -7768,7 +7782,10 @@ if "Inicio" in opcion_menu:
                 # 6. DETALLE DE MOVIMIENTOS
                 st.markdown("---")
                 st.write("### Detalle de Movimientos")
-                df_flujo = obtener_detalle_movimientos_banco(db, f_i, f_f) 
+                try:
+                    df_flujo = obtener_detalle_movimientos_banco(db, f_i, f_f) 
+                except Exception:
+                    df_flujo = None
 
                 if df_flujo is not None and not df_flujo.empty:
                     st.dataframe(df_flujo, use_container_width=True, hide_index=True, column_config={
