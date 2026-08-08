@@ -299,15 +299,24 @@ def obtener_analisis_accionista_detallado(db, f_i, f_f):
     if not conn or not conn.is_connected():
         return pd.DataFrame()
 
+    # 🔍 Diagnóstico de conexión en vivo
+    try:
+        cursor_d = conn.cursor()
+        cursor_d.execute("SELECT DATABASE(), @@port, @@hostname;")
+        db_actual, puerto_actual, host_actual = cursor_d.fetchone()
+        cursor_d.close()
+        st.info(f"Conectado a -> Host: {host_actual} | Puerto: {puerto_actual} | Base de datos activa: {db_actual}")
+    except Exception as e:
+        st.warning(f"No se pudo ejecutar el diagnóstico: {e}")
+
     s_fi = str(f_i).split()[0]
     s_ff = str(f_f).split()[0]
-    db_clean = str(db).strip().lower()  # Normalizamos a minúsculas para evitar problemas con information_schema
+    db_clean = str(db).strip().lower()
 
     df = pd.DataFrame()
     try:
         cursor = conn.cursor()
         
-        # Validación robusta normalizando el esquema a minúsculas
         cursor.execute("""
             SELECT COUNT(*) 
             FROM information_schema.tables 
@@ -339,6 +348,9 @@ def obtener_analisis_accionista_detallado(db, f_i, f_f):
                 ORDER BY a.fecha DESC
             """
             df = pd.read_sql(query, conn, params=(s_fi, s_ff))
+        else:
+            st.warning(f"⚠️ Verificación fallida: asientos_contables ({existe_asientos}), accionistas ({existe_accionistas}) en la BD '{db_actual}'.")
+            
     except Exception as e:
         st.error(f"Error en la consulta de accionistas: {e}")
         df = pd.DataFrame()
