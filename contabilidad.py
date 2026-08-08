@@ -7460,12 +7460,13 @@ if "Inicio" in opcion_menu:
         r3.metric("capital de trabajo", f"Bs. {capital_trabajo:,.2f}", "capital_trabajo")
 
         # --- FILA 4: ANÁLISIS VISUAL ---
+        # --- FILA 4: ANÁLISIS VISUAL ---
         st.divider()
         col_izq, col_der = st.columns(2)
 
-        # 1. Recuperamos y blindamos los valores de la sesión para evitar errores de tipo de dato
-        año_val = st.session_state.get('año_seleccionado', 2026)
-        mes_val = st.session_state.get('mes_seleccionado', 5)
+        # 1. Recuperamos y blindamos los valores usando las keys oficiales del sidebar
+        año_val = st.session_state.get('año_seleccionado_contabilidad', 2026)
+        mes_val = st.session_state.get('mes_seleccionado_contabilidad', 'Mayo')
 
         try:
             año = int(str(año_val).strip())
@@ -7493,7 +7494,11 @@ if "Inicio" in opcion_menu:
         f_i = f"{año}-{mes:02d}-01"
         f_f = f"{año}-{mes:02d}-{ultimo_dia:02d}"
 
-        # 2. DEBUG VISUAL (Para ver qué fecha está usando el código realmente)
+        # Variables de compatibilidad tipo date para consultas SQL
+        f_inicio_global = datetime.date(año, mes, 1)
+        f_fin_global = datetime.date(año, mes, ultimo_dia)
+
+        # 2. DEBUG VISUAL (Para verificar la fecha real en curso)
         st.sidebar.info(f"Fecha en uso: {f_i} al {f_f}")  
 
         db = st.session_state.get('DB_ACTUAL')
