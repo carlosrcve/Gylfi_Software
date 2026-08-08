@@ -193,7 +193,65 @@ if 'db_init' not in st.session_state:
 # GESTOR DE CONEXIÓN
 # ==========================================
 
+def inicializar_tablas_clientes_en_nube():
+    try:
+        config = DB_CONFIG_BASE.copy()
+        config["database"] = "control_central"
+        
+        # Conectamos para listar todas las bases de datos reales del servidor
+        conn = mysql.connector.connect(**config)
+        cursor = conn.cursor()
+        cursor.execute("SHOW DATABASES;")
+        dbs = [row[0] for row in cursor.fetchall()]
+        cursor.close()
+        conn.close()
 
+        # Excluimos las del sistema de TiDB y control_central
+        excluir = ['INFORMATION_SCHEMA', 'PERFORMANCE_SCHEMA', 'mysql', 'sys', 'test', 'control_central']
+        
+        for db in dbs:
+            if db not in excluir:
+                try:
+                    cfg_cli = DB_CONFIG_BASE.copy()
+                    cfg_cli["database"] = db
+                    conn_cli = mysql.connector.connect(**cfg_cli)
+                    cur_cli = conn_cli.cursor()
+                    
+                    # Creamos las tablas maestras que usa tu contabilidad
+                    cur_cli.execute("""
+                        CREATE TABLE IF NOT EXISTS asientos_contables (
+                            id INT AUTO_INCREMENT PRIMARY KEY,
+                            fecha DATE,
+                            plan_cuentas VARCHAR(50),
+                            debe DECIMAL(18,2) DEFAULT 0.00,
+                            haber DECIMAL(18,2) DEFAULT 0.00,
+                            descripcion TEXT
+                        );
+                    """)
+                    
+                    cur_cli.execute("""
+                        CREATE TABLE IF NOT EXISTS saldos_iniciales (
+                            id INT AUTO_INCREMENT PRIMARY KEY,
+                            plan_cuentas VARCHAR(50),
+                            debe DECIMAL(18,2) DEFAULT 0.00,
+                            haber DECIMAL(18,2) DEFAULT 0.00
+                        );
+                    """)
+                    
+                    conn_cli.commit()
+                    cur_cli.close()
+                    conn_cli.close()
+                except Exception as ex:
+                    print(f"Error al inicializar tablas en {db}: {ex}")
+                    
+    except Exception as e:
+        print(f"Error general barriendo bases de datos: {e}")
+
+# Ejecutar al arrancar la app en la nube
+if 'tablas_nube_listas' not in st.session_state:
+    inicializar_tablas_clientes_en_nube()
+    st.session_state.tablas_nube_listas = True
+    
 def conectar_db(nombre_db=None):
     db_a_usar = nombre_db if nombre_db else "control_central"
     
