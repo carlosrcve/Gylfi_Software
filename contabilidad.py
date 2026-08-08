@@ -8344,9 +8344,24 @@ if "Inicio" in opcion_menu:
                 neto_disponible = utilidad_bruta * 0.66
 
                 # --- CARGA CORRECTA Y SEGURA DE LA CONFIGURACIÓN DE ACCIONISTAS ---
+                st.write(f"Host en Python: {st.session_state.conn.server_host}")
+                st.write(f"Puerto en Python: {st.session_state.conn.server_port}")
                 st.write(f"🔍 DEBUG EXTREMO -> Variable 'db': [{db}]")
                 st.write(f"DEBUG: Intentando conectar a la base de datos: {db}")
                 conn = conectar_db(db)
+                # FORZAR CREACIÓN DE TABLA SI NO EXISTE
+                cursor_fix = conn.cursor()
+                cursor_fix.execute(f"USE `{db}`;")
+                cursor_fix.execute("""
+                    CREATE TABLE IF NOT EXISTS accionistas (
+                        id INT AUTO_INCREMENT PRIMARY KEY,
+                        nombre VARCHAR(255) NOT NULL,
+                        porcentaje_accionario DECIMAL(5,2) NOT NULL,
+                        codigo_cuenta_asociada VARCHAR(50) NOT NULL,
+                        descripcion_cuenta VARCHAR(255)
+                    );
+                """)
+                cursor_fix.close()
 
                 df_config_accionistas = pd.DataFrame()
 
