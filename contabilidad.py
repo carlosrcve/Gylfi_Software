@@ -8335,8 +8335,13 @@ if "Inicio" in opcion_menu:
                 
                 if conn:
                     try:
-                        # Consultar directamente la tabla ya que la conexión está enlazada a la BD `db`
-                        df_config_accionistas = pd.read_sql("SELECT * FROM accionistas", conn)
+                        cursor = conn.cursor()
+                        # Forzamos explícitamente el uso de la base de datos activa
+                        cursor.execute(f"USE `{db}`;")
+                        cursor.close()
+                        
+                        # Leemos la tabla asegurando el esquema correcto
+                        df_config_accionistas = pd.read_sql(f"SELECT * FROM `{db}`.accionistas", conn)
                     except Exception as err:
                         st.error(f"❌ Error al leer la tabla 'accionistas' en la base de datos `{db}`: {err}")
                     finally:
