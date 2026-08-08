@@ -7003,14 +7003,11 @@ with st.sidebar:
 
         if conn_sidebar is not None:
             try:
-                # Verificamos y reconectamos si la sesión de TiDB Cloud se ha cerrado por inactividad o timeout
                 if hasattr(conn_sidebar, 'ping') and callable(conn_sidebar.ping):
                     conn_sidebar.ping(reconnect=True)
                 
-                # Leemos el DataFrame utilizando la conexión activa
                 df_sidebar = pd.read_sql(query_sidebar, conn_sidebar)
             except Exception as e:
-                # Si ocurre un timeout o corte, intentamos reconectar una vez de emergencia
                 try:
                     conn_sidebar = conectar_db()
                     if conn_sidebar:
@@ -7020,7 +7017,6 @@ with st.sidebar:
                 except Exception as inner_e:
                     st.error(f"❌ Error crítico al reconectar con la base de datos: {inner_e}")
             finally:
-                # Cerramos la conexión de forma segura al terminar la consulta
                 try:
                     if conn_sidebar and hasattr(conn_sidebar, 'close'):
                         conn_sidebar.close()
@@ -7030,14 +7026,11 @@ with st.sidebar:
             st.error("❌ No se pudo conectar a la base de datos central.")
             st.stop()
 
-        # --- A partir de aquí ya df_sidebar tiene los datos guardados en memoria ---
         if not df_sidebar.empty:
             df_sidebar = df_sidebar.fillna("")
             
             # 1. Selector de Empresa
             nombres_empresas = df_sidebar['nombre_empresa'].tolist()
-            
-            # Verificamos si ya hay una selección guardada para mantenerla de forma segura
             empresa_previa = st.session_state.get('CLIENTE_NOMBRE')
             indice_inicial = 0
             if empresa_previa in nombres_empresas:
@@ -7050,14 +7043,12 @@ with st.sidebar:
                 key="selector_empresa"
             )
             
-            # Validación estricta para evitar que un valor nulo rompa el flujo
             if not seleccion:
                 st.warning("⚠️ Por favor, seleccione una empresa válida.")
                 st.stop()
                 
             st.write(f"Empresa seleccionada: '{str(seleccion).upper()}'")
             
-            # 2. Sincronización de datos segura usando un filtro explícito
             empresa_filtrada = df_sidebar[df_sidebar['nombre_empresa'] == seleccion]
             if empresa_filtrada.empty:
                 st.error("❌ No se encontró la empresa seleccionada en los registros.")
@@ -7065,7 +7056,6 @@ with st.sidebar:
                 
             datos_sel = empresa_filtrada.iloc[0]
             
-            # Validamos que db_nombre no sea nulo antes de procesarlo
             db_raw = datos_sel['db_nombre']
             if pd.isna(db_raw) or not db_raw:
                 st.error(f"⚠️ La empresa '{seleccion}' no tiene asignada una base de datos en 'control_central'.")
@@ -7073,7 +7063,6 @@ with st.sidebar:
                 
             DB_ACTUAL = str(db_raw).strip()
             
-            # Guardado blindado en session_state
             st.session_state['DB_ACTUAL'] = DB_ACTUAL
             st.session_state['CLIENTE_NOMBRE'] = seleccion
             st.session_state['cliente_id_seleccionado'] = int(datos_sel['id'])
@@ -7085,92 +7074,73 @@ with st.sidebar:
                 "📖 Mayor Analítico", "📊 Estados Financieros", "📚 Libros Fiscales", "👤 Proveedores"
             ]
 
-            # 4. Inyección inteligente
             empresa_en_mayusculas = seleccion.upper()
             if "PEDACITO" in empresa_en_mayusculas and "CLIELO" in empresa_en_mayusculas:
                 modulos_disponibles.append("🧁 Inventarios")
 
-            # 5. Renderizado del menú
             opcion_menu = st.selectbox("📂 SELECCIONE UN MÓDULO", modulos_disponibles)
             st.session_state['opcion_menu_auditoria'] = opcion_menu
 
-            # 6. Sub-opciones dinámicas
             if opcion_menu == "📝 Asientos Contables":
                 sub_opcion = st.radio("Acciones:", ["Subir Datos", "Conciliación Bancaria","Consultar Comprobante", "Consultar Saldos Iniciales", "Consultar Cierre Contable"], key="sub_asientos")
-                
             elif opcion_menu == "📊 Estados Financieros":
                 st.markdown("---")
                 sub_opcion = st.radio("Reportes Financieros:", ["Balance de Comprobación", "Balance General", "Estado de Resultados"], key="sub_estados")
-                
             elif opcion_menu == "📚 Libros Fiscales":
                 sub_opcion = st.radio("Reportes Fiscales:", ["Libro de Ventas", "Libro de Compras", "Comprobante de Retención ISLR","Comprobante de Retención IVA"], key="sub_libros")
             else:
                 sub_opcion = None
             
+            # =========================================================================
+            # 📅 BLOQUE ÚNICO Y OFICIAL DE FILTROS DE FECHA (DENTRO DEL SIDEBAR)
+            # =========================================================================
             st.divider()
             st.subheader("📅 Período de Consulta")
-            
+
+            if 'año_seleccionado_contabilidad' not in st.session_state:
+                st.session_state['año_seleccionado_contabilidad'] = datetime.datetime.now().year
+
+            if 'mes_seleccionado_contabilidad' not in st.session_state:
+                meses_nombres = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
+                st.session_state['mes_seleccionado_contabilidad'] = meses_nombres[datetime.datetime.now().month - 1]
+
             col_anio, col_mes = st.columns(2)
-            col_anio.number_input("Año", value=2026, step=1, key="año_seleccionado")
             
-            # Usamos la key sin forzar un índice estricto que choque con el session_state
+            col_anio.number_input(
+                "Año", 
+                value=st.session_state['año_seleccionado_contabilidad'], 
+                step=1, 
+                key="año_seleccionado_contabilidad"
+            )
+
             meses_lista = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
-            col_mes.selectbox("Mes", meses_lista, key="mes_seleccionado")
+            col_mes.selectbox(
+                "Mes", 
+                meses_lista, 
+                key="mes_seleccionado_contabilidad"
+            )
+
         else:
             st.error("No se encontraron empresas asociadas.")
             st.stop()
 
 # =========================================================================
-# 📅 BLOQUE DE FILTROS DE FECHA (CON KEYS ÚNICAS)
+# ⚙️ VARIABLES GLOBALES DE FECHA (AFUERA DEL SIDEBAR PARA LOS QUERIES)
 # =========================================================================
-
-# 1. Inicializar el estado de la sesión si no existen
-if 'año_seleccionado_contabilidad' not in st.session_state:
-    st.session_state['año_seleccionado_contabilidad'] = datetime.datetime.now().year
-
-if 'mes_seleccionado_contabilidad' not in st.session_state:
-    meses_nombres = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
-    st.session_state['mes_seleccionado_contabilidad'] = meses_nombres[datetime.datetime.now().month - 1]
-
-# 2. Dibujar los widgets en el Sidebar con keys totalmente independientes
-st.sidebar.divider()
-st.sidebar.subheader("📅 Período de Consulta")
-col_anio, col_mes = st.sidebar.columns(2)
-
-col_anio.number_input(
-    "Año", 
-    value=st.session_state['año_seleccionado_contabilidad'], 
-    step=1, 
-    key="año_seleccionado_contabilidad"
-)
-
-meses_lista = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
-col_mes.selectbox(
-    "Mes", 
-    meses_lista, 
-    key="mes_seleccionado_contabilidad"
-)
-
-st.sidebar.divider()
-
-# 3. Diccionario y conversión de meses
 dic_meses = {
     "Enero": 1, "Febrero": 2, "Marzo": 3, "Abril": 4, 
     "Mayo": 5, "Junio": 6, "Julio": 7, "Agosto": 8, 
     "Septiembre": 9, "Octubre": 10, "Noviembre": 11, "Diciembre": 12
 }
 
-# 4. Obtener los valores reactivos actuales
-anio_seleccionado = int(st.session_state['año_seleccionado_contabilidad'])
-mes_elegido_str = st.session_state['mes_seleccionado_contabilidad']
+anio_seleccionado = int(st.session_state.get('año_seleccionado_contabilidad', datetime.datetime.now().year))
+mes_elegido_str = st.session_state.get('mes_seleccionado_contabilidad', "Enero")
 mes_n = dic_meses.get(mes_elegido_str, 1)
 
-# 5. Cálculo exacto de los rangos para conectar con la BD del cliente
 ultimo_dia_mes = calendar.monthrange(anio_seleccionado, mes_n)[1]
 fecha_inicio_str = f"{anio_seleccionado}-{mes_n:02d}-01"
 fecha_fin_str = f"{anio_seleccionado}-{mes_n:02d}-{ultimo_dia_mes:02d}"
 
-# Variables globales de compatibilidad (f_i y f_f para tus queries SQL)
 f_i = datetime.date(anio_seleccionado, mes_n, 1)
 f_f = datetime.date(anio_seleccionado, mes_n, ultimo_dia_mes)
 f_inicio_global = f_i
