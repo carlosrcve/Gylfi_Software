@@ -8344,19 +8344,27 @@ if "Inicio" in opcion_menu:
 
                 # Consulta SQL a base de datos de accionistas
                 conn = conectar_db(db)
-    
-                # 2. VALIDACIÓN CRÍTICA: Si no hay conexión, detener el procesamiento aquí
+                
+                # 2. Validar que la conexión exista y sea un objeto válido
                 if conn is None:
-                    st.error(f"❌ No se pudo establecer conexión a la base de datos: {db}. Verifica tus credenciales.")
+                    st.error(f"❌ Error crítico: La función `conectar_db('{db}')` devolvió `None`. Revisa las credenciales o el estado del servidor MySQL.")
+                    df_config_accionistas = pd.DataFrame()
                 else:
-                    # 3. Solo si hay conexión, procedemos
+                    # 3. Intentar leer la configuración de accionistas de forma segura
                     df_config_accionistas = pd.DataFrame()
                     try:
                         df_config_accionistas = pd.read_sql(f"SELECT * FROM `{db}`.accionistas", conn)
                     except Exception as err:
-                        st.warning(f"⚠️ La tabla 'accionistas' no fue encontrada en `{db}`: {err}")
+                        st.warning(f"⚠️ La tabla 'accionistas' no fue encontrada o no pudo leerse en `{db}`: {err}")
                     finally:
-                        conn.close() # Importante cerrar si la conexión existió
+                        # Asegurarnos de cerrar la conexión de manera segura solo si existe el método
+                        try:
+                            if hasattr(conn, "is_connected") and conn.is_connected():
+                                conn.close()
+                            elif hasattr(conn, "close"):
+                                conn.close()
+                        except Exception:
+                            pass
 
                 nombres_grafico = []
                 valores_grafico = []
