@@ -7914,7 +7914,6 @@ if "Inicio" in opcion_menu:
             st.warning("⚠️ Selecciona una empresa para ver los indicadores cambiarios.")
 
         # --- FILA 8: SECCIÓN VISUAL: REPORTE CONTABLE MULTIMONEDA ---
-        # --- FILA 8: SECCIÓN VISUAL: REPORTE CONTABLE MULTIMONEDA ---
         st.divider()
         st.markdown("## 📊 Reporte de Libro Diario Multimoneda")
         
@@ -7967,21 +7966,30 @@ if "Inicio" in opcion_menu:
         # --- BLOQUE LÓGICO DE DATOS (Debe ejecutarse antes para poder descargar) ---
         # --- BLOQUE LÓGICO DE DATOS (Conexión local blindada) ---
         # --- BLOQUE LÓGICO DE DATOS (Conexión local blindada) ---
+        # --- BLOQUE LÓGICO DE DATOS (Conexión local blindada) ---
         try:
             # 1. Abrimos una conexión fresca y exclusiva para este reporte
-            conn_local = conectar_db(db_actual) # Ajustado para recibir la empresa actual
+            conn_local = conectar_db(db_actual)
             
             if not conn_local or not conn_local.is_connected():
                 st.error("⚠️ No se pudo establecer una conexión activa con la base de datos para generar el reporte.")
                 st.stop()
 
-            # 2. Ejecutamos la consulta pasando la conexión local recién abierta
-            df_diario = generar_reporte_multimoneda(conn_local, mes_seleccionado, ano_seleccionado, db_actual)
+            # 2. Ejecutamos la función asegurándonos de que devuelva un DataFrame
+            resultado_bruto = generar_reporte_multimoneda(conn_local, mes_seleccionado, ano_seleccionado, db_actual)
             
-            # 3. Cerramos la conexión local de forma limpia para liberar recursos
+            # 3. Cerramos la conexión local de forma limpia
             if conn_local.is_connected():
                 conn_local.close()
              
+            # 🛡️ Blindaje crítico: Convertimos a DataFrame si viene como lista o None
+            if isinstance(resultado_bruto, list):
+                df_diario = pd.DataFrame(resultado_bruto)
+            elif isinstance(resultado_bruto, pd.DataFrame):
+                df_diario = resultado_bruto
+            else:
+                df_diario = pd.DataFrame()
+
             if df_diario.empty:
                 st.warning(f"⚠️ No se encontraron registros en el Libro Diario para el período {mes_seleccionado}/{ano_seleccionado}.")
             else:
@@ -8043,36 +8051,27 @@ if "Inicio" in opcion_menu:
                     
                     if st.button("🧮 Generar Balance de Comprobación", use_container_width=True):
                         
-                        # 🛡️ Blindaje crítico: Evita que explote si df_diario es None o no está definido
-                        if 'df_diario' not in globals() and 'df_diario' not in locals():
-                            st.error("⚠️ No se encontró el DataFrame del diario (`df_diario`). Por favor, verifica la carga de datos previa.")
-                        elif df_diario is None or (isinstance(df_diario, pd.DataFrame) and df_diario.empty):
+                        if df_diario is None or df_diario.empty:
                             st.warning("⚠️ El registro del diario está vacío o no se pudo cargar para este período.")
                         else:
                             try:
                                 col_debe_calc = 'debe_usd' if moneda_vista == "Dólares (USD)" else 'debe'
                                 col_haber_calc = 'haber_usd' if moneda_vista == "Dólares (USD)" else 'haber'
                                 
-                                # --- PASO 1: Identificar cuáles filas son Saldos Iniciales y cuáles son Asientos ---
                                 df_diario['es_inicial'] = df_diario['descripcion'].str.contains("SALDOS INICIALES", case=False, na=False)
                                 
-                                # --- PASO 2: Agrupar por Cuenta y Plan de Cuentas (Código) ---
                                 balance_data = []
-                                
                                 for (codigo, cuenta), group in df_diario.groupby(['plan_cuentas', 'cuenta_contable']):
                                     grupo_inicial = group[group['es_inicial']]
                                     grupo_mes = group[~group['es_inicial']]
                                     
-                                    # 1. Saldo Inicial Neto
                                     ini_debe = grupo_inicial[col_debe_calc].sum()
                                     ini_haber = grupo_inicial[col_haber_calc].sum()
                                     saldo_inicial = ini_debe - ini_haber
                                     
-                                    # 2. Movimientos puros del mes
                                     mes_debe = grupo_mes[col_debe_calc].sum()
                                     mes_haber = grupo_mes[col_haber_calc].sum()
                                     
-                                    # 3. Saldo Final
                                     saldo_final = saldo_inicial + mes_debe - mes_haber
                                     
                                     balance_data.append({
@@ -8088,7 +8087,6 @@ if "Inicio" in opcion_menu:
                                 if not df_balance.empty:
                                     df_balance = df_balance.sort_values(by='Código Contable').reset_index(drop=True)
                                 
-                                # --- PASO 3: Formatear las columnas con el diseño premium ---
                                 simb = "$" if moneda_vista == "Dólares (USD)" else "Bs."
                                 
                                 def f_monto(val):
@@ -8107,10 +8105,8 @@ if "Inicio" in opcion_menu:
                                     'Saldo Final': df_balance['Saldo Final Num'].apply(f_monto)
                                 })
                                 
-                                # --- PASO 4: Renderizar la tabla ---
                                 st.dataframe(df_balance_visual, use_container_width=True, hide_index=True)
                                 
-                                # --- PASO 5: Totales de Control Contable ---
                                 tot_inicial = df_balance['Saldo Inicial Num'].sum()
                                 tot_debe = df_balance['Debe Num'].sum()
                                 tot_haber = df_balance['Haber Num'].sum()
