@@ -8355,10 +8355,11 @@ if "Inicio" in opcion_menu:
 
                 if conn is None:
                     st.error("ERROR CRÍTICO: conectar_db(db) devolvió None. Revisa tu función de conexión.")
+                    df_config_accionistas = pd.DataFrame()
                 else:
                     st.success("¡Conexión establecida correctamente!")
                     try:
-                        # FORZAR CREACIÓN DE TABLA SI NO EXISTE (Ahora aseguramos que conn es válido)
+                        # 1. FORZAR CREACIÓN DE TABLA SI NO EXISTE
                         cursor_fix = conn.cursor()
                         cursor_fix.execute(f"USE `{db}`;")
                         cursor_fix.execute("""
@@ -8372,18 +8373,16 @@ if "Inicio" in opcion_menu:
                         """)
                         cursor_fix.close()
 
+                        # 2. VERIFICACIÓN Y LECTURA
                         cursor = conn.cursor()
-                    
-                        # --- DEBUG TOTAL ---
+                        
                         cursor.execute("SELECT DATABASE(), CURRENT_USER();")
                         db_actual, usuario = cursor.fetchone()
                         print(f"DEBUG: Estoy conectado a la BD: {db_actual} como usuario: {usuario}")
                         
-                        # Listamos TODAS las tablas de esa base de datos
                         cursor.execute(f"SHOW TABLES FROM `{db}`;")
                         todas_las_tablas = cursor.fetchall()
                         print(f"DEBUG: Tablas encontradas en {db}: {todas_las_tablas}")
-                        # -------------------
 
                         cursor.execute(f"SHOW TABLES FROM `{db}` LIKE 'accionistas';")
                         resultado = cursor.fetchone()
@@ -8400,8 +8399,6 @@ if "Inicio" in opcion_menu:
                         st.error(f"Error al leer la tabla de accionistas: {e}")
                         df_config_accionistas = pd.DataFrame()
                     finally:
-                        # NO cerramos la conexión (conn.close()) aquí si viene de st.session_state 
-                        # para evitar que se caiga en las demás pestañas de la app.
                         pass
 
                 nombres_grafico = []
