@@ -7434,41 +7434,28 @@ if "Inicio" in opcion_menu:
     conn = st.session_state.conn
 
     # 5. LÓGICA PRINCIPAL PROTEGIDA CON TRY-EXCEPT-FINALLY
+    # PRUEBA DE FUEGO DE COMUNICACIÓN CON LA NUBE
     try:
-        st.sidebar.markdown("---")
-        st.sidebar.subheader("🔍 Auditoría de tablas en TiDB")
+        conn_test = mysql.connector.connect(
+            host="gateway01.us-east-1.prod.aws.tidbcloud.com",
+            port=4000,
+            user="4K4VAw4t4ZPFUTF.root",
+            password="OhAcM2lizBMDXDgD",
+            database="kingdirver_ca", # Forzamos la empresa específica
+            use_pure=True,
+            connect_timeout=10,
+            ssl_verify_cert=False,
+            ssl_disabled=False
+        )
+        cursor_test = conn_test.cursor()
+        cursor_test.execute("SELECT COUNT(*) FROM asientos_contables;")
+        total_asientos = cursor_test.fetchone()[0]
+        cursor_test.close()
+        conn_test.close()
         
-        # Conectamos para listar todo
-        config_debug = {
-            "host": "gateway01.us-east-1.prod.aws.tidbcloud.com",
-            "port": 4000,
-            "user": "4K4VAw4t4ZPFUTF.root",
-            "password": "OhAcM2lizBMDXDgD",
-            "database": st.session_state.get('DB_ACTUAL', 'kingdirver_ca'),
-            "use_pure": True,
-            "ssl_verify_cert": False,
-            "ssl_disabled": False
-        }
-        
-        conn_debug = mysql.connector.connect(**config_debug)
-        cursor_debug = conn_debug.cursor()
-        
-        # 1. Listar tablas reales con su tamaño
-        cursor_debug.execute("""
-            SELECT TABLE_NAME, TABLE_ROWS 
-            FROM information_schema.tables 
-            WHERE TABLE_SCHEMA = DATABASE();
-        """)
-        tablas_info = cursor_debug.fetchall()
-        
-        st.sidebar.write("Tablas encontradas y número de registros:")
-        for t_name, t_rows in tablas_info:
-            st.sidebar.write(f"- **{t_name}**: {t_rows} registros")
-            
-        cursor_debug.close()
-        conn_debug.close()
+        print(f"✅ ¡COMUNICACIÓN EXITOSA! Asientos encontrados en kingdirver_ca: {total_asientos}")
     except Exception as e:
-        st.sidebar.error(f"Error en debug: {e}")
+        print(f"❌ FALLA DE COMUNICACIÓN REAL: {e}")
 
     try:
         col_kpi, col_btn = st.columns([0.8, 0.2])
