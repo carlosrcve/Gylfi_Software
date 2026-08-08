@@ -8421,7 +8421,11 @@ if "Inicio" in opcion_menu:
 
                 # --- 1. SECCIÓN CLASE 5 (Costos) ---
                 st.subheader("Costos (Clase 5)")
-                df_gastos_c5 = obtener_analisis_gastos_clase5(db, f_i, f_f)
+                try:
+                    df_gastos_c5 = obtener_analisis_gastos_clase5(db, f_i, f_f)
+                except Exception as err:
+                    st.error(Error al obtener costos de Clase 5: {err})
+                    df_gastos_c5 = pd.DataFrame()
 
                 if df_gastos_c5 is not None and not df_gastos_c5.empty:
                     df_gastos_c5.columns = [str(c).strip().lower() for c in df_gastos_c5.columns]
@@ -8467,15 +8471,17 @@ if "Inicio" in opcion_menu:
                 
                 try:
                     df_gastos_c6 = obtener_analisis_gastos_clase6(db, f_i, f_f)
-                except Exception:
+                except Exception as err:
+                    st.error(f"Error al obtener gastos de Clase 6: {err}")
                     df_gastos_c6 = pd.DataFrame()
 
                 if df_gastos_c6 is not None and not df_gastos_c6.empty:
                     df_gastos_c6.columns = [str(c).strip().lower() for c in df_gastos_c6.columns]
                     
-                    c6_cuenta = 'plan_cuentas'
-                    c6_nombre = 'cuenta_contable'
-                    c6_total = 'total_gasto'
+                    # Dinámico igual que la clase 5 para evitar KeyErrors
+                    c6_cuenta = 'plan_cuentas' if 'plan_cuentas' in df_gastos_c6.columns else df_gastos_c6.columns[0]
+                    c6_nombre = 'cuenta_contable' if 'cuenta_contable' in df_gastos_c6.columns else ('descripcion' if 'descripcion' in df_gastos_c6.columns else df_gastos_c6.columns[1])
+                    c6_total = 'total_gasto' if 'total_gasto' in df_gastos_c6.columns else df_gastos_c6.columns[2]
 
                     st.markdown(f"**Totalizado por Cuenta - Gastos Operativos ({mes_elegido_str} {año}):**")
                     lineas_c6 = []
@@ -8487,7 +8493,7 @@ if "Inicio" in opcion_menu:
                     
                     st.markdown("\n".join(lineas_c6))
 
-                    # Gráfico limpio basado exclusivamente en el número y nombre de la cuenta
+                    # Gráfico limpio basado en columnas dinámicas
                     df_gastos_c6['etiqueta'] = df_gastos_c6[c6_cuenta].astype(str) + ' - ' + df_gastos_c6[c6_nombre].astype(str)
                     fig6 = px.bar(
                         df_gastos_c6.sort_values(c6_total, ascending=True), 
@@ -8504,16 +8510,21 @@ if "Inicio" in opcion_menu:
 
             with tab3:
                 st.markdown("### 📊 Evolución de Saldo Neto Acumulado")
-                df_utilidad = obtener_historico_utilidad_acumulada(db) 
                 
-                if not df_utilidad.empty:
+                # Blindaje de la función externa
+                try:
+                    df_utilidad = obtener_historico_utilidad_acumulada(db)
+                except Exception as e:
+                    st.error(f"Error al conectar con la base de datos para obtener el histórico: {e}")
+                    df_utilidad = None
+
+                # Validación robusta: verificar si es DataFrame y si no es None
+                if isinstance(df_utilidad, pd.DataFrame) and not df_utilidad.empty:
                     meses_nombres = {1:'Ene', 2:'Feb', 3:'Mar', 4:'Abr', 5:'May', 6:'Jun', 7:'Jul', 8:'Ago', 9:'Sep', 10:'Oct', 11:'Nov', 12:'Dic'}
                     df_utilidad['nombre_mes'] = df_utilidad['mes'].map(meses_nombres)
                     
-                    # 1. Suma total acumulada hasta la fecha
                     utilidad_acumulada_total = df_utilidad['utilidad_mensual'].sum()
                     
-                    # Creamos columnas para organizar la métrica total y el desglose mensual al lado
                     col_total, col_detalle = st.columns([1, 2])
                     
                     with col_total:
@@ -8521,15 +8532,10 @@ if "Inicio" in opcion_menu:
                         
                     with col_detalle:
                         st.markdown("**Utilidad por Mes del Periodo:**")
-                        etiquetas_meses = []
-                        for _, row in df_utilidad.iterrows():
-                            mes_str = row['nombre_mes']
-                            val = row['utilidad_mensual']
-                            etiquetas_meses.append(f"**{mes_str}:** Bs. {val:,.2f}")
-                        
+                        etiquetas_meses = [f"**{row['nombre_mes']}:** Bs. {row['utilidad_mensual']:,.2f}" for _, row in df_utilidad.iterrows()]
                         st.markdown(" | ".join(etiquetas_meses))
                     
-                    # 2. Gráfico de barras mensual
+                    # Gráfico de barras
                     df_utilidad['color'] = df_utilidad['utilidad_mensual'].apply(lambda x: 'Ganancia' if x >= 0 else 'Pérdida')
                     
                     import plotly.express as px
@@ -8546,7 +8552,7 @@ if "Inicio" in opcion_menu:
                     fig.update_layout(plot_bgcolor='rgba(0,0,0,0)', showlegend=False)
                     st.plotly_chart(fig, use_container_width=True)
                 else:
-                    st.info("No hay datos disponibles para el periodo seleccionado.")
+                    st.info("No hay datos disponibles o error al recuperar el histórico para el periodo seleccionado.")
 
             with tab4:
                 # --- SECCIÓN: ASIENTO CONTABLE COMPLETO POR COMPROBANTE ---
@@ -8556,20 +8562,27 @@ if "Inicio" in opcion_menu:
                 db_actual = st.session_state.get('DB_ACTUAL')
 
                 if db_actual and db_actual != "{db}" and db_actual != "None":
-                    # Obtenemos la lista de comprobantes filtrando por el rango de fechas global
+                    df_comps = pd.DataFrame()
                     conn_tmp = conectar_db(db_actual)
+                    
                     if conn_tmp:
-                        query_comps = f"""
-                            SELECT DISTINCT n_comprobante, fecha 
-                            FROM `{db_actual}`.asientos_contables 
-                            WHERE plan_cuentas LIKE '2.2.1.01.001%'
-                            AND fecha BETWEEN %s AND %s
-                            ORDER BY fecha DESC, n_comprobante DESC
-                        """
-                        df_comps = pd.read_sql(query_comps, conn_tmp, params=(f_inicio_global, f_fin_global))
-                        conn_tmp.close()
-                    else:
-                        df_comps = pd.DataFrame()
+                        try:
+                            query_comps = f"""
+                                SELECT DISTINCT n_comprobante, fecha 
+                                FROM `{db_actual}`.asientos_contables 
+                                WHERE plan_cuentas LIKE '2.2.1.01.001%'
+                                AND fecha BETWEEN %s AND %s
+                                ORDER BY fecha DESC, n_comprobante DESC
+                            """
+                            # Asegúrate de usar f_i y f_f si son las variables globales de fecha que ya calculaste antes
+                            df_comps = pd.read_sql(query_comps, conn_tmp, params=(f_i, f_f))
+                        except Exception as e:
+                            st.error(f"Error al consultar comprobantes: {e}")
+                        finally:
+                            try:
+                                conn_tmp.close()
+                            except Exception:
+                                pass
 
                     if not df_comps.empty:
                         # Función local para formatear los números al estilo latino (ej: 257.896,45)
@@ -8587,19 +8600,26 @@ if "Inicio" in opcion_menu:
                         
                         conn_totales = conectar_db(db_actual)
                         if conn_totales and 'n_comprobante' in df_comps.columns:
-                            lista_n_comps = tuple(df_comps['n_comprobante'].astype(str).unique())
-                            if lista_n_comps:
-                                placeholders = ','.join(['%s'] * len(lista_n_comps))
-                                query_totales = f"""
-                                    SELECT SUM(debe) as total_debe, SUM(haber) as total_haber 
-                                    FROM `{db_actual}`.asientos_contables 
-                                    WHERE n_comprobante IN ({placeholders})
-                                """
-                                df_t = pd.read_sql(query_totales, conn_totales, params=lista_n_comps)
-                                conn_totales.close()
-                                if not df_t.empty:
-                                    total_debe_periodo = df_t['total_debe'].iloc[0] or 0.0
-                                    total_haber_periodo = df_t['total_haber'].iloc[0] or 0.0
+                            try:
+                                lista_n_comps = tuple(df_comps['n_comprobante'].astype(str).unique())
+                                if lista_n_comps:
+                                    placeholders = ','.join(['%s'] * len(lista_n_comps))
+                                    query_totales = f"""
+                                        SELECT SUM(debe) as total_debe, SUM(haber) as total_haber 
+                                        FROM `{db_actual}`.asientos_contables 
+                                        WHERE n_comprobante IN ({placeholders})
+                                    """
+                                    df_t = pd.read_sql(query_totales, conn_totales, params=lista_n_comps)
+                                    if not df_t.empty:
+                                        total_debe_periodo = df_t['total_debe'].iloc[0] or 0.0
+                                        total_haber_periodo = df_t['total_haber'].iloc[0] or 0.0
+                            except Exception as e:
+                                st.error(f"Error al calcular totales globales: {e}")
+                            finally:
+                                try:
+                                    conn_totales.close()
+                                except Exception:
+                                    pass
 
                         # Mostramos las métricas generales del rango de fechas arriba
                         col_m1, col_m2, col_m3 = st.columns(3)
@@ -8619,7 +8639,7 @@ if "Inicio" in opcion_menu:
                             comprobante_activo = seleccion_opcion.split(" ")[0]
                             df_asiento = obtener_asiento_por_comprobante(db_actual, comprobante_activo)
                             
-                            if not df_asiento.empty:
+                            if df_asiento is not None and not df_asiento.empty:
                                 st.markdown(f"**Asiento Contable Completo del Comprobante N°: `{comprobante_activo}`**")
                                 
                                 df_mostrar = df_asiento.copy()
@@ -8678,25 +8698,31 @@ if "Inicio" in opcion_menu:
                                 return val
 
                         # --- MÉTRICAS GLOBALES DEL PERIODO ---
-                        # Opcional: calculamos los totales generales de estos comprobantes en el rango
                         total_debe_periodo = 0.0
                         total_haber_periodo = 0.0
                         
                         conn_totales = conectar_db(db_actual)
                         if conn_totales and 'n_comprobante' in df_comps.columns:
-                            lista_n_comps = tuple(df_comps['n_comprobante'].astype(str).unique())
-                            if lista_n_comps:
-                                placeholders = ','.join(['%s'] * len(lista_n_comps))
-                                query_totales = f"""
-                                    SELECT SUM(debe) as total_debe, SUM(haber) as total_haber 
-                                    FROM `{db_actual}`.asientos_contables 
-                                    WHERE n_comprobante IN ({placeholders})
-                                """
-                                df_t = pd.read_sql(query_totales, conn_totales, params=lista_n_comps)
-                                conn_totales.close()
-                                if not df_t.empty:
-                                    total_debe_periodo = df_t['total_debe'].iloc[0] or 0.0
-                                    total_haber_periodo = df_t['total_haber'].iloc[0] or 0.0
+                            try:
+                                lista_n_comps = tuple(df_comps['n_comprobante'].astype(str).unique())
+                                if lista_n_comps:
+                                    placeholders = ','.join(['%s'] * len(lista_n_comps))
+                                    query_totales = f"""
+                                        SELECT SUM(debe) as total_debe, SUM(haber) as total_haber 
+                                        FROM `{db_actual}`.asientos_contables 
+                                        WHERE n_comprobante IN ({placeholders})
+                                    """
+                                    df_t = pd.read_sql(query_totales, conn_totales, params=lista_n_comps)
+                                    if not df_t.empty:
+                                        total_debe_periodo = df_t['total_debe'].iloc[0] or 0.0
+                                        total_haber_periodo = df_t['total_haber'].iloc[0] or 0.0
+                            except Exception as e:
+                                st.error(f"Error al calcular los totales globales de ingresos: {e}")
+                            finally:
+                                try:
+                                    conn_totales.close()
+                                except Exception:
+                                    pass
 
                         # Mostramos las métricas generales del rango de fechas arriba
                         col_m1, col_m2, col_m3 = st.columns(3)
@@ -8716,10 +8742,9 @@ if "Inicio" in opcion_menu:
                             comprobante_activo = seleccion_opcion.split(" ")[0]
                             df_asiento = obtener_asiento_por_comprobante(db_actual, comprobante_activo)
                             
-                            if not df_asiento.empty:
+                            if df_asiento is not None and not df_asiento.empty:
                                 st.markdown(f"**Asiento Contable Completo del Comprobante N°: `{comprobante_activo}`**")
                                 
-                                # Preparamos una copia del dataframe con los valores formateados como texto
                                 df_mostrar = df_asiento.copy()
                                 df_mostrar['debe'] = df_mostrar['debe'].apply(formato_latino)
                                 df_mostrar['haber'] = df_mostrar['haber'].apply(formato_latino)
@@ -8741,7 +8766,6 @@ if "Inicio" in opcion_menu:
                                     }
                                 )
                                 
-                                # Totales calculados del comprobante individual
                                 total_debe = df_asiento['debe'].sum()
                                 total_haber = df_asiento['haber'].sum()
                                 
