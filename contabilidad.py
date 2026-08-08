@@ -8248,7 +8248,6 @@ if "Inicio" in opcion_menu:
                             st.success("✨ ¡Análisis Completo! Data limpia y alineada.")
         # --- FILA 10: REPORTE DE CONTABLE ---
         st.divider()
-        st.divider()
         try:
             año_val = st.session_state.get('año_seleccionado', st.session_state.get('f_anio_global', 2026))
             mes_elegido = st.session_state.get('mes_seleccionado', st.session_state.get('f_mes_global', 'Junio'))
@@ -8332,8 +8331,16 @@ if "Inicio" in opcion_menu:
 
                 # Consulta SQL a base de datos de accionistas
                 conn = conectar_db(db)
-                df_config_accionistas = pd.read_sql(f"SELECT * FROM `{db}`.accionistas", conn)
-                conn.close()
+                df_config_accionistas = pd.DataFrame()
+                
+                if conn:
+                    try:
+                        # Consultar directamente la tabla ya que la conexión está enlazada a la BD `db`
+                        df_config_accionistas = pd.read_sql("SELECT * FROM accionistas", conn)
+                    except Exception as err:
+                        st.error(f"❌ Error al leer la tabla 'accionistas' en la base de datos `{db}`: {err}")
+                    finally:
+                        conn.close()
 
                 nombres_grafico = []
                 valores_grafico = []
