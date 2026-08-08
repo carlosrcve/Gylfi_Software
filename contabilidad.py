@@ -8354,14 +8354,21 @@ if "Inicio" in opcion_menu:
                     st.success("¡Conexión establecida correctamente!")
                     try:
                         cursor = conn.cursor()
-                        # Forzamos el uso de la base de datos para asegurar el contexto
-                        cursor.execute(f"USE `{db}`;")
+                        # Verificar si la tabla existe en esa base de datos específica
+                        cursor.execute(f"SHOW TABLES FROM `{db}` LIKE 'accionistas';")
+                        resultado = cursor.fetchone()
                         cursor.close()
-                        
-                        # LEEMOS DIRECTAMENTE LA TABLA YA QUE EL 'USE' LA POSICIONA
-                        df_config_accionistas = pd.read_sql("SELECT * FROM accionistas", conn)
+
+                        if resultado:
+                            # La tabla sí existe, la leemos de forma segura especificando la BD
+                            df_config_accionistas = pd.read_sql(f"SELECT * FROM `{db}`.accionistas", conn)
+                        else:
+                            st.warning(f"⚠️ La empresa `{db}` no cuenta con la tabla de configuración 'accionistas'.")
+                            df_config_accionistas = pd.DataFrame()
+                            
                     except Exception as e:
                         st.error(f"Error al leer la tabla de accionistas: {e}")
+                        df_config_accionistas = pd.DataFrame()
                     finally:
                         try:
                             conn.close()
