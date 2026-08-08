@@ -1488,24 +1488,7 @@ def migrar_contraseñas_a_hash(conn):
             
     cursor.close()
 
-'''
-# --- INSPECTOR TEMPORAL DE USUARIOS ---
-if st.checkbox("🔍 Mostrar usuarios registrados en la BD (Debug)"):
-    conn_debug = conectar_db()
-    if conn_debug:
-        try:
-            cursor_debug = conn_debug.cursor(dictionary=True)
-            cursor_debug.execute("SELECT id, usuario, rol, cliente_id FROM usuarios;")
-            usuarios_db = cursor_debug.fetchall()
-            cursor_debug.close()
-            conn_debug.close()
-            
-            st.write("Usuarios encontrados en TiDB Cloud:")
-            for u in usuarios_db:
-                st.code(f"ID: {u['id']} | Usuario: {u['usuario']} | Rol: {u['rol']}")
-        except Exception as e:
-            st.error(f"No se pudo leer la tabla: {e}")
-'''
+
 
 def login_screen():
     # --- ESTILOS CSS PROFESIONALES ---
