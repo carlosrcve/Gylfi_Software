@@ -8344,6 +8344,7 @@ if "Inicio" in opcion_menu:
                 neto_disponible = utilidad_bruta * 0.66
 
                 # --- CARGA CORRECTA Y SEGURA DE LA CONFIGURACIÓN DE ACCIONISTAS ---
+                # --- CARGA CORRECTA Y SEGURA DE LA CONFIGURACIÓN DE ACCIONISTAS ---
                 st.write(f"Host en Python: {st.session_state.conn.server_host}")
                 st.write(f"Puerto en Python: {st.session_state.conn.server_port}")
                 st.write(f"🔍 DEBUG EXTREMO -> Variable 'db': [{db}]")
