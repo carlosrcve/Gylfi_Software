@@ -8344,6 +8344,7 @@ if "Inicio" in opcion_menu:
                 neto_disponible = utilidad_bruta * 0.66
 
                 # --- CARGA CORRECTA Y SEGURA DE LA CONFIGURACIÓN DE ACCIONISTAS ---
+                st.write(f"🔍 DEBUG EXTREMO -> Variable 'db': [{db}]")
                 st.write(f"DEBUG: Intentando conectar a la base de datos: {db}")
                 conn = conectar_db(db)
 
