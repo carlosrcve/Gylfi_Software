@@ -278,6 +278,7 @@ def conectar_db(nombre_db=None):
                 print(f"Aviso al asegurar BD de cliente: {ex}")
 
         # 2. VALIDAR CONEXIÓN EXISTENTE EN SESSION_STATE Y FORZAR EL CAMBIO DE ESQUEMA SI ES NECESARIO
+        # 2. VALIDAR CONEXIÓN EXISTENTE EN SESSION_STATE
         if "conn" in st.session_state and st.session_state.conn is not None:
             try:
                 if st.session_state.conn.is_connected():
@@ -285,15 +286,15 @@ def conectar_db(nombre_db=None):
                     cursor_test.execute("SELECT DATABASE()")
                     res = cursor_test.fetchone()
                     db_actual_en_servidor = res[0] if res else None
+                    cursor_test.close()
                     
+                    # Si la base de datos es exactamente la misma, la reutilizamos sin miedo
                     if db_actual_en_servidor == db_a_usar:
-                        cursor_test.close()
                         return st.session_state.conn
                     else:
-                        # Forzamos al conector reutilizado a cambiar al nuevo esquema de la empresa
-                        cursor_test.execute(f"USE `{db_a_usar}`;")
-                        cursor_test.close()
-                        return st.session_state.conn
+                        # Si cambió de cliente, cerramos la vieja para obligar a abrir una limpia abajo
+                        st.session_state.conn.close()
+                        st.session_state.conn = None
             except Exception:
                 st.session_state.conn = None
       
@@ -7432,30 +7433,6 @@ if "Inicio" in opcion_menu:
     st.divider()
     
     conn = st.session_state.conn
-
-    # 5. LÓGICA PRINCIPAL PROTEGIDA CON TRY-EXCEPT-FINALLY
-    # PRUEBA DE FUEGO DE COMUNICACIÓN CON LA NUBE
-    try:
-        conn_test = mysql.connector.connect(
-            host="gateway01.us-east-1.prod.aws.tidbcloud.com",
-            port=4000,
-            user="4K4VAw4t4ZPFUTF.root",
-            password="OhAcM2lizBMDXDgD",
-            database="kingdirver_ca", # Forzamos la empresa específica
-            use_pure=True,
-            connect_timeout=10,
-            ssl_verify_cert=False,
-            ssl_disabled=False
-        )
-        cursor_test = conn_test.cursor()
-        cursor_test.execute("SELECT COUNT(*) FROM asientos_contables;")
-        total_asientos = cursor_test.fetchone()[0]
-        cursor_test.close()
-        conn_test.close()
-        
-        print(f"✅ ¡COMUNICACIÓN EXITOSA! Asientos encontrados en kingdirver_ca: {total_asientos}")
-    except Exception as e:
-        print(f"❌ FALLA DE COMUNICACIÓN REAL: {e}")
 
     try:
         col_kpi, col_btn = st.columns([0.8, 0.2])
