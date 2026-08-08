@@ -7338,6 +7338,16 @@ if "Inicio" in opcion_menu:
     conn = st.session_state.conn
 
     # 5. LÓGICA PRINCIPAL PROTEGIDA CON TRY-EXCEPT-FINALLY
+    # PRUEBA DE COMUNICACIÓN DIRECTA
+    try:
+        cur_test = conn.cursor(dictionary=True)
+        cur_test.execute(f"SELECT COUNT(*) as total, MIN(fecha) as min_f, MAX(fecha) as max_f FROM `{db_actual}`.asientos_contables")
+        test_res = cur_test.fetchone()
+        cur_test.close()
+        st.sidebar.success(f"Conexión OK. Total asientos en tabla: {test_res['total']} (Desde {test_res['min_f']} hasta {test_res['max_f']})")
+    except Exception as e:
+        st.sidebar.error(f"Falla de comunicación con la tabla: {e}")
+        
     try:
         col_kpi, col_btn = st.columns([0.8, 0.2])
         
