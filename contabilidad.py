@@ -8355,16 +8355,27 @@ if "Inicio" in opcion_menu:
                     st.success("¡Conexión establecida correctamente!")
                     try:
                         cursor = conn.cursor()
-                        # Verificar si la tabla existe en esa base de datos específica
+                    
+                        # --- DEBUG TOTAL ---
+                        cursor.execute("SELECT DATABASE(), CURRENT_USER();")
+                        db_actual, usuario = cursor.fetchone()
+                        print(f"DEBUG: Estoy conectado a la BD: {db_actual} como usuario: {usuario}")
+                        
+                        # Ahora listamos TODAS las tablas de esa base de datos
+                        cursor.execute(f"SHOW TABLES FROM `{db}`;")
+                        todas_las_tablas = cursor.fetchall()
+                        print(f"DEBUG: Tablas encontradas en {db}: {todas_las_tablas}")
+                        # -------------------
+
                         cursor.execute(f"SHOW TABLES FROM `{db}` LIKE 'accionistas';")
                         resultado = cursor.fetchone()
                         cursor.close()
 
                         if resultado:
-                            # La tabla sí existe, la leemos de forma segura especificando la BD
                             df_config_accionistas = pd.read_sql(f"SELECT * FROM `{db}`.accionistas", conn)
                         else:
-                            st.warning(f"⚠️ La empresa `{db}` no cuenta con la tabla de configuración 'accionistas'.")
+                            st.error(f"¡CONFIRMADO! El sistema dice que en '{db}' NO hay tabla 'accionistas'.")
+                            st.write(f"Tablas reales detectadas: {todas_las_tablas}")
                             df_config_accionistas = pd.DataFrame()
                             
                     except Exception as e:
