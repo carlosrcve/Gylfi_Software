@@ -6236,51 +6236,58 @@ def obtener_tasa_bcv_hoy(conn):
     except Exception:
         return consultar_bcv_directo_sin_bd()
 
-@log_ejecucion
-def generar_reporte_multimoneda(conn, mes, ano):
+def generar_reporte_multimoneda(conn, mes, ano, db="kingdirver_ca"):
     """
-    Consolida saldos iniciales (siempre fijos de inicio de año) con los asientos 
-    contables del mes seleccionado, aplicando la conversión a USD al vuelo.
+    Consolida saldos iniciales con los asientos contables del mes seleccionado, 
+    aplicando la conversión a USD al vuelo de forma segura.
     """
+    if not conn:
+        return []
+        
     cursor = conn.cursor(dictionary=True)
     
-    query = """
+    query = f"""
         SELECT 
             t_origen.fecha,
-            t_origen.plan_cuentas,      -- Ahora sí va a compilar fino
+            t_origen.plan_cuentas,      
             t_origen.cuenta_contable,
             t_origen.descripcion,
             t_origen.debe,
             t_origen.haber,
             COALESCE(
-                (SELECT t.tasa_valor FROM kingdirver_ca.tasas_diarias t WHERE t.fecha = t_origen.fecha LIMIT 1),
-                (SELECT t2.tasa_valor FROM kingdirver_ca.tasas_diarias t2 WHERE t2.fecha <= t_origen.fecha ORDER BY t2.fecha DESC LIMIT 1),
-                (SELECT t3.tasa_valor FROM kingdirver_ca.tasas_diarias t3 ORDER BY t3.fecha ASC LIMIT 1),
+                (SELECT t.tasa_valor FROM `{db}`.tasas_diarias t WHERE t.fecha = t_origen.fecha LIMIT 1),
+                (SELECT t2.tasa_valor FROM `{db}`.tasas_diarias t2 WHERE t2.fecha <= t_origen.fecha ORDER BY t2.fecha DESC LIMIT 1),
+                (SELECT t3.tasa_valor FROM `{db}`.tasas_diarias t3 ORDER BY t3.fecha ASC LIMIT 1),
                 1.0000
             ) AS tasa_bcv
         FROM (
-            -- PARTE 1: Saldos Iniciales (Aquí sí existe plan_cuentas originalmente)
+            -- PARTE 1: Saldos Iniciales
             SELECT fecha, plan_cuentas, cuenta_contable, descripcion, debe, haber
-            FROM kingdirver_ca.saldos_iniciales
+            FROM `{db}`.saldos_iniciales
             WHERE YEAR(fecha) = %s
             
             UNION ALL
             
             -- PARTE 2: Asientos Contables 
-            -- 🔥 TRUCO contable: Como asientos_contables NO tiene plan_cuentas, 
-            -- usamos 'cuenta_contable' en su lugar para clonar la columna en el aire y que no falle el UNION.
             SELECT fecha, cuenta_contable AS plan_cuentas, cuenta_contable, descripcion, debe, haber
-            FROM kingdirver_ca.asientos_contables
+            FROM `{db}`.asientos_contables
             WHERE MONTH(fecha) = %s AND YEAR(fecha) = %s
         ) AS t_origen
         ORDER BY t_origen.fecha ASC
     """
     
-    # Pasamos los parámetros en el orden correcto de las condiciones:
-    # 1. Año para saldos iniciales. 2. Mes para asientos. 3. Año para asientos.
-    cursor.execute(query, (ano, mes, ano))
-    datos = cursor.fetchall()
-    cursor.close()
+    try:
+        cursor.execute(query, (ano, mes, ano))
+        datos = cursor.fetchall()
+        cursor.close()
+        return datos
+    except Exception as e:
+        print(f"Error en consulta contable para {db}: {e}")
+        try:
+            cursor.close()
+        except Exception:
+            pass
+        return []
     
     df = pd.DataFrame(datos)
     
@@ -7828,48 +7835,62 @@ if "Inicio" in opcion_menu:
         if db_actual and db_actual != "{db}" and db_actual != "None":
             try: 
                 conn_bcv = conectar_db(db_actual)
-                tasa_dolar, origen_datos = obtener_tasa_bcv_hoy(conn_bcv)
-
-                col_tasa, col_info = st.columns([1, 2])
-
-                with col_tasa:
-                    s = f"{tasa_dolar:,.8f}"
-                    tasa_formateada = f"Bs. {s.replace(',', 'X').replace('.', ',').replace('X', '.')}"
-                    st.metric(label="💵 Tasa Oficial BCV (USD/VES)", value=tasa_formateada)
-
-                with col_info:
-                    st.caption("ℹ️ **Actualización Automática:**")
-                    st.info(f"El sistema sincroniza directamente con el Banco Central de Venezuela. \n\n**Fuente de lectura actual:** {origen_datos}")
+                if not conn_bcv:
+                    st.warning(f"⚠️ No se pudo establecer conexión con la base de datos para {db_actual}.")
+                else:
+                    # Blindaje por si la función no está definida o retorna None
+                    tasa_dolar = 0.0
+                    origen_datos = "No disponible"
                     
-                    # 🔥 BOTÓN DE ACTUALIZACIÓN FORZADA
-                    if st.button("🔄 Forzar Sincronización BCV"):
-                        from datetime import date
-                        try:
-                            if conn_bcv.is_connected():
-                                conn_bcv.handle_unread_result()
+                    if 'obtener_tasa_bcv_hoy' in globals() and callable(obtener_tasa_bcv_hoy):
+                        t_val, o_val = obtener_tasa_bcv_hoy(conn_bcv)
+                        tasa_dolar = t_val if t_val is not None else 0.0
+                        origen_datos = o_val if o_val is not None else "Manual / Desconocido"
+
+                    col_tasa, col_info = st.columns([1, 2])
+
+                    with col_tasa:
+                        s = f"{tasa_dolar:,.8f}"
+                        tasa_formateada = f"Bs. {s.replace(',', 'X').replace('.', ',').replace('X', '.')}"
+                        st.metric(label="💵 Tasa Oficial BCV (USD/VES)", value=tasa_formateada)
+
+                    with col_info:
+                        st.caption("ℹ️ **Actualización Automática:**")
+                        st.info(f"El sistema sincroniza directamente con el Banco Central de Venezuela. \n\n**Fuente de lectura actual:** {origen_datos}")
+                        
+                        # 🔥 BOTÓN DE ACTUALIZACIÓN FORZADA
+                        if st.button("🔄 Forzar Sincronización BCV"):
+                            from datetime import date
+                            try:
+                                if conn_bcv.is_connected():
+                                    conn_bcv.handle_unread_result()
                                 
-                            tasa_fresca, origen_fresco = consultar_bcv_directo_sin_bd(conn_bcv)
-                            
-                # Abrimos conexión a la BD actual para
-                            if "Error" not in origen_fresco:
-                                hoy = date.today()
-                                cursor = conn_bcv.cursor()
-                                # Inserción dinámica usando la base de datos activa
-                                cursor.execute(f"""
-                                    INSERT INTO `{db_actual}`.tasas_diarias (fecha, tasa_valor) 
-                                    VALUES (%s, %s)
-                                    ON DUPLICATE KEY UPDATE tasa_valor = %s
-                                """, (hoy, tasa_fresca, tasa_fresca))
-                                conn_bcv.commit()
-                                cursor.close()
-                                st.success("¡Tasa actualizada con éxito desde el BCV!")
-                                st.rerun()
-                            else:
-                                st.error("No se pudo conectar a la web del BCV en este momento.")
-                        except Exception as e:
-                            st.error(f"Error al sincronizar: {e}")
-                
-                conn_bcv.close()
+                                tasa_fresca, origen_fresco = 0.0, "Error"
+                                if 'consultar_bcv_directo_sin_bd' in globals() and callable(consultar_bcv_directo_sin_bd):
+                                    tasa_fresca, origen_fresco = consultar_bcv_directo_sin_bd(conn_bcv)
+                                
+                                if origen_fresco and "Error" not in origen_fresco and tasa_fresca > 0:
+                                    hoy = date.today()
+                                    cursor = conn_bcv.cursor()
+                                    try:
+                                        cursor.execute(f"""
+                                            INSERT INTO `{db_actual}`.tasas_diarias (fecha, tasa_valor) 
+                                            VALUES (%s, %s)
+                                            ON DUPLICATE KEY UPDATE tasa_valor = %s
+                                        """, (hoy, tasa_fresca, tasa_fresca))
+                                        conn_bcv.commit()
+                                        st.success("¡Tasa actualizada con éxito desde el BCV!")
+                                        st.rerun()
+                                    except Exception as db_err:
+                                        st.error(f"La tabla 'tasas_diarias' no existe en {db_actual} o hay un error SQL: {db_err}")
+                                    finally:
+                                        cursor.close()
+                                else:
+                                    st.error("No se pudo conectar a la web del BCV en este momento.")
+                            except Exception as e:
+                                st.error(f"Error al sincronizar: {e}")
+                    
+                    conn_bcv.close()
             except Exception as e:
                 st.error(f"Error al cargar indicadores cambiarios: {e}")
         else:
@@ -7997,90 +8018,97 @@ if "Inicio" in opcion_menu:
                 # =========================================================================
                 # 🔥 ZONA DE REPORTES FINANCIEROS EN DIVISAS
                 # =========================================================================
-                st.markdown("<br>", unsafe_allow_html=True) 
-                
+                st.markdown("<br>", unsafe_allow_html=True)                
+
                 with st.expander("📊 Reportes Financieros Consolidados (Multimoneda)", expanded=False):
                     st.markdown(f"### 📋 Balance de Comprobación — Período Seleccionado ({moneda_vista})")
                     st.write("Consolidación analítica de saldos: Apertura, Movimientos mensuales y Saldos de Cierre.")
                     
                     if st.button("🧮 Generar Balance de Comprobación", use_container_width=True):
                         
-                        col_debe_calc = 'debe_usd' if moneda_vista == "Dólares (USD)" else 'debe'
-                        col_haber_calc = 'haber_usd' if moneda_vista == "Dólares (USD)" else 'haber'
-                        
-                        # --- PASO 1: Identificar cuáles filas son Saldos Iniciales y cuáles son Asientos ---
-                        df_diario['es_inicial'] = df_diario['descripcion'].str.contains("SALDOS INICIALES", case=False, na=False)
-                        
-                        # --- PASO 2: Agrupar por Cuenta y Plan de Cuentas (Código) ---
-                        balance_data = []
-                        
-                        for (codigo, cuenta), group in df_diario.groupby(['plan_cuentas', 'cuenta_contable']):
-                            
-                            grupo_inicial = group[group['es_inicial']]
-                            grupo_mes = group[~group['es_inicial']]
-                            
-                            # 1. Saldo Inicial Neto
-                            ini_debe = grupo_inicial[col_debe_calc].sum()
-                            ini_haber = grupo_inicial[col_haber_calc].sum()
-                            saldo_inicial = ini_debe - ini_haber
-                            
-                            # 2. Movimientos puros del mes
-                            mes_debe = grupo_mes[col_debe_calc].sum()
-                            mes_haber = grupo_mes[col_haber_calc].sum()
-                            
-                            # 3. Saldo Final
-                            saldo_final = saldo_inicial + mes_debe - mes_haber
-                            
-                            balance_data.append({
-                                'Código Contable': str(codigo) if pd.notna(codigo) else "S/C",
-                                'Cuenta Contable': str(cuenta),
-                                'Saldo Inicial Num': saldo_inicial,
-                                'Debe Num': mes_debe,
-                                'Haber Num': mes_haber,
-                                'Saldo Final Num': saldo_final
-                            })
-                        
-                        df_balance = pd.DataFrame(balance_data)
-                        df_balance = df_balance.sort_values(by='Código Contable').reset_index(drop=True)
-                        
-                        # --- PASO 3: Formatear las 6 columnas con el diseño premium ---
-                        simb = "$" if moneda_vista == "Dólares (USD)" else "Bs."
-                        
-                        def f_monto(val):
-                            if pd.isna(val) or val == 0:
-                                return f"{simb} 0,00"
-                            if val < 0:
-                                return f"({simb} {abs(val):,.2f})".replace(',', 'X').replace('.', ',').replace('X', '.')
-                            return f"{simb} {val:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
-
-                        df_balance_visual = pd.DataFrame({
-                            'Código Contable': df_balance['Código Contable'],
-                            'Cuenta Contable': df_balance['Cuenta Contable'],
-                            'Saldo Inicial': df_balance['Saldo Inicial Num'].apply(f_monto),
-                            'Debe': df_balance['Debe Num'].apply(f_monto),
-                            'Haber': df_balance['Haber Num'].apply(f_monto),
-                            'Saldo Final': df_balance['Saldo Final Num'].apply(f_monto)
-                        })
-                        
-                        # --- PASO 4: Renderizar la tabla de 6 columnas definitivas ---
-                        st.dataframe(df_balance_visual, use_container_width=True, hide_index=True)
-                        
-                        # --- PASO 5: Totales de Control Contable ---
-                        tot_inicial = df_balance['Saldo Inicial Num'].sum()
-                        tot_debe = df_balance['Debe Num'].sum()
-                        tot_haber = df_balance['Haber Num'].sum()
-                        tot_final = df_balance['Saldo Final Num'].sum()
-                        
-                        c1, c2, c3, c4 = st.columns(4)
-                        c1.metric("Total Saldo Inicial", f_monto(tot_inicial))
-                        c2.metric("Total Debe (Mes)", f_monto(tot_debe))
-                        c3.metric("Total Haber (Mes)", f_monto(tot_haber))
-                        c4.metric("Total Saldo Final", f_monto(tot_final))
-                        
-                        if abs(tot_debe - tot_haber) < 0.01:
-                            st.success("✨ ¡Partida Doble verificada! Los movimientos del mes cargaron perfectamente cuadrados.")
+                        # 🛡️ Blindaje crítico: Evita que explote si df_diario es None o no está definido
+                        if 'df_diario' not in globals() and 'df_diario' not in locals():
+                            st.error("⚠️ No se encontró el DataFrame del diario (`df_diario`). Por favor, verifica la carga de datos previa.")
+                        elif df_diario is None or (isinstance(df_diario, pd.DataFrame) and df_diario.empty):
+                            st.warning("⚠️ El registro del diario está vacío o no se pudo cargar para este período.")
                         else:
-                            st.error("⚠️ Alerta contable: Los movimientos cargados en el Debe y Haber del mes difieren.")
+                            try:
+                                col_debe_calc = 'debe_usd' if moneda_vista == "Dólares (USD)" else 'debe'
+                                col_haber_calc = 'haber_usd' if moneda_vista == "Dólares (USD)" else 'haber'
+                                
+                                # --- PASO 1: Identificar cuáles filas son Saldos Iniciales y cuáles son Asientos ---
+                                df_diario['es_inicial'] = df_diario['descripcion'].str.contains("SALDOS INICIALES", case=False, na=False)
+                                
+                                # --- PASO 2: Agrupar por Cuenta y Plan de Cuentas (Código) ---
+                                balance_data = []
+                                
+                                for (codigo, cuenta), group in df_diario.groupby(['plan_cuentas', 'cuenta_contable']):
+                                    grupo_inicial = group[group['es_inicial']]
+                                    grupo_mes = group[~group['es_inicial']]
+                                    
+                                    # 1. Saldo Inicial Neto
+                                    ini_debe = grupo_inicial[col_debe_calc].sum()
+                                    ini_haber = grupo_inicial[col_haber_calc].sum()
+                                    saldo_inicial = ini_debe - ini_haber
+                                    
+                                    # 2. Movimientos puros del mes
+                                    mes_debe = grupo_mes[col_debe_calc].sum()
+                                    mes_haber = grupo_mes[col_haber_calc].sum()
+                                    
+                                    # 3. Saldo Final
+                                    saldo_final = saldo_inicial + mes_debe - mes_haber
+                                    
+                                    balance_data.append({
+                                        'Código Contable': str(codigo) if pd.notna(codigo) else "S/C",
+                                        'Cuenta Contable': str(cuenta),
+                                        'Saldo Inicial Num': saldo_inicial,
+                                        'Debe Num': mes_debe,
+                                        'Haber Num': mes_haber,
+                                        'Saldo Final Num': saldo_final
+                                    })
+                                
+                                df_balance = pd.DataFrame(balance_data)
+                                if not df_balance.empty:
+                                    df_balance = df_balance.sort_values(by='Código Contable').reset_index(drop=True)
+                                
+                                # --- PASO 3: Formatear las columnas con el diseño premium ---
+                                simb = "$" if moneda_vista == "Dólares (USD)" else "Bs."
+                                
+                                def f_monto(val):
+                                    if pd.isna(val) or val == 0:
+                                        return f"{simb} 0,00"
+                                    if val < 0:
+                                        return f"({simb} {abs(val):,.2f})".replace(',', 'X').replace('.', ',').replace('X', '.')
+                                    return f"{simb} {val:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+
+                                df_balance_visual = pd.DataFrame({
+                                    'Código Contable': df_balance['Código Contable'],
+                                    'Cuenta Contable': df_balance['Cuenta Contable'],
+                                    'Saldo Inicial': df_balance['Saldo Inicial Num'].apply(f_monto),
+                                    'Debe': df_balance['Debe Num'].apply(f_monto),
+                                    'Haber': df_balance['Haber Num'].apply(f_monto),
+                                    'Saldo Final': df_balance['Saldo Final Num'].apply(f_monto)
+                                })
+                                
+                                # --- PASO 4: Renderizar la tabla ---
+                                st.dataframe(df_balance_visual, use_container_width=True, hide_index=True)
+                                
+                                # --- PASO 5: Totales de Control Contable ---
+                                tot_inicial = df_balance['Saldo Inicial Num'].sum()
+                                tot_debe = df_balance['Debe Num'].sum()
+                                tot_haber = df_balance['Haber Num'].sum()
+                                tot_final = df_balance['Saldo Final Num'].sum()
+                                
+                                c1, c2, c3, c4 = st.columns(4)
+                                c1.metric("Total Saldo Inicial", f_monto(tot_inicial))
+                                c2.metric("Total Debe (Mes)", f_monto(tot_debe))
+                                c3.metric("Total Haber (Mes)", f_monto(tot_haber))
+                                c4.metric("Total Saldo Final", f_monto(tot_final))
+                                
+                                if abs(tot_debe - tot_haber) < 0.01:
+                                    st.success("✨ ¡Partida Doble verificada! Los movimientos del mes cargaron perfectamente cuadrados.")
+                                else:
+                                    st.error("⚠️ Alerta contable: Los movimientos cargados en el Debe y Haber del mes difieren.")
 
         except Exception as e:
             st.error(f"❌ Ocurrió un error al procesar el Libro Diario o el Balance de Comprobación: {e}")
