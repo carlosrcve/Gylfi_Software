@@ -8344,14 +8344,19 @@ if "Inicio" in opcion_menu:
 
                 # Consulta SQL a base de datos de accionistas
                 conn = conectar_db(db)
-                df_config_accionistas = pd.DataFrame()
-                if conn:
+    
+                # 2. VALIDACIÓN CRÍTICA: Si no hay conexión, detener el procesamiento aquí
+                if conn is None:
+                    st.error(f"❌ No se pudo establecer conexión a la base de datos: {db}. Verifica tus credenciales.")
+                else:
+                    # 3. Solo si hay conexión, procedemos
+                    df_config_accionistas = pd.DataFrame()
                     try:
                         df_config_accionistas = pd.read_sql(f"SELECT * FROM `{db}`.accionistas", conn)
                     except Exception as err:
-                        st.warning(f"⚠️ No se pudo cargar la configuración de accionistas para `{db}`: {err}")
+                        st.warning(f"⚠️ La tabla 'accionistas' no fue encontrada en `{db}`: {err}")
                     finally:
-                        conn.close()
+                        conn.close() # Importante cerrar si la conexión existió
 
                 nombres_grafico = []
                 valores_grafico = []
