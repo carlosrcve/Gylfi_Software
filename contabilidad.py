@@ -8348,21 +8348,8 @@ if "Inicio" in opcion_menu:
                 st.write(f"Puerto en Python: {st.session_state.conn.server_port}")
                 st.write(f"🔍 DEBUG EXTREMO -> Variable 'db': [{db}]")
                 st.write(f"DEBUG: Intentando conectar a la base de datos: {db}")
-                conn = conectar_db(db)
-                # FORZAR CREACIÓN DE TABLA SI NO EXISTE
-                cursor_fix = conn.cursor()
-                cursor_fix.execute(f"USE `{db}`;")
-                cursor_fix.execute("""
-                    CREATE TABLE IF NOT EXISTS accionistas (
-                        id INT AUTO_INCREMENT PRIMARY KEY,
-                        nombre VARCHAR(255) NOT NULL,
-                        porcentaje_accionario DECIMAL(5,2) NOT NULL,
-                        codigo_cuenta_asociada VARCHAR(50) NOT NULL,
-                        descripcion_cuenta VARCHAR(255)
-                    );
-                """)
-                cursor_fix.close()
 
+                conn = conectar_db(db)
                 df_config_accionistas = pd.DataFrame()
 
                 if conn is None:
@@ -8370,6 +8357,20 @@ if "Inicio" in opcion_menu:
                 else:
                     st.success("¡Conexión establecida correctamente!")
                     try:
+                        # FORZAR CREACIÓN DE TABLA SI NO EXISTE (Ahora aseguramos que conn es válido)
+                        cursor_fix = conn.cursor()
+                        cursor_fix.execute(f"USE `{db}`;")
+                        cursor_fix.execute("""
+                            CREATE TABLE IF NOT EXISTS accionistas (
+                                id INT AUTO_INCREMENT PRIMARY KEY,
+                                nombre VARCHAR(255) NOT NULL,
+                                porcentaje_accionario DECIMAL(5,2) NOT NULL,
+                                codigo_cuenta_asociada VARCHAR(50) NOT NULL,
+                                descripcion_cuenta VARCHAR(255)
+                            );
+                        """)
+                        cursor_fix.close()
+
                         cursor = conn.cursor()
                     
                         # --- DEBUG TOTAL ---
@@ -8377,7 +8378,7 @@ if "Inicio" in opcion_menu:
                         db_actual, usuario = cursor.fetchone()
                         print(f"DEBUG: Estoy conectado a la BD: {db_actual} como usuario: {usuario}")
                         
-                        # Ahora listamos TODAS las tablas de esa base de datos
+                        # Listamos TODAS las tablas de esa base de datos
                         cursor.execute(f"SHOW TABLES FROM `{db}`;")
                         todas_las_tablas = cursor.fetchall()
                         print(f"DEBUG: Tablas encontradas en {db}: {todas_las_tablas}")
