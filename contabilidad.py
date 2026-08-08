@@ -8349,7 +8349,7 @@ if "Inicio" in opcion_menu:
 
                 df_config_accionistas = pd.DataFrame()
 
-                if conn is None:
+               if conn is None:
                     st.error("ERROR CRÍTICO: conectar_db(db) devolvió None. Revisa tu función de conexión.")
                 else:
                     st.success("¡Conexión establecida correctamente!")
@@ -8371,10 +8371,9 @@ if "Inicio" in opcion_menu:
                         st.error(f"Error al leer la tabla de accionistas: {e}")
                         df_config_accionistas = pd.DataFrame()
                     finally:
-                        try:
-                            conn.close()
-                        except Exception:
-                            pass
+                        # NO cerramos la conexión (conn.close()) aquí si viene de st.session_state 
+                        # para evitar que se caiga en las demás pestañas de la app.
+                        pass
 
                 nombres_grafico = []
                 valores_grafico = []
