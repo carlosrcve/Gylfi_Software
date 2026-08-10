@@ -1366,8 +1366,8 @@ def gestionar_sidebar():
     if 'obtener_todas_las_empresas' in globals() and callable(obtener_todas_las_empresas):
         res = obtener_todas_las_empresas(user_rol=user_rol, user_id=user_cliente_id)
         if res is not None:
-            # ESCUDO: Reemplazamos al vuelo cualquier "kingdriver_ca" por "kingdirver_ca"
-            lista_empresas = [e.replace("kingdriver_ca", "kingdirver_ca") if isinstance(e, str) else e for e in res]
+            # ESCUDO: Reemplazamos al vuelo cualquier "kingdirver_ca" por "kingdirver_ca"
+            lista_empresas = [e.replace("kingdirver_ca", "kingdirver_ca") if isinstance(e, str) else e for e in res]
 
     if not lista_empresas:
         st.sidebar.warning("⚠️ No hay empresas disponibles para mostrar o la función de carga no está definida.")
