@@ -7436,14 +7436,19 @@ if "Inicio" in opcion_menu:
     conn = st.session_state.conn
 
     try:
-        col_kpi, col_btn = st.columns([0.8, 0.2])
-        # 1. PRIMERO: Llamamos al sidebar limpio antes de crear columnas o pantallas
+        # 1. PRIMERO: Llamamos al sidebar antes de tocar la pantalla
         gestionar_sidebar()
 
-        # 2. Rescatamos la empresa actual de la sesión de manera limpia
+        # 2. Rescatamos la empresa actual de la sesión de manera limpia y general para las 50 empresas
         db_objetivo = st.session_state.get('db_a_conectar')
 
-        # 3. Si por alguna razón la sesión está en blanco, tomamos la primera empresa válida de la lista dinámica
+        if db_objetivo:
+            # Limpieza general por si alguna viene con el error tipográfico de la BD
+            db_objetivo = db_objetivo.replace("driver_ca", "dirver_ca")
+            st.session_state['db_a_conectar'] = db_objetivo
+            st.session_state['DB_ACTUAL'] = db_objetivo
+
+        # 3. Si la sesión está en blanco, tomamos la primera empresa válida de la lista
         if not db_objetivo:
             user_rol = st.session_state.get('rol')
             user_cliente_id = st.session_state.get('cliente_id')
@@ -7451,20 +7456,22 @@ if "Inicio" in opcion_menu:
             lista_permitida = obtener_todas_las_empresas(user_rol=user_rol, user_id=user_cliente_id)
             
             if lista_permitida and len(lista_permitida) > 0:
-                db_objetivo = lista_permitida[0]  # La primera empresa real de tu lista
+                db_objetivo = lista_permitida[0]
+                db_objetivo = db_objetivo.replace("driver_ca", "dirver_ca")
                 st.session_state['db_a_conectar'] = db_objetivo
+                st.session_state['DB_ACTUAL'] = db_objetivo
             else:
                 st.error("❌ No se encontró ninguna base de datos disponible para este usuario.")
                 st.stop()
 
-        # 4. Dibujamos la interfaz
+        # 4. Ahora sí, dibujamos la interfaz una sola vez y de forma limpia
         col_kpi, col_btn = st.columns([0.8, 0.2])
         with col_kpi:
             st.subheader("Indicadores Financieros en Tiempo Real")
             st.write("---")
             st.write(f"🔍 Debugging Conexión: Estamos apuntando a la base de datos: **{db_objetivo}**")
 
-            # Nos conectamos usando la variable limpia de la empresa activa
+            # Conexión limpia
             conn = conectar_db(db_objetivo)
             st.error(f"🚨 ALERTA DE DEBUG: Me voy a conectar exactamente a la base de datos: [{db_objetivo}]")
             if conn:
