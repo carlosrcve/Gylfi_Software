@@ -7440,18 +7440,22 @@ if "Inicio" in opcion_menu:
 
     try:
         col_kpi, col_btn = st.columns([0.8, 0.2])
+        # 1. PRIMERO: Llamamos al sidebar limpio antes de crear columnas o pantallas
         gestionar_sidebar()
+
+        # 2. SEGUNDO: Validamos la empresa seleccionada
+        db_objetivo = st.session_state.get('db_a_conectar')
+
+        if not db_objetivo:
+            st.warning("⚠️ Por favor, selecciona una empresa en el menú lateral para comenzar.")
+            st.stop()
+
+        # 3. TERCERO: Ya con la empresa segura, creamos las columnas y el resto de la app
+        col_kpi, col_btn = st.columns([0.8, 0.2])
+        
         with col_kpi:
             st.subheader("Indicadores Financieros en Tiempo Real")
             st.write("---")
-
-            # Tomamos directamente la empresa seleccionada en el menú lateral sin forzar valores fijos
-            db_objetivo = st.session_state.get('db_a_conectar')
-
-            if not db_objetivo:
-                st.warning("⚠️ Por favor, selecciona una empresa en el menú lateral para comenzar.")
-                st.stop() # Frena la ejecución limpiamente si no hay empresa elegida
-
             st.write(f"🔍 Debugging Conexión: Estamos apuntando a la base de datos: **{db_objetivo}**")
 
             # Nos conectamos usando la variable limpia de la empresa activa
@@ -7462,7 +7466,6 @@ if "Inicio" in opcion_menu:
                 tablas = cursor.fetchall()
                 st.write(f"📊 Tablas encontradas en {db_objetivo}: {tablas}")
                 
-                # Si 'asientos_contables' está en la lista, contemos cuánto hay
                 if ('asientos_contables',) in tablas:
                     cursor.execute("SELECT COUNT(*) FROM asientos_contables;")
                     cantidad = cursor.fetchone()[0]
@@ -7473,16 +7476,10 @@ if "Inicio" in opcion_menu:
         db = db_objetivo
 
         with st.spinner(f'Comunicando con MySQL para {db}...'):
-            # Llamadas blindadas para evitar que un None rompa el reporte
             db_actual = st.session_state.get('db_a_conectar')
             kpis = obtener_saldos_acumulados(conn, f_fin_global, db_actual)
             if kpis is None:
                 kpis = {"activo": 0, "pasivo": 0, "patrimonio": 0}
-
-            # Unificamos con la variable blindada correcta
-            db = st.session_state.get('db_a_conectar')
-
-            # Llamamos a la función de utilidad limpia
 
             df_utilidad = obtener_historico_utilidad(db, f_inicio=f_inicio_global, f_fin=f_fin_global)
             st.write(f"🔍 DataFrame recibido en la app:", df_utilidad)
