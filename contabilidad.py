@@ -7464,15 +7464,28 @@ if "Inicio" in opcion_menu:
             if conn:
                 cursor = conn.cursor()
                 cursor.execute("SHOW TABLES;")
-                tablas = cursor.fetchall()
-                st.write(f"📊 Tablas encontradas en {db_objetivo}: {tablas}")
+                tablas = [row[0] for row in cursor.fetchall()] # Guardamos los nombres en una lista limpia de texto
+                cursor.close()
                 
-                if ('asientos_contables',) in tablas:
-                    cursor.execute("SELECT COUNT(*) FROM asientos_contables;")
+                # Mostramos todas las tablas disponibles en pantalla para identificarlas
+                st.write(f"📊 Tablas encontradas en {db_objetivo}:", tablas)
+                
+                # Buscamos si alguna tabla se parece a la contable
+                tabla_encontrada = None
+                for t in tablas:
+                    if 'asiento' in t.lower() or 'diario' in t.lower() or 'comprobante' in t.lower():
+                        tabla_encontrada = t
+                        break
+                
+                if tabla_encontrada:
+                    st.success(f"✅ ¡Tabla detectada automáticamente: **{tabla_encontrada}**!")
+                    cursor = conn.cursor()
+                    cursor.execute(f"SELECT COUNT(*) FROM {tabla_encontrada};")
                     cantidad = cursor.fetchone()[0]
-                    st.write(f"📈 Cantidad de registros en asientos_contables: **{cantidad}**")
+                    cursor.close()
+                    st.write(f"📈 Cantidad de registros en {tabla_encontrada}: **{cantidad}**")
                 else:
-                    st.error(f"❌ ¡La tabla 'asientos_contables' no existe en este esquema ({db_objetivo})!")
+                    st.error(f"❌ No se encontró ninguna tabla de asientos o diarios en el esquema ({db_objetivo}). Revisa los nombres de arriba.")
 
         db = db_objetivo
 
