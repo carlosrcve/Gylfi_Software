@@ -1373,6 +1373,9 @@ def gestionar_sidebar():
         st.sidebar.warning("⚠️ No hay empresas disponibles para mostrar o la función de carga no está definida.")
         return
 
+    
+    res = obtener_todas_las_empresas(user_rol=user_rol, user_id=user_cliente_id)
+    st.sidebar.write("DEBUG LISTA CRUDA:", res) # <--- MIRA QUÉ TEXTO EXACTO IMPRIME AQUÍ
     empresa_seleccionada = st.sidebar.selectbox(
         "Seleccione Empresa", 
         lista_empresas, 
