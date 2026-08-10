@@ -8766,14 +8766,27 @@ if "Inicio" in opcion_menu:
                     
                     if conn_tmp:
                         try:
+                            # Consulta flexible: buscamos cualquier cuenta que empiece por 2.2.1
                             query_comps = f"""
-                                SELECT DISTINCT n_comprobante, fecha 
+                                SELECT DISTINCT n_comprobante, fecha, plan_cuentas 
                                 FROM `{db_name}`.asientos_contables 
-                                WHERE plan_cuentas LIKE '2.2.1.01.001%%'
+                                WHERE plan_cuentas LIKE '2.2.1%%'
                                 AND STR_TO_DATE(fecha, '%%Y-%%m-%%d') BETWEEN STR_TO_DATE(%s, '%%Y-%%m-%%d') AND STR_TO_DATE(%s, '%%Y-%%m-%%d')
                                 ORDER BY fecha DESC, n_comprobante DESC
                             """
                             df_comps = pd.read_sql(query_comps, conn_tmp, params=(f_i, f_f))
+                            
+                            # --- CAPA DE DIAGNÓSTICO ---
+                            if df_comps.empty:
+                                st.warning("⚠️ No se encontraron comprobantes con el patrón '2.2.1%'. Verificando estructura de cuentas...")
+                                # Consultamos los primeros registros para ver cómo están guardadas las cuentas
+                                query_debug = f"SELECT DISTINCT plan_cuentas FROM `{db_name}`.asientos_contables LIMIT 20"
+                                df_debug = pd.read_sql(query_debug, conn_tmp)
+                                st.write("🔍 **Cuentas detectadas en la base de datos (muestreo):**")
+                                st.dataframe(df_debug)
+                            else:
+                                st.success(f"✅ Se encontraron {len(df_comps)} comprobantes. Cuentas detectadas: {df_comps['plan_cuentas'].unique()}")
+                                
                         except Exception as e:
                             st.error(f"Error al consultar comprobantes en TiDB: {e}")
                         finally:
