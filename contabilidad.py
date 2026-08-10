@@ -7439,24 +7439,31 @@ if "Inicio" in opcion_menu:
         # 1. PRIMERO: Llamamos al sidebar antes de tocar la pantalla
         gestionar_sidebar()
 
-        # 2. Rescatamos la empresa actual de la sesión de manera limpia y general para las 50 empresas
+        # 2. Rescatamos la empresa actual de la sesión
         db_objetivo = st.session_state.get('db_a_conectar')
 
         if db_objetivo:
-            # Limpieza general por si alguna viene con el error tipográfico de la BD
             db_objetivo = db_objetivo.replace("driver_ca", "dirver_ca")
             st.session_state['db_a_conectar'] = db_objetivo
             st.session_state['DB_ACTUAL'] = db_objetivo
 
-        # 3. Si la sesión está en blanco, tomamos la primera empresa válida de la lista
+        # 3. Si la sesión está en blanco, leemos directo de la tabla de control (sin usar funciones fantasma)
         if not db_objetivo:
             user_rol = st.session_state.get('rol')
             user_cliente_id = st.session_state.get('cliente_id')
             
-            lista_permitida = obtener_todas_las_empresas(user_rol=user_rol, user_id=user_cliente_id)
+            # Consultamos directo usando la conexión activa de control
+            conn_ctrl = conectar_db()
+            if user_rol == 'admin':
+                query = "SELECT nombre_bd FROM clientes"
+            else:
+                query = f"SELECT nombre_bd FROM clientes WHERE id = {user_cliente_id}"
+                
+            df_empresas_temp = pd.read_sql(query, conn_ctrl)
+            conn_ctrl.close()
             
-            if lista_permitida and len(lista_permitida) > 0:
-                db_objetivo = lista_permitida[0]
+            if not df_empresas_temp.empty:
+                db_objetivo = df_empresas_temp['nombre_bd'].iloc[0]
                 db_objetivo = db_objetivo.replace("driver_ca", "dirver_ca")
                 st.session_state['db_a_conectar'] = db_objetivo
                 st.session_state['DB_ACTUAL'] = db_objetivo
