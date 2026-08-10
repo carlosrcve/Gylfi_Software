@@ -8742,7 +8742,7 @@ if "Inicio" in opcion_menu:
                     df_comps = pd.DataFrame()
                     
                     # Intentamos capturar las fechas de los filtros principales de la misma forma que el resto
-                   f_i = st.session_state.get('f_i', st.session_state.get('fecha_inicio', '2026-05-01'))
+                    f_i = st.session_state.get('f_i', st.session_state.get('fecha_inicio', '2026-05-01'))
                     f_f = st.session_state.get('f_f', st.session_state.get('fecha_fin', '2026-05-31'))
 
                     # Si por alguna razón siguen vacías, intentamos extraer el mes/año o usar el mes actual de forma segura
