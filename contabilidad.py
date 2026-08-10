@@ -602,6 +602,13 @@ def generar_pdf_accionista(df, nombre_empresa):
 @log_ejecucion
 def obtener_analisis_gastos_clase5(db, f_i, f_f):
     conn = conectar_db(db)
+    if not conn:
+        return pd.DataFrame()
+    
+    # Asegurar rango de hora completo para evitar perder registros del último día
+    f_i_str = str(f_i).split()[0] + " 00:00:00"
+    f_f_str = str(f_f).split()[0] + " 23:59:59"
+
     query = f"""
         SELECT 
             plan_cuentas, 
@@ -610,15 +617,22 @@ def obtener_analisis_gastos_clase5(db, f_i, f_f):
                 WHEN plan_cuentas = '5.1.1.01.002' THEN 'Iva Credito Fiscal (Ingresos Exentos)'
                 ELSE 'Otros'
             END as descripcion, 
-            SUM(debe) as total_gasto
+            (SUM(debe) - SUM(haber)) as total_gasto
         FROM `{db}`.asientos_contables 
         WHERE plan_cuentas IN ('5.1.1.01.001', '5.1.1.01.002')
-        AND fecha BETWEEN %s AND %s
+        AND fecha >= %s AND fecha <= %s
         GROUP BY plan_cuentas
+        HAVING total_gasto != 0
         ORDER BY total_gasto DESC
     """
-    df = pd.read_sql(query, conn, params=(f_i, f_f))
-    conn.close()
+    try:
+        df = pd.read_sql(query, conn, params=(f_i_str, f_f_str))
+    except Exception as e:
+        print(f"❌ Error en Clase 5: {e}")
+        df = pd.DataFrame()
+    finally:
+        conn.close()
+        
     return df
 
 
@@ -644,8 +658,14 @@ def obtener_analisis_gastos_clase6(db, f_i, f_f):
         HAVING total_gasto != 0
         ORDER BY total_gasto DESC
     """
-    df = pd.read_sql(query, conn, params=(f_i_str, f_f_str))
-    conn.close()
+    try:
+        df = pd.read_sql(query, conn, params=(f_i_str, f_f_str))
+    except Exception as e:
+        print(f"❌ Error en Clase 6: {e}")
+        df = pd.DataFrame()
+    finally:
+        conn.close()
+        
     return df
 
 
@@ -8563,7 +8583,8 @@ if "Inicio" in opcion_menu:
                 # --- 1. SECCIÓN CLASE 5 (Costos) ---
                 st.subheader("Costos (Clase 5)")
                 try:
-                    df_gastos_c5 = obtener_analisis_gastos_clase5(db, f_i, f_f)
+                    # Usamos f_i_str y f_f_str garantizando que existan y estén formateados correctamente
+                    df_gastos_c5 = obtener_analisis_gastos_clase5(db, f_i_str, f_f_str)
                 except Exception as err:
                     st.error(f"Error al obtener costos de Clase 5: {err}")
                     df_gastos_c5 = pd.DataFrame()
@@ -8603,7 +8624,7 @@ if "Inicio" in opcion_menu:
                     fig5.update_layout(height=300, margin=dict(l=20, r=40, t=40, b=20), xaxis=dict(title="Monto (Bs.)"), yaxis=dict(title=""))
                     st.plotly_chart(fig5, use_container_width=True)
                 else:
-                    st.info(f"No hay movimientos en cuentas de Clase 5 para el período del {f_i} al {f_f}.")
+                    st.info(f"No hay movimientos en cuentas de Clase 5 para el período del {f_i_str} al {f_f_str}.")
 
                 st.divider()
 
@@ -8611,7 +8632,7 @@ if "Inicio" in opcion_menu:
                 st.subheader("Gastos Operativos (Clase 6)")
                 
                 try:
-                    df_gastos_c6 = obtener_analisis_gastos_clase6(db, f_i, f_f)
+                    df_gastos_c6 = obtener_analisis_gastos_clase6(db, f_i_str, f_f_str)
                 except Exception as err:
                     st.error(f"Error al obtener gastos de Clase 6: {err}")
                     df_gastos_c6 = pd.DataFrame()
@@ -8619,7 +8640,6 @@ if "Inicio" in opcion_menu:
                 if df_gastos_c6 is not None and not df_gastos_c6.empty:
                     df_gastos_c6.columns = [str(c).strip().lower() for c in df_gastos_c6.columns]
                     
-                    # Dinámico igual que la clase 5 para evitar KeyErrors
                     c6_cuenta = 'plan_cuentas' if 'plan_cuentas' in df_gastos_c6.columns else df_gastos_c6.columns[0]
                     c6_nombre = 'cuenta_contable' if 'cuenta_contable' in df_gastos_c6.columns else ('descripcion' if 'descripcion' in df_gastos_c6.columns else df_gastos_c6.columns[1])
                     c6_total = 'total_gasto' if 'total_gasto' in df_gastos_c6.columns else df_gastos_c6.columns[2]
@@ -8634,7 +8654,7 @@ if "Inicio" in opcion_menu:
                     
                     st.markdown("\n".join(lineas_c6))
 
-                    # Gráfico limpio basado en columnas dinámicas
+                    # Gráfico Clase 6
                     df_gastos_c6['etiqueta'] = df_gastos_c6[c6_cuenta].astype(str) + ' - ' + df_gastos_c6[c6_nombre].astype(str)
                     fig6 = px.bar(
                         df_gastos_c6.sort_values(c6_total, ascending=True), 
@@ -8646,7 +8666,7 @@ if "Inicio" in opcion_menu:
                     fig6.update_layout(height=350, margin=dict(l=20, r=40, t=40, b=20), xaxis=dict(title="Monto (Bs.)"), yaxis=dict(title=""))
                     st.plotly_chart(fig6, use_container_width=True)
                 else:
-                    st.info(f"No hay movimientos en cuentas de Clase 6 para el período del {f_i} al {f_f}.")
+                    st.info(f"No hay movimientos en cuentas de Clase 6 para el período del {f_i_str} al {f_f_str}.")
 
 
             with tab3:
