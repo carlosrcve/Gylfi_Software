@@ -599,7 +599,6 @@ def generar_pdf_accionista(df, nombre_empresa):
     return pdf.output(dest='S').encode('latin-1')
 
 
-@log_ejecucion
 def obtener_analisis_gastos_clase5(db, f_i, f_f):
     # Validar que conectar_db exista realmente
     if 'conectar_db' not in globals() and 'conectar_db' not in locals():
