@@ -7440,10 +7440,24 @@ if "Inicio" in opcion_menu:
         with col_kpi:
             st.subheader("Indicadores Financieros en Tiempo Real")
             # --- PEGA AQUÍ LA PRUEBA DE EMERGENCIA ---
-            conn_debug = conectar_db(st.session_state.get('DB_ACTUAL'))
-            if conn_debug:
-                df_debug = pd.read_sql("SELECT * FROM asientos_contables LIMIT 5;", conn_debug)
-                st.write("🔍 Echa un ojo a las primeras filas reales en TiDB Cloud:", df_debug)
+            st.write("---")
+            st.write(f"🔍 Debugging Conexión: Estamos apuntando a la base de datos: **{st.session_state.get('DB_ACTUAL')}**")
+
+            # Verificamos si realmente existen tablas en este esquema seleccionado
+            conn = conectar_db(st.session_state.get('DB_ACTUAL'))
+            if conn:
+                cursor = conn.cursor()
+                cursor.execute("SHOW TABLES;")
+                tablas = cursor.fetchall()
+                st.write(f"📊 Tablas encontradas en {st.session_state.get('DB_ACTUAL')}: {tablas}")
+                
+                # Si 'asientos_contables' está en la lista, contemos cuánto hay
+                if ('asientos_contables',) in tablas:
+                    cursor.execute("SELECT COUNT(*) FROM asientos_contables;")
+                    cantidad = cursor.fetchone()[0]
+                    st.write(f"📈 Cantidad de registros en asientos_contables: **{cantidad}**")
+                else:
+                    st.error("❌ ¡La tabla 'asientos_contables' no existe en este esquema!")
         
         with col_btn:
             if st.button("🔄 Actualizar Datos"):
