@@ -8740,38 +8740,51 @@ if "Inicio" in opcion_menu:
                 if db_name and db_name != "{db}" and db_name != "None":
                     df_comps = pd.DataFrame()
                     
-                    # 🛡️ CÁLCULO AUTÓNOMO Y SEGURO DIRECTO DEL SESSION_STATE O SIDEBAR
-                    import calendar
+                    # 🔍 CAPTURA DINÁMICA DE FECHAS (Sincronizada con el selector principal de la app)
+                    f_i = (
+                        locals().get('f_i_str') or 
+                        globals().get('f_i_str') or 
+                        st.session_state.get('f_i_str') or 
+                        st.session_state.get('rango_f_inicio') or 
+                        st.session_state.get('fecha_inicio') or 
+                        st.session_state.get('f_i')
+                    )
                     
-                    dic_meses_local = {
-                        "Enero": 1, "Febrero": 2, "Marzo": 3, "Abril": 4, 
-                        "Mayo": 5, "Junio": 6, "Julio": 7, "Agosto": 8, 
-                        "Septiembre": 9, "Octubre": 10, "Noviembre": 11, "Diciembre": 12
-                    }
-                    
-                    # 🔍 BUSGAMOS LAS VARIABLES GLOBALES O CUALQUIER LLAVE POSIBLE DEL SIDEBAR
-                    f_i = globals().get('fecha_inicio_str') or st.session_state.get('f_inicio_global')
-                    f_f = globals().get('fecha_fin_str') or st.session_state.get('f_fin_global')
-                    
-                    # Si la barra lateral usa otras variables directas en el session_state, las leemos aquí:
+                    f_f = (
+                        locals().get('f_f_str') or 
+                        globals().get('f_f_str') or 
+                        st.session_state.get('f_f_str') or 
+                        st.session_state.get('rango_f_fin') or 
+                        st.session_state.get('fecha_fin') or 
+                        st.session_state.get('f_f')
+                    )
+
+                    # Si aún no se detectan de forma directa, las calculamos al vuelo usando el mes/año activo de la sesión
                     if not f_i or not f_f:
+                        import calendar
+                        dic_meses_local = {
+                            "Enero": 1, "Febrero": 2, "Marzo": 3, "Abril": 4, 
+                            "Mayo": 5, "Junio": 6, "Julio": 7, "Agosto": 8, 
+                            "Septiembre": 9, "Octubre": 10, "Noviembre": 11, "Diciembre": 12
+                        }
+                        
                         anio_sel = int(
                             st.session_state.get('anio') or 
                             st.session_state.get('año') or 
                             st.session_state.get('año_seleccionado_contabilidad') or 
                             st.session_state.get('selected_year') or 2026
                         )
+                        
                         mes_sel_str = str(
                             st.session_state.get('mes') or 
                             st.session_state.get('mes_seleccionado_contabilidad') or 
                             st.session_state.get('selected_month') or "Junio"
                         )
                         
-                        # Si el selector guarda el mes como número directamente en vez de texto:
                         if mes_sel_str.isdigit():
                             mes_n_val = int(mes_sel_str)
                         else:
-                            mes_n_val = dic_meses_local.get(mes_sel_str.capitalize(), 6) # Por defecto Junio si falla
+                            mes_n_val = dic_meses_local.get(mes_sel_str.capitalize(), 6)
                             
                         _, ultimo_d_mes = calendar.monthrange(anio_sel, mes_n_val)
                         
