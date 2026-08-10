@@ -7443,17 +7443,20 @@ if "Inicio" in opcion_menu:
         
         with col_kpi:
             st.subheader("Indicadores Financieros en Tiempo Real")
-            # --- PEGA AQUÍ LA PRUEBA DE EMERGENCIA ---
+            # --- PRUEBA DE EMERGENCIA CORREGIDA ---
             st.write("---")
-            st.write(f"🔍 Debugging Conexión: Estamos apuntando a la base de datos: **{st.session_state.get('DB_ACTUAL')}**")
+            # Usamos st.session_state.get('db_a_conectar') que es el nombre técnico real de la base de datos
+            db_objetivo = st.session_state.get('db_a_conectar')
 
-            # Verificamos si realmente existen tablas en este esquema seleccionado
-            conn = conectar_db(st.session_state.get('DB_ACTUAL'))
+            st.write(f"🔍 Debugging Conexión: Estamos apuntando a la base de datos: **{db_objetivo}**")
+
+            # Nos conectamos usando la variable correcta
+            conn = conectar_db(db_objetivo)
             if conn:
                 cursor = conn.cursor()
                 cursor.execute("SHOW TABLES;")
                 tablas = cursor.fetchall()
-                st.write(f"📊 Tablas encontradas en {st.session_state.get('DB_ACTUAL')}: {tablas}")
+                st.write(f"📊 Tablas encontradas en {db_objetivo}: {tablas}")
                 
                 # Si 'asientos_contables' está en la lista, contemos cuánto hay
                 if ('asientos_contables',) in tablas:
@@ -7462,11 +7465,10 @@ if "Inicio" in opcion_menu:
                     st.write(f"📈 Cantidad de registros en asientos_contables: **{cantidad}**")
                 else:
                     st.error("❌ ¡La tabla 'asientos_contables' no existe en este esquema!")
-        
-        with col_btn:
-            if st.button("🔄 Actualizar Datos"):
-                st.cache_data.clear()
-                st.rerun()
+                    with col_btn:
+                        if st.button("🔄 Actualizar Datos"):
+                            st.cache_data.clear()
+                            st.rerun()
 
         db = st.session_state.get('DB_ACTUAL', 'kingdirver_ca')
 
