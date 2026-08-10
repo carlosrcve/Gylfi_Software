@@ -8731,67 +8731,27 @@ if "Inicio" in opcion_menu:
                     st.info("No hay datos disponibles o error al recuperar el histórico para el periodo seleccionado.")
 
             with tab4:
-                # --- SECCIÓN: ASIENTO CONTABLE COMPLETO POR COMPROBANTE ---
+                # --- SECCIÓN: ASIENTO CONTABLE COMPLETO POR COMPROBANTE (MODO EMERGENCIA / SIN FILTRO DE FECHA) ---
                 st.divider()
-                st.subheader("👥 Detalle de Comprobantes - Cuentas por Pagar Accionistas")
+                st.subheader("👥 Detalle de Comprobantes - Cuentas por Pagar Accionistas (Emergencia)")
 
                 db_name = locals().get('db') or st.session_state.get('DB_ACTUAL')
 
                 if db_name and db_name != "{db}" and db_name != "None":
                     df_comps = pd.DataFrame()
-                    
-                    # 📅 CAPTURA DINÁMICA DESDE LOS SELECTORES DEL SIDEBAR (Año y Mes)
-                    anio_sel = int(st.session_state.get('anio') or st.session_state.get('año') or 2026)
-                    
-                    mes_sel_str = str(
-                        st.session_state.get('mes') or 
-                        st.session_state.get('selectbox_mes_multimoneda') or 
-                        st.session_state.get('mes_seleccionado_contabilidad') or 
-                        "Mayo"
-                    )
-
-                    dic_meses_local = {
-                        "Enero": 1, "Febrero": 2, "Marzo": 3, "Abril": 4, 
-                        "Mayo": 5, "Junio": 6, "Julio": 7, "Agosto": 8, 
-                        "Septiembre": 9, "Octubre": 10, "Noviembre": 11, "Diciembre": 12
-                    }
-
-                    if mes_sel_str.isdigit():
-                        mes_n_val = int(mes_sel_str)
-                    else:
-                        mes_n_val = dic_meses_local.get(mes_sel_str.capitalize(), 5)
-
-                    import calendar
-                    _, ultimo_d_mes = calendar.monthrange(anio_sel, mes_n_val)
-
-                    # Rango exacto sincronizado con la barra lateral
-                    f_i = f"{anio_sel}-{mes_n_val:02d}-01"
-                    f_f = f"{anio_sel}-{mes_n_val:02d}-{ultimo_d_mes:02d}"
-
-                    st.info(f"🎯 **Filtro sincronizado con el Sidebar** -> Desde: `{f_i}` Hasta: `{f_f}` | Empresa: `{db_name}`")
-
                     conn_tmp = conectar_db(db_name)
                     
                     if conn_tmp:
                         try:
-                            # 🧪 Diagnóstico flexible para cuentas de accionistas
-                            query_prueba = f"""
-                                SELECT COUNT(*) as total, MIN(fecha) as min_f, MAX(fecha) as max_f 
-                                FROM `{db_name}`.asientos_contables 
-                                WHERE (plan_cuentas LIKE '%%2.2.1%%' OR cuenta_contable LIKE '%%Accionista%%')
-                            """
-                            df_test = pd.read_sql(query_prueba, conn_tmp)
-                            
-                            # Consulta principal adaptada al rango dinámico y búsqueda flexible
+                            # 🚨 CONSULTA DIRECTA SIN FILTRO DE FECHAS PARA ENCONTRAR LOS DATOS YA
                             query_comps = f"""
                                 SELECT DISTINCT n_comprobante, fecha 
                                 FROM `{db_name}`.asientos_contables 
                                 WHERE (plan_cuentas LIKE '%%2.2.1%%' OR cuenta_contable LIKE '%%Accionista%%')
-                                AND STR_TO_DATE(fecha, '%%Y-%%m-%%d') BETWEEN STR_TO_DATE(%s, '%%Y-%%m-%%d') AND STR_TO_DATE(%s, '%%Y-%%m-%%d')
                                 ORDER BY fecha DESC, n_comprobante DESC
                             """
-                            df_comps = pd.read_sql(query_comps, conn_tmp, params=(f_i, f_f))
-                            
+                            df_comps = pd.read_sql(query_comps, conn_tmp)
+                            st.success(f"🔥 ¡Se encontraron {len(df_comps)} comprobantes históricos en total para `{db_name}`!")
                         except Exception as e:
                             st.error(f"❌ Error al consultar en TiDB: {e}")
                         finally:
@@ -8808,43 +8768,10 @@ if "Inicio" in opcion_menu:
                             except:
                                 return val
 
-                        total_debe_periodo = 0.0
-                        total_haber_periodo = 0.0
-                        
-                        conn_totales = conectar_db(db_name)
-                        if conn_totales and 'n_comprobante' in df_comps.columns:
-                            try:
-                                lista_n_comps = tuple(df_comps['n_comprobante'].astype(str).unique())
-                                if lista_n_comps:
-                                    placeholders = ','.join(['%s'] * len(lista_n_comps))
-                                    query_totales = f"""
-                                        SELECT SUM(CAST(debe AS DECIMAL(18,2))) as total_debe, SUM(CAST(haber AS DECIMAL(18,2))) as total_haber 
-                                        FROM `{db_name}`.asientos_contables 
-                                        WHERE n_comprobante IN ({placeholders})
-                                    """
-                                    df_t = pd.read_sql(query_totales, conn_totales, params=lista_n_comps)
-                                    if not df_t.empty:
-                                        total_debe_periodo = float(df_t['total_debe'].iloc[0] or 0.0)
-                                        total_haber_periodo = float(df_t['total_haber'].iloc[0] or 0.0)
-                            except Exception as e:
-                                st.error(f"Error al calcular totales globales: {e}")
-                            finally:
-                                try:
-                                    conn_totales.close()
-                                except Exception:
-                                    pass
-
-                        col_m1, col_m2, col_m3 = st.columns(3)
-                        col_m1.metric("Comprobantes en el Periodo", len(df_comps))
-                        col_m2.metric("Total Debe Global", f"Bs. {formato_latino(total_debe_periodo)}")
-                        col_m3.metric("Total Haber Global", f"Bs. {formato_latino(total_haber_periodo)}")
-                        
-                        st.divider()
-
                         df_comps['opcion'] = df_comps['n_comprobante'].astype(str) + " (Fecha: " + df_comps['fecha'].astype(str) + ")"
                         lista_opciones = df_comps['opcion'].tolist()
                         
-                        seleccion_opcion = st.selectbox("📂 Selecciona el comprobante a visualizar:", lista_opciones, key="select_accionistas")
+                        seleccion_opcion = st.selectbox("📂 Selecciona el comprobante a visualizar:", lista_opciones, key="select_accionistas_emergencia")
                         
                         if seleccion_opcion:
                             comprobante_activo = seleccion_opcion.split(" ")[0]
@@ -8887,7 +8814,7 @@ if "Inicio" in opcion_menu:
                             else:
                                 st.info("No se encontraron detalles para este comprobante.")
                     else:
-                        st.warning(f"⚠️ No hay comprobantes con cuentas asociadas a Accionistas para el rango del mes seleccionado ({f_i} al {f_f}).")
+                        st.error("⚠️ La base de datos no tiene NINGÚN registro con '2.2.1' o 'Accionista'. Revisa si el nombre de la empresa o la tabla son correctos.")
                 else:
                     st.warning("⚠️ Selecciona una empresa.")
                     
