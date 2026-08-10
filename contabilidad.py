@@ -69,21 +69,22 @@ if 'mes_seleccionado' not in st.session_state:
     st.session_state['mes_seleccionado'] = meses_nombres[datetime.datetime.now().month - 1]
 
 # --- 1. BLOQUE DE FECHAS GLOBAL Y SEGURO ---
+# --- 1. CONFIGURACIÓN DE MESES ---
 dic_meses = {
     "Enero": 1, "Febrero": 2, "Marzo": 3, "Abril": 4, 
     "Mayo": 5, "Junio": 6, "Julio": 7, "Agosto": 8, 
     "Septiembre": 9, "Octubre": 10, "Noviembre": 11, "Diciembre": 12
 }
-meses_nombres = list(dic_meses.keys())
 
-# 2. Inicialización limpia (solo ocurre la primera vez)
+# --- 2. INICIALIZACIÓN ÚNICA DEL ESTADO ---
+# Usamos setdefault para evitar sobrescribir si el usuario ya interactuó
 if 'año_seleccionado' not in st.session_state:
     st.session_state['año_seleccionado'] = datetime.datetime.now().year
+
 if 'mes_seleccionado' not in st.session_state:
     st.session_state['mes_seleccionado'] = "Junio"
 
-# 3. Sidebar con widgets conectados DIRECTAMENTE al session_state mediante 'key'
-# Al usar la misma KEY que el session_state, Streamlit maneja la sincronización automáticamente.
+# --- 3. SIDEBAR (Widget conectado) ---
 with st.sidebar:
     st.markdown("### 📅 Filtro de Período")
     
@@ -91,32 +92,35 @@ with st.sidebar:
         "Año", 
         min_value=2020, 
         max_value=2030, 
-        key='año_seleccionado' # Streamlit escribe directamente aquí
+        key='año_seleccionado'
     )
     
     st.selectbox(
         "Mes", 
-        meses_nombres, 
-        key='mes_seleccionado' # Streamlit escribe directamente aquí
+        list(dic_meses.keys()), 
+        key='mes_seleccionado'
     )
 
-# 4. Cálculo de variables (Se ejecuta tras cada interacción)
-anio_seleccionado = st.session_state['año_seleccionado']
-mes_elegido_str = st.session_state['mes_seleccionado']
-mes_n = dic_meses.get(mes_elegido_str, 6)
+# --- 4. CÁLCULO DINÁMICO DE FECHAS (Se ejecuta siempre) ---
+anio = st.session_state['año_seleccionado']
+mes_str = st.session_state['mes_seleccionado']
+mes_n = dic_meses[mes_str]
 
-ultimo_dia_mes = calendar.monthrange(int(anio_seleccionado), mes_n)[1]
+# Cálculo del último día del mes basado en el año y mes seleccionados
+_, ultimo_dia = calendar.monthrange(anio, mes_n)
 
-# Variables finales para tus consultas SQL
-fecha_inicio_str = f"{anio_seleccionado}-{mes_n:02d}-01"
-fecha_fin_str = f"{anio_seleccionado}-{mes_n:02d}-{ultimo_dia_mes:02d}"
+# Formateo correcto (asegura el cero a la izquierda con :02d)
+fecha_inicio_str = f"{anio}-{mes_n:02d}-01"
+fecha_fin_str = f"{anio}-{mes_n:02d}-{ultimo_dia:02d}"
 
-f_inicio_global = datetime.date(int(anio_seleccionado), mes_n, 1)
-f_fin_global = datetime.date(int(anio_seleccionado), mes_n, ultimo_dia_mes)
+# Objetos tipo fecha por si tus funciones SQL los requieren así
+f_inicio_global = datetime.date(anio, mes_n, 1)
+f_fin_global = datetime.date(anio, mes_n, ultimo_dia)
 
-# DEBUG (Para confirmar que el rango cambia)
+# --- 5. VISUALIZACIÓN DE CONTROL ---
 st.sidebar.divider()
-st.sidebar.write(f"**Rango SQL:** {fecha_inicio_str} al {fecha_fin_str}")
+st.sidebar.write(f"**Período Activo:** {mes_str} {anio}")
+st.sidebar.caption(f"Rango SQL: `{fecha_inicio_str}` al `{fecha_fin_str}`")
 
 # Inicializamos stats por seguridad si no existen
 if 'stats' not in st.session_state:
@@ -7085,6 +7089,22 @@ else:
 # =========================================================================
 # 1. TODO EL BLOQUE DEL SIDEBAR (Únicamente controles y navegación)
 # =========================================================================
+# Diccionario global de meses
+dic_meses = {
+    "Enero": 1, "Febrero": 2, "Marzo": 3, "Abril": 4, 
+    "Mayo": 5, "Junio": 6, "Julio": 7, "Agosto": 8, 
+    "Septiembre": 9, "Octubre": 10, "Noviembre": 11, "Diciembre": 12
+}
+meses_lista = list(dic_meses.keys())
+
+# --- INICIALIZACIÓN PREVIA DE ESTADOS ---
+if 'año_seleccionado_contabilidad' not in st.session_state:
+    st.session_state['año_seleccionado_contabilidad'] = datetime.datetime.now().year
+
+if 'mes_seleccionado_contabilidad' not in st.session_state:
+    st.session_state['mes_seleccionado_contabilidad'] = "Junio"
+
+
 with st.sidebar:
     st.image("https://cdn-icons-png.flaticon.com/512/2645/2645328.png", width=100)
     st.header("Panel de Auditoría")
@@ -7120,7 +7140,7 @@ with st.sidebar:
             c_id = st.session_state.get('cliente_id')
             query_sidebar += f" WHERE id = {c_id}"
 
-        # Abrimos una única conexión fresca para todo este bloque
+        # Conexión para la barra lateral
         conn_sidebar = conectar_db()
         df_sidebar = pd.DataFrame()
 
@@ -7128,7 +7148,6 @@ with st.sidebar:
             try:
                 if hasattr(conn_sidebar, 'ping') and callable(conn_sidebar.ping):
                     conn_sidebar.ping(reconnect=True)
-                
                 df_sidebar = pd.read_sql(query_sidebar, conn_sidebar)
             except Exception as e:
                 try:
@@ -7152,7 +7171,7 @@ with st.sidebar:
         if not df_sidebar.empty:
             df_sidebar = df_sidebar.fillna("")
             
-            # 1. Selector de Empresa
+            # Selector de Empresa
             nombres_empresas = df_sidebar['nombre_empresa'].tolist()
             empresa_previa = st.session_state.get('CLIENTE_NOMBRE')
             indice_inicial = 0
@@ -7178,20 +7197,18 @@ with st.sidebar:
                 st.stop()
                 
             datos_sel = empresa_filtrada.iloc[0]
-            
             db_raw = datos_sel['db_nombre']
+            
             if pd.isna(db_raw) or not db_raw:
                 st.error(f"⚠️ La empresa '{seleccion}' no tiene asignada una base de datos en 'control_central'.")
                 st.stop()
                 
             DB_ACTUAL = str(db_raw).strip()
-            
             st.session_state['DB_ACTUAL'] = DB_ACTUAL
             st.session_state['CLIENTE_NOMBRE'] = seleccion
             st.session_state['cliente_id_seleccionado'] = int(datos_sel['id'])
+            
             st.subheader("Módulos")
-
-            # 3. Lista base de módulos
             modulos_disponibles = [
                 "🏠 Inicio", "📂 Plan de Cuentas", "📝 Asientos Contables", 
                 "📖 Mayor Analítico", "📊 Estados Financieros", "📚 Libros Fiscales", "👤 Proveedores"
@@ -7205,65 +7222,38 @@ with st.sidebar:
             st.session_state['opcion_menu_auditoria'] = opcion_menu
 
             if opcion_menu == "📝 Asientos Contables":
-                sub_opcion = st.radio("Acciones:", ["Subir Datos", "Conciliación Bancaria","Consultar Comprobante", "Consultar Saldos Iniciales", "Consultar Cierre Contable"], key="sub_asientos")
+                sub_opcion = st.radio("Acciones:", ["Subir Datos", "Conciliación Bancaria", "Consultar Comprobante", "Consultar Saldos Iniciales", "Consultar Cierre Contable"], key="sub_asientos")
             elif opcion_menu == "📊 Estados Financieros":
                 st.markdown("---")
                 sub_opcion = st.radio("Reportes Financieros:", ["Balance de Comprobación", "Balance General", "Estado de Resultados"], key="sub_estados")
             elif opcion_menu == "📚 Libros Fiscales":
-                sub_opcion = st.radio("Reportes Fiscales:", ["Libro de Ventas", "Libro de Compras", "Comprobante de Retención ISLR","Comprobante de Retención IVA"], key="sub_libros")
+                sub_opcion = st.radio("Reportes Fiscales:", ["Libro de Ventas", "Libro de Compras", "Comprobante de Retención ISLR", "Comprobante de Retención IVA"], key="sub_libros")
             else:
                 sub_opcion = None
             
-            # =========================================================================
-            # 📅 BLOQUE ÚNICO Y LIMPIO DE FILTROS DE FECHA
-            # =========================================================================
+            # --- BLOQUE DE FILTROS DE FECHA ---
             st.divider()
             st.subheader("📅 Período de Consulta")
 
-            # Inicialización única y segura (Evita duplicados)
-            if 'año_seleccionado_contabilidad' not in st.session_state:
-                st.session_state['año_seleccionado_contabilidad'] = datetime.datetime.now().year
-
-            if 'mes_seleccionado_contabilidad' not in st.session_state:
-                st.session_state['mes_seleccionado_contabilidad'] = "Enero"
-
             col_anio, col_mes = st.columns(2)
-            
-            col_anio.number_input(
-                "Año", 
-                step=1, 
-                key="año_seleccionado_contabilidad"
-            )
-
-            meses_lista = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
-            col_mes.selectbox(
-                "Mes", 
-                meses_lista, 
-                key="mes_seleccionado_contabilidad"
-            )
+            col_anio.number_input("Año", step=1, min_value=2020, max_value=2030, key="año_seleccionado_contabilidad")
+            col_mes.selectbox("Mes", meses_lista, key="mes_seleccionado_contabilidad")
 
         else:
             st.error("No se encontraron empresas asociadas.")
             st.stop()
 
 # =========================================================================
-# ⚙️ VARIABLES GLOBALES DE FECHA (FUERA DEL SIDEBAR)
+# ⚙️ VARIABLES GLOBALES DE FECHA (DINÁMICAS PARA CUALQUIER MES Y AÑO)
 # =========================================================================
-dic_meses = {
-    "Enero": 1, "Febrero": 2, "Marzo": 3, "Abril": 4, 
-    "Mayo": 5, "Junio": 6, "Julio": 7, "Agosto": 8, 
-    "Septiembre": 9, "Octubre": 10, "Noviembre": 11, "Diciembre": 12
-}
-
-# Forzamos la lectura de las llaves unificadas del sidebar
-anio_seleccionado = int(st.session_state.get('año_seleccionado_contabilidad', 2026))
+anio_seleccionado = int(st.session_state.get('año_seleccionado_contabilidad', datetime.datetime.now().year))
 mes_elegido_str = st.session_state.get('mes_seleccionado_contabilidad', "Junio")
 
-# Mapeamos el mes a su número correspondiente
 mes_n = dic_meses.get(mes_elegido_str, 6)
 
-# Cálculos exactos para el SQL y los reportes visuales
-ultimo_dia_mes = calendar.monthrange(anio_seleccionado, mes_n)[1]
+# Cálculo automático de los días del mes (bisiestos, meses de 30 o 31 días)
+_, ultimo_dia_mes = calendar.monthrange(anio_seleccionado, mes_n)
+
 fecha_inicio_str = f"{anio_seleccionado}-{mes_n:02d}-01"
 fecha_fin_str = f"{anio_seleccionado}-{mes_n:02d}-{ultimo_dia_mes:02d}"
 
