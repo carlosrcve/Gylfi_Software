@@ -8740,14 +8740,20 @@ if "Inicio" in opcion_menu:
                 if db_name and db_name != "{db}" and db_name != "None":
                     df_comps = pd.DataFrame()
                     
-                    # 🔍 CAPTURA DINÁMICA DE FECHAS (Sincronizada con el selector principal de la app)
+                    # 🕵️‍♂️ MODO INSPECCIÓN: Vamos a mostrar qué hay en el session_state para cazar la variable de fecha real
+                    with st.expander("🛠️ Depuración de Fechas y Session State (Abrir para ver)", expanded=True):
+                        st.write("Variables de sesión disponibles:", list(st.session_state.keys()))
+                        st.write("Variables globales disponibles:", [k for k in globals().keys() if not k.startswith('_')])
+
+                    # 🔍 CAPTURA DINÁMICA DE FECHAS
                     f_i = (
                         locals().get('f_i_str') or 
                         globals().get('f_i_str') or 
                         st.session_state.get('f_i_str') or 
                         st.session_state.get('rango_f_inicio') or 
                         st.session_state.get('fecha_inicio') or 
-                        st.session_state.get('f_i')
+                        st.session_state.get('f_i') or
+                        st.session_state.get('inicio')
                     )
                     
                     f_f = (
@@ -8756,10 +8762,11 @@ if "Inicio" in opcion_menu:
                         st.session_state.get('f_f_str') or 
                         st.session_state.get('rango_f_fin') or 
                         st.session_state.get('fecha_fin') or 
-                        st.session_state.get('f_f')
+                        st.session_state.get('f_f') or
+                        st.session_state.get('fin')
                     )
 
-                    # Si aún no se detectan de forma directa, las calculamos al vuelo usando el mes/año activo de la sesión
+                    # Si aún no se detectan, calculamos con mes/año de la sesión
                     if not f_i or not f_f:
                         import calendar
                         dic_meses_local = {
@@ -8791,13 +8798,22 @@ if "Inicio" in opcion_menu:
                         f_i = f"{anio_sel}-{mes_n_val:02d}-01"
                         f_f = f"{anio_sel}-{mes_n_val:02d}-{ultimo_d_mes:02d}"
 
-                    st.caption(f"📅 Periodo consultado (desde Sidebar) → Desde: `{f_i}` Hasta: `{f_f}` | Empresa: `{db_name}`")
+                    st.info(f"🔎 **Depuración activa** -> `f_i` detectada: `{f_i}` | `f_f` detectada: `{f_f}` | Empresa: `{db_name}`")
 
                     conn_tmp = conectar_db(db_name)
                     
                     if conn_tmp:
                         try:
-                            # Usamos el código exacto que sabemos que existe en la nube
+                            # 🧪 Probemos primero un SELECT simple sin filtro de fecha para ver si la cuenta '2.2.1.01.001' de verdad trae algo en la BD
+                            query_prueba = f"""
+                                SELECT COUNT(*) as total, MIN(fecha) as min_f, MAX(fecha) as max_f 
+                                FROM `{db_name}`.asientos_contables 
+                                WHERE plan_cuentas LIKE '2.2.1.01.001%%'
+                            """
+                            df_test = pd.read_sql(query_prueba, conn_tmp)
+                            st.write("📊 Diagnóstico de la tabla en TiDB (Sin filtro de fecha):", df_test)
+
+                            # Consulta principal con las fechas capturadas
                             query_comps = f"""
                                 SELECT DISTINCT n_comprobante, fecha 
                                 FROM `{db_name}`.asientos_contables 
@@ -8808,7 +8824,7 @@ if "Inicio" in opcion_menu:
                             df_comps = pd.read_sql(query_comps, conn_tmp, params=(f_i, f_f))
                             
                         except Exception as e:
-                            st.error(f"Error al consultar comprobantes en TiDB: {e}")
+                            st.error(f"❌ Error al consultar en TiDB: {e}")
                         finally:
                             try:
                                 conn_tmp.close()
@@ -8823,7 +8839,6 @@ if "Inicio" in opcion_menu:
                             except:
                                 return val
 
-                        # --- MÉTRICAS GLOBALES DEL PERIODO ---
                         total_debe_periodo = 0.0
                         total_haber_periodo = 0.0
                         
@@ -8857,7 +8872,6 @@ if "Inicio" in opcion_menu:
                         
                         st.divider()
 
-                        # 📊 VISUALIZAR LA TABLA GENERAL DE COMPROBANTES ENCONTRADOS
                         st.markdown("**Listado de Comprobantes Filtrados:**")
                         st.dataframe(df_comps, use_container_width=True, height=200)
 
@@ -8909,7 +8923,7 @@ if "Inicio" in opcion_menu:
                             else:
                                 st.info("No se encontraron detalles para este comprobante.")
                     else:
-                        st.info("No hay comprobantes asociados al filtro seleccionado para esta cuenta en el periodo indicado.")
+                        st.warning("⚠️ No hay comprobantes con el plan de cuentas `2.2.1.01.001` para el rango de fechas indicado. Revisa arriba el diagnóstico de la BD para ver qué fechas reales tienen los registros.")
                 else:
                     st.warning("⚠️ Selecciona una empresa.")
                     
