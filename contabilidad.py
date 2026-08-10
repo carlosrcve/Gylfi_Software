@@ -8520,7 +8520,7 @@ if "Inicio" in opcion_menu:
                         if conn_tab and conn_tab.is_connected():
                             conn_tab.close()
 
-                            
+
                 nombres_grafico = []
                 valores_grafico = []
                 colores_grafico = []
@@ -8558,9 +8558,13 @@ if "Inicio" in opcion_menu:
                         texttemplate='%{x:,.2f}',
                         textposition='outside'
                     ))
-                    
+
+                    # Forzamos la lectura directa de las llaves oficiales del sidebar
+                    mes_titulo = st.session_state.get('mes_seleccionado_contabilidad', 'Junio')
+                    anio_titulo = st.session_state.get('año_seleccionado_contabilidad', 2026)
+
                     fig.update_layout(
-                        title=f"Comparativa: Retiros vs Utilidades (Mes: {mes_elegido_str} {anio_seleccionado})",
+                        title=f"Comparativa: Retiros vs Utilidades (Mes: {mes_titulo} {anio_titulo})",
                         height=450,
                         xaxis=dict(title="Valor (Bs.)", zeroline=True, showgrid=True, autorange=True),
                         yaxis=dict(type='category', autorange="reversed"),
