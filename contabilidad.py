@@ -8756,21 +8756,22 @@ if "Inicio" in opcion_menu:
                     # Si la barra lateral usa otras variables directas en el session_state, las leemos aquí:
                     if not f_i or not f_f:
                         anio_sel = int(
-                            st.session_state.get('año_seleccionado_contabilidad') or 
                             st.session_state.get('anio') or 
+                            st.session_state.get('año') or 
+                            st.session_state.get('año_seleccionado_contabilidad') or 
                             st.session_state.get('selected_year') or 2026
                         )
                         mes_sel_str = str(
-                            st.session_state.get('mes_seleccionado_contabilidad') or 
                             st.session_state.get('mes') or 
-                            st.session_state.get('selected_month') or "Mayo"
+                            st.session_state.get('mes_seleccionado_contabilidad') or 
+                            st.session_state.get('selected_month') or "Junio"
                         )
                         
                         # Si el selector guarda el mes como número directamente en vez de texto:
                         if mes_sel_str.isdigit():
                             mes_n_val = int(mes_sel_str)
                         else:
-                            mes_n_val = dic_meses_local.get(mes_sel_str, 5) # Por defecto Mayo si falla
+                            mes_n_val = dic_meses_local.get(mes_sel_str.capitalize(), 6) # Por defecto Junio si falla
                             
                         _, ultimo_d_mes = calendar.monthrange(anio_sel, mes_n_val)
                         
