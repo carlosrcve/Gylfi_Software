@@ -8130,25 +8130,26 @@ if "Inicio" in opcion_menu:
 
         with col_filtro2:
             anio_actual_global = st.session_state.get('año_seleccionado', 2026)
-            
-            # ✅ Usamos una KEY independiente para el año
+
+            # 1. Aseguramos que la llave exista y que no sea menor a 2024 antes de crear el widget
+            if "number_input_anio_multimoneda" not in st.session_state or st.session_state["number_input_anio_multimoneda"] < 2024:
+                st.session_state["number_input_anio_multimoneda"] = max(2024, int(anio_actual_global))
+
+            # 2. Creamos el input usando únicamente su key sincronizada
             ano_seleccionado = st.number_input(
                 "Seleccione el Año:", 
                 min_value=2024, 
                 max_value=2030, 
-                value=int(anio_actual_global), 
                 step=1, 
                 key="number_input_anio_multimoneda"
             )
+            
 
         with col_filtro3:
             # Metemos un espacio en blanco arriba para alinear verticalmente el toggle con los selectores
             st.markdown("<div style='padding-top: 25px;'></div>", unsafe_allow_html=True)
             moneda_vista = "Dólares (USD)" if st.toggle("🇺🇸 Ver reporte en USD", value=False, key="toggle_moneda_multimoneda") else "Bolívares (VES)"
         # --- BLOQUE LÓGICO DE DATOS (Debe ejecutarse antes para poder descargar) ---
-        # --- BLOQUE LÓGICO DE DATOS (Conexión local blindada) ---
-        # --- BLOQUE LÓGICO DE DATOS (Conexión local blindada) ---
-        # --- BLOQUE LÓGICO DE DATOS (Conexión local blindada) ---
         try:
             # 1. Abrimos una conexión fresca y exclusiva para este reporte
             conn_local = conectar_db(db_actual)
