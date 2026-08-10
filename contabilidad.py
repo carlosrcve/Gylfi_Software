@@ -8823,10 +8823,38 @@ if "Inicio" in opcion_menu:
                 st.divider()
                 st.subheader("💰 Detalle de Comprobantes - Otros Ingresos (7.1.1.01.001)")
 
-                db_actual = st.session_state.get('DB_ACTUAL')
+                db_actual = locals().get('db') or st.session_state.get('DB_ACTUAL')
 
                 if db_actual and db_actual != "{db}" and db_actual != "None":
-                    # Usamos f_i y f_f para mantener la consistencia con el período activo
+                    
+                    # 📅 CAPTURA DINÁMICA DE FECHAS DESDE EL SIDEBAR (Sincronizado)
+                    anio_sel = int(st.session_state.get('anio') or st.session_state.get('año') or 2026)
+                    
+                    mes_sel_str = str(
+                        st.session_state.get('mes') or 
+                        st.session_state.get('selectbox_mes_multimoneda') or 
+                        st.session_state.get('mes_seleccionado_contabilidad') or 
+                        "Mayo"
+                    )
+
+                    dic_meses_local = {
+                        "Enero": 1, "Febrero": 2, "Marzo": 3, "Abril": 4, 
+                        "Mayo": 5, "Junio": 6, "Julio": 7, "Agosto": 8, 
+                        "Septiembre": 9, "Octubre": 10, "Noviembre": 11, "Diciembre": 12
+                    }
+
+                    if mes_sel_str.isdigit():
+                        mes_n_val = int(mes_sel_str)
+                    else:
+                        mes_n_val = dic_meses_local.get(mes_sel_str.capitalize(), 5)
+
+                    import calendar
+                    _, ultimo_d_mes = calendar.monthrange(anio_sel, mes_n_val)
+
+                    f_i = f"{anio_sel}-{mes_n_val:02d}-01"
+                    f_f = f"{anio_sel}-{mes_n_val:02d}-{ultimo_d_mes:02d}"
+
+                    # Usamos f_i y f_f sincronizados con la función de ingresos
                     df_comps = obtener_comprobantes_ingresos(db_actual, f_i, f_f)
 
                     if not df_comps.empty:
@@ -8850,14 +8878,14 @@ if "Inicio" in opcion_menu:
                                 if lista_n_comps:
                                     placeholders = ','.join(['%s'] * len(lista_n_comps))
                                     query_totales = f"""
-                                        SELECT SUM(debe) as total_debe, SUM(haber) as total_haber 
+                                        SELECT SUM(CAST(debe AS DECIMAL(18,2))) as total_debe, SUM(CAST(haber AS DECIMAL(18,2))) as total_haber 
                                         FROM `{db_actual}`.asientos_contables 
                                         WHERE n_comprobante IN ({placeholders})
                                     """
                                     df_t = pd.read_sql(query_totales, conn_totales, params=lista_n_comps)
                                     if not df_t.empty:
-                                        total_debe_periodo = df_t['total_debe'].iloc[0] or 0.0
-                                        total_haber_periodo = df_t['total_haber'].iloc[0] or 0.0
+                                        total_debe_periodo = float(df_t['total_debe'].iloc[0] or 0.0)
+                                        total_haber_periodo = float(df_t['total_haber'].iloc[0] or 0.0)
                             except Exception as e:
                                 st.error(f"Error al calcular los totales globales de ingresos: {e}")
                             finally:
@@ -8888,8 +8916,15 @@ if "Inicio" in opcion_menu:
                                 st.markdown(f"**Asiento Contable Completo del Comprobante N°: `{comprobante_activo}`**")
                                 
                                 df_mostrar = df_asiento.copy()
-                                df_mostrar['debe'] = df_mostrar['debe'].apply(formato_latino)
-                                df_mostrar['haber'] = df_mostrar['haber'].apply(formato_latino)
+                                df_mostrar['debe_num'] = pd.to_numeric(df_mostrar['debe'], errors='coerce').fillna(0)
+                                df_mostrar['haber_num'] = pd.to_numeric(df_mostrar['haber'], errors='coerce').fillna(0)
+                                
+                                total_debe = df_mostrar['debe_num'].sum()
+                                total_haber = df_mostrar['haber_num'].sum()
+                                
+                                df_mostrar['debe'] = df_mostrar['debe_num'].apply(formato_latino)
+                                df_mostrar['haber'] = df_mostrar['haber_num'].apply(formato_latino)
+                                df_mostrar = df_mostrar.drop(columns=['debe_num', 'haber_num'], errors='ignore')
                                 
                                 st.dataframe(
                                     df_mostrar,
@@ -8908,16 +8943,13 @@ if "Inicio" in opcion_menu:
                                     }
                                 )
                                 
-                                total_debe = df_asiento['debe'].sum()
-                                total_haber = df_asiento['haber'].sum()
-                                
                                 col1, col2 = st.columns(2)
                                 col1.metric("Total Debe (Comprobante)", f"Bs. {formato_latino(total_debe)}")
                                 col2.metric("Total Haber (Comprobante)", f"Bs. {formato_latino(total_haber)}")
                             else:
                                 st.info("No se encontraron detalles para este comprobante.")
                     else:
-                        st.info("No hay comprobantes asociados a Otros Ingresos en este rango de fechas.")
+                        st.info(f"No hay comprobantes asociados a Otros Ingresos en este rango de fechas ({f_i} al {f_f}).")
                 else:
                     st.warning("⚠️ Selecciona una empresa.")
 
