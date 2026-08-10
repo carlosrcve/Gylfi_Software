@@ -7480,6 +7480,7 @@ if "Inicio" in opcion_menu:
             db = st.session_state.get('db_a_conectar')
 
             # Llamamos a la función de utilidad limpia
+            st.write(f"🔍 DataFrame recibido en la app:", df_utilidad)
             df_utilidad = obtener_historico_utilidad(db, f_inicio=f_inicio_global, f_fin=f_fin_global)
 
             if df_utilidad is None:
