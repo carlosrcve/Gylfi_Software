@@ -8827,23 +8827,22 @@ if "Inicio" in opcion_menu:
 
                 if db_actual and db_actual != "{db}" and db_actual != "None":
                     
-                    # 🎯 CAPTURA DIRECTA: Usamos las mismas variables globales que pintan el "Período Activo" arriba
-                    # Si ya existen en tu script principal (f_i y f_f), las heredamos de una vez sin recalcularlas mal.
-                    global f_i, f_f
+                    # 🎯 CAPTURA DIRECTA SEGURA: Evaluamos las globales de forma segura sin violar el scope
+                    _f_i_val = globals().get('f_i')
+                    _f_f_val = globals().get('f_f')
                     
-                    if 'f_i' not in locals() or 'f_f' not in locals():
-                        # Plan B por si el scope de las globales cambia en tu archivo
+                    if not _f_i_val or not _f_f_val:
                         anio_sel = int(st.session_state.get('anio') or st.session_state.get('año') or 2026)
-                        mes_sel_val = st.session_state.get('mes_num') or st.session_state.get('n_mes') or 6 # Forzamos junio por defecto si falla
+                        mes_sel_val = st.session_state.get('mes_num') or st.session_state.get('n_mes') or 6
                         import calendar
                         _, ultimo_d_mes = calendar.monthrange(anio_sel, int(mes_sel_val))
-                        f_i = f"{anio_sel}-{int(mes_sel_val):02d}-01"
-                        f_f = f"{anio_sel}-{int(mes_sel_val):02d}-{ultimo_d_mes:02d}"
+                        _f_i_val = f"{anio_sel}-{int(mes_sel_val):02d}-01"
+                        _f_f_val = f"{anio_sel}-{int(mes_sel_val):02d}-{ultimo_d_mes:02d}"
 
-                    st.info(f"🔄 **Filtro sincronizado con la cabecera** -> Buscando del `{f_i}` al `{f_f}`")
+                    st.info(f"🔄 **Filtro sincronizado con la cabecera** -> Buscando del `{_f_i_val}` al `{_f_f_val}`")
 
-                    # Consultamos usando estrictamente las fechas reales del período activo
-                    df_comps = obtener_comprobantes_ingresos(db_actual, f_i, f_f)
+                    # Consultamos usando las fechas exactas del período activo
+                    df_comps = obtener_comprobantes_ingresos(db_actual, _f_i_val, _f_f_val)
 
                     if not df_comps.empty:
                         def formato_latino(val):
@@ -8932,7 +8931,7 @@ if "Inicio" in opcion_menu:
                             else:
                                 st.info("No se encontraron detalles para este comprobante.")
                     else:
-                        st.info(f"No hay comprobantes asociados a Otros Ingresos en el rango activo ({f_i} al {f_f}).")
+                        st.info(f"No hay comprobantes asociados a Otros Ingresos en el rango activo ({_f_i_val} al {_f_f_val}).")
                 else:
                     st.warning("⚠️ Selecciona una empresa.")
 
