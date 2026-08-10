@@ -8746,74 +8746,28 @@ if "Inicio" in opcion_menu:
                         st.write("Variables globales disponibles:", [k for k in globals().keys() if not k.startswith('_')])
 
                     # 🔍 CAPTURA DINÁMICA DE FECHAS
-                    f_i = (
-                        locals().get('f_i_str') or 
-                        globals().get('f_i_str') or 
-                        st.session_state.get('f_i_str') or 
-                        st.session_state.get('rango_f_inicio') or 
-                        st.session_state.get('fecha_inicio') or 
-                        st.session_state.get('f_i') or
-                        st.session_state.get('inicio')
-                    )
-                    
-                    f_f = (
-                        locals().get('f_f_str') or 
-                        globals().get('f_f_str') or 
-                        st.session_state.get('f_f_str') or 
-                        st.session_state.get('rango_f_fin') or 
-                        st.session_state.get('fecha_fin') or 
-                        st.session_state.get('f_f') or
-                        st.session_state.get('fin')
-                    )
+                    # 🎯 FORZAMOS A LEER LA MISMA FECHA ACTIVA DE LA APP PRINCIPAL O DEL BLOQUE SUPERIOR
+                    # Si la app principal guarda el rango en formato texto o variables directas, las atrapamos aquí:
+                    f_i = st.session_state.get('f_i_str') or st.session_state.get('rango_f_inicio') or "2026-06-01"
+                    f_f = st.session_state.get('f_f_str') or st.session_state.get('rango_f_fin') or "2026-06-30"
 
-                    # Si aún no se detectan, calculamos con mes/año de la sesión
-                    if not f_i or not f_f:
-                        import calendar
-                        dic_meses_local = {
-                            "Enero": 1, "Febrero": 2, "Marzo": 3, "Abril": 4, 
-                            "Mayo": 5, "Junio": 6, "Julio": 7, "Agosto": 8, 
-                            "Septiembre": 9, "Octubre": 10, "Noviembre": 11, "Diciembre": 12
-                        }
-                        
-                        anio_sel = int(
-                            st.session_state.get('anio') or 
-                            st.session_state.get('año') or 
-                            st.session_state.get('año_seleccionado_contabilidad') or 
-                            st.session_state.get('selected_year') or 2026
-                        )
-                        
-                        mes_sel_str = str(
-                            st.session_state.get('mes') or 
-                            st.session_state.get('mes_seleccionado_contabilidad') or 
-                            st.session_state.get('selected_month') or "Junio"
-                        )
-                        
-                        if mes_sel_str.isdigit():
-                            mes_n_val = int(mes_sel_str)
-                        else:
-                            mes_n_val = dic_meses_local.get(mes_sel_str.capitalize(), 6)
-                            
-                        _, ultimo_d_mes = calendar.monthrange(anio_sel, mes_n_val)
-                        
-                        f_i = f"{anio_sel}-{mes_n_val:02d}-01"
-                        f_f = f"{anio_sel}-{mes_n_val:02d}-{ultimo_d_mes:02d}"
-
-                    st.info(f"🔎 **Depuración activa** -> `f_i` detectada: `{f_i}` | `f_f` detectada: `{f_f}` | Empresa: `{db_name}`")
+                    # Si el usuario cambió el mes en el sidebar, aseguramos que coincida con el mes en curso de la app:
+                    st.info(f"📅 Rango sincronizado con la app principal -> Desde: `{f_i}` Hasta: `{f_f}`")
 
                     conn_tmp = conectar_db(db_name)
                     
                     if conn_tmp:
                         try:
-                            # 🧪 Probemos primero un SELECT simple sin filtro de fecha para ver si la cuenta '2.2.1.01.001' de verdad trae algo en la BD
+                            # 🧪 Diagnóstico corregido para buscar con comodín flexible la cuenta de accionistas
                             query_prueba = f"""
                                 SELECT COUNT(*) as total, MIN(fecha) as min_f, MAX(fecha) as max_f 
                                 FROM `{db_name}`.asientos_contables 
-                                WHERE plan_cuentas LIKE '2.2.1.01.001%%'
+                                WHERE (plan_cuentas LIKE '%%2.2.1%%' OR cuenta_contable LIKE '%%Accionista%%')
                             """
                             df_test = pd.read_sql(query_prueba, conn_tmp)
-                            st.write("📊 Diagnóstico de la tabla en TiDB (Sin filtro de fecha):", df_test)
+                            st.write("📊 Diagnóstico de Cuentas por Pagar Accionistas en TiDB:", df_test)
 
-                            # Consulta principal con las fechas capturadas
+                            # Consulta principal con el rango de fechas correcto y flexible
                             query_comps = f"""
                                 SELECT DISTINCT n_comprobante, fecha 
                                 FROM `{db_name}`.asientos_contables 
@@ -8830,7 +8784,7 @@ if "Inicio" in opcion_menu:
                                 conn_tmp.close()
                             except Exception:
                                 pass
-
+                    
                     if not df_comps.empty:
                         def formato_latino(val):
                             try:
