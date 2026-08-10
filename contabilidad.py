@@ -7439,6 +7439,11 @@ if "Inicio" in opcion_menu:
         
         with col_kpi:
             st.subheader("Indicadores Financieros en Tiempo Real")
+            # --- PEGA AQUÍ LA PRUEBA DE EMERGENCIA ---
+            conn_debug = conectar_db(st.session_state.get('DB_ACTUAL'))
+            if conn_debug:
+                df_debug = pd.read_sql("SELECT * FROM asientos_contables LIMIT 5;", conn_debug)
+                st.write("🔍 Echa un ojo a las primeras filas reales en TiDB Cloud:", df_debug)
         
         with col_btn:
             if st.button("🔄 Actualizar Datos"):
