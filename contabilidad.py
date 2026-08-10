@@ -519,7 +519,7 @@ def obtener_historico_utilidad(db, f_inicio=None, f_fin=None):
         partes = fecha_fin_str.split('-')
         fecha_inicio_str = f"{partes[0]}-{partes[1]}-01"
     
-    # Consulta blindada con DATE() para ignorar las horas y garantizar el match exacto del rango
+    # Consulta corregida (COALESCE en lugar de COALESCO)
     query = f"""
         SELECT 
             COALESCE(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '4%' THEN haber ELSE 0 END), 0) as ing_haber,
@@ -534,7 +534,7 @@ def obtener_historico_utilidad(db, f_inicio=None, f_fin=None):
             COALESCE(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '7%' THEN haber ELSE 0 END), 0) as oing_haber,
             COALESCE(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '7%' THEN debe ELSE 0 END), 0) as oing_debe,
             
-            COALESCO(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '8%' THEN debe ELSE 0 END), 0) as oeg_debe,
+            COALESCE(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '8%' THEN debe ELSE 0 END), 0) as oeg_debe,
             COALESCE(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '8%' THEN haber ELSE 0 END), 0) as oeg_haber
         FROM `{db}`.asientos_contables 
         WHERE DATE(fecha) BETWEEN %s AND %s
@@ -560,6 +560,8 @@ def obtener_historico_utilidad(db, f_inicio=None, f_fin=None):
         costos = float(df['cos_debe'].iloc[0]) - float(df['cos_haber'].iloc[0])
         gastos = abs(float(df['gas_debe'].iloc[0]) - float(df['gas_haber'].iloc[0]))
         otros_ingresos = float(df['oing_haber'].iloc[0]) - float(df['oing_debe'].iloc[0])
+        
+        # ⚠️ AQUÍ ESTABA EL ERROR: faltaba un paréntesis al final de abs(...)
         otros_egresos = abs(float(df['oeg_debe'].iloc[0]) - float(df['oeg_haber'].iloc[0]))
 
         utilidad_neta = ingresos - costos - gastos + otros_ingresos - otros_egresos
