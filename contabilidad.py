@@ -8465,7 +8465,7 @@ if "Inicio" in opcion_menu:
             with tab1:
                 st.markdown("### Clausula 4ta del Contrato")
                 
-                # Procesamiento ultra-seguro de la utilidad devuelta
+                # 1. Procesamiento ultra-seguro de la utilidad devuelta
                 utilidad_bruta = 0.0
                 if utilidad is not None:
                     if isinstance(utilidad, pd.DataFrame) and not utilidad.empty:
@@ -8483,14 +8483,10 @@ if "Inicio" in opcion_menu:
 
                 neto_disponible = utilidad_bruta * 0.66
 
-                # --- CARGA CORRECTA Y SEGURA DE LA CONFIGURACIÓN DE ACCIONISTAS ---
-                # --- CARGA CORRECTA Y SEGURA DE LA CONFIGURACIÓN DE ACCIONISTAS ---
-                st.write(f"Host en Python: {st.session_state.conn.server_host}")
-                st.write(f"Puerto en Python: {st.session_state.conn.server_port}")
-                st.write(f"🔍 DEBUG EXTREMO -> Variable 'db': [{db}]")
-                st.write(f"DEBUG: Intentando conectar a la base de datos: {db}")
+                # 2. Obtenemos de forma segura el DataFrame detallado de asientos y accionistas del período
+                df_acc = obtener_analisis_accionista_detallado(db, f_inicio_global, f_fin_global)
 
-                # Reutilizamos la conexión activa de la sesión para evitar aperturas duplicadas
+                # Reutilizamos la conexión activa de la sesión para la configuración de accionistas
                 conn = st.session_state.get('conn') or conectar_db(db)
                 df_config_accionistas = pd.DataFrame()
 
@@ -8498,11 +8494,10 @@ if "Inicio" in opcion_menu:
                     st.error("❌ Error crítico: No se pudo establecer conexión con la base de datos.")
                 else:
                     try:
-                        # Aseguramos el contexto de la base de datos correcta
                         cursor = conn.cursor()
                         cursor.execute(f"USE `{db}`;")
                         
-                        # 1. Validación y creación automática de la tabla si no existe
+                        # Validación y creación automática de la tabla si no existe
                         cursor.execute("""
                             CREATE TABLE IF NOT EXISTS accionistas (
                                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -8513,7 +8508,6 @@ if "Inicio" in opcion_menu:
                             );
                         """)
                         
-                        # 2. Lectura directa de los datos
                         df_config_accionistas = pd.read_sql(f"SELECT * FROM `{db}`.accionistas", conn)
                         cursor.close()
 
@@ -8549,6 +8543,7 @@ if "Inicio" in opcion_menu:
                 if len(valores_grafico) > 0:
                     valores_grafico_limpios = [float(v) if pd.notnull(v) else 0.0 for v in valores_grafico]
                     
+                    # Usamos la variable unificada 'anio_seleccionado' para evitar errores
                     fig = go.Figure(go.Bar(
                         x=valores_grafico_limpios,
                         y=nombres_grafico,
@@ -8559,7 +8554,7 @@ if "Inicio" in opcion_menu:
                     ))
                     
                     fig.update_layout(
-                        title=f"Comparativa: Retiros vs Utilidades (Mes: {mes_elegido_str} {año})",
+                        title=f"Comparativa: Retiros vs Utilidades (Mes: {mes_elegido_str} {anio_seleccionado})",
                         height=450,
                         xaxis=dict(title="Valor (Bs.)", zeroline=True, showgrid=True, autorange=True),
                         yaxis=dict(type='category', autorange="reversed"),
