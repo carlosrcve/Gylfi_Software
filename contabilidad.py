@@ -673,7 +673,7 @@ def obtener_analisis_gastos_clase6(db, f_i, f_f):
         
     return df
 
-@log_ejecucion
+
 def obtener_asiento_por_comprobante(db, n_comprobante):
     conn = conectar_db(db)
     if not conn:
@@ -811,7 +811,7 @@ def obtener_historico_utilidad_acumulada(db):
                 conn.close()
             except:
                 pass
-            
+
 def obtener_saldos_acumulados(conexion, fecha_corte, nombre_db):
     if not conexion:
         print("❌ Error: No hay conexión activa en obtener_saldos_acumulados")
@@ -8751,7 +8751,6 @@ if "Inicio" in opcion_menu:
                         
                         if conn_tmp:
                             try:
-                                # Consulta filtrada por cuenta de accionistas y rango de fechas compatible con TiDB Cloud
                                 query_comps = f"""
                                     SELECT DISTINCT n_comprobante, fecha 
                                     FROM `{db_actual}`.asientos_contables 
@@ -8826,8 +8825,19 @@ if "Inicio" in opcion_menu:
                                     st.markdown(f"**Asiento Contable Completo del Comprobante N°: `{comprobante_activo}`**")
                                     
                                     df_mostrar = df_asiento.copy()
-                                    df_mostrar['debe'] = df_mostrar['debe'].apply(formato_latino)
-                                    df_mostrar['haber'] = df_mostrar['haber'].apply(formato_latino)
+                                    
+                                    # Asegurar formato numérico antes de aplicar formato latino en la vista
+                                    df_mostrar['debe_num'] = pd.to_numeric(df_mostrar['debe'], errors='coerce').fillna(0)
+                                    df_mostrar['haber_num'] = pd.to_numeric(df_mostrar['haber'], errors='coerce').fillna(0)
+                                    
+                                    total_debe = df_mostrar['debe_num'].sum()
+                                    total_haber = df_mostrar['haber_num'].sum()
+                                    
+                                    df_mostrar['debe'] = df_mostrar['debe_num'].apply(formato_latino)
+                                    df_mostrar['haber'] = df_mostrar['haber_num'].apply(formato_latino)
+                                    
+                                    # Eliminamos columnas auxiliares temporales si existen
+                                    df_mostrar = df_mostrar.drop(columns=['debe_num', 'haber_num'], errors='ignore')
                                     
                                     st.dataframe(
                                         df_mostrar,
@@ -8845,9 +8855,6 @@ if "Inicio" in opcion_menu:
                                             "haber": st.column_config.TextColumn("Haber")
                                         }
                                     )
-                                    
-                                    total_debe = df_asiento['debe'].sum()
-                                    total_haber = df_asiento['haber'].sum()
                                     
                                     col1, col2 = st.columns(2)
                                     col1.metric("Total Debe (Comprobante)", f"Bs. {formato_latino(total_debe)}")
