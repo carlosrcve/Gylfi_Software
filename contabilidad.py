@@ -427,18 +427,11 @@ def obtener_analisis_accionista_detallado(db, f_i, f_f):
     if not conn or not conn.is_connected():
         return pd.DataFrame()
 
-    # 🔍 Diagnóstico de conexión en vivo
-    try:
-        cursor_d = conn.cursor()
-        cursor_d.execute("SELECT DATABASE(), @@port, @@hostname;")
-        db_actual, puerto_actual, host_actual = cursor_d.fetchone()
-        cursor_d.close()
-        st.info(f"Conectado a -> Host: {host_actual} | Puerto: {puerto_actual} | Base de datos activa: {db_actual}")
-    except Exception as e:
-        st.warning(f"No se pudo ejecutar el diagnóstico: {e}")
-
     s_fi = str(f_i).split()[0]
     s_ff = str(f_f).split()[0]
+    
+    # Aseguramos que el fin de fecha cubra todo el último día hasta el último segundo
+    s_ff_completa = f"{s_ff} 23:59:59"
     db_clean = str(db).strip().lower()
 
     df = pd.DataFrame()
@@ -461,6 +454,7 @@ def obtener_analisis_accionista_detallado(db, f_i, f_f):
         cursor.close()
 
         if existe_asientos > 0 and existe_accionistas > 0:
+            # Usamos DATE(a.fecha) para blindar la consulta contra columnas DATETIME/TIMESTAMP
             query = f"""
                 SELECT 
                     a.plan_cuentas, 
@@ -471,13 +465,13 @@ def obtener_analisis_accionista_detallado(db, f_i, f_f):
                     (a.debe - a.haber) as neto,
                     acc.nombre as nombre_accionista
                 FROM `{db}`.asientos_contables a
-                INNER JOIN `{db}`.accionistas acc ON a.plan_cuentas = acc.codigo_cuenta_asociada
-                WHERE a.fecha BETWEEN %s AND %s
+                INNER JOIN `{db}`.accionistas acc ON TRIM(a.plan_cuentas) = TRIM(acc.codigo_cuenta_asociada)
+                WHERE DATE(a.fecha) BETWEEN %s AND %s
                 ORDER BY a.fecha DESC
             """
             df = pd.read_sql(query, conn, params=(s_fi, s_ff))
         else:
-            st.warning(f"⚠️ Verificación fallida: asientos_contables ({existe_asientos}), accionistas ({existe_accionistas}) en la BD '{db_actual}'.")
+            st.warning(f"⚠️ Verificación fallida: tablas no encontradas en '{db}'.")
             
     except Exception as e:
         st.error(f"Error en la consulta de accionistas: {e}")
@@ -490,7 +484,6 @@ def obtener_analisis_accionista_detallado(db, f_i, f_f):
 
 
 def obtener_historico_utilidad(db, f_inicio=None, f_fin=None):
-    # REUTILIZAMOS la conexión activa de st.session_state si existe, si no, abrimos una
     conn = st.session_state.get('conn')
     if not conn or not conn.is_connected():
         conn = conectar_db(db)
@@ -522,8 +515,7 @@ def obtener_historico_utilidad(db, f_inicio=None, f_fin=None):
         partes = fecha_fin_str.split('-')
         fecha_inicio_str = f"{partes[0]}-{partes[1]}-01"
     
-    # Consulta SQL optimizada (quitando el STR_TO_DATE en la columna si ya es tipo fecha, 
-    # o dejándolo directo asegurando el formato estándar)
+    # Consulta blindada con DATE() para ignorar las horas y garantizar el match exacto del rango
     query = f"""
         SELECT 
             COALESCE(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '4%' THEN haber ELSE 0 END), 0) as ing_haber,
@@ -538,10 +530,10 @@ def obtener_historico_utilidad(db, f_inicio=None, f_fin=None):
             COALESCE(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '7%' THEN haber ELSE 0 END), 0) as oing_haber,
             COALESCE(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '7%' THEN debe ELSE 0 END), 0) as oing_debe,
             
-            COALESCE(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '8%' THEN debe ELSE 0 END), 0) as oeg_debe,
+            COALESCO(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '8%' THEN debe ELSE 0 END), 0) as oeg_debe,
             COALESCE(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '8%' THEN haber ELSE 0 END), 0) as oeg_haber
         FROM `{db}`.asientos_contables 
-        WHERE fecha BETWEEN %s AND %s
+        WHERE DATE(fecha) BETWEEN %s AND %s
     """
     
     try:
@@ -574,9 +566,6 @@ def obtener_historico_utilidad(db, f_inicio=None, f_fin=None):
     except Exception as e:
         print(f"❌ Error al calcular la utilidad para {fecha_inicio_str} al {fecha_fin_str}: {e}")
         return df_default
-        
-    # Nota: No cerramos 'conn' aquí si es la global de la sesión para evitar tumbar la conexión principal de Streamlit.
-
 
 @log_ejecucion
 def generar_pdf_accionista(df, nombre_empresa):
