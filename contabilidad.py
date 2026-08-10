@@ -7441,25 +7441,23 @@ if "Inicio" in opcion_menu:
     try:
         col_kpi, col_btn = st.columns([0.8, 0.2])
         # 1. PRIMERO: Llamamos al sidebar limpio antes de crear columnas o pantallas
-        # 1. Cargamos el menú lateral primero
         gestionar_sidebar()
 
-        # 2. Obtenemos la empresa de la sesión de manera segura
+        # 2. Rescatamos la empresa actual de la sesión de manera limpia
         db_objetivo = st.session_state.get('db_a_conectar')
 
-        # 3. Si la sesión está vacía, rescatamos DINÁMICAMENTE la primera permitida (¡adiós nombres fijos!)
+        # 3. Si por alguna razón la sesión está en blanco, tomamos la primera empresa válida de la lista dinámica (NADA DE NOMBRES FIJOS)
         if not db_objetivo:
             user_rol = st.session_state.get('rol')
             user_cliente_id = st.session_state.get('cliente_id')
             
-            # Consultamos las empresas que le corresponden a este usuario específico
             lista_permitida = obtener_todas_las_empresas(user_rol=user_rol, user_id=user_cliente_id)
             
             if lista_permitida and len(lista_permitida) > 0:
-                db_objetivo = lista_permitida[0]  # Toma la primera de sus empresas de forma limpia
+                db_objetivo = lista_permitida[0]  # La primera empresa real de tu lista de 50
                 st.session_state['db_a_conectar'] = db_objetivo
             else:
-                st.error("❌ No se encontraron bases de datos asociadas a este usuario.")
+                st.error("❌ No se encontró ninguna base de datos disponible para este usuario.")
                 st.stop()
 
         # 4. Dibujamos la interfaz
