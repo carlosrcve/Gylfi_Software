@@ -8745,9 +8745,11 @@ if "Inicio" in opcion_menu:
                     hoy_str = time.strftime('%Y-%m-%d')
                     mes_inicio_def = time.strftime('%Y-%m-01')
 
+
                     # Intentar recuperar de session_state, si no existen, usar los valores por defecto
                     f_i = st.session_state.get('fecha_inicio') or st.session_state.get('f_i') or mes_inicio_def
                     f_f = st.session_state.get('fecha_fin') or st.session_state.get('f_f') or hoy_str
+                    st.write(f"Buscando en: {db_actual} | Fechas: {f_i} a {f_f} | Cuenta: 2.2.1.01.001")
 
                     conn_tmp = conectar_db(db_actual)
                     
