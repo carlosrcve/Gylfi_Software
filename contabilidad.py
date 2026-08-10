@@ -7508,7 +7508,7 @@ if "Inicio" in opcion_menu:
         # =====================================================================
 
         # 1. Llamada a la función con tus variables globales de fecha
-        kpis_fiscales = obtener_salud_fiscal(f_inicio_global, f_fin_global, db)
+        datos_fiscales = obtener_salud_fiscal(f_inicio_global, f_fin_global, db_objetivo)
 
         # 2. Función para renderizar KPIs compactos con fondo de color en la etiqueta
         def mini_kpi(col, titulo, valor, color="#555555"):
