@@ -8827,30 +8827,27 @@ if "Inicio" in opcion_menu:
 
                 if db_actual and db_actual != "{db}" and db_actual != "None":
                     
-                    # 🎯 HERENCIA DIRECTA: Tomamos las fechas exactas 'f_i' y 'f_f' que ya mandan en la cabecera de arriba
-                    _f_i_val = locals().get('f_i') or globals().get('f_i')
-                    _f_f_val = locals().get('f_f') or globals().get('f_f')
+                    # 🚨 FORZADO TOTAL: Obtenemos el año y mes desde los inputs directos del usuario
+                    # Ajusta estas llaves a los nombres exactos de tus widgets en el sidebar
+                    anio_sel = st.session_state.get('anio') or 2026
+                    mes_sel = st.session_state.get('mes') or "Junio"
                     
-                    # Si por alguna razón extrema no existen en el entorno, las recalculamos de emergencia usando el selectbox visible en tu imagen
-                    if not _f_i_val or not _f_f_val:
-                        anio_sel = int(st.session_state.get('anio') or st.session_state.get('año') or 2026)
-                        # Forzamos los selectbox comunes de Streamlit para el mes
-                        mes_sel_str = str(st.session_state.get('Mes') or st.session_state.get('mes') or "Junio")
-                        dic_meses_local = {
-                            "Enero": 1, "Febrero": 2, "Marzo": 3, "Abril": 4, 
-                            "Mayo": 5, "Junio": 6, "Julio": 7, "Agosto": 8, 
-                            "Septiembre": 9, "Octubre": 10, "Noviembre": 11, "Diciembre": 12
-                        }
-                        mes_n_val = dic_meses_local.get(mes_sel_str.capitalize(), 6)
-                        import calendar
-                        _, ultimo_d_mes = calendar.monthrange(anio_sel, mes_n_val)
-                        _f_i_val = f"{anio_sel}-{mes_n_val:02d}-01"
-                        _f_f_val = f"{anio_sel}-{mes_n_val:02d}-{ultimo_d_mes:02d}"
+                    dic_meses = {"Enero": 1, "Febrero": 2, "Marzo": 3, "Abril": 4, "Mayo": 5, "Junio": 6, 
+                                 "Julio": 7, "Agosto": 8, "Septiembre": 9, "Octubre": 10, "Noviembre": 11, "Diciembre": 12}
+                    
+                    mes_n = dic_meses.get(mes_sel, 6)
+                    
+                    import calendar
+                    _, ultimo_dia = calendar.monthrange(int(anio_sel), mes_n)
+                    
+                    # Estas son las FECHAS REALES que vamos a usar sí o sí
+                    f_i_final = f"{anio_sel}-{mes_n:02d}-01"
+                    f_f_final = f"{anio_sel}-{mes_n:02d}-{ultimo_dia:02d}"
 
-                    st.info(f"🔄 **Filtro sincronizado perfectamente** -> Buscando del `{_f_i_val}` al `{_f_f_val}`")
+                    st.info(f"🔍 **Buscando en Rango Real:** `{f_i_final}` hasta `{f_f_final}`")
 
-                    # Consultamos usando las fechas exactas de la cabecera
-                    df_comps = obtener_comprobantes_ingresos(db_actual, _f_i_val, _f_f_val)
+                    # LLAMADA CRÍTICA: Pasamos las fechas recalculadas aquí
+                    df_comps = obtener_comprobantes_ingresos(db_actual, f_i_final, f_f_final)
 
                     if not df_comps.empty:
                         def formato_latino(val):
