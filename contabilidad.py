@@ -8817,7 +8817,7 @@ if "Inicio" in opcion_menu:
                             query_comps = f"""
                                 SELECT DISTINCT n_comprobante, fecha 
                                 FROM `{db_name}`.asientos_contables 
-                                WHERE plan_cuentas LIKE '2.2.1.01.001%%'
+                                WHERE (plan_cuentas LIKE '%%2.2.1%%' OR cuenta_contable LIKE '%%Accionista%%')
                                 AND STR_TO_DATE(fecha, '%%Y-%%m-%%d') BETWEEN STR_TO_DATE(%s, '%%Y-%%m-%%d') AND STR_TO_DATE(%s, '%%Y-%%m-%%d')
                                 ORDER BY fecha DESC, n_comprobante DESC
                             """
