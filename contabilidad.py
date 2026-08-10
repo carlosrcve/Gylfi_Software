@@ -7266,18 +7266,20 @@ dic_meses = {
     "Septiembre": 9, "Octubre": 10, "Noviembre": 11, "Diciembre": 12
 }
 
-anio_seleccionado = int(st.session_state.get('año_seleccionado_contabilidad', datetime.datetime.now().year))
-mes_elegido_str = st.session_state.get('mes_seleccionado_contabilidad', "Enero")
-mes_n = dic_meses.get(mes_elegido_str, 1)
+# Forzamos la lectura de las llaves unificadas del sidebar
+anio_seleccionado = int(st.session_state.get('año_seleccionado_contabilidad', 2026))
+mes_elegido_str = st.session_state.get('mes_seleccionado_contabilidad', "Junio")
 
+# Mapeamos el mes a su número correspondiente
+mes_n = dic_meses.get(mes_elegido_str, 6)
+
+# Cálculos exactos para el SQL y los reportes visuales
 ultimo_dia_mes = calendar.monthrange(anio_seleccionado, mes_n)[1]
 fecha_inicio_str = f"{anio_seleccionado}-{mes_n:02d}-01"
 fecha_fin_str = f"{anio_seleccionado}-{mes_n:02d}-{ultimo_dia_mes:02d}"
 
-f_i = datetime.date(anio_seleccionado, mes_n, 1)
-f_f = datetime.date(anio_seleccionado, mes_n, ultimo_dia_mes)
-f_inicio_global = f_i
-f_fin_global = f_f
+f_inicio_global = datetime.date(anio_seleccionado, mes_n, 1)
+f_fin_global = datetime.date(anio_seleccionado, mes_n, ultimo_dia_mes)
 
 # Inicializamos stats por seguridad si no existen
 if 'stats' not in st.session_state:
