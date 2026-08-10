@@ -8484,20 +8484,19 @@ if "Inicio" in opcion_menu:
                 neto_disponible = utilidad_bruta * 0.66
 
                 # 2. Obtenemos de forma segura el DataFrame detallado de asientos y accionistas del período
-                df_acc = obtener_analisis_accionista_detallado(db, f_inicio_global, f_fin_global)
-
-                # Reutilizamos la conexión activa de la sesión para la configuración de accionistas
-                conn = st.session_state.get('conn') or conectar_db(db)
                 df_config_accionistas = pd.DataFrame()
+    
+                # Abrimos una conexión local para este bloque
+                conn_tab = conectar_db(db) 
 
-                if conn is None:
-                    st.error("❌ Error crítico: No se pudo establecer conexión con la base de datos.")
+                if conn_tab is None or not conn_tab.is_connected():
+                    st.error("❌ Error: No se pudo establecer conexión con la base de datos para los accionistas.")
                 else:
                     try:
-                        cursor = conn.cursor()
+                        cursor = conn_tab.cursor()
                         cursor.execute(f"USE `{db}`;")
                         
-                        # Validación y creación automática de la tabla si no existe
+                        # Validación y creación de tabla
                         cursor.execute("""
                             CREATE TABLE IF NOT EXISTS accionistas (
                                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -8508,13 +8507,18 @@ if "Inicio" in opcion_menu:
                             );
                         """)
                         
-                        df_config_accionistas = pd.read_sql(f"SELECT * FROM `{db}`.accionistas", conn)
+                        # Lectura directa
+                        df_config_accionistas = pd.read_sql(f"SELECT * FROM `{db}`.accionistas", conn_tab)
                         cursor.close()
-
+                        
                     except Exception as e:
                         st.error(f"⚠️ Error al procesar la configuración de accionistas: {e}")
                         df_config_accionistas = pd.DataFrame()
-
+                        
+                    finally:
+                        # CERRAMOS la conexión aquí mismo para evitar que se quede 'colgada'
+                        if conn_tab and conn_tab.is_connected():
+                conn_tab.close()
                 nombres_grafico = []
                 valores_grafico = []
                 colores_grafico = []
