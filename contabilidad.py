@@ -8668,18 +8668,19 @@ if "Inicio" in opcion_menu:
             with tab3:
                 st.markdown("### 📊 Evolución de Saldo Neto Acumulado")
                 
-                # Blindaje de la función externa y diagnóstico de 'conectar_db'
                 df_utilidad = None
-                try:
-                    if 'conectar_db' not in globals() and 'conectar_db' not in locals():
-                        st.error("❌ Error crítico: La función 'conectar_db' no está definida.")
-                    else:
+                
+                # 1. Verificamos que la función realmente exista en memoria antes de llamarla
+                if 'obtener_historico_utilidad_acumulada' not in globals() and 'obtener_historico_utilidad_acumulada' not in locals():
+                    st.error("❌ Error crítico: La función 'obtener_historico_utilidad_acumulada' no está definida o no se importó correctamente.")
+                else:
+                    try:
                         df_utilidad = obtener_historico_utilidad_acumulada(db)
-                except Exception as e:
-                    st.error(f"Error al conectar con la base de datos para obtener el histórico: {e}")
-                    df_utilidad = None
+                    except Exception as e:
+                        st.error(f"Error al conectar con la base de datos para obtener el histórico: {e}")
+                        df_utilidad = None
 
-                # Validación robusta: verificar si es DataFrame y si no es None/vacío
+                # 2. Validación robusta del DataFrame resultante
                 if isinstance(df_utilidad, pd.DataFrame) and not df_utilidad.empty:
                     meses_nombres = {1:'Ene', 2:'Feb', 3:'Mar', 4:'Abr', 5:'May', 6:'Jun', 7:'Jul', 8:'Ago', 9:'Sep', 10:'Oct', 11:'Nov', 12:'Dic'}
                     df_utilidad['nombre_mes'] = df_utilidad['mes'].map(meses_nombres)
