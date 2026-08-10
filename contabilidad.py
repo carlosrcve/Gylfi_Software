@@ -7343,19 +7343,25 @@ def actualizar_empresa():
     st.session_state.DB_ACTUAL = st.session_state.selector_empresa
     st.session_state.nombre_empresa_seleccionada = st.session_state.selector_empresa
     
-    # Transformación automática robusta
+    # 1. Obtenemos el nombre limpio
     nombre_limpio = st.session_state.selector_empresa.lower()
-    
-    # Quitamos formas jurídicas comunes y puntuaciones para que calce con la BD
     for sufijo in [", c.a.", " c.a.", ", s.a.", " s.a.", ".", ","]:
         nombre_limpio = nombre_limpio.replace(sufijo, "")
         
     nombre_limpio = nombre_limpio.strip().replace(" ", "_")
     
-    # Asignamos el nombre técnico final para la conexión
-    st.session_state.db_a_conectar = f"{nombre_limpio}_ca"
+    # 2. AQUÍ ESTÁ EL CAMBIO: 
+    # Si el nombre ya termina en '_ca', no le agregues otro. 
+    # Si no, déjalo como es o añade el sufijo solo si es necesario.
+    if nombre_limpio.endswith("_ca"):
+        st.session_state.db_a_conectar = nombre_limpio
+    else:
+        st.session_state.db_a_conectar = f"{nombre_limpio}_ca"
 
-# 1. Obtenemos los valores del estado de manera unificada
+    # DEBUG: Para ver exactamente qué está construyendo antes de conectar
+    st.write(f"DEBUG: Nombre limpio generado: {st.session_state.db_a_conectar}")
+
+
 # 1. Obtenemos los valores
 DB_ACTUAL = st.session_state.get('DB_ACTUAL', 'control_central')
 EMPRESA = st.session_state.get('CLIENTE_NOMBRE', "Seleccione Cliente")
