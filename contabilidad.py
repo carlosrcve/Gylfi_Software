@@ -7440,7 +7440,7 @@ if "Inicio" in opcion_menu:
         # 2. Rescatamos la empresa actual de la sesión de manera limpia
         db_objetivo = st.session_state.get('db_a_conectar')
 
-        # 3. Si por alguna razón la sesión está en blanco, tomamos la primera empresa válida de la lista dinámica (NADA DE NOMBRES FIJOS)
+        # 3. Si por alguna razón la sesión está en blanco, tomamos la primera empresa válida de la lista dinámica
         if not db_objetivo:
             user_rol = st.session_state.get('rol')
             user_cliente_id = st.session_state.get('cliente_id')
@@ -7448,7 +7448,7 @@ if "Inicio" in opcion_menu:
             lista_permitida = obtener_todas_las_empresas(user_rol=user_rol, user_id=user_cliente_id)
             
             if lista_permitida and len(lista_permitida) > 0:
-                db_objetivo = lista_permitida[0]  # La primera empresa real de tu lista de 50
+                db_objetivo = lista_permitida[0]  # La primera empresa real de tu lista
                 st.session_state['db_a_conectar'] = db_objetivo
             else:
                 st.error("❌ No se encontró ninguna base de datos disponible para este usuario.")
@@ -7479,7 +7479,7 @@ if "Inicio" in opcion_menu:
                 
                 if tabla_encontrada:
                     cursor = conn.cursor()
-                    cursor.execute(f"SELECT COUNT(*) FROM {tabla_encontrada};")
+                    cursor.execute(f"SELECT COUNT(*) FROM `{tabla_encontrada}`;")
                     cantidad = cursor.fetchone()[0]
                     cursor.close()
                     st.success(f"📈 Conexión exitosa en `{db_objetivo}`. Registros en `{tabla_encontrada}`: **{cantidad}**")
