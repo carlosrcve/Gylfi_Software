@@ -7443,19 +7443,17 @@ if "Inicio" in opcion_menu:
         # 1. PRIMERO: Llamamos al sidebar limpio antes de crear columnas o pantallas
         gestionar_sidebar()
 
-        # 2. Rescatamos la empresa o asignamos una por defecto de emergencia si está vacía
+        # 2. Obtenemos la empresa de la sesión de manera segura
         db_objetivo = st.session_state.get('db_a_conectar')
 
+        # Si por alguna razón la sesión está vacía, le asignamos una por defecto para que no falle
         if not db_objetivo:
-            # Valor predeterminado blindado para que la app jamás se detenga en seco
-            db_objetivo = "kingdriver_ca"  # o pon aquí el nombre exacto de una de tus bases de datos principales
+            db_objetivo = "kingdriver_ca"  # Cambia esto por tu empresa principal si lo deseas
             st.session_state['db_a_conectar'] = db_objetivo
 
-        st.write(f"🔍 Debugging Conexión: Estamos apuntando a la base de datos: **{db_objetivo}**")
-
-        # 3. TERCERO: Ya con la empresa segura, creamos las columnas y el resto de la app
+        # 3. Continuamos con el flujo normal de tus KPIs y consultas
         col_kpi, col_btn = st.columns([0.8, 0.2])
-        
+    
         with col_kpi:
             st.subheader("Indicadores Financieros en Tiempo Real")
             st.write("---")
