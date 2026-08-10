@@ -7471,6 +7471,7 @@ if "Inicio" in opcion_menu:
 
             # Nos conectamos usando la variable limpia de la empresa activa
             conn = conectar_db(db_objetivo)
+            st.error(f"🚨 ALERTA DE DEBUG: Me voy a conectar exactamente a la base de datos: [{db_objetivo}]")
             if conn:
                 cursor = conn.cursor()
                 cursor.execute("SHOW TABLES;")
