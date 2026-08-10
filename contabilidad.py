@@ -8844,6 +8844,12 @@ if "Inicio" in opcion_menu:
                         
                         st.divider()
 
+                        # 📊 VISUALIZAR LA TABLA GENERAL DE COMPROBANTES ENCONTRADOS
+                        st.markdown("**Listado de Comprobantes Filtrados:**")
+                        st.dataframe(df_comps, use_container_width=True, height=200)
+
+                        st.divider()
+
                         df_comps['opcion'] = df_comps['n_comprobante'].astype(str) + " (Fecha: " + df_comps['fecha'].astype(str) + ")"
                         lista_opciones = df_comps['opcion'].tolist()
                         
