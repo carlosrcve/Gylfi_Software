@@ -1357,7 +1357,6 @@ def obtener_datos_graficos(conn, f_i, f_f, sucursal):
 
 
 # Lógica conceptual para tu Sidebar
-# Lógica blindada para tu Sidebar
 def gestionar_sidebar():
     user_rol = st.session_state.get('rol')
     user_cliente_id = st.session_state.get('cliente_id')
@@ -1386,10 +1385,15 @@ def gestionar_sidebar():
         st.sidebar.warning("⚠️ No hay empresas disponibles para mostrar.")
         return
 
-    # El selectbox ahora está protegido
-    empresa_seleccionada = st.sidebar.selectbox("Seleccione Empresa", lista_empresas)
+    # El selectbox sincronizado con key='db_a_conectar'
+    empresa_seleccionada = st.sidebar.selectbox(
+        "Seleccione Empresa", 
+        lista_empresas, 
+        key='db_a_conectar'
+    )
+    
+    # Mantenemos también la asignación por si otra parte del código la requiere
     st.session_state['CLIENTE_NOMBRE'] = empresa_seleccionada
-
 def mostrar_bitacora_auditoria(conn):
     st.subheader("📋 Bitácora de Auditoría")
     
