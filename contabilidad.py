@@ -8734,29 +8734,56 @@ if "Inicio" in opcion_menu:
                 # --- SECCIÓN: ASIENTO CONTABLE COMPLETO POR COMPROBANTE ---
                 st.divider()
                 st.subheader("👥 Detalle de Comprobantes - Cuentas por Pagar Accionistas")
+
                 db_name = locals().get('db') or st.session_state.get('DB_ACTUAL')
 
                 if db_name and db_name != "{db}" and db_name != "None":
-                    # 1. SIEMPRE MOSTRAR SELECTORES DE FECHA (Independientes del resultado)
-                    import calendar
-                    col1_f, col2_f = st.columns(2)
-                    
-                    # Intentamos recuperar del session_state actual o ponemos un default
-                    anio_sel = col1_f.number_input("Año", value=2026, key="tab4_anio")
-                    mes_str = col2_f.selectbox("Mes", ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"], index=4, key="tab4_mes")
-                    
-                    mes_map = {"Enero": 1, "Febrero": 2, "Marzo": 3, "Abril": 4, "Mayo": 5, "Junio": 6, "Julio": 7, "Agosto": 8, "Septiembre": 9, "Octubre": 10, "Noviembre": 11, "Diciembre": 12}
-                    mes_n = mes_map[mes_str]
-                    _, ultimo_dia = calendar.monthrange(anio_sel, mes_n)
-                    
-                    f_i = f"{anio_sel}-{mes_n:02d}-01"
-                    f_f = f"{anio_sel}-{mes_n:02d}-{ultimo_dia:02d}"
-
-                    # 2. CONSULTA SQL
                     df_comps = pd.DataFrame()
+                    
+                    # 🛡️ CÁLCULO AUTÓNOMO Y SEGURO DIRECTO DEL SESSION_STATE O SIDEBAR
+                    import calendar
+                    
+                    dic_meses_local = {
+                        "Enero": 1, "Febrero": 2, "Marzo": 3, "Abril": 4, 
+                        "Mayo": 5, "Junio": 6, "Julio": 7, "Agosto": 8, 
+                        "Septiembre": 9, "Octubre": 10, "Noviembre": 11, "Diciembre": 12
+                    }
+                    
+                    # 🔍 BUSGAMOS LAS VARIABLES GLOBALES O CUALQUIER LLAVE POSIBLE DEL SIDEBAR
+                    f_i = globals().get('fecha_inicio_str') or st.session_state.get('f_inicio_global')
+                    f_f = globals().get('fecha_fin_str') or st.session_state.get('f_fin_global')
+                    
+                    # Si la barra lateral usa otras variables directas en el session_state, las leemos aquí:
+                    if not f_i or not f_f:
+                        anio_sel = int(
+                            st.session_state.get('año_seleccionado_contabilidad') or 
+                            st.session_state.get('anio') or 
+                            st.session_state.get('selected_year') or 2026
+                        )
+                        mes_sel_str = str(
+                            st.session_state.get('mes_seleccionado_contabilidad') or 
+                            st.session_state.get('mes') or 
+                            st.session_state.get('selected_month') or "Mayo"
+                        )
+                        
+                        # Si el selector guarda el mes como número directamente en vez de texto:
+                        if mes_sel_str.isdigit():
+                            mes_n_val = int(mes_sel_str)
+                        else:
+                            mes_n_val = dic_meses_local.get(mes_sel_str, 5) # Por defecto Mayo si falla
+                            
+                        _, ultimo_d_mes = calendar.monthrange(anio_sel, mes_n_val)
+                        
+                        f_i = f"{anio_sel}-{mes_n_val:02d}-01"
+                        f_f = f"{anio_sel}-{mes_n_val:02d}-{ultimo_d_mes:02d}"
+
+                    st.caption(f"📅 Periodo consultado (desde Sidebar) → Desde: `{f_i}` Hasta: `{f_f}` | Empresa: `{db_name}`")
+
                     conn_tmp = conectar_db(db_name)
+                    
                     if conn_tmp:
                         try:
+                            # Usamos el código exacto que sabemos que existe en la nube
                             query_comps = f"""
                                 SELECT DISTINCT n_comprobante, fecha 
                                 FROM `{db_name}`.asientos_contables 
@@ -8765,8 +8792,14 @@ if "Inicio" in opcion_menu:
                                 ORDER BY fecha DESC, n_comprobante DESC
                             """
                             df_comps = pd.read_sql(query_comps, conn_tmp, params=(f_i, f_f))
+                            
+                        except Exception as e:
+                            st.error(f"Error al consultar comprobantes en TiDB: {e}")
                         finally:
-                            conn_tmp.close()
+                            try:
+                                conn_tmp.close()
+                            except Exception:
+                                pass
 
                     if not df_comps.empty:
                         def formato_latino(val):
