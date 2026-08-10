@@ -7443,12 +7443,15 @@ if "Inicio" in opcion_menu:
         # 1. PRIMERO: Llamamos al sidebar limpio antes de crear columnas o pantallas
         gestionar_sidebar()
 
-        # 2. SEGUNDO: Validamos la empresa seleccionada
+        # 2. Rescatamos la empresa o asignamos una por defecto de emergencia si está vacía
         db_objetivo = st.session_state.get('db_a_conectar')
 
         if not db_objetivo:
-            st.warning("⚠️ Por favor, selecciona una empresa en el menú lateral para comenzar.")
-            st.stop()
+            # Valor predeterminado blindado para que la app jamás se detenga en seco
+            db_objetivo = "kingdriver_ca"  # o pon aquí el nombre exacto de una de tus bases de datos principales
+            st.session_state['db_a_conectar'] = db_objetivo
+
+        st.write(f"🔍 Debugging Conexión: Estamos apuntando a la base de datos: **{db_objetivo}**")
 
         # 3. TERCERO: Ya con la empresa segura, creamos las columnas y el resto de la app
         col_kpi, col_btn = st.columns([0.8, 0.2])
