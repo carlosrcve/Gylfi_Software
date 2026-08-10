@@ -8735,26 +8735,17 @@ if "Inicio" in opcion_menu:
                 st.divider()
                 st.subheader("👥 Detalle de Comprobantes - Cuentas por Pagar Accionistas")
 
-                # Usamos la misma variable 'db' que viene funcionando en las demás pestañas
                 db_name = locals().get('db') or st.session_state.get('DB_ACTUAL')
 
                 if db_name and db_name != "{db}" and db_name != "None":
                     df_comps = pd.DataFrame()
                     
-                    # Intentamos capturar las fechas de los filtros principales de la misma forma que el resto
-                    f_i = st.session_state.get('f_i', st.session_state.get('fecha_inicio', '2026-05-01'))
-                    f_f = st.session_state.get('f_f', st.session_state.get('fecha_fin', '2026-05-31'))
+                    # 🔗 CONEXIÓN DIRECTA CON LAS VARIABLES GLOBALES DE TU SIDEBAR (AÑO Y MES)
+                    f_i = str(globals().get('fecha_inicio_str') or f"{st.session_state.get('año_seleccionado_contabilidad', 2026)}-06-01")
+                    f_f = str(globals().get('fecha_fin_str') or f"{st.session_state.get('año_seleccionado_contabilidad', 2026)}-06-30")
 
-                    # Si por alguna razón siguen vacías, intentamos extraer el mes/año o usar el mes actual de forma segura
-                    if not f_i or not f_f:
-                        import time
-                        f_i = time.strftime('%Y-%m-01')
-                        f_f = time.strftime('%Y-%m-%d')
-
-                    f_i = str(f_i)
-                    f_f = str(f_f)
-
-                    st.caption(f"📅 Periodo consultado -> Desde: `{f_i}` Hasta: `{f_f}`")
+                    # Depuración visual en tiempo real para que confirmes el mes que está leyendo
+                    st.caption(f"📅 Periodo consultado -> Desde: `{f_i}` Hasta: `{f_f}` | Empresa: `{db_name}`")
 
                     conn_tmp = conectar_db(db_name)
                     
