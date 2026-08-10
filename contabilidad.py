@@ -7354,7 +7354,7 @@ def actualizar_empresa():
     
     # Asignamos el nombre técnico final para la conexión
     st.session_state.db_a_conectar = f"{nombre_limpio}_ca"
-    
+
 # 1. Obtenemos los valores del estado de manera unificada
 # 1. Obtenemos los valores
 DB_ACTUAL = st.session_state.get('DB_ACTUAL', 'control_central')
@@ -7444,13 +7444,18 @@ if "Inicio" in opcion_menu:
         with col_kpi:
             st.subheader("Indicadores Financieros en Tiempo Real")
             # --- PRUEBA DE EMERGENCIA CORREGIDA ---
+            # --- PRUEBA DE EMERGENCIA BLINDADA ---
             st.write("---")
-            # Usamos st.session_state.get('db_a_conectar') que es el nombre técnico real de la base de datos
+
+            # Si no hay nada seleccionado todavía, asignamos una por defecto para evitar el None
+            if not st.session_state.get('db_a_conectar'):
+                st.session_state.db_a_conectar = "pedacito_de_cielo_ca"
+
             db_objetivo = st.session_state.get('db_a_conectar')
 
             st.write(f"🔍 Debugging Conexión: Estamos apuntando a la base de datos: **{db_objetivo}**")
 
-            # Nos conectamos usando la variable correcta
+            # Nos conectamos usando la variable blindada
             conn = conectar_db(db_objetivo)
             if conn:
                 cursor = conn.cursor()
@@ -7464,11 +7469,7 @@ if "Inicio" in opcion_menu:
                     cantidad = cursor.fetchone()[0]
                     st.write(f"📈 Cantidad de registros en asientos_contables: **{cantidad}**")
                 else:
-                    st.error("❌ ¡La tabla 'asientos_contables' no existe en este esquema!")
-                    with col_btn:
-                        if st.button("🔄 Actualizar Datos"):
-                            st.cache_data.clear()
-                            st.rerun()
+                    st.error(f"❌ ¡La tabla 'asientos_contables' no existe en este esquema ({db_objetivo})!")
 
         db = st.session_state.get('DB_ACTUAL', 'kingdirver_ca')
 
