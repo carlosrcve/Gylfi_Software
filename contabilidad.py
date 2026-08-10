@@ -7439,19 +7439,18 @@ if "Inicio" in opcion_menu:
         
         with col_kpi:
             st.subheader("Indicadores Financieros en Tiempo Real")
-            # --- PRUEBA DE EMERGENCIA CORREGIDA ---
-            # --- PRUEBA DE EMERGENCIA BLINDADA ---
             st.write("---")
 
-            # Si no hay nada seleccionado todavía, asignamos una por defecto para evitar el None
-            if not st.session_state.get('db_a_conectar'):
-                st.session_state.db_a_conectar = "pedacito_de_cielo_ca"
-
+            # Tomamos directamente la empresa seleccionada en el menú lateral sin forzar valores fijos
             db_objetivo = st.session_state.get('db_a_conectar')
+
+            if not db_objetivo:
+                st.warning("⚠️ Por favor, selecciona una empresa en el menú lateral para comenzar.")
+                st.stop() # Frena la ejecución limpiamente si no hay empresa elegida
 
             st.write(f"🔍 Debugging Conexión: Estamos apuntando a la base de datos: **{db_objetivo}**")
 
-            # Nos conectamos usando la variable blindada
+            # Nos conectamos usando la variable limpia de la empresa activa
             conn = conectar_db(db_objetivo)
             if conn:
                 cursor = conn.cursor()
