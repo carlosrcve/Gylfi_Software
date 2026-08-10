@@ -7338,19 +7338,23 @@ if 'DB_ACTUAL' not in st.session_state:
 
 
 
-# Definición de la función de limpieza (ponla arriba de todo)
 def actualizar_empresa():
-    st.session_state.conn = None # Forzamos nueva conexión
-    # IMPORTANTE: Aquí asignas los valores reales a session_state
+    st.session_state.conn = None
     st.session_state.DB_ACTUAL = st.session_state.selector_empresa
-    # Asegúrate de mapear el nombre real de la DB aquí:
-    if "KING DRIVER" in st.session_state.selector_empresa:
-        st.session_state.nombre_empresa_seleccionada = "KING DRIVER, C.A."
-        st.session_state.db_a_conectar = "kingdirver_ca" # Nombre técnico exacto
-    else:
-        st.session_state.nombre_empresa_seleccionada = "REPRESENTACIONES PEDACITO DE CIELO, C.A."
-        st.session_state.db_a_conectar = "pedacito_cielo_ca" # Nombre técnico exacto
-
+    st.session_state.nombre_empresa_seleccionada = st.session_state.selector_empresa
+    
+    # Transformación automática robusta
+    nombre_limpio = st.session_state.selector_empresa.lower()
+    
+    # Quitamos formas jurídicas comunes y puntuaciones para que calce con la BD
+    for sufijo in [", c.a.", " c.a.", ", s.a.", " s.a.", ".", ","]:
+        nombre_limpio = nombre_limpio.replace(sufijo, "")
+        
+    nombre_limpio = nombre_limpio.strip().replace(" ", "_")
+    
+    # Asignamos el nombre técnico final para la conexión
+    st.session_state.db_a_conectar = f"{nombre_limpio}_ca"
+    
 # 1. Obtenemos los valores del estado de manera unificada
 # 1. Obtenemos los valores
 DB_ACTUAL = st.session_state.get('DB_ACTUAL', 'control_central')
