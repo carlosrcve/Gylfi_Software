@@ -7468,33 +7468,6 @@ if "Inicio" in opcion_menu:
         col_kpi, col_btn = st.columns([0.8, 0.2])
         with col_kpi:
             st.subheader("Indicadores Financieros en Tiempo Real")
-            st.write("---")
-            st.write(f"🔍 Debugging Conexión: Estamos apuntando a la base de datos: **{db_objetivo}**")
-
-            # Conexión limpia
-            conn = conectar_db(db_objetivo)
-            st.error(f"🚨 ALERTA DE DEBUG: Me voy a conectar exactamente a la base de datos: [{db_objetivo}]")
-            if conn:
-                cursor = conn.cursor()
-                cursor.execute("SHOW TABLES;")
-                tablas = [row[0] for row in cursor.fetchall()]
-                cursor.close()
-                
-                # Buscamos dinámicamente la tabla contable
-                tabla_encontrada = None
-                for t in tablas:
-                    if 'asiento' in t.lower() or 'diario' in t.lower() or 'comprobante' in t.lower():
-                        tabla_encontrada = t
-                        break
-                
-                if tabla_encontrada:
-                    cursor = conn.cursor()
-                    cursor.execute(f"SELECT COUNT(*) FROM `{tabla_encontrada}`;")
-                    cantidad = cursor.fetchone()[0]
-                    cursor.close()
-                    st.success(f"📈 Conexión exitosa en `{db_objetivo}`. Registros en `{tabla_encontrada}`: **{cantidad}**")
-                else:
-                    st.error(f"❌ No se encontró la tabla contable en ({db_objetivo}).")
 
         db = db_objetivo
 
