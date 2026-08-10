@@ -8740,12 +8740,27 @@ if "Inicio" in opcion_menu:
                 if db_name and db_name != "{db}" and db_name != "None":
                     df_comps = pd.DataFrame()
                     
-                    # 🔗 CONEXIÓN DIRECTA CON LAS VARIABLES GLOBALES DE TU SIDEBAR (AÑO Y MES)
-                    f_i = str(globals().get('fecha_inicio_str') or f"{st.session_state.get('año_seleccionado_contabilidad', 2026)}-06-01")
-                    f_f = str(globals().get('fecha_fin_str') or f"{st.session_state.get('año_seleccionado_contabilidad', 2026)}-06-30")
+                    # 🛡️ CÁLCULO AUTÓNOMO Y SEGURO DIRECTO DEL SESSION_STATE
+                    import calendar
+                    
+                    dic_meses_local = {
+                        "Enero": 1, "Febrero": 2, "Marzo": 3, "Abril": 4, 
+                        "Mayo": 5, "Junio": 6, "Julio": 7, "Agosto": 8, 
+                        "Septiembre": 9, "Octubre": 10, "Noviembre": 11, "Diciembre": 12
+                    }
+                    
+                    # Leemos directo del estado de la barra lateral con valores por defecto seguros
+                    anio_sel = int(st.session_state.get('año_seleccionado_contabilidad', 2026))
+                    mes_sel_str = st.session_state.get('mes_seleccionado_contabilidad', "Agosto")
+                    mes_n_val = dic_meses_local.get(mes_sel_str, 8)
+                    
+                    # Calculamos el último día del mes de forma exacta (bisiestos, 30 o 31 días)
+                    _, ultimo_d_mes = calendar.monthrange(anio_sel, mes_n_val)
+                    
+                    f_i = f"{anio_sel}-{mes_n_val:02d}-01"
+                    f_f = f"{anio_sel}-{mes_n_val:02d}-{ultimo_d_mes:02d}"
 
-                    # Depuración visual en tiempo real para que confirmes el mes que está leyendo
-                    st.caption(f"📅 Periodo consultado -> Desde: `{f_i}` Hasta: `{f_f}` | Empresa: `{db_name}`")
+                    st.caption(f"📅 Periodo consultado → Desde: `{f_i}` Hasta: `{f_f}` | Empresa: `{db_name}`")
 
                     conn_tmp = conectar_db(db_name)
                     
