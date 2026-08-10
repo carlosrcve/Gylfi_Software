@@ -8518,7 +8518,9 @@ if "Inicio" in opcion_menu:
                     finally:
                         # CERRAMOS la conexión aquí mismo para evitar que se quede 'colgada'
                         if conn_tab and conn_tab.is_connected():
-                conn_tab.close()
+                            conn_tab.close()
+
+                            
                 nombres_grafico = []
                 valores_grafico = []
                 colores_grafico = []
