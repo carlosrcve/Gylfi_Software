@@ -1363,19 +1363,16 @@ def gestionar_sidebar():
 
     lista_empresas = []
 
-    # Validamos que la función central exista antes de llamarla
     if 'obtener_todas_las_empresas' in globals() and callable(obtener_todas_las_empresas):
-        # Llamamos pasando el rol y el id para que la función filtre o devuelva según corresponda
         res = obtener_todas_las_empresas(user_rol=user_rol, user_id=user_cliente_id)
         if res is not None:
-            lista_empresas = res
+            # ESCUDO: Reemplazamos al vuelo cualquier "kingdriver_ca" por "kingdirver_ca"
+            lista_empresas = [e.replace("kingdriver_ca", "kingdirver_ca") if isinstance(e, str) else e for e in res]
 
-    # PROTECCIÓN CLAVE: Si la lista está vacía o es None, evitamos que el selectbox reviente
     if not lista_empresas:
         st.sidebar.warning("⚠️ No hay empresas disponibles para mostrar o la función de carga no está definida.")
         return
 
-    # El selectbox sincronizado con key='db_a_conectar'
     empresa_seleccionada = st.sidebar.selectbox(
         "Seleccione Empresa", 
         lista_empresas, 
