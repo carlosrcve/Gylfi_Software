@@ -7471,7 +7471,7 @@ if "Inicio" in opcion_menu:
                 else:
                     st.error(f"❌ ¡La tabla 'asientos_contables' no existe en este esquema ({db_objetivo})!")
 
-        db = st.session_state.get('DB_ACTUAL', 'kingdirver_ca')
+        db = db_objetivo
 
         with st.spinner(f'Comunicando con MySQL para {db}...'):
             # Llamadas blindadas para evitar que un None rompa el reporte
