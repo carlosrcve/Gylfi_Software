@@ -7340,33 +7340,24 @@ if 'DB_ACTUAL' not in st.session_state:
 
 def actualizar_empresa():
     st.session_state.conn = None
-    st.session_state.DB_ACTUAL = st.session_state.selector_empresa
-    st.session_state.nombre_empresa_seleccionada = st.session_state.selector_empresa
+    # Guardamos el nombre tal cual viene del selector, sin tocarlo
+    db_seleccionada = st.session_state.selector_empresa
     
-    # 1. Obtenemos el nombre limpio
-    nombre_limpio = st.session_state.selector_empresa.lower()
-    for sufijo in [", c.a.", " c.a.", ", s.a.", " s.a.", ".", ","]:
-        nombre_limpio = nombre_limpio.replace(sufijo, "")
-        
-    nombre_limpio = nombre_limpio.strip().replace(" ", "_")
+    st.session_state.DB_ACTUAL = db_seleccionada
+    st.session_state.nombre_empresa_seleccionada = db_seleccionada
     
-    # 2. AQUÍ ESTÁ EL CAMBIO: 
-    # Si el nombre ya termina en '_ca', no le agregues otro. 
-    # Si no, déjalo como es o añade el sufijo solo si es necesario.
-    if nombre_limpio.endswith("_ca"):
-        st.session_state.db_a_conectar = nombre_limpio
-    else:
-        st.session_state.db_a_conectar = f"{nombre_limpio}_ca"
-
-    # DEBUG: Para ver exactamente qué está construyendo antes de conectar
-    st.write(f"DEBUG: Nombre limpio generado: {st.session_state.db_a_conectar}")
+    # Asignamos directamente, sin añadir sufijos ni limpiar espacios
+    st.session_state.db_a_conectar = db_seleccionada
+    
+    # Debug para ver qué está pasando realmente
+    st.write(f"DEBUG: Nombre exacto enviado a la conexión: {st.session_state.db_a_conectar}")
 
 
-# 1. Obtenemos los valores
-DB_ACTUAL = st.session_state.get('DB_ACTUAL', 'control_central')
+# 1. Tomamos directamente la empresa activa y limpia desde el session_state unificado
+DB_ACTUAL = st.session_state.get('db_a_conectar') or st.session_state.get('DB_ACTUAL', 'control_central')
 EMPRESA = st.session_state.get('CLIENTE_NOMBRE', "Seleccione Cliente")
 
-# 2. Conexión centralizada con validación estricta
+# 2. Conexión centralizada con validación estricta usando la BD correcta
 if 'conn' not in st.session_state or st.session_state.conn is None:
     try:
         conn = conectar_db(DB_ACTUAL)
@@ -7387,13 +7378,13 @@ if conn is not None:
         if DB_ACTUAL and DB_ACTUAL != "control_central":
             with conn.cursor() as cursor:
                 cursor.execute(f"USE `{DB_ACTUAL}`")
-            st.success(f"✅ Conectado a: {EMPRESA}")
+            st.success(f"✅ Conectado a: {EMPRESA} (`{DB_ACTUAL}`)")
     except Exception as e:
         st.warning(f"La conexión se perdió o la BD {DB_ACTUAL} no es accesible. Intentando reconectar...")
         st.session_state.conn = None # Forzamos recarga en el próximo ciclo
         st.rerun()
 else:
-    st.error("❌ No hay conexión activa. Por favor, verifica tu configuración de TiDB Cloud.")
+    st.error("❌ No hay conexión activa. Por favor, verifica tu configuración.")
 
 
 if "Inicio" in opcion_menu:
