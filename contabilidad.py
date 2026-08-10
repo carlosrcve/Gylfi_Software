@@ -7476,7 +7476,12 @@ if "Inicio" in opcion_menu:
             if kpis is None:
                 kpis = {"activo": 0, "pasivo": 0, "patrimonio": 0}
 
+            # Unificamos con la variable blindada correcta
+            db = st.session_state.get('db_a_conectar')
+
+            # Llamamos a la función de utilidad limpia
             df_utilidad = obtener_historico_utilidad(db, f_inicio=f_inicio_global, f_fin=f_fin_global)
+
             if df_utilidad is None:
                 df_utilidad = pd.DataFrame()
 
@@ -7508,7 +7513,7 @@ if "Inicio" in opcion_menu:
         # =====================================================================
 
         # 1. Llamada a la función con tus variables globales de fecha
-        datos_fiscales = obtener_salud_fiscal(f_inicio_global, f_fin_global, db_objetivo)
+        kpis_fiscales = obtener_salud_fiscal(f_inicio_global, f_fin_global, db_objetivo)
 
         # 2. Función para renderizar KPIs compactos con fondo de color en la etiqueta
         def mini_kpi(col, titulo, valor, color="#555555"):
