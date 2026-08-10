@@ -601,8 +601,14 @@ def generar_pdf_accionista(df, nombre_empresa):
 
 @log_ejecucion
 def obtener_analisis_gastos_clase5(db, f_i, f_f):
+    # Validar que conectar_db exista realmente
+    if 'conectar_db' not in globals() and 'conectar_db' not in locals():
+        print("❌ Error: La función 'conectar_db' no está definida.")
+        return pd.DataFrame()
+
     conn = conectar_db(db)
-    if not conn:
+    if conn is None:
+        print("❌ Error: 'conectar_db' devolvió None (revisa tus credenciales o conexión a TiDB Cloud).")
         return pd.DataFrame()
     
     # Asegurar rango de hora completo para evitar perder registros del último día
