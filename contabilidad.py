@@ -8740,25 +8740,46 @@ if "Inicio" in opcion_menu:
                 if db_name and db_name != "{db}" and db_name != "None":
                     df_comps = pd.DataFrame()
                     
-                    # 🕵️‍♂️ MODO INSPECCIÓN: Vamos a mostrar qué hay en el session_state para cazar la variable de fecha real
+                    # 🕵️‍♂️ MODO INSPECCIÓN: Depuración de session_state y variables globales
                     with st.expander("🛠️ Depuración de Fechas y Session State (Abrir para ver)", expanded=True):
                         st.write("Variables de sesión disponibles:", list(st.session_state.keys()))
                         st.write("Variables globales disponibles:", [k for k in globals().keys() if not k.startswith('_')])
 
-                    # 🔍 CAPTURA DINÁMICA DE FECHAS
-                    # 🎯 FORZAMOS A LEER LA MISMA FECHA ACTIVA DE LA APP PRINCIPAL O DEL BLOQUE SUPERIOR
-                    # Si la app principal guarda el rango en formato texto o variables directas, las atrapamos aquí:
-                    f_i = st.session_state.get('f_i_str') or st.session_state.get('rango_f_inicio') or "2026-06-01"
-                    f_f = st.session_state.get('f_f_str') or st.session_state.get('rango_f_fin') or "2026-06-30"
+                    # 📅 CAPTURA DINÁMICA DESDE LOS SELECTORES DEL SIDEBAR (Año y Mes)
+                    anio_sel = int(st.session_state.get('anio') or st.session_state.get('año') or 2026)
+                    
+                    mes_sel_str = str(
+                        st.session_state.get('mes') or 
+                        st.session_state.get('selectbox_mes_multimoneda') or 
+                        st.session_state.get('mes_seleccionado_contabilidad') or 
+                        "Junio"
+                    )
 
-                    # Si el usuario cambió el mes en el sidebar, aseguramos que coincida con el mes en curso de la app:
-                    st.info(f"📅 Rango sincronizado con la app principal -> Desde: `{f_i}` Hasta: `{f_f}`")
+                    dic_meses_local = {
+                        "Enero": 1, "Febrero": 2, "Marzo": 3, "Abril": 4, 
+                        "Mayo": 5, "Junio": 6, "Julio": 7, "Agosto": 8, 
+                        "Septiembre": 9, "Octubre": 10, "Noviembre": 11, "Diciembre": 12
+                    }
+
+                    if mes_sel_str.isdigit():
+                        mes_n_val = int(mes_sel_str)
+                    else:
+                        mes_n_val = dic_meses_local.get(mes_sel_str.capitalize(), 6)
+
+                    import calendar
+                    _, ultimo_d_mes = calendar.monthrange(anio_sel, mes_n_val)
+
+                    # Rango exacto sincronizado con la barra lateral
+                    f_i = f"{anio_sel}-{mes_n_val:02d}-01"
+                    f_f = f"{anio_sel}-{mes_n_val:02d}-{ultimo_d_mes:02d}"
+
+                    st.info(f"🎯 **Filtro sincronizado con el Sidebar** -> Desde: `{f_i}` Hasta: `{f_f}` | Empresa: `{db_name}`")
 
                     conn_tmp = conectar_db(db_name)
                     
                     if conn_tmp:
                         try:
-                            # 🧪 Diagnóstico corregido para buscar con comodín flexible la cuenta de accionistas
+                            # 🧪 Diagnóstico flexible para cuentas de accionistas
                             query_prueba = f"""
                                 SELECT COUNT(*) as total, MIN(fecha) as min_f, MAX(fecha) as max_f 
                                 FROM `{db_name}`.asientos_contables 
@@ -8767,7 +8788,7 @@ if "Inicio" in opcion_menu:
                             df_test = pd.read_sql(query_prueba, conn_tmp)
                             st.write("📊 Diagnóstico de Cuentas por Pagar Accionistas en TiDB:", df_test)
 
-                            # Consulta principal con el rango de fechas correcto y flexible
+                            # Consulta principal adaptada al rango dinámico y búsqueda flexible
                             query_comps = f"""
                                 SELECT DISTINCT n_comprobante, fecha 
                                 FROM `{db_name}`.asientos_contables 
@@ -8877,7 +8898,7 @@ if "Inicio" in opcion_menu:
                             else:
                                 st.info("No se encontraron detalles para este comprobante.")
                     else:
-                        st.warning("⚠️ No hay comprobantes con el plan de cuentas `2.2.1.01.001` para el rango de fechas indicado. Revisa arriba el diagnóstico de la BD para ver qué fechas reales tienen los registros.")
+                        st.warning("⚠️ No hay comprobantes con cuentas asociadas a Accionistas para el rango de fechas indicado. Revisa arriba el diagnóstico de la BD para validar las fechas.")
                 else:
                     st.warning("⚠️ Selecciona una empresa.")
                     
