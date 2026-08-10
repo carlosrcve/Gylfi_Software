@@ -737,22 +737,16 @@ def obtener_comprobantes_ingresos(db, f_inicio, f_fin):
 
 
 
-@log_ejecucion
 def obtener_historico_utilidad_acumulada(db):
     conn = conectar_db(db)
-    
     df_default = pd.DataFrame({'mes': [], 'utilidad_mensual': []})
     
     if not conn:
         return df_default
         
-    # Leemos directamente de los inputs numéricos de la barra lateral
     año = st.session_state.get('año_seleccionado', 2026)
-    
-    # Buscamos el mes en el session_state (probando las llaves comunes de los inputs)
     mes_limite = st.session_state.get('mes', st.session_state.get('mes_seleccionado', 6))
     
-    # Asegurarnos de que sea un número entero válido
     try:
         mes_limite = int(mes_limite)
     except:
@@ -763,16 +757,16 @@ def obtener_historico_utilidad_acumulada(db):
     query = f"""
         SELECT 
             MONTH(STR_TO_DATE(fecha, '%Y-%m-%d')) as mes,
-            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '4%%' THEN haber ELSE 0 END) as ingresos_haber,
-            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '4%%' THEN debe ELSE 0 END) as ingresos_debe,
-            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '5%%' THEN haber ELSE 0 END) as costos_haber,
-            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '5%%' THEN debe ELSE 0 END) as costos_debe,
-            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '6%%' THEN haber ELSE 0 END) as gastos_haber,
-            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '6%%' THEN debe ELSE 0 END) as gastos_debe,
-            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '7%%' THEN haber ELSE 0 END) as otros_ingresos_haber,
-            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '7%%' THEN debe ELSE 0 END) as otros_ingresos_debe,
-            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '8%%' THEN haber ELSE 0 END) as otros_haber,
-            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '8%%' THEN debe ELSE 0 END) as oitros_debe
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '4%' THEN haber ELSE 0 END) as ingresos_haber,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '4%' THEN debe ELSE 0 END) as ingresos_debe,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '5%' THEN haber ELSE 0 END) as costos_haber,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '5%' THEN debe ELSE 0 END) as costos_debe,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '6%' THEN haber ELSE 0 END) as gastos_haber,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '6%' THEN debe ELSE 0 END) as gastos_debe,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '7%' THEN haber ELSE 0 END) as otros_ingresos_haber,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '7%' THEN debe ELSE 0 END) as otros_ingresos_debe,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '8%' THEN haber ELSE 0 END) as otros_haber,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '8%' THEN debe ELSE 0 END) as oitros_debe
         FROM `{db}`.asientos_contables 
         WHERE YEAR(STR_TO_DATE(fecha, '%Y-%m-%d')) = {año} 
           AND MONTH(STR_TO_DATE(fecha, '%Y-%m-%d')) <= {mes_limite}
@@ -782,10 +776,6 @@ def obtener_historico_utilidad_acumulada(db):
     
     try:
         df = pd.read_sql(query, conn)
-        
-        if conn and conn.is_connected():
-            conn.close()
-            
         if df.empty:
             return df_default
             
@@ -803,10 +793,11 @@ def obtener_historico_utilidad_acumulada(db):
         
     except Exception as e:
         print(f"Error al calcular histórico acumulado: {e}")
-        if conn and conn.is_connected():
-            conn.close()
         return df_default
-
+    finally:
+        if conn:
+            conn.close()
+            
 def obtener_saldos_acumulados(conexion, fecha_corte, nombre_db):
     if not conexion:
         print("❌ Error: No hay conexión activa en obtener_saldos_acumulados")
@@ -8581,7 +8572,7 @@ if "Inicio" in opcion_menu:
                     st.plotly_chart(fig, use_container_width=True)
                 else:
                     st.warning("No hay datos disponibles para mostrar en el gráfico.")
-                    
+
             with tab2:
                 st.markdown("### 📉 Detalle de Gastos Operativos")
 
