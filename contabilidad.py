@@ -8558,6 +8558,10 @@ if "Inicio" in opcion_menu:
                         texttemplate='%{x:,.2f}',
                         textposition='outside'
                     ))
+                    # 🔍 Diagnóstico rápido en pantalla
+                    st.write("Valores del gráfico:", list(zip(nombres_grafico, valores_grafico)))
+                    st.write("Utilidad bruta calculada:", utilidad_bruta)
+                    st.write("Registros en df_acc:", len(df_acc) if 'df_acc' in locals() and df_acc is not None else "df_acc no existe")
 
                     # Forzamos la lectura directa de las llaves oficiales del sidebar
                     mes_titulo = st.session_state.get('mes_seleccionado_contabilidad', 'Junio')
