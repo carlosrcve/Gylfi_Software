@@ -8740,16 +8740,32 @@ if "Inicio" in opcion_menu:
                 if db_actual and db_actual != "{db}" and db_actual != "None":
                     df_comps = pd.DataFrame()
                     
-                    # Obtenemos la fecha actual usando time (viene por defecto en Python, sin imports extra)
+                    # Fechas por defecto de respaldo (si el filtro principal está vacío)
                     import time
                     hoy_str = time.strftime('%Y-%m-%d')
                     mes_inicio_def = time.strftime('%Y-%m-01')
 
+                    # 🔍 CAPTURA DIRECTA DE TUS FILTROS PRINCIPALES
+                    # Buscamos en todas las posibles variables o widgets donde guardes las fechas
+                    f_i = (
+                        st.session_state.get('fecha_inicio') or 
+                        st.session_state.get('f_i') or 
+                        st.session_state.get('start_date') or 
+                        mes_inicio_def
+                    )
+                    f_f = (
+                        st.session_state.get('fecha_fin') or 
+                        st.session_state.get('f_f') or 
+                        st.session_state.get('end_date') or 
+                        hoy_str
+                    )
 
-                    # Intentar recuperar de session_state, si no existen, usar los valores por defecto
-                    f_i = st.session_state.get('fecha_inicio') or st.session_state.get('f_i') or mes_inicio_def
-                    f_f = st.session_state.get('fecha_fin') or st.session_state.get('f_f') or hoy_str
-                    st.write(f"Buscando en: {db_actual} | Fechas: {f_i} a {f_f} | Cuenta: 2.2.1.01.001")
+                    # Forzamos conversión a string por si son objetos date de Streamlit
+                    f_i = str(f_i)
+                    f_f = str(f_f)
+
+                    # Depuración visual rápida para que veas qué fechas está tomando exactamente
+                    st.caption(f"📅 Rango activo en Tab 4 -> Desde: `{f_i}` Hasta: `{f_f}` | Empresa: `{db_actual}`")
 
                     conn_tmp = conectar_db(db_actual)
                     
@@ -8762,7 +8778,7 @@ if "Inicio" in opcion_menu:
                                 AND STR_TO_DATE(fecha, '%%Y-%%m-%%d') BETWEEN STR_TO_DATE(%s, '%%Y-%%m-%%d') AND STR_TO_DATE(%s, '%%Y-%%m-%%d')
                                 ORDER BY fecha DESC, n_comprobante DESC
                             """
-                            df_comps = pd.read_sql(query_comps, conn_tmp, params=(str(f_i), str(f_f)))
+                            df_comps = pd.read_sql(query_comps, conn_tmp, params=(f_i, f_f))
                         except Exception as e:
                             st.error(f"Error al consultar comprobantes en TiDB: {e}")
                         finally:
@@ -8772,7 +8788,6 @@ if "Inicio" in opcion_menu:
                                 pass
 
                     if not df_comps.empty:
-                        # Función local para formatear los números al estilo latino (ej: 257.896,45)
                         def formato_latino(val):
                             try:
                                 s = f"{float(val):,.2f}"
@@ -8807,7 +8822,6 @@ if "Inicio" in opcion_menu:
                                 except Exception:
                                     pass
 
-                        # Mostramos las métricas generales del rango de fechas arriba
                         col_m1, col_m2, col_m3 = st.columns(3)
                         col_m1.metric("Comprobantes en el Periodo", len(df_comps))
                         col_m2.metric("Total Debe Global", f"Bs. {formato_latino(total_debe_periodo)}")
@@ -8815,7 +8829,6 @@ if "Inicio" in opcion_menu:
                         
                         st.divider()
 
-                        # Creamos opciones claras combinando número de comprobante y fecha
                         df_comps['opcion'] = df_comps['n_comprobante'].astype(str) + " (Fecha: " + df_comps['fecha'].astype(str) + ")"
                         lista_opciones = df_comps['opcion'].tolist()
                         
@@ -8829,8 +8842,6 @@ if "Inicio" in opcion_menu:
                                 st.markdown(f"**Asiento Contable Completo del Comprobante N°: `{comprobante_activo}`**")
                                 
                                 df_mostrar = df_asiento.copy()
-                                
-                                # Asegurar formato numérico antes de aplicar formato latino en la vista
                                 df_mostrar['debe_num'] = pd.to_numeric(df_mostrar['debe'], errors='coerce').fillna(0)
                                 df_mostrar['haber_num'] = pd.to_numeric(df_mostrar['haber'], errors='coerce').fillna(0)
                                 
@@ -8839,8 +8850,6 @@ if "Inicio" in opcion_menu:
                                 
                                 df_mostrar['debe'] = df_mostrar['debe_num'].apply(formato_latino)
                                 df_mostrar['haber'] = df_mostrar['haber_num'].apply(formato_latino)
-                                
-                                # Eliminamos columnas auxiliares temporales si existen
                                 df_mostrar = df_mostrar.drop(columns=['debe_num', 'haber_num'], errors='ignore')
                                 
                                 st.dataframe(
