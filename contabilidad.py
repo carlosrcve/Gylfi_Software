@@ -8733,45 +8733,51 @@ if "Inicio" in opcion_menu:
             with tab4:
                 # --- SECCIÓN: ASIENTO CONTABLE COMPLETO POR COMPROBANTE (MODO EMERGENCIA / SIN FILTRO DE FECHA) ---
                 st.divider()
-                st.subheader("👥 Detalle de Comprobantes - Cuentas por Pagar Accionistas (Emergencia)")
+                st.subheader("👥 Detalle de Comprobantes - Cuentas por Pagar Accionistas")
 
                 db_name = locals().get('db') or st.session_state.get('DB_ACTUAL')
 
                 if db_name and db_name != "{db}" and db_name != "None":
-                    df_comps = pd.DataFrame()
-                    conn_tmp = conectar_db(db_name)
                     
+                    # 1. OBTENER FECHAS DEL SIDEBAR
+                    anio_sel = st.session_state.get('anio', 2026)
+                    mes_sel = st.session_state.get('mes') or st.session_state.get('Mes') or "Mayo"
+                    dic_meses = {"Enero": 1, "Febrero": 2, "Marzo": 3, "Abril": 4, "Mayo": 5, "Junio": 6, 
+                                 "Julio": 7, "Agosto": 8, "Septiembre": 9, "Octubre": 10, "Noviembre": 11, "Diciembre": 12}
+                    mes_n = dic_meses.get(str(mes_sel).capitalize(), 5)
+                    
+                    # 2. CONSULTA (Filtramos por fecha desde la BD para que sea más rápido)
+                    f_i = f"{int(anio_sel)}-{mes_n:02d}-01"
+                    f_f = f"{int(anio_sel)}-{mes_n:02d}-31"
+
+                    conn_tmp = conectar_db(db_name)
                     if conn_tmp:
                         try:
-                            # 🚨 CONSULTA DIRECTA SIN FILTRO DE FECHAS PARA ENCONTRAR LOS DATOS YA
+                            # 🚨 AHORA SÍ FILTRAMOS POR FECHA EN LA CONSULTA
                             query_comps = f"""
                                 SELECT DISTINCT n_comprobante, fecha 
                                 FROM `{db_name}`.asientos_contables 
                                 WHERE (plan_cuentas LIKE '%%2.2.1%%' OR cuenta_contable LIKE '%%Accionista%%')
+                                AND fecha BETWEEN '{f_i}' AND '{f_f}'
                                 ORDER BY fecha DESC, n_comprobante DESC
                             """
                             df_comps = pd.read_sql(query_comps, conn_tmp)
-                            st.success(f"🔥 ¡Se encontraron {len(df_comps)} comprobantes históricos en total para `{db_name}`!")
+                            st.info(f"📅 **Filtrando datos para: {mes_sel} {anio_sel}**")
                         except Exception as e:
-                            st.error(f"❌ Error al consultar en TiDB: {e}")
+                            st.error(f"❌ Error al consultar: {e}")
                         finally:
-                            try:
-                                conn_tmp.close()
-                            except Exception:
-                                pass
-                    
-                    if not df_comps.empty:
-                        def formato_latino(val):
-                            try:
-                                s = f"{float(val):,.2f}"
-                                return s.replace(",", "X").replace(".", ",").replace("X", ".")
-                            except:
-                                return val
+                            conn_tmp.close()
 
-                        df_comps['opcion'] = df_comps['n_comprobante'].astype(str) + " (Fecha: " + df_comps['fecha'].astype(str) + ")"
-                        lista_opciones = df_comps['opcion'].tolist()
-                        
-                        seleccion_opcion = st.selectbox("📂 Selecciona el comprobante a visualizar:", lista_opciones, key="select_accionistas_emergencia")
+                        # 3. MOSTRAR RESULTADOS FILTRADOS
+                        if not df_comps.empty:
+                            def formato_latino(val):
+                                try: return f"{float(val):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                                except: return val
+
+                            df_comps['opcion'] = df_comps['n_comprobante'].astype(str) + " (Fecha: " + df_comps['fecha'].astype(str) + ")"
+                            lista_opciones = df_comps['opcion'].tolist()
+                            
+                            seleccion_opcion = st.selectbox("📂 Selecciona el comprobante a visualizar:", lista_opciones, key="select_acc_final")
                         
                         if seleccion_opcion:
                             comprobante_activo = seleccion_opcion.split(" ")[0]
