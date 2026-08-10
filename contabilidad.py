@@ -766,8 +766,6 @@ def obtener_saldos_acumulados(conexion, fecha_corte, nombre_db):
     res_ini = {'activo_ini': 0, 'pasivo_ini': 0, 'patrimonio_ini': 0}
     
     try:
-        # Nota: Si tu tabla saldos_iniciales tiene columna de fecha o periodo, 
-        # asegúrate de filtrarla aquí si corresponde. De lo contrario, suma el histórico total.
         cur.execute(f"""
             SELECT 
                 COALESCE(SUM(CASE WHEN plan_cuentas LIKE '1%' THEN (debe - haber) ELSE 0 END), 0) as activo_ini,
@@ -779,11 +777,10 @@ def obtener_saldos_acumulados(conexion, fecha_corte, nombre_db):
         if f_ini:
             res_ini = f_ini
     except Exception as e:
-        print(f"⚠️ Error al leer saldos_iniciales: {e}")
+        print(f"⚠️ Error al leer saldos_iniciales en {nombre_db}: {e}")
         
     res_mov = {'activo_mov': 0, 'pasivo_mov': 0, 'patrimonio_mov': 0}
     try:
-        # Aquí sí filtra correctamente hasta la fecha de corte seleccionada (ej. 31/05/2026)
         cur.execute(f"""
             SELECT 
                 COALESCE(SUM(CASE WHEN plan_cuentas LIKE '1%' THEN (debe - haber) ELSE 0 END), 0) as activo_mov,
@@ -796,7 +793,7 @@ def obtener_saldos_acumulados(conexion, fecha_corte, nombre_db):
         if f_mov:
             res_mov = f_mov
     except Exception as e:
-        print(f"⚠️ Error al leer asientos_contables para la fecha {fecha_corte}: {e}")
+        print(f"⚠️ Error al leer asientos_contables para la fecha {fecha_corte} en {nombre_db}: {e}")
         
     cur.close()
     
@@ -806,7 +803,6 @@ def obtener_saldos_acumulados(conexion, fecha_corte, nombre_db):
         "pasivo": float(res_ini.get('pasivo_ini', 0) or 0) + float(res_mov.get('pasivo_mov', 0) or 0),
         "patrimonio": float(res_ini.get('patrimonio_ini', 0) or 0) + float(res_mov.get('patrimonio_mov', 0) or 0)
     }
-
 
 
 
@@ -7475,7 +7471,8 @@ if "Inicio" in opcion_menu:
 
         with st.spinner(f'Comunicando con MySQL para {db}...'):
             # Llamadas blindadas para evitar que un None rompa el reporte
-            kpis = obtener_saldos_acumulados(conn, f_fin_global, db)
+            db_actual = st.session_state.get('db_a_conectar')
+            kpis = obtener_saldos_acumulados(conn, f_fin_global, db_actual)
             if kpis is None:
                 kpis = {"activo": 0, "pasivo": 0, "patrimonio": 0}
 
