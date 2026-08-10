@@ -76,46 +76,47 @@ dic_meses = {
 }
 meses_nombres = list(dic_meses.keys())
 
-# Inicializamos de forma segura solo si no existe
+# 2. Inicialización limpia (solo ocurre la primera vez)
 if 'año_seleccionado' not in st.session_state:
     st.session_state['año_seleccionado'] = datetime.datetime.now().year
-
 if 'mes_seleccionado' not in st.session_state:
-    st.session_state['mes_seleccionado'] = "Junio"  # O el mes por defecto que prefieras
+    st.session_state['mes_seleccionado'] = "Junio"
 
-# --- SELECTOR VISUAL EN EL SIDEBAR O PANTALLA (Para que nunca falle) ---
+# 3. Sidebar con widgets conectados DIRECTAMENTE al session_state mediante 'key'
+# Al usar la misma KEY que el session_state, Streamlit maneja la sincronización automáticamente.
 with st.sidebar:
     st.markdown("### 📅 Filtro de Período")
-    anio_seleccionado = st.number_input(
+    
+    st.number_input(
         "Año", 
         min_value=2020, 
         max_value=2030, 
-        value=int(st.session_state['año_seleccionado']), 
-        key='input_anio_global'
+        key='año_seleccionado' # Streamlit escribe directamente aquí
     )
     
-    mes_actual_idx = meses_nombres.index(st.session_state['mes_seleccionado']) if st.session_state['mes_seleccionado'] in meses_nombres else 5
-    mes_elegido_str = st.selectbox(
+    st.selectbox(
         "Mes", 
         meses_nombres, 
-        index=mes_actual_idx, 
-        key='input_mes_global'
+        key='mes_seleccionado' # Streamlit escribe directamente aquí
     )
 
-# Sincronizamos los valores reales con el session_state oficial
-st.session_state['año_seleccionado'] = anio_seleccionado
-st.session_state['mes_seleccionado'] = mes_elegido_str
-
+# 4. Cálculo de variables (Se ejecuta tras cada interacción)
+anio_seleccionado = st.session_state['año_seleccionado']
+mes_elegido_str = st.session_state['mes_seleccionado']
 mes_n = dic_meses.get(mes_elegido_str, 6)
 
-# Cálculo exacto de las cadenas de fecha para MySQL
-ultimo_dia_mes = calendar.monthrange(anio_seleccionado, mes_n)[1]
+ultimo_dia_mes = calendar.monthrange(int(anio_seleccionado), mes_n)[1]
+
+# Variables finales para tus consultas SQL
 fecha_inicio_str = f"{anio_seleccionado}-{mes_n:02d}-01"
 fecha_fin_str = f"{anio_seleccionado}-{mes_n:02d}-{ultimo_dia_mes:02d}"
 
-# Variables de compatibilidad globales para consultas SQL
-f_inicio_global = datetime.date(anio_seleccionado, mes_n, 1)
-f_fin_global = datetime.date(anio_seleccionado, mes_n, ultimo_dia_mes)
+f_inicio_global = datetime.date(int(anio_seleccionado), mes_n, 1)
+f_fin_global = datetime.date(int(anio_seleccionado), mes_n, ultimo_dia_mes)
+
+# DEBUG (Para confirmar que el rango cambia)
+st.sidebar.divider()
+st.sidebar.write(f"**Rango SQL:** {fecha_inicio_str} al {fecha_fin_str}")
 
 # Inicializamos stats por seguridad si no existen
 if 'stats' not in st.session_state:
@@ -7225,29 +7226,20 @@ with st.sidebar:
                 sub_opcion = None
             
             # =========================================================================
-            # 📅 BLOQUE ÚNICO Y OFICIAL DE FILTROS DE FECHA (DENTRO DEL SIDEBAR)
+            # 📅 BLOQUE ÚNICO Y LIMPIO DE FILTROS DE FECHA
             # =========================================================================
             st.divider()
             st.subheader("📅 Período de Consulta")
 
+            # Inicialización única y segura (Evita duplicados)
             if 'año_seleccionado_contabilidad' not in st.session_state:
                 st.session_state['año_seleccionado_contabilidad'] = datetime.datetime.now().year
 
             if 'mes_seleccionado_contabilidad' not in st.session_state:
-                meses_nombres = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
-                st.session_state['mes_seleccionado_contabilidad'] = meses_nombres[datetime.datetime.now().month - 1]
+                st.session_state['mes_seleccionado_contabilidad'] = "Enero"
 
             col_anio, col_mes = st.columns(2)
             
-            # 1. Aseguramos que existan antes de renderizar
-            if 'año_seleccionado_contabilidad' not in st.session_state:
-                st.session_state['año_seleccionado_contabilidad'] = datetime.datetime.now().year
-
-            if 'mes_seleccionado_contabilidad' not in st.session_state:
-                meses_nombres = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
-                st.session_state['mes_seleccionado_contabilidad'] = meses_nombres[datetime.datetime.now().month - 1]
-
-            # 2. Widgets limpios usando únicamente la key (sin el argumento 'value' que causa el bloqueo)
             col_anio.number_input(
                 "Año", 
                 step=1, 
@@ -7266,7 +7258,7 @@ with st.sidebar:
             st.stop()
 
 # =========================================================================
-# ⚙️ VARIABLES GLOBALES DE FECHA (AFUERA DEL SIDEBAR PARA LOS QUERIES)
+# ⚙️ VARIABLES GLOBALES DE FECHA (FUERA DEL SIDEBAR)
 # =========================================================================
 dic_meses = {
     "Enero": 1, "Febrero": 2, "Marzo": 3, "Abril": 4, 
