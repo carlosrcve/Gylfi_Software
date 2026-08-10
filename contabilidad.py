@@ -8827,47 +8827,32 @@ if "Inicio" in opcion_menu:
 
                 if db_actual and db_actual != "{db}" and db_actual != "None":
                     
-                    # 📅 CAPTURA DINÁMICA DE FECHAS DESDE EL SIDEBAR (Sincronizado)
-                    anio_sel = int(st.session_state.get('anio') or st.session_state.get('año') or 2026)
+                    # 🎯 CAPTURA DIRECTA: Usamos las mismas variables globales que pintan el "Período Activo" arriba
+                    # Si ya existen en tu script principal (f_i y f_f), las heredamos de una vez sin recalcularlas mal.
+                    global f_i, f_f
                     
-                    mes_sel_str = str(
-                        st.session_state.get('mes') or 
-                        st.session_state.get('selectbox_mes_multimoneda') or 
-                        st.session_state.get('mes_seleccionado_contabilidad') or 
-                        "Mayo"
-                    )
+                    if 'f_i' not in locals() or 'f_f' not in locals():
+                        # Plan B por si el scope de las globales cambia en tu archivo
+                        anio_sel = int(st.session_state.get('anio') or st.session_state.get('año') or 2026)
+                        mes_sel_val = st.session_state.get('mes_num') or st.session_state.get('n_mes') or 6 # Forzamos junio por defecto si falla
+                        import calendar
+                        _, ultimo_d_mes = calendar.monthrange(anio_sel, int(mes_sel_val))
+                        f_i = f"{anio_sel}-{int(mes_sel_val):02d}-01"
+                        f_f = f"{anio_sel}-{int(mes_sel_val):02d}-{ultimo_d_mes:02d}"
 
-                    dic_meses_local = {
-                        "Enero": 1, "Febrero": 2, "Marzo": 3, "Abril": 4, 
-                        "Mayo": 5, "Junio": 6, "Julio": 7, "Agosto": 8, 
-                        "Septiembre": 9, "Octubre": 10, "Noviembre": 11, "Diciembre": 12
-                    }
+                    st.info(f"🔄 **Filtro sincronizado con la cabecera** -> Buscando del `{f_i}` al `{f_f}`")
 
-                    if mes_sel_str.isdigit():
-                        mes_n_val = int(mes_sel_str)
-                    else:
-                        mes_n_val = dic_meses_local.get(mes_sel_str.capitalize(), 5)
-
-                    import calendar
-                    _, ultimo_d_mes = calendar.monthrange(anio_sel, mes_n_val)
-
-                    f_i = f"{anio_sel}-{mes_n_val:02d}-01"
-                    f_f = f"{anio_sel}-{mes_n_val:02d}-{ultimo_d_mes:02d}"
-
-                    # Usamos f_i y f_f sincronizados con la función de ingresos
+                    # Consultamos usando estrictamente las fechas reales del período activo
                     df_comps = obtener_comprobantes_ingresos(db_actual, f_i, f_f)
 
                     if not df_comps.empty:
-                        # Función local para formatear al estilo latino (ej: 257.896,45)
                         def formato_latino(val):
                             try:
                                 s = f"{float(val):,.2f}"
-                                s = s.replace(",", "X").replace(".", ",").replace("X", ".")
-                                return s
+                                return s.replace(",", "X").replace(".", ",").replace("X", ".")
                             except:
                                 return val
 
-                        # --- MÉTRICAS GLOBALES DEL PERIODO ---
                         total_debe_periodo = 0.0
                         total_haber_periodo = 0.0
                         
@@ -8887,14 +8872,13 @@ if "Inicio" in opcion_menu:
                                         total_debe_periodo = float(df_t['total_debe'].iloc[0] or 0.0)
                                         total_haber_periodo = float(df_t['total_haber'].iloc[0] or 0.0)
                             except Exception as e:
-                                st.error(f"Error al calcular los totales globales de ingresos: {e}")
+                                st.error(f"Error al calcular totales: {e}")
                             finally:
                                 try:
                                     conn_totales.close()
                                 except Exception:
                                     pass
 
-                        # Mostramos las métricas generales del rango de fechas arriba
                         col_m1, col_m2, col_m3 = st.columns(3)
                         col_m1.metric("Comprobantes en el Periodo", len(df_comps))
                         col_m2.metric("Total Debe Global", f"Bs. {formato_latino(total_debe_periodo)}")
@@ -8902,11 +8886,10 @@ if "Inicio" in opcion_menu:
                         
                         st.divider()
 
-                        # --- SELECTOR DE COMPROBANTE ---
                         df_comps['opcion'] = df_comps['n_comprobante'].astype(str) + " (Fecha: " + df_comps['fecha'].astype(str) + ")"
                         lista_opciones = df_comps['opcion'].tolist()
                         
-                        seleccion_opcion = st.selectbox("📂 Selecciona el comprobante de Ingreso a visualizar:", lista_opciones, key="select_ingresos")
+                        seleccion_opcion = st.selectbox("📂 Selecciona el comprobante de Ingreso a visualizar:", lista_opciones, key="select_ingresos_fixed")
                         
                         if seleccion_opcion:
                             comprobante_activo = seleccion_opcion.split(" ")[0]
@@ -8949,7 +8932,7 @@ if "Inicio" in opcion_menu:
                             else:
                                 st.info("No se encontraron detalles para este comprobante.")
                     else:
-                        st.info(f"No hay comprobantes asociados a Otros Ingresos en este rango de fechas ({f_i} al {f_f}).")
+                        st.info(f"No hay comprobantes asociados a Otros Ingresos en el rango activo ({f_i} al {f_f}).")
                 else:
                     st.warning("⚠️ Selecciona una empresa.")
 
