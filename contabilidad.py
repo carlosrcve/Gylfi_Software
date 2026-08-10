@@ -8730,7 +8730,7 @@ if "Inicio" in opcion_menu:
                 else:
                     st.info("No hay datos disponibles o error al recuperar el histórico para el periodo seleccionado.")
 
-           with tab4:
+            with tab4:
                 # --- SECCIÓN: ASIENTO CONTABLE COMPLETO POR COMPROBANTE ---
                 st.divider()
                 st.subheader("👥 Detalle de Comprobantes - Cuentas por Pagar Accionistas")
