@@ -8735,45 +8735,34 @@ if "Inicio" in opcion_menu:
                 st.divider()
                 st.subheader("👥 Detalle de Comprobantes - Cuentas por Pagar Accionistas")
 
-                db_actual = st.session_state.get('DB_ACTUAL')
+                # Usamos la misma variable 'db' que viene funcionando en las demás pestañas
+                db_name = locals().get('db') or st.session_state.get('DB_ACTUAL')
 
-                if db_actual and db_actual != "{db}" and db_actual != "None":
+                if db_name and db_name != "{db}" and db_name != "None":
                     df_comps = pd.DataFrame()
                     
-                    # Fechas por defecto de respaldo (si el filtro principal está vacío)
-                    import time
-                    hoy_str = time.strftime('%Y-%m-%d')
-                    mes_inicio_def = time.strftime('%Y-%m-01')
+                    # Intentamos capturar las fechas de los filtros principales de la misma forma que el resto
+                    f_i = st.session_state.get('fecha_inicio') or st.session_state.get('f_i') or st.session_state.get('start_date')
+                    f_f = st.session_state.get('fecha_fin') or st.session_state.get('f_f') or st.session_state.get('end_date')
 
-                    # 🔍 CAPTURA DIRECTA DE TUS FILTROS PRINCIPALES
-                    # Buscamos en todas las posibles variables o widgets donde guardes las fechas
-                    f_i = (
-                        st.session_state.get('fecha_inicio') or 
-                        st.session_state.get('f_i') or 
-                        st.session_state.get('start_date') or 
-                        mes_inicio_def
-                    )
-                    f_f = (
-                        st.session_state.get('fecha_fin') or 
-                        st.session_state.get('f_f') or 
-                        st.session_state.get('end_date') or 
-                        hoy_str
-                    )
+                    # Si por alguna razón siguen vacías, intentamos extraer el mes/año o usar el mes actual de forma segura
+                    if not f_i or not f_f:
+                        import time
+                        f_i = time.strftime('%Y-%m-01')
+                        f_f = time.strftime('%Y-%m-%d')
 
-                    # Forzamos conversión a string por si son objetos date de Streamlit
                     f_i = str(f_i)
                     f_f = str(f_f)
 
-                    # Depuración visual rápida para que veas qué fechas está tomando exactamente
-                    st.caption(f"📅 Rango activo en Tab 4 -> Desde: `{f_i}` Hasta: `{f_f}` | Empresa: `{db_actual}`")
+                    st.caption(f"📅 Periodo consultado -> Desde: `{f_i}` Hasta: `{f_f}`")
 
-                    conn_tmp = conectar_db(db_actual)
+                    conn_tmp = conectar_db(db_name)
                     
                     if conn_tmp:
                         try:
                             query_comps = f"""
                                 SELECT DISTINCT n_comprobante, fecha 
-                                FROM `{db_actual}`.asientos_contables 
+                                FROM `{db_name}`.asientos_contables 
                                 WHERE plan_cuentas LIKE '2.2.1.01.001%%'
                                 AND STR_TO_DATE(fecha, '%%Y-%%m-%%d') BETWEEN STR_TO_DATE(%s, '%%Y-%%m-%%d') AND STR_TO_DATE(%s, '%%Y-%%m-%%d')
                                 ORDER BY fecha DESC, n_comprobante DESC
@@ -8799,7 +8788,7 @@ if "Inicio" in opcion_menu:
                         total_debe_periodo = 0.0
                         total_haber_periodo = 0.0
                         
-                        conn_totales = conectar_db(db_actual)
+                        conn_totales = conectar_db(db_name)
                         if conn_totales and 'n_comprobante' in df_comps.columns:
                             try:
                                 lista_n_comps = tuple(df_comps['n_comprobante'].astype(str).unique())
@@ -8807,7 +8796,7 @@ if "Inicio" in opcion_menu:
                                     placeholders = ','.join(['%s'] * len(lista_n_comps))
                                     query_totales = f"""
                                         SELECT SUM(CAST(debe AS DECIMAL(18,2))) as total_debe, SUM(CAST(haber AS DECIMAL(18,2))) as total_haber 
-                                        FROM `{db_actual}`.asientos_contables 
+                                        FROM `{db_name}`.asientos_contables 
                                         WHERE n_comprobante IN ({placeholders})
                                     """
                                     df_t = pd.read_sql(query_totales, conn_totales, params=lista_n_comps)
@@ -8836,7 +8825,7 @@ if "Inicio" in opcion_menu:
                         
                         if seleccion_opcion:
                             comprobante_activo = seleccion_opcion.split(" ")[0]
-                            df_asiento = obtener_asiento_por_comprobante(db_actual, comprobante_activo)
+                            df_asiento = obtener_asiento_por_comprobante(db_name, comprobante_activo)
                             
                             if df_asiento is not None and not df_asiento.empty:
                                 st.markdown(f"**Asiento Contable Completo del Comprobante N°: `{comprobante_activo}`**")
