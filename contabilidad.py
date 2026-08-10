@@ -8740,10 +8740,10 @@ if "Inicio" in opcion_menu:
                 if db_actual and db_actual != "{db}" and db_actual != "None":
                     df_comps = pd.DataFrame()
                     
-                    # Cálculo seguro de fechas por defecto dentro del mismo bloque
-                    hoy = datetime.now()
-                    mes_inicio_def = hoy.strftime('%Y-%m-01')
-                    hoy_str = hoy.strftime('%Y-%m-%d')
+                    # Obtenemos la fecha actual usando time (viene por defecto en Python, sin imports extra)
+                    import time
+                    hoy_str = time.strftime('%Y-%m-%d')
+                    mes_inicio_def = time.strftime('%Y-%m-01')
 
                     # Intentar recuperar de session_state, si no existen, usar los valores por defecto
                     f_i = st.session_state.get('fecha_inicio') or st.session_state.get('f_i') or mes_inicio_def
