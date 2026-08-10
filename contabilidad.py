@@ -8529,7 +8529,6 @@ if "Inicio" in opcion_menu:
                 if len(valores_grafico) > 0:
                     valores_grafico_limpios = [float(v) if pd.notnull(v) else 0.0 for v in valores_grafico]
                     
-                    # Usamos la variable unificada 'anio_seleccionado' para evitar errores
                     fig = go.Figure(go.Bar(
                         x=valores_grafico_limpios,
                         y=nombres_grafico,
@@ -8538,26 +8537,24 @@ if "Inicio" in opcion_menu:
                         texttemplate='%{x:,.2f}',
                         textposition='outside'
                     ))
-                    # 🔍 Diagnóstico rápido en pantalla
-                    st.write("Valores del gráfico:", list(zip(nombres_grafico, valores_grafico)))
-                    st.write("Utilidad bruta calculada:", utilidad_bruta)
-                    st.write("Registros en df_acc:", len(df_acc) if 'df_acc' in locals() and df_acc is not None else "df_acc no existe")
 
-                    # Forzamos la lectura directa de las llaves oficiales del sidebar
+                    # Configuración del Layout
                     mes_titulo = st.session_state.get('mes_seleccionado_contabilidad', 'Junio')
                     anio_titulo = st.session_state.get('año_seleccionado_contabilidad', 2026)
 
                     fig.update_layout(
-                        title=f"Comparativa: Retiros vs Utilidades (Mes: {mes_titulo} {anio_titulo})",
+                        title=f"Comparativa: Retiros vs Utilidades ({mes_titulo} {anio_titulo})",
                         height=450,
-                        xaxis=dict(title="Valor (Bs.)", zeroline=True, showgrid=True, autorange=True),
+                        xaxis=dict(title="Valor (Bs.)", zeroline=True, showgrid=True),
                         yaxis=dict(type='category', autorange="reversed"),
                         margin=dict(l=20, r=100, t=50, b=20)
                     )
+                    
+                    # IMPORTANTE: st.plotly_chart debe estar identado dentro del 'with tab1:'
                     st.plotly_chart(fig, use_container_width=True)
                 else:
-                    st.warning("No hay datos disponibles para mostrar en el gráfico de este periodo.")
-
+                    st.warning("No hay datos disponibles para mostrar en el gráfico.")
+                    
             with tab2:
                 st.markdown("### 📉 Detalle de Gastos Operativos")
 
