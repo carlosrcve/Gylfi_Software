@@ -7441,19 +7441,29 @@ if "Inicio" in opcion_menu:
     try:
         col_kpi, col_btn = st.columns([0.8, 0.2])
         # 1. PRIMERO: Llamamos al sidebar limpio antes de crear columnas o pantallas
+        # 1. Cargamos el menú lateral primero
         gestionar_sidebar()
 
         # 2. Obtenemos la empresa de la sesión de manera segura
         db_objetivo = st.session_state.get('db_a_conectar')
 
-        # Si por alguna razón la sesión está vacía, le asignamos una por defecto para que no falle
+        # 3. Si la sesión está vacía, rescatamos DINÁMICAMENTE la primera permitida (¡adiós nombres fijos!)
         if not db_objetivo:
-            db_objetivo = "kingdriver_ca"  # Cambia esto por tu empresa principal si lo deseas
-            st.session_state['db_a_conectar'] = db_objetivo
+            user_rol = st.session_state.get('rol')
+            user_cliente_id = st.session_state.get('cliente_id')
+            
+            # Consultamos las empresas que le corresponden a este usuario específico
+            lista_permitida = obtener_todas_las_empresas(user_rol=user_rol, user_id=user_cliente_id)
+            
+            if lista_permitida and len(lista_permitida) > 0:
+                db_objetivo = lista_permitida[0]  # Toma la primera de sus empresas de forma limpia
+                st.session_state['db_a_conectar'] = db_objetivo
+            else:
+                st.error("❌ No se encontraron bases de datos asociadas a este usuario.")
+                st.stop()
 
-        # 3. Continuamos con el flujo normal de tus KPIs y consultas
+        # 4. Dibujamos la interfaz
         col_kpi, col_btn = st.columns([0.8, 0.2])
-    
         with col_kpi:
             st.subheader("Indicadores Financieros en Tiempo Real")
             st.write("---")
@@ -7464,13 +7474,10 @@ if "Inicio" in opcion_menu:
             if conn:
                 cursor = conn.cursor()
                 cursor.execute("SHOW TABLES;")
-                tablas = [row[0] for row in cursor.fetchall()] # Guardamos los nombres en una lista limpia de texto
+                tablas = [row[0] for row in cursor.fetchall()]
                 cursor.close()
                 
-                # Mostramos todas las tablas disponibles en pantalla para identificarlas
-                st.write(f"📊 Tablas encontradas en {db_objetivo}:", tablas)
-                
-                # Buscamos si alguna tabla se parece a la contable
+                # Buscamos dinámicamente la tabla contable
                 tabla_encontrada = None
                 for t in tablas:
                     if 'asiento' in t.lower() or 'diario' in t.lower() or 'comprobante' in t.lower():
@@ -7478,14 +7485,13 @@ if "Inicio" in opcion_menu:
                         break
                 
                 if tabla_encontrada:
-                    st.success(f"✅ ¡Tabla detectada automáticamente: **{tabla_encontrada}**!")
                     cursor = conn.cursor()
                     cursor.execute(f"SELECT COUNT(*) FROM {tabla_encontrada};")
                     cantidad = cursor.fetchone()[0]
                     cursor.close()
-                    st.write(f"📈 Cantidad de registros en {tabla_encontrada}: **{cantidad}**")
+                    st.success(f"📈 Conexión exitosa en `{db_objetivo}`. Registros en `{tabla_encontrada}`: **{cantidad}**")
                 else:
-                    st.error(f"❌ No se encontró ninguna tabla de asientos o diarios en el esquema ({db_objetivo}). Revisa los nombres de arriba.")
+                    st.error(f"❌ No se encontró la tabla contable en ({db_objetivo}).")
 
         db = db_objetivo
 
@@ -7496,7 +7502,6 @@ if "Inicio" in opcion_menu:
                 kpis = {"activo": 0, "pasivo": 0, "patrimonio": 0}
 
             df_utilidad = obtener_historico_utilidad(db, f_inicio=f_inicio_global, f_fin=f_fin_global)
-            st.write(f"🔍 DataFrame recibido en la app:", df_utilidad)
 
             if df_utilidad is None:
                 df_utilidad = pd.DataFrame()
