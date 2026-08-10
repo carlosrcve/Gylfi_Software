@@ -1361,27 +1361,14 @@ def gestionar_sidebar():
     user_rol = st.session_state.get('rol')
     user_cliente_id = st.session_state.get('cliente_id')
 
-    # Aseguramos que conn exista
-    conn = st.session_state.get('conn')
-    if conn is None:
-        st.sidebar.error("❌ No hay conexión activa a la base de datos.")
-        return
-
     lista_empresas = []
 
-    if user_rol == 'admin':
-        # Validamos que la función admin exista antes de llamarla
-        if 'obtener_todas_las_empresas' in globals() and callable(obtener_todas_las_empresas):
-            res = obtener_todas_las_empresas(conn)
-            if res is not None:
-                lista_empresas = res
-    else:
-        # Validamos que la función de cliente exista antes de llamarla
-        funcion_cliente = globals().get('obtener_empresa_activa') # Cambia por el nombre real si es distinto
-        if funcion_cliente and callable(funcion_cliente):
-            res = funcion_cliente(conn, user_cliente_id)
-            if res is not None:
-                lista_empresas = res
+    # Validamos que la función central exista antes de llamarla
+    if 'obtener_todas_las_empresas' in globals() and callable(obtener_todas_las_empresas):
+        # Llamamos pasando el rol y el id para que la función filtre o devuelva según corresponda
+        res = obtener_todas_las_empresas(user_rol=user_rol, user_id=user_cliente_id)
+        if res is not None:
+            lista_empresas = res
 
     # PROTECCIÓN CLAVE: Si la lista está vacía o es None, evitamos que el selectbox reviente
     if not lista_empresas:
@@ -1396,7 +1383,7 @@ def gestionar_sidebar():
     )
     
     st.session_state['CLIENTE_NOMBRE'] = empresa_seleccionada
-    
+
 def mostrar_bitacora_auditoria(conn):
     st.subheader("📋 Bitácora de Auditoría")
     
@@ -4520,18 +4507,28 @@ def marcar_retencion_completada(conn, id_factura, n_comprobante):
 
 
 @log_ejecucion
-def obtener_todas_las_empresas():
+def obtener_todas_las_empresas(user_rol=None, user_id=None):
     conn_central = conectar_db()
-    if not conn_central: return []
+    if not conn_central: 
+        return []
     try:
         cursor = conn_central.cursor(dictionary=True)
-        # Filtramos directamente en la consulta SQL
-        # Asumiendo que en 'clientes' tienes una columna 'usuario_id'
-        query = "SELECT * FROM clientes WHERE usuario_id = %s"
-        cursor.execute(query, (user_id,))
+        
+        # Si es admin, traemos todas; si es cliente, filtramos por su usuario_id
+        if user_rol == 'admin':
+            query = "SELECT nombre_bd FROM clientes" # o la columna donde guardas el nombre de la empresa/bd
+            cursor.execute(query)
+        else:
+            query = "SELECT nombre_bd FROM clientes WHERE usuario_id = %s"
+            cursor.execute(query, (user_id,))
+            
         resultados = cursor.fetchall()
         cursor.close()
-        return resultados
+        
+        # Extraemos una lista limpia con solo los nombres de las empresas/bases de datos
+        lista = [row['nombre_bd'] for row in resultados if 'nombre_bd' in row]
+        return lista
+        
     except Exception as e:
         st.error(f"Error al filtrar empresas: {e}")
         return []
