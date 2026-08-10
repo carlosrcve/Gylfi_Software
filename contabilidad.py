@@ -738,9 +738,18 @@ def obtener_comprobantes_ingresos(db, f_inicio, f_fin):
 
 
 def obtener_historico_utilidad_acumulada(db):
-    conn = conectar_db(db)
     df_default = pd.DataFrame({'mes': [], 'utilidad_mensual': []})
     
+    # Blindaje: Verificar que la función conectar_db exista y no sea None
+    if 'conectar_db' not in globals() and 'conectar_db' not in locals():
+        print("❌ Error crítico: 'conectar_db' no está definida en este módulo.")
+        return df_default
+        
+    if conectar_db is None:
+        print("❌ Error crítico: 'conectar_db' es None.")
+        return df_default
+
+    conn = conectar_db(db)
     if not conn:
         return df_default
         
@@ -796,7 +805,10 @@ def obtener_historico_utilidad_acumulada(db):
         return df_default
     finally:
         if conn:
-            conn.close()
+            try:
+                conn.close()
+            except:
+                pass
             
 def obtener_saldos_acumulados(conexion, fecha_corte, nombre_db):
     if not conexion:
