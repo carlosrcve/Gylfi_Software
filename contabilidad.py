@@ -1370,19 +1370,22 @@ def gestionar_sidebar():
     lista_empresas = []
 
     if user_rol == 'admin':
-        # El admin ve la lista completa de la tabla clientes
-        res = obtener_todas_las_empresas(conn)
-        if res is not None:
-            lista_empresas = res
+        # Validamos que la función admin exista antes de llamarla
+        if 'obtener_todas_las_empresas' in globals() and callable(obtener_todas_las_empresas):
+            res = obtener_todas_las_empresas(conn)
+            if res is not None:
+                lista_empresas = res
     else:
-        # El cliente SOLO ve la empresa que le pertenece (Usamos el nombre correcto de tu función)
-        res = obtener_empresa_activa(conn, user_cliente_id) # o el nombre que uses en tu backend
-        if res is not None:
-            lista_empresas = res
+        # Validamos que la función de cliente exista antes de llamarla
+        funcion_cliente = globals().get('obtener_empresa_activa') # Cambia por el nombre real si es distinto
+        if funcion_cliente and callable(funcion_cliente):
+            res = funcion_cliente(conn, user_cliente_id)
+            if res is not None:
+                lista_empresas = res
 
     # PROTECCIÓN CLAVE: Si la lista está vacía o es None, evitamos que el selectbox reviente
     if not lista_empresas:
-        st.sidebar.warning("⚠️ No hay empresas disponibles para mostrar.")
+        st.sidebar.warning("⚠️ No hay empresas disponibles para mostrar o la función de carga no está definida.")
         return
 
     # El selectbox sincronizado con key='db_a_conectar'
@@ -1392,7 +1395,6 @@ def gestionar_sidebar():
         key='db_a_conectar'
     )
     
-    # Mantenemos también la asignación por si otra parte del código la requiere
     st.session_state['CLIENTE_NOMBRE'] = empresa_seleccionada
     
 def mostrar_bitacora_auditoria(conn):
