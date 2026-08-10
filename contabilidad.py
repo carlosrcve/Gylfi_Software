@@ -1375,8 +1375,8 @@ def gestionar_sidebar():
         if res is not None:
             lista_empresas = res
     else:
-        # El cliente SOLO ve la empresa que le pertenece
-        res = obtener_empresa_especifica(conn, user_cliente_id)
+        # El cliente SOLO ve la empresa que le pertenece (Usamos el nombre correcto de tu función)
+        res = obtener_empresa_activa(conn, user_cliente_id) # o el nombre que uses en tu backend
         if res is not None:
             lista_empresas = res
 
