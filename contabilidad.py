@@ -8444,7 +8444,7 @@ if "Inicio" in opcion_menu:
             db = st.session_state.get('DB_ACTUAL')
             if db and db != "{db}" and db != "None" and str(db).strip() != "":
                 try:
-                    df_acc = obtener_analisis_accionista_detallado(db, f_i, f_f)
+                    df_acc = obtener_analisis_accionista_detallado(DB_ACTUAL, f_inicio_global, f_fin_global)
                     utilidad = obtener_historico_utilidad(db, f_inicio=f_i, f_fin=f_f)
                 except Exception as err:
                     st.error(f"Error interno en la función de datos: {err}")
