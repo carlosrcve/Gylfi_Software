@@ -8827,21 +8827,42 @@ if "Inicio" in opcion_menu:
 
                 if db_actual and db_actual != "{db}" and db_actual != "None":
                     
-                    # 🎯 CAPTURA DIRECTA SEGURA: Evaluamos las globales de forma segura sin violar el scope
-                    _f_i_val = globals().get('f_i')
-                    _f_f_val = globals().get('f_f')
+                    # 🎯 CAPTURA ABSOLUTA DESDE EL SESSION STATE (Sincronizado con el Sidebar de tu app)
+                    anio_sel = int(
+                        st.session_state.get('anio') or 
+                        st.session_state.get('año') or 
+                        st.session_state.get('selected_anio') or 
+                        2026
+                    )
                     
-                    if not _f_i_val or not _f_f_val:
-                        anio_sel = int(st.session_state.get('anio') or st.session_state.get('año') or 2026)
-                        mes_sel_val = st.session_state.get('mes_num') or st.session_state.get('n_mes') or 6
-                        import calendar
-                        _, ultimo_d_mes = calendar.monthrange(anio_sel, int(mes_sel_val))
-                        _f_i_val = f"{anio_sel}-{int(mes_sel_val):02d}-01"
-                        _f_f_val = f"{anio_sel}-{int(mes_sel_val):02d}-{ultimo_d_mes:02d}"
+                    mes_sel_str = str(
+                        st.session_state.get('mes') or 
+                        st.session_state.get('selectbox_mes_multimoneda') or 
+                        st.session_state.get('mes_seleccionado_contabilidad') or 
+                        st.session_state.get('mes_activo') or 
+                        "Junio"
+                    )
 
-                    st.info(f"🔄 **Filtro sincronizado con la cabecera** -> Buscando del `{_f_i_val}` al `{_f_f_val}`")
+                    dic_meses_local = {
+                        "Enero": 1, "Febrero": 2, "Marzo": 3, "Abril": 4, 
+                        "Mayo": 5, "Junio": 6, "Julio": 7, "Agosto": 8, 
+                        "Septiembre": 9, "Octubre": 10, "Noviembre": 11, "Diciembre": 12
+                    }
 
-                    # Consultamos usando las fechas exactas del período activo
+                    if mes_sel_str.isdigit():
+                        mes_n_val = int(mes_sel_str)
+                    else:
+                        mes_n_val = dic_meses_local.get(mes_sel_str.capitalize(), 6)
+
+                    import calendar
+                    _, ultimo_d_mes = calendar.monthrange(anio_sel, mes_n_val)
+
+                    _f_i_val = f"{anio_sel}-{mes_n_val:02d}-01"
+                    _f_f_val = f"{anio_sel}-{mes_n_val:02d}-{ultimo_d_mes:02d}"
+
+                    st.info(f"🔄 **Filtro sincronizado con el Sidebar** -> Buscando del `{_f_i_val}` al `{_f_f_val}` (Mes detectado: {mes_sel_str})")
+
+                    # Consultamos usando las fechas exactas del período del sidebar
                     df_comps = obtener_comprobantes_ingresos(db_actual, _f_i_val, _f_f_val)
 
                     if not df_comps.empty:
