@@ -8740,11 +8740,6 @@ if "Inicio" in opcion_menu:
                 if db_name and db_name != "{db}" and db_name != "None":
                     df_comps = pd.DataFrame()
                     
-                    # 🕵️‍♂️ MODO INSPECCIÓN: Depuración de session_state y variables globales
-                    with st.expander("🛠️ Depuración de Fechas y Session State (Abrir para ver)", expanded=True):
-                        st.write("Variables de sesión disponibles:", list(st.session_state.keys()))
-                        st.write("Variables globales disponibles:", [k for k in globals().keys() if not k.startswith('_')])
-
                     # 📅 CAPTURA DINÁMICA DESDE LOS SELECTORES DEL SIDEBAR (Año y Mes)
                     anio_sel = int(st.session_state.get('anio') or st.session_state.get('año') or 2026)
                     
@@ -8752,7 +8747,7 @@ if "Inicio" in opcion_menu:
                         st.session_state.get('mes') or 
                         st.session_state.get('selectbox_mes_multimoneda') or 
                         st.session_state.get('mes_seleccionado_contabilidad') or 
-                        "Junio"
+                        "Mayo"
                     )
 
                     dic_meses_local = {
@@ -8764,7 +8759,7 @@ if "Inicio" in opcion_menu:
                     if mes_sel_str.isdigit():
                         mes_n_val = int(mes_sel_str)
                     else:
-                        mes_n_val = dic_meses_local.get(mes_sel_str.capitalize(), 6)
+                        mes_n_val = dic_meses_local.get(mes_sel_str.capitalize(), 5)
 
                     import calendar
                     _, ultimo_d_mes = calendar.monthrange(anio_sel, mes_n_val)
@@ -8786,8 +8781,7 @@ if "Inicio" in opcion_menu:
                                 WHERE (plan_cuentas LIKE '%%2.2.1%%' OR cuenta_contable LIKE '%%Accionista%%')
                             """
                             df_test = pd.read_sql(query_prueba, conn_tmp)
-                            st.write("📊 Diagnóstico de Cuentas por Pagar Accionistas en TiDB:", df_test)
-
+                            
                             # Consulta principal adaptada al rango dinámico y búsqueda flexible
                             query_comps = f"""
                                 SELECT DISTINCT n_comprobante, fecha 
@@ -8847,11 +8841,6 @@ if "Inicio" in opcion_menu:
                         
                         st.divider()
 
-                        st.markdown("**Listado de Comprobantes Filtrados:**")
-                        st.dataframe(df_comps, use_container_width=True, height=200)
-
-                        st.divider()
-
                         df_comps['opcion'] = df_comps['n_comprobante'].astype(str) + " (Fecha: " + df_comps['fecha'].astype(str) + ")"
                         lista_opciones = df_comps['opcion'].tolist()
                         
@@ -8898,7 +8887,7 @@ if "Inicio" in opcion_menu:
                             else:
                                 st.info("No se encontraron detalles para este comprobante.")
                     else:
-                        st.warning("⚠️ No hay comprobantes con cuentas asociadas a Accionistas para el rango de fechas indicado. Revisa arriba el diagnóstico de la BD para validar las fechas.")
+                        st.warning(f"⚠️ No hay comprobantes con cuentas asociadas a Accionistas para el rango del mes seleccionado ({f_i} al {f_f}).")
                 else:
                     st.warning("⚠️ Selecciona una empresa.")
                     
