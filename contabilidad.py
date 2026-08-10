@@ -8740,9 +8740,14 @@ if "Inicio" in opcion_menu:
                 if db_actual and db_actual != "{db}" and db_actual != "None":
                     df_comps = pd.DataFrame()
                     
-                    # Recuperamos o validamos las variables globales de fecha (f_i y f_f)
-                    f_i = st.session_state.get('fecha_inicio', st.session_state.get('f_i'))
-                    f_f = st.session_state.get('fecha_fin', st.session_state.get('f_f'))
+                    # Definir valores por defecto (ej: inicio de mes actual hasta hoy)
+                    hoy = datetime.now()
+                    mes_inicio_def = hoy.strftime('%Y-%m-01')
+                    hoy_str = hoy.strftime('%Y-%m-%d')
+
+                    # Intentar recuperar de session_state, si no existen, usar los valores por defecto
+                    f_i = st.session_state.get('fecha_inicio') or st.session_state.get('f_i') or mes_inicio_def
+                    f_f = st.session_state.get('fecha_fin') or st.session_state.get('f_f') or hoy_str
 
                     if not f_i or not f_f:
                         st.warning("⚠️ Por favor, define el rango de fechas en los filtros principales para consultar los comprobantes.")
