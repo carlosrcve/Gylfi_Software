@@ -8394,10 +8394,9 @@ if "Inicio" in opcion_menu:
         # --- FILA 10: REPORTE DE CONTABLE ---
         st.divider()
         try:
-            # --- CAPTURA DIRECTA Y UNIFICADA DEL FILTRO GLOBAL ---
-            # Forzamos a leer directamente de la sesión limpia del selector principal
-            año = int(st.session_state.get('año_seleccionado', datetime.datetime.now().year))
-            mes_elegido_str = str(st.session_state.get('mes_seleccionado', 'Junio')).strip().capitalize()
+            # Usamos las llaves exactas definidas en el sidebar de contabilidad
+            año = int(st.session_state.get('año_seleccionado_contabilidad', datetime.datetime.now().year))
+            mes_elegido_str = str(st.session_state.get('mes_seleccionado_contabilidad', 'Junio')).strip().capitalize()
 
             # Mapeo robusto de meses
             meses_map = {
@@ -8407,24 +8406,26 @@ if "Inicio" in opcion_menu:
             
             num_mes = meses_map.get(mes_elegido_str, 6)
 
-            # Construcción matemática y limpia de fechas límites para el SQL basadas estrictamente en la selección
-            s_anio = str(año).zfill(4)
-            s_mes = str(num_mes).zfill(2)
+            # Construcción de fechas usando calendar para evitar errores en días máximos
             ultimo_dia = int(calendar.monthrange(año, num_mes)[1])
-            s_dia = str(ultimo_dia).zfill(2)
+            
+            # Creamos tanto los strings como los objetos date de forma limpia
+            f_i_str = f"{año}-{num_mes:02d}-01"
+            f_f_str = f"{año}-{num_mes:02d}-{ultimo_dia:02d}"
 
-            f_i = f"{s_anio}-{s_mes}-01"
-            f_f = f"{s_anio}-{s_mes}-{s_dia}"
+            f_i_date = datetime.date(año, num_mes, 1)
+            f_f_date = datetime.date(año, num_mes, ultimo_dia)
 
-            # Cuadro informativo de depuración en tiempo real respetando los filtros
-            st.info(f"📅 Período Activo: **{mes_elegido_str} {año}** | Rango SQL: **{f_i} al {f_f}**")
+            # Cuadro informativo de depuración en tiempo real reflejando el período activo
+            st.info(f"📅 Período Activo: **{mes_elegido_str} {año}** | Rango SQL: **{f_i_str} al {f_f_str}**")
 
             # Validar Base de Datos activa
             db = st.session_state.get('DB_ACTUAL')
             if db and db != "{db}" and db != "None" and str(db).strip() != "":
                 try:
-                    df_acc = obtener_analisis_accionista_detallado(DB_ACTUAL, f_inicio_global, f_fin_global)
-                    utilidad = obtener_historico_utilidad(db, f_inicio=f_i, f_fin=f_f)
+                    # Pasamos los objetos date unificados a tus funciones
+                    df_acc = obtener_analisis_accionista_detallado(db, f_i_date, f_f_date)
+                    utilidad = obtener_historico_utilidad(db, f_inicio=f_i_str, f_fin=f_f_str)
                 except Exception as err:
                     st.error(f"Error interno en la función de datos: {err}")
                     st.stop()
