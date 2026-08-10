@@ -68,23 +68,52 @@ if 'mes_seleccionado' not in st.session_state:
     meses_nombres = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
     st.session_state['mes_seleccionado'] = meses_nombres[datetime.datetime.now().month - 1]
 
+# --- 1. BLOQUE DE FECHAS GLOBAL Y SEGURO ---
 dic_meses = {
     "Enero": 1, "Febrero": 2, "Marzo": 3, "Abril": 4, 
     "Mayo": 5, "Junio": 6, "Julio": 7, "Agosto": 8, 
     "Septiembre": 9, "Octubre": 10, "Noviembre": 11, "Diciembre": 12
 }
+meses_nombres = list(dic_meses.keys())
 
-anio_seleccionado = st.session_state.get('año_seleccionado', datetime.datetime.now().year)
-mes_elegido_str = st.session_state.get('mes_seleccionado', "Enero")
+# Inicializamos de forma segura solo si no existe
+if 'año_seleccionado' not in st.session_state:
+    st.session_state['año_seleccionado'] = datetime.datetime.now().year
 
-mes_n = dic_meses.get(mes_elegido_str, 1)
+if 'mes_seleccionado' not in st.session_state:
+    st.session_state['mes_seleccionado'] = "Junio"  # O el mes por defecto que prefieras
+
+# --- SELECTOR VISUAL EN EL SIDEBAR O PANTALLA (Para que nunca falle) ---
+with st.sidebar:
+    st.markdown("### 📅 Filtro de Período")
+    anio_seleccionado = st.number_input(
+        "Año", 
+        min_value=2020, 
+        max_value=2030, 
+        value=int(st.session_state['año_seleccionado']), 
+        key='input_anio_global'
+    )
+    
+    mes_actual_idx = meses_nombres.index(st.session_state['mes_seleccionado']) if st.session_state['mes_seleccionado'] in meses_nombres else 5
+    mes_elegido_str = st.selectbox(
+        "Mes", 
+        meses_nombres, 
+        index=mes_actual_idx, 
+        key='input_mes_global'
+    )
+
+# Sincronizamos los valores reales con el session_state oficial
+st.session_state['año_seleccionado'] = anio_seleccionado
+st.session_state['mes_seleccionado'] = mes_elegido_str
+
+mes_n = dic_meses.get(mes_elegido_str, 6)
 
 # Cálculo exacto de las cadenas de fecha para MySQL
 ultimo_dia_mes = calendar.monthrange(anio_seleccionado, mes_n)[1]
 fecha_inicio_str = f"{anio_seleccionado}-{mes_n:02d}-01"
 fecha_fin_str = f"{anio_seleccionado}-{mes_n:02d}-{ultimo_dia_mes:02d}"
 
-# 5. Variables de compatibilidad globales para consultas SQL (como tu Flujo de Efectivo)
+# Variables de compatibilidad globales para consultas SQL
 f_inicio_global = datetime.date(anio_seleccionado, mes_n, 1)
 f_fin_global = datetime.date(anio_seleccionado, mes_n, ultimo_dia_mes)
 
@@ -8383,32 +8412,20 @@ if "Inicio" in opcion_menu:
         # --- FILA 10: REPORTE DE CONTABLE ---
         st.divider()
         try:
-            año_val = st.session_state.get('año_seleccionado', st.session_state.get('f_anio_global', 2026))
-            mes_elegido = st.session_state.get('mes_seleccionado', st.session_state.get('f_mes_global', 'Junio'))
-
-            # Blindaje y conversión del año
-            try:
-                año = int(str(año_val).strip())
-            except Exception:
-                año = 2026
+            # --- CAPTURA DIRECTA Y UNIFICADA DEL FILTRO GLOBAL ---
+            # Forzamos a leer directamente de la sesión limpia del selector principal
+            año = int(st.session_state.get('año_seleccionado', datetime.datetime.now().year))
+            mes_elegido_str = str(st.session_state.get('mes_seleccionado', 'Junio')).strip().capitalize()
 
             # Mapeo robusto de meses
             meses_map = {
                 'Enero': 1, 'Febrero': 2, 'Marzo': 3, 'Abril': 4, 'Mayo': 5, 'Junio': 6,
                 'Julio': 7, 'Agosto': 8, 'Septiembre': 9, 'Octubre': 10, 'Noviembre': 11, 'Diciembre': 12
             }
+            
+            num_mes = meses_map.get(mes_elegido_str, 6)
 
-            # Procesar mes dinámicamente según la selección del usuario (OJO: Cuidado con los filtros de fecha)
-            if isinstance(mes_elegido, (int, float)):
-                num_mes = int(mes_elegido)
-                inv_map = {v: k for k, v in meses_map.items()}
-                mes_elegido_str = inv_map.get(num_mes, 'Enero')
-            else:
-                mes_limpio = str(mes_elegido).strip().capitalize()
-                num_mes = meses_map.get(mes_limpio, 1)
-                mes_elegido_str = mes_limpio
-
-            # Construcción matemática y limpia de fechas límites para el SQL basadas estrictamente en el filtro activo
+            # Construcción matemática y limpia de fechas límites para el SQL basadas estrictamente en la selección
             s_anio = str(año).zfill(4)
             s_mes = str(num_mes).zfill(2)
             ultimo_dia = int(calendar.monthrange(año, num_mes)[1])
