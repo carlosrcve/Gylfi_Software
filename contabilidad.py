@@ -8749,16 +8749,33 @@ if "Inicio" in opcion_menu:
                         "Septiembre": 9, "Octubre": 10, "Noviembre": 11, "Diciembre": 12
                     }
                     
-                    # Leemos directo del estado de la barra lateral con valores por defecto seguros
-                    anio_sel = int(st.session_state.get('año_seleccionado_contabilidad', 2026))
-                    mes_sel_str = st.session_state.get('mes_seleccionado_contabilidad', "Agosto")
-                    mes_n_val = dic_meses_local.get(mes_sel_str, 8)
+                    # 🔍 BUSGAMOS LAS VARIABLES GLOBALES O CUALQUIER LLAVE POSIBLE DEL SIDEBAR
+                    f_i = globals().get('fecha_inicio_str') or st.session_state.get('f_inicio_global')
+                    f_f = globals().get('fecha_fin_str') or st.session_state.get('f_fin_global')
                     
-                    # Calculamos el último día del mes de forma exacta (bisiestos, 30 o 31 días)
-                    _, ultimo_d_mes = calendar.monthrange(anio_sel, mes_n_val)
-                    
-                    f_i = f"{anio_sel}-{mes_n_val:02d}-01"
-                    f_f = f"{anio_sel}-{mes_n_val:02d}-{ultimo_d_mes:02d}"
+                    # Si la barra lateral usa otras variables directas en el session_state, las leemos aquí:
+                    if not f_i or not f_f:
+                        anio_sel = int(
+                            st.session_state.get('año_seleccionado_contabilidad') or 
+                            st.session_state.get('anio') or 
+                            st.session_state.get('selected_year') or 2026
+                        )
+                        mes_sel_str = str(
+                            st.session_state.get('mes_seleccionado_contabilidad') or 
+                            st.session_state.get('mes') or 
+                            st.session_state.get('selected_month') or "Mayo"
+                        )
+                        
+                        # Si el selector guarda el mes como número directamente en vez de texto:
+                        if mes_sel_str.isdigit():
+                            mes_n_val = int(mes_sel_str)
+                        else:
+                            mes_n_val = dic_meses_local.get(mes_sel_str, 5) # Por defecto Mayo si falla
+                            
+                        _, ultimo_d_mes = calendar.monthrange(anio_sel, mes_n_val)
+                        
+                        f_i = f"{anio_sel}-{mes_n_val:02d}-01"
+                        f_f = f"{anio_sel}-{mes_n_val:02d}-{ultimo_d_mes:02d}"
 
                     st.caption(f"📅 Periodo consultado → Desde: `{f_i}` Hasta: `{f_f}` | Empresa: `{db_name}`")
 
