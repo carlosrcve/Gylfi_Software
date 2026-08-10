@@ -8819,7 +8819,6 @@ if "Inicio" in opcion_menu:
                     st.warning("⚠️ Selecciona una empresa.")
                     
             with tab5:
-                # --- SECCIÓN: DETALLE DE OTROS INGRESOS (7.1.1.01.001) ---
                 st.divider()
                 st.subheader("💰 Detalle de Comprobantes - Otros Ingresos (7.1.1.01.001)")
 
@@ -8827,26 +8826,38 @@ if "Inicio" in opcion_menu:
 
                 if db_actual and db_actual != "{db}" and db_actual != "None":
                     
-                    # 🚨 FORZADO TOTAL: Obtenemos el año y mes desde los inputs directos del usuario
-                    # Ajusta estas llaves a los nombres exactos de tus widgets en el sidebar
-                    anio_sel = st.session_state.get('anio') or 2026
-                    mes_sel = st.session_state.get('mes') or "Junio"
+                    # 🎯 SELECTOR DIRECTO DE WIDGET: Leemos el año y mes exactos del sidebar con clave limpia
+                    col_s1, col_s2 = st.columns(2)
                     
-                    dic_meses = {"Enero": 1, "Febrero": 2, "Marzo": 3, "Abril": 4, "Mayo": 5, "Junio": 6, 
-                                 "Julio": 7, "Agosto": 8, "Septiembre": 9, "Octubre": 10, "Noviembre": 11, "Diciembre": 12}
+                    # Si usas selectbox en el sidebar para el mes, capturamos su valor actual con seguridad:
+                    anio_sel = st.session_state.get('anio', 2026)
                     
-                    mes_n = dic_meses.get(mes_sel, 6)
+                    # Forzamos la lectura del mes directamente desde el estado actual del selectbox de tu app
+                    # (Ajusta la llave 'Mes' o 'mes' según cómo se llame el selectbox en tu sidebar)
+                    mes_sel = st.session_state.get('mes') or st.session_state.get('Mes') or "Mayo"
+                    
+                    dic_meses = {
+                        "Enero": 1, "Febrero": 2, "Marzo": 3, "Abril": 4, 
+                        "Mayo": 5, "Junio": 6, "Julio": 7, "Agosto": 8, 
+                        "Septiembre": 9, "Octubre": 10, "Noviembre": 11, "Diciembre": 12
+                    }
+                    
+                    # Si el valor viene como texto, lo convertimos a número; si ya es número, lo dejamos pasar
+                    if str(mes_sel).isdigit():
+                        mes_n = int(mes_sel)
+                    else:
+                        mes_n = dic_meses.get(str(mes_sel).capitalize(), 5)
                     
                     import calendar
                     _, ultimo_dia = calendar.monthrange(int(anio_sel), mes_n)
                     
-                    # Estas son las FECHAS REALES que vamos a usar sí o sí
-                    f_i_final = f"{anio_sel}-{mes_n:02d}-01"
-                    f_f_final = f"{anio_sel}-{mes_n:02d}-{ultimo_dia:02d}"
+                    # Rango de fechas totalmente sincronizado al mes activo del sidebar
+                    f_i_final = f"{int(anio_sel)}-{mes_n:02d}-01"
+                    f_f_final = f"{int(anio_sel)}-{mes_n:02d}-{ultimo_dia:02d}"
 
-                    st.info(f"🔍 **Buscando en Rango Real:** `{f_i_final}` hasta `{f_f_final}`")
+                    st.info(f"🔄 **Período Activo Sincronizado:** Mes de **{mes_sel}** (`{f_i_final}` al `{f_f_final}`)")
 
-                    # LLAMADA CRÍTICA: Pasamos las fechas recalculadas aquí
+                    # Consulta limpia a la base de datos con el rango correcto
                     df_comps = obtener_comprobantes_ingresos(db_actual, f_i_final, f_f_final)
 
                     if not df_comps.empty:
@@ -8893,7 +8904,7 @@ if "Inicio" in opcion_menu:
                         df_comps['opcion'] = df_comps['n_comprobante'].astype(str) + " (Fecha: " + df_comps['fecha'].astype(str) + ")"
                         lista_opciones = df_comps['opcion'].tolist()
                         
-                        seleccion_opcion = st.selectbox("📂 Selecciona el comprobante de Ingreso a visualizar:", lista_opciones, key="select_ingresos_fixed_v2")
+                        seleccion_opcion = st.selectbox("📂 Selecciona el comprobante de Ingreso a visualizar:", lista_opciones, key="select_ingresos_v3")
                         
                         if seleccion_opcion:
                             comprobante_activo = seleccion_opcion.split(" ")[0]
@@ -8936,7 +8947,7 @@ if "Inicio" in opcion_menu:
                             else:
                                 st.info("No se encontraron detalles para este comprobante.")
                     else:
-                        st.info(f"No hay comprobantes asociados a Otros Ingresos en el rango activo ({_f_i_val} al {_f_f_val}).")
+                        st.warning(f"⚠️ No hay comprobantes de Otros Ingresos para el mes de **{mes_sel}** ({f_i_final} al {f_f_final}).")
                 else:
                     st.warning("⚠️ Selecciona una empresa.")
 
