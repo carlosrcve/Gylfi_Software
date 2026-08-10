@@ -7239,9 +7239,17 @@ with st.sidebar:
 
             col_anio, col_mes = st.columns(2)
             
+            # 1. Aseguramos que existan antes de renderizar
+            if 'año_seleccionado_contabilidad' not in st.session_state:
+                st.session_state['año_seleccionado_contabilidad'] = datetime.datetime.now().year
+
+            if 'mes_seleccionado_contabilidad' not in st.session_state:
+                meses_nombres = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
+                st.session_state['mes_seleccionado_contabilidad'] = meses_nombres[datetime.datetime.now().month - 1]
+
+            # 2. Widgets limpios usando únicamente la key (sin el argumento 'value' que causa el bloqueo)
             col_anio.number_input(
                 "Año", 
-                value=st.session_state['año_seleccionado_contabilidad'], 
                 step=1, 
                 key="año_seleccionado_contabilidad"
             )
