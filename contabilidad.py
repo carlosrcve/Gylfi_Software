@@ -1394,6 +1394,7 @@ def gestionar_sidebar():
     
     # Mantenemos también la asignación por si otra parte del código la requiere
     st.session_state['CLIENTE_NOMBRE'] = empresa_seleccionada
+    
 def mostrar_bitacora_auditoria(conn):
     st.subheader("📋 Bitácora de Auditoría")
     
@@ -7440,7 +7441,7 @@ if "Inicio" in opcion_menu:
 
     try:
         col_kpi, col_btn = st.columns([0.8, 0.2])
-        
+        gestionar_sidebar()
         with col_kpi:
             st.subheader("Indicadores Financieros en Tiempo Real")
             st.write("---")
