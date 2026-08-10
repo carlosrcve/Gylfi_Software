@@ -8460,19 +8460,20 @@ if "Inicio" in opcion_menu:
                 st.write(f"🔍 DEBUG EXTREMO -> Variable 'db': [{db}]")
                 st.write(f"DEBUG: Intentando conectar a la base de datos: {db}")
 
-                conn = conectar_db(db)
+                # Reutilizamos la conexión activa de la sesión para evitar aperturas duplicadas
+                conn = st.session_state.get('conn') or conectar_db(db)
                 df_config_accionistas = pd.DataFrame()
 
                 if conn is None:
-                    st.error("ERROR CRÍTICO: conectar_db(db) devolvió None. Revisa tu función de conexión.")
-                    df_config_accionistas = pd.DataFrame()
+                    st.error("❌ Error crítico: No se pudo establecer conexión con la base de datos.")
                 else:
-                    st.success("¡Conexión establecida correctamente!")
                     try:
-                        # 1. FORZAR CREACIÓN DE TABLA SI NO EXISTE
-                        cursor_fix = conn.cursor()
-                        cursor_fix.execute(f"USE `{db}`;")
-                        cursor_fix.execute("""
+                        # Aseguramos el contexto de la base de datos correcta
+                        cursor = conn.cursor()
+                        cursor.execute(f"USE `{db}`;")
+                        
+                        # 1. Validación y creación automática de la tabla si no existe
+                        cursor.execute("""
                             CREATE TABLE IF NOT EXISTS accionistas (
                                 id INT AUTO_INCREMENT PRIMARY KEY,
                                 nombre VARCHAR(255) NOT NULL,
@@ -8481,35 +8482,14 @@ if "Inicio" in opcion_menu:
                                 descripcion_cuenta VARCHAR(255)
                             );
                         """)
-                        cursor_fix.close()
-
-                        # 2. VERIFICACIÓN Y LECTURA
-                        cursor = conn.cursor()
                         
-                        cursor.execute("SELECT DATABASE(), CURRENT_USER();")
-                        db_actual, usuario = cursor.fetchone()
-                        print(f"DEBUG: Estoy conectado a la BD: {db_actual} como usuario: {usuario}")
-                        
-                        cursor.execute(f"SHOW TABLES FROM `{db}`;")
-                        todas_las_tablas = cursor.fetchall()
-                        print(f"DEBUG: Tablas encontradas en {db}: {todas_las_tablas}")
-
-                        cursor.execute(f"SHOW TABLES FROM `{db}` LIKE 'accionistas';")
-                        resultado = cursor.fetchone()
+                        # 2. Lectura directa de los datos
+                        df_config_accionistas = pd.read_sql(f"SELECT * FROM `{db}`.accionistas", conn)
                         cursor.close()
 
-                        if resultado:
-                            df_config_accionistas = pd.read_sql(f"SELECT * FROM `{db}`.accionistas", conn)
-                        else:
-                            st.error(f"¡CONFIRMADO! El sistema dice que en '{db}' NO hay tabla 'accionistas'.")
-                            st.write(f"Tablas reales detectadas: {todas_las_tablas}")
-                            df_config_accionistas = pd.DataFrame()
-                            
                     except Exception as e:
-                        st.error(f"Error al leer la tabla de accionistas: {e}")
+                        st.error(f"⚠️ Error al procesar la configuración de accionistas: {e}")
                         df_config_accionistas = pd.DataFrame()
-                    finally:
-                        pass
 
                 nombres_grafico = []
                 valores_grafico = []
