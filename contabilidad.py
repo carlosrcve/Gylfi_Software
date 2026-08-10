@@ -7440,30 +7440,33 @@ if "Inicio" in opcion_menu:
         gestionar_sidebar()
 
         # 2. Rescatamos la empresa actual de la sesión
-        db_objetivo = st.session_state.get('db_a_conectar')
+        db_objetivo = st.session_state.get('db_a_conectar') or st.session_state.get('DB_ACTUAL')
 
         if db_objetivo:
             db_objetivo = db_objetivo.replace("driver_ca", "dirver_ca")
             st.session_state['db_a_conectar'] = db_objetivo
             st.session_state['DB_ACTUAL'] = db_objetivo
 
-        # 3. Si la sesión está en blanco, leemos directo de la tabla de control (sin usar funciones fantasma)
+        # 3. Si la sesión está en blanco, tomamos la primera disponible usando la misma lógica de tu app.py
         if not db_objetivo:
             user_rol = st.session_state.get('rol')
             user_cliente_id = st.session_state.get('cliente_id')
             
-            # Consultamos directo usando la conexión activa de control
             conn_ctrl = conectar_db()
             if user_rol == 'admin':
-                query = "SELECT nombre_bd FROM clientes"
+                # Usamos * para traer todas las columnas reales sin adivinar nombres
+                query = "SELECT * FROM clientes LIMIT 1"
             else:
-                query = f"SELECT nombre_bd FROM clientes WHERE id = {user_cliente_id}"
+                query = f"SELECT * FROM clientes WHERE id = {user_cliente_id}"
                 
             df_empresas_temp = pd.read_sql(query, conn_ctrl)
             conn_ctrl.close()
             
             if not df_empresas_temp.empty:
-                db_objetivo = df_empresas_temp['nombre_bd'].iloc[0]
+                # Buscamos automáticamente la columna que contenga la base de datos (evita el error de columna desconocida)
+                columna_bd = next((c for c in df_empresas_temp.columns if 'bd' in c.lower() or 'base' in c.lower() or 'schema' in c.lower()), df_empresas_temp.columns[-1])
+                db_objetivo = str(df_empresas_temp[columna_bd].iloc[0])
+                
                 db_objetivo = db_objetivo.replace("driver_ca", "dirver_ca")
                 st.session_state['db_a_conectar'] = db_objetivo
                 st.session_state['DB_ACTUAL'] = db_objetivo
@@ -7471,7 +7474,7 @@ if "Inicio" in opcion_menu:
                 st.error("❌ No se encontró ninguna base de datos disponible para este usuario.")
                 st.stop()
 
-        # 4. Ahora sí, dibujamos la interfaz una sola vez y de forma limpia
+        # 4. Dibujamos la interfaz
         col_kpi, col_btn = st.columns([0.8, 0.2])
         with col_kpi:
             st.subheader("Indicadores Financieros en Tiempo Real")
