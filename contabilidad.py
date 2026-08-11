@@ -7076,6 +7076,12 @@ if 'año_seleccionado_contabilidad' not in st.session_state:
 if 'mes_seleccionado_contabilidad' not in st.session_state:
     st.session_state['mes_seleccionado_contabilidad'] = "Junio"
 
+dic_meses = {
+    "Enero": 1, "Febrero": 2, "Marzo": 3, "Abril": 4, 
+    "Mayo": 5, "Junio": 6, "Julio": 7, "Agosto": 8, 
+    "Septiembre": 9, "Octubre": 10, "Noviembre": 11, "Diciembre": 12
+}
+meses_lista = list(dic_meses.keys())
 
 with st.sidebar:
     st.image("https://cdn-icons-png.flaticon.com/512/2645/2645328.png", width=100)
@@ -7088,7 +7094,8 @@ with st.sidebar:
         st.rerun()
 
     # --- Navegación ---
-    if st.session_state.get('rol') == 'admin':
+    user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
+    if user_rol == 'admin':
         menu = st.radio("Navegación", ["📊 Auditoría Contable", "⚙️ Gestión de Usuarios"], key="menu_nav")
     else:
         menu = "📊 Auditoría Contable"
@@ -7107,11 +7114,6 @@ with st.sidebar:
             unsafe_allow_html=True
         )
 
-        query_sidebar = "SELECT id, nombre_empresa, db_nombre FROM control_central.clientes"
-        if st.session_state.get('rol') != 'admin':
-            c_id = st.session_state.get('cliente_id')
-            query_sidebar += f" WHERE id = {c_id}"
-
         # Conexión para la barra lateral
         conn_sidebar = conectar_db()
         df_sidebar = pd.DataFrame()
@@ -7120,16 +7122,32 @@ with st.sidebar:
             try:
                 if hasattr(conn_sidebar, 'ping') and callable(conn_sidebar.ping):
                     conn_sidebar.ping(reconnect=True)
-                df_sidebar = pd.read_sql(query_sidebar, conn_sidebar)
+                
+                # Intentamos primero con la ruta completa y si no existe, probamos con la tabla directa 'clientes'
+                queries_a_probar = [
+                    "SELECT id, nombre_empresa, db_nombre FROM control_central.clientes",
+                    "SELECT id, nombre_empresa, db_nombre FROM clientes"
+                ]
+                
+                for q in queries_a_probar:
+                    try:
+                        if user_rol != 'admin':
+                            c_id = st.session_state.get('cliente_id')
+                            if c_id:
+                                q_final = f"{q} WHERE id = {c_id}"
+                            else:
+                                q_final = q
+                        else:
+                            q_final = q
+                            
+                        df_sidebar = pd.read_sql(q_final, conn_sidebar)
+                        if not df_sidebar.empty:
+                            break
+                    except Exception:
+                        continue
+
             except Exception as e:
-                try:
-                    conn_sidebar = conectar_db()
-                    if conn_sidebar:
-                        df_sidebar = pd.read_sql(query_sidebar, conn_sidebar)
-                    else:
-                        st.error(f"❌ Error de conexión persistente: {e}")
-                except Exception as inner_e:
-                    st.error(f"❌ Error crítico al reconectar con la base de datos: {inner_e}")
+                st.error(f"❌ Error de conexión en la barra lateral: {e}")
             finally:
                 try:
                     if conn_sidebar and hasattr(conn_sidebar, 'close'):
@@ -7172,7 +7190,7 @@ with st.sidebar:
             db_raw = datos_sel['db_nombre']
             
             if pd.isna(db_raw) or not db_raw:
-                st.error(f"⚠️ La empresa '{seleccion}' no tiene asignada una base de datos en 'control_central'.")
+                st.error(f"⚠️ La empresa '{seleccion}' no tiene asignada una base de datos válida.")
                 st.stop()
                 
             DB_ACTUAL = str(db_raw).strip()
@@ -7212,7 +7230,7 @@ with st.sidebar:
             col_mes.selectbox("Mes", meses_lista, key="mes_seleccionado_contabilidad")
 
         else:
-            st.error("No se encontraron empresas asociadas.")
+            st.error("⚠️ No se encontraron empresas asociadas o la tabla de clientes está vacía en TiDB Cloud.")
             st.stop()
 
 # =========================================================================
