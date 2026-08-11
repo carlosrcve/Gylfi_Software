@@ -7419,22 +7419,23 @@ else:
 
 
 if "Inicio" in opcion_menu:
-    # 1. Recuperamos la DB seleccionada del session_state
+    # 1. Recuperamos la DB seleccionada desde tu variable de estado
     db_actual = st.session_state.get('DB_ACTUAL', 'No seleccionada')
     
-    # 2. Verificamos si la conexión actual coincide con la DB seleccionada
+    # 2. Verificamos si la conexión actual coincide
     conexion_coincide = st.session_state.get('ultima_db_conectada') == db_actual
 
-    # 3. Si no hay conexión O no coincide, reconectamos a TiDB Cloud
+    # 3. Si no hay conexión O no coincide, reconectamos
     if 'conn' not in st.session_state or st.session_state.conn is None or not conexion_coincide:
         if db_actual == 'No seleccionada':
             st.warning("⚠️ Por favor seleccione una empresa válida.")
             st.stop()
             
-        st.info(f"🔄 Conectando a la base de datos del cliente en TiDB Cloud: {db_actual}...")
+        st.info(f"🔄 Conectando a la base de datos: {db_actual}...")
         
-        # Conexión real y dinámica a TiDB Cloud usando la variable oficial
+        # Conexión directa a TiDB Cloud usando el nombre correcto
         nueva_conn = conectar_db(db_actual)
+        
         if nueva_conn is not None:
             st.session_state.conn = nueva_conn
             st.session_state.ultima_db_conectada = db_actual
@@ -7444,12 +7445,10 @@ if "Inicio" in opcion_menu:
             st.error(f"❌ No se pudo establecer la conexión con la base de datos '{db_actual}' en TiDB Cloud.")
             st.stop()
 
-    # 4. ENCABEZADO Y FECHAS 100% SINCRONIZADAS CON EL SIDEBAR
+    # 4. FECHAS SINCRONIZADAS
     meses_lista = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
-    
     anio_f = int(st.session_state.get('año_seleccionado_contabilidad', 2026))
     mes_nombre_f = st.session_state.get('mes_seleccionado_contabilidad', 'Mayo')
-    
     m_idx = meses_lista.index(mes_nombre_f) + 1 if mes_nombre_f in meses_lista else 5
     
     f_inicio_global = datetime.date(anio_f, m_idx, 1)
@@ -7458,12 +7457,8 @@ if "Inicio" in opcion_menu:
     else:
         f_fin_global = datetime.date(anio_f, m_idx + 1, 1) - datetime.timedelta(days=1)
 
-    # 5. NOMBRE DINÁMICO EXTRAÍDO DE LA VARIABLE DE TIBC CLOUD
-    # Esto transforma automáticamente cualquier nombre técnico (ej. 'pedacito_cielo_ca') 
-    # en un formato legible para el título (ej. 'Pedacito Cielo Ca') de forma totalmente dinámica.
-    nombre_cliente_dinamico = db_actual.replace("_", " ").title()
-
-    st.title(f"📊 Auditoría Profesional: {nombre_cliente_dinamico}")
+    # 5. TÍTULO CON EL NOMBRE EXACTO DE LA BASE DE DATOS
+    st.title(f"📊 Auditoría Profesional: {db_actual}")
     st.markdown(f"**Período de Análisis:** {f_inicio_global.strftime('%d/%m/%Y')} al {f_fin_global.strftime('%d/%m/%Y')}")
     st.divider()
     
