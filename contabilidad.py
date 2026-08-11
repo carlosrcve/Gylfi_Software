@@ -599,10 +599,19 @@ def gestionar_sidebar():
 
         st.markdown("---")
         
-        # 🔑 Solución definitiva: Añadir un key único y fijo evita el conflicto del ID generado
-        if st.button("🚪 Cerrar Sesión", key="unique_logout_button_sidebar"):
+        # Generar un identificador de sesión único la primera vez si no existe
+        if "logout_key_counter" not in st.session_state:
+            st.session_state["logout_key_counter"] = 0
+
+        # Usar un key completamente dinámico e irrepetible en cada render
+        dynamic_key = f"btn_logout_{st.session_state['logout_key_counter']}"
+        
+        if st.button("🚪 Cerrar Sesión", key=dynamic_key):
+            # Incrementar contador para invalidar el ID actual en el siguiente ciclo
+            st.session_state["logout_key_counter"] += 1
             for key in list(st.session_state.keys()):
-                del st.session_state[key]
+                if key != "logout_key_counter":
+                    del st.session_state[key]
             st.rerun()
 
         # --- Navegación ---
