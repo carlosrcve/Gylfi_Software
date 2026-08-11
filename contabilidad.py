@@ -1455,11 +1455,7 @@ def gestionar_sidebar():
             query_debug = "SELECT COUNT(*) as total FROM clientes"
             df_count = pd.read_sql(query_debug, conn_debug)
             total_empresas = df_count['total'].iloc[0]
-            st.sidebar.write(f"Empresas en tabla 'clientes': {total_empresas}")
-            
             df_cols = pd.read_sql("SELECT * FROM clientes LIMIT 1", conn_debug)
-            st.sidebar.write("Columnas detectadas:", list(df_cols.columns))
-            
             # Consultamos el listado completo para mapear db_nombre con nombre_empresa
             df_sidebar = pd.read_sql("SELECT nombre_empresa, db_nombre FROM clientes WHERE estado = 'Activo' OR estado IS NULL", conn_debug)
             conn_debug.close()
@@ -1554,7 +1550,7 @@ def gestionar_sidebar():
         st.rerun()
 
 
-        
+
 # --- 2. PANTALLA DE LOGIN ---
 import streamlit as st
 import time
