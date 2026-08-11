@@ -697,7 +697,7 @@ def gestionar_sidebar():
 # ==========================================
 menu_lateral = gestionar_sidebar()
 
-# 2. Si el usuario selecciona Gestión de Usuarios (Admin)
+# 2. A partir de aquí, evalúas las opciones basándote en 'menu_lateral' o 'st.session_state'
 if menu_lateral == "⚙️ Gestión de Usuarios":    
     try:
         conn = conectar_db() 
@@ -710,7 +710,6 @@ if menu_lateral == "⚙️ Gestión de Usuarios":
         st.error(f"Error al acceder a la gestión central: {e}")
     st.stop()
 
-# 3. Si está en Auditoría Contable, manejamos los submódulos y filtros dentro del sidebar
 if menu_lateral == "📊 Auditoría Contable":
     with st.sidebar:
         st.divider()
