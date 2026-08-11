@@ -4501,12 +4501,16 @@ def obtener_todas_las_empresas(user_rol=None, user_id=None):
     conn_central = conectar_db()
     if not conn_central: 
         return []
+    
     try:
         cursor = conn_central.cursor(dictionary=True)
         
-        # Si es admin, traemos todas; si es cliente, filtramos por su usuario_id
-        if user_rol == 'admin':
-            query = "SELECT nombre_bd FROM clientes" # o la columna donde guardas el nombre de la empresa/bd
+        # Normalizamos el rol a minúsculas y manejamos nulos para evitar fallos
+        rol_limpio = str(user_rol).strip().lower() if user_rol else 'admin'
+        
+        if rol_limpio in ['admin', 'administrador', 'None']:
+            # Traemos todas las empresas sin importar el rol si es admin o nulo
+            query = "SELECT nombre_bd FROM clientes"
             cursor.execute(query)
         else:
             query = "SELECT nombre_bd FROM clientes WHERE usuario_id = %s"
@@ -4515,8 +4519,14 @@ def obtener_todas_las_empresas(user_rol=None, user_id=None):
         resultados = cursor.fetchall()
         cursor.close()
         
-        # Extraemos una lista limpia con solo los nombres de las empresas/bases de datos
-        lista = [row['nombre_bd'] for row in resultados if 'nombre_bd' in row]
+        # Extraemos una lista limpia buscando la columna de forma flexible
+        lista = []
+        for row in resultados:
+            # Buscamos la clave correcta dinámicamente por si la columna se llama diferente
+            key_encontrada = next((k for k in ['nombre_bd', 'nombre', 'bd', 'schema', 'empresa'] if k in row), None)
+            if key_encontrada and row[key_encontrada]:
+                lista.append(row[key_encontrada])
+                
         return lista
         
     except Exception as e:
