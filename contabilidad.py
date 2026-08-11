@@ -586,7 +586,6 @@ def gestionar_sidebar():
         st.header("Panel de Auditoría")
 
         # --- ETIQUETA / INSIGNIA DE USUARIO LOGUEADO ---
-        # --- ETIQUETA / INSIGNIA DE USUARIO LOGUEADO ---
         if user_rol == 'admin':
             st.markdown(
                 """
@@ -598,7 +597,6 @@ def gestionar_sidebar():
                 unsafe_allow_html=True
             )
         else:
-            # Buscamos el nombre de usuario de forma prioritaria en la sesión
             nombre_mostrado = (
                 st.session_state.get('nombre_usuario') or 
                 st.session_state.get('username') or 
@@ -643,6 +641,13 @@ def gestionar_sidebar():
                 except Exception as e:
                     st.error(f"❌ Error al consultar el listado de empresas: {e}")
 
+            # 🛠️ CORRECCIÓN CLAVE: Si no es admin, filtramos estrictamente por su ID o vinculación real
+            if user_rol != 'admin' and not df_sidebar.empty:
+                if 'id' in df_sidebar.columns and user_id != 'N/A':
+                    df_sidebar = df_sidebar[df_sidebar['id'].astype(str) == str(user_id)]
+                elif 'cliente_id' in df_sidebar.columns and user_id != 'N/A':
+                    df_sidebar = df_sidebar[df_sidebar['cliente_id'].astype(str) == str(user_id)]
+
             if not lista_db_permitidas:
                 db_en_sesion = st.session_state.get('db_a_conectar')
                 if db_en_sesion:
@@ -655,17 +660,17 @@ def gestionar_sidebar():
                 df_filtrado = df_sidebar
             else:
                 if not df_sidebar.empty and 'db_nombre' in df_sidebar.columns:
-                    df_filtrado = df_sidebar[df_sidebar['db_nombre'].isin(lista_db_permitidas)]
+                    df_filtrado = df_sidebar
                 else:
                     df_filtrado = pd.DataFrame()
 
             if df_filtrado.empty:
                 db_actual_emergencia = lista_db_permitidas[0]
                 df_filtrado = pd.DataFrame({
-                    'id': [1],
-                    'nombre_empresa': ['REPRESENTACIONES PEDACITO DE CIELO, C.A.' if db_actual_emergencia == 'pedacito_de_cielo_ca' else db_actual_emergencia],
+                    'id': [user_id if user_id != 'N/A' else 1],
+                    'nombre_empresa': [nombre_usuario_actual if user_rol != 'admin' else 'REPRESENTACIONES PEDACITO DE CIELO, C.A.'],
                     'db_nombre': [db_actual_emergencia],
-                    'nombre_usuario': ['No asignado']
+                    'nombre_usuario': [nombre_usuario_actual]
                 })
 
             nombres_empresas = df_filtrado['nombre_empresa'].tolist()
@@ -713,7 +718,6 @@ def gestionar_sidebar():
 # ==========================================
 menu_lateral = gestionar_sidebar()
 
-# 2. A partir de aquí, evalúas las opciones basándote en 'menu_lateral' o 'st.session_state'
 if menu_lateral == "⚙️ Gestión de Usuarios":    
     try:
         conn = conectar_db() 
@@ -737,12 +741,11 @@ if menu_lateral == "📊 Auditoría Contable":
             "📖 Mayor Analítico", "📊 Estados Financieros", "📚 Libros Fiscales", "👤 Proveedores"
         ]
 
-        if "PEDACITO" in str(nombre_sel).upper() and "CLIELO" in str(nombre_sel).upper():
+        if "PEDACITO" in str(nombre_sel).upper() and "CIELO" in str(nombre_sel).upper():
             modulos_disponibles.append("🧁 Inventarios")
 
         opcion_menu = st.selectbox("📂 SELECCIONE UN MÓDULO", modulos_disponibles, key="opcion_menu_auditoria")
 
-        # Filtros de fecha en la barra lateral
         st.divider()
         st.subheader("📅 Período de Consulta")
         dic_meses = {
@@ -758,7 +761,6 @@ if menu_lateral == "📊 Auditoría Contable":
 
 if "🏠 Inicio" in opcion_menu:
 
-    # --- 2. GESTIÓN DE ROL Y BASE DE DATOS OBJETIVO ---
     user_rol = st.session_state.get('rol')
     user_cliente_id = st.session_state.get('cliente_id')
 
@@ -794,7 +796,6 @@ if "🏠 Inicio" in opcion_menu:
     st.session_state['DB_ACTUAL'] = db_objetivo
     st.session_state['db_a_conectar'] = db_objetivo
 
-    # --- 3. CONEXIÓN ESTRICTA A LA BD DEL CLIENTE ---
     if 'conn' not in st.session_state or st.session_state.get('ultima_db_conectada') != db_objetivo or st.session_state.conn is None:
         try:
             nueva_conn = conectar_db(db_objetivo)
@@ -809,7 +810,6 @@ if "🏠 Inicio" in opcion_menu:
             st.session_state.conn = None
             st.stop()
 
-    # Verificación de estado y ping de la conexión
     conn = st.session_state.conn
     try:
         conn.ping(reconnect=True, attempts=3, delay=1)
@@ -821,8 +821,6 @@ if "🏠 Inicio" in opcion_menu:
         st.session_state.conn = None 
         st.rerun()
 
-    # --- 4. CÁLCULO DE FECHAS REACTIVO Y SEGURO ---
-    # Al ejecutarse después del sidebar, ya lee correctamente el mes seleccionado por ti.
     dic_meses = {
         "Enero": 1, "Febrero": 2, "Marzo": 3, "Abril": 4, 
         "Mayo": 5, "Junio": 6, "Julio": 7, "Agosto": 8, 
@@ -835,7 +833,6 @@ if "🏠 Inicio" in opcion_menu:
     
     m_idx = dic_meses.get(mes_nombre_f, 1)
     
-    # Cálculo exacto del último día del mes (ej. 28 para febrero)
     ultimo_dia = calendar.monthrange(anio_f, m_idx)[1]
 
     f_inicio_global = datetime.date(anio_f, m_idx, 1)
@@ -844,7 +841,6 @@ if "🏠 Inicio" in opcion_menu:
     fecha_inicio_str = f_inicio_global.strftime('%Y-%m-%d')
     fecha_fin_str = f_fin_global.strftime('%Y-%m-%d')
 
-    # --- 5. RENDERIZADO VISUAL Y DE KPIS ---
     st.title(f"📊 Auditoría Profesional: {db_objetivo}")
     st.markdown(f"**Período de Análisis:** {f_inicio_global.strftime('%d/%m/%Y')} al {f_fin_global.strftime('%d/%m/%Y')}")
     st.divider()
