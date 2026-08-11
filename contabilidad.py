@@ -382,257 +382,6 @@ def panel_administracion(conn):
         st.error(f"Error cargando logs: {e}")
 
 
-def gestionar_sidebar():
-    # 1. Recuperar rol e identificador de sesión
-    user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
-    user_id = st.session_state.get('user_id', st.session_state.get('cliente_id', 'N/A'))
-
-    with st.sidebar:
-        st.image("https://cdn-icons-png.flaticon.com/512/2645/2645328.png", width=100)
-        st.header("Panel de Auditoría")
-
-        # --- INSIGNIA DE DUEÑO Y ADMINISTRADOR ---
-        if user_rol == 'admin':
-            st.markdown(
-                """
-                <div style="background-color: #1e293b; padding: 10px; border-radius: 8px; text-align: center; margin-bottom: 15px; border: 1px solid #334155;">
-                    <span style="color: #38bdf8; font-weight: bold; font-size: 14px;">👑 Administrador Principal</span><br>
-                    <span style="color: #94a3b8; font-size: 11px;">Dueño del Software</span>
-                </div>
-                """, 
-                unsafe_allow_html=True
-            )
-
-        st.markdown("---")
-        if st.button("🚪 Cerrar Sesión"):
-            for key in list(st.session_state.keys()):
-                del st.session_state[key]
-            st.rerun()
-
-        # --- Navegación ---
-        if user_rol == 'admin':
-            menu = st.radio("Navegación", ["📊 Auditoría Contable", "⚙️ Gestión de Usuarios"], key="menu_nav")
-        else:
-            menu = "📊 Auditoría Contable"
-
-        st.divider()
-
-        # --- Módulos y Configuración ---
-        if menu == "📊 Auditoría Contable":
-            st.markdown(
-                """
-                <style>
-                    div[data-baseweb="listbox"] { max-height: 350px !important; overflow-y: auto !important; }
-                    .stSelectbox div[role="button"] { margin-bottom: 5px; }
-                </style>
-                """,
-                unsafe_allow_html=True
-            )
-
-            # Obtenemos las empresas desde la caché rápida
-            df_sidebar = _obtener_datos_sidebar_cache() if '_obtener_datos_sidebar_cache' in globals() else pd.DataFrame()
-
-            # 2. Obtenemos las bases de datos permitidas para este usuario
-            lista_db_permitidas = []
-            if 'obtener_todas_las_empresas' in globals() and callable(globals()['obtener_todas_las_empresas']):
-                try:
-                    lista_db_permitidas = obtener_todas_las_empresas(user_rol=user_rol, user_id=user_id) or []
-                except Exception as e:
-                    st.error(f"❌ Error al consultar el listado de empresas: {e}")
-
-            # 3. PLAN DE EMERGENCIA ABSOLUTO
-            if not lista_db_permitidas:
-                db_en_sesion = st.session_state.get('db_a_conectar')
-                if db_en_sesion:
-                    lista_db_permitidas = [db_en_sesion]
-                else:
-                    lista_db_permitidas = ['pedacito_de_cielo_ca']
-                    st.session_state['db_a_conectar'] = 'pedacito_de_cielo_ca'
-
-            # 4. Filtrado por rol
-            if user_rol == 'admin' and not df_sidebar.empty:
-                df_filtrado = df_sidebar
-            else:
-                if not df_sidebar.empty and 'db_nombre' in df_sidebar.columns:
-                    df_filtrado = df_sidebar[df_sidebar['db_nombre'].isin(lista_db_permitidas)]
-                else:
-                    df_filtrado = pd.DataFrame()
-
-            if df_filtrado.empty:
-                db_actual_emergencia = lista_db_permitidas[0]
-                df_filtrado = pd.DataFrame({
-                    'id': [1],
-                    'nombre_empresa': ['REPRESENTACIONES PEDACITO DE CIELO, C.A.' if db_actual_emergencia == 'pedacito_de_cielo_ca' else db_actual_emergencia],
-                    'db_nombre': [db_actual_emergencia],
-                    'nombre_usuario': ['No asignado']
-                })
-
-            nombres_empresas = df_filtrado['nombre_empresa'].tolist()
-            db_nombres = df_filtrado['db_nombre'].tolist()
-
-            # 5. Inicializamos variables de sesión si no existen
-            if 'db_a_conectar' not in st.session_state or st.session_state['db_a_conectar'] not in db_nombres:
-                st.session_state['db_a_conectar'] = db_nombres[0]
-
-            empresa_previa_db = st.session_state.get('db_a_conectar')
-            nombre_inicial = nombres_empresas[0]
-            
-            if empresa_previa_db in db_nombres:
-                idx = db_nombres.index(empresa_previa_db)
-                nombre_inicial = nombres_empresas[idx]
-
-            # 6. Selector de Empresa según el rol
-            if user_rol == 'admin':
-                nombre_seleccionado = st.selectbox(
-                    "Seleccione Empresa", 
-                    options=nombres_empresas, 
-                    index=nombres_empresas.index(nombre_inicial) if nombre_inicial in nombres_empresas else 0,
-                    key="selector_empresa"
-                )
-            else:
-                nombre_seleccionado = nombre_inicial
-                st.markdown(f"**🏢 Empresa Asignada:**")
-                st.info(f"{str(nombre_seleccionado).upper()}")
-
-            if not nombre_seleccionado:
-                st.warning("⚠️ Por favor, seleccione una empresa válida.")
-                st.stop()
-
-            fila_seleccionada = df_filtrado[df_filtrado['nombre_empresa'] == nombre_seleccionado]
-            if fila_seleccionada.empty:
-                fila_seleccionada = df_filtrado.iloc[[0]]
-
-            datos_sel = fila_seleccionada.iloc[0]
-            db_seleccionada = str(datos_sel['db_nombre']).strip()
-            usuario_asignado = datos_sel.get('nombre_usuario', 'No asignado')
-            if not usuario_asignado:
-                usuario_asignado = "No asignado"
-
-            # Actualizar variables globales en session_state
-            st.session_state['DB_ACTUAL'] = db_seleccionada
-            st.session_state['db_a_conectar'] = db_seleccionada
-            st.session_state['CLIENTE_NOMBRE'] = nombre_seleccionado
-            if 'id' in datos_sel:
-                st.session_state['cliente_id_seleccionado'] = int(datos_sel['id'])
-
-            # Sincronización automática si cambió
-            if st.session_state.get('db_a_conectar') != db_seleccionada:
-                st.session_state['db_a_conectar'] = db_seleccionada
-                st.rerun()
-
-            # --- Lógica de visualización dinámica según el rol ---
-            usuario_actual = str(st.session_state.get('usuario', 'Usuario')).capitalize()
-            propietario_display = str(usuario_asignado).capitalize()
-            
-            st.write(f"Empresa seleccionada: '{str(nombre_seleccionado).upper()}'")
-            
-            if user_rol == 'admin':
-                st.info("👑 **Sesión Activa:** Carlos Rodriguez (Administrador)")
-            else:
-                st.info(f"👤 **Sesión Activa:** {usuario_actual}\n\n"
-                        f"🏢 **Empresa Asignada:** {propietario_display}")
-            
-            st.subheader("Módulos")
-            modulos_disponibles = [
-                "🏠 Inicio", "📂 Plan de Cuentas", "📝 Asientos Contables", 
-                "📖 Mayor Analítico", "📊 Estados Financieros", "📚 Libros Fiscales", "👤 Proveedores"
-            ]
-
-            empresa_en_mayusculas = nombre_seleccionado.upper()
-            if "PEDACITO" in empresa_en_mayusculas and "CLIELO" in empresa_en_mayusculas:
-                modulos_disponibles.append("🧁 Inventarios")
-
-            opcion_menu = st.selectbox("📂 SELECCIONE UN MÓDULO", modulos_disponibles)
-            st.session_state['opcion_menu_auditoria'] = opcion_menu
-
-            if opcion_menu == "📝 Asientos Contables":
-                sub_opcion = st.radio("Acciones:", ["Subir Datos", "Conciliación Bancaria", "Consultar Comprobante", "Consultar Saldos Iniciales", "Consultar Cierre Contable"], key="sub_asientos")
-            elif opcion_menu == "📊 Estados Financieros":
-                st.markdown("---")
-                sub_opcion = st.radio("Reportes Financieros:", ["Balance de Comprobación", "Balance General", "Estado de Resultados"], key="sub_estados")
-            elif opcion_menu == "📚 Libros Fiscales":
-                sub_opcion = st.radio("Reportes Fiscales:", ["Libro de Ventas", "Libro de Compras", "Comprobante de Retención ISLR", "Comprobante de Retención IVA"], key="sub_libros")
-            else:
-                sub_opcion = None
-            
-            # --- BLOQUE DE FILTROS DE FECHA ---
-            st.divider()
-            st.subheader("📅 Período de Consulta")
-
-            dic_meses = {
-                "Enero": 1, "Febrero": 2, "Marzo": 3, "Abril": 4, 
-                "Mayo": 5, "Junio": 6, "Julio": 7, "Agosto": 8, 
-                "Septiembre": 9, "Octubre": 10, "Noviembre": 11, "Diciembre": 12
-            }
-            meses_lista = list(dic_meses.keys())
-
-            col_anio, col_mes = st.columns(2)
-            col_anio.number_input("Año", step=1, min_value=2026, max_value=2030, key="año_seleccionado_contabilidad")
-            col_mes.selectbox("Mes", meses_lista, key="mes_seleccionado_contabilidad")
-
-    return menu
-
-# ==========================================
-# EJECUCIÓN PRINCIPAL EN EL SCRIPT
-# ==========================================
-menu = gestionar_sidebar()
-
-if menu == "⚙️ Gestión de Usuarios":    
-    try:
-        conn = conectar_db() 
-        if conn and conn.is_connected():
-            panel_administracion(conn)
-            conn.close()
-        else:
-            st.error("🔌 No se pudo establecer conexión con el servidor MySQL.")
-    except Exception as e:
-        st.error(f"Error al acceder a la gestión central: {e}")
-    st.stop()
-
-
-
-
-def obtener_saldos_acumulados(conexion, fecha_corte, nombre_db):
-    if not conexion:
-        print("❌ Error: No hay conexión activa en obtener_saldos_acumulados")
-        return {"activo": 0, "pasivo": 0, "patrimonio": 0}
-    
-    cur = conexion.cursor(dictionary=True)
-    
-    try:
-        # Consulta unificada para traer todo en un solo viaje a MySQL y aligerar la carga
-        query = """
-            SELECT 
-                COALESCE(SUM(CASE WHEN plan_cuentas LIKE '1%' THEN (debe - haber) ELSE 0 END), 0) as activo,
-                COALESCE(SUM(CASE WHEN plan_cuentas LIKE '2%' THEN (haber - debe) ELSE 0 END), 0) as pasivo,
-                COALESCE(SUM(CASE WHEN plan_cuentas LIKE '3%' THEN (haber - debe) ELSE 0 END), 0) as patrimonio
-            FROM (
-                SELECT plan_cuentas, debe, haber FROM saldos_iniciales
-                UNION ALL
-                SELECT plan_cuentas, debe, haber FROM asientos_contables WHERE fecha <= %s
-            ) as todo_el_acumulado
-        """
-        
-        cur.execute(query, (fecha_corte,))
-        resultado = cur.fetchone()
-        
-        if resultado:
-            return {
-                "activo": float(resultado.get('activo', 0) or 0),
-                "pasivo": float(resultado.get('pasivo', 0) or 0),
-                "patrimonio": float(resultado.get('patrimonio', 0) or 0)
-            }
-            
-    except Exception as e:
-        print(f"⚠️ Error al calcular saldos acumulados en {nombre_db}: {e}")
-        
-    finally:
-        # Nos aseguramos de cerrar el cursor siempre para liberar memoria y evitar lentitud al cerrar sesión
-        cur.close()
-        
-    return {"activo": 0, "pasivo": 0, "patrimonio": 0}
-
-
 @st.cache_data(ttl=300)
 def obtener_historico_utilidad(db, f_inicio=None, f_fin=None):
     # Nota: Como usa caché, la conexión la abrimos y cerramos de forma local y segura aquí dentro
@@ -786,41 +535,212 @@ def obtener_todas_las_empresas(user_rol, user_id):
 
 
 
-# PANTALLA: GESTIÓN DE USUARIOS
-if menu == "⚙️ Gestión de Usuarios": 
+def obtener_saldos_acumulados(conexion, fecha_corte, nombre_db):
+    if not conexion:
+        print("❌ Error: No hay conexión activa en obtener_saldos_acumulados")
+        return {"activo": 0, "pasivo": 0, "patrimonio": 0}
+    
+    cur = conexion.cursor(dictionary=True)
+    
     try:
-        # 1. Aseguramos conexión
-        if not conn or not conn.is_connected():
-            conn = conectar_db()
-
-        # 2. ELIMINAMOS ESTE BLOQUE QUE CAUSA EL ERROR:
-        # with conn.cursor() as cursor:
-        #    cursor.execute("SELECT * FROM control_central.usuarios WHERE rol = 'admin'")
-        #    <-- ¡NO HICISTE FETCHALL() AQUÍ, POR ESO EL ERROR!
-
-        # 3. Llamamos directo a la función que SÍ maneja sus cursores internamente
-        if conn and conn.is_connected():
-            panel_administracion(conn)
-        else:
-            st.error("🔌 No se pudo establecer conexión con el servidor MySQL.")
+        # Consulta unificada para traer todo en un solo viaje a MySQL y aligerar la carga
+        query = """
+            SELECT 
+                COALESCE(SUM(CASE WHEN plan_cuentas LIKE '1%' THEN (debe - haber) ELSE 0 END), 0) as activo,
+                COALESCE(SUM(CASE WHEN plan_cuentas LIKE '2%' THEN (haber - debe) ELSE 0 END), 0) as pasivo,
+                COALESCE(SUM(CASE WHEN plan_cuentas LIKE '3%' THEN (haber - debe) ELSE 0 END), 0) as patrimonio
+            FROM (
+                SELECT plan_cuentas, debe, haber FROM saldos_iniciales
+                UNION ALL
+                SELECT plan_cuentas, debe, haber FROM asientos_contables WHERE fecha <= %s
+            ) as todo_el_acumulado
+        """
+        
+        cur.execute(query, (fecha_corte,))
+        resultado = cur.fetchone()
+        
+        if resultado:
+            return {
+                "activo": float(resultado.get('activo', 0) or 0),
+                "pasivo": float(resultado.get('pasivo', 0) or 0),
+                "patrimonio": float(resultado.get('patrimonio', 0) or 0)
+            }
             
     except Exception as e:
-        st.error(f"Error al acceder a la gestión central: {e}")
+        print(f"⚠️ Error al calcular saldos acumulados en {nombre_db}: {e}")
+        
+    finally:
+        # Nos aseguramos de cerrar el cursor siempre para liberar memoria y evitar lentitud al cerrar sesión
+        cur.close()
+        
+    return {"activo": 0, "pasivo": 0, "patrimonio": 0}
 
+
+
+
+
+def gestionar_sidebar():
+    # 1. Recuperar rol e identificador de sesión
+    user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
+    user_id = st.session_state.get('user_id', st.session_state.get('cliente_id', 'N/A'))
+
+    with st.sidebar:
+        st.image("https://cdn-icons-png.flaticon.com/512/2645/2645328.png", width=100)
+        st.header("Panel de Auditoría")
+
+        # --- INSIGNIA DE DUEÑO Y ADMINISTRADOR ---
+        if user_rol == 'admin':
+            st.markdown(
+                """
+                <div style="background-color: #1e293b; padding: 10px; border-radius: 8px; text-align: center; margin-bottom: 15px; border: 1px solid #334155;">
+                    <span style="color: #38bdf8; font-weight: bold; font-size: 14px;">👑 Administrador Principal</span><br>
+                    <span style="color: #94a3b8; font-size: 11px;">Dueño del Software</span>
+                </div>
+                """, 
+                unsafe_allow_html=True
+            )
+
+        st.markdown("---")
+        if st.button("🚪 Cerrar Sesión"):
+            for key in list(st.session_state.keys()):
+                del st.session_state[key]
+            st.rerun()
+
+        # --- Navegación ---
+        if user_rol == 'admin':
+            menu = st.radio("Navegación", ["📊 Auditoría Contable", "⚙️ Gestión de Usuarios"], key="menu_nav")
+        else:
+            menu = "📊 Auditoría Contable"
+
+        st.divider()
+
+        # --- Selección de Empresa ---
+        if menu == "📊 Auditoría Contable":
+            df_sidebar = _obtener_datos_sidebar_cache() if '_obtener_datos_sidebar_cache' in globals() else pd.DataFrame()
+
+            lista_db_permitidas = []
+            if 'obtener_todas_las_empresas' in globals() and callable(globals()['obtener_todas_las_empresas']):
+                try:
+                    lista_db_permitidas = obtener_todas_las_empresas(user_rol=user_rol, user_id=user_id) or []
+                except Exception as e:
+                    st.error(f"❌ Error al consultar el listado de empresas: {e}")
+
+            if not lista_db_permitidas:
+                db_en_sesion = st.session_state.get('db_a_conectar')
+                if db_en_sesion:
+                    lista_db_permitidas = [db_en_sesion]
+                else:
+                    lista_db_permitidas = ['pedacito_de_cielo_ca']
+                    st.session_state['db_a_conectar'] = 'pedacito_de_cielo_ca'
+
+            if user_rol == 'admin' and not df_sidebar.empty:
+                df_filtrado = df_sidebar
+            else:
+                if not df_sidebar.empty and 'db_nombre' in df_sidebar.columns:
+                    df_filtrado = df_sidebar[df_sidebar['db_nombre'].isin(lista_db_permitidas)]
+                else:
+                    df_filtrado = pd.DataFrame()
+
+            if df_filtrado.empty:
+                db_actual_emergencia = lista_db_permitidas[0]
+                df_filtrado = pd.DataFrame({
+                    'id': [1],
+                    'nombre_empresa': ['REPRESENTACIONES PEDACITO DE CIELO, C.A.' if db_actual_emergencia == 'pedacito_de_cielo_ca' else db_actual_emergencia],
+                    'db_nombre': [db_actual_emergencia],
+                    'nombre_usuario': ['No asignado']
+                })
+
+            nombres_empresas = df_filtrado['nombre_empresa'].tolist()
+            db_nombres = df_filtrado['db_nombre'].tolist()
+
+            if 'db_a_conectar' not in st.session_state or st.session_state['db_a_conectar'] not in db_nombres:
+                st.session_state['db_a_conectar'] = db_nombres[0]
+
+            empresa_previa_db = st.session_state.get('db_a_conectar')
+            nombre_inicial = nombres_empresas[0]
+            
+            if empresa_previa_db in db_nombres:
+                idx = db_nombres.index(empresa_previa_db)
+                nombre_inicial = nombres_empresas[idx]
+
+            if user_rol == 'admin':
+                nombre_seleccionado = st.selectbox(
+                    "Seleccione Empresa", 
+                    options=nombres_empresas, 
+                    index=nombres_empresas.index(nombre_inicial) if nombre_inicial in nombres_empresas else 0,
+                    key="selector_empresa"
+                )
+            else:
+                nombre_seleccionado = nombre_inicial
+                st.markdown(f"**🏢 Empresa Asignada:**")
+                st.info(f"{str(nombre_seleccionado).upper()}")
+
+            fila_seleccionada = df_filtrado[df_filtrado['nombre_empresa'] == nombre_seleccionado]
+            if fila_seleccionada.empty:
+                fila_seleccionada = df_filtrado.iloc[[0]]
+
+            datos_sel = fila_seleccionada.iloc[0]
+            db_seleccionada = str(datos_sel['db_nombre']).strip()
+            
+            st.session_state['DB_ACTUAL'] = db_seleccionada
+            st.session_state['db_a_conectar'] = db_seleccionada
+            st.session_state['CLIENTE_NOMBRE'] = nombre_seleccionado
+            if 'id' in datos_sel:
+                st.session_state['cliente_id_seleccionado'] = int(datos_sel['id'])
+
+    return menu
+
+# ==========================================
+# EJECUCIÓN PRINCIPAL EN EL SCRIPT
+# ==========================================
+menu_lateral = gestionar_sidebar()
+
+# 2. Si el usuario selecciona Gestión de Usuarios (Admin)
+if menu_lateral == "⚙️ Gestión de Usuarios":    
+    try:
+        conn = conectar_db() 
+        if conn and conn.is_connected():
+            panel_administracion(conn)
+            conn.close()
+        else:
+            st.error("🔌 No se pudo establecer conexión con el servidor MySQL.")
+    except Exception as e:
+        st.error(f"Error al acceder a la gestión central: {e}")
     st.stop()
 
+# 3. Si está en Auditoría Contable, manejamos los submódulos y filtros dentro del sidebar
+if menu_lateral == "📊 Auditoría Contable":
+    with st.sidebar:
+        st.divider()
+        st.subheader("Módulos")
+        
+        nombre_sel = st.session_state.get('CLIENTE_NOMBRE', '')
+        modulos_disponibles = [
+            "🏠 Inicio", "📂 Plan de Cuentas", "📝 Asientos Contables", 
+            "📖 Mayor Analítico", "📊 Estados Financieros", "📚 Libros Fiscales", "👤 Proveedores"
+        ]
+
+        if "PEDACITO" in str(nombre_sel).upper() and "CLIELO" in str(nombre_sel).upper():
+            modulos_disponibles.append("🧁 Inventarios")
+
+        opcion_menu = st.selectbox("📂 SELECCIONE UN MÓDULO", modulos_disponibles, key="opcion_menu_auditoria")
+
+        # Filtros de fecha en la barra lateral
+        st.divider()
+        st.subheader("📅 Período de Consulta")
+        dic_meses = {
+            "Enero": 1, "Febrero": 2, "Marzo": 3, "Abril": 4, 
+            "Mayo": 5, "Junio": 6, "Julio": 7, "Agosto": 8, 
+            "Septiembre": 9, "Octubre": 10, "Noviembre": 11, "Diciembre": 12
+        }
+        meses_lista = list(dic_meses.keys())
+
+        st.number_input("Año", step=1, min_value=2026, max_value=2030, key="año_seleccionado")
+        st.selectbox("Mes", meses_lista, key="mes_seleccionado")
 
 
-# ========================================================
-# BLOQUE PRINCIPAL DEL MÓDULO INICIO
-# ========================================================
-opcion_menu = st.selectbox("📂 SELECCIONE UN MÓDULO", modulos_disponibles)
-st.session_state['opcion_menu_auditoria'] = opcion_menu
-if "Inicio" in opcion_menu:
+if "🏠 Inicio" in opcion_menu:
     
-    # --- 1. RENDERIZAR EL SIDEBAR PRIMERO ---
-    # Esto pinta los selectores de Año, Mes y Empresa en la barra lateral 
-    # y captura inmediatamente lo que el usuario seleccione (ej. Febrero).
     gestionar_sidebar()
 
     # --- 2. GESTIÓN DE ROL Y BASE DE DATOS OBJETIVO ---
