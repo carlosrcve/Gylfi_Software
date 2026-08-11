@@ -4498,36 +4498,36 @@ def marcar_retencion_completada(conn, id_factura, n_comprobante):
 
 @log_ejecucion
 def obtener_todas_las_empresas(user_rol=None, user_id=None):
-    # Conectamos al cluster central de TiDB Cloud
-    conn_central = conectar_db()
-    if not conn_central: 
-        return []
-    
     try:
-        cursor = conn_central.cursor()
+        # IMPORTANTE: Asegúrate de que esta función de conexión se conecte 
+        # al cluster de TiDB Cloud SIN especificar una base de datos final por defecto,
+        # o usando un usuario con privilegios para ver todos los esquemas.
+        conn_central = conectar_db() 
+        if not conn_central: 
+            return []
         
-        # En TiDB Cloud, consultamos directamente los schemas (bases de datos) disponibles
+        cursor = conn_central.cursor()
+        # En TiDB Cloud, listamos todas las bases de datos (schemas) del cluster
         cursor.execute("SHOW DATABASES;")
         resultados = cursor.fetchall()
         cursor.close()
         
-        # Listas de schemas internos de TiDB/MySQL que debemos excluir para quedarnos solo con las empresas
-        esquemas_sistema = ['information_schema', 'mysql', 'performance_schema', 'sys', 'test']
+        # Esquemas de sistema de TiDB / MySQL que debemos filtrar
+        esquemas_sistema = ['information_schema', 'mysql', 'performance_schema', 'sys', 'test', 'tidb_background']
         
         lista_empresas = []
         for row in resultados:
             nombre_db = row[0]
-            # Filtramos para descartar los del sistema y asegurarnos de que sean las bases de datos de clientes
             if nombre_db.lower() not in esquemas_sistema:
                 lista_empresas.append(nombre_db)
                 
-        return sorted(lista_empresas) # Devuelve la lista ordenada al alfabeticamente para las 500 empresas
+        return sorted(lista_empresas)
         
     except Exception as e:
-        st.error(f"Error al listar bases de datos en TiDB Cloud: {e}")
+        st.sidebar.error(f"Error en TiDB Cloud: {e}")
         return []
     finally:
-        if conn_central and conn_central.is_connected():
+        if 'conn_central' in locals() and conn_central and conn_central.is_connected():
             conn_central.close()
 
 @log_ejecucion
