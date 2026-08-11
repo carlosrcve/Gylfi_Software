@@ -536,8 +536,7 @@ def obtener_todas_las_empresas(user_rol, user_id):
 
 
 def obtener_saldos_acumulados(conexion, fecha_corte, nombre_db):
-    if not conexion: 
-        return {"activo": 0, "pasivo": 0, "patrimonio": 0}
+    if not conexion: return {"activo": 0, "pasivo": 0, "patrimonio": 0}
     
     db_segura = str(nombre_db).strip()
     cur = conexion.cursor(dictionary=True)
@@ -545,32 +544,34 @@ def obtener_saldos_acumulados(conexion, fecha_corte, nombre_db):
     try:
         cur.execute(f"USE `{db_segura}`")
         
-        # Detectar dinámicamente la columna del plan de cuentas
-        cur.execute("SHOW COLUMNS FROM asientos_contables")
-        columnas = [row['Field'] for row in cur.fetchall()]
-        col_c = "plan_cuentas"
-        for posible in ['plan_cuentas', 'codigo_cuenta', 'cuenta', 'cuenta_contable', 'n_cuenta']:
-            if posible in columnas:
-                col_c = posible
-                break
+        # 1. ¿Qué tipo de dato es la fecha?
+        cur.execute("DESCRIBE asientos_contables")
+        columnas = cur.fetchall()
+        tipo_fecha = next((c['Type'] for c in columnas if c['Field'] == 'fecha'), "desconocido")
+        
+        # 2. ¿Hay registros realmente menores a la fecha?
+        # FORZAMOS LA CONSULTA CON UN STRING LITERAL PARA PROBAR
+        query_prueba = f"SELECT COUNT(*) as total FROM asientos_contables WHERE fecha <= '{fecha_corte}'"
+        cur.execute(query_prueba)
+        count = cur.fetchone()['total']
+        
+        print(f"DEBUG: Empresa {db_segura} | Tipo fecha: {tipo_fecha} | Corte: {fecha_corte} | Registros hallados: {count}")
 
-        # Consulta con CAST estricto para las fechas para evitar el fallo del filtro
-        query = f"""
+        # 3. Consulta maestra
+        cur.execute(f"""
             SELECT 
-                COALESCE(SUM(CASE WHEN TRIM({col_c}) LIKE '1%' THEN (debe - haber) ELSE 0 END), 0) as activo,
-                COALESCE(SUM(CASE WHEN TRIM({col_c}) LIKE '2%' THEN (haber - debe) ELSE 0 END), 0) as pasivo,
-                COALESCE(SUM(CASE WHEN TRIM({col_c}) LIKE '3%' THEN (haber - debe) ELSE 0 END), 0) as patrimonio
+                SUM(CASE WHEN plan_cuentas LIKE '1%' THEN (debe - haber) ELSE 0 END) as activo,
+                SUM(CASE WHEN plan_cuentas LIKE '2%' THEN (haber - debe) ELSE 0 END) as pasivo,
+                SUM(CASE WHEN plan_cuentas LIKE '3%' THEN (haber - debe) ELSE 0 END) as patrimonio
             FROM asientos_contables 
-            WHERE CAST(fecha AS DATE) <= CAST(%s AS DATE)
-        """
+            WHERE fecha <= %s
+        """, (fecha_corte,))
         
-        cur.execute(query, (fecha_corte,))
-        resultado = cur.fetchone()
-        
-        return resultado if resultado else {"activo": 0, "pasivo": 0, "patrimonio": 0}
+        res = cur.fetchone()
+        return {k: float(v or 0) for k, v in res.items()}
 
     except Exception as e:
-        print(f"Error en consulta de saldos: {e}")
+        print(f"❌ ERROR CRÍTICO: {e}")
         return {"activo": 0, "pasivo": 0, "patrimonio": 0}
     finally:
         cur.close()
