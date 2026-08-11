@@ -425,10 +425,17 @@ with st.sidebar:
             st.session_state['CLIENTE_NOMBRE'] = seleccion
             st.session_state['cliente_id_seleccionado'] = int(datos_sel['id'])
             
-            # Mostramos el estado actual con total claridad
+            # --- Lógica de visualización del Propietario ---
+            propietario_display = str(usuario_asignado).capitalize()
+            
+            # Si el rol es admin, forzamos que se muestre que tú eres el dueño
+            if user_rol == 'admin':
+                propietario_display = "Carlos Rodriguez (Admin)"
+            
+            # Mostramos en pantalla
             st.write(f"Empresa seleccionada: '{str(seleccion).upper()}'")
-            st.info(f"👑 **Sesión Activa:** {str(st.session_state.get('usuario', '')).capitalize()} ({str(user_rol).upper()})\n\n"
-                    f"👤 **Propietario de la Empresa:** {str(usuario_asignado).capitalize()}")
+            st.info(f"👑 **Sesión Activa:** Carlos Rodriguez\n\n"
+                    f"👤 **Propietario de la Empresa:** {propietario_display}")
             
             st.subheader("Módulos")
             modulos_disponibles = [
