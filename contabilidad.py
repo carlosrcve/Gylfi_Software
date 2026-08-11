@@ -426,7 +426,7 @@ with st.sidebar:
             st.session_state['cliente_id_seleccionado'] = int(datos_sel['id'])
             
             # --- Lógica de visualización del Propietario ---
-            p# --- Lógica de visualización dinámica según el rol ---
+            # --- Lógica de visualización dinámica según el rol ---
             usuario_actual = str(st.session_state.get('usuario', 'Usuario')).capitalize()
             propietario_display = str(usuario_asignado).capitalize()
             
