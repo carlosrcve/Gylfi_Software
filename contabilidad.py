@@ -811,6 +811,167 @@ def gestionar_sidebar():
         st.session_state['CLIENTE_NOMBRE'] = nombre_seleccionado
         st.rerun()
 
+
+
+
+
+
+# =========================================================================
+# ⚙️ VARIABLES GLOBALES DE FECHA (DINÁMICAS PARA CUALQUIER MES Y AÑO)
+# =========================================================================
+anio_seleccionado = int(st.session_state.get('año_seleccionado_contabilidad', datetime.datetime.now().year))
+mes_elegido_str = st.session_state.get('mes_seleccionado_contabilidad', "Junio")
+
+mes_n = dic_meses.get(mes_elegido_str, 6)
+
+# Cálculo automático de los días del mes (bisiestos, meses de 30 o 31 días)
+_, ultimo_dia_mes = calendar.monthrange(anio_seleccionado, mes_n)
+
+fecha_inicio_str = f"{anio_seleccionado}-{mes_n:02d}-01"
+fecha_fin_str = f"{anio_seleccionado}-{mes_n:02d}-{ultimo_dia_mes:02d}"
+
+f_inicio_global = datetime.date(anio_seleccionado, mes_n, 1)
+f_fin_global = datetime.date(anio_seleccionado, mes_n, ultimo_dia_mes)
+
+# Inicializamos stats por seguridad si no existen
+if 'stats' not in st.session_state:
+    stats = {'retenido': 0.0, 'ventas': 0.0, 'compras': 0.0}
+
+#=====================================
+# 2. LÓGICA PRINCIPAL (AFUERA Y ABAJO DEL SIDEBAR - PANTALLA ANCHA)
+# =========================================================================
+
+# --- VALIDACIÓN DE CONEXIÓN GLOBAL ---
+if 'conn' not in st.session_state or st.session_state.conn is None:
+    st.session_state.conn = conectar_db()
+else:
+    # Verificamos de forma segura si sigue conectada sin rompernos si es None
+    try:
+        if not st.session_state.conn.is_connected():
+            st.session_state.conn = conectar_db()
+    except Exception:
+        st.session_state.conn = conectar_db()
+
+conn = st.session_state.conn
+
+# Doble validación final de seguridad
+if conn is None:
+    st.error("❌ No se pudo establecer una conexión válida con la base de datos.")
+    st.stop()
+
+
+# --- INTERRUPTOR DE PANTALLAS ---
+
+# PANTALLA: GESTIÓN DE USUARIOS
+if menu == "⚙️ Gestión de Usuarios": 
+    try:
+        # 1. Aseguramos conexión
+        if not conn or not conn.is_connected():
+            conn = conectar_db()
+
+        # 2. ELIMINAMOS ESTE BLOQUE QUE CAUSA EL ERROR:
+        # with conn.cursor() as cursor:
+        #    cursor.execute("SELECT * FROM control_central.usuarios WHERE rol = 'admin'")
+        #    <-- ¡NO HICISTE FETCHALL() AQUÍ, POR ESO EL ERROR!
+
+        # 3. Llamamos directo a la función que SÍ maneja sus cursores internamente
+        if conn and conn.is_connected():
+            panel_administracion(conn)
+        else:
+            st.error("🔌 No se pudo establecer conexión con el servidor MySQL.")
+            
+    except Exception as e:
+        st.error(f"Error al acceder a la gestión central: {e}")
+
+    st.stop()
+
+
+
+# Asegúrate de definir la lista antes de usarla
+meses = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
+
+m_idx = meses.index(st.session_state['mes_seleccionado']) + 1
+
+
+# ========================================================
+# 2. LÓGICA DE FECHAS MEJORADA (REACTIVA)
+# ========================================================
+m_idx = meses.index(st.session_state['mes_seleccionado']) + 1
+anio_f = st.session_state['año_seleccionado']
+
+# Calculamos el último día exacto del mes (28, 29, 30 o 31)
+ultimo_dia = calendar.monthrange(anio_f, m_idx)[1]
+
+# Variables de fecha tipo objeto para las funciones
+f_inicio_global = datetime.date(anio_f, m_idx, 1)
+f_fin_global = datetime.date(anio_f, m_idx, ultimo_dia)
+
+# Variables de texto para mostrar o usar en SQL si hace falta
+fecha_inicio_str = f_inicio_global.strftime('%Y-%m-%d')
+fecha_fin_str = f_fin_global.strftime('%Y-%m-%d')
+
+EMPRESA = st.session_state.get('CLIENTE_NOMBRE', 'N/A')
+
+
+# --- 1. INICIALIZACIÓN GLOBAL ---
+if 'DB_ACTUAL' not in st.session_state:
+    st.session_state.CLIENTE_NOMBRE = "Seleccione Cliente"
+    st.session_state['DB_ACTUAL'] = None
+    st.session_state['cliente_id_seleccionado'] = None
+
+
+
+def actualizar_empresa():
+    st.session_state.conn = None
+    # Guardamos el nombre tal cual viene del selector, sin tocarlo
+    db_seleccionada = st.session_state.selector_empresa
+    
+    st.session_state.DB_ACTUAL = db_seleccionada
+    st.session_state.nombre_empresa_seleccionada = db_seleccionada
+    
+    # Asignamos directamente, sin añadir sufijos ni limpiar espacios
+    st.session_state.db_a_conectar = db_seleccionada
+    
+    # Debug para ver qué está pasando realmente
+    st.write(f"DEBUG: Nombre exacto enviado a la conexión: {st.session_state.db_a_conectar}")
+
+
+# 1. Tomamos directamente la empresa activa y limpia desde el session_state unificado
+DB_ACTUAL = st.session_state.get('db_a_conectar') or st.session_state.get('DB_ACTUAL', 'control_central')
+EMPRESA = st.session_state.get('CLIENTE_NOMBRE', "Seleccione Cliente")
+
+# 2. Conexión centralizada con validación estricta usando la BD correcta
+if 'conn' not in st.session_state or st.session_state.conn is None:
+    try:
+        conn = conectar_db(DB_ACTUAL)
+        st.session_state.conn = conn
+    except Exception as e:
+        st.error(f"Error crítico conectando: {e}")
+        st.session_state.conn = None
+else:
+    conn = st.session_state.conn
+
+# 3. PROTECCIÓN Y VERIFICACIÓN
+if conn is not None:
+    try:
+        # Verificamos si la conexión sigue viva
+        conn.ping(reconnect=True, attempts=3, delay=1)
+        
+        # Bypass de seguridad solo si aplica
+        if DB_ACTUAL and DB_ACTUAL != "control_central":
+            with conn.cursor() as cursor:
+                cursor.execute(f"USE `{DB_ACTUAL}`")
+            #6M.
+         #st.success(f"✅ Conectado a: {EMPRESA} (`{DB_ACTUAL}`)")
+    except Exception as e:
+        st.warning(f"La conexión se perdió o la BD {DB_ACTUAL} no es accesible. Intentando reconectar...")
+        st.session_state.conn = None # Forzamos recarga en el próximo ciclo
+        st.rerun()
+else:
+    st.error("❌ No hay conexión activa. Por favor, verifica tu configuración.")
+
+
+
 if "Inicio" in opcion_menu:
     # 1. Obtenemos el rol y el cliente_id de la sesión de manera segura
     user_rol = st.session_state.get('rol')
