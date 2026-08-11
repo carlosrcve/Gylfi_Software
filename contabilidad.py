@@ -542,21 +542,33 @@ def obtener_saldos_acumulados(conexion, fecha_corte, nombre_db):
     cur = conexion.cursor(dictionary=True)
     
     try:
-        # Aseguramos el contexto de la base de datos justo antes del SELECT
-        cur.execute(f"USE `{nombre_db}`")
+        # 1. Verificamos si la tabla saldos_iniciales realmente existe en esta BD
+        cur.execute(f"SHOW TABLES FROM `{nombre_db}` LIKE 'saldos_iniciales'")
+        existe_saldos = cur.fetchone()
         
-        # Usamos el nombre de la tabla directamente, MySQL debe buscarla en la BD seleccionada con el USE
-        query = f"""
-            SELECT 
-                COALESCE(SUM(CASE WHEN plan_cuentas LIKE '1%%' THEN (debe - haber) ELSE 0 END), 0) as activo,
-                COALESCE(SUM(CASE WHEN plan_cuentas LIKE '2%%' THEN (haber - debe) ELSE 0 END), 0) as pasivo,
-                COALESCE(SUM(CASE WHEN plan_cuentas LIKE '3%%' THEN (haber - debe) ELSE 0 END), 0) as patrimonio
-            FROM (
-                SELECT plan_cuentas, debe, haber FROM `{nombre_db}`.saldos_iniciales
-                UNION ALL
-                SELECT plan_cuentas, debe, haber FROM `{nombre_db}`.asientos_contables WHERE fecha <= %s
-            ) as todo_el_acumulado
-        """
+        # 2. Construimos el query dependiendo de si existe la tabla o no
+        if existe_saldos:
+            query = f"""
+                SELECT 
+                    COALESCE(SUM(CASE WHEN plan_cuentas LIKE '1%' THEN (debe - haber) ELSE 0 END), 0) as activo,
+                    COALESCE(SUM(CASE WHEN plan_cuentas LIKE '2%' THEN (haber - debe) ELSE 0 END), 0) as pasivo,
+                    COALESCE(SUM(CASE WHEN plan_cuentas LIKE '3%' THEN (haber - debe) ELSE 0 END), 0) as patrimonio
+                FROM (
+                    SELECT plan_cuentas, debe, haber FROM `{nombre_db}`.saldos_iniciales
+                    UNION ALL
+                    SELECT plan_cuentas, debe, haber FROM `{nombre_db}`.asientos_contables WHERE fecha <= %s
+                ) as todo_el_acumulado
+            """
+        else:
+            # Si no existe la tabla de saldos iniciales, calculamos solo con los asientos contables
+            query = f"""
+                SELECT 
+                    COALESCE(SUM(CASE WHEN plan_cuentas LIKE '1%' THEN (debe - haber) ELSE 0 END), 0) as activo,
+                    COALESCE(SUM(CASE WHEN plan_cuentas LIKE '2%' THEN (haber - debe) ELSE 0 END), 0) as pasivo,
+                    COALESCE(SUM(CASE WHEN plan_cuentas LIKE '3%' THEN (haber - debe) ELSE 0 END), 0) as patrimonio
+                FROM `{nombre_db}`.asientos_contables 
+                WHERE fecha <= %s
+            """
         
         cur.execute(query, (fecha_corte,))
         resultado = cur.fetchone()
@@ -569,7 +581,7 @@ def obtener_saldos_acumulados(conexion, fecha_corte, nombre_db):
             }
             
     except Exception as e:
-        st.error(f"Error en {nombre_db}: {e}") # Esto te dirá si sigue fallando
+        st.error(f"Error crítico en saldos para {nombre_db}: {e}")
     finally:
         cur.close()
         
