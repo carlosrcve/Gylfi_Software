@@ -1520,7 +1520,7 @@ def registrar_log(db_conn, usuario_id, accion, detalles, cliente_id):
             cursor.close()
 
 
-@st.cache_data(ttl=600) 
+
 def verificar_usuario(conn, user, password):
     if conn is None:
         try:
