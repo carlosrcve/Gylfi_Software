@@ -1441,73 +1441,102 @@ def obtener_todas_las_empresas(user_rol, user_id):
     except Exception as e:
         st.sidebar.error(f"❌ Error al obtener la empresa del usuario: {e}")
         return []
-        
+
 def gestionar_sidebar():
     # --- DEBUG RADICAL ---
     st.sidebar.subheader("DEBUG: Diagnóstico de Empresas")
     user_rol = st.session_state.get('rol', 'admin')
-    user_id = st.session_state.get('cliente_id', 'N/A')
+    user_id = st.session_state.get('user_id', st.session_state.get('cliente_id', 'N/A'))
     st.sidebar.write(f"Rol: {user_rol} | ID: {user_id}")
 
     try:
-        conn_debug = conectar_db() # Conexión a la BD central
+        conn_debug = conectar_db()
         if conn_debug:
-            # Prueba directa a la tabla
             query_debug = "SELECT COUNT(*) as total FROM clientes"
             df_count = pd.read_sql(query_debug, conn_debug)
             total_empresas = df_count['total'].iloc[0]
             st.sidebar.write(f"Empresas en tabla 'clientes': {total_empresas}")
             
-            # Ver columnas
             df_cols = pd.read_sql("SELECT * FROM clientes LIMIT 1", conn_debug)
             st.sidebar.write("Columnas detectadas:", list(df_cols.columns))
+            
+            # Consultamos el listado completo para mapear db_nombre con nombre_empresa
+            df_sidebar = pd.read_sql("SELECT nombre_empresa, db_nombre FROM clientes WHERE estado = 'Activo' OR estado IS NULL", conn_debug)
             conn_debug.close()
         else:
             st.sidebar.error("No se pudo conectar a la BD Central")
+            return
     except Exception as e:
         st.sidebar.error(f"Error de base de datos: {e}")
+        return
+        
     st.sidebar.markdown("---")
-    # ---------------------
 
-    # 1. Inicializamos las variables de sesión si no existen
-    if 'db_a_conectar' not in st.session_state:
-        st.session_state['db_a_conectar'] = None
-
-    if 'DB_ACTUAL' not in st.session_state:
-        st.session_state['DB_ACTUAL'] = None
-
-    # 2. Obtenemos credenciales y el listado masivo desde TiDB Cloud / Backend
-    lista_empresas = []
-    
+    # 1. Obtenemos las bases de datos permitidas para este usuario (desde la función)
+    lista_db_permitidas = []
     if 'obtener_todas_las_empresas' in globals() and callable(globals()['obtener_todas_las_empresas']):
         try:
-            lista_empresas = obtener_todas_las_empresas(user_rol=user_rol, user_id=user_id) or []
+            lista_db_permitidas = obtener_todas_las_empresas(user_rol=user_rol, user_id=user_id) or []
         except Exception as e:
             st.sidebar.error(f"❌ Error al consultar el listado de empresas: {e}")
 
-    # 3. Control estricto: Si está vacío, se advierte
-    if not lista_empresas:
+    # 2. Control estricto: Si está vacío, se advierte
+    if not lista_db_permitidas:
         st.sidebar.warning("⚠️ No se encontraron empresas disponibles en la base de datos o el listado está vacío.")
         return
 
-    # Aseguramos que el valor actual de la sesión esté dentro de las opciones, si no, tomamos la primera
-    current_val = st.session_state.get('db_a_conectar')
-    if current_val not in lista_empresas:
-        st.session_state['db_a_conectar'] = lista_empresas[0]
+    # 3. Filtramos el DataFrame maestro para mostrar solo los nombres comerciales permitidos al usuario
+    if str(user_rol).strip().lower() == 'admin':
+        df_filtrado = df_sidebar
+    else:
+        df_filtrado = df_sidebar[df_sidebar['db_nombre'].isin(lista_db_permitidas)]
 
-    # 4. SELECTOR MASIVO (Widget único y limpio en el sidebar)
-    empresa_seleccionada = st.sidebar.selectbox(
+    if df_filtrado.empty:
+        st.sidebar.warning("⚠️ No hay empresas autorizadas para este usuario.")
+        return
+
+    nombres_empresas = df_filtrado['nombre_empresa'].tolist()
+    db_nombres = df_filtrado['db_nombre'].tolist()
+
+    # 4. Inicializamos variables de sesión si no existen
+    if 'db_a_conectar' not in st.session_state:
+        st.session_state['db_a_conectar'] = db_nombres[0]
+
+    # Mapeo inverso para encontrar el nombre comercial actual basado en la db de sesión
+    empresa_previa_db = st.session_state.get('db_a_conectar')
+    nombre_inicial = nombres_empresas[0]
+    
+    if empresa_previa_db in db_nombres:
+        idx = db_nombres.index(empresa_previa_db)
+        nombre_inicial = nombres_empresas[idx]
+
+    # 5. SELECTOR MASIVO usando el nombre comercial visible
+    nombre_seleccionado = st.sidebar.selectbox(
         "🔍 Seleccionar Empresa:", 
-        options=lista_empresas, 
-        key='db_a_conectar'
+        options=nombres_empresas, 
+        index=nombres_empresas.index(nombre_inicial) if nombre_inicial in nombres_empresas else 0,
+        key="selector_nombre_empresa"
     )
     
-    # 5. Sincronización automática ante cambios de selección
-    if st.session_state.get('DB_ACTUAL') != empresa_seleccionada:
-        st.session_state['DB_ACTUAL'] = empresa_seleccionada
-        st.session_state['CLIENTE_NOMBRE'] = empresa_seleccionada
+    if not nombre_seleccionado:
+        st.sidebar.warning("⚠️ Por favor, seleccione una empresa válida.")
+        st.stop()
+
+    # Obtenemos la db_nombre correspondiente al nombre comercial seleccionado
+    fila_seleccionada = df_filtrado[df_filtrado['nombre_empresa'] == nombre_seleccionado]
+    db_seleccionada = fila_seleccionada['db_nombre'].iloc[0] if not fila_seleccionada.empty else db_nombres[0]
+
+    st.sidebar.write(f"Empresa seleccionada: '{str(nombre_seleccionado).upper()}'")
+
+    # 6. Sincronización automática ante cambios de selección
+    if st.session_state.get('db_a_conectar') != db_seleccionada:
+        st.session_state['db_a_conectar'] = db_seleccionada
+        st.session_state['DB_ACTUAL'] = db_seleccionada
+        st.session_state['CLIENTE_NOMBRE'] = nombre_seleccionado
         st.rerun()
 
+
+        
 # --- 2. PANTALLA DE LOGIN ---
 import streamlit as st
 import time
