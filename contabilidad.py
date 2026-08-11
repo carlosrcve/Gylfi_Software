@@ -271,6 +271,14 @@ with st.sidebar:
             st.divider()
             st.subheader("📅 Período de Consulta")
 
+            # Diccionario global de meses
+            dic_meses = {
+                "Enero": 1, "Febrero": 2, "Marzo": 3, "Abril": 4, 
+                "Mayo": 5, "Junio": 6, "Julio": 7, "Agosto": 8, 
+                "Septiembre": 9, "Octubre": 10, "Noviembre": 11, "Diciembre": 12
+            }
+            meses_lista = list(dic_meses.keys())
+
             col_anio, col_mes = st.columns(2)
             col_anio.number_input("Año", step=1, min_value=2020, max_value=2030, key="año_seleccionado_contabilidad")
             col_mes.selectbox("Mes", meses_lista, key="mes_seleccionado_contabilidad")
