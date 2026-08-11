@@ -901,6 +901,13 @@ def gestionar_sidebar():
             datos_sel = fila_seleccionada.iloc[0]
             db_seleccionada = str(datos_sel['db_nombre']).strip()
             
+            # --- VALIDACIÓN Y REINICIO INMEDIATO DE CONEXIÓN AL CAMBIAR DE EMPRESA ---
+            if st.session_state.get('DB_ACTUAL') != db_seleccionada:
+                st.session_state['DB_ACTUAL'] = db_seleccionada
+                st.session_state['db_a_conectar'] = db_seleccionada
+                st.session_state.conn = None  # Limpiamos la conexión vieja para forzar reconexión limpia
+                st.rerun()                    # Recargamos la interfaz al instante
+
             st.session_state['DB_ACTUAL'] = db_seleccionada
             st.session_state['db_a_conectar'] = db_seleccionada
             st.session_state['CLIENTE_NOMBRE'] = nombre_seleccionado
