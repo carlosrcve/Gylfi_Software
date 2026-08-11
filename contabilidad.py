@@ -1043,6 +1043,11 @@ if "🏠 Inicio" in opcion_menu:
         with col_kpi:
             st.subheader("Indicadores Financieros en Tiempo Real")
 
+        with col_btn:
+            if st.button("🔄 Actualizar Datos"):
+                st.cache_data.clear()
+                st.rerun()
+
         with st.spinner(f'Comunicando con MySQL para {db_objetivo}...'):
             if conn and conn.is_connected():
                 kpis = obtener_saldos_acumulados(conn, f_fin_global, db_objetivo)
