@@ -1401,36 +1401,37 @@ def obtener_datos_graficos(conn, f_i, f_f, sucursal):
 
 # Lógica conceptual para tu Sidebar corregida y blindada
 def gestionar_sidebar():
+    # 1. Definimos un valor por defecto seguro si no hay nada en sesión
+    if 'db_a_conectar' not in st.session_state:
+        st.session_state['db_a_conectar'] = "pedacito_de_cielo_ca"
+
+    # 2. Carga optimizada
     user_rol = st.session_state.get('rol', 'admin')
     user_cliente_id = st.session_state.get('cliente_id', None)
-
+    
     lista_empresas = []
-
-    # 1. Intentamos cargar las empresas desde la función global si existe
+    
+    # Intentamos obtener la lista real
     if 'obtener_todas_las_empresas' in globals() and callable(globals()['obtener_todas_las_empresas']):
-        try:
-            res = obtener_todas_las_empresas(user_rol=user_rol, user_id=user_cliente_id)
-            if res:
-                lista_empresas = [e for e in res if isinstance(e, str)]
-        except Exception as e:
-            st.sidebar.error(f"Error cargando empresas: {e}")
+        lista_empresas = obtener_todas_las_empresas(user_rol=user_rol, user_id=user_cliente_id) or []
 
-    # 2. ESCUDO DE SEGURIDAD: Si la lista viene vacía, forzamos al menos tu base de datos principal de TiDB Cloud
+    # Blindaje: Si no hay empresas, forzamos al menos la tuya
     if not lista_empresas:
         lista_empresas = ["pedacito_de_cielo_ca"]
 
-    st.sidebar.write("DEBUG LISTA CARGADA:", lista_empresas) # Para verificar qué contiene
-
-    # 3. Selector en el Sidebar
+    # 3. SELECTOR SEARCHABLE (El usuario escribe y filtra entre las 500)
+    # Streamlit lo hace automáticamente search-enabled si la lista es grande
     empresa_seleccionada = st.sidebar.selectbox(
-        "Seleccione Empresa", 
+        "🔍 Buscar y Seleccionar Empresa", 
         lista_empresas, 
-        key='db_a_conectar'
+        key='db_a_conectar' # Esta es la única vía oficial para cambiar el valor
     )
     
-    # Sincronizamos con la key oficial que lee tu aplicación
-    st.session_state['DB_ACTUAL'] = empresa_seleccionada
-    st.session_state['CLIENTE_NOMBRE'] = empresa_seleccionada
+    # 4. Sincronización (No escribas directamente en 'db_a_conectar', lee el resultado del widget)
+    if st.session_state['DB_ACTUAL'] != empresa_seleccionada:
+        st.session_state['DB_ACTUAL'] = empresa_seleccionada
+        st.session_state['CLIENTE_NOMBRE'] = empresa_seleccionada
+        st.rerun() # Recargamos para que todo el sistema tome la nueva DB inmediatamente
 
 
 # --- 2. PANTALLA DE LOGIN ---
