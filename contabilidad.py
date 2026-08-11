@@ -954,6 +954,32 @@ if menu_lateral == "📊 Auditoría Contable":
 
 if "🏠 Inicio" in opcion_menu:
 
+    # --- INYECCIÓN DE CSS PARA TARJETAS Y ETIQUETAS ANCHAS ---
+    st.markdown(
+        """
+        <style>
+            /* Expandir tarjetas de métricas estándar */
+            div[data-testid="stMetric"] {
+                background-color: #ffffff;
+                padding: 15px;
+                border-radius: 8px;
+                width: 100% !important;
+            }
+            div[data-testid="stMetricValue"] {
+                font-size: 20px !important;
+                white-space: normal !important;
+                overflow: visible !important;
+            }
+            div[data-testid="stMetricLabel"] > label {
+                font-size: 13px !important;
+                white-space: normal !important;
+                overflow: visible !important;
+            }
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+
     user_rol = st.session_state.get('rol')
     user_cliente_id = st.session_state.get('cliente_id')
 
@@ -1076,60 +1102,62 @@ if "🏠 Inicio" in opcion_menu:
             f"Bs. {u_v:,.2f}",
             delta_color="normal" if u_v >= 0 else "inverse"
         )
+
     # --- FILA 2: SALUD FISCAL (SENIAT) ---
-        # =====================================================================
-        # SECCIÓN DE RENDERIZADO EN PANTALLA (FUERA DE LA FUNCIÓN)
-        # =====================================================================
+    kpis_fiscales = obtener_salud_fiscal(f_inicio_global, f_fin_global, db_objetivo)
 
-        # 1. Llamada a la función con tus variables globales de fecha
-        kpis_fiscales = obtener_salud_fiscal(f_inicio_global, f_fin_global, db_objetivo)
-
-        # 2. Función para renderizar KPIs compactos con fondo de color en la etiqueta
-        def mini_kpi(col, titulo, valor, color="#555555"):
-            with col.container(border=True):
-                st.markdown(f"""
-                    <div style="text-align: center; padding: 2px;">
-                        <div style="
-                            font-size: 0.95rem; 
-                            background-color: {color}20; 
-                            color: {color}; 
-                            font-weight: bold; 
-                            padding: 4px; 
-                            border-radius: 5px; 
-                            margin-bottom: 5px;">
-                            {titulo}
-                        </div>
-                        <div style="font-size: 0.95rem; font-weight: bold; color: #333333; padding-bottom: 2px;">
-                            Bs. {valor:,.2f}
-                        </div>
+    # Función adaptada para ensanchar textos largos y evitar cortes en columnas múltiples
+    def mini_kpi(col, titulo, valor, color="#555555"):
+        with col.container(border=True):
+            st.markdown(f"""
+                <div style="text-align: center; padding: 2px; width: 100%;">
+                    <div style="
+                        font-size: 0.82rem; 
+                        background-color: {color}20; 
+                        color: {color}; 
+                        font-weight: bold; 
+                        padding: 5px 2px; 
+                        border-radius: 5px; 
+                        margin-bottom: 5px;
+                        white-space: normal;
+                        word-break: break-word;
+                        min-height: 38px;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;">
+                        {titulo}
                     </div>
-                """, unsafe_allow_html=True)
+                    <div style="font-size: 0.88rem; font-weight: bold; color: #333333; padding-bottom: 2px; white-space: nowrap;">
+                        Bs. {valor:,.2f}
+                    </div>
+                </div>
+            """, unsafe_allow_html=True)
 
-        # 3. Dibujar Ingresos (Azul y Verde)
-        st.subheader("Ingresos")
-        i1, i2, i3 = st.columns(3)
-        mini_kpi(i1, "Ingresos Exentos", kpis_fiscales.get('ingresos_exentas', 0), "#1f77b4")
-        mini_kpi(i2, "Ingresos Gravados", kpis_fiscales.get('ingresos_gravados', 0), "#2ca02c")
+    # 3. Dibujar Ingresos
+    st.subheader("Ingresos")
+    i1, i2, i3 = st.columns(3)
+    mini_kpi(i1, "Ingresos Exentos", kpis_fiscales.get('ingresos_exentas', 0), "#1f77b4")
+    mini_kpi(i2, "Ingresos Gravados", kpis_fiscales.get('ingresos_gravados', 0), "#2ca02c")
 
-        # 4. Compras y Gastos (Naranja/Ámbar)
-        st.subheader("Compras y Gastos")
-        c1, c2, c3, c4, c5, c6, c7 = st.columns(7)
-        mini_kpi(c1, "Compras Exentas", kpis_fiscales.get('compras_exentas', 0), "#ff7f0e")
-        mini_kpi(c2, "Compras IVA 16%", kpis_fiscales.get('compras_16', 0), "#ff7f0e")
-        mini_kpi(c3, "DPP", kpis_fiscales.get('DPP1', 0), "#d62728")
-        mini_kpi(c4, "Comis. Banc.", kpis_fiscales.get('comisiones_bancarias1', 0), "#8c564b")
-        mini_kpi(c5, "Gastos Pers.", kpis_fiscales.get('gastos_personales1', 0), "#8c564b")
-        mini_kpi(c6, "Otros Ing.", kpis_fiscales.get('otros_ingresos', 0), "#9467bd")
-        mini_kpi(c7, "Otros Egr.", kpis_fiscales.get('otros_egresos', 0), "#7f7f7f")
+    # 4. Compras y Gastos
+    st.subheader("Compras y Gastos")
+    c1, c2, c3, c4, c5, c6, c7 = st.columns(7)
+    mini_kpi(c1, "Compras Exentas", kpis_fiscales.get('compras_exentas', 0), "#ff7f0e")
+    mini_kpi(c2, "Compras IVA 16%", kpis_fiscales.get('compras_16', 0), "#ff7f0e")
+    mini_kpi(c3, "DPP", kpis_fiscales.get('DPP1', 0), "#d62728")
+    mini_kpi(c4, "Comis. Banc.", kpis_fiscales.get('comisiones_bancarias1', 0), "#8c564b")
+    mini_kpi(c5, "Gastos Pers.", kpis_fiscales.get('gastos_personales1', 0), "#8c564b")
+    mini_kpi(c6, "Otros Ing.", kpis_fiscales.get('otros_ingresos', 0), "#9467bd")
+    mini_kpi(c7, "Otros Egr.", kpis_fiscales.get('otros_egresos', 0), "#7f7f7f")
 
-        # 5. Obligaciones Fiscales (Rojo y tonos de alerta)
-        st.subheader("Obligaciones Fiscales")
-        f1, f2, f3, f4, f5, f6 = st.columns(6)
-        mini_kpi(f1, "Débito Fiscal", kpis_fiscales.get('iva_debito_fiscal', 0), "#d62728")
-        mini_kpi(f2, "IVA por Pagar", kpis_fiscales.get('iva_por_pagar', 0), "#d62728")
-        mini_kpi(f3, "Ret. IVA Prov.", kpis_fiscales.get('retencion_iva_compras', 0), "#bcbd22")
-        mini_kpi(f4, "ISLR ANTIC", kpis_fiscales.get('pagos_anticipados_islr', 0), "#bcbd22")
-        mini_kpi(f5, "Ret. ISLR", kpis_fiscales.get('retencion_islr_proveedores', 0), "#d62728")
-        mini_kpi(f6, "ISLR por Pagar", kpis_fiscales.get('islr_pagar', 0), "#d62728")
+    # 5. Obligaciones Fiscales
+    st.subheader("Obligaciones Fiscales")
+    f1, f2, f3, f4, f5, f6 = st.columns(6)
+    mini_kpi(f1, "Débito Fiscal", kpis_fiscales.get('iva_debito_fiscal', 0), "#d62728")
+    mini_kpi(f2, "IVA por Pagar", kpis_fiscales.get('iva_por_pagar', 0), "#d62728")
+    mini_kpi(f3, "Ret. IVA Prov.", kpis_fiscales.get('retencion_iva_compras', 0), "#bcbd22")
+    mini_kpi(f4, "ISLR ANTIC", kpis_fiscales.get('pagos_anticipados_islr', 0), "#bcbd22")
+    mini_kpi(f5, "Ret. ISLR", kpis_fiscales.get('retencion_islr_proveedores', 0), "#d62728")
+    mini_kpi(f6, "ISLR por Pagar", kpis_fiscales.get('islr_pagar', 0), "#d62728")
 
-        st.divider()
+    st.divider()
