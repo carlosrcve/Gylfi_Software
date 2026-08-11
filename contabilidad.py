@@ -84,7 +84,6 @@ if 'año_seleccionado' not in st.session_state:
 if 'mes_seleccionado' not in st.session_state:
     st.session_state['mes_seleccionado'] = "Junio"
 
-
 # --- 4. CÁLCULO DINÁMICO DE FECHAS (Se ejecuta siempre) ---
 anio = st.session_state['año_seleccionado']
 mes_str = st.session_state['mes_seleccionado']
@@ -401,7 +400,7 @@ def obtener_utilidad_contable(db, f_i, f_f):
     return utilidad if utilidad is not None else 0.0
 
 
-@st.cache_data(ttl=600)
+
 def obtener_analisis_accionista_detallado(db, f_i, f_f):
     if not db or str(db).strip() in ["None", "{db}", ""]:
         return pd.DataFrame()
@@ -465,7 +464,7 @@ def obtener_analisis_accionista_detallado(db, f_i, f_f):
             
     return df
 
-@st.cache_data(ttl=600)
+
 def obtener_historico_utilidad(db, f_inicio=None, f_fin=None):
     conn = st.session_state.get('conn')
     if not conn or not conn.is_connected():
@@ -552,7 +551,6 @@ def obtener_historico_utilidad(db, f_inicio=None, f_fin=None):
         print(f"❌ Error al calcular la utilidad para {fecha_inicio_str} al {fecha_fin_str}: {e}")
         return df_default
 
-
 @log_ejecucion
 def generar_pdf_accionista(df, nombre_empresa):
     pdf = FPDF()
@@ -579,7 +577,6 @@ def generar_pdf_accionista(df, nombre_empresa):
     return pdf.output(dest='S').encode('latin-1')
 
 
-@st.cache_data(ttl=600)
 def obtener_analisis_gastos_clase5(db, f_i, f_f):
     # Validar que conectar_db exista realmente
     if 'conectar_db' not in globals() and 'conectar_db' not in locals():
@@ -623,7 +620,6 @@ def obtener_analisis_gastos_clase5(db, f_i, f_f):
 
 
 @log_ejecucion
-@st.cache_data(ttl=600)
 def obtener_analisis_gastos_clase6(db, f_i, f_f):
     conn = conectar_db(db)
     if not conn:
@@ -655,7 +651,7 @@ def obtener_analisis_gastos_clase6(db, f_i, f_f):
         
     return df
 
-@st.cache_data(ttl=600)
+
 def obtener_asiento_por_comprobante(db, n_comprobante):
     conn = conectar_db(db)
     if not conn:
@@ -695,7 +691,8 @@ def obtener_asiento_por_comprobante(db, n_comprobante):
             except:
                 pass
 
-@st.cache_data(ttl=600)
+
+# Quítale el decorador temporalmente para probar si era eso:
 def obtener_comprobantes_ingresos(db, f_inicio, f_fin):
     conn = conectar_db(db)
     if not conn:
@@ -718,7 +715,8 @@ def obtener_comprobantes_ingresos(db, f_inicio, f_fin):
             conn.close()
         return pd.DataFrame()
 
-@st.cache_data(ttl=600)
+
+
 def obtener_historico_utilidad_acumulada(db):
     df_default = pd.DataFrame({'mes': [], 'utilidad_mensual': []})
     
@@ -792,7 +790,6 @@ def obtener_historico_utilidad_acumulada(db):
             except:
                 pass
 
-@st.cache_data(ttl=600)
 def obtener_saldos_acumulados(conexion, fecha_corte, nombre_db):
     if not conexion:
         print("❌ Error: No hay conexión activa en obtener_saldos_acumulados")
@@ -841,7 +838,7 @@ def obtener_saldos_acumulados(conexion, fecha_corte, nombre_db):
     }
 
 
-@st.cache_data(ttl=600)
+
 def obtener_salud_fiscal(f_inicio, f_fin, db):
     conn = conectar_db(db)
     
@@ -956,7 +953,7 @@ def obtener_salud_fiscal(f_inicio, f_fin, db):
     
     return default_res
 
-@st.cache_data(ttl=600)
+
 def obtener_detalle_cashea(db, f_inicio, f_fin):
     df_vacio = pd.DataFrame(columns=['fecha', 'descripcion', 'referencia', 'debe', 'haber', 'saldo'])
     
@@ -1007,7 +1004,6 @@ def obtener_detalle_cashea(db, f_inicio, f_fin):
         return df_vacio
 
 
-@st.cache_data(ttl=600)
 def obtener_datos_barras(db, fecha_inicio, fecha_fin):
     # Retorna un DataFrame vacío por defecto para prevenir que explote
     df_vacio = pd.DataFrame(columns=['Categoría', 'Monto'])
@@ -1019,8 +1015,8 @@ def obtener_datos_barras(db, fecha_inicio, fecha_fin):
     query = f"""
         SELECT 
             CASE 
-                WHEN plan_cuentas LIKE '4%%' THEN 'Ingresos' 
-                WHEN plan_cuentas LIKE '5%%' THEN 'Egresos' 
+                WHEN plan_cuentas LIKE '4%' THEN 'Ingresos' 
+                WHEN plan_cuentas LIKE '5%' THEN 'Egresos' 
                 ELSE 'Otros' 
             END as Categoría, 
             SUM(haber - debe) as Monto 
@@ -1038,7 +1034,6 @@ def obtener_datos_barras(db, fecha_inicio, fecha_fin):
             conn.close()
         return df_vacio
 
-@st.cache_data(ttl=600)
 def obtener_datos_pie(db, f_fin):
     df_vacio = pd.DataFrame(columns=['nombre', 'Saldo Final'])
     
@@ -1051,7 +1046,7 @@ def obtener_datos_pie(db, f_fin):
             descripcion as nombre,
             SUM(debe) as "Saldo Final"
         FROM `{db}`.asientos_contables 
-        WHERE plan_cuentas LIKE '6%%'
+        WHERE plan_cuentas LIKE '6%'
         AND CAST(fecha AS DATE) <= %s
         GROUP BY descripcion
         ORDER BY 2 DESC
@@ -1066,7 +1061,6 @@ def obtener_datos_pie(db, f_fin):
         if conn:
             conn.close()
         return df_vacio
-
 
 # --- COLOCA ESTA FUNCIÓN ANTES DE TU BLOQUE DE LA FILA 5 ---
 @st.cache_data(ttl=60) # ttl=60 significa que se refresca al menos cada minuto
@@ -1097,7 +1091,7 @@ def obtener_datos_flujo(db, f_i, f_f):
     return res_ini, res_mes
 
 
-@st.cache_data(ttl=600)
+
 def obtener_detalle_movimientos_banco(db, f_i, f_f):
     """
     Función para obtener el detalle de movimientos de la cuenta 1.1.1.02
@@ -1345,7 +1339,6 @@ def obtener_kpis_financieros(_conn, f_i, f_f, sucursal, db):
         "saldo_real_final": saldo_final_banco
     }
 
-@st.cache_data(ttl=600)
 def obtener_datos_graficos(conn, f_i, f_f, sucursal):
     # 1. Inicializamos vacíos por defecto
     df_bar = pd.DataFrame(columns=['Categoría', 'Monto'])
@@ -1424,7 +1417,6 @@ def gestionar_sidebar():
     
     st.session_state['CLIENTE_NOMBRE'] = empresa_seleccionada
 
-@st.cache_data(ttl=600) 
 def mostrar_bitacora_auditoria(conn):
     st.subheader("📋 Bitácora de Auditoría")
     
@@ -1454,7 +1446,7 @@ def mostrar_bitacora_auditoria(conn):
             conn.ping(reconnect=True)
 
 
-@st.cache_data(ttl=600) 
+
 def visualizar_rastro_auditoria(conn):
     st.subheader("🕵️‍♂️ Rastro de Auditoría")
     
@@ -1496,7 +1488,11 @@ def visualizar_rastro_auditoria(conn):
         if cursor: cursor.close()
 
 
-@st.cache_data(ttl=600) # El caché dura 10 minutos
+# --- 2. PANTALLA DE LOGIN ---
+import streamlit as st
+import time
+
+
 def registrar_log(db_conn, usuario_id, accion, detalles, cliente_id):
     """
     Registra eventos en la base de datos central de auditoría.
@@ -1594,7 +1590,7 @@ def verificar_usuario(conn, user, password):
         return user_data
     else:
         return None
-
+import bcrypt
 
 def migrar_contraseñas_a_hash(conn):
     cursor = conn.cursor(dictionary=True)
@@ -1724,6 +1720,8 @@ if 'logueado' not in st.session_state:
     st.stop()
 
 
+
+
 def mostrar_bitacora(conn):
     try:
         # La consulta debe ser a la tabla que ya comprobamos que tiene datos
@@ -1740,7 +1738,6 @@ def mostrar_bitacora(conn):
             
     except Exception as e:
         st.error(f"Error al leer la bitácora: {e}")
-
 
 def registrar_log_automatico(conn, accion, detalles):
     """
@@ -1862,8 +1859,6 @@ def panel_administracion(conn):
 def formato_contable(valor):
     """Formato: 16.482,00"""
     return f"{valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-
-
 @log_ejecucion
 def color_por_nivel(row):
     codigo = str(row['Código'])
@@ -2213,7 +2208,6 @@ def consultar_libro_diario_db(conn_activa=None, fecha_inicio=None, fecha_fin=Non
         # Solo cerramos si la creamos nosotros y la conexión sigue abierta
         if es_conexion_interna and conn and hasattr(conn, 'is_connected') and conn.is_connected():
             conn.close()
-
 @log_ejecucion
 def ejecutar_mayor_analitico(db_nombre, cuenta, fecha_desde, fecha_hasta):
     conn = None
@@ -2490,11 +2484,12 @@ import google.generativeai as genai
 import json
 import streamlit as st
 
+
+
 # Configura tu clave
 genai.configure(api_key="AQ.Ab8RN6KiWY-x727nF8PFCerZu-EDtlkEbT5CJDBzFp188mx2Tw")
 
 @log_ejecucion
-@st.cache_data(ttl=300)
 def obtener_lista_proveedores():
     try:
         # Ajusta esto a tu conexión real
@@ -2510,7 +2505,6 @@ def obtener_lista_proveedores():
 
 
 @log_ejecucion
-@st.cache_data(ttl=300)
 def obtener_lista_proveedores_mapeo():
     conn = conectar_db(db_actual)
     cursor = conn.cursor()
@@ -2521,7 +2515,6 @@ def obtener_lista_proveedores_mapeo():
     return mapeo
 
 @log_ejecucion
-@st.cache_data(ttl=3600)
 def obtener_modelo_valido():
     # Buscamos todos los modelos que permiten generateContent
     for m in genai.list_models():
@@ -6033,7 +6026,6 @@ def conciliar_datos(conn, fecha_inicio, fecha_fin, db_empresa):
     finally:
         if cursor:
             cursor.close()
-
 
 @log_ejecucion
 def diagnosticar_conciliacion(conn, db_empresa):
@@ -12392,6 +12384,8 @@ elif "Proveedores" in opcion_menu:
 elif "Inventarios" in opcion_menu:
     # Invocamos el módulo exclusivo pasando la conexión a la base de datos
     modulo_inventario_pedacito_cielo(conn)
+
+
 
 
 
