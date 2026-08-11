@@ -630,31 +630,79 @@ def gestionar_sidebar():
 
         # --- Selección de Empresa ---
         if menu == "📊 Auditoría Contable":
-            df_sidebar = _obtener_datos_sidebar_cache() if '_obtener_datos_sidebar_cache' in globals() else pd.DataFrame()
+            conn_sidebar = conectar_db()
+            df_sidebar = pd.DataFrame()
 
-            # 🛠️ FILTRADO DE SEGURIDAD POR NOMBRE Y POR ID
-            if user_rol != 'admin' and not df_sidebar.empty:
-                cond_id = pd.Series([False] * len(df_sidebar), index=df_sidebar.index)
-                cond_user = pd.Series([False] * len(df_sidebar), index=df_sidebar.index)
+            if conn_sidebar is not None:
+                try:
+                    if hasattr(conn_sidebar, 'ping') and callable(conn_sidebar.ping):
+                        conn_sidebar.ping(reconnect=True)
+                    
+                    cursor_tmp = conn_sidebar.cursor()
+                    try:
+                        cursor_tmp.execute("USE control_central;")
+                    except Exception:
+                        pass 
+                    cursor_tmp.close()
 
-                # 1. Comparar ID (si viene numérico)
-                for col_id in ['id', 'cliente_id', 'user_id']:
-                    if col_id in df_sidebar.columns and str(user_id) != 'N/A':
-                        cond_id = cond_id | (df_sidebar[col_id].astype(str) == str(user_id))
+                    queries_a_probar = [
+                        "SELECT * FROM control_central.clientes",
+                        "SELECT * FROM clientes"
+                    ]
+                    
+                    for q in queries_a_probar:
+                        try:
+                            df_temp = pd.read_sql(q, conn_sidebar)
+                            if not df_temp.empty:
+                                df_sidebar = df_temp
+                                break
+                        except Exception:
+                            continue
+                except Exception as e:
+                    st.error(f"❌ Error de conexión en la barra lateral: {e}")
+                finally:
+                    try:
+                        if conn_sidebar and hasattr(conn_sidebar, 'close'):
+                            conn_sidebar.close()
+                    except:
+                        pass
 
-                # 2. Comparar Nombre de Usuario (Roberto_Angulo, etc.)
-                user_str_clean = str(nombre_usuario_actual).strip().lower()
-                for col_user in ['nombre_usuario', 'usuario', 'username', 'user']:
-                    if col_user in df_sidebar.columns and user_str_clean:
-                        cond_user = cond_user | (df_sidebar[col_user].astype(str).str.strip().str.lower() == user_str_clean)
+            if not df_sidebar.empty:
+                df_sidebar = df_sidebar.fillna("")
 
-                df_coincidencias = df_sidebar[cond_id | cond_user]
-                if not df_coincidencias.empty:
-                    df_sidebar = df_coincidencias
+                # 🛠️ FILTRADO ESTRICTO POR USUARIO O NOMBRE
+                if user_rol != 'admin':
+                    filtrado_exitoso = False
+                    
+                    # 1. Intentar por ID si existe en el DataFrame
+                    c_id = st.session_state.get('cliente_id') or st.session_state.get('user_id')
+                    if c_id and any(col in df_sidebar.columns for col in ['id', 'cliente_id']):
+                        col_encontrada = 'id' if 'id' in df_sidebar.columns else 'cliente_id'
+                        match_id = df_sidebar[df_sidebar[col_encontrada].astype(str) == str(c_id)]
+                        if not match_id.empty:
+                            df_sidebar = match_id
+                            filtrado_exitoso = True
+
+                    # 2. Intentar por Nombre de Usuario
+                    if not filtrado_exitoso:
+                        limpiar_nombre = str(nombre_usuario_actual).strip().lower()
+                        for col_u in ['nombre_usuario', 'usuario', 'username', 'user']:
+                            if col_u in df_sidebar.columns:
+                                match_user = df_sidebar[df_sidebar[col_u].astype(str).str.strip().str.lower() == limpiar_nombre]
+                                if not match_user.empty:
+                                    df_sidebar = match_user
+                                    filtrado_exitoso = True
+                                    break
+
+                    # 3. Resguardo directo para Roberto Angulo -> Pedacito de Cielo
+                    if not filtrado_exitoso and ('roberto' in str(nombre_usuario_actual).lower() or 'angulo' in str(nombre_usuario_actual).lower()):
+                        match_pedacito = df_sidebar[df_sidebar['nombre_empresa'].astype(str).str.upper().str.contains('PEDACITO')]
+                        if not match_pedacito.empty:
+                            df_sidebar = match_pedacito
 
             df_filtrado = df_sidebar
 
-            # Resguardo en caso de que no consiga fila en la BD
+            # Resguardo absoluto si no consigue nada
             if df_filtrado.empty:
                 df_filtrado = pd.DataFrame({
                     'id': [user_id if user_id != 'N/A' else 1],
@@ -664,8 +712,6 @@ def gestionar_sidebar():
                 })
 
             nombres_empresas = df_filtrado['nombre_empresa'].tolist()
-            db_nombres = df_filtrado['db_nombre'].tolist()
-
             nombre_inicial = nombres_empresas[0]
 
             if user_rol == 'admin':
