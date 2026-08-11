@@ -967,160 +967,189 @@ if menu_lateral == "📊 Auditoría Contable":
 
 if "🏠 Inicio" in opcion_menu:
 
-    # --- INYECCIÓN DE CSS PARA EXPANDIR LOS FRAMES Y ETIQUETAS ---
-    st.markdown(
-        """
-        <style>
-            /* 1. Forzar que el contenedor principal de la página ocupe todo el ancho disponible */
-            .block-container {
-                max-width: 100% !important;
-                padding-left: 3rem !important;
-                padding-right: 3rem !important;
-            }
+        # --- INYECCIÓN DE CSS PARA EXPANDIR LOS FRAMES Y ETIQUETAS ---
+        st.markdown(
+            """
+            <style>
+                /* 1. Forzar que el contenedor principal de la página ocupe todo el ancho disponible */
+                .block-container {
+                    max-width: 100% !important;
+                    padding-left: 3rem !important;
+                    padding-right: 3rem !important;
+                }
 
-            /* 2. Expandir los contenedores con borde (border=True) al 100% de la columna */
-            div[data-testid="stVerticalBlock"] div[data-testid="stHorizontalBlock"] > div {
-                flex: 1 !important;
-                min-width: 0 !important;
-            }
+                /* 2. Expandir los contenedores con borde (border=True) al 100% de la columna */
+                div[data-testid="stVerticalBlock"] div[data-testid="stHorizontalBlock"] > div {
+                    flex: 1 !important;
+                    min-width: 0 !important;
+                }
 
-            /* 3. Asegurar que los marcos con bordes de Streamlit aprovechen todo el espacio */
-            div[data-testid="element-container"] {
-                width: 100% !important;
-            }
-        </style>
-        """,
-        unsafe_allow_html=True
-    )
+                /* 3. Asegurar que los marcos con bordes de Streamlit aprovechen todo el espacio */
+                div[data-testid="element-container"] {
+                    width: 100% !important;
+                }
+            </style>
+            """,
+            unsafe_allow_html=True
+        )
 
-    user_rol = st.session_state.get('rol')
-    user_cliente_id = st.session_state.get('cliente_id')
+        user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
+        user_cliente_id = st.session_state.get('cliente_id') or st.session_state.get('user_id')
+        nombre_usuario_actual = (
+            st.session_state.get('nombre_usuario') or 
+            st.session_state.get('username') or 
+            st.session_state.get('usuario') or 
+            ''
+        ).strip().lower()
 
-    conn_ctrl = conectar_db()
-    db_objetivo = None
-    
-    if conn_ctrl:
-        try:
-            if user_rol == 'admin':
-                db_objetivo = st.session_state.get('DB_ACTUAL')
-                if not db_objetivo or db_objetivo == 'No seleccionada':
-                    query = "SELECT * FROM clientes LIMIT 1"
-                    df_temp = pd.read_sql(query, conn_ctrl)
+        conn_ctrl = conectar_db()
+        db_objetivo = None
+        
+        if conn_ctrl:
+            try:
+                if user_rol == 'admin':
+                    db_objetivo = st.session_state.get('DB_ACTUAL')
+                    if not db_objetivo or db_objetivo == 'No seleccionada':
+                        query = "SELECT * FROM clientes LIMIT 1"
+                        df_temp = pd.read_sql(query, conn_ctrl)
+                        if not df_temp.empty:
+                            col_bd = next((c for c in df_temp.columns if 'bd' in c.lower() or 'base' in c.lower() or 'schema' in c.lower()), df_temp.columns[-1])
+                            db_objetivo = str(df_temp[col_bd].iloc[0])
+                else:
+                    # --- FILTRADO BLINDADO PARA USUARIOS NO ADMINISTRADORES ---
+                    df_temp = pd.DataFrame()
+                    
+                    # 1. Intentar buscar por ID de cliente si existe
+                    if user_cliente_id and str(user_cliente_id).isdigit():
+                        q_id = f"SELECT * FROM clientes WHERE id = {user_cliente_id} OR cliente_id = {user_cliente_id}"
+                        try:
+                            df_temp = pd.read_sql(q_id, conn_ctrl)
+                        except Exception:
+                            pass
+
+                    # 2. Si no se encontró por ID, buscar estrictamente por el nombre de usuario
+                    if df_temp.empty and nombre_usuario_actual:
+                        q_user = f"SELECT * FROM clientes WHERE LOWER(TRIM(nombre_usuario)) = '{nombre_usuario_actual}' OR LOWER(TRIM(usuario)) = '{nombre_usuario_actual}' OR LOWER(TRIM(username)) = '{nombre_usuario_actual}'"
+                        try:
+                            df_temp = pd.read_sql(q_user, conn_ctrl)
+                        except Exception:
+                            pass
+
                     if not df_temp.empty:
                         col_bd = next((c for c in df_temp.columns if 'bd' in c.lower() or 'base' in c.lower() or 'schema' in c.lower()), df_temp.columns[-1])
                         db_objetivo = str(df_temp[col_bd].iloc[0])
-            else:
-                query = f"SELECT * FROM clientes WHERE id = {user_cliente_id}"
-                df_temp = pd.read_sql(query, conn_ctrl)
-                if not df_temp.empty:
-                    col_bd = next((c for c in df_temp.columns if 'bd' in c.lower() or 'base' in c.lower() or 'schema' in c.lower()), df_temp.columns[-1])
-                    db_objetivo = str(df_temp[col_bd].iloc[0])
-        except Exception as e:
-            st.error(f"❌ Error al resolver la base de datos del usuario: {e}")
-            st.stop()
-        finally:
-            conn_ctrl.close()
+                    else:
+                        st.error(f"❌ Acceso denegado o usuario sin empresa asociada: '{nombre_usuario_actual}'. Contacte al administrador.")
+                        st.stop()
 
-    if not db_objetivo:
-        st.error("❌ No se encontró una base de datos asignada o válida.")
-        st.stop()
-
-    st.session_state['DB_ACTUAL'] = db_objetivo
-    st.session_state['db_a_conectar'] = db_objetivo
-
-    if 'conn' not in st.session_state or st.session_state.get('ultima_db_conectada') != db_objetivo or st.session_state.conn is None:
-        try:
-            nueva_conn = conectar_db(db_objetivo)
-            if nueva_conn:
-                st.session_state.conn = nueva_conn
-                st.session_state.ultima_db_conectada = db_objetivo
-            else:
-                st.error(f"❌ No se pudo conectar a la base de datos: {db_objetivo}")
+            except Exception as e:
+                st.error(f"❌ Error al resolver la base de datos del usuario: {e}")
                 st.stop()
-        except Exception as e:
-            st.error(f"Error crítico conectando: {e}")
-            st.session_state.conn = None
+            finally:
+                conn_ctrl.close()
+
+        if not db_objetivo:
+            st.error("❌ No se encontró una base de datos asignada o válida para este usuario.")
             st.stop()
 
-    conn = st.session_state.conn
-    try:
-        conn.ping(reconnect=True, attempts=3, delay=1)
-        if db_objetivo and db_objetivo != "control_central":
-            with conn.cursor() as cursor:
-                cursor.execute(f"USE `{db_objetivo}`")
-    except Exception as e:
-        st.warning(f"La conexión se perdió o la BD {db_objetivo} no es accesible. Reconectando...")
-        st.session_state.conn = None 
-        st.rerun()
+        st.session_state['DB_ACTUAL'] = db_objetivo
+        st.session_state['db_a_conectar'] = db_objetivo
 
-    dic_meses = {
-        "Enero": 1, "Febrero": 2, "Marzo": 3, "Abril": 4, 
-        "Mayo": 5, "Junio": 6, "Julio": 7, "Agosto": 8, 
-        "Septiembre": 9, "Octubre": 10, "Noviembre": 11, "Diciembre": 12
-    }
-    meses_lista = list(dic_meses.keys())
-    
-    anio_f = int(st.session_state.get('año_seleccionado', datetime.datetime.now().year))
-    mes_nombre_f = st.session_state.get('mes_seleccionado', meses_lista[datetime.datetime.now().month - 1])
-    
-    m_idx = dic_meses.get(mes_nombre_f, 1)
-    
-    ultimo_dia = calendar.monthrange(anio_f, m_idx)[1]
+        if 'conn' not in st.session_state or st.session_state.get('ultima_db_conectada') != db_objetivo or st.session_state.conn is None:
+            try:
+                nueva_conn = conectar_db(db_objetivo)
+                if nueva_conn:
+                    st.session_state.conn = nueva_conn
+                    st.session_state.ultima_db_conectada = db_objetivo
+                else:
+                    st.error(f"❌ No se pudo conectar a la base de datos: {db_objetivo}")
+                    st.stop()
+            except Exception as e:
+                st.error(f"Error crítico conectando: {e}")
+                st.session_state.conn = None
+                st.stop()
 
-    f_inicio_global = datetime.date(anio_f, m_idx, 1)
-    f_fin_global = datetime.date(anio_f, m_idx, ultimo_dia)
+        conn = st.session_state.conn
+        try:
+            conn.ping(reconnect=True, attempts=3, delay=1)
+            if db_objetivo and db_objetivo != "control_central":
+                with conn.cursor() as cursor:
+                    cursor.execute(f"USE `{db_objetivo}`")
+        except Exception as e:
+            st.warning(f"La conexión se perdió o la BD {db_objetivo} no es accesible. Reconectando...")
+            st.session_state.conn = None 
+            st.rerun()
 
-    fecha_inicio_str = f_inicio_global.strftime('%Y-%m-%d')
-    fecha_fin_str = f_fin_global.strftime('%Y-%m-%d')
+        dic_meses = {
+            "Enero": 1, "Febrero": 2, "Marzo": 3, "Abril": 4, 
+            "Mayo": 5, "Junio": 6, "Julio": 7, "Agosto": 8, 
+            "Septiembre": 9, "Octubre": 10, "Noviembre": 11, "Diciembre": 12
+        }
+        meses_lista = list(dic_meses.keys())
+        
+        anio_f = int(st.session_state.get('año_seleccionado', datetime.datetime.now().year))
+        mes_nombre_f = st.session_state.get('mes_seleccionado', meses_lista[datetime.datetime.now().month - 1])
+        
+        m_idx = dic_meses.get(mes_nombre_f, 1)
+        
+        ultimo_dia = calendar.monthrange(anio_f, m_idx)[1]
 
-    st.title(f"📊 Auditoría Profesional: {db_objetivo}")
-    st.markdown(f"**Período de Análisis:** {f_inicio_global.strftime('%d/%m/%Y')} al {f_fin_global.strftime('%d/%m/%Y')}")
-    st.divider()
+        f_inicio_global = datetime.date(anio_f, m_idx, 1)
+        f_fin_global = datetime.date(anio_f, m_idx, ultimo_dia)
 
-    col_kpi, col_btn = st.columns([0.8, 0.2])
-    with col_kpi:
-        st.subheader("Indicadores Financieros en Tiempo Real")
+        fecha_inicio_str = f_inicio_global.strftime('%Y-%m-%d')
+        fecha_fin_str = f_fin_global.strftime('%Y-%m-%d')
 
-    with st.spinner(f'Comunicando con MySQL para {db_objetivo}...'):
-        if conn and conn.is_connected():
-            kpis = obtener_saldos_acumulados(conn, f_fin_global, db_objetivo)
-        else:
-            kpis = None
+        st.title(f"📊 Auditoría Profesional: {db_objetivo}")
+        st.markdown(f"**Período de Análisis:** {f_inicio_global.strftime('%d/%m/%Y')} al {f_fin_global.strftime('%d/%m/%Y')}")
+        st.divider()
 
-        if kpis is None:
-            kpis = {"activo": 0, "pasivo": 0, "patrimonio": 0}
+        col_kpi, col_btn = st.columns([0.8, 0.2])
+        with col_kpi:
+            st.subheader("Indicadores Financieros en Tiempo Real")
 
-        df_utilidad = obtener_historico_utilidad(db_objetivo, f_inicio=f_inicio_global, f_fin=f_fin_global)
-        if df_utilidad is None:
-            df_utilidad = pd.DataFrame()
+        with st.spinner(f'Comunicando con MySQL para {db_objetivo}...'):
+            if conn and conn.is_connected():
+                kpis = obtener_saldos_acumulados(conn, f_fin_global, db_objetivo)
+            else:
+                kpis = None
 
-    valor_activo = kpis.get('activo', 0)
-    valor_pasivo = kpis.get('pasivo', 0)
-    valor_patrimonio = kpis.get('patrimonio', 0)
+            if kpis is None:
+                kpis = {"activo": 0, "pasivo": 0, "patrimonio": 0}
 
-    u_v = 0
-    if not df_utilidad.empty and 'utilidad_mensual' in df_utilidad.columns:
-        u_v = df_utilidad['utilidad_mensual'].iloc[0]
+            df_utilidad = obtener_historico_utilidad(db_objetivo, f_inicio=f_inicio_global, f_fin=f_fin_global)
+            if df_utilidad is None:
+                df_utilidad = pd.DataFrame()
 
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        st.container(border=True).metric("💰 ACTIVO", f"Bs. {valor_activo:,.2f}")
-    with col2:
-        st.container(border=True).metric("📉 PASIVO", f"Bs. {valor_pasivo:,.2f}")
-    with col3:
-        st.container(border=True).metric("🏗️ PATRIMONIO", f"Bs. {valor_patrimonio:,.2f}")
-    with col4:
-        st.container(border=True).metric(
-            "📊 UTILIDAD NETA ACUM.", 
-            f"Bs. {u_v:,.2f}",
-            delta_color="normal" if u_v >= 0 else "inverse"
-        )
-    # --- DEPURACIÓN VISUAL CON ST.WRITE ---
-    st.write("--- 🔍 DEBUG DE FILTROS Y DATOS ---")
-    st.write(f"Mes seleccionado en UI: **{mes_nombre_f} {anio_f}**")
-    st.write(f"Fecha de corte enviada a la BD (`f_fin_global`): `{fecha_fin_str}`")
-    st.write(f"Resultado crudo de los KPIs devueltos por la BD: `{kpis}`")
-    st.write("------------------------------------")
+        valor_activo = kpis.get('activo', 0)
+        valor_pasivo = kpis.get('pasivo', 0)
+        valor_patrimonio = kpis.get('patrimonio', 0)
+
+        u_v = 0
+        if not df_utilidad.empty and 'utilidad_mensual' in df_utilidad.columns:
+            u_v = df_utilidad['utilidad_mensual'].iloc[0]
+
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.container(border=True).metric("💰 ACTIVO", f"Bs. {valor_activo:,.2f}")
+        with col2:
+            st.container(border=True).metric("📉 PASIVO", f"Bs. {valor_pasivo:,.2f}")
+        with col3:
+            st.container(border=True).metric("🏗️ PATRIMONIO", f"Bs. {valor_patrimonio:,.2f}")
+        with col4:
+            st.container(border=True).metric(
+                "📊 UTILIDAD NETA ACUM.", 
+                f"Bs. {u_v:,.2f}",
+                delta_color="normal" if u_v >= 0 else "inverse"
+            )
+        # --- DEPURACIÓN VISUAL CON ST.WRITE ---
+        st.write("--- 🔍 DEBUG DE FILTROS Y DATOS ---")
+        st.write(f"Usuario Logueado Actual: **{nombre_usuario_actual}**")
+        st.write(f"Base de Datos Asignada Resuelta: **{db_objetivo}**")
+        st.write(f"Mes seleccionado en UI: **{mes_nombre_f} {anio_f}**")
+        st.write(f"Fecha de corte enviada a la BD (`f_fin_global`): `{fecha_fin_str}`")
+        st.write(f"Resultado crudo de los KPIs devueltos por la BD: `{kpis}`")
+        st.write("------------------------------------")
 
     # --- FILA 2: SALUD FISCAL (SENIAT) ---
     kpis_fiscales = obtener_salud_fiscal(f_inicio_global, f_fin_global, db_objetivo)
