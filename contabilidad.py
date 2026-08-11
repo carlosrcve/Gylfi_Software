@@ -84,22 +84,6 @@ if 'año_seleccionado' not in st.session_state:
 if 'mes_seleccionado' not in st.session_state:
     st.session_state['mes_seleccionado'] = "Junio"
 
-# --- 3. SIDEBAR (Widget conectado) ---
-with st.sidebar:
-    st.markdown("### 📅 Filtro de Período")
-    
-    st.number_input(
-        "Año", 
-        min_value=2020, 
-        max_value=2030, 
-        key='año_seleccionado'
-    )
-    
-    st.selectbox(
-        "Mes", 
-        list(dic_meses.keys()), 
-        key='mes_seleccionado'
-    )
 
 # --- 4. CÁLCULO DINÁMICO DE FECHAS (Se ejecuta siempre) ---
 anio = st.session_state['año_seleccionado']
