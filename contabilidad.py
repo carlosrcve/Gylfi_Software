@@ -7033,9 +7033,14 @@ if 'DB_ACTUAL' in st.session_state and st.session_state['DB_ACTUAL']:
     
     if conn:
         try:
-            # 1. Aseguramos el esquema activo en TiDB Cloud explícitamente
-            with conn.cursor() as cursor:
+            # 1. Aseguramos el esquema activo en TiDB Cloud de forma segura
+            cursor = conn.cursor()
+            try:
                 cursor.execute(f"USE `{db_nombre}`")
+            except Exception as e_use:
+                st.warning(f"⚠️ Aviso al cambiar de esquema: {e_use}")
+            finally:
+                cursor.close()
 
             # 2. Definimos la sucursal de forma segura
             sucursal_actual = st.session_state.get('sucursal_seleccionada', None)
@@ -7066,14 +7071,14 @@ if 'DB_ACTUAL' in st.session_state and st.session_state['DB_ACTUAL']:
                 except Exception as e_diario:
                     st.error(f"❌ Error en consultar_libro_diario_db: {e_diario}")
             
+            # Guardamos la conexión activa en session_state para que la usen las demás funciones de la app
+            st.session_state.conn = conn
+            
             # Mensaje de éxito usando directamente la base de datos activa de TiDB Cloud
             st.success(f"✅ Conectado exitosamente a la base de datos: {db_nombre}")
             
         except Exception as e:
             st.error(f"❌ Error general al procesar los datos: {e}")
-        finally:
-            if conn and hasattr(conn, 'is_connected') and conn.is_connected():
-                conn.close()
 else:
     st.warning("⚠️ Por favor, seleccione una empresa en el panel lateral para comenzar.")
 
@@ -7452,7 +7457,7 @@ if "Inicio" in opcion_menu:
     else:
         f_fin_global = datetime.date(anio_f, m_idx + 1, 1) - datetime.timedelta(days=1)
 
-    # 5. TÍTULO CON EL NOMBRE EXACTO DE LA BASE DE DATOS
+    # 5. TÍTULO CON EL NOMBRE EXACTO DE LA BASE DE DATOS (Corregido el strftime)
     st.title(f"📊 Auditoría Profesional: {db_actual}")
     st.markdown(f"**Período de Análisis:** {f_inicio_global.strftime('%d/%m/%Y')} al {f_fin_global.strftime('%d/%m/%Y')}")
     st.divider()
