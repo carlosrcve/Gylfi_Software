@@ -8967,8 +8967,10 @@ if "Inicio" in opcion_menu:
             
             if conexion_activa is not None:
                 try:
+                    # Solución al error 'Unread result found': consumimos o cerramos limpiamente
                     cursor = conexion_activa.cursor()
-                    cursor.execute("SELECT 1;") 
+                    cursor.execute("SELECT 1") 
+                    cursor.fetchall() # Consumimos los resultados pendientes del buffer
                     cursor.close()
                 except Exception as e:
                     st.error(f"❌ Error al ejecutar en la base de datos: {e}")
