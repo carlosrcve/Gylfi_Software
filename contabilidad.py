@@ -130,10 +130,6 @@ def verificar_usuario(conn, user, password):
             # Buscamos al usuario en la base de datos
             cursor.execute("SELECT * FROM usuarios WHERE usuario = %s", (user,))
             user_data = cursor.fetchone()
-            
-            # --- DIAGNÓSTICO TEMPORAL (Puedes quitarlo luego) ---
-            st.write("Datos encontrados en BD:", user_data)
-            # --------------------------------------------------
             break 
         except Exception as e:
             if intento == 0:
