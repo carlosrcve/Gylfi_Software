@@ -107,6 +107,118 @@ def conectar_db(nombre_db=None):
         st.session_state.conn = None
         return None
 
+
+
+def login_screen():
+    # --- ESTILOS CSS PROFESIONALES ---
+    st.markdown("""
+        <style>
+        /* Contenedor principal */
+        .stApp {
+            background-color: #f8fafc;
+        }
+        /* Tarjeta de Login */
+        .login-box {
+            background-color: white;
+            padding: 2rem;
+            border-radius: 15px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+            border: 1px solid #e2e8f0;
+            margin-bottom: 20px;
+        }
+        /* Botón estilo corporativo */
+        .stButton > button {
+            width: 100%;
+            background: linear-gradient(90deg, #0f172a 0%, #334155 100%);
+            color: white;
+            border: none;
+            padding: 10px;
+            border-radius: 8px;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+        .stButton > button:hover {
+            background: linear-gradient(90deg, #334155 0%, #0f172a 100%);
+            transform: translateY(-2px);
+        }
+        /* Ajuste de etiquetas de inputs */
+        label {
+            font-weight: 500 !important;
+            color: #475569 !important;
+        }
+        </style>
+    """, unsafe_allow_html=True) # <-- CORREGIDO AQUÍ
+
+    def play_success_sound():
+        # Usamos un sonido de "Ding" corto y profesional
+        # Este link es directo a un archivo pequeño
+        audio_url = "https://www.myinstants.com/media/sounds/ding-sound-effect_1.mp3"
+        
+        # El truco: Inyectamos un iframe invisible que fuerza el play
+        sound_html = f"""
+            <iframe src="{audio_url}" allow="autoplay" style="display:none"></iframe>
+            <audio autoplay>
+                <source src="{audio_url}" type="audio/mpeg">
+            </audio>
+        """
+        st.markdown(sound_html, unsafe_allow_html=True)
+
+    # --- DISEÑO DEL FRAME ---
+    _, col_center, _ = st.columns([1, 1.5, 1])
+
+    with col_center:
+        st.write("") # Espaciado superior
+        st.write("")
+        
+        with st.container():
+            st.markdown('<div class="login-box">', unsafe_allow_html=True)
+            
+            # Encabezado con Marketing
+            st.image("https://cdn-icons-png.flaticon.com/512/5164/5164023.png", width=60)
+            st.subheader("Auditoría Inteligente")
+            st.caption("Bienvenido al ecosistema contable de Carlos Rodriguez")
+            
+            # Inputs limpios
+            user = st.text_input("Usuario", placeholder="ej: admin_kd", key="user_input")
+            password = st.text_input("Contraseña", type="password", placeholder="••••••••", key="pass_input")
+            
+            if st.button("Ingresar al Portal"):
+                # Llamamos a tu función de base de datos
+                conexion_activa = conectar_db()
+                res = verificar_usuario(conexion_activa, user, password)
+                
+                if res:
+                    play_success_sound()
+                    # Mensaje Pro
+                    st.toast(f"¡Acceso Concedido!", icon="🔒")
+                    st.success(f"🚀 Has hecho login como **{res['rol'].upper()}**")
+                    
+                    # --- GUARDAMOS EL ESTADO CORRECTAMENTE ---
+                    st.session_state['logueado'] = True
+                    st.session_state['usuario'] = user
+                    st.session_state['rol'] = res['rol']
+                    
+                    # AQUÍ ESTÁ LA CLAVE: Guardamos el ID real de la tabla usuarios (res['id'])
+                    # y dejamos cliente_id por si lo necesitas para otra cosa
+                    st.session_state['user_id'] = res['id']          
+                    st.session_state['cliente_id'] = res.get('cliente_id') 
+                    
+                    time.sleep(1.5) # Pausa para que se vea el mensaje y suene la música
+                    st.rerun()
+                else:
+                    st.error("❌ Credenciales incorrectas")
+            
+            st.markdown('</div>', unsafe_allow_html=True)
+
+# Lógica de arranque
+if 'logueado' not in st.session_state:
+    login_screen()
+    st.stop()
+
+
+
+
+
 with st.sidebar:
     st.image("https://cdn-icons-png.flaticon.com/512/2645/2645328.png", width=100)
     st.header("Panel de Auditoría")
