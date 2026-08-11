@@ -4537,33 +4537,27 @@ def marcar_retencion_completada(conn, id_factura, n_comprobante):
 @log_ejecucion
 def obtener_todas_las_empresas(user_rol, user_id):
     try:
-        conn = conectar_db() # Conexión a la BD central
+        conn = conectar_db()
         if not conn:
-            st.sidebar.error("❌ Error crítico: No hay conexión con la BD central.")
             return []
         
-        # Dependiendo de tu rol, armamos la consulta
-        if user_rol == 'admin':
-            query = "SELECT * FROM clientes" # O la tabla donde guardas las 500 empresas
+        # Si es admin, ve todas. Si es cliente, filtra estrictamente por su ID.
+        if str(user_rol).strip().lower() == 'admin':
+            query = "SELECT db_nombre FROM clientes WHERE estado = 'activo' OR estado IS NULL"
         else:
-            query = f"SELECT * FROM clientes WHERE id = {user_id}"
+            query = f"SELECT db_nombre FROM clientes WHERE id = {user_id}"
             
-        import pandas as pd
         df = pd.read_sql(query, conn)
         conn.close()
         
-        if df.empty:
-            st.sidebar.warning(f"⚠️ La consulta no arrojó resultados para el rol: {user_rol}")
+        if df.empty or 'db_nombre' not in df.columns:
             return []
             
-        # Detectamos automáticamente la columna que contiene el nombre de las bases de datos de las empresas
-        columna_bd = next((c for c in df.columns if 'bd' in c.lower() or 'base' in c.lower() or 'schema' in c.lower() or 'nombre' in c.lower()), df.columns[-1])
-        
-        # Devolvemos la lista limpia de nombres de bases de datos
-        return df[columna_bd].dropna().astype(str).tolist()
+        # Retornamos la lista limpia de nombres de bases de datos
+        return df['db_nombre'].dropna().astype(str).tolist()
         
     except Exception as e:
-        st.sidebar.error(f"❌ Error SQL en obtener_empresas: {e}")
+        st.sidebar.error(f"❌ Error al obtener empresas: {e}")
         return []
 
 @log_ejecucion
