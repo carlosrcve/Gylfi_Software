@@ -557,7 +557,7 @@ with st.sidebar:
             meses_lista = list(dic_meses.keys())
 
             col_anio, col_mes = st.columns(2)
-            col_anio.number_input("Año", step=1, min_value=2020, max_value=2030, key="año_seleccionado_contabilidad")
+            col_anio.number_input("Año", step=1, min_value=2026, max_value=2030, key="año_seleccionado_contabilidad")
             col_mes.selectbox("Mes", meses_lista, key="mes_seleccionado_contabilidad")
 
         else:
@@ -939,85 +939,65 @@ if menu == "⚙️ Gestión de Usuarios":
     st.stop()
 
 
-# --- 1. BLOQUE DE FECHAS GLOBAL (DEBE IR PRIMERO QUE TODO) ---
-if 'año_seleccionado' not in st.session_state:
-    st.session_state['año_seleccionado'] = datetime.datetime.now().year
 
-if 'mes_seleccionado' not in st.session_state:
-    meses_nombres = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
-    st.session_state['mes_seleccionado'] = meses_nombres[datetime.datetime.now().month - 1]
-
-# --- 1. BLOQUE DE FECHAS GLOBAL Y SEGURO ---
-# --- 1. CONFIGURACIÓN DE MESES ---
+# ========================================================
+# 1. BLOQUE DE FECHAS GLOBAL Y CONFIGURACIÓN INICIAL
+# ========================================================
 dic_meses = {
     "Enero": 1, "Febrero": 2, "Marzo": 3, "Abril": 4, 
     "Mayo": 5, "Junio": 6, "Julio": 7, "Agosto": 8, 
     "Septiembre": 9, "Octubre": 10, "Noviembre": 11, "Diciembre": 12
 }
 
-# --- 2. INICIALIZACIÓN ÚNICA DEL ESTADO ---
-# Usamos setdefault para evitar sobrescribir si el usuario ya interactuó
+meses = list(dic_meses.keys())
+
+# Inicialización segura de variables en session_state
 if 'año_seleccionado' not in st.session_state:
     st.session_state['año_seleccionado'] = datetime.datetime.now().year
 
 if 'mes_seleccionado' not in st.session_state:
-    st.session_state['mes_seleccionado'] = "Junio"
+    st.session_state['mes_seleccionado'] = meses[datetime.datetime.now().month - 1]
 
-
-# Asegúrate de definir la lista antes de usarla
-meses = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
-
-m_idx = meses.index(st.session_state['mes_seleccionado']) + 1
-
-
-# ========================================================
-# 2. LÓGICA DE FECHAS MEJORADA (REACTIVA)
-# ========================================================
-m_idx = meses.index(st.session_state['mes_seleccionado']) + 1
+# Índices y valores reactivos para los filtros
+m_idx = dic_meses.get(st.session_state['mes_seleccionado'], 1)
 anio_f = st.session_state['año_seleccionado']
 
-# Calculamos el último día exacto del mes (28, 29, 30 o 31)
+# Cálculo exacto del último día del mes (28, 29, 30 o 31)
 ultimo_dia = calendar.monthrange(anio_f, m_idx)[1]
 
-# Variables de fecha tipo objeto para las funciones
+# Variables de fecha en formato objeto y string para consultas SQL
 f_inicio_global = datetime.date(anio_f, m_idx, 1)
 f_fin_global = datetime.date(anio_f, m_idx, ultimo_dia)
 
-# Variables de texto para mostrar o usar en SQL si hace falta
 fecha_inicio_str = f_inicio_global.strftime('%Y-%m-%d')
 fecha_fin_str = f_fin_global.strftime('%Y-%m-%d')
 
-EMPRESA = st.session_state.get('CLIENTE_NOMBRE', 'N/A')
 
-
-# --- 1. INICIALIZACIÓN GLOBAL ---
+# ========================================================
+# 2. GESTIÓN DE EMPRESA Y SESIÓN
+# ========================================================
 if 'DB_ACTUAL' not in st.session_state:
     st.session_state.CLIENTE_NOMBRE = "Seleccione Cliente"
     st.session_state['DB_ACTUAL'] = None
     st.session_state['cliente_id_seleccionado'] = None
 
-
-
 def actualizar_empresa():
     st.session_state.conn = None
-    # Guardamos el nombre tal cual viene del selector, sin tocarlo
     db_seleccionada = st.session_state.selector_empresa
     
     st.session_state.DB_ACTUAL = db_seleccionada
     st.session_state.nombre_empresa_seleccionada = db_seleccionada
-    
-    # Asignamos directamente, sin añadir sufijos ni limpiar espacios
     st.session_state.db_a_conectar = db_seleccionada
-    
-    # Debug para ver qué está pasando realmente
-    st.write(f"DEBUG: Nombre exacto enviado a la conexión: {st.session_state.db_a_conectar}")
 
 
-# 1. Tomamos directamente la empresa activa y limpia desde el session_state unificado
+# Tomamos la empresa activa de forma unificada
 DB_ACTUAL = st.session_state.get('db_a_conectar') or st.session_state.get('DB_ACTUAL', 'control_central')
 EMPRESA = st.session_state.get('CLIENTE_NOMBRE', "Seleccione Cliente")
 
-# 2. Conexión centralizada con validación estricta usando la BD correcta
+
+# ========================================================
+# 3. CONEXIÓN CENTRALIZADA Y VALIDACIÓN ESTRICTA
+# ========================================================
 if 'conn' not in st.session_state or st.session_state.conn is None:
     try:
         conn = conectar_db(DB_ACTUAL)
@@ -1028,28 +1008,26 @@ if 'conn' not in st.session_state or st.session_state.conn is None:
 else:
     conn = st.session_state.conn
 
-# 3. PROTECCIÓN Y VERIFICACIÓN
+# Verificación de estado y ping de la conexión
 if conn is not None:
     try:
-        # Verificamos si la conexión sigue viva
         conn.ping(reconnect=True, attempts=3, delay=1)
         
-        # Bypass de seguridad solo si aplica
         if DB_ACTUAL and DB_ACTUAL != "control_central":
             with conn.cursor() as cursor:
                 cursor.execute(f"USE `{DB_ACTUAL}`")
-            #6M.
-         #st.success(f"✅ Conectado a: {EMPRESA} (`{DB_ACTUAL}`)")
     except Exception as e:
         st.warning(f"La conexión se perdió o la BD {DB_ACTUAL} no es accesible. Intentando reconectar...")
-        st.session_state.conn = None # Forzamos recarga en el próximo ciclo
+        st.session_state.conn = None 
         st.rerun()
 else:
     st.error("❌ No hay conexión activa. Por favor, verifica tu configuración.")
 
 
-
 if "Inicio" in opcion_menu:
+    # 0. RENDERIZAR EL SIDEBAR PRIMERO (Para que los selectores de año/mes existan y pinten el menú)
+    gestionar_sidebar()
+
     # 1. Obtenemos el rol y el cliente_id de la sesión de manera segura
     user_rol = st.session_state.get('rol')
     user_cliente_id = st.session_state.get('cliente_id')
@@ -1061,7 +1039,6 @@ if "Inicio" in opcion_menu:
     if conn_ctrl:
         try:
             if user_rol == 'admin':
-                # El admin puede ver la seleccionada en sesión o la primera por defecto
                 db_objetivo = st.session_state.get('DB_ACTUAL')
                 if not db_objetivo or db_objetivo == 'No seleccionada':
                     query = "SELECT * FROM clientes LIMIT 1"
@@ -1070,7 +1047,6 @@ if "Inicio" in opcion_menu:
                         col_bd = next((c for c in df_temp.columns if 'bd' in c.lower() or 'base' in c.lower() or 'schema' in c.lower()), df_temp.columns[-1])
                         db_objetivo = str(df_temp[col_bd].iloc[0])
             else:
-                # RESTRICCIÓN DE CLIENTE: Forzamos estrictamente su propia base de datos asociada
                 query = f"SELECT * FROM clientes WHERE id = {user_cliente_id}"
                 df_temp = pd.read_sql(query, conn_ctrl)
                 if not df_temp.empty:
@@ -1086,7 +1062,6 @@ if "Inicio" in opcion_menu:
         st.error("❌ No se encontró una base de datos asignada o válida.")
         st.stop()
 
-    # Actualizamos el estado global de la BD actual
     st.session_state['DB_ACTUAL'] = db_objetivo
     st.session_state['db_a_conectar'] = db_objetivo
 
@@ -1100,10 +1075,13 @@ if "Inicio" in opcion_menu:
             st.error(f"❌ No se pudo conectar a la base de datos: {db_objetivo}")
             st.stop()
 
-    # 4. FECHAS SINCRONIZADAS
+    # 4. FECHAS SINCRONIZADAS (Unificamos con las llaves estándar del session_state)
     meses_lista = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
-    anio_f = int(st.session_state.get('año_seleccionado_contabilidad', 2026))
-    mes_nombre_f = st.session_state.get('mes_seleccionado_contabilidad', 'Mayo')
+    
+    # Soportamos tanto la llave corta como la larga para evitar desincronizaciones
+    anio_f = int(st.session_state.get('año_seleccionado', st.session_state.get('año_seleccionado_contabilidad', 2026)))
+    mes_nombre_f = st.session_state.get('mes_seleccionado', st.session_state.get('mes_seleccionado_contabilidad', 'Mayo'))
+    
     m_idx = meses_lista.index(mes_nombre_f) + 1 if mes_nombre_f in meses_lista else 5
     
     f_inicio_global = datetime.date(anio_f, m_idx, 1)
@@ -1112,13 +1090,10 @@ if "Inicio" in opcion_menu:
     else:
         f_fin_global = datetime.date(anio_f, m_idx + 1, 1) - datetime.timedelta(days=1)
 
-    # 5. TÍTULO Y RENDERIZADO DE KPIs
+    # 5. TÍTULO Y RENDERIZADO DE KPIS
     st.title(f"📊 Auditoría Profesional: {db_objetivo}")
     st.markdown(f"**Período de Análisis:** {f_inicio_global.strftime('%d/%m/%Y')} al {f_fin_global.strftime('%d/%m/%Y')}")
     st.divider()
-    
-    # Llamamos al sidebar
-    gestionar_sidebar()
 
     col_kpi, col_btn = st.columns([0.8, 0.2])
     with col_kpi:
