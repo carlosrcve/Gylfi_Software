@@ -1025,14 +1025,14 @@ else:
 
 
 if "Inicio" in opcion_menu:
-    # 0. RENDERIZAR EL SIDEBAR PRIMERO (Para que los selectores de año/mes existan y pinten el menú)
+    # 1. RENDERIZAR EL SIDEBAR PRIMERO (Esto pinta los selectores y actualiza el session_state)
     gestionar_sidebar()
 
-    # 1. Obtenemos el rol y el cliente_id de la sesión de manera segura
+    # 2. Obtenemos el rol y el cliente_id de la sesión de manera segura
     user_rol = st.session_state.get('rol')
     user_cliente_id = st.session_state.get('cliente_id')
 
-    # 2. Determinamos la base de datos objetivo según el rol
+    # 3. Determinamos la base de datos objetivo según el rol
     conn_ctrl = conectar_db()
     db_objetivo = None
     
@@ -1065,7 +1065,7 @@ if "Inicio" in opcion_menu:
     st.session_state['DB_ACTUAL'] = db_objetivo
     st.session_state['db_a_conectar'] = db_objetivo
 
-    # 3. Verificamos conexión activa con la BD correspondiente
+    # 4. Verificamos conexión activa con la BD correspondiente
     if 'conn' not in st.session_state or st.session_state.get('ultima_db_conectada') != db_objetivo:
         nueva_conn = conectar_db(db_objetivo)
         if nueva_conn:
@@ -1075,22 +1075,23 @@ if "Inicio" in opcion_menu:
             st.error(f"❌ No se pudo conectar a la base de datos: {db_objetivo}")
             st.stop()
 
-    # 4. FECHAS SINCRONIZADAS (Unificamos con las llaves estándar del session_state)
+    # =========================================================================
+    # 5. CÁLCULO DE FECHAS (AHORA SÍ, DESPUÉS DE QUE EL SIDEBAR ACTUALIZÓ EL ESTADO)
+    # =========================================================================
     meses_lista = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
     
-    # Soportamos tanto la llave corta como la larga para evitar desincronizaciones
     anio_f = int(st.session_state.get('año_seleccionado', st.session_state.get('año_seleccionado_contabilidad', 2026)))
-    mes_nombre_f = st.session_state.get('mes_seleccionado', st.session_state.get('mes_seleccionado_contabilidad', 'Mayo'))
+    mes_nombre_f = st.session_state.get('mes_seleccionado', st.session_state.get('mes_seleccionado_contabilidad', 'Febrero'))
     
-    m_idx = meses_lista.index(mes_nombre_f) + 1 if mes_nombre_f in meses_lista else 5
+    m_idx = meses_lista.index(mes_nombre_f) + 1 if mes_nombre_f in meses_lista else 2
     
-    f_inicio_global = datetime.date(anio_f, m_idx, 1)
-    if m_idx == 12:
-        f_fin_global = datetime.date(anio_f, 12, 31)
-    else:
-        f_fin_global = datetime.date(anio_f, m_idx + 1, 1) - datetime.timedelta(days=1)
+    # Cálculo exacto del último día del mes seleccionado (ej. 28 para febrero)
+    ultimo_dia = calendar.monthrange(anio_f, m_idx)[1]
 
-    # 5. TÍTULO Y RENDERIZADO DE KPIS
+    f_inicio_global = datetime.date(anio_f, m_idx, 1)
+    f_fin_global = datetime.date(anio_f, m_idx, ultimo_dia)
+
+    # 6. TÍTULO Y RENDERIZADO DE KPIS
     st.title(f"📊 Auditoría Profesional: {db_objetivo}")
     st.markdown(f"**Período de Análisis:** {f_inicio_global.strftime('%d/%m/%Y')} al {f_fin_global.strftime('%d/%m/%Y')}")
     st.divider()
