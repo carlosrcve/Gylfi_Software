@@ -116,21 +116,22 @@ def verificar_usuario(conn, user, password):
         except:
             return None 
 
+    user_data = None
+    cursor = None
+
     for intento in range(2):
         try:
             if not conn.is_connected():
                 conn = conectar_db()
                 
             cursor = conn.cursor(dictionary=True)
-            # Buscamos usando el nombre de columna correcto de tu tabla
-            cursor.execute("SELECT * FROM usuarios WHERE usuario = %s", (user,))
-            user_data = cursor.fetchone()
+            # Buscamos al usuario en la base de datos
             cursor.execute("SELECT * FROM usuarios WHERE usuario = %s", (user,))
             user_data = cursor.fetchone()
             
-            # --- PRUEBA DE DIAGNÓSTICO TEMPORAL ---
+            # --- DIAGNÓSTICO TEMPORAL (Puedes quitarlo luego) ---
             st.write("Datos encontrados en BD:", user_data)
-    # --------------------------------------
+            # --------------------------------------------------
             break 
         except Exception as e:
             if intento == 0:
@@ -144,7 +145,8 @@ def verificar_usuario(conn, user, password):
 
     if not user_data:
         try:
-            cursor.close()
+            if cursor:
+                cursor.close()
         except:
             pass
         return None 
@@ -154,13 +156,14 @@ def verificar_usuario(conn, user, password):
     login_exitoso = False
     
     if clave_en_bd:
+        password_bytes = password.encode('utf-8')
         # Verificamos si es un hash de bcrypt
         if str(clave_en_bd).startswith('$2b$'):
             try:
-                if bcrypt.checkpw(password.encode('utf-8'), clave_en_bd.encode('utf-8')):
+                if bcrypt.checkpw(password_bytes, str(clave_en_bd).encode('utf-8')):
                     login_exitoso = True
-            except:
-                pass
+            except Exception as ex:
+                st.error(f"Error al validar hash: {ex}")
         else:
             # Si está en texto plano
             if password == str(clave_en_bd):
@@ -168,14 +171,15 @@ def verificar_usuario(conn, user, password):
                 # Intentamos actualizar a hash de forma silenciosa para mejorar seguridad
                 try:
                     salt = bcrypt.gensalt()
-                    nuevo_hash = bcrypt.hashpw(password.encode('utf-8'), salt).decode('utf-8')
+                    nuevo_hash = bcrypt.hashpw(password_bytes, salt).decode('utf-8')
                     cursor.execute("UPDATE usuarios SET clave_hash = %s WHERE id = %s", (nuevo_hash, user_data['id']))
                     conn.commit()
                 except:
                     pass
     
     try:
-        cursor.close()
+        if cursor:
+            cursor.close()
     except:
         pass
     
