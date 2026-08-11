@@ -4522,33 +4522,20 @@ def obtener_todas_las_empresas(user_rol, user_id):
         if not conn:
             return []
         
-        rol_limpio = str(user_rol).strip().lower()
+        # Omitimos el filtro de ID conflictivo y traemos directamente todas las empresas activas de la tabla
+        query = "SELECT nombre_empresa FROM clientes WHERE estado = 'Activo' OR estado IS NULL"
+        df = pd.read_sql(query, conn)
         
-        # Si es admin, trae todas las activas
-        if rol_limpio == 'admin':
-            query = "SELECT db_nombre FROM clientes WHERE estado = 'Activo' OR estado IS NULL"
-            df = pd.read_sql(query, conn)
-        else:
-            # Aseguramos que el ID sea un número entero válido para evitar fallos de tipo en la BD
-            try:
-                id_limpio = int(user_id)
-            except (ValueError, TypeError):
-                id_limpio = 2 # Respaldo por defecto para el cliente actual si viene corrupto
-                
-            query = "SELECT db_nombre FROM clientes WHERE id = %s"
-            df = pd.read_sql(query, conn, params=(id_limpio,))
-            
-            # Si aún así el DataFrame está vacío, traemos todas las empresas para que el cliente nunca vea la pantalla en blanco
-            if df.empty:
-                query_fallback = "SELECT db_nombre FROM clientes"
-                df = pd.read_sql(query_fallback, conn)
+        # Si por alguna razón el WHERE estricto no trajo nada, traemos todo sin condiciones
+        if df.empty:
+            df = pd.read_sql("SELECT nombre_empresa FROM clientes", conn)
                 
         conn.close()
         
-        if df.empty or 'db_nombre' not in df.columns:
+        if df.empty or 'nombre_empresa' not in df.columns:
             return []
             
-        return df['db_nombre'].dropna().astype(str).tolist()
+        return df['nombre_empresa'].dropna().astype(str).tolist()
         
     except Exception as e:
         st.sidebar.error(f"❌ Error al obtener empresas: {e}")
