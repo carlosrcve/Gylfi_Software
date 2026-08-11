@@ -594,6 +594,124 @@ def obtener_saldos_acumulados(conexion, fecha_corte, nombre_db):
     }
 
 
+@st.cache_data(ttl=300)
+def obtener_salud_fiscal(f_inicio, f_fin, db):
+    conn = conectar_db(db)
+    
+    default_res = {
+        "ingresos_exentas": 0, "ingresos_gravados": 0, "compras_exentas": 0,
+        "compras_16": 0, "DPP1": 0, "comisiones_bancarias1": 0, "gastos_personales1": 0,
+        "otros_ingresos": 0, "otros_egresos": 0,
+        "iva_debito_fiscal": 0, "iva_por_pagar": 0, "retencion_iva_compras": 0, 
+        "pagos_anticipados_islr": 0, "retencion_islr_proveedores": 0, "islr_pagar": 0
+    }
+    
+    if not conn:
+        return default_res
+
+    if hasattr(f_inicio, 'strftime'):
+        f_inicio_str = f_inicio.strftime('%Y-%m-%d') + " 00:00:00"
+    else:
+        f_inicio_str = str(f_inicio).split()[0] + " 00:00:00"
+
+    if hasattr(f_fin, 'strftime'):
+        fecha_str = f_fin.strftime('%Y-%m-%d') + " 23:59:59"
+    else:
+        fecha_str = str(f_fin).split()[0] + " 23:59:59"
+
+    if db == 'kingdirver_ca':
+        dpp_query = """
+            SUM(CASE WHEN plan_cuentas LIKE '6.1.1.03.020%' THEN haber ELSE 0 END) as DPP_haber,
+            SUM(CASE WHEN plan_cuentas LIKE '6.1.1.03.020%' THEN debe ELSE 0 END) as DPP_debe
+        """
+    else:
+        dpp_query = """
+            SUM(CASE WHEN plan_cuentas LIKE '6.1.1.03%' 
+                     AND plan_cuentas NOT LIKE '6.1.1.03.013%' 
+                     AND plan_cuentas NOT LIKE '6.1.1.03.021%' 
+                     AND plan_cuentas NOT LIKE '6.1.1.03.022%' 
+                THEN haber ELSE 0 END) as DPP_haber,
+            SUM(CASE WHEN plan_cuentas LIKE '6.1.1.03%' 
+                     AND plan_cuentas NOT LIKE '6.1.1.03.013%' 
+                     AND plan_cuentas NOT LIKE '6.1.1.03.021%' 
+                     AND plan_cuentas NOT LIKE '6.1.1.03.022%' 
+                THEN debe ELSE 0 END) as DPP_debe
+        """
+
+    query = f"""
+        SELECT 
+            COUNT(*) as total_registros_rango,
+            SUM(CASE WHEN plan_cuentas LIKE '4.1.1.01.001%' THEN haber ELSE 0 END) as ex_haber,
+            SUM(CASE WHEN plan_cuentas LIKE '4.1.1.01.001%' THEN debe ELSE 0 END) as ex_debe,
+            SUM(CASE WHEN plan_cuentas LIKE '4.1.1.01.002%' THEN haber ELSE 0 END) as gr_haber,
+            SUM(CASE WHEN plan_cuentas LIKE '4.1.1.01.002%' THEN debe ELSE 0 END) as gr_debe,
+            SUM(CASE WHEN plan_cuentas LIKE '5.1.1.01.001%' THEN debe ELSE 0 END) as compras_exentas,
+            SUM(CASE WHEN plan_cuentas LIKE '5.1.1.01.002%' THEN debe ELSE 0 END) as compras_16,
+            {dpp_query},
+            SUM(CASE WHEN plan_cuentas LIKE '6.1.1.03.013%' THEN haber ELSE 0 END) as comisiones_bancarias_haber,
+            SUM(CASE WHEN plan_cuentas LIKE '6.1.1.03.013%' THEN debe ELSE 0 END) as comisiones_bancarias_debe,
+            SUM(CASE WHEN plan_cuentas LIKE '6.1.1.03.021%' THEN haber ELSE 0 END) as refrigerios_haber,
+            SUM(CASE WHEN plan_cuentas LIKE '6.1.1.03.021%' THEN debe ELSE 0 END) as refrigerios_debe,
+            SUM(CASE WHEN plan_cuentas LIKE '6.1.1.03.022%' THEN haber ELSE 0 END) as representacion_haber,
+            SUM(CASE WHEN plan_cuentas LIKE '6.1.1.03.022%' THEN debe ELSE 0 END) as representacion_debe,
+            SUM(CASE WHEN plan_cuentas LIKE '7.1.1.01%' THEN haber ELSE 0 END) as otros_ingresos_haber,
+            SUM(CASE WHEN plan_cuentas LIKE '7.1.1.07%' THEN debe ELSE 0 END) as otros_ingresos_debe,
+            SUM(CASE WHEN plan_cuentas LIKE '8.1.1.01%' THEN haber ELSE 0 END) as otros_egresos_haber,
+            SUM(CASE WHEN plan_cuentas LIKE '8.1.1.01%' THEN debe ELSE 0 END) as otros_egresos_debe,
+            SUM(CASE WHEN plan_cuentas LIKE '2.1.2.01.001%' THEN haber ELSE 0 END) as iva_debito_fiscal,
+            SUM(CASE WHEN plan_cuentas LIKE '2.1.2.01.002%' THEN haber ELSE 0 END) as iva_por_pagar,
+            SUM(CASE WHEN plan_cuentas LIKE '2.1.2.01.003%' THEN haber ELSE 0 END) as retencion_iva_compras,
+            SUM(CASE WHEN plan_cuentas LIKE '2.1.2.01.004%' THEN haber ELSE 0 END) as pagos_anticipados_islr,
+            SUM(CASE WHEN plan_cuentas LIKE '2.1.2.01.005%' THEN haber ELSE 0 END) as retencion_islr_hab,
+            SUM(CASE WHEN plan_cuentas LIKE '2.1.2.01.005%' THEN debe ELSE 0 END) as retencion_islr_deb,
+            SUM(CASE WHEN plan_cuentas LIKE '2.1.2.01.006%' THEN haber ELSE 0 END) as islr_pagar
+        FROM `{db}`.asientos_contables
+        WHERE fecha >= %s AND fecha <= %s
+    """
+
+    try:
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute(query, (f_inicio_str, fecha_str))
+        res = cursor.fetchone()
+        cursor.close()
+        conn.close()
+        
+        if res and res.get('total_registros_rango', 0) > 0:
+            DPP = abs(float(res['DPP_haber'] or 0) - float(res['DPP_debe'] or 0))
+            comisiones_bancarias = abs(float(res['comisiones_bancarias_haber'] or 0) - float(res['comisiones_bancarias_debe'] or 0))
+            refrigerios_neto = abs(float(res['refrigerios_haber'] or 0) - float(res['refrigerios_debe'] or 0))
+            representacion_neto = abs(float(res['representacion_haber'] or 0) - float(res['representacion_debe'] or 0))
+            gastos_personales = refrigerios_neto + representacion_neto
+            otros_ingresos_neto = float(res['otros_ingresos_haber'] or 0) - float(res['otros_ingresos_debe'] or 0)
+            otros_egresos_neto = float(res['otros_egresos_haber'] or 0) - float(res['otros_egresos_debe'] or 0)
+            retencion_islr_proveedores = float(res['retencion_islr_hab'] or 0) - float(res['retencion_islr_deb'] or 0)
+            
+            return {
+                "ingresos_exentas": float(res['ex_haber'] if res['ex_haber'] is not None else 0) - float(res['ex_debe'] if res['ex_debe'] is not None else 0),
+                "ingresos_gravados": float(res['gr_haber'] or 0) - float(res['gr_debe'] or 0),
+                "compras_exentas": float(res['compras_exentas'] or 0),
+                "compras_16": float(res['compras_16'] or 0),
+                "DPP1": DPP, 
+                "comisiones_bancarias1": comisiones_bancarias, 
+                "gastos_personales1": gastos_personales,
+                "otros_ingresos": otros_ingresos_neto, 
+                "otros_egresos": otros_egresos_neto,
+                "iva_debito_fiscal": float(res['iva_debito_fiscal'] or 0),
+                "iva_por_pagar": float(res['iva_por_pagar'] or 0),
+                "retencion_iva_compras": float(res['retencion_iva_compras'] or 0),
+                "pagos_anticipados_islr": float(res['pagos_anticipados_islr'] or 0),
+                "retencion_islr_proveedores": retencion_islr_proveedores,
+                "islr_pagar": float(res['islr_pagar'] or 0)
+            }
+            
+    except Exception as e:
+        print(f"Error en SQL: {e}")
+    
+    return default_res
+
+
+
+
 def gestionar_sidebar():
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
     user_id = st.session_state.get('user_id', st.session_state.get('cliente_id', 'N/A'))
