@@ -569,21 +569,17 @@ with st.sidebar:
             st.stop()
 
 
-# PANTALLA: GESTIÓN DE USUARIOS
 if menu == "⚙️ Gestión de Usuarios": 
     try:
-        # 1. Aseguramos conexión
-        if not conn or not conn.is_connected():
-            conn = conectar_db()
+        # 1. Inicializamos y aseguramos la conexión al esquema central
+        # (Asegúrate de pasar el nombre del esquema central si tu función lo requiere)
+        conn = conectar_db() # o conectar_db("control_central") según cómo esté definida tu función
 
-        # 2. ELIMINAMOS ESTE BLOQUE QUE CAUSA EL ERROR:
-        # with conn.cursor() as cursor:
-        #    cursor.execute("SELECT * FROM control_central.usuarios WHERE rol = 'admin'")
-        #    <-- ¡NO HICISTE FETCHALL() AQUÍ, POR ESO EL ERROR!
-
-        # 3. Llamamos directo a la función que SÍ maneja sus cursores internamente
+        # 2. Verificamos que la conexión exista y esté activa
         if conn and conn.is_connected():
             panel_administracion(conn)
+            # Es una buena práctica cerrar la conexión de administración al terminar de renderizar
+            conn.close()
         else:
             st.error("🔌 No se pudo establecer conexión con el servidor MySQL.")
             
