@@ -537,22 +537,24 @@ def obtener_todas_las_empresas(user_rol, user_id):
 
 def obtener_saldos_acumulados(conexion, fecha_corte, nombre_db):
     if not conexion:
-        print("❌ Error: No hay conexión activa en obtener_saldos_acumulados")
         return {"activo": 0, "pasivo": 0, "patrimonio": 0}
     
     cur = conexion.cursor(dictionary=True)
     
     try:
-        # Consulta unificada para traer todo en un solo viaje a MySQL y aligerar la carga
-        query = """
+        # Aseguramos el contexto de la base de datos justo antes del SELECT
+        cur.execute(f"USE `{nombre_db}`")
+        
+        # Usamos el nombre de la tabla directamente, MySQL debe buscarla en la BD seleccionada con el USE
+        query = f"""
             SELECT 
-                COALESCE(SUM(CASE WHEN plan_cuentas LIKE '1%' THEN (debe - haber) ELSE 0 END), 0) as activo,
-                COALESCE(SUM(CASE WHEN plan_cuentas LIKE '2%' THEN (haber - debe) ELSE 0 END), 0) as pasivo,
-                COALESCE(SUM(CASE WHEN plan_cuentas LIKE '3%' THEN (haber - debe) ELSE 0 END), 0) as patrimonio
+                COALESCE(SUM(CASE WHEN plan_cuentas LIKE '1%%' THEN (debe - haber) ELSE 0 END), 0) as activo,
+                COALESCE(SUM(CASE WHEN plan_cuentas LIKE '2%%' THEN (haber - debe) ELSE 0 END), 0) as pasivo,
+                COALESCE(SUM(CASE WHEN plan_cuentas LIKE '3%%' THEN (haber - debe) ELSE 0 END), 0) as patrimonio
             FROM (
-                SELECT plan_cuentas, debe, haber FROM saldos_iniciales
+                SELECT plan_cuentas, debe, haber FROM `{nombre_db}`.saldos_iniciales
                 UNION ALL
-                SELECT plan_cuentas, debe, haber FROM asientos_contables WHERE fecha <= %s
+                SELECT plan_cuentas, debe, haber FROM `{nombre_db}`.asientos_contables WHERE fecha <= %s
             ) as todo_el_acumulado
         """
         
@@ -567,11 +569,8 @@ def obtener_saldos_acumulados(conexion, fecha_corte, nombre_db):
             }
             
     except Exception as e:
-        print(f"⚠️ Error al calcular saldos acumulados en {nombre_db}: {e}")
-        st.error(f"Error SQL en saldos: {e}") # Añade esto para verlo en pantalla
-        
+        st.error(f"Error en {nombre_db}: {e}") # Esto te dirá si sigue fallando
     finally:
-        # Nos aseguramos de cerrar el cursor siempre para liberar memoria y evitar lentitud al cerrar sesión
         cur.close()
         
     return {"activo": 0, "pasivo": 0, "patrimonio": 0}
