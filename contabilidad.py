@@ -7070,6 +7070,7 @@ dic_meses = {
 meses_lista = list(dic_meses.keys())
 
 # --- INICIALIZACIÓN PREVIA DE ESTADOS ---
+# --- INICIALIZACIÓN PREVIA DE ESTADOS ---
 if 'año_seleccionado_contabilidad' not in st.session_state:
     st.session_state['año_seleccionado_contabilidad'] = datetime.datetime.now().year
 
