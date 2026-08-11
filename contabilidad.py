@@ -1397,7 +1397,51 @@ def obtener_datos_graficos(conn, f_i, f_f, sucursal):
 
     return df_bar, df_pie
 
-
+@log_ejecucion
+def obtener_todas_las_empresas(user_rol, user_id):
+    try:
+        conn = conectar_db()
+        if not conn:
+            return []
+        
+        rol_limpio = str(user_rol).strip().lower()
+        
+        # 1. Si es admin, mostramos todas las activas
+        if rol_limpio == 'admin':
+            query = "SELECT db_nombre FROM clientes WHERE estado = 'Activo' OR estado IS NULL"
+            df = pd.read_sql(query, conn)
+            conn.close()
+            if df.empty or 'db_nombre' not in df.columns:
+                return []
+            return df['db_nombre'].dropna().astype(str).tolist()
+            
+        # 2. Si es cliente, buscamos su db_nombre en la tabla usuarios
+        else:
+            query = """
+                SELECT db_nombre FROM usuarios 
+                WHERE id = %s OR cliente_id = %s
+            """
+            df = pd.read_sql(query, conn, params=(user_id, user_id))
+            conn.close()
+            
+            # Si viene vacío, intentamos buscar directamente por el nombre de usuario de la sesión si lo tienes almacenado
+            if df.empty or 'db_nombre' not in df.columns or pd.isna(df['db_nombre'].iloc[0]):
+                usuario_actual = st.session_state.get('usuario')
+                if usuario_actual:
+                    conn_res = conectar_db()
+                    df = pd.read_sql("SELECT db_nombre FROM usuarios WHERE usuario = %s", conn_res, params=(usuario_actual,))
+                    conn_res.close()
+            
+            if df.empty or 'db_nombre' not in df.columns or pd.isna(df['db_nombre'].iloc[0]):
+                return []
+                
+            db_asignada = str(df['db_nombre'].iloc[0])
+            return [db_asignada]
+            
+    except Exception as e:
+        st.sidebar.error(f"❌ Error al obtener la empresa del usuario: {e}")
+        return []
+        
 def gestionar_sidebar():
     # --- DEBUG RADICAL ---
     st.sidebar.subheader("DEBUG: Diagnóstico de Empresas")
@@ -4519,38 +4563,7 @@ def marcar_retencion_completada(conn, id_factura, n_comprobante):
     cursor.close()
 
 
-@log_ejecucion
-def obtener_todas_las_empresas(user_rol, user_id):
-    try:
-        conn = conectar_db()
-        if not conn:
-            return []
-        
-        rol_limpio = str(user_rol).strip().lower()
-        
-        if rol_limpio == 'admin':
-            query = "SELECT db_nombre FROM clientes WHERE estado = 'Activo' OR estado IS NULL"
-            df = pd.read_sql(query, conn)
-            conn.close()
-            if df.empty or 'db_nombre' not in df.columns:
-                return []
-            return df['db_nombre'].dropna().astype(str).tolist()
-            
-        else:
-            # CORRECCIÓN: Buscamos directamente por el ID del usuario actual o por su nombre de usuario en la tabla usuarios
-            query = "SELECT db_nombre FROM usuarios WHERE id = %s OR cliente_id = %s"
-            df = pd.read_sql(query, conn, params=(user_id, user_id))
-            conn.close()
-            
-            if df.empty or 'db_nombre' not in df.columns or pd.isna(df['db_nombre'].iloc[0]):
-                return []
-                
-            db_asignada = str(df['db_nombre'].iloc[0])
-            return [db_asignada]
-            
-    except Exception as e:
-        st.sidebar.error(f"❌ Error al obtener la empresa del usuario: {e}")
-        return []
+
         
 @log_ejecucion
 def obtener_empresas_del_usuario(db_nombre_en_sesion):
