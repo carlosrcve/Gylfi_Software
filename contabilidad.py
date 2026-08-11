@@ -579,7 +579,12 @@ def obtener_saldos_acumulados(conexion, fecha_corte, nombre_db):
 def gestionar_sidebar():
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
     user_id = st.session_state.get('user_id', st.session_state.get('cliente_id', 'N/A'))
-    nombre_usuario_actual = st.session_state.get('nombre_usuario', st.session_state.get('username', 'Usuario'))
+    nombre_usuario_actual = (
+        st.session_state.get('nombre_usuario') or 
+        st.session_state.get('username') or 
+        st.session_state.get('usuario') or 
+        'Usuario'
+    )
 
     with st.sidebar:
         st.image("https://cdn-icons-png.flaticon.com/512/2645/2645328.png", width=100)
@@ -597,18 +602,11 @@ def gestionar_sidebar():
                 unsafe_allow_html=True
             )
         else:
-            nombre_mostrado = (
-                st.session_state.get('nombre_usuario') or 
-                st.session_state.get('username') or 
-                st.session_state.get('usuario') or 
-                'Usuario'
-            )
-            
             st.markdown(
                 f"""
                 <div style="background-color: #1e293b; padding: 10px; border-radius: 8px; text-align: center; margin-bottom: 15px; border: 1px solid #334155;">
                     <span style="color: #38bdf8; font-weight: bold; font-size: 13px;">👤 Usuario Propietario:</span><br>
-                    <span style="color: #ffffff; font-size: 13px; font-weight: 600;">{nombre_mostrado}</span>
+                    <span style="color: #ffffff; font-size: 13px; font-weight: 600;">{nombre_usuario_actual}</span>
                 </div>
                 """, 
                 unsafe_allow_html=True
@@ -616,7 +614,7 @@ def gestionar_sidebar():
 
         st.markdown("---")
         
-        # Botón de cerrar sesión blindado contra duplicados
+        # Botón de cerrar sesión
         if st.sidebar.button("🚪 Cerrar Sesión", key="btn_logout_unico_definitivo"):
             for key in list(st.session_state.keys()):
                 del st.session_state[key]
@@ -634,63 +632,46 @@ def gestionar_sidebar():
         if menu == "📊 Auditoría Contable":
             df_sidebar = _obtener_datos_sidebar_cache() if '_obtener_datos_sidebar_cache' in globals() else pd.DataFrame()
 
-            lista_db_permitidas = []
-            if 'obtener_todas_las_empresas' in globals() and callable(globals()['obtener_todas_las_empresas']):
-                try:
-                    lista_db_permitidas = obtener_todas_las_empresas(user_rol=user_rol, user_id=user_id) or []
-                except Exception as e:
-                    st.error(f"❌ Error al consultar el listado de empresas: {e}")
-
-            # 🛠️ CORRECCIÓN CLAVE: Si no es admin, filtramos estrictamente por su ID o vinculación real
+            # 🛠️ FILTRADO DE SEGURIDAD POR NOMBRE Y POR ID
             if user_rol != 'admin' and not df_sidebar.empty:
-                if 'id' in df_sidebar.columns and user_id != 'N/A':
-                    df_sidebar = df_sidebar[df_sidebar['id'].astype(str) == str(user_id)]
-                elif 'cliente_id' in df_sidebar.columns and user_id != 'N/A':
-                    df_sidebar = df_sidebar[df_sidebar['cliente_id'].astype(str) == str(user_id)]
+                cond_id = pd.Series([False] * len(df_sidebar), index=df_sidebar.index)
+                cond_user = pd.Series([False] * len(df_sidebar), index=df_sidebar.index)
 
-            if not lista_db_permitidas:
-                db_en_sesion = st.session_state.get('db_a_conectar')
-                if db_en_sesion:
-                    lista_db_permitidas = [db_en_sesion]
-                else:
-                    lista_db_permitidas = ['pedacito_de_cielo_ca']
-                    st.session_state['db_a_conectar'] = 'pedacito_de_cielo_ca'
+                # 1. Comparar ID (si viene numérico)
+                for col_id in ['id', 'cliente_id', 'user_id']:
+                    if col_id in df_sidebar.columns and str(user_id) != 'N/A':
+                        cond_id = cond_id | (df_sidebar[col_id].astype(str) == str(user_id))
 
-            if user_rol == 'admin' and not df_sidebar.empty:
-                df_filtrado = df_sidebar
-            else:
-                if not df_sidebar.empty and 'db_nombre' in df_sidebar.columns:
-                    df_filtrado = df_sidebar
-                else:
-                    df_filtrado = pd.DataFrame()
+                # 2. Comparar Nombre de Usuario (Roberto_Angulo, etc.)
+                user_str_clean = str(nombre_usuario_actual).strip().lower()
+                for col_user in ['nombre_usuario', 'usuario', 'username', 'user']:
+                    if col_user in df_sidebar.columns and user_str_clean:
+                        cond_user = cond_user | (df_sidebar[col_user].astype(str).str.strip().str.lower() == user_str_clean)
 
+                df_coincidencias = df_sidebar[cond_id | cond_user]
+                if not df_coincidencias.empty:
+                    df_sidebar = df_coincidencias
+
+            df_filtrado = df_sidebar
+
+            # Resguardo en caso de que no consiga fila en la BD
             if df_filtrado.empty:
-                db_actual_emergencia = lista_db_permitidas[0]
                 df_filtrado = pd.DataFrame({
                     'id': [user_id if user_id != 'N/A' else 1],
-                    'nombre_empresa': [nombre_usuario_actual if user_rol != 'admin' else 'REPRESENTACIONES PEDACITO DE CIELO, C.A.'],
-                    'db_nombre': [db_actual_emergencia],
+                    'nombre_empresa': ['REPRESENTACIONES PEDACITO DE CIELO, C.A.'],
+                    'db_nombre': ['pedacito_de_cielo_ca'],
                     'nombre_usuario': [nombre_usuario_actual]
                 })
 
             nombres_empresas = df_filtrado['nombre_empresa'].tolist()
             db_nombres = df_filtrado['db_nombre'].tolist()
 
-            if 'db_a_conectar' not in st.session_state or st.session_state['db_a_conectar'] not in db_nombres:
-                st.session_state['db_a_conectar'] = db_nombres[0]
-
-            empresa_previa_db = st.session_state.get('db_a_conectar')
             nombre_inicial = nombres_empresas[0]
-            
-            if empresa_previa_db in db_nombres:
-                idx = db_nombres.index(empresa_previa_db)
-                nombre_inicial = nombres_empresas[idx]
 
             if user_rol == 'admin':
                 nombre_seleccionado = st.selectbox(
                     "Seleccione Empresa", 
                     options=nombres_empresas, 
-                    index=nombres_empresas.index(nombre_inicial) if nombre_inicial in nombres_empresas else 0,
                     key="selector_empresa"
                 )
             else:
@@ -712,7 +693,6 @@ def gestionar_sidebar():
                 st.session_state['cliente_id_seleccionado'] = int(datos_sel['id'])
 
     return menu
-
 # ==========================================
 # EJECUCIÓN PRINCIPAL EN EL SCRIPT
 # ==========================================
