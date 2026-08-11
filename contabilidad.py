@@ -1419,9 +1419,6 @@ def gestionar_sidebar():
         except Exception as e:
             st.sidebar.error(f"❌ Error al consultar el listado de empresas: {e}")
 
-    # 🔍 DIAGNÓSTICO: Esto te imprimirá en el sidebar exactamente qué arrojó la función de la BD
-    st.sidebar.write("DEBUG - Resultado de la BD:", lista_empresas)
-
     # 3. Control estricto para las 500 empresas: Si está vacío, se advierte
     if not lista_empresas:
         st.sidebar.warning("⚠️ No se encontraron empresas disponibles en la base de datos o el listado está vacío.")
