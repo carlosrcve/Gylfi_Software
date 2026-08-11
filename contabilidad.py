@@ -1399,7 +1399,6 @@ def obtener_datos_graficos(conn, f_i, f_f, sucursal):
     return df_bar, df_pie
 
 
-# Lógica conceptual para tu Sidebar corregida y blindada
 def gestionar_sidebar():
     # 1. Inicializamos la variable de sesión si no existe
     if 'db_a_conectar' not in st.session_state:
@@ -1420,12 +1419,15 @@ def gestionar_sidebar():
         except Exception as e:
             st.sidebar.error(f"❌ Error al consultar el listado de empresas: {e}")
 
-    # 3. Control estricto para las 500 empresas: Si está vacío, se advierte sin quemar valores
+    # 🔍 DIAGNÓSTICO: Esto te imprimirá en el sidebar exactamente qué arrojó la función de la BD
+    st.sidebar.write("DEBUG - Resultado de la BD:", lista_empresas)
+
+    # 3. Control estricto para las 500 empresas: Si está vacío, se advierte
     if not lista_empresas:
         st.sidebar.warning("⚠️ No se encontraron empresas disponibles en la base de datos o el listado está vacío.")
         return
 
-    # Aseguramos que el valor actual de la sesión esté dentro de las 500 opciones, si no, tomamos la primera
+    # Aseguramos que el valor actual de la sesión esté dentro de las opciones, si no, tomamos la primera
     current_val = st.session_state.get('db_a_conectar')
     if current_val not in lista_empresas:
         st.session_state['db_a_conectar'] = lista_empresas[0]
@@ -1442,7 +1444,6 @@ def gestionar_sidebar():
         st.session_state['DB_ACTUAL'] = empresa_seleccionada
         st.session_state['CLIENTE_NOMBRE'] = empresa_seleccionada
         st.rerun()
-
 
 # --- 2. PANTALLA DE LOGIN ---
 import streamlit as st
