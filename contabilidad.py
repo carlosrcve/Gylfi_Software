@@ -747,8 +747,6 @@ if menu_lateral == "📊 Auditoría Contable":
 
 
 if "🏠 Inicio" in opcion_menu:
-    
-    gestionar_sidebar()
 
     # --- 2. GESTIÓN DE ROL Y BASE DE DATOS OBJETIVO ---
     user_rol = st.session_state.get('rol')
