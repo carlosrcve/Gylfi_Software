@@ -1075,10 +1075,29 @@ if "🏠 Inicio" in opcion_menu:
         st.title(f"📊 Auditoría Profesional: {db_objetivo}")
         st.markdown(f"**Período de Análisis:** {f_inicio_global.strftime('%d/%m/%Y')} al {f_fin_global.strftime('%d/%m/%Y')}")
         st.divider()
-
+        
+        # --- FILA 1: INDICADORES FINANCIEROS ---
         col_kpi, col_btn = st.columns([0.8, 0.2])
         with col_kpi:
             st.subheader("Indicadores Financieros en Tiempo Real")
+
+        # 🔍 AGREGUEMOS ESTE EXPANDER PARA VER QUÉ TIENE LA BD EN REALIDAD
+        with st.expander("🔍 Depuración de Datos en la BD"):
+            if conn and conn.is_connected():
+                cur = conn.cursor(dictionary=True)
+                try:
+                    cur.execute(f"SELECT COUNT(*) as total FROM `{db_objetivo}`.asientos_contables")
+                    st.write("Total de registros en asientos_contables:", cur.fetchone())
+                    
+                    cur.execute(f"SELECT MIN(fecha) as min_f, MAX(fecha) as max_f FROM `{db_objetivo}`.asientos_contables")
+                    st.write("Rango de fechas en la BD:", cur.fetchone())
+                    
+                    cur.execute(f"SELECT COUNT(*) as total_corte FROM `{db_objetivo}`.asientos_contables WHERE fecha <= %s", (f_fin_global,))
+                    st.write(f"Registros con fecha <= {f_fin_global}:", cur.fetchone())
+                except Exception as e:
+                    st.error(f"Error en depuración: {e}")
+                finally:
+                    cur.close()
 
         with st.spinner(f'Comunicando con MySQL para {db_objetivo}...'):
             if conn and conn.is_connected():
@@ -1114,20 +1133,7 @@ if "🏠 Inicio" in opcion_menu:
                 f"Bs. {u_v:,.2f}",
                 delta_color="normal" if u_v >= 0 else "inverse"
             )
-        with st.expander("🔍 Verificar datos crudos en BD"):
-            cur = conn.cursor(dictionary=True)
-            cur.execute(f"SELECT COUNT(*) as total FROM `{db_objetivo}`.asientos_contables WHERE fecha <= '{fecha_fin_str}'")
-            st.write(f"Registros encontrados para {db_objetivo} hasta {fecha_fin_str}:", cur.fetchone())
-            cur.close()
-        # --- DEPURACIÓN VISUAL CON ST.WRITE ---
-        st.write("--- 🔍 DEBUG DE FILTROS Y DATOS ---")
-        st.write(f"Usuario Logueado Actual: **{nombre_usuario_actual}**")
-        st.write(f"Base de Datos Asignada Resuelta: **{db_objetivo}**")
-        st.write(f"Mes seleccionado en UI: **{mes_nombre_f} {anio_f}**")
-        st.write(f"Fecha de corte enviada a la BD (`f_fin_global`): `{fecha_fin_str}`")
-        st.write(f"Resultado crudo de los KPIs devueltos por la BD: `{kpis}`")
-        st.write("------------------------------------")
-
+        
         # --- FILA 2: SALUD FISCAL (SENIAT) ---
         kpis_fiscales = obtener_salud_fiscal(f_inicio_global, f_fin_global, db_objetivo)
 
