@@ -364,7 +364,7 @@ with st.sidebar:
                 query_join = """
                     SELECT c.id, c.nombre_empresa, c.db_nombre, u.usuario as nombre_usuario, u.rol as rol_usuario 
                     FROM clientes c
-                    LEFT JOIN usuarios u ON (c.id = u.cliente_id OR c.db_nombre = u.db_nombre)
+                    LEFT JOIN usuarios u ON c.id = u.cliente_id
                 """
                 
                 if user_rol != 'admin':
