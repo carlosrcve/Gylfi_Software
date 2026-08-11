@@ -941,98 +941,19 @@ if menu == "⚙️ Gestión de Usuarios":
 
 
 # ========================================================
-# 1. BLOQUE DE FECHAS GLOBAL Y CONFIGURACIÓN INICIAL
+# BLOQUE PRINCIPAL DEL MÓDULO INICIO
 # ========================================================
-dic_meses = {
-    "Enero": 1, "Febrero": 2, "Marzo": 3, "Abril": 4, 
-    "Mayo": 5, "Junio": 6, "Julio": 7, "Agosto": 8, 
-    "Septiembre": 9, "Octubre": 10, "Noviembre": 11, "Diciembre": 12
-}
-
-meses = list(dic_meses.keys())
-
-# Inicialización segura de variables en session_state
-if 'año_seleccionado' not in st.session_state:
-    st.session_state['año_seleccionado'] = datetime.datetime.now().year
-
-if 'mes_seleccionado' not in st.session_state:
-    st.session_state['mes_seleccionado'] = meses[datetime.datetime.now().month - 1]
-
-# Índices y valores reactivos para los filtros
-m_idx = dic_meses.get(st.session_state['mes_seleccionado'], 1)
-anio_f = st.session_state['año_seleccionado']
-
-# Cálculo exacto del último día del mes (28, 29, 30 o 31)
-ultimo_dia = calendar.monthrange(anio_f, m_idx)[1]
-
-# Variables de fecha en formato objeto y string para consultas SQL
-f_inicio_global = datetime.date(anio_f, m_idx, 1)
-f_fin_global = datetime.date(anio_f, m_idx, ultimo_dia)
-
-fecha_inicio_str = f_inicio_global.strftime('%Y-%m-%d')
-fecha_fin_str = f_fin_global.strftime('%Y-%m-%d')
-
-
-# ========================================================
-# 2. GESTIÓN DE EMPRESA Y SESIÓN
-# ========================================================
-if 'DB_ACTUAL' not in st.session_state:
-    st.session_state.CLIENTE_NOMBRE = "Seleccione Cliente"
-    st.session_state['DB_ACTUAL'] = None
-    st.session_state['cliente_id_seleccionado'] = None
-
-def actualizar_empresa():
-    st.session_state.conn = None
-    db_seleccionada = st.session_state.selector_empresa
-    
-    st.session_state.DB_ACTUAL = db_seleccionada
-    st.session_state.nombre_empresa_seleccionada = db_seleccionada
-    st.session_state.db_a_conectar = db_seleccionada
-
-
-# Tomamos la empresa activa de forma unificada
-DB_ACTUAL = st.session_state.get('db_a_conectar') or st.session_state.get('DB_ACTUAL', 'control_central')
-EMPRESA = st.session_state.get('CLIENTE_NOMBRE', "Seleccione Cliente")
-
-
-# ========================================================
-# 3. CONEXIÓN CENTRALIZADA Y VALIDACIÓN ESTRICTA
-# ========================================================
-if 'conn' not in st.session_state or st.session_state.conn is None:
-    try:
-        conn = conectar_db(DB_ACTUAL)
-        st.session_state.conn = conn
-    except Exception as e:
-        st.error(f"Error crítico conectando: {e}")
-        st.session_state.conn = None
-else:
-    conn = st.session_state.conn
-
-# Verificación de estado y ping de la conexión
-if conn is not None:
-    try:
-        conn.ping(reconnect=True, attempts=3, delay=1)
-        
-        if DB_ACTUAL and DB_ACTUAL != "control_central":
-            with conn.cursor() as cursor:
-                cursor.execute(f"USE `{DB_ACTUAL}`")
-    except Exception as e:
-        st.warning(f"La conexión se perdió o la BD {DB_ACTUAL} no es accesible. Intentando reconectar...")
-        st.session_state.conn = None 
-        st.rerun()
-else:
-    st.error("❌ No hay conexión activa. Por favor, verifica tu configuración.")
-
-
 if "Inicio" in opcion_menu:
-    # 1. RENDERIZAR EL SIDEBAR PRIMERO (Esto pinta los selectores y actualiza el session_state)
+    
+    # --- 1. RENDERIZAR EL SIDEBAR PRIMERO ---
+    # Esto pinta los selectores de Año, Mes y Empresa en la barra lateral 
+    # y captura inmediatamente lo que el usuario seleccione (ej. Febrero).
     gestionar_sidebar()
 
-    # 2. Obtenemos el rol y el cliente_id de la sesión de manera segura
+    # --- 2. GESTIÓN DE ROL Y BASE DE DATOS OBJETIVO ---
     user_rol = st.session_state.get('rol')
     user_cliente_id = st.session_state.get('cliente_id')
 
-    # 3. Determinamos la base de datos objetivo según el rol
     conn_ctrl = conectar_db()
     db_objetivo = None
     
@@ -1065,33 +986,57 @@ if "Inicio" in opcion_menu:
     st.session_state['DB_ACTUAL'] = db_objetivo
     st.session_state['db_a_conectar'] = db_objetivo
 
-    # 4. Verificamos conexión activa con la BD correspondiente
-    if 'conn' not in st.session_state or st.session_state.get('ultima_db_conectada') != db_objetivo:
-        nueva_conn = conectar_db(db_objetivo)
-        if nueva_conn:
-            st.session_state.conn = nueva_conn
-            st.session_state.ultima_db_conectada = db_objetivo
-        else:
-            st.error(f"❌ No se pudo conectar a la base de datos: {db_objetivo}")
+    # --- 3. CONEXIÓN ESTRICTA A LA BD DEL CLIENTE ---
+    if 'conn' not in st.session_state or st.session_state.get('ultima_db_conectada') != db_objetivo or st.session_state.conn is None:
+        try:
+            nueva_conn = conectar_db(db_objetivo)
+            if nueva_conn:
+                st.session_state.conn = nueva_conn
+                st.session_state.ultima_db_conectada = db_objetivo
+            else:
+                st.error(f"❌ No se pudo conectar a la base de datos: {db_objetivo}")
+                st.stop()
+        except Exception as e:
+            st.error(f"Error crítico conectando: {e}")
+            st.session_state.conn = None
             st.stop()
 
-    # =========================================================================
-    # 5. CÁLCULO DE FECHAS (AHORA SÍ, DESPUÉS DE QUE EL SIDEBAR ACTUALIZÓ EL ESTADO)
-    # =========================================================================
-    meses_lista = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
+    # Verificación de estado y ping de la conexión
+    conn = st.session_state.conn
+    try:
+        conn.ping(reconnect=True, attempts=3, delay=1)
+        if db_objetivo and db_objetivo != "control_central":
+            with conn.cursor() as cursor:
+                cursor.execute(f"USE `{db_objetivo}`")
+    except Exception as e:
+        st.warning(f"La conexión se perdió o la BD {db_objetivo} no es accesible. Reconectando...")
+        st.session_state.conn = None 
+        st.rerun()
+
+    # --- 4. CÁLCULO DE FECHAS REACTIVO Y SEGURO ---
+    # Al ejecutarse después del sidebar, ya lee correctamente el mes seleccionado por ti.
+    dic_meses = {
+        "Enero": 1, "Febrero": 2, "Marzo": 3, "Abril": 4, 
+        "Mayo": 5, "Junio": 6, "Julio": 7, "Agosto": 8, 
+        "Septiembre": 9, "Octubre": 10, "Noviembre": 11, "Diciembre": 12
+    }
+    meses_lista = list(dic_meses.keys())
     
-    anio_f = int(st.session_state.get('año_seleccionado', st.session_state.get('año_seleccionado_contabilidad', 2026)))
-    mes_nombre_f = st.session_state.get('mes_seleccionado', st.session_state.get('mes_seleccionado_contabilidad', 'Febrero'))
+    anio_f = int(st.session_state.get('año_seleccionado', datetime.datetime.now().year))
+    mes_nombre_f = st.session_state.get('mes_seleccionado', meses_lista[datetime.datetime.now().month - 1])
     
-    m_idx = meses_lista.index(mes_nombre_f) + 1 if mes_nombre_f in meses_lista else 2
+    m_idx = dic_meses.get(mes_nombre_f, 1)
     
-    # Cálculo exacto del último día del mes seleccionado (ej. 28 para febrero)
+    # Cálculo exacto del último día del mes (ej. 28 para febrero)
     ultimo_dia = calendar.monthrange(anio_f, m_idx)[1]
 
     f_inicio_global = datetime.date(anio_f, m_idx, 1)
     f_fin_global = datetime.date(anio_f, m_idx, ultimo_dia)
 
-    # 6. TÍTULO Y RENDERIZADO DE KPIS
+    fecha_inicio_str = f_inicio_global.strftime('%Y-%m-%d')
+    fecha_fin_str = f_fin_global.strftime('%Y-%m-%d')
+
+    # --- 5. RENDERIZADO VISUAL Y DE KPIS ---
     st.title(f"📊 Auditoría Profesional: {db_objetivo}")
     st.markdown(f"**Período de Análisis:** {f_inicio_global.strftime('%d/%m/%Y')} al {f_fin_global.strftime('%d/%m/%Y')}")
     st.divider()
@@ -1101,7 +1046,6 @@ if "Inicio" in opcion_menu:
         st.subheader("Indicadores Financieros en Tiempo Real")
 
     with st.spinner(f'Comunicando con MySQL para {db_objetivo}...'):
-        conn = st.session_state.conn
         if conn and conn.is_connected():
             kpis = obtener_saldos_acumulados(conn, f_fin_global, db_objetivo)
         else:
