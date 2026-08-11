@@ -1400,6 +1400,32 @@ def obtener_datos_graficos(conn, f_i, f_f, sucursal):
 
 
 def gestionar_sidebar():
+    # --- DEBUG RADICAL ---
+    st.sidebar.subheader("DEBUG: Diagnóstico de Empresas")
+    user_rol = st.session_state.get('rol', 'admin')
+    user_id = st.session_state.get('cliente_id', 'N/A')
+    st.sidebar.write(f"Rol: {user_rol} | ID: {user_id}")
+
+    try:
+        conn_debug = conectar_db() # Conexión a la BD central
+        if conn_debug:
+            # Prueba directa a la tabla
+            query_debug = "SELECT COUNT(*) as total FROM clientes"
+            df_count = pd.read_sql(query_debug, conn_debug)
+            total_empresas = df_count['total'].iloc[0]
+            st.sidebar.write(f"Empresas en tabla 'clientes': {total_empresas}")
+            
+            # Ver columnas
+            df_cols = pd.read_sql("SELECT * FROM clientes LIMIT 1", conn_debug)
+            st.sidebar.write("Columnas detectadas:", list(df_cols.columns))
+            conn_debug.close()
+        else:
+            st.sidebar.error("No se pudo conectar a la BD Central")
+    except Exception as e:
+        st.sidebar.error(f"Error de base de datos: {e}")
+    st.sidebar.markdown("---")
+    # ---------------------
+
     # 1. Inicializamos la variable de sesión si no existe
     if 'db_a_conectar' not in st.session_state:
         st.session_state['db_a_conectar'] = None
@@ -1408,14 +1434,11 @@ def gestionar_sidebar():
         st.session_state['DB_ACTUAL'] = None
 
     # 2. Obtenemos credenciales y el listado masivo desde TiDB Cloud / Backend
-    user_rol = st.session_state.get('rol', 'admin')
-    user_cliente_id = st.session_state.get('cliente_id', None)
-    
     lista_empresas = []
     
     if 'obtener_todas_las_empresas' in globals() and callable(globals()['obtener_todas_las_empresas']):
         try:
-            lista_empresas = obtener_todas_las_empresas(user_rol=user_rol, user_id=user_cliente_id) or []
+            lista_empresas = obtener_todas_las_empresas(user_rol=user_rol, user_id=user_id) or []
         except Exception as e:
             st.sidebar.error(f"❌ Error al consultar el listado de empresas: {e}")
 
@@ -1423,6 +1446,24 @@ def gestionar_sidebar():
     if not lista_empresas:
         st.sidebar.warning("⚠️ No se encontraron empresas disponibles en la base de datos o el listado está vacío.")
         return
+
+    # Aseguramos que el valor actual de la sesión esté dentro de las opciones, si no, tomamos la primera
+    current_val = st.session_state.get('db_a_conectar')
+    if current_val not in lista_empresas:
+        st.session_state['db_a_conectar'] = lista_empresas[0]
+
+    # 4. SELECTOR MASIVO (Searchable nativo de Streamlit para las 500 empresas)
+    empresa_seleccionada = st.sidebar.selectbox(
+        "🔍 Buscar entre las 500 empresas...", 
+        options=lista_empresas, 
+        key='db_a_conectar'
+    )
+    
+    # 5. Sincronización automática ante cambios de selección
+    if st.session_state.get('DB_ACTUAL') != empresa_seleccionada:
+        st.session_state['DB_ACTUAL'] = empresa_seleccionada
+        st.session_state['CLIENTE_NOMBRE'] = empresa_seleccionada
+        st.rerun()
 
     # Aseguramos que el valor actual de la sesión esté dentro de las opciones, si no, tomamos la primera
     current_val = st.session_state.get('db_a_conectar')
