@@ -430,16 +430,15 @@ with st.sidebar:
             usuario_actual = str(st.session_state.get('usuario', 'Usuario')).capitalize()
             propietario_display = str(usuario_asignado).capitalize()
             
+            st.write(f"Empresa seleccionada: '{str(seleccion).upper()}'")
+            
             if user_rol == 'admin':
-                # Si eres tú el admin, mostramos tu etiqueta de dueño y sesión de admin
-                st.write(f"Empresa seleccionada: '{str(seleccion).upper()}'")
-                st.info(f"👑 **Sesión Activa:** Carlos Rodriguez (Administrador)\n\n"
-                        f"👤 **Propietario de la Empresa:** {propietario_display}")
+                # Si eres tú el admin, solo mostramos tu sesión activa y omitimos la línea de propietario
+                st.info("👑 **Sesión Activa:** Carlos Rodriguez (Administrador)")
             else:
-                # Si es un cliente, mostramos únicamente su sesión y su respectiva empresa sin mencionarte
-                st.write(f"Empresa seleccionada: '{str(seleccion).upper()}'")
+                # Si es un cliente, mostramos su sesión y su empresa asignada
                 st.info(f"👤 **Sesión Activa:** {usuario_actual}\n\n"
-                        f"🏢 **Empresa Asignada:** {str(seleccion).upper()}")
+                        f"🏢 **Empresa Asigneda:** {propietario_display}")
             
             st.subheader("Módulos")
             modulos_disponibles = [
