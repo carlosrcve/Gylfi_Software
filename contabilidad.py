@@ -125,6 +125,12 @@ def verificar_usuario(conn, user, password):
             # Buscamos usando el nombre de columna correcto de tu tabla
             cursor.execute("SELECT * FROM usuarios WHERE usuario = %s", (user,))
             user_data = cursor.fetchone()
+            cursor.execute("SELECT * FROM usuarios WHERE usuario = %s", (user,))
+            user_data = cursor.fetchone()
+            
+            # --- PRUEBA DE DIAGNÓSTICO TEMPORAL ---
+            st.write("Datos encontrados en BD:", user_data)
+    # --------------------------------------
             break 
         except Exception as e:
             if intento == 0:
