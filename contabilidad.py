@@ -1114,6 +1114,11 @@ if "🏠 Inicio" in opcion_menu:
                 f"Bs. {u_v:,.2f}",
                 delta_color="normal" if u_v >= 0 else "inverse"
             )
+        with st.expander("🔍 Verificar datos crudos en BD"):
+            cur = conn.cursor(dictionary=True)
+            cur.execute(f"SELECT COUNT(*) as total FROM `{db_objetivo}`.asientos_contables WHERE fecha <= '{fecha_fin_str}'")
+            st.write(f"Registros encontrados para {db_objetivo} hasta {fecha_fin_str}:", cur.fetchone())
+            cur.close()
         # --- DEPURACIÓN VISUAL CON ST.WRITE ---
         st.write("--- 🔍 DEBUG DE FILTROS Y DATOS ---")
         st.write(f"Usuario Logueado Actual: **{nombre_usuario_actual}**")
