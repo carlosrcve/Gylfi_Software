@@ -729,25 +729,20 @@ def gestionar_sidebar():
         st.markdown(
             """
             <style>
-                /* Forzar opacidad total y color de texto nítido en las opciones del selectbox */
                 div[data-baseweb="popover"] div[role="option"] div,
                 div[data-baseweb="popover"] div[role="option"] span,
                 div[data-baseweb="menu"] div,
                 div[data-baseweb="menu"] span {
                     opacity: 1 !important;
-                    color: #1e293b !important; /* Texto oscuro y definido */
+                    color: #1e293b !important;
                     font-weight: 600 !important;
                 }
-
-                /* Estilo del contenedor flotante del menú */
                 div[data-baseweb="popover"] {
                     background-color: #ffffff !important;
                     border: 1px solid #cbd5e1 !important;
                     border-radius: 8px !important;
                     box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1) !important;
                 }
-
-                /* Color al pasar el cursor sobre las opciones */
                 div[data-baseweb="popover"] div[role="option"]:hover {
                     background-color: #f1f5f9 !important;
                 }
@@ -839,43 +834,52 @@ def gestionar_sidebar():
             if not df_sidebar.empty:
                 df_sidebar = df_sidebar.fillna("")
 
-                # 🛠️ FILTRADO ESTRICTO POR USUARIO O NOMBRE
+                # 🛠️ FILTRADO ESTRICTO POR USUARIO LOGUEADO (SI NO ES ADMIN)
                 if user_rol != 'admin':
                     filtrado_exitoso = False
                     
-                    # 1. Intentar por ID si existe en el DataFrame
+                    # 1. Filtrar por ID de usuario o cliente en sesión
                     c_id = st.session_state.get('cliente_id') or st.session_state.get('user_id')
-                    if c_id and any(col in df_sidebar.columns for col in ['id', 'cliente_id']):
-                        col_encontrada = 'id' if 'id' in df_sidebar.columns else 'cliente_id'
+                    if c_id and any(col in df_sidebar.columns for col in ['id', 'cliente_id', 'usuario_id']):
+                        col_encontrada = next(c for c in ['id', 'cliente_id', 'usuario_id'] if c in df_sidebar.columns)
                         match_id = df_sidebar[df_sidebar[col_encontrada].astype(str) == str(c_id)]
                         if not match_id.empty:
                             df_sidebar = match_id
                             filtrado_exitoso = True
 
-                    # 2. Intentar por Nombre de Usuario
+                    # 2. Filtrar por coincidencia exacta del nombre de usuario en las columnas de la tabla
                     if not filtrado_exitoso:
                         limpiar_nombre = str(nombre_usuario_actual).strip().lower()
-                        for col_u in ['nombre_usuario', 'usuario', 'username', 'user']:
+                        for col_u in ['nombre_usuario', 'usuario', 'username', 'user', 'login']:
                             if col_u in df_sidebar.columns:
                                 match_user = df_sidebar[df_sidebar[col_u].astype(str).str.strip().str.lower() == limpiar_nombre]
                                 if not match_user.empty:
                                     df_sidebar = match_user
                                     filtrado_exitoso = True
                                     break
-
-                    # 3. Resguardo directo para Roberto Angulo -> Pedacito de Cielo
-                    if not filtrado_exitoso and ('roberto' in str(nombre_usuario_actual).lower() or 'angulo' in str(nombre_usuario_actual).lower()):
-                        match_pedacito = df_sidebar[df_sidebar['nombre_empresa'].astype(str).str.upper().str.contains('PEDACITO')]
-                        if not match_pedacito.empty:
-                            df_sidebar = match_pedacito
+                    
+                    # 3. Si aun así no encuentra por campos exactos, busca por coincidencia parcial del nombre (Ej. Ejan Maroc)
+                    if not filtrado_exitoso:
+                        limpiar_nombre = str(nombre_usuario_actual).strip().lower()
+                        for col_c in df_sidebar.columns:
+                            match_parcial = df_sidebar[df_sidebar[col_c].astype(str).str.lower().str.contains(limpiar_nombre, na=False)]
+                            if not match_parcial.empty:
+                                df_sidebar = match_parcial
+                                filtrado_exitoso = True
+                                break
 
             df_filtrado = df_sidebar
 
-            # Resguardo absoluto si no consigue nada
+            # Si es usuario normal y no se encontró registro, se muestra advertencia clara en lugar de inventar otra empresa
+            if user_rol != 'admin' and df_filtrado.empty:
+                st.error(f"❌ El usuario '{nombre_usuario_actual}' no tiene una empresa asignada en la base de datos.")
+                st.stop()
+
+            # Resguardo absoluto solo si es admin y la tabla está totalmente vacía
             if df_filtrado.empty:
                 df_filtrado = pd.DataFrame({
-                    'id': [user_id if user_id != 'N/A' else 1],
-                    'nombre_empresa': ['REPRESENTACIONES PEDACITO DE CIELO, C.A.'],
+                    'id': [1],
+                    'nombre_empresa': ['EMPRESA DEFAULT'],
                     'db_nombre': ['pedacito_de_cielo_ca'],
                     'nombre_usuario': [nombre_usuario_actual]
                 })
@@ -905,8 +909,8 @@ def gestionar_sidebar():
             if st.session_state.get('DB_ACTUAL') != db_seleccionada:
                 st.session_state['DB_ACTUAL'] = db_seleccionada
                 st.session_state['db_a_conectar'] = db_seleccionada
-                st.session_state.conn = None  # Limpiamos la conexión vieja para forzar reconexión limpia
-                st.rerun()                    # Recargamos la interfaz al instante
+                st.session_state.conn = None  # Limpiamos conexión vieja
+                st.rerun()                    # Recargamos al instante
 
             st.session_state['DB_ACTUAL'] = db_seleccionada
             st.session_state['db_a_conectar'] = db_seleccionada
