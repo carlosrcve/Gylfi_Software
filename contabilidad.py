@@ -8954,9 +8954,7 @@ if "Inicio" in opcion_menu:
             st.code(traceback.format_exc())  # Es
 
 
-        # DIAGNÓSTICO: Ver qué trae la variable 'db' exactamente
-        st.write(f"🔍 Valor actual de la variable db: '{db}'")
-
+        # CALENDARIO FSICAL DE CONTRIBUYENTE ESPECIAL
         # FORZAMOS el nombre correcto de tu BD en TiDB Cloud
         db_objetivo = "pedacito_de_cielo_ca"
 
