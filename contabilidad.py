@@ -1071,6 +1071,7 @@ def obtener_datos_pie(db, f_fin):
             conn.close()
         return df_vacio
 
+
 # --- COLOCA ESTA FUNCIÓN ANTES DE TU BLOQUE DE LA FILA 5 ---
 @st.cache_data(ttl=60) # ttl=60 significa que se refresca al menos cada minuto
 def obtener_datos_flujo(db, f_i, f_f):
@@ -8736,7 +8737,8 @@ if "Inicio" in opcion_menu:
                     # 2. CONSULTA (Filtramos por fecha desde la BD para que sea más rápido)
                     f_i = f"{int(anio_sel)}-{mes_n:02d}-01"
                     f_f = f"{int(anio_sel)}-{mes_n:02d}-31"
-
+                    
+                    df_comps = pd.DataFrame()
                     conn_tmp = conectar_db(db_name)
                     if conn_tmp:
                         try:
