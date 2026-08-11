@@ -7066,6 +7066,14 @@ if 'DB_ACTUAL' in st.session_state and st.session_state['DB_ACTUAL']:
             # 1. Aseguramos el esquema activo en TiDB Cloud explícitamente
             with conn.cursor() as cursor:
                 cursor.execute(f"USE `{db_nombre}`")
+                
+                # OBTENER EL NOMBRE REAL DE LA EMPRESA DIRECTAMENTE DE LA DATA DE TIDB CLOUD
+                # (Ajusta el nombre de la tabla y columna según tu esquema real, por ejemplo: 'configuracion' o 'empresa')
+                cursor.execute("SELECT nombre FROM empresa LIMIT 1;")
+                resultado_empresa = cursor.fetchone()
+                
+                # Si la consulta trae el nombre de la BD, lo usamos; si no, usamos el técnico de TiDB Cloud
+                nombre_real_tidb = resultado_empresa[0] if resultado_empresa else db_nombre
 
             # 2. Definimos la sucursal de forma segura
             sucursal_actual = st.session_state.get('sucursal_seleccionada', None)
@@ -7096,10 +7104,11 @@ if 'DB_ACTUAL' in st.session_state and st.session_state['DB_ACTUAL']:
                 except Exception as e_diario:
                     st.error(f"❌ Error en consultar_libro_diario_db: {e_diario}")
             
-            st.success(f"✅ Conectado a: {EMPRESA} ({db_nombre})")
+            # IMPRESIÓN 100% DINÁMICA DESDE LA DATA DE TIDB CLOUD
+            st.success(f"✅ Conectado a: {nombre_real_tidb} ({db_nombre})")
             
         except Exception as e:
-            st.error(f"❌ Error general al procesar los datos de {EMPRESA}: {e}")
+            st.error(f"❌ Error general al procesar los datos: {e}")
         finally:
             if conn and hasattr(conn, 'is_connected') and conn.is_connected():
                 conn.close()
@@ -7444,7 +7453,7 @@ if "Inicio" in opcion_menu:
             st.session_state.conn = None
             st.error(f"❌ No se pudo establecer la conexión con la base de datos '{db_actual}' en TiDB Cloud.")
             st.stop()
-
+a
     # 4. FECHAS SINCRONIZADAS
     meses_lista = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
     anio_f = int(st.session_state.get('año_seleccionado_contabilidad', 2026))
