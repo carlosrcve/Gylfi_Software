@@ -1443,7 +1443,7 @@ def gestionar_sidebar():
 
     # 3. Control estricto: Si está vacío, se advierte
     if not lista_empresas:
-        st.sidebar.warning("⚠️ kkkk.")
+        st.sidebar.warning("⚠️ No se encontraron empresas disponibles en la base de datos o el listado está vacío.")
         return
 
     # Aseguramos que el valor actual de la sesión esté dentro de las opciones, si no, tomamos la primera
@@ -1677,11 +1677,15 @@ def login_screen():
                     st.toast(f"¡Acceso Concedido!", icon="🔒")
                     st.success(f"🚀 Has hecho login como **{res['rol'].upper()}**")
                     
-                    # Guardamos estado
+                    # --- GUARDAMOS EL ESTADO CORRECTAMENTE ---
                     st.session_state['logueado'] = True
                     st.session_state['usuario'] = user
                     st.session_state['rol'] = res['rol']
-                    st.session_state['cliente_id'] = res['cliente_id']
+                    
+                    # AQUÍ ESTÁ LA CLAVE: Guardamos el ID real de la tabla usuarios (res['id'])
+                    # y dejamos cliente_id por si lo necesitas para otra cosa
+                    st.session_state['user_id'] = res['id']          
+                    st.session_state['cliente_id'] = res.get('cliente_id') 
                     
                     time.sleep(1.5) # Pausa para que se vea el mensaje y suene la música
                     st.rerun()
@@ -4528,14 +4532,14 @@ def obtener_todas_las_empresas(user_rol, user_id):
             query = "SELECT db_nombre FROM clientes WHERE estado = 'Activo' OR estado IS NULL"
             df = pd.read_sql(query, conn)
             conn.close()
-            
             if df.empty or 'db_nombre' not in df.columns:
                 return []
             return df['db_nombre'].dropna().astype(str).tolist()
             
         else:
-            query = "SELECT db_nombre FROM usuarios WHERE id = %s"
-            df = pd.read_sql(query, conn, params=(user_id,))
+            # CORRECCIÓN: Buscamos directamente por el ID del usuario actual o por su nombre de usuario en la tabla usuarios
+            query = "SELECT db_nombre FROM usuarios WHERE id = %s OR cliente_id = %s"
+            df = pd.read_sql(query, conn, params=(user_id, user_id))
             conn.close()
             
             if df.empty or 'db_nombre' not in df.columns or pd.isna(df['db_nombre'].iloc[0]):
