@@ -8739,6 +8739,7 @@ if "Inicio" in opcion_menu:
                     f_f = f"{int(anio_sel)}-{mes_n:02d}-31"
                     
                     # 2. Inicializamos las variables por seguridad antes de usarlas
+                    conn_tmp = None
                     df_comps = pd.DataFrame()
                     seleccion_opcion = None
 
