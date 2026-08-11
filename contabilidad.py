@@ -381,6 +381,7 @@ def calcular_activo_real(df):
 
 # Suponiendo que tienes una función que calcula la utilidad contable
 @log_ejecucion
+@st.cache_data(ttl=300)
 def obtener_utilidad_contable(db, f_i, f_f):
     """Calcula la utilidad basada en los ingresos y egresos de la empresa 'db'"""
     conn = conectar_db(db)
@@ -576,7 +577,8 @@ def generar_pdf_accionista(df, nombre_empresa):
         
     return pdf.output(dest='S').encode('latin-1')
 
-
+@log_ejecucion
+@st.cache_data(ttl=300)
 def obtener_analisis_gastos_clase5(db, f_i, f_f):
     # Validar que conectar_db exista realmente
     if 'conectar_db' not in globals() and 'conectar_db' not in locals():
@@ -620,6 +622,7 @@ def obtener_analisis_gastos_clase5(db, f_i, f_f):
 
 
 @log_ejecucion
+@st.cache_data(ttl=300)
 def obtener_analisis_gastos_clase6(db, f_i, f_f):
     conn = conectar_db(db)
     if not conn:
@@ -652,6 +655,8 @@ def obtener_analisis_gastos_clase6(db, f_i, f_f):
     return df
 
 
+@st.cache_data(ttl=300)
+@st.cache_data(ttl=300)
 def obtener_asiento_por_comprobante(db, n_comprobante):
     conn = conectar_db(db)
     if not conn:
@@ -693,6 +698,7 @@ def obtener_asiento_por_comprobante(db, n_comprobante):
 
 
 # Quítale el decorador temporalmente para probar si era eso:
+@st.cache_data(ttl=300)
 def obtener_comprobantes_ingresos(db, f_inicio, f_fin):
     conn = conectar_db(db)
     if not conn:
@@ -716,7 +722,7 @@ def obtener_comprobantes_ingresos(db, f_inicio, f_fin):
         return pd.DataFrame()
 
 
-
+@st.cache_data(ttl=300)
 def obtener_historico_utilidad_acumulada(db):
     df_default = pd.DataFrame({'mes': [], 'utilidad_mensual': []})
     
@@ -838,7 +844,7 @@ def obtener_saldos_acumulados(conexion, fecha_corte, nombre_db):
     }
 
 
-
+@st.cache_data(ttl=300)
 def obtener_salud_fiscal(f_inicio, f_fin, db):
     conn = conectar_db(db)
     
@@ -954,6 +960,7 @@ def obtener_salud_fiscal(f_inicio, f_fin, db):
     return default_res
 
 
+@st.cache_data(ttl=300)
 def obtener_detalle_cashea(db, f_inicio, f_fin):
     df_vacio = pd.DataFrame(columns=['fecha', 'descripcion', 'referencia', 'debe', 'haber', 'saldo'])
     
@@ -1004,6 +1011,7 @@ def obtener_detalle_cashea(db, f_inicio, f_fin):
         return df_vacio
 
 
+@st.cache_data(ttl=300)
 def obtener_datos_barras(db, fecha_inicio, fecha_fin):
     # Retorna un DataFrame vacío por defecto para prevenir que explote
     df_vacio = pd.DataFrame(columns=['Categoría', 'Monto'])
@@ -1034,6 +1042,7 @@ def obtener_datos_barras(db, fecha_inicio, fecha_fin):
             conn.close()
         return df_vacio
 
+@st.cache_data(ttl=300)
 def obtener_datos_pie(db, f_fin):
     df_vacio = pd.DataFrame(columns=['nombre', 'Saldo Final'])
     
