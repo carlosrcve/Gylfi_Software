@@ -4518,31 +4518,34 @@ def marcar_retencion_completada(conn, id_factura, n_comprobante):
 @log_ejecucion
 def obtener_todas_las_empresas(user_rol, user_id):
     try:
-        # Asegúrate de pasar el nombre de tu base de datos central si lo requiere, 
-        # por ejemplo: conectar_db("control_central") o dejarlo si tu config por defecto es esa.
-        conn = conectar_db("control_central") if "conectar_db" in globals() else conectar_db()
+        # CAMBIA 'control_central' por el nombre exacto de tu base de datos central en TiDB si es diferente
+        conn = conectar_db("control_central")
         if not conn:
-            st.sidebar.error("❌ No se pudo establecer conexión para leer las empresas.")
-            return []
+            # Fallback si tu conectar_db no acepta parámetros, intentamos la genérica pero forzando el USE
+            conn = conectar_db()
+            if not conn:
+                return []
+            cursor = conn.cursor()
+            cursor.execute("USE control_central;")
+            cursor.close()
         
-        # Traemos todas las empresas activas sin depender del ID que pueda venir alterado
+        # Consultamos directamente todas las empresas activas
         query = "SELECT db_nombre FROM clientes WHERE estado = 'Activo' OR estado IS NULL"
         df = pd.read_sql(query, conn)
         
-        # Respaldo total por si la condición estricta no trae registros
+        # Respaldo por si acaso
         if df.empty:
             df = pd.read_sql("SELECT db_nombre FROM clientes", conn)
                 
         conn.close()
         
         if df.empty or 'db_nombre' not in df.columns:
-            st.sidebar.warning("⚠️ La tabla clientes no devolvió registros de 'db_nombre'.")
             return []
             
         return df['db_nombre'].dropna().astype(str).tolist()
         
     except Exception as e:
-        st.sidebar.error(f"❌ Error crítico en obtener_todas_las_empresas: {e}")
+        st.sidebar.error(f"❌ Error al obtener empresas: {e}")
         return []
         
 @log_ejecucion
