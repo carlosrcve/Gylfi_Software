@@ -552,6 +552,8 @@ def obtener_saldos_acumulados(conexion, fecha_corte, nombre_db):
         cur.execute(f"USE `{db_segura}`")
     except Exception as e:
         print(f"⚠️ No se pudo usar la base de datos {db_segura}: {e}")
+        cur.close()
+        return {"activo": 0, "pasivo": 0, "patrimonio": 0}
 
     res_ini = {'activo_ini': 0, 'pasivo_ini': 0, 'patrimonio_ini': 0}
     try:
