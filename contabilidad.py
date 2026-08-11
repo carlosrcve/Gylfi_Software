@@ -305,6 +305,19 @@ with st.sidebar:
     st.image("https://cdn-icons-png.flaticon.com/512/2645/2645328.png", width=100)
     st.header("Panel de Auditoría")
 
+    # --- INSIGNIA DE DUEÑO Y ADMINISTRADOR ---
+    user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
+    if user_rol == 'admin':
+        st.markdown(
+            """
+            <div style="background-color: #1e293b; padding: 10px; border-radius: 8px; text-align: center; margin-bottom: 15px; border: 1px solid #334155;">
+                <span style="color: #38bdf8; font-weight: bold; font-size: 14px;">👑 Administrador Principal</span><br>
+                <span style="color: #94a3b8; font-size: 11px;">Dueño del Software</span>
+            </div>
+            """, 
+            unsafe_allow_html=True
+        )
+
     st.markdown("---")
     if st.button("🚪 Cerrar Sesión"):
         for key in list(st.session_state.keys()):
@@ -312,7 +325,6 @@ with st.sidebar:
         st.rerun()
 
     # --- Navegación ---
-    user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
     if user_rol == 'admin':
         menu = st.radio("Navegación", ["📊 Auditoría Contable", "⚙️ Gestión de Usuarios"], key="menu_nav")
     else:
