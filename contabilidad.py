@@ -8954,12 +8954,16 @@ if "Inicio" in opcion_menu:
             st.code(traceback.format_exc())  # Es
 
 
-        # 1. CONDICIONAL: Solo mostrar si el cliente actual es "pedacito_de_cielo_ca" (o el nombre de su BD)
-        # 1. CONDICIONAL: Solo mostrar si el cliente actual es "pedacito_de_cielo_ca"
-        st.write(f"DEBUGGING - Base de datos actual: `{db}`")
-        if db == "pedacito_de_cielo_ca":
-            # 1. Asegurarnos primero de obtener una conexión válida mediante tu función multicliente
-            conexion_activa = conectar_db("pedacito_de_cielo_ca")
+        # DIAGNÓSTICO: Ver qué trae la variable 'db' exactamente
+        st.write(f"🔍 Valor actual de la variable db: '{db}'")
+
+        # FORZAMOS el nombre correcto de tu BD en TiDB Cloud
+        db_objetivo = "pedacito_de_cielo_ca"
+
+        if db == db_objetivo or "pedacito" in str(db).lower():
+            
+            # 1. Conexión segura a TiDB Cloud
+            conexion_activa = conectar_db(db_objetivo)
             
             if conexion_activa is not None:
                 try:
@@ -8968,10 +8972,10 @@ if "Inicio" in opcion_menu:
                     cursor.close()
                 except Exception as e:
                     st.error(f"❌ Error al ejecutar en la base de datos: {e}")
-                    st.stop()  # <--- Detenemos aquí si falla la consulta
+                    st.stop()
             else:
-                st.error("❌ No se pudo establecer la conexión con 'pedacito_de_cielo_ca'.")
-                st.stop()      # <--- Detenemos aquí si la conexión es None
+                st.error(f"❌ No se pudo establecer la conexión con '{db_objetivo}'.")
+                st.stop()
                     
             with tab1:
                 # ==========================================
