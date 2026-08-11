@@ -4518,30 +4518,19 @@ def marcar_retencion_completada(conn, id_factura, n_comprobante):
 @log_ejecucion
 def obtener_todas_las_empresas(user_rol, user_id):
     try:
-        # CAMBIA 'control_central' por el nombre exacto de tu base de datos central en TiDB si es diferente
-        conn = conectar_db("control_central")
+        conn = conectar_db()
         if not conn:
-            # Fallback si tu conectar_db no acepta parámetros, intentamos la genérica pero forzando el USE
-            conn = conectar_db()
-            if not conn:
-                return []
-            cursor = conn.cursor()
-            cursor.execute("USE control_central;")
-            cursor.close()
+            return []
         
-        # Consultamos directamente todas las empresas activas
-        query = "SELECT db_nombre FROM clientes WHERE estado = 'Activo' OR estado IS NULL"
+        # Ignoramos filtros complejos y traemos directamente todas las bases de datos de la tabla central
+        query = "SELECT db_nombre FROM clientes"
         df = pd.read_sql(query, conn)
-        
-        # Respaldo por si acaso
-        if df.empty:
-            df = pd.read_sql("SELECT db_nombre FROM clientes", conn)
-                
         conn.close()
         
         if df.empty or 'db_nombre' not in df.columns:
             return []
             
+        # Limpiamos y convertimos a lista de strings de forma limpia
         return df['db_nombre'].dropna().astype(str).tolist()
         
     except Exception as e:
