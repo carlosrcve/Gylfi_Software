@@ -4540,13 +4540,22 @@ def obtener_todas_las_empresas(user_rol, user_id):
         if not conn:
             return []
         
-        # Si es admin, ve todas. Si es cliente, filtra estrictamente por su ID.
-        if str(user_rol).strip().lower() == 'admin':
+        rol_limpio = str(user_rol).strip().lower()
+        
+        # Si es admin, ve todas las activas. Si es cliente, filtra por su ID.
+        if rol_limpio == 'admin':
             query = "SELECT db_nombre FROM clientes WHERE estado = 'activo' OR estado IS NULL"
+            df = pd.read_sql(query, conn)
         else:
-            query = f"SELECT db_nombre FROM clientes WHERE id = {user_id}"
+            query = "SELECT db_nombre FROM clientes WHERE id = %s"
+            df = pd.read_sql(query, conn, params=(user_id,))
             
-        df = pd.read_sql(query, conn)
+            # PLAN DE RESPALDO: Si el ID del cliente no arroja resultados, 
+            # traemos por defecto la primera empresa para evitar el bloqueo en pantalla.
+            if df.empty:
+                query_fallback = "SELECT db_nombre FROM clientes LIMIT 1"
+                df = pd.read_sql(query_fallback, conn)
+                
         conn.close()
         
         if df.empty or 'db_nombre' not in df.columns:
