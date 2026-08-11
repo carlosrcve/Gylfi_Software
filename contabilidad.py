@@ -425,9 +425,10 @@ with st.sidebar:
             st.session_state['CLIENTE_NOMBRE'] = seleccion
             st.session_state['cliente_id_seleccionado'] = int(datos_sel['id'])
             
-            # Mostramos en pantalla la empresa y el usuario vinculado dinámicamente
+            # Mostramos el estado actual con total claridad
             st.write(f"Empresa seleccionada: '{str(seleccion).upper()}'")
-            st.info(f"👤 **Usuario Propietario:** {str(usuario_asignado).capitalize()}")
+            st.info(f"👑 **Sesión Activa:** {str(st.session_state.get('usuario', '')).capitalize()} ({str(user_rol).upper()})\n\n"
+                    f"👤 **Propietario de la Empresa:** {str(usuario_asignado).capitalize()}")
             
             st.subheader("Módulos")
             modulos_disponibles = [
