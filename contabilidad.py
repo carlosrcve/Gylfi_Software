@@ -537,62 +537,61 @@ def obtener_todas_las_empresas(user_rol, user_id):
 
 def obtener_saldos_acumulados(conexion, fecha_corte, nombre_db):
     if not conexion:
+        print("❌ Error: No hay conexión activa en obtener_saldos_acumulados")
         return {"activo": 0, "pasivo": 0, "patrimonio": 0}
     
-    # Aseguramos que nombre_db sea una cadena limpia y nunca la palabra 'activo' por error
+    # Limpieza de seguridad para el nombre de la BD
     db_segura = str(nombre_db).strip()
     if not db_segura or db_segura.lower() == 'activo':
-        # Si por error llega 'activo', intentamos forzar la de pedacito de cielo o la que esté en session_state
-        db_segura = 'pedacito_de_cielo_ca' 
+        db_segura = 'pedacito_de_cielo_ca'
 
     cur = conexion.cursor(dictionary=True)
     
     try:
-        # Forzamos el uso de la base de datos correcta explícitamente
+        # Aseguramos el contexto de la base de datos
         cur.execute(f"USE `{db_segura}`")
-        
-        # Verificamos si existe saldos_iniciales en esta base de datos real
-        cur.execute(f"SHOW TABLES LIKE 'saldos_iniciales'")
-        existe_saldos = cur.fetchone()
-        
-        if existe_saldos:
-            query = """
-                SELECT 
-                    COALESCE(SUM(CASE WHEN plan_cuentas LIKE '1%' THEN (debe - haber) ELSE 0 END), 0) as activo,
-                    COALESCE(SUM(CASE WHEN plan_cuentas LIKE '2%' THEN (haber - debe) ELSE 0 END), 0) as pasivo,
-                    COALESCE(SUM(CASE WHEN plan_cuentas LIKE '3%' THEN (haber - debe) ELSE 0 END), 0) as patrimonio
-                FROM (
-                    SELECT plan_cuentas, debe, haber FROM saldos_iniciales
-                    UNION ALL
-                    SELECT plan_cuentas, debe, haber FROM asientos_contables WHERE fecha <= %s
-                ) as todo_el_acumulado
-            """
-        else:
-            query = """
-                SELECT 
-                    COALESCE(SUM(CASE WHEN plan_cuentas LIKE '1%' THEN (debe - haber) ELSE 0 END), 0) as activo,
-                    COALESCE(SUM(CASE WHEN plan_cuentas LIKE '2%' THEN (haber - debe) ELSE 0 END), 0) as pasivo,
-                    COALESCE(SUM(CASE WHEN plan_cuentas LIKE '3%' THEN (haber - debe) ELSE 0 END), 0) as patrimonio
-                FROM asientos_contables 
-                WHERE fecha <= %s
-            """
-        
-        cur.execute(query, (fecha_corte,))
-        resultado = cur.fetchone()
-        
-        if resultado:
-            return {
-                "activo": float(resultado.get('activo', 0) or 0),
-                "pasivo": float(resultado.get('pasivo', 0) or 0),
-                "patrimonio": float(resultado.get('patrimonio', 0) or 0)
-            }
-            
     except Exception as e:
-        st.error(f"Error crítico en saldos para {db_segura}: {e}")
-    finally:
-        cur.close()
+        print(f"⚠️ No se pudo usar la base de datos {db_segura}: {e}")
+
+    res_ini = {'activo_ini': 0, 'pasivo_ini': 0, 'patrimonio_ini': 0}
+    try:
+        cur.execute("""
+            SELECT 
+                COALESCE(SUM(CASE WHEN plan_cuentas LIKE '1%' THEN (debe - haber) ELSE 0 END), 0) as activo_ini,
+                COALESCE(SUM(CASE WHEN plan_cuentas LIKE '2%' THEN (haber - debe) ELSE 0 END), 0) as pasivo_ini,
+                COALESCE(SUM(CASE WHEN plan_cuentas LIKE '3%' THEN (haber - debe) ELSE 0 END), 0) as patrimonio_ini
+            FROM saldos_iniciales
+        """)
+        f_ini = cur.fetchone()
+        if f_ini:
+            res_ini = f_ini
+    except Exception as e:
+        print(f"⚠️ Error al leer saldos_iniciales en {db_segura}: {e}")
         
-    return {"activo": 0, "pasivo": 0, "patrimonio": 0}
+    res_mov = {'activo_mov': 0, 'pasivo_mov': 0, 'patrimonio_mov': 0}
+    try:
+        cur.execute("""
+            SELECT 
+                COALESCE(SUM(CASE WHEN plan_cuentas LIKE '1%' THEN (debe - haber) ELSE 0 END), 0) as activo_mov,
+                COALESCE(SUM(CASE WHEN plan_cuentas LIKE '2%' THEN (haber - debe) ELSE 0 END), 0) as pasivo_mov,
+                COALESCE(SUM(CASE WHEN plan_cuentas LIKE '3%' THEN (haber - debe) ELSE 0 END), 0) as patrimonio_mov
+            FROM asientos_contables 
+            WHERE fecha <= %s
+        """, (fecha_corte,))
+        f_mov = cur.fetchone()
+        if f_mov:
+            res_mov = f_mov
+    except Exception as e:
+        print(f"⚠️ Error al leer asientos_contables para la fecha {fecha_corte} en {db_segura}: {e}")
+        
+    cur.close()
+    
+    # Retorno seguro convertido a float sumando apertura + movimientos acumulados
+    return {
+        "activo": float(res_ini.get('activo_ini', 0) or 0) + float(res_mov.get('activo_mov', 0) or 0),
+        "pasivo": float(res_ini.get('pasivo_ini', 0) or 0) + float(res_mov.get('pasivo_mov', 0) or 0),
+        "patrimonio": float(res_ini.get('patrimonio_ini', 0) or 0) + float(res_mov.get('patrimonio_mov', 0) or 0)
+    }
 
 
 def gestionar_sidebar():
