@@ -1039,12 +1039,12 @@ if "🏠 Inicio" in opcion_menu:
         st.divider()
         
         # --- FILA 1: INDICADORES FINANCIEROS ---
-        col_kpi, col_btn = st.columns([0.8, 0.2])
-        with col_kpi:
+        col_titulo, col_vacia, col_btn = st.columns([0.5, 0.3, 0.2])
+        with col_titulo:
             st.subheader("Indicadores Financieros en Tiempo Real")
 
         with col_btn:
-            if st.button("🔄 Actualizar Datos"):
+            if st.button("🔄 Actualizar Datos", use_container_width=True):
                 st.cache_data.clear()
                 st.rerun()
 
