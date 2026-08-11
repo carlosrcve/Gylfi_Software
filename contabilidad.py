@@ -109,6 +109,81 @@ def conectar_db(nombre_db=None):
 
 
 
+def verificar_usuario(conn, user, password):
+    if conn is None:
+        try:
+            conn = conectar_db()
+        except:
+            return None 
+
+    for intento in range(2):
+        try:
+            if not conn.is_connected():
+                conn = conectar_db()
+                
+            cursor = conn.cursor(dictionary=True)
+            # Buscamos usando el nombre de columna correcto de tu tabla
+            cursor.execute("SELECT * FROM usuarios WHERE usuario = %s", (user,))
+            user_data = cursor.fetchone()
+            break 
+        except Exception as e:
+            if intento == 0:
+                try:
+                    conn.reconnect(attempts=3, delay=2)
+                    continue
+                except:
+                    return None
+            else:
+                return None
+
+    if not user_data:
+        try:
+            cursor.close()
+        except:
+            pass
+        return None 
+    
+    # Obtenemos la clave de la base de datos de forma segura
+    clave_en_bd = user_data.get('clave_hash') or user_data.get('password')
+    login_exitoso = False
+    
+    if clave_en_bd:
+        # Verificamos si es un hash de bcrypt
+        if str(clave_en_bd).startswith('$2b$'):
+            try:
+                if bcrypt.checkpw(password.encode('utf-8'), clave_en_bd.encode('utf-8')):
+                    login_exitoso = True
+            except:
+                pass
+        else:
+            # Si está en texto plano
+            if password == str(clave_en_bd):
+                login_exitoso = True
+                # Intentamos actualizar a hash de forma silenciosa para mejorar seguridad
+                try:
+                    salt = bcrypt.gensalt()
+                    nuevo_hash = bcrypt.hashpw(password.encode('utf-8'), salt).decode('utf-8')
+                    cursor.execute("UPDATE usuarios SET clave_hash = %s WHERE id = %s", (nuevo_hash, user_data['id']))
+                    conn.commit()
+                except:
+                    pass
+    
+    try:
+        cursor.close()
+    except:
+        pass
+    
+    if login_exitoso:
+        # Aseguramos llaves por defecto para que la sesión no explote
+        if 'rol' not in user_data or not user_data['rol']:
+            user_data['rol'] = 'admin'
+        if 'cliente_id' not in user_data:
+            user_data['cliente_id'] = None
+        return user_data
+    else:
+        return None
+
+
 def login_screen():
     # --- ESTILOS CSS PROFESIONALES ---
     st.markdown("""
@@ -217,79 +292,6 @@ if 'logueado' not in st.session_state:
 
 
 
-def verificar_usuario(conn, user, password):
-    if conn is None:
-        try:
-            conn = conectar_db()
-        except:
-            return None 
-
-    for intento in range(2):
-        try:
-            if not conn.is_connected():
-                conn = conectar_db()
-                
-            cursor = conn.cursor(dictionary=True)
-            # Buscamos usando el nombre de columna correcto de tu tabla
-            cursor.execute("SELECT * FROM usuarios WHERE usuario = %s", (user,))
-            user_data = cursor.fetchone()
-            break 
-        except Exception as e:
-            if intento == 0:
-                try:
-                    conn.reconnect(attempts=3, delay=2)
-                    continue
-                except:
-                    return None
-            else:
-                return None
-
-    if not user_data:
-        try:
-            cursor.close()
-        except:
-            pass
-        return None 
-    
-    # Obtenemos la clave de la base de datos de forma segura
-    clave_en_bd = user_data.get('clave_hash') or user_data.get('password')
-    login_exitoso = False
-    
-    if clave_en_bd:
-        # Verificamos si es un hash de bcrypt
-        if str(clave_en_bd).startswith('$2b$'):
-            try:
-                if bcrypt.checkpw(password.encode('utf-8'), clave_en_bd.encode('utf-8')):
-                    login_exitoso = True
-            except:
-                pass
-        else:
-            # Si está en texto plano
-            if password == str(clave_en_bd):
-                login_exitoso = True
-                # Intentamos actualizar a hash de forma silenciosa para mejorar seguridad
-                try:
-                    salt = bcrypt.gensalt()
-                    nuevo_hash = bcrypt.hashpw(password.encode('utf-8'), salt).decode('utf-8')
-                    cursor.execute("UPDATE usuarios SET clave_hash = %s WHERE id = %s", (nuevo_hash, user_data['id']))
-                    conn.commit()
-                except:
-                    pass
-    
-    try:
-        cursor.close()
-    except:
-        pass
-    
-    if login_exitoso:
-        # Aseguramos llaves por defecto para que la sesión no explote
-        if 'rol' not in user_data or not user_data['rol']:
-            user_data['rol'] = 'admin'
-        if 'cliente_id' not in user_data:
-            user_data['cliente_id'] = None
-        return user_data
-    else:
-        return None
 
 with st.sidebar:
     st.image("https://cdn-icons-png.flaticon.com/512/2645/2645328.png", width=100)
