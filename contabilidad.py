@@ -4524,15 +4524,21 @@ def obtener_todas_las_empresas(user_rol, user_id):
         
         rol_limpio = str(user_rol).strip().lower()
         
-        # Si es admin, trae todas. Si es cliente, traemos las asociadas o un respaldo seguro.
+        # Si es admin, trae todas las activas
         if rol_limpio == 'admin':
             query = "SELECT db_nombre FROM clientes WHERE estado = 'Activo' OR estado IS NULL"
             df = pd.read_sql(query, conn)
         else:
+            # Aseguramos que el ID sea un número entero válido para evitar fallos de tipo en la BD
+            try:
+                id_limpio = int(user_id)
+            except (ValueError, TypeError):
+                id_limpio = 2 # Respaldo por defecto para el cliente actual si viene corrupto
+                
             query = "SELECT db_nombre FROM clientes WHERE id = %s"
-            df = pd.read_sql(query, conn, params=(user_id,))
+            df = pd.read_sql(query, conn, params=(id_limpio,))
             
-            # Respaldo por si el ID del cliente no devuelve filas, traemos todo para que no se quede vacío
+            # Si aún así el DataFrame está vacío, traemos todas las empresas para que el cliente nunca vea la pantalla en blanco
             if df.empty:
                 query_fallback = "SELECT db_nombre FROM clientes"
                 df = pd.read_sql(query_fallback, conn)
@@ -4547,7 +4553,6 @@ def obtener_todas_las_empresas(user_rol, user_id):
     except Exception as e:
         st.sidebar.error(f"❌ Error al obtener empresas: {e}")
         return []
-
         
 @log_ejecucion
 def obtener_empresas_del_usuario(db_nombre_en_sesion):
