@@ -4494,38 +4494,36 @@ def marcar_retencion_completada(conn, id_factura, n_comprobante):
 
 
 @log_ejecucion
-def obtener_todas_las_empresas(user_rol=None, user_id=None):
+def obtener_todas_las_empresas(user_rol, user_id):
     try:
-        # IMPORTANTE: Asegúrate de que esta función de conexión se conecte 
-        # al cluster de TiDB Cloud SIN especificar una base de datos final por defecto,
-        # o usando un usuario con privilegios para ver todos los esquemas.
-        conn_central = conectar_db() 
-        if not conn_central: 
+        conn = conectar_db() # Conexión a la BD central
+        if not conn:
+            st.sidebar.error("❌ Error crítico: No hay conexión con la BD central.")
             return []
         
-        cursor = conn_central.cursor()
-        # En TiDB Cloud, listamos todas las bases de datos (schemas) del cluster
-        cursor.execute("SHOW DATABASES;")
-        resultados = cursor.fetchall()
-        cursor.close()
+        # Dependiendo de tu rol, armamos la consulta
+        if user_rol == 'admin':
+            query = "SELECT * FROM clientes" # O la tabla donde guardas las 500 empresas
+        else:
+            query = f"SELECT * FROM clientes WHERE id = {user_id}"
+            
+        import pandas as pd
+        df = pd.read_sql(query, conn)
+        conn.close()
         
-        # Esquemas de sistema de TiDB / MySQL que debemos filtrar
-        esquemas_sistema = ['information_schema', 'mysql', 'performance_schema', 'sys', 'test', 'tidb_background']
+        if df.empty:
+            st.sidebar.warning(f"⚠️ La consulta no arrojó resultados para el rol: {user_rol}")
+            return []
+            
+        # Detectamos automáticamente la columna que contiene el nombre de las bases de datos de las empresas
+        columna_bd = next((c for c in df.columns if 'bd' in c.lower() or 'base' in c.lower() or 'schema' in c.lower() or 'nombre' in c.lower()), df.columns[-1])
         
-        lista_empresas = []
-        for row in resultados:
-            nombre_db = row[0]
-            if nombre_db.lower() not in esquemas_sistema:
-                lista_empresas.append(nombre_db)
-                
-        return sorted(lista_empresas)
+        # Devolvemos la lista limpia de nombres de bases de datos
+        return df[columna_bd].dropna().astype(str).tolist()
         
     except Exception as e:
-        st.sidebar.error(f"Error en TiDB Cloud: {e}")
+        st.sidebar.error(f"❌ Error SQL en obtener_empresas: {e}")
         return []
-    finally:
-        if 'conn_central' in locals() and conn_central and conn_central.is_connected():
-            conn_central.close()
 
 @log_ejecucion
 def obtener_empresas_del_usuario(db_nombre_en_sesion):
