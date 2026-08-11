@@ -110,7 +110,6 @@ def conectar_db(nombre_db=None):
         return None
 
 
-
 def verificar_usuario(conn, user, password):
     if conn is None:
         try:
@@ -299,6 +298,92 @@ if 'logueado' not in st.session_state:
     st.stop()
 
 
+import streamlit as st
+import pandas as pd
+import bcrypt
+
+def panel_administracion(conn):
+    st.header("⚙️ Gestión de Usuarios y Accesos")
+    
+    # 1. FORMULARIO DE REGISTRO
+    with st.expander("➕ Registrar Nuevo Usuario del Sistema", expanded=True):
+        with st.form("registro_usuario"):
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                nuevo_u = st.text_input("Nombre de Usuario", help="Ej: carlos_admin o king_gerente")
+                nueva_p = st.text_input("Contraseña", type="password")
+            
+            with col2:
+                rol = st.selectbox("Rol del Sistema", ["admin", "cliente"])
+                
+                # Buscamos las empresas disponibles para asociar
+                try:
+                    query_cli = "SELECT id, nombre_empresa FROM control_central.clientes"
+                    df_cli = pd.read_sql(query_cli, conn)
+                    opciones_clientes = {row['nombre_empresa']: row['id'] for _, row in df_cli.iterrows()}
+                    
+                    nombre_sel = st.selectbox("Asociar a Empresa (Solo para rol cliente)", 
+                                              ["Ninguna / Acceso Total"] + list(opciones_clientes.keys()))
+                except Exception as e:
+                    st.warning(f"⚠️ No se pudieron cargar las empresas de la base de datos: {e}")
+                    opciones_clientes = {}
+
+            btn_crear = st.form_submit_button("Guardar Usuario en Base de Datos")
+            
+            if btn_crear:
+                if not nuevo_u or not nueva_p:
+                    st.error("❌ El usuario y la contraseña son obligatorios.")
+                else:
+                    try:
+                        salt = bcrypt.gensalt()
+                        hash_cifrado = bcrypt.hashpw(nueva_p.encode('utf-8'), salt)
+                        
+                        c_id = opciones_clientes.get(nombre_sel) if rol == "cliente" and nombre_sel != "Ninguna / Acceso Total" else None
+                        
+                        cursor = conn.cursor()
+                        sql = """INSERT INTO usuarios (usuario, clave_hash, rol, cliente_id) 
+                                 VALUES (%s, %s, %s, %s)"""
+                        
+                        cursor.execute(sql, (nuevo_u, hash_cifrado.decode('utf-8'), rol, c_id))
+                        conn.commit()
+                        cursor.close()
+                        
+                        st.success(f"✅ Usuario '{nuevo_u}' registrado con seguridad profesional.")
+                        st.balloons()
+                    except Exception as e:
+                        st.error(f"❌ Error al registrar: Probablemente el usuario ya existe. ({e})")
+
+    # 2. TABLA DE USUARIOS ACTUALES
+    st.subheader("👥 Usuarios Registrados")
+    try:
+        query_view = """
+            SELECT u.usuario, u.rol, c.nombre_empresa as empresa_asignada 
+            FROM control_central.usuarios u
+            LEFT JOIN control_central.clientes c ON u.cliente_id = c.id
+        """
+        df_usuarios = pd.read_sql(query_view, conn)
+        st.dataframe(df_usuarios, use_container_width=True)
+    except Exception:
+        st.info("No hay usuarios registrados todavía.")
+
+    # 3. VISOR DE AUDITORÍA INTEGRADO
+    st.divider()
+    st.subheader("🕵️‍♂️ Monitoreo de Interacciones (Logs)")
+    
+    if st.button("🔄 Refrescar Bitácora"):
+        st.rerun()
+        
+    try:
+        query_logs = "SELECT * FROM logs_auditoria ORDER BY fecha DESC LIMIT 100"
+        df_logs = pd.read_sql(query_logs, conn)
+        
+        if not df_logs.empty:
+            st.dataframe(df_logs, use_container_width=True)
+        else:
+            st.info("No se han detectado interacciones todavía.")
+    except Exception as e:
+        st.error(f"Error cargando logs: {e}")
 
 
 with st.sidebar:
@@ -482,3 +567,27 @@ with st.sidebar:
         else:
             st.error("⚠️ No se pudieron cargar las empresas desde TiDB Cloud. Verifica que la tabla 'clientes' exista en el esquema central.")
             st.stop()
+
+
+# PANTALLA: GESTIÓN DE USUARIOS
+if menu == "⚙️ Gestión de Usuarios": 
+    try:
+        # 1. Aseguramos conexión
+        if not conn or not conn.is_connected():
+            conn = conectar_db()
+
+        # 2. ELIMINAMOS ESTE BLOQUE QUE CAUSA EL ERROR:
+        # with conn.cursor() as cursor:
+        #    cursor.execute("SELECT * FROM control_central.usuarios WHERE rol = 'admin'")
+        #    <-- ¡NO HICISTE FETCHALL() AQUÍ, POR ESO EL ERROR!
+
+        # 3. Llamamos directo a la función que SÍ maneja sus cursores internamente
+        if conn and conn.is_connected():
+            panel_administracion(conn)
+        else:
+            st.error("🔌 No se pudo establecer conexión con el servidor MySQL.")
+            
+    except Exception as e:
+        st.error(f"Error al acceder a la gestión central: {e}")
+
+    st.stop()
