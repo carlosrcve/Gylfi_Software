@@ -597,11 +597,14 @@ def gestionar_sidebar():
                 unsafe_allow_html=True
             )
         else:
+            # Capturamos el nombre exacto guardado en el login
+            nombre_mostrado = st.session_state.get('nombre_usuario', st.session_state.get('username', user_id))
+            
             st.markdown(
                 f"""
                 <div style="background-color: #1e293b; padding: 10px; border-radius: 8px; text-align: center; margin-bottom: 15px; border: 1px solid #334155;">
                     <span style="color: #38bdf8; font-weight: bold; font-size: 13px;">👤 Usuario Propietario:</span><br>
-                    <span style="color: #ffffff; font-size: 12px;">{nombre_usuario_actual}</span>
+                    <span style="color: #ffffff; font-size: 13px; font-weight: 600;">{nombre_mostrado}</span>
                 </div>
                 """, 
                 unsafe_allow_html=True
