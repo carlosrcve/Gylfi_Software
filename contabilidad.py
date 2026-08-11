@@ -805,12 +805,12 @@ def obtener_saldos_acumulados(conexion, fecha_corte, nombre_db):
     res_ini = {'activo_ini': 0, 'pasivo_ini': 0, 'patrimonio_ini': 0}
     
     try:
-        cur.execute(f"""
+        cur.execute("""
             SELECT 
                 COALESCE(SUM(CASE WHEN plan_cuentas LIKE '1%' THEN (debe - haber) ELSE 0 END), 0) as activo_ini,
                 COALESCE(SUM(CASE WHEN plan_cuentas LIKE '2%' THEN (haber - debe) ELSE 0 END), 0) as pasivo_ini,
                 COALESCE(SUM(CASE WHEN plan_cuentas LIKE '3%' THEN (haber - debe) ELSE 0 END), 0) as patrimonio_ini
-            FROM `{nombre_db}`.saldos_iniciales
+            FROM saldos_iniciales
         """)
         f_ini = cur.fetchone()
         if f_ini:
@@ -820,12 +820,12 @@ def obtener_saldos_acumulados(conexion, fecha_corte, nombre_db):
         
     res_mov = {'activo_mov': 0, 'pasivo_mov': 0, 'patrimonio_mov': 0}
     try:
-        cur.execute(f"""
+        cur.execute("""
             SELECT 
                 COALESCE(SUM(CASE WHEN plan_cuentas LIKE '1%' THEN (debe - haber) ELSE 0 END), 0) as activo_mov,
                 COALESCE(SUM(CASE WHEN plan_cuentas LIKE '2%' THEN (haber - debe) ELSE 0 END), 0) as pasivo_mov,
                 COALESCE(SUM(CASE WHEN plan_cuentas LIKE '3%' THEN (haber - debe) ELSE 0 END), 0) as patrimonio_mov
-            FROM `{nombre_db}`.asientos_contables 
+            FROM asientos_contables 
             WHERE fecha <= %s
         """, (fecha_corte,))
         f_mov = cur.fetchone()
@@ -842,7 +842,6 @@ def obtener_saldos_acumulados(conexion, fecha_corte, nombre_db):
         "pasivo": float(res_ini.get('pasivo_ini', 0) or 0) + float(res_mov.get('pasivo_mov', 0) or 0),
         "patrimonio": float(res_ini.get('patrimonio_ini', 0) or 0) + float(res_mov.get('patrimonio_mov', 0) or 0)
     }
-
 
 @st.cache_data(ttl=300)
 def obtener_salud_fiscal(f_inicio, f_fin, db):
