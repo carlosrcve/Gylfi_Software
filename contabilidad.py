@@ -1401,37 +1401,47 @@ def obtener_datos_graficos(conn, f_i, f_f, sucursal):
 
 # Lógica conceptual para tu Sidebar corregida y blindada
 def gestionar_sidebar():
-    # 1. Definimos un valor por defecto seguro si no hay nada en sesión
+    # 1. Inicializamos la variable de sesión si no existe
     if 'db_a_conectar' not in st.session_state:
-        st.session_state['db_a_conectar'] = "pedacito_de_cielo_ca"
+        st.session_state['db_a_conectar'] = None
 
-    # 2. Carga optimizada
+    if 'DB_ACTUAL' not in st.session_state:
+        st.session_state['DB_ACTUAL'] = None
+
+    # 2. Obtenemos credenciales y el listado masivo desde TiDB Cloud / Backend
     user_rol = st.session_state.get('rol', 'admin')
     user_cliente_id = st.session_state.get('cliente_id', None)
     
     lista_empresas = []
     
-    # Intentamos obtener la lista real
     if 'obtener_todas_las_empresas' in globals() and callable(globals()['obtener_todas_las_empresas']):
-        lista_empresas = obtener_todas_las_empresas(user_rol=user_rol, user_id=user_cliente_id) or []
+        try:
+            lista_empresas = obtener_todas_las_empresas(user_rol=user_rol, user_id=user_cliente_id) or []
+        except Exception as e:
+            st.sidebar.error(f"❌ Error al consultar el listado de empresas: {e}")
 
-    # Blindaje: Si no hay empresas, forzamos al menos la tuya
+    # 3. Control estricto para las 500 empresas: Si está vacío, se advierte sin quemar valores
     if not lista_empresas:
-        lista_empresas = ["pedacito_de_cielo_ca"]
+        st.sidebar.warning("⚠️ No se encontraron empresas disponibles en la base de datos o el listado está vacío.")
+        return
 
-    # 3. SELECTOR SEARCHABLE (El usuario escribe y filtra entre las 500)
-    # Streamlit lo hace automáticamente search-enabled si la lista es grande
+    # Aseguramos que el valor actual de la sesión esté dentro de las 500 opciones, si no, tomamos la primera
+    current_val = st.session_state.get('db_a_conectar')
+    if current_val not in lista_empresas:
+        st.session_state['db_a_conectar'] = lista_empresas[0]
+
+    # 4. SELECTOR MASIVO (Searchable nativo de Streamlit para las 500 empresas)
     empresa_seleccionada = st.sidebar.selectbox(
-        "🔍 Buscar y Seleccionar Empresa", 
-        lista_empresas, 
-        key='db_a_conectar' # Esta es la única vía oficial para cambiar el valor
+        "🔍 Buscar entre las 500 empresas...", 
+        options=lista_empresas, 
+        key='db_a_conectar'
     )
     
-    # 4. Sincronización (No escribas directamente en 'db_a_conectar', lee el resultado del widget)
-    if st.session_state['DB_ACTUAL'] != empresa_seleccionada:
+    # 5. Sincronización automática ante cambios de selección
+    if st.session_state.get('DB_ACTUAL') != empresa_seleccionada:
         st.session_state['DB_ACTUAL'] = empresa_seleccionada
         st.session_state['CLIENTE_NOMBRE'] = empresa_seleccionada
-        st.rerun() # Recargamos para que todo el sistema tome la nueva DB inmediatamente
+        st.rerun()
 
 
 # --- 2. PANTALLA DE LOGIN ---
