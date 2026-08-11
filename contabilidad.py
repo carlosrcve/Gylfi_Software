@@ -836,6 +836,27 @@ if menu_lateral == "📊 Auditoría Contable":
 
 if "🏠 Inicio" in opcion_menu:
 
+    # --- INYECCIÓN DE CSS PARA ENSANCHAR ETIQUETAS Y TARJETAS ---
+    st.markdown(
+        """
+        <style>
+            /* Expandir el ancho de las tarjetas de métricas y permitir mejor lectura */
+            div[data-testid="stMetric"] {
+                background-color: #ffffff;
+                padding: 15px;
+                border-radius: 8px;
+            }
+            /* Forzar que el texto de la etiqueta de la métrica no se corte y tenga más espacio */
+            div[data-testid="stMetricLabel"] > label {
+                font-size: 14px !important;
+                white-space: normal !important;
+                overflow: visible !important;
+            }
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+
     user_rol = st.session_state.get('rol')
     user_cliente_id = st.session_state.get('cliente_id')
 
