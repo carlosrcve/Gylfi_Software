@@ -298,10 +298,6 @@ if 'logueado' not in st.session_state:
     st.stop()
 
 
-import streamlit as st
-import pandas as pd
-import bcrypt
-
 def panel_administracion(conn):
     st.header("⚙️ Gestión de Usuarios y Accesos")
     
@@ -587,3 +583,239 @@ if menu == "⚙️ Gestión de Usuarios":
         st.error(f"Error al acceder a la gestión central: {e}")
 
     st.stop()
+
+
+
+
+def obtener_saldos_acumulados(conexion, fecha_corte, nombre_db):
+    if not conexion:
+        print("❌ Error: No hay conexión activa en obtener_saldos_acumulados")
+        return {"activo": 0, "pasivo": 0, "patrimonio": 0}
+    
+    cur = conexion.cursor(dictionary=True)
+    
+    try:
+        # Consulta unificada para traer todo en un solo viaje a MySQL y aligerar la carga
+        query = """
+            SELECT 
+                COALESCE(SUM(CASE WHEN plan_cuentas LIKE '1%' THEN (debe - haber) ELSE 0 END), 0) as activo,
+                COALESCE(SUM(CASE WHEN plan_cuentas LIKE '2%' THEN (haber - debe) ELSE 0 END), 0) as pasivo,
+                COALESCE(SUM(CASE WHEN plan_cuentas LIKE '3%' THEN (haber - debe) ELSE 0 END), 0) as patrimonio
+            FROM (
+                SELECT plan_cuentas, debe, haber FROM saldos_iniciales
+                UNION ALL
+                SELECT plan_cuentas, debe, haber FROM asientos_contables WHERE fecha <= %s
+            ) as todo_el_acumulado
+        """
+        
+        cur.execute(query, (fecha_corte,))
+        resultado = cur.fetchone()
+        
+        if resultado:
+            return {
+                "activo": float(resultado.get('activo', 0) or 0),
+                "pasivo": float(resultado.get('pasivo', 0) or 0),
+                "patrimonio": float(resultado.get('patrimonio', 0) or 0)
+            }
+            
+    except Exception as e:
+        print(f"⚠️ Error al calcular saldos acumulados en {nombre_db}: {e}")
+        
+    finally:
+        # Nos aseguramos de cerrar el cursor siempre para liberar memoria y evitar lentitud al cerrar sesión
+        cur.close()
+        
+    return {"activo": 0, "pasivo": 0, "patrimonio": 0}
+
+
+@st.cache_data(ttl=300)
+def obtener_historico_utilidad(db, f_inicio=None, f_fin=None):
+    # Nota: Como usa caché, la conexión la abrimos y cerramos de forma local y segura aquí dentro
+    conn = conectar_db(db)
+    df_default = pd.DataFrame({'utilidad_mensual': [0.0]})
+    
+    if not conn:
+        return df_default
+    
+    if f_inicio is not None and f_fin is None:
+        f_fin = f_inicio
+        f_inicio = None
+
+    if f_fin is None:
+        import datetime
+        f_fin = datetime.date.today()
+    
+    fecha_fin_str = f_fin.strftime('%Y-%m-%d') if hasattr(f_fin, 'strftime') else str(f_fin).split()[0]
+
+    if f_inicio is not None:
+        fecha_inicio_str = f_inicio.strftime('%Y-%m-%d') if hasattr(f_inicio, 'strftime') else str(f_inicio).split()[0]
+    else:
+        partes = fecha_fin_str.split('-')
+        fecha_inicio_str = f"{partes[0]}-{partes[1]}-01"
+    
+    # Optimizamos la consulta quitando DATE() para que use índices de fecha en MySQL
+    query = f"""
+        SELECT 
+            COALESCE(SUM(CASE WHEN plan_cuentas LIKE '4%' THEN haber ELSE 0 END), 0) as ing_haber,
+            COALESCE(SUM(CASE WHEN plan_cuentas LIKE '4%' THEN debe ELSE 0 END), 0) as ing_debe,
+            
+            COALESCE(SUM(CASE WHEN plan_cuentas LIKE '5%' THEN debe ELSE 0 END), 0) as cos_debe,
+            COALESCE(SUM(CASE WHEN plan_cuentas LIKE '5%' THEN haber ELSE 0 END), 0) as cos_haber,
+            
+            COALESCE(SUM(CASE WHEN plan_cuentas LIKE '6%' THEN debe ELSE 0 END), 0) as gas_debe,
+            COALESCE(SUM(CASE WHEN plan_cuentas LIKE '6%' THEN haber ELSE 0 END), 0) as gas_haber,
+
+            COALESCE(SUM(CASE WHEN plan_cuentas LIKE '7%' THEN haber ELSE 0 END), 0) as oing_haber,
+            COALESCE(SUM(CASE WHEN plan_cuentas LIKE '7%' THEN debe ELSE 0 END), 0) as oing_debe,
+            
+            COALESCE(SUM(CASE WHEN plan_cuentas LIKE '8%' THEN debe ELSE 0 END), 0) as oeg_debe,
+            COALESCE(SUM(CASE WHEN plan_cuentas LIKE '8%' THEN haber ELSE 0 END), 0) as oeg_haber
+        FROM `{db}`.asientos_contables 
+        WHERE fecha >= %s AND fecha <= %s
+    """
+    
+    cursor = conn.cursor(dictionary=True)
+    try:
+        cursor.execute(query, (fecha_inicio_str, fecha_fin_str))
+        resultados = cursor.fetchall()
+
+        if not resultados:
+            return df_default
+            
+        df = pd.DataFrame(resultados)
+        
+        if df.empty or df.isnull().all().all():
+            return df_default
+            
+        df = df.fillna(0)
+
+        ingresos = float(df['ing_haber'].iloc[0]) - float(df['ing_debe'].iloc[0])
+        costos = float(df['cos_debe'].iloc[0]) - float(df['cos_haber'].iloc[0])
+        gastos = abs(float(df['gas_debe'].iloc[0]) - float(df['gas_haber'].iloc[0]))
+        otros_ingresos = float(df['oing_haber'].iloc[0]) - float(df['oing_debe'].iloc[0])
+        otros_egresos = abs(float(df['oeg_debe'].iloc[0]) - float(df['oeg_haber'].iloc[0]))
+
+        utilidad_neta = ingresos - costos - gastos + otros_ingresos - otros_egresos
+        
+        df['utilidad_mensual'] = utilidad_neta
+        return df
+        
+    except Exception as e:
+        print(f"❌ Error al calcular la utilidad para {fecha_inicio_str} al {fecha_fin_str}: {e}")
+        return df_default
+        
+    finally:
+        cursor.close()
+        conn.close()
+
+
+if "Inicio" in opcion_menu:
+    # 1. Obtenemos el rol y el cliente_id de la sesión de manera segura
+    user_rol = st.session_state.get('rol')
+    user_cliente_id = st.session_state.get('cliente_id')
+
+    # 2. Determinamos la base de datos objetivo según el rol
+    conn_ctrl = conectar_db()
+    db_objetivo = None
+    
+    if conn_ctrl:
+        try:
+            if user_rol == 'admin':
+                # El admin puede ver la seleccionada en sesión o la primera por defecto
+                db_objetivo = st.session_state.get('DB_ACTUAL')
+                if not db_objetivo or db_objetivo == 'No seleccionada':
+                    query = "SELECT * FROM clientes LIMIT 1"
+                    df_temp = pd.read_sql(query, conn_ctrl)
+                    if not df_temp.empty:
+                        col_bd = next((c for c in df_temp.columns if 'bd' in c.lower() or 'base' in c.lower() or 'schema' in c.lower()), df_temp.columns[-1])
+                        db_objetivo = str(df_temp[col_bd].iloc[0])
+            else:
+                # RESTRICCIÓN DE CLIENTE: Forzamos estrictamente su propia base de datos asociada
+                query = f"SELECT * FROM clientes WHERE id = {user_cliente_id}"
+                df_temp = pd.read_sql(query, conn_ctrl)
+                if not df_temp.empty:
+                    col_bd = next((c for c in df_temp.columns if 'bd' in c.lower() or 'base' in c.lower() or 'schema' in c.lower()), df_temp.columns[-1])
+                    db_objetivo = str(df_temp[col_bd].iloc[0])
+        except Exception as e:
+            st.error(f"❌ Error al resolver la base de datos del usuario: {e}")
+            st.stop()
+        finally:
+            conn_ctrl.close()
+
+    if not db_objetivo:
+        st.error("❌ No se encontró una base de datos asignada o válida.")
+        st.stop()
+
+    # Actualizamos el estado global de la BD actual
+    st.session_state['DB_ACTUAL'] = db_objetivo
+    st.session_state['db_a_conectar'] = db_objetivo
+
+    # 3. Verificamos conexión activa con la BD correspondiente
+    if 'conn' not in st.session_state or st.session_state.get('ultima_db_conectada') != db_objetivo:
+        nueva_conn = conectar_db(db_objetivo)
+        if nueva_conn:
+            st.session_state.conn = nueva_conn
+            st.session_state.ultima_db_conectada = db_objetivo
+        else:
+            st.error(f"❌ No se pudo conectar a la base de datos: {db_objetivo}")
+            st.stop()
+
+    # 4. FECHAS SINCRONIZADAS
+    meses_lista = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
+    anio_f = int(st.session_state.get('año_seleccionado_contabilidad', 2026))
+    mes_nombre_f = st.session_state.get('mes_seleccionado_contabilidad', 'Mayo')
+    m_idx = meses_lista.index(mes_nombre_f) + 1 if mes_nombre_f in meses_lista else 5
+    
+    f_inicio_global = datetime.date(anio_f, m_idx, 1)
+    if m_idx == 12:
+        f_fin_global = datetime.date(anio_f, 12, 31)
+    else:
+        f_fin_global = datetime.date(anio_f, m_idx + 1, 1) - datetime.timedelta(days=1)
+
+    # 5. TÍTULO Y RENDERIZADO DE KPIs
+    st.title(f"📊 Auditoría Profesional: {db_objetivo}")
+    st.markdown(f"**Período de Análisis:** {f_inicio_global.strftime('%d/%m/%Y')} al {f_fin_global.strftime('%d/%m/%Y')}")
+    st.divider()
+    
+    # Llamamos al sidebar
+    gestionar_sidebar()
+
+    col_kpi, col_btn = st.columns([0.8, 0.2])
+    with col_kpi:
+        st.subheader("Indicadores Financieros en Tiempo Real")
+
+    with st.spinner(f'Comunicando con MySQL para {db_objetivo}...'):
+        conn = st.session_state.conn
+        if conn and conn.is_connected():
+            kpis = obtener_saldos_acumulados(conn, f_fin_global, db_objetivo)
+        else:
+            kpis = None
+
+        if kpis is None:
+            kpis = {"activo": 0, "pasivo": 0, "patrimonio": 0}
+
+        df_utilidad = obtener_historico_utilidad(db_objetivo, f_inicio=f_inicio_global, f_fin=f_fin_global)
+        if df_utilidad is None:
+            df_utilidad = pd.DataFrame()
+
+    valor_activo = kpis.get('activo', 0)
+    valor_pasivo = kpis.get('pasivo', 0)
+    valor_patrimonio = kpis.get('patrimonio', 0)
+
+    u_v = 0
+    if not df_utilidad.empty and 'utilidad_mensual' in df_utilidad.columns:
+        u_v = df_utilidad['utilidad_mensual'].iloc[0]
+
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.container(border=True).metric("💰 ACTIVO", f"Bs. {valor_activo:,.2f}")
+    with col2:
+        st.container(border=True).metric("📉 PASIVO", f"Bs. {valor_pasivo:,.2f}")
+    with col3:
+        st.container(border=True).metric("🏗️ PATRIMONIO", f"Bs. {valor_patrimonio:,.2f}")
+    with col4:
+        st.container(border=True).metric(
+            "📊 UTILIDAD NETA ACUM.", 
+            f"Bs. {u_v:,.2f}",
+            delta_color="normal" if u_v >= 0 else "inverse"
+        )
