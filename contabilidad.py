@@ -7516,11 +7516,19 @@ if "Inicio" in opcion_menu:
         with col_kpi:
             st.subheader("Indicadores Financieros en Tiempo Real")
 
-        db = db_objetivo
+        db = db_objetivo or st.session_state.get('DB_ACTUAL')
 
         with st.spinner(f'Comunicando con MySQL para {db}...'):
-            db_actual = st.session_state.get('db_a_conectar')
-            kpis = obtener_saldos_acumulados(conn, f_fin_global, db_actual)
+            # Abrimos una conexión fresca exclusivamente para este bloque de KPIs
+            conn_temporal = conectar_db(db)
+            
+            if conn_temporal is not None:
+                kpis = obtener_saldos_acumulados(conn_temporal, f_fin_global, db)
+                # Cerramos la conexión de los saldos inmediatamente
+                conn_temporal.close()
+            else:
+                kpis = None
+
             if kpis is None:
                 kpis = {"activo": 0, "pasivo": 0, "patrimonio": 0}
 
