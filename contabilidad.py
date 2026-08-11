@@ -7453,7 +7453,7 @@ if "Inicio" in opcion_menu:
             st.session_state.conn = None
             st.error(f"❌ No se pudo establecer la conexión con la base de datos '{db_actual}' en TiDB Cloud.")
             st.stop()
-a
+
     # 4. FECHAS SINCRONIZADAS
     meses_lista = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
     anio_f = int(st.session_state.get('año_seleccionado_contabilidad', 2026))
