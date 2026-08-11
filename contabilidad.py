@@ -8956,6 +8956,7 @@ if "Inicio" in opcion_menu:
 
         # 1. CONDICIONAL: Solo mostrar si el cliente actual es "pedacito_de_cielo_ca" (o el nombre de su BD)
         # 1. CONDICIONAL: Solo mostrar si el cliente actual es "pedacito_de_cielo_ca"
+        st.write(f"DEBUGGING - Base de datos actual: `{db}`")
         if db == "pedacito_de_cielo_ca":
             # 1. Asegurarnos primero de obtener una conexión válida mediante tu función multicliente
             conexion_activa = conectar_db("pedacito_de_cielo_ca")
