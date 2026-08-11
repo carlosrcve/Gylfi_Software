@@ -854,18 +854,25 @@ def gestionar_sidebar():
                 })
 
             nombres_empresas = df_filtrado['nombre_empresa'].tolist()
-            nombre_inicial = nombres_empresas[0]
+            
+            # Aseguramos que el selectbox recuerde la opción seleccionada previamente
+            index_actual = 0
+            if 'cliente_seleccionado_previo' in st.session_state and st.session_state['cliente_seleccionado_previo'] in nombres_empresas:
+                index_actual = nombres_empresas.index(st.session_state['cliente_seleccionado_previo'])
 
             if user_rol == 'admin':
                 nombre_seleccionado = st.selectbox(
                     "Seleccione Empresa", 
-                    options=nombres_empresas, 
+                    options=nombres_empresas,
+                    index=index_actual,
                     key="selector_empresa"
                 )
             else:
-                nombre_seleccionado = nombre_inicial
+                nombre_seleccionado = nombres_empresas[0]
                 st.markdown(f"**🏢 Empresa Asignada:**")
                 st.info(f"{str(nombre_seleccionado).upper()}")
+
+            st.session_state['cliente_seleccionado_previo'] = nombre_seleccionado
 
             fila_seleccionada = df_filtrado[df_filtrado['nombre_empresa'] == nombre_seleccionado]
             if fila_seleccionada.empty:
@@ -874,12 +881,12 @@ def gestionar_sidebar():
             datos_sel = fila_seleccionada.iloc[0]
             db_seleccionada = str(datos_sel['db_nombre']).strip()
             
-            # --- VALIDACIÓN Y REINICIO INMEDIATO DE CONEXIÓN AL CAMBIAR DE EMPRESA ---
+            # --- VALIDACIÓN Y REINICIO DE CONEXIÓN LIMPIO ---
             if st.session_state.get('DB_ACTUAL') != db_seleccionada:
                 st.session_state['DB_ACTUAL'] = db_seleccionada
                 st.session_state['db_a_conectar'] = db_seleccionada
-                st.session_state.conn = None  # Limpiamos conexión vieja
-                st.rerun()                    # Recargamos al instante
+                st.session_state['conn'] = None  # Limpiamos conexión vieja de forma segura
+                st.rerun()
 
             st.session_state['DB_ACTUAL'] = db_seleccionada
             st.session_state['db_a_conectar'] = db_seleccionada
