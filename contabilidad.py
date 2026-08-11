@@ -4523,19 +4523,19 @@ def obtener_todas_las_empresas(user_rol, user_id):
             return []
         
         # Omitimos el filtro de ID conflictivo y traemos directamente todas las empresas activas de la tabla
-        query = "SELECT nombre_empresa FROM clientes WHERE estado = 'Activo' OR estado IS NULL"
+        query = "SELECT db_nombre FROM clientes WHERE estado = 'Activo' OR estado IS NULL"
         df = pd.read_sql(query, conn)
         
         # Si por alguna razón el WHERE estricto no trajo nada, traemos todo sin condiciones
         if df.empty:
-            df = pd.read_sql("SELECT nombre_empresa FROM clientes", conn)
+            df = pd.read_sql("SELECT db_nombre FROM clientes", conn)
                 
         conn.close()
         
-        if df.empty or 'nombre_empresa' not in df.columns:
+        if df.empty or 'db_nombre' not in df.columns:
             return []
             
-        return df['nombre_empresa'].dropna().astype(str).tolist()
+        return df['db_nombre'].dropna().astype(str).tolist()
         
     except Exception as e:
         st.sidebar.error(f"❌ Error al obtener empresas: {e}")
