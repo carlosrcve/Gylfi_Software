@@ -591,27 +591,27 @@ def gestionar_sidebar():
         st.markdown(
             """
             <style>
-                /* Forzar opacidad total y nitidez en los textos de los selectbox desplegados */
+                /* Forzar opacidad total y color de texto nítido en las opciones del selectbox */
                 div[data-baseweb="popover"] div[role="option"] div,
                 div[data-baseweb="popover"] div[role="option"] span,
                 div[data-baseweb="menu"] div,
                 div[data-baseweb="menu"] span {
                     opacity: 1 !important;
-                    color: #f8fafc !important; /* Texto blanco nítido */
-                    font-weight: 500 !important;
+                    color: #1e293b !important; /* Texto oscuro y definido */
+                    font-weight: 600 !important;
                 }
 
-                /* Mejorar el fondo del menú flotante para que resalte limpio */
+                /* Estilo del contenedor flotante del menú */
                 div[data-baseweb="popover"] {
-                    background-color: #0f172a !important;
-                    border: 1px solid #334155 !important;
+                    background-color: #ffffff !important;
+                    border: 1px solid #cbd5e1 !important;
                     border-radius: 8px !important;
-                    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5) !important;
+                    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1) !important;
                 }
 
-                /* Resaltar la opción seleccionada o en hover con un color sólido */
+                /* Color al pasar el cursor sobre las opciones */
                 div[data-baseweb="popover"] div[role="option"]:hover {
-                    background-color: #1e293b !important;
+                    background-color: #f1f5f9 !important;
                 }
             </style>
             """,
