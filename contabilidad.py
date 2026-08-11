@@ -7392,26 +7392,21 @@ else:
 
 
 if "Inicio" in opcion_menu:
-    # 1. PRIMERO LO PRIMERO: Ejecutamos el Sidebar para que dibuje el selector de las 500 empresas
-    gestionar_sidebar()
-
-    # 2. Rescatamos la DB seleccionada desde las variables de estado unificadas
-    db_actual = st.session_state.get('DB_ACTUAL') or st.session_state.get('db_a_conectar', 'No seleccionada')
+    # 1. Recuperamos la DB seleccionada desde tu variable de estado
+    db_actual = st.session_state.get('DB_ACTUAL', 'No seleccionada')
     
-    if not db_actual or db_actual == 'No seleccionada':
-        st.warning("⚠️ Por favor seleccione una empresa válida en el panel lateral.")
-        st.stop()
-
-    # Corrección de nombre si aplica
-    db_actual = db_actual.replace("driver_ca", "dirver_ca")
-    st.session_state['DB_ACTUAL'] = db_actual
-
-    # 3. Verificamos si la conexión actual coincide, si no, reconectamos a TiDB Cloud
+    # 2. Verificamos si la conexión actual coincide
     conexion_coincide = st.session_state.get('ultima_db_conectada') == db_actual
 
+    # 3. Si no hay conexión O no coincide, reconectamos
     if 'conn' not in st.session_state or st.session_state.conn is None or not conexion_coincide:
+        if db_actual == 'No seleccionada':
+            st.warning("⚠️ Por favor seleccione una empresa válida.")
+            st.stop()
+            
         st.info(f"🔄 Conectando a la base de datos: {db_actual}...")
         
+        # Conexión directa a TiDB Cloud usando el nombre correcto
         nueva_conn = conectar_db(db_actual)
         
         if nueva_conn is not None:
@@ -7441,6 +7436,48 @@ if "Inicio" in opcion_menu:
     st.divider()
     
     conn = st.session_state.conn
+
+    try:
+        # 1. PRIMERO: Llamamos al sidebar antes de tocar la pantalla
+        gestionar_sidebar()
+
+        # 2. Rescatamos la empresa actual de la sesión (Sin modificaciones de nombre)
+        db_objetivo = st.session_state.get('db_a_conectar') or st.session_state.get('DB_ACTUAL')
+
+        if db_objetivo:
+            st.session_state['db_a_conectar'] = db_objetivo
+            st.session_state['DB_ACTUAL'] = db_objetivo
+
+        # 3. Si la sesión está en blanco, tomamos la primera disponible desde la BD central
+        if not db_objetivo:
+            user_rol = st.session_state.get('rol')
+            user_cliente_id = st.session_state.get('cliente_id')
+            
+            conn_ctrl = conectar_db()
+            if conn_ctrl:
+                # Usamos una consulta segura para obtener el nombre exacto de la base de datos
+                if user_rol == 'admin':
+                    query = "SELECT * FROM clientes LIMIT 1"
+                else:
+                    query = f"SELECT * FROM clientes WHERE id = {user_cliente_id}"
+                    
+                df_empresas_temp = pd.read_sql(query, conn_ctrl)
+                conn_ctrl.close()
+                
+                if not df_empresas_temp.empty:
+                    # Buscamos la columna de base de datos sin alterar el valor encontrado
+                    columna_bd = next((c for c in df_empresas_temp.columns if 'bd' in c.lower() or 'base' in c.lower() or 'schema' in c.lower()), df_empresas_temp.columns[-1])
+                    db_objetivo = str(df_empresas_temp[columna_bd].iloc[0])
+                    
+                    # Guardamos el nombre real e íntegro
+                    st.session_state['db_a_conectar'] = db_objetivo
+                    st.session_state['DB_ACTUAL'] = db_objetivo
+                else:
+                    st.error("❌ No se encontró ninguna base de datos disponible para este usuario.")
+                    st.stop()
+            else:
+                st.error("❌ No se pudo conectar a la base de datos central.")
+                st.stop()
 
         # 4. Dibujamos la interfaz
         col_kpi, col_btn = st.columns([0.8, 0.2])
