@@ -149,48 +149,24 @@ with st.sidebar:
                 
                 cursor_tmp = conn_sidebar.cursor()
                 try:
-                    # Forzamos el uso del esquema central en TiDB Cloud donde están las 500 empresas
                     cursor_tmp.execute("USE control_central;")
                 except Exception:
                     pass 
                 cursor_tmp.close()
 
-                # Definimos las consultas asegurando la lectura masiva
-                # Definimos las consultas asegurando la lectura masiva
-                queries_a_probar = [
-                    "SELECT id, nombre_empresa, db_nombre FROM control_central.clientes",
-                    "SELECT id, nombre_empresa, db_nombre FROM clientes"
-                ]
+                # CONSULTA CON JOIN: Vinculamos clientes con usuarios para traer el propietario
+                query_join = """
+                    SELECT c.id, c.nombre_empresa, c.db_nombre, u.usuario as nombre_usuario, u.rol as rol_usuario 
+                    FROM clientes c
+                    LEFT JOIN usuarios u ON (c.id = u.cliente_id OR c.db_nombre = u.db_nombre)
+                """
                 
-                for q in queries_a_probar:
-                    try:
-                        q_final = q
-                        if user_rol != 'admin':
-                            # Usamos cliente_id de la tabla usuarios o hacemos un JOIN directo para mayor precisión
-                            c_id = st.session_state.get('cliente_id')
-                            user_db_nombre = st.session_state.get('db_nombre_usuario') # O filtramos directo por ID de la tabla clientes
-                            
-                            if c_id:
-                                q_final = f"{q} WHERE id = {c_id}"
-                        
-                        df_sidebar = pd.read_sql(q_final, conn_sidebar)
-                        
-                        # Si es cliente y la consulta anterior por ID de clientes falló o vino vacía, 
-                        # filtramos el dataframe global usando el db_nombre asignado en la sesión/tabla usuarios
-                        if user_rol != 'admin' and df_sidebar.empty:
-                            q_fallback = q
-                            df_all = pd.read_sql(q_fallback, conn_sidebar)
-                            db_asignada = st.session_state.get('db_a_conectar')
-                            if not db_asignada and 'db_nombre' in st.session_state:
-                                db_asignada = st.session_state.get('db_nombre')
-                            
-                            if db_asignada and not df_all.empty:
-                                df_sidebar = df_all[df_all['db_nombre'] == db_asignada]
+                if user_rol != 'admin':
+                    c_id = st.session_state.get('cliente_id')
+                    if c_id:
+                        query_join += f" WHERE c.id = {c_id}"
 
-                        if not df_sidebar.empty:
-                            break
-                    except Exception:
-                        continue
+                df_sidebar = pd.read_sql(query_join, conn_sidebar)
 
             except Exception as e:
                 st.error(f"❌ Error de conexión en la barra lateral: {e}")
@@ -225,8 +201,6 @@ with st.sidebar:
                 st.warning("⚠️ Por favor, seleccione una empresa válida.")
                 st.stop()
                 
-            st.write(f"Empresa seleccionada: '{str(seleccion).upper()}'")
-            
             empresa_filtrada = df_sidebar[df_sidebar['nombre_empresa'] == seleccion]
             if empresa_filtrada.empty:
                 st.error("❌ No se encontró la empresa seleccionada en los registros.")
@@ -234,6 +208,7 @@ with st.sidebar:
                 
             datos_sel = empresa_filtrada.iloc[0]
             db_raw = datos_sel['db_nombre']
+            usuario_asignado = datos_sel['nombre_usuario'] if 'nombre_usuario' in datos_sel and datos_sel['nombre_usuario'] else "No asignado"
             
             if pd.isna(db_raw) or not db_raw:
                 st.error(f"⚠️ La empresa '{seleccion}' no tiene asignada una base de datos válida.")
@@ -243,6 +218,10 @@ with st.sidebar:
             st.session_state['DB_ACTUAL'] = DB_ACTUAL
             st.session_state['CLIENTE_NOMBRE'] = seleccion
             st.session_state['cliente_id_seleccionado'] = int(datos_sel['id'])
+            
+            # Mostramos en pantalla la empresa y el usuario vinculado dinámicamente
+            st.write(f"Empresa seleccionada: '{str(seleccion).upper()}'")
+            st.info(f"👤 **Usuario Propietario:** {str(usuario_asignado).capitalize()}")
             
             st.subheader("Módulos")
             modulos_disponibles = [
