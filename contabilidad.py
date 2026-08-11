@@ -8738,11 +8738,12 @@ if "Inicio" in opcion_menu:
                     f_i = f"{int(anio_sel)}-{mes_n:02d}-01"
                     f_f = f"{int(anio_sel)}-{mes_n:02d}-31"
                     
+                    # 2. Inicializamos las variables por seguridad antes de usarlas
                     df_comps = pd.DataFrame()
-                    conn_tmp = conectar_db(db_name)
+                    seleccion_opcion = None
+
                     if conn_tmp:
                         try:
-                            # 🚨 AHORA SÍ FILTRAMOS POR FECHA EN LA CONSULTA
                             query_comps = f"""
                                 SELECT DISTINCT n_comprobante, fecha 
                                 FROM `{db_name}`.asientos_contables 
@@ -8757,57 +8758,58 @@ if "Inicio" in opcion_menu:
                         finally:
                             conn_tmp.close()
 
-                        # 3. MOSTRAR RESULTADOS FILTRADOS
-                        if not df_comps.empty:
-                            def formato_latino(val):
-                                try: return f"{float(val):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-                                except: return val
+                    # 3. MOSTRAR RESULTADOS FILTRADOS
+                    if not df_comps.empty:
+                        def formato_latino(val):
+                            try: return f"{float(val):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                            except: return val
 
-                            df_comps['opcion'] = df_comps['n_comprobante'].astype(str) + " (Fecha: " + df_comps['fecha'].astype(str) + ")"
-                            lista_opciones = df_comps['opcion'].tolist()
-                            
-                            seleccion_opcion = st.selectbox("📂 Selecciona el comprobante a visualizar:", lista_opciones, key="select_acc_final")
+                        df_comps['opcion'] = df_comps['n_comprobante'].astype(str) + " (Fecha: " + df_comps['fecha'].astype(str) + ")"
+                        lista_opciones = df_comps['opcion'].tolist()
                         
-                        if seleccion_opcion:
-                            comprobante_activo = seleccion_opcion.split(" ")[0]
-                            df_asiento = obtener_asiento_por_comprobante(db_name, comprobante_activo)
+                        seleccion_opcion = st.selectbox("📂 Selecciona el comprobante a visualizar:", lista_opciones, key="select_acc_final")
+
+                    # 4. Verificación segura con la variable ya declarada
+                    if seleccion_opcion:
+                        comprobante_activo = seleccion_opcion.split(" ")[0]
+                        df_asiento = obtener_asiento_por_comprobante(db_name, comprobante_activo)
+                        
+                        if df_asiento is not None and not df_asiento.empty:
+                            st.markdown(f"**Asiento Contable Completo del Comprobante N°: `{comprobante_activo}`**")
                             
-                            if df_asiento is not None and not df_asiento.empty:
-                                st.markdown(f"**Asiento Contable Completo del Comprobante N°: `{comprobante_activo}`**")
-                                
-                                df_mostrar = df_asiento.copy()
-                                df_mostrar['debe_num'] = pd.to_numeric(df_mostrar['debe'], errors='coerce').fillna(0)
-                                df_mostrar['haber_num'] = pd.to_numeric(df_mostrar['haber'], errors='coerce').fillna(0)
-                                
-                                total_debe = df_mostrar['debe_num'].sum()
-                                total_haber = df_mostrar['haber_num'].sum()
-                                
-                                df_mostrar['debe'] = df_mostrar['debe_num'].apply(formato_latino)
-                                df_mostrar['haber'] = df_mostrar['haber_num'].apply(formato_latino)
-                                df_mostrar = df_mostrar.drop(columns=['debe_num', 'haber_num'], errors='ignore')
-                                
-                                st.dataframe(
-                                    df_mostrar,
-                                    use_container_width=True,
-                                    height=350,
-                                    column_config={
-                                        "id": st.column_config.NumberColumn("id", format="%d"),
-                                        "n_comprobante": st.column_config.TextColumn("N° Comprobante"),
-                                        "descripcion": st.column_config.TextColumn("Descripción"),
-                                        "fecha": st.column_config.DateColumn("Fecha"),
-                                        "plan_cuentas": st.column_config.TextColumn("Plan de Cuentas"),
-                                        "cuenta_contable": st.column_config.TextColumn("Cuenta Contable"),
-                                        "referencia": st.column_config.TextColumn("Referencia"),
-                                        "debe": st.column_config.TextColumn("Debe"),
-                                        "haber": st.column_config.TextColumn("Haber")
-                                    }
-                                )
-                                
-                                col1, col2 = st.columns(2)
-                                col1.metric("Total Debe (Comprobante)", f"Bs. {formato_latino(total_debe)}")
-                                col2.metric("Total Haber (Comprobante)", f"Bs. {formato_latino(total_haber)}")
-                            else:
-                                st.info("No se encontraron detalles para este comprobante.")
+                            df_mostrar = df_asiento.copy()
+                            df_mostrar['debe_num'] = pd.to_numeric(df_mostrar['debe'], errors='coerce').fillna(0)
+                            df_mostrar['haber_num'] = pd.to_numeric(df_mostrar['haber'], errors='coerce').fillna(0)
+                            
+                            total_debe = df_mostrar['debe_num'].sum()
+                            total_haber = df_mostrar['haber_num'].sum()
+                            
+                            df_mostrar['debe'] = df_mostrar['debe_num'].apply(formato_latino)
+                            df_mostrar['haber'] = df_mostrar['haber_num'].apply(formato_latino)
+                            df_mostrar = df_mostrar.drop(columns=['debe_num', 'haber_num'], errors='ignore')
+                            
+                            st.dataframe(
+                                df_mostrar,
+                                use_container_width=True,
+                                height=350,
+                                column_config={
+                                    "id": st.column_config.NumberColumn("id", format="%d"),
+                                    "n_comprobante": st.column_config.TextColumn("N° Comprobante"),
+                                    "descripcion": st.column_config.TextColumn("Descripción"),
+                                    "fecha": st.column_config.DateColumn("Fecha"),
+                                    "plan_cuentas": st.column_config.TextColumn("Plan de Cuentas"),
+                                    "cuenta_contable": st.column_config.TextColumn("Cuenta Contable"),
+                                    "referencia": st.column_config.TextColumn("Referencia"),
+                                    "debe": st.column_config.TextColumn("Debe"),
+                                    "haber": st.column_config.TextColumn("Haber")
+                                }
+                            )
+                            
+                            col1, col2 = st.columns(2)
+                            col1.metric("Total Debe (Comprobante)", f"Bs. {formato_latino(total_debe)}")
+                            col2.metric("Total Haber (Comprobante)", f"Bs. {formato_latino(total_haber)}")
+                        else:
+                            st.info("No se encontraron detalles para este comprobante.")
                     else:
                         st.error("⚠️ La base de datos no tiene NINGÚN registro con '2.2.1' o 'Accionista'. Revisa si el nombre de la empresa o la tabla son correctos.")
                 else:
