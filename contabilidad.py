@@ -1425,7 +1425,7 @@ def gestionar_sidebar():
     st.sidebar.markdown("---")
     # ---------------------
 
-    # 1. Inicializamos la variable de sesión si no existe
+    # 1. Inicializamos las variables de sesión si no existen
     if 'db_a_conectar' not in st.session_state:
         st.session_state['db_a_conectar'] = None
 
@@ -1441,7 +1441,7 @@ def gestionar_sidebar():
         except Exception as e:
             st.sidebar.error(f"❌ Error al consultar el listado de empresas: {e}")
 
-    # 3. Control estricto para las 500 empresas: Si está vacío, se advierte
+    # 3. Control estricto: Si está vacío, se advierte
     if not lista_empresas:
         st.sidebar.warning("⚠️ No se encontraron empresas disponibles en la base de datos o el listado está vacío.")
         return
@@ -1451,27 +1451,9 @@ def gestionar_sidebar():
     if current_val not in lista_empresas:
         st.session_state['db_a_conectar'] = lista_empresas[0]
 
-    # 4. SELECTOR MASIVO (Searchable nativo de Streamlit para las 500 empresas)
+    # 4. SELECTOR MASIVO (Widget único y limpio en el sidebar)
     empresa_seleccionada = st.sidebar.selectbox(
-        "🔍 Buscar entre las 500 empresas...", 
-        options=lista_empresas, 
-        key='db_a_conectar'
-    )
-    
-    # 5. Sincronización automática ante cambios de selección
-    if st.session_state.get('DB_ACTUAL') != empresa_seleccionada:
-        st.session_state['DB_ACTUAL'] = empresa_seleccionada
-        st.session_state['CLIENTE_NOMBRE'] = empresa_seleccionada
-        st.rerun()
-
-    # Aseguramos que el valor actual de la sesión esté dentro de las opciones, si no, tomamos la primera
-    current_val = st.session_state.get('db_a_conectar')
-    if current_val not in lista_empresas:
-        st.session_state['db_a_conectar'] = lista_empresas[0]
-
-    # 4. SELECTOR MASIVO (Searchable nativo de Streamlit para las 500 empresas)
-    empresa_seleccionada = st.sidebar.selectbox(
-        "🔍 Buscar entre las 500 empresas...", 
+        "🔍 Seleccionar Empresa:", 
         options=lista_empresas, 
         key='db_a_conectar'
     )
