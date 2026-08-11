@@ -709,6 +709,108 @@ def obtener_historico_utilidad(db, f_inicio=None, f_fin=None):
         conn.close()
 
 
+
+@st.cache_data(ttl=300)
+def _obtener_datos_sidebar_cache():
+    """Consulta optimizada y cacheada para evitar latencia en la nube"""
+    try:
+        conn_debug = conectar_db()
+        if conn_debug:
+            df_sidebar = pd.read_sql(
+                "SELECT nombre_empresa, db_nombre FROM clientes WHERE estado = 'Activo' OR estado IS NULL", 
+                conn_debug
+            )
+            conn_debug.close()
+            return df_sidebar
+    except Exception:
+        pass
+    return pd.DataFrame()
+
+def gestionar_sidebar():
+    user_rol = st.session_state.get('rol', 'admin')
+    user_id = st.session_state.get('user_id', st.session_state.get('cliente_id', 'N/A'))
+    
+    # Obtenemos las empresas desde la caché rápida (reduce drásticamente el tiempo de carga)
+    df_sidebar = _obtener_datos_sidebar_cache()
+        
+    st.sidebar.markdown("---")
+
+    # 1. Obtenemos las bases de datos permitidas para este usuario
+    lista_db_permitidas = []
+    if 'obtener_todas_las_empresas' in globals() and callable(globals()['obtener_todas_las_empresas']):
+        try:
+            lista_db_permitidas = obtener_todas_las_empresas(user_rol=user_rol, user_id=user_id) or []
+        except Exception as e:
+            st.sidebar.error(f"❌ Error al consultar el listado de empresas: {e}")
+
+    # 2. PLAN DE EMERGENCIA ABSOLUTO
+    if not lista_db_permitidas:
+        db_en_sesion = st.session_state.get('db_a_conectar')
+        if db_en_sesion:
+            lista_db_permitidas = [db_en_sesion]
+        else:
+            lista_db_permitidas = ['pedacito_de_cielo_ca']
+            st.session_state['db_a_conectar'] = 'pedacito_de_cielo_ca'
+
+    # 3. Filtrado por rol
+    if str(user_rol).strip().lower() == 'admin' and not df_sidebar.empty:
+        df_filtrado = df_sidebar
+    else:
+        if not df_sidebar.empty:
+            df_filtrado = df_sidebar[df_sidebar['db_nombre'].isin(lista_db_permitidas)]
+        else:
+            df_filtrado = pd.DataFrame()
+
+    if df_filtrado.empty:
+        db_actual_emergencia = lista_db_permitidas[0]
+        df_filtrado = pd.DataFrame({
+            'nombre_empresa': ['REPRESENTACIONES PEDACITO DE CIELO, C.A.' if db_actual_emergencia == 'pedacito_de_cielo_ca' else db_actual_emergencia],
+            'db_nombre': [db_actual_emergencia]
+        })
+
+    nombres_empresas = df_filtrado['nombre_empresa'].tolist()
+    db_nombres = df_filtrado['db_nombre'].tolist()
+
+    # 4. Inicializamos variables de sesión si no existen
+    if 'db_a_conectar' not in st.session_state or st.session_state['db_a_conectar'] not in db_nombres:
+        st.session_state['db_a_conectar'] = db_nombres[0]
+
+    empresa_previa_db = st.session_state.get('db_a_conectar')
+    nombre_inicial = nombres_empresas[0]
+    
+    if empresa_previa_db in db_nombres:
+        idx = db_nombres.index(empresa_previa_db)
+        nombre_inicial = nombres_empresas[idx]
+
+    # 5. Selector según el rol
+    if str(user_rol).strip().lower() == 'admin':
+        nombre_seleccionado = st.sidebar.selectbox(
+            "🔍 Seleccionar Empresa:", 
+            options=nombres_empresas, 
+            index=nombres_empresas.index(nombre_inicial) if nombre_inicial in nombres_empresas else 0,
+            key="selector_nombre_empresa"
+        )
+    else:
+        nombre_seleccionado = nombre_inicial
+        st.sidebar.markdown(f"**🏢 Empresa Asignada:**")
+        st.sidebar.info(f"{str(nombre_seleccionado).upper()}")
+
+    if not nombre_seleccionado:
+        st.sidebar.warning("⚠️ Por favor, seleccione una empresa válida.")
+        st.stop()
+
+    fila_seleccionada = df_filtrado[df_filtrado['nombre_empresa'] == nombre_seleccionado]
+    db_seleccionada = fila_seleccionada['db_nombre'].iloc[0] if not fila_seleccionada.empty else db_nombres[0]
+
+    st.sidebar.write(f"Empresa seleccionada: '{str(nombre_seleccionado).upper()}'")
+
+    # 6. Sincronización automática
+    if st.session_state.get('db_a_conectar') != db_seleccionada:
+        st.session_state['db_a_conectar'] = db_seleccionada
+        st.session_state['DB_ACTUAL'] = db_seleccionada
+        st.session_state['CLIENTE_NOMBRE'] = nombre_seleccionado
+        st.rerun()
+
 if "Inicio" in opcion_menu:
     # 1. Obtenemos el rol y el cliente_id de la sesión de manera segura
     user_rol = st.session_state.get('rol')
