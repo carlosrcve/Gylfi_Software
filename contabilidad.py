@@ -536,78 +536,42 @@ def obtener_todas_las_empresas(user_rol, user_id):
 
 
 def obtener_saldos_acumulados(conexion, fecha_corte, nombre_db):
-    if not conexion:
-        print("❌ Error: No hay conexión activa en obtener_saldos_acumulados")
-        return {"activo": 0, "pasivo": 0, "patrimonio": 0}
+    if not conexion: return {"activo": 0, "pasivo": 0, "patrimonio": 0}
     
     db_segura = str(nombre_db).strip()
-    if not db_segura:
-        print("❌ Error: Nombre de base de datos vacío en obtener_saldos_acumulados")
-        return {"activo": 0, "pasivo": 0, "patrimonio": 0}
-
     cur = conexion.cursor(dictionary=True)
     
     try:
         cur.execute(f"USE `{db_segura}`")
-    except Exception as e:
-        print(f"⚠️ No se pudo usar la base de datos {db_segura}: {e}")
-        cur.close()
-        return {"activo": 0, "pasivo": 0, "patrimonio": 0}
-
-    # 🔍 DETECCIÓN AUTOMÁTICA DEL NOMBRE DE LA COLUMNA DE CUENTA
-    # Por si en tu BD se llama 'cuenta', 'codigo_cuenta' o 'plan_cuentas'
-    columna_cuenta = "plan_cuentas" # Valor por defecto
-    try:
-        cur.execute("SHOW COLUMNS FROM asientos_contables")
-        columnas_asientos = [row['Field'] for row in cur.fetchall()]
         
-        # Buscamos cuál de los nombres comunes existe realmente en tu tabla
-        for posible in ['plan_cuentas', 'codigo_cuenta', 'cuenta', 'cuenta_contable', 'n_cuenta']:
-            if posible in columnas_asientos:
-                columna_cuenta = posible
-                break
-    except Exception as e:
-        print(f"⚠️ No se pudieron verificar las columnas de asientos_contables: {e}")
-
-    res_ini = {'activo_ini': 0, 'pasivo_ini': 0, 'patrimonio_ini': 0}
-    try:
+        # Primero probamos la consulta normal
         cur.execute(f"""
             SELECT 
-                COALESCE(SUM(CASE WHEN {columna_cuenta} LIKE '1%' THEN (debe - haber) ELSE 0 END), 0) as activo_ini,
-                COALESCE(SUM(CASE WHEN {columna_cuenta} LIKE '2%' THEN (haber - debe) ELSE 0 END), 0) as pasivo_ini,
-                COALESCE(SUM(CASE WHEN {columna_cuenta} LIKE '3%' THEN (haber - debe) ELSE 0 END), 0) as patrimonio_ini
-            FROM saldos_iniciales
-        """)
-        f_ini = cur.fetchone()
-        if f_ini:
-            res_ini = f_ini
-    except Exception as e:
-        print(f"⚠️ Error al leer saldos_iniciales en {db_segura} (¿La tabla existe?): {e}")
-        
-    res_mov = {'activo_mov': 0, 'pasivo_mov': 0, 'patrimonio_mov': 0}
-    try:
-        cur.execute(f"""
-            SELECT 
-                COALESCE(SUM(CASE WHEN {columna_cuenta} LIKE '1%' THEN (debe - haber) ELSE 0 END), 0) as activo_mov,
-                COALESCE(SUM(CASE WHEN {columna_cuenta} LIKE '2%' THEN (haber - debe) ELSE 0 END), 0) as pasivo_mov,
-                COALESCE(SUM(CASE WHEN {columna_cuenta} LIKE '3%' THEN (haber - debe) ELSE 0 END), 0) as patrimonio_mov
+                COALESCE(SUM(CASE WHEN plan_cuentas LIKE '1%' THEN (debe - haber) ELSE 0 END), 0) as activo,
+                COALESCE(SUM(CASE WHEN plan_cuentas LIKE '2%' THEN (haber - debe) ELSE 0 END), 0) as pasivo,
+                COALESCE(SUM(CASE WHEN plan_cuentas LIKE '3%' THEN (haber - debe) ELSE 0 END), 0) as patrimonio
             FROM asientos_contables 
             WHERE fecha <= %s
         """, (fecha_corte,))
-        f_mov = cur.fetchone()
-        if f_mov:
-            res_mov = f_mov
-    except Exception as e:
-        print(f"⚠️ Error al leer asientos_contables para la fecha {fecha_corte} en {db_segura}: {e}")
         
-    cur.close()
-    
-    # Retorno seguro convertido a float
-    return {
-        "activo": float(res_ini.get('activo_ini', 0) or 0) + float(res_mov.get('activo_mov', 0) or 0),
-        "pasivo": float(res_ini.get('pasivo_ini', 0) or 0) + float(res_mov.get('pasivo_mov', 0) or 0),
-        "patrimonio": float(res_ini.get('patrimonio_ini', 0) or 0) + float(res_mov.get('patrimonio_mov', 0) or 0)
-    }
+        resultado = cur.fetchone()
+        
+        # Si todo es cero, hacemos una validación rápida sin cambiar la UI
+        if resultado and resultado['activo'] == 0 and resultado['pasivo'] == 0:
+            # Esto es solo para log interno, no se verá en la pantalla
+            cur.execute("SELECT MIN(fecha) as min_f FROM asientos_contables")
+            min_f = cur.fetchone()
+            # Si la fecha mínima es mayor a nuestra fecha de corte, el problema es el rango
+            if min_f and min_f['min_f'] and min_f['min_f'] > fecha_corte:
+                print(f"DEBUG: Los datos empiezan en {min_f['min_f']}, pero buscas hasta {fecha_corte}")
+                
+        return resultado if resultado else {"activo": 0, "pasivo": 0, "patrimonio": 0}
+
+    except Exception as e:
+        print(f"Error en consulta: {e}")
+        return {"activo": 0, "pasivo": 0, "patrimonio": 0}
+    finally:
+        cur.close()
 
 
 @st.cache_data(ttl=300)
@@ -1080,24 +1044,6 @@ if "🏠 Inicio" in opcion_menu:
         col_kpi, col_btn = st.columns([0.8, 0.2])
         with col_kpi:
             st.subheader("Indicadores Financieros en Tiempo Real")
-
-        # 🔍 AGREGUEMOS ESTE EXPANDER PARA VER QUÉ TIENE LA BD EN REALIDAD
-        with st.expander("🔍 Depuración de Datos en la BD"):
-            if conn and conn.is_connected():
-                cur = conn.cursor(dictionary=True)
-                try:
-                    cur.execute(f"SELECT COUNT(*) as total FROM `{db_objetivo}`.asientos_contables")
-                    st.write("Total de registros en asientos_contables:", cur.fetchone())
-                    
-                    cur.execute(f"SELECT MIN(fecha) as min_f, MAX(fecha) as max_f FROM `{db_objetivo}`.asientos_contables")
-                    st.write("Rango de fechas en la BD:", cur.fetchone())
-                    
-                    cur.execute(f"SELECT COUNT(*) as total_corte FROM `{db_objetivo}`.asientos_contables WHERE fecha <= %s", (f_fin_global,))
-                    st.write(f"Registros con fecha <= {f_fin_global}:", cur.fetchone())
-                except Exception as e:
-                    st.error(f"Error en depuración: {e}")
-                finally:
-                    cur.close()
 
         with st.spinner(f'Comunicando con MySQL para {db_objetivo}...'):
             if conn and conn.is_connected():
