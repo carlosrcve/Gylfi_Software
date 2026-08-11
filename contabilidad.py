@@ -7115,7 +7115,7 @@ with st.sidebar:
             unsafe_allow_html=True
         )
 
-        # Conexión para la barra lateral
+        # Conexión para la barra lateral en TiDB Cloud
         conn_sidebar = conectar_db()
         df_sidebar = pd.DataFrame()
 
@@ -7124,7 +7124,15 @@ with st.sidebar:
                 if hasattr(conn_sidebar, 'ping') and callable(conn_sidebar.ping):
                     conn_sidebar.ping(reconnect=True)
                 
-                # Intentamos primero con la ruta completa y si no existe, probamos con la tabla directa 'clientes'
+                cursor_tmp = conn_sidebar.cursor()
+                try:
+                    # Forzamos el uso del esquema central en TiDB Cloud donde están las 500 empresas
+                    cursor_tmp.execute("USE control_central;")
+                except Exception:
+                    pass 
+                cursor_tmp.close()
+
+                # Definimos las consultas asegurando la lectura masiva
                 queries_a_probar = [
                     "SELECT id, nombre_empresa, db_nombre FROM control_central.clientes",
                     "SELECT id, nombre_empresa, db_nombre FROM clientes"
@@ -7132,14 +7140,11 @@ with st.sidebar:
                 
                 for q in queries_a_probar:
                     try:
+                        q_final = q
                         if user_rol != 'admin':
                             c_id = st.session_state.get('cliente_id')
                             if c_id:
                                 q_final = f"{q} WHERE id = {c_id}"
-                            else:
-                                q_final = q
-                        else:
-                            q_final = q
                             
                         df_sidebar = pd.read_sql(q_final, conn_sidebar)
                         if not df_sidebar.empty:
@@ -7162,7 +7167,7 @@ with st.sidebar:
         if not df_sidebar.empty:
             df_sidebar = df_sidebar.fillna("")
             
-            # Selector de Empresa
+            # Selector de Empresa con soporte masivo
             nombres_empresas = df_sidebar['nombre_empresa'].tolist()
             empresa_previa = st.session_state.get('CLIENTE_NOMBRE')
             indice_inicial = 0
@@ -7231,7 +7236,7 @@ with st.sidebar:
             col_mes.selectbox("Mes", meses_lista, key="mes_seleccionado_contabilidad")
 
         else:
-            st.error("⚠️ No se encontraron empresas asociadas o la tabla de clientes está vacía en TiDB Cloud.")
+            st.error("⚠️ No se pudieron cargar las empresas desde TiDB Cloud. Verifica que la tabla 'clientes' exista en el esquema central.")
             st.stop()
 
 # =========================================================================
