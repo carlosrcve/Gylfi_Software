@@ -4498,57 +4498,33 @@ def marcar_retencion_completada(conn, id_factura, n_comprobante):
 
 @log_ejecucion
 def obtener_todas_las_empresas(user_rol=None, user_id=None):
+    # Conectamos al cluster central de TiDB Cloud
     conn_central = conectar_db()
     if not conn_central: 
-        st.error("❌ No se pudo conectar a la base de datos central.")
         return []
     
     try:
-        cursor = conn_central.cursor(dictionary=True)
+        cursor = conn_central.cursor()
         
-        # 1. Verificamos qué tablas existen
-        cursor.execute("SHOW TABLES;")
-        tablas_db = [list(row.values())[0] for row in cursor.fetchall()]
-        st.sidebar.write("📌 Tablas disponibles:", tablas_db)
-        
-        resultados = []
-        tabla_usada = ""
-        
-        # 2. Buscamos de forma inteligente en las tablas más probables
-        posibles_tablas = ['clientes', 'empresas', 'configuracion', 'usuarios', 'data_empresas']
-        for t in posibles_tablas:
-            if t in tablas_db:
-                try:
-                    cursor.execute(f"SELECT * FROM `{t}` LIMIT 500;")
-                    resultados = cursor.fetchall()
-                    if resultados:
-                        tabla_usada = t
-                        break
-                except Exception:
-                    continue
-                    
-        st.sidebar.write(f"📌 Tabla seleccionada con datos ({tabla_usada}):", len(resultados))
+        # En TiDB Cloud, consultamos directamente los schemas (bases de datos) disponibles
+        cursor.execute("SHOW DATABASES;")
+        resultados = cursor.fetchall()
         cursor.close()
         
-        # 3. Extraemos los nombres de las bases de datos de forma flexible
-        lista = []
+        # Listas de schemas internos de TiDB/MySQL que debemos excluir para quedarnos solo con las empresas
+        esquemas_sistema = ['information_schema', 'mysql', 'performance_schema', 'sys', 'test']
+        
+        lista_empresas = []
         for row in resultados:
-            # Buscamos cualquier columna que tenga pinta de nombre de BD o empresa
-            key_encontrada = next((k for k in ['nombre_bd', 'nombre', 'bd', 'schema', 'empresa', 'database', 'db'] if k in row), None)
-            if key_encontrada and row[key_encontrada]:
-                lista.append(str(row[key_encontrada]).strip())
+            nombre_db = row[0]
+            # Filtramos para descartar los del sistema y asegurarnos de que sean las bases de datos de clientes
+            if nombre_db.lower() not in esquemas_sistema:
+                lista_empresas.append(nombre_db)
                 
-        # Si por alguna razón sigue vacío pero la tabla tiene registros, intentamos usar la primera columna de cada fila
-        if not lista and resultados:
-            for row in resultados:
-                primera_columna = list(row.values())[0]
-                if primera_columna:
-                    lista.append(str(primera_columna).strip())
-
-        return list(set(lista)) # Eliminamos duplicados si los hubiera
+        return sorted(lista_empresas) # Devuelve la lista ordenada al alfabeticamente para las 500 empresas
         
     except Exception as e:
-        st.error(f"Error al buscar empresas: {e}")
+        st.error(f"Error al listar bases de datos en TiDB Cloud: {e}")
         return []
     finally:
         if conn_central and conn_central.is_connected():
