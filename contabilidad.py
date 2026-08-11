@@ -577,15 +577,15 @@ def obtener_saldos_acumulados(conexion, fecha_corte, nombre_db):
 
 
 def gestionar_sidebar():
-    # Normalizamos el rol para evitar problemas con mayúsculas, espacios o nulos
-    user_rol = str(st.session_state.get('rol', '')).strip().lower()
+    user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
     user_id = st.session_state.get('user_id', st.session_state.get('cliente_id', 'N/A'))
+    nombre_usuario_actual = st.session_state.get('nombre_usuario', st.session_state.get('username', 'Usuario'))
 
     with st.sidebar:
         st.image("https://cdn-icons-png.flaticon.com/512/2645/2645328.png", width=100)
         st.header("Panel de Auditoría")
 
-        # --- INSIGNIA DE DUEÑO Y ADMINISTRADOR ---
+        # --- ETIQUETA / INSIGNIA DE USUARIO LOGUEADO ---
         if user_rol == 'admin':
             st.markdown(
                 """
@@ -596,10 +596,20 @@ def gestionar_sidebar():
                 """, 
                 unsafe_allow_html=True
             )
+        else:
+            st.markdown(
+                f"""
+                <div style="background-color: #1e293b; padding: 10px; border-radius: 8px; text-align: center; margin-bottom: 15px; border: 1px solid #334155;">
+                    <span style="color: #38bdf8; font-weight: bold; font-size: 13px;">👤 Usuario Propietario:</span><br>
+                    <span style="color: #ffffff; font-size: 12px;">{nombre_usuario_actual}</span>
+                </div>
+                """, 
+                unsafe_allow_html=True
+            )
 
         st.markdown("---")
         
-        # Botón de cierre de sesión blindado
+        # Botón de cerrar sesión blindado contra duplicados
         if st.sidebar.button("🚪 Cerrar Sesión", key="btn_logout_unico_definitivo"):
             for key in list(st.session_state.keys()):
                 del st.session_state[key]
@@ -662,7 +672,6 @@ def gestionar_sidebar():
                 idx = db_nombres.index(empresa_previa_db)
                 nombre_inicial = nombres_empresas[idx]
 
-            # Forzamos que si es admin (o si quieres que siempre muestre el desplegable) renderice el selectbox
             if user_rol == 'admin':
                 nombre_seleccionado = st.selectbox(
                     "Seleccione Empresa", 
