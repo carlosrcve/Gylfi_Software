@@ -540,43 +540,57 @@ def obtener_saldos_acumulados(conexion, fecha_corte, nombre_db):
         print("❌ Error: No hay conexión activa en obtener_saldos_acumulados")
         return {"activo": 0, "pasivo": 0, "patrimonio": 0}
     
-    # Limpieza de seguridad para el nombre de la BD
     db_segura = str(nombre_db).strip()
-    if not db_segura or db_segura.lower() == 'activo':
-        db_segura = 'pedacito_de_cielo_ca'
+    if not db_segura:
+        print("❌ Error: Nombre de base de datos vacío en obtener_saldos_acumulados")
+        return {"activo": 0, "pasivo": 0, "patrimonio": 0}
 
     cur = conexion.cursor(dictionary=True)
     
     try:
-        # Aseguramos el contexto de la base de datos
         cur.execute(f"USE `{db_segura}`")
     except Exception as e:
         print(f"⚠️ No se pudo usar la base de datos {db_segura}: {e}")
         cur.close()
         return {"activo": 0, "pasivo": 0, "patrimonio": 0}
 
+    # 🔍 DETECCIÓN AUTOMÁTICA DEL NOMBRE DE LA COLUMNA DE CUENTA
+    # Por si en tu BD se llama 'cuenta', 'codigo_cuenta' o 'plan_cuentas'
+    columna_cuenta = "plan_cuentas" # Valor por defecto
+    try:
+        cur.execute("SHOW COLUMNS FROM asientos_contables")
+        columnas_asientos = [row['Field'] for row in cur.fetchall()]
+        
+        # Buscamos cuál de los nombres comunes existe realmente en tu tabla
+        for posible in ['plan_cuentas', 'codigo_cuenta', 'cuenta', 'cuenta_contable', 'n_cuenta']:
+            if posible in columnas_asientos:
+                columna_cuenta = posible
+                break
+    except Exception as e:
+        print(f"⚠️ No se pudieron verificar las columnas de asientos_contables: {e}")
+
     res_ini = {'activo_ini': 0, 'pasivo_ini': 0, 'patrimonio_ini': 0}
     try:
-        cur.execute("""
+        cur.execute(f"""
             SELECT 
-                COALESCE(SUM(CASE WHEN plan_cuentas LIKE '1%' THEN (debe - haber) ELSE 0 END), 0) as activo_ini,
-                COALESCE(SUM(CASE WHEN plan_cuentas LIKE '2%' THEN (haber - debe) ELSE 0 END), 0) as pasivo_ini,
-                COALESCE(SUM(CASE WHEN plan_cuentas LIKE '3%' THEN (haber - debe) ELSE 0 END), 0) as patrimonio_ini
+                COALESCE(SUM(CASE WHEN {columna_cuenta} LIKE '1%' THEN (debe - haber) ELSE 0 END), 0) as activo_ini,
+                COALESCE(SUM(CASE WHEN {columna_cuenta} LIKE '2%' THEN (haber - debe) ELSE 0 END), 0) as pasivo_ini,
+                COALESCE(SUM(CASE WHEN {columna_cuenta} LIKE '3%' THEN (haber - debe) ELSE 0 END), 0) as patrimonio_ini
             FROM saldos_iniciales
         """)
         f_ini = cur.fetchone()
         if f_ini:
             res_ini = f_ini
     except Exception as e:
-        print(f"⚠️ Error al leer saldos_iniciales en {db_segura}: {e}")
+        print(f"⚠️ Error al leer saldos_iniciales en {db_segura} (¿La tabla existe?): {e}")
         
     res_mov = {'activo_mov': 0, 'pasivo_mov': 0, 'patrimonio_mov': 0}
     try:
-        cur.execute("""
+        cur.execute(f"""
             SELECT 
-                COALESCE(SUM(CASE WHEN plan_cuentas LIKE '1%' THEN (debe - haber) ELSE 0 END), 0) as activo_mov,
-                COALESCE(SUM(CASE WHEN plan_cuentas LIKE '2%' THEN (haber - debe) ELSE 0 END), 0) as pasivo_mov,
-                COALESCE(SUM(CASE WHEN plan_cuentas LIKE '3%' THEN (haber - debe) ELSE 0 END), 0) as patrimonio_mov
+                COALESCE(SUM(CASE WHEN {columna_cuenta} LIKE '1%' THEN (debe - haber) ELSE 0 END), 0) as activo_mov,
+                COALESCE(SUM(CASE WHEN {columna_cuenta} LIKE '2%' THEN (haber - debe) ELSE 0 END), 0) as pasivo_mov,
+                COALESCE(SUM(CASE WHEN {columna_cuenta} LIKE '3%' THEN (haber - debe) ELSE 0 END), 0) as patrimonio_mov
             FROM asientos_contables 
             WHERE fecha <= %s
         """, (fecha_corte,))
@@ -588,7 +602,7 @@ def obtener_saldos_acumulados(conexion, fecha_corte, nombre_db):
         
     cur.close()
     
-    # Retorno seguro convertido a float sumando apertura + movimientos acumulados
+    # Retorno seguro convertido a float
     return {
         "activo": float(res_ini.get('activo_ini', 0) or 0) + float(res_mov.get('activo_mov', 0) or 0),
         "pasivo": float(res_ini.get('pasivo_ini', 0) or 0) + float(res_mov.get('pasivo_mov', 0) or 0),
