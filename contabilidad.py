@@ -101,11 +101,6 @@ fecha_fin_str = f"{anio}-{mes_n:02d}-{ultimo_dia:02d}"
 f_inicio_global = datetime.date(anio, mes_n, 1)
 f_fin_global = datetime.date(anio, mes_n, ultimo_dia)
 
-# --- 5. VISUALIZACIÓN DE CONTROL ---
-st.sidebar.divider()
-st.sidebar.write(f"**Período Activo:** {mes_str} {anio}")
-st.sidebar.caption(f"Rango SQL: `{fecha_inicio_str}` al `{fecha_fin_str}`")
-
 # Inicializamos stats por seguridad si no existen
 if 'stats' not in st.session_state:
     stats = {'retenido': 0.0, 'ventas': 0.0, 'compras': 0.0}
