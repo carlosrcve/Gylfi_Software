@@ -954,7 +954,7 @@ if menu_lateral == "📊 Auditoría Contable":
 
 if "🏠 Inicio" in opcion_menu:
 
-    # --- INYECCIÓN DE CSS PARA TARJETAS Y ETIQUETAS ANCHAS ---
+    # --- INYECCIÓN DE CSS PARA EXPANDIR LOS FRAMES Y ETIQUETAS ---
     st.markdown(
         """
         <style>
@@ -1106,28 +1106,28 @@ if "🏠 Inicio" in opcion_menu:
     # --- FILA 2: SALUD FISCAL (SENIAT) ---
     kpis_fiscales = obtener_salud_fiscal(f_inicio_global, f_fin_global, db_objetivo)
 
-    # Función adaptada para ensanchar textos largos y evitar cortes en columnas múltiples
+    # Función actualizada con diseño de frame horizontal expandido
     def mini_kpi(col, titulo, valor, color="#555555"):
         with col.container(border=True):
             st.markdown(f"""
-                <div style="text-align: center; padding: 2px; width: 100%;">
+                <div style="text-align: center; padding: 4px; width: 100%;">
                     <div style="
-                        font-size: 0.82rem; 
+                        font-size: 0.85rem; 
                         background-color: {color}20; 
                         color: {color}; 
                         font-weight: bold; 
-                        padding: 5px 2px; 
-                        border-radius: 5px; 
-                        margin-bottom: 5px;
+                        padding: 6px 4px; 
+                        border-radius: 6px; 
+                        margin-bottom: 8px;
                         white-space: normal;
-                        word-break: break-word;
-                        min-height: 38px;
+                        min-height: 48px;
                         display: flex;
                         align-items: center;
-                        justify-content: center;">
+                        justify-content: center;
+                        line-height: 1.1;">
                         {titulo}
                     </div>
-                    <div style="font-size: 0.88rem; font-weight: bold; color: #333333; padding-bottom: 2px; white-space: nowrap;">
+                    <div style="font-size: 0.90rem; font-weight: bold; color: #333333; padding-bottom: 2px; white-space: nowrap;">
                         Bs. {valor:,.2f}
                     </div>
                 </div>
