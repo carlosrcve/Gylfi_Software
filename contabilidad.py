@@ -568,6 +568,7 @@ def obtener_saldos_acumulados(conexion, fecha_corte, nombre_db):
             
     except Exception as e:
         print(f"⚠️ Error al calcular saldos acumulados en {nombre_db}: {e}")
+        st.error(f"Error SQL en saldos: {e}") # Añade esto para verlo en pantalla
         
     finally:
         # Nos aseguramos de cerrar el cursor siempre para liberar memoria y evitar lentitud al cerrar sesión
