@@ -840,15 +840,22 @@ if "🏠 Inicio" in opcion_menu:
     st.markdown(
         """
         <style>
-            /* Expandir el ancho de las tarjetas de métricas y permitir mejor lectura */
+            /* Permitir que la columna y el contenedor de la métrica se expandan */
             div[data-testid="stMetric"] {
                 background-color: #ffffff;
                 padding: 15px;
                 border-radius: 8px;
+                width: 100% !important;
             }
-            /* Forzar que el texto de la etiqueta de la métrica no se corte y tenga más espacio */
+            /* Asegurar que el bloque del valor numérico no se oculte ni trunque */
+            div[data-testid="stMetricValue"] {
+                font-size: 22px !important;
+                white-space: normal !important;
+                overflow: visible !important;
+            }
+            /* Forzar que el texto de la etiqueta no se corte */
             div[data-testid="stMetricLabel"] > label {
-                font-size: 14px !important;
+                font-size: 13px !important;
                 white-space: normal !important;
                 overflow: visible !important;
             }
