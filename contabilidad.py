@@ -1443,7 +1443,7 @@ def gestionar_sidebar():
 
     # 3. Control estricto: Si está vacío, se advierte
     if not lista_empresas:
-        st.sidebar.warning("⚠️ No se encontraron empresas disponibles en la base de datos o el listado está vacío.")
+        st.sidebar.warning("⚠️ kkkk.")
         return
 
     # Aseguramos que el valor actual de la sesión esté dentro de las opciones, si no, tomamos la primera
