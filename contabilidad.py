@@ -538,40 +538,38 @@ def obtener_todas_las_empresas(user_rol, user_id):
 def obtener_saldos_acumulados(conexion, fecha_corte, nombre_db):
     if not conexion: return {"activo": 0, "pasivo": 0, "patrimonio": 0}
     
-    db_segura = str(nombre_db).strip()
     cur = conexion.cursor(dictionary=True)
-    
     try:
-        cur.execute(f"USE `{db_segura}`")
+        cur.execute(f"USE `{nombre_db}`")
         
-        # 1. ¿Qué tipo de dato es la fecha?
-        cur.execute("DESCRIBE asientos_contables")
-        columnas = cur.fetchall()
-        tipo_fecha = next((c['Type'] for c in columnas if c['Field'] == 'fecha'), "desconocido")
+        # 1. VERIFICACIÓN CRUDA: ¿Cuántas filas hay en total sin filtros?
+        cur.execute("SELECT COUNT(*) as total FROM asientos_contables")
+        total_filas = cur.fetchone()['total']
         
-        # 2. ¿Hay registros realmente menores a la fecha?
-        # FORZAMOS LA CONSULTA CON UN STRING LITERAL PARA PROBAR
-        query_prueba = f"SELECT COUNT(*) as total FROM asientos_contables WHERE fecha <= '{fecha_corte}'"
-        cur.execute(query_prueba)
-        count = cur.fetchone()['total']
+        # 2. VERIFICACIÓN DE FECHAS: ¿Cuál es la fecha mínima real?
+        cur.execute("SELECT MIN(fecha) as min_f FROM asientos_contables")
+        min_f = cur.fetchone()['min_f']
         
-        print(f"DEBUG: Empresa {db_segura} | Tipo fecha: {tipo_fecha} | Corte: {fecha_corte} | Registros hallados: {count}")
-
-        # 3. Consulta maestra
-        cur.execute(f"""
+        # 3. CONSULTA REAL (Con forzado de tipo)
+        query = f"""
             SELECT 
                 SUM(CASE WHEN plan_cuentas LIKE '1%' THEN (debe - haber) ELSE 0 END) as activo,
                 SUM(CASE WHEN plan_cuentas LIKE '2%' THEN (haber - debe) ELSE 0 END) as pasivo,
                 SUM(CASE WHEN plan_cuentas LIKE '3%' THEN (haber - debe) ELSE 0 END) as patrimonio
             FROM asientos_contables 
             WHERE fecha <= %s
-        """, (fecha_corte,))
-        
+        """
+        cur.execute(query, (fecha_corte,))
         res = cur.fetchone()
+        
+        # MOSTRAR EN PANTALLA EL DIAGNÓSTICO (Esto aparecerá arriba de los KPIs)
+        import streamlit as st
+        st.sidebar.warning(f"DEBUG DB: {nombre_db} | Total Filas: {total_filas} | Fecha más vieja: {min_f} | Corte: {fecha_corte}")
+        
         return {k: float(v or 0) for k, v in res.items()}
 
     except Exception as e:
-        print(f"❌ ERROR CRÍTICO: {e}")
+        st.error(f"Error en la consulta: {e}")
         return {"activo": 0, "pasivo": 0, "patrimonio": 0}
     finally:
         cur.close()
