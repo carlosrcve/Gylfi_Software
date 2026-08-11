@@ -814,6 +814,8 @@ if menu == "⚙️ Gestión de Usuarios":
 # ========================================================
 # BLOQUE PRINCIPAL DEL MÓDULO INICIO
 # ========================================================
+opcion_menu = st.selectbox("📂 SELECCIONE UN MÓDULO", modulos_disponibles)
+st.session_state['opcion_menu_auditoria'] = opcion_menu
 if "Inicio" in opcion_menu:
     
     # --- 1. RENDERIZAR EL SIDEBAR PRIMERO ---
