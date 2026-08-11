@@ -429,7 +429,7 @@ def gestionar_sidebar():
                 unsafe_allow_html=True
             )
 
-            # Obtenemos las empresas desde la caché rápida (reduce drásticamente el tiempo de carga)
+            # Obtenemos las empresas desde la caché rápida
             df_sidebar = _obtener_datos_sidebar_cache() if '_obtener_datos_sidebar_cache' in globals() else pd.DataFrame()
 
             # 2. Obtenemos las bases de datos permitidas para este usuario
@@ -570,23 +570,23 @@ def gestionar_sidebar():
             col_anio.number_input("Año", step=1, min_value=2026, max_value=2030, key="año_seleccionado_contabilidad")
             col_mes.selectbox("Mes", meses_lista, key="mes_seleccionado_contabilidad")
 
-if menu == "⚙️ Gestión de Usuarios": 
-    try:
-        # 1. Inicializamos y aseguramos la conexión al esquema central
-        # (Asegúrate de pasar el nombre del esquema central si tu función lo requiere)
-        conn = conectar_db() # o conectar_db("control_central") según cómo esté definida tu función
+    return menu
 
-        # 2. Verificamos que la conexión exista y esté activa
+# ==========================================
+# EJECUCIÓN PRINCIPAL EN EL SCRIPT
+# ==========================================
+menu = gestionar_sidebar()
+
+if menu == "⚙️ Gestión de Usuarios":    
+    try:
+        conn = conectar_db() 
         if conn and conn.is_connected():
             panel_administracion(conn)
-            # Es una buena práctica cerrar la conexión de administración al terminar de renderizar
             conn.close()
         else:
             st.error("🔌 No se pudo establecer conexión con el servidor MySQL.")
-            
     except Exception as e:
         st.error(f"Error al acceder a la gestión central: {e}")
-
     st.stop()
 
 
