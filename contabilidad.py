@@ -967,40 +967,15 @@ if menu_lateral == "📊 Auditoría Contable":
 
 if "🏠 Inicio" in opcion_menu:
 
-        # --- INYECCIÓN DE CSS PARA EXPANDIR LOS FRAMES Y ETIQUETAS ---
-        st.markdown(
-            """
-            <style>
-                /* 1. Forzar que el contenedor principal de la página ocupe todo el ancho disponible */
-                .block-container {
-                    max-width: 100% !important;
-                    padding-left: 3rem !important;
-                    padding-right: 3rem !important;
-                }
-
-                /* 2. Expandir los contenedores con borde (border=True) al 100% de la columna */
-                div[data-testid="stVerticalBlock"] div[data-testid="stHorizontalBlock"] > div {
-                    flex: 1 !important;
-                    min-width: 0 !important;
-                }
-
-                /* 3. Asegurar que los marcos con bordes de Streamlit aprovechen todo el espacio */
-                div[data-testid="element-container"] {
-                    width: 100% !important;
-                }
-            </style>
-            """,
-            unsafe_allow_html=True
-        )
+        # --- INYECCIÓN DE CSS ---
+        st.markdown("""<style>
+                .block-container { max-width: 100% !important; padding-left: 3rem !important; padding-right: 3rem !important; }
+                div[data-testid="stVerticalBlock"] div[data-testid="stHorizontalBlock"] > div { flex: 1 !important; min-width: 0 !important; }
+                div[data-testid="element-container"] { width: 100% !important; }
+            </style>""", unsafe_allow_html=True)
 
         user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
-        user_cliente_id = st.session_state.get('cliente_id') or st.session_state.get('user_id')
-        nombre_usuario_actual = (
-            st.session_state.get('nombre_usuario') or 
-            st.session_state.get('username') or 
-            st.session_state.get('usuario') or 
-            ''
-        ).strip().lower()
+        nombre_usuario_actual = (st.session_state.get('nombre_usuario') or st.session_state.get('username') or st.session_state.get('usuario') or '').strip().lower()
 
         conn_ctrl = conectar_db()
         db_objetivo = None
@@ -1010,51 +985,34 @@ if "🏠 Inicio" in opcion_menu:
                 if user_rol == 'admin':
                     db_objetivo = st.session_state.get('DB_ACTUAL')
                     if not db_objetivo or db_objetivo == 'No seleccionada':
-                        query = "SELECT * FROM clientes LIMIT 1"
-                        df_temp = pd.read_sql(query, conn_ctrl)
-                        if not df_temp.empty:
-                            col_bd = next((c for c in df_temp.columns if 'bd' in c.lower() or 'base' in c.lower() or 'schema' in c.lower()), df_temp.columns[-1])
-                            db_objetivo = str(df_temp[col_bd].iloc[0])
+                        # Admin por defecto toma la primera del sistema
+                        df_temp = pd.read_sql("SELECT db_nombre FROM clientes LIMIT 1", conn_ctrl)
+                        if not df_temp.empty: db_objetivo = str(df_temp['db_nombre'].iloc[0])
                 else:
-                    # --- FILTRADO BLINDADO PARA USUARIOS NO ADMINISTRADORES ---
-                    df_temp = pd.DataFrame()
+                    # --- BÚSQUEDA DIRECTA Y SEGURA ---
+                    # Buscamos directamente en la tabla usuarios usando el nombre de usuario
+                    query = f"SELECT db_nombre FROM usuarios WHERE LOWER(TRIM(usuario)) = '{nombre_usuario_actual}'"
+                    df_temp = pd.read_sql(query, conn_ctrl)
                     
-                    # 1. Intentar buscar por ID de cliente si existe
-                    if user_cliente_id and str(user_cliente_id).isdigit():
-                        q_id = f"SELECT * FROM clientes WHERE id = {user_cliente_id} OR cliente_id = {user_cliente_id}"
-                        try:
-                            df_temp = pd.read_sql(q_id, conn_ctrl)
-                        except Exception:
-                            pass
-
-                    # 2. Si no se encontró por ID, buscar estrictamente por el nombre de usuario
-                    if df_temp.empty and nombre_usuario_actual:
-                        q_user = f"SELECT * FROM clientes WHERE LOWER(TRIM(nombre_usuario)) = '{nombre_usuario_actual}' OR LOWER(TRIM(usuario)) = '{nombre_usuario_actual}' OR LOWER(TRIM(username)) = '{nombre_usuario_actual}'"
-                        try:
-                            df_temp = pd.read_sql(q_user, conn_ctrl)
-                        except Exception:
-                            pass
-
-                    if not df_temp.empty:
-                        col_bd = next((c for c in df_temp.columns if 'bd' in c.lower() or 'base' in c.lower() or 'schema' in c.lower()), df_temp.columns[-1])
-                        db_objetivo = str(df_temp[col_bd].iloc[0])
+                    if not df_temp.empty and df_temp['db_nombre'].iloc[0]:
+                        db_objetivo = str(df_temp['db_nombre'].iloc[0]).strip()
                     else:
-                        st.error(f"❌ Acceso denegado o usuario sin empresa asociada: '{nombre_usuario_actual}'. Contacte al administrador.")
+                        st.error(f"❌ Acceso denegado: El usuario '{nombre_usuario_actual}' no tiene una empresa (DB) asociada.")
                         st.stop()
-
             except Exception as e:
-                st.error(f"❌ Error al resolver la base de datos del usuario: {e}")
+                st.error(f"❌ Error al resolver la base de datos: {e}")
                 st.stop()
             finally:
                 conn_ctrl.close()
 
         if not db_objetivo:
-            st.error("❌ No se encontró una base de datos asignada o válida para este usuario.")
+            st.error("❌ No se pudo determinar la base de datos de trabajo.")
             st.stop()
 
         st.session_state['DB_ACTUAL'] = db_objetivo
         st.session_state['db_a_conectar'] = db_objetivo
 
+        # --- LÓGICA DE CONEXIÓN ---
         if 'conn' not in st.session_state or st.session_state.get('ultima_db_conectada') != db_objetivo or st.session_state.conn is None:
             try:
                 nueva_conn = conectar_db(db_objetivo)
@@ -1068,7 +1026,7 @@ if "🏠 Inicio" in opcion_menu:
                 st.error(f"Error crítico conectando: {e}")
                 st.session_state.conn = None
                 st.stop()
-
+        
         conn = st.session_state.conn
         try:
             conn.ping(reconnect=True, attempts=3, delay=1)
