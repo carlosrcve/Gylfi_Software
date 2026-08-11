@@ -1444,11 +1444,8 @@ def obtener_todas_las_empresas(user_rol, user_id):
 
 def gestionar_sidebar():
     # --- DEBUG RADICAL ---
-    st.sidebar.subheader("DEBUG: Diagnóstico de Empresas")
     user_rol = st.session_state.get('rol', 'admin')
     user_id = st.session_state.get('user_id', st.session_state.get('cliente_id', 'N/A'))
-    st.sidebar.write(f"Rol: {user_rol} | ID: {user_id}")
-
     try:
         conn_debug = conectar_db()
         if conn_debug:
