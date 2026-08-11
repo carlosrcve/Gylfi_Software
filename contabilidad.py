@@ -1104,6 +1104,12 @@ if "🏠 Inicio" in opcion_menu:
             f"Bs. {u_v:,.2f}",
             delta_color="normal" if u_v >= 0 else "inverse"
         )
+    # --- DEPURACIÓN VISUAL CON ST.WRITE ---
+    st.write("--- 🔍 DEBUG DE FILTROS Y DATOS ---")
+    st.write(f"Mes seleccionado en UI: **{mes_nombre_f} {anio_f}**")
+    st.write(f"Fecha de corte enviada a la BD (`f_fin_global`): `{fecha_fin_str}`")
+    st.write(f"Resultado crudo de los KPIs devueltos por la BD: `{kpis}`")
+    st.write("------------------------------------")
 
     # --- FILA 2: SALUD FISCAL (SENIAT) ---
     kpis_fiscales = obtener_salud_fiscal(f_inicio_global, f_fin_global, db_objetivo)
