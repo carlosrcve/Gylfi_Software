@@ -586,6 +586,7 @@ def gestionar_sidebar():
         st.header("Panel de Auditoría")
 
         # --- ETIQUETA / INSIGNIA DE USUARIO LOGUEADO ---
+        # --- ETIQUETA / INSIGNIA DE USUARIO LOGUEADO ---
         if user_rol == 'admin':
             st.markdown(
                 """
@@ -597,8 +598,13 @@ def gestionar_sidebar():
                 unsafe_allow_html=True
             )
         else:
-            # Capturamos el nombre exacto guardado en el login
-            nombre_mostrado = st.session_state.get('nombre_usuario', st.session_state.get('username', user_id))
+            # Buscamos el nombre de usuario de forma prioritaria en la sesión
+            nombre_mostrado = (
+                st.session_state.get('nombre_usuario') or 
+                st.session_state.get('username') or 
+                st.session_state.get('usuario') or 
+                'Usuario'
+            )
             
             st.markdown(
                 f"""
