@@ -577,8 +577,8 @@ def obtener_saldos_acumulados(conexion, fecha_corte, nombre_db):
 
 
 def gestionar_sidebar():
-    # 1. Recuperar rol e identificador de sesión
-    user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
+    # Normalizamos el rol para evitar problemas con mayúsculas, espacios o nulos
+    user_rol = str(st.session_state.get('rol', '')).strip().lower()
     user_id = st.session_state.get('user_id', st.session_state.get('cliente_id', 'N/A'))
 
     with st.sidebar:
@@ -599,19 +599,10 @@ def gestionar_sidebar():
 
         st.markdown("---")
         
-        # Generar un identificador de sesión único la primera vez si no existe
-        if "logout_key_counter" not in st.session_state:
-            st.session_state["logout_key_counter"] = 0
-
-        # Usar un key completamente dinámico e irrepetible en cada render
-        dynamic_key = f"btn_logout_{st.session_state['logout_key_counter']}"
-        
-        if st.button("🚪 Cerrar Sesión", key=dynamic_key):
-            # Incrementar contador para invalidar el ID actual en el siguiente ciclo
-            st.session_state["logout_key_counter"] += 1
+        # Botón de cierre de sesión blindado
+        if st.sidebar.button("🚪 Cerrar Sesión", key="btn_logout_unico_definitivo"):
             for key in list(st.session_state.keys()):
-                if key != "logout_key_counter":
-                    del st.session_state[key]
+                del st.session_state[key]
             st.rerun()
 
         # --- Navegación ---
@@ -671,6 +662,7 @@ def gestionar_sidebar():
                 idx = db_nombres.index(empresa_previa_db)
                 nombre_inicial = nombres_empresas[idx]
 
+            # Forzamos que si es admin (o si quieres que siempre muestre el desplegable) renderice el selectbox
             if user_rol == 'admin':
                 nombre_seleccionado = st.selectbox(
                     "Seleccione Empresa", 
