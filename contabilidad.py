@@ -958,23 +958,22 @@ if "🏠 Inicio" in opcion_menu:
     st.markdown(
         """
         <style>
-            /* Especificidad alta para métricas nativas exclusivamente */
-            section[data-testid="stMain"] div[data-testid="stMetric"] {
-                background-color: #ffffff;
-                padding: 15px;
-                border-radius: 8px;
+            /* 1. Forzar que el contenedor principal de la página ocupe todo el ancho disponible */
+            .block-container {
+                max-width: 100% !important;
+                padding-left: 3rem !important;
+                padding-right: 3rem !important;
+            }
+
+            /* 2. Expandir los contenedores con borde (border=True) al 100% de la columna */
+            div[data-testid="stVerticalBlock"] div[data-testid="stHorizontalBlock"] > div {
+                flex: 1 !important;
+                min-width: 0 !important;
+            }
+
+            /* 3. Asegurar que los marcos con bordes de Streamlit aprovechen todo el espacio */
+            div[data-testid="element-container"] {
                 width: 100% !important;
-                box-shadow: 0 1px 3px rgba(0,0,0,0.05);
-            }
-            section[data-testid="stMain"] div[data-testid="stMetricValue"] {
-                font-size: 20px !important;
-                white-space: normal !important;
-                overflow: visible !important;
-            }
-            section[data-testid="stMain"] div[data-testid="stMetricLabel"] > label {
-                font-size: 13px !important;
-                white-space: normal !important;
-                overflow: visible !important;
             }
         </style>
         """,
