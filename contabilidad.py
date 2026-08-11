@@ -382,144 +382,155 @@ def panel_administracion(conn):
         st.error(f"Error cargando logs: {e}")
 
 
-with st.sidebar:
-    st.image("https://cdn-icons-png.flaticon.com/512/2645/2645328.png", width=100)
-    st.header("Panel de Auditoría")
-
-    # --- INSIGNIA DE DUEÑO Y ADMINISTRADOR ---
+def gestionar_sidebar():
+    # 1. Recuperar rol e identificador de sesión
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
-    if user_rol == 'admin':
-        st.markdown(
-            """
-            <div style="background-color: #1e293b; padding: 10px; border-radius: 8px; text-align: center; margin-bottom: 15px; border: 1px solid #334155;">
-                <span style="color: #38bdf8; font-weight: bold; font-size: 14px;">👑 Administrador Principal</span><br>
-                <span style="color: #94a3b8; font-size: 11px;">Dueño del Software</span>
-            </div>
-            """, 
-            unsafe_allow_html=True
-        )
+    user_id = st.session_state.get('user_id', st.session_state.get('cliente_id', 'N/A'))
 
-    st.markdown("---")
-    if st.button("🚪 Cerrar Sesión"):
-        for key in list(st.session_state.keys()):
-            del st.session_state[key]
-        st.rerun()
+    with st.sidebar:
+        st.image("https://cdn-icons-png.flaticon.com/512/2645/2645328.png", width=100)
+        st.header("Panel de Auditoría")
 
-    # --- Navegación ---
-    if user_rol == 'admin':
-        menu = st.radio("Navegación", ["📊 Auditoría Contable", "⚙️ Gestión de Usuarios"], key="menu_nav")
-    else:
-        menu = "📊 Auditoría Contable"
-
-    st.divider()
-
-    # --- Módulos y Configuración ---
-    if menu == "📊 Auditoría Contable":
-        st.markdown(
-            """
-            <style>
-                div[data-baseweb="listbox"] { max-height: 350px !important; overflow-y: auto !important; }
-                .stSelectbox div[role="button"] { margin-bottom: 5px; }
-            </style>
-            """,
-            unsafe_allow_html=True
-        )
-
-        # Conexión para la barra lateral en TiDB Cloud
-        conn_sidebar = conectar_db()
-        df_sidebar = pd.DataFrame()
-
-        if conn_sidebar is not None:
-            try:
-                if hasattr(conn_sidebar, 'ping') and callable(conn_sidebar.ping):
-                    conn_sidebar.ping(reconnect=True)
-                
-                cursor_tmp = conn_sidebar.cursor()
-                try:
-                    cursor_tmp.execute("USE control_central;")
-                except Exception:
-                    pass 
-                cursor_tmp.close()
-
-                # CONSULTA CON JOIN: Vinculamos clientes con usuarios para traer el propietario
-                query_join = """
-                    SELECT c.id, c.nombre_empresa, c.db_nombre, u.usuario as nombre_usuario, u.rol as rol_usuario 
-                    FROM clientes c
-                    LEFT JOIN usuarios u ON c.id = u.cliente_id
+        # --- INSIGNIA DE DUEÑO Y ADMINISTRADOR ---
+        if user_rol == 'admin':
+            st.markdown(
                 """
-                
-                if user_rol != 'admin':
-                    c_id = st.session_state.get('cliente_id')
-                    if c_id:
-                        query_join += f" WHERE c.id = {c_id}"
-
-                df_sidebar = pd.read_sql(query_join, conn_sidebar)
-
-            except Exception as e:
-                st.error(f"❌ Error de conexión en la barra lateral: {e}")
-            finally:
-                try:
-                    if conn_sidebar and hasattr(conn_sidebar, 'close'):
-                        conn_sidebar.close()
-                except:
-                    pass
-        else:
-            st.error("❌ No se pudo conectar a la base de datos central.")
-            st.stop()
-
-        if not df_sidebar.empty:
-            df_sidebar = df_sidebar.fillna("")
-            
-            # Selector de Empresa con soporte masivo
-            nombres_empresas = df_sidebar['nombre_empresa'].tolist()
-            empresa_previa = st.session_state.get('CLIENTE_NOMBRE')
-            indice_inicial = 0
-            if empresa_previa in nombres_empresas:
-                indice_inicial = nombres_empresas.index(empresa_previa)
-
-            seleccion = st.selectbox(
-                "Seleccione Empresa", 
-                nombres_empresas, 
-                index=indice_inicial,
-                key="selector_empresa"
+                <div style="background-color: #1e293b; padding: 10px; border-radius: 8px; text-align: center; margin-bottom: 15px; border: 1px solid #334155;">
+                    <span style="color: #38bdf8; font-weight: bold; font-size: 14px;">👑 Administrador Principal</span><br>
+                    <span style="color: #94a3b8; font-size: 11px;">Dueño del Software</span>
+                </div>
+                """, 
+                unsafe_allow_html=True
             )
+
+        st.markdown("---")
+        if st.button("🚪 Cerrar Sesión"):
+            for key in list(st.session_state.keys()):
+                del st.session_state[key]
+            st.rerun()
+
+        # --- Navegación ---
+        if user_rol == 'admin':
+            menu = st.radio("Navegación", ["📊 Auditoría Contable", "⚙️ Gestión de Usuarios"], key="menu_nav")
+        else:
+            menu = "📊 Auditoría Contable"
+
+        st.divider()
+
+        # --- Módulos y Configuración ---
+        if menu == "📊 Auditoría Contable":
+            st.markdown(
+                """
+                <style>
+                    div[data-baseweb="listbox"] { max-height: 350px !important; overflow-y: auto !important; }
+                    .stSelectbox div[role="button"] { margin-bottom: 5px; }
+                </style>
+                """,
+                unsafe_allow_html=True
+            )
+
+            # Obtenemos las empresas desde la caché rápida (reduce drásticamente el tiempo de carga)
+            df_sidebar = _obtener_datos_sidebar_cache() if '_obtener_datos_sidebar_cache' in globals() else pd.DataFrame()
+
+            # 2. Obtenemos las bases de datos permitidas para este usuario
+            lista_db_permitidas = []
+            if 'obtener_todas_las_empresas' in globals() and callable(globals()['obtener_todas_las_empresas']):
+                try:
+                    lista_db_permitidas = obtener_todas_las_empresas(user_rol=user_rol, user_id=user_id) or []
+                except Exception as e:
+                    st.error(f"❌ Error al consultar el listado de empresas: {e}")
+
+            # 3. PLAN DE EMERGENCIA ABSOLUTO
+            if not lista_db_permitidas:
+                db_en_sesion = st.session_state.get('db_a_conectar')
+                if db_en_sesion:
+                    lista_db_permitidas = [db_en_sesion]
+                else:
+                    lista_db_permitidas = ['pedacito_de_cielo_ca']
+                    st.session_state['db_a_conectar'] = 'pedacito_de_cielo_ca'
+
+            # 4. Filtrado por rol
+            if user_rol == 'admin' and not df_sidebar.empty:
+                df_filtrado = df_sidebar
+            else:
+                if not df_sidebar.empty and 'db_nombre' in df_sidebar.columns:
+                    df_filtrado = df_sidebar[df_sidebar['db_nombre'].isin(lista_db_permitidas)]
+                else:
+                    df_filtrado = pd.DataFrame()
+
+            if df_filtrado.empty:
+                db_actual_emergencia = lista_db_permitidas[0]
+                df_filtrado = pd.DataFrame({
+                    'id': [1],
+                    'nombre_empresa': ['REPRESENTACIONES PEDACITO DE CIELO, C.A.' if db_actual_emergencia == 'pedacito_de_cielo_ca' else db_actual_emergencia],
+                    'db_nombre': [db_actual_emergencia],
+                    'nombre_usuario': ['No asignado']
+                })
+
+            nombres_empresas = df_filtrado['nombre_empresa'].tolist()
+            db_nombres = df_filtrado['db_nombre'].tolist()
+
+            # 5. Inicializamos variables de sesión si no existen
+            if 'db_a_conectar' not in st.session_state or st.session_state['db_a_conectar'] not in db_nombres:
+                st.session_state['db_a_conectar'] = db_nombres[0]
+
+            empresa_previa_db = st.session_state.get('db_a_conectar')
+            nombre_inicial = nombres_empresas[0]
             
-            if not seleccion:
+            if empresa_previa_db in db_nombres:
+                idx = db_nombres.index(empresa_previa_db)
+                nombre_inicial = nombres_empresas[idx]
+
+            # 6. Selector de Empresa según el rol
+            if user_rol == 'admin':
+                nombre_seleccionado = st.selectbox(
+                    "Seleccione Empresa", 
+                    options=nombres_empresas, 
+                    index=nombres_empresas.index(nombre_inicial) if nombre_inicial in nombres_empresas else 0,
+                    key="selector_empresa"
+                )
+            else:
+                nombre_seleccionado = nombre_inicial
+                st.markdown(f"**🏢 Empresa Asignada:**")
+                st.info(f"{str(nombre_seleccionado).upper()}")
+
+            if not nombre_seleccionado:
                 st.warning("⚠️ Por favor, seleccione una empresa válida.")
                 st.stop()
-                
-            empresa_filtrada = df_sidebar[df_sidebar['nombre_empresa'] == seleccion]
-            if empresa_filtrada.empty:
-                st.error("❌ No se encontró la empresa seleccionada en los registros.")
-                st.stop()
-                
-            datos_sel = empresa_filtrada.iloc[0]
-            db_raw = datos_sel['db_nombre']
-            usuario_asignado = datos_sel['nombre_usuario'] if 'nombre_usuario' in datos_sel and datos_sel['nombre_usuario'] else "No asignado"
-            
-            if pd.isna(db_raw) or not db_raw:
-                st.error(f"⚠️ La empresa '{seleccion}' no tiene asignada una base de datos válida.")
-                st.stop()
-                
-            DB_ACTUAL = str(db_raw).strip()
-            st.session_state['DB_ACTUAL'] = DB_ACTUAL
-            st.session_state['CLIENTE_NOMBRE'] = seleccion
-            st.session_state['cliente_id_seleccionado'] = int(datos_sel['id'])
-            
-            # --- Lógica de visualización del Propietario ---
+
+            fila_seleccionada = df_filtrado[df_filtrado['nombre_empresa'] == nombre_seleccionado]
+            if fila_seleccionada.empty:
+                fila_seleccionada = df_filtrado.iloc[[0]]
+
+            datos_sel = fila_seleccionada.iloc[0]
+            db_seleccionada = str(datos_sel['db_nombre']).strip()
+            usuario_asignado = datos_sel.get('nombre_usuario', 'No asignado')
+            if not usuario_asignado:
+                usuario_asignado = "No asignado"
+
+            # Actualizar variables globales en session_state
+            st.session_state['DB_ACTUAL'] = db_seleccionada
+            st.session_state['db_a_conectar'] = db_seleccionada
+            st.session_state['CLIENTE_NOMBRE'] = nombre_seleccionado
+            if 'id' in datos_sel:
+                st.session_state['cliente_id_seleccionado'] = int(datos_sel['id'])
+
+            # Sincronización automática si cambió
+            if st.session_state.get('db_a_conectar') != db_seleccionada:
+                st.session_state['db_a_conectar'] = db_seleccionada
+                st.rerun()
+
             # --- Lógica de visualización dinámica según el rol ---
             usuario_actual = str(st.session_state.get('usuario', 'Usuario')).capitalize()
             propietario_display = str(usuario_asignado).capitalize()
             
-            st.write(f"Empresa seleccionada: '{str(seleccion).upper()}'")
+            st.write(f"Empresa seleccionada: '{str(nombre_seleccionado).upper()}'")
             
             if user_rol == 'admin':
-                # Si eres tú el admin, solo mostramos tu sesión activa y omitimos la línea de propietario
                 st.info("👑 **Sesión Activa:** Carlos Rodriguez (Administrador)")
             else:
-                # Si es un cliente, mostramos su sesión y su empresa asignada
                 st.info(f"👤 **Sesión Activa:** {usuario_actual}\n\n"
-                        f"🏢 **Empresa Asigneda:** {propietario_display}")
+                        f"🏢 **Empresa Asignada:** {propietario_display}")
             
             st.subheader("Módulos")
             modulos_disponibles = [
@@ -527,7 +538,7 @@ with st.sidebar:
                 "📖 Mayor Analítico", "📊 Estados Financieros", "📚 Libros Fiscales", "👤 Proveedores"
             ]
 
-            empresa_en_mayusculas = seleccion.upper()
+            empresa_en_mayusculas = nombre_seleccionado.upper()
             if "PEDACITO" in empresa_en_mayusculas and "CLIELO" in empresa_en_mayusculas:
                 modulos_disponibles.append("🧁 Inventarios")
 
@@ -548,7 +559,6 @@ with st.sidebar:
             st.divider()
             st.subheader("📅 Período de Consulta")
 
-            # Diccionario global de meses
             dic_meses = {
                 "Enero": 1, "Febrero": 2, "Marzo": 3, "Abril": 4, 
                 "Mayo": 5, "Junio": 6, "Julio": 7, "Agosto": 8, 
@@ -559,11 +569,6 @@ with st.sidebar:
             col_anio, col_mes = st.columns(2)
             col_anio.number_input("Año", step=1, min_value=2026, max_value=2030, key="año_seleccionado_contabilidad")
             col_mes.selectbox("Mes", meses_lista, key="mes_seleccionado_contabilidad")
-
-        else:
-            st.error("⚠️ No se pudieron cargar las empresas desde TiDB Cloud. Verifica que la tabla 'clientes' exista en el esquema central.")
-            st.stop()
-
 
 if menu == "⚙️ Gestión de Usuarios": 
     try:
@@ -779,141 +784,7 @@ def obtener_todas_las_empresas(user_rol, user_id):
         if conn_res and conn_res.is_connected():
             conn_res.close()
 
-def gestionar_sidebar():
-    user_rol = st.session_state.get('rol', 'admin')
-    user_id = st.session_state.get('user_id', st.session_state.get('cliente_id', 'N/A'))
-    
-    # Obtenemos las empresas desde la caché rápida (reduce drásticamente el tiempo de carga)
-    df_sidebar = _obtener_datos_sidebar_cache()
-        
-    st.sidebar.markdown("---")
 
-    # 1. Obtenemos las bases de datos permitidas para este usuario
-    lista_db_permitidas = []
-    if 'obtener_todas_las_empresas' in globals() and callable(globals()['obtener_todas_las_empresas']):
-        try:
-            lista_db_permitidas = obtener_todas_las_empresas(user_rol=user_rol, user_id=user_id) or []
-        except Exception as e:
-            st.sidebar.error(f"❌ Error al consultar el listado de empresas: {e}")
-
-    # 2. PLAN DE EMERGENCIA ABSOLUTO
-    if not lista_db_permitidas:
-        db_en_sesion = st.session_state.get('db_a_conectar')
-        if db_en_sesion:
-            lista_db_permitidas = [db_en_sesion]
-        else:
-            lista_db_permitidas = ['pedacito_de_cielo_ca']
-            st.session_state['db_a_conectar'] = 'pedacito_de_cielo_ca'
-
-    # 3. Filtrado por rol
-    if str(user_rol).strip().lower() == 'admin' and not df_sidebar.empty:
-        df_filtrado = df_sidebar
-    else:
-        if not df_sidebar.empty:
-            df_filtrado = df_sidebar[df_sidebar['db_nombre'].isin(lista_db_permitidas)]
-        else:
-            df_filtrado = pd.DataFrame()
-
-    if df_filtrado.empty:
-        db_actual_emergencia = lista_db_permitidas[0]
-        df_filtrado = pd.DataFrame({
-            'nombre_empresa': ['REPRESENTACIONES PEDACITO DE CIELO, C.A.' if db_actual_emergencia == 'pedacito_de_cielo_ca' else db_actual_emergencia],
-            'db_nombre': [db_actual_emergencia]
-        })
-
-    nombres_empresas = df_filtrado['nombre_empresa'].tolist()
-    db_nombres = df_filtrado['db_nombre'].tolist()
-
-    # 4. Inicializamos variables de sesión si no existen
-    if 'db_a_conectar' not in st.session_state or st.session_state['db_a_conectar'] not in db_nombres:
-        st.session_state['db_a_conectar'] = db_nombres[0]
-
-    empresa_previa_db = st.session_state.get('db_a_conectar')
-    nombre_inicial = nombres_empresas[0]
-    
-    if empresa_previa_db in db_nombres:
-        idx = db_nombres.index(empresa_previa_db)
-        nombre_inicial = nombres_empresas[idx]
-
-    # 5. Selector según el rol
-    if str(user_rol).strip().lower() == 'admin':
-        nombre_seleccionado = st.sidebar.selectbox(
-            "🔍 Seleccionar Empresa:", 
-            options=nombres_empresas, 
-            index=nombres_empresas.index(nombre_inicial) if nombre_inicial in nombres_empresas else 0,
-            key="selector_nombre_empresa"
-        )
-    else:
-        nombre_seleccionado = nombre_inicial
-        st.sidebar.markdown(f"**🏢 Empresa Asignada:**")
-        st.sidebar.info(f"{str(nombre_seleccionado).upper()}")
-
-    if not nombre_seleccionado:
-        st.sidebar.warning("⚠️ Por favor, seleccione una empresa válida.")
-        st.stop()
-
-    fila_seleccionada = df_filtrado[df_filtrado['nombre_empresa'] == nombre_seleccionado]
-    db_seleccionada = fila_seleccionada['db_nombre'].iloc[0] if not fila_seleccionada.empty else db_nombres[0]
-
-    st.sidebar.write(f"Empresa seleccionada: '{str(nombre_seleccionado).upper()}'")
-
-    # 6. Sincronización automática
-    if st.session_state.get('db_a_conectar') != db_seleccionada:
-        st.session_state['db_a_conectar'] = db_seleccionada
-        st.session_state['DB_ACTUAL'] = db_seleccionada
-        st.session_state['CLIENTE_NOMBRE'] = nombre_seleccionado
-        st.rerun()
-
-
-
-
-
-
-# =========================================================================
-# ⚙️ VARIABLES GLOBALES DE FECHA (DINÁMICAS PARA CUALQUIER MES Y AÑO)
-# =========================================================================
-anio_seleccionado = int(st.session_state.get('año_seleccionado_contabilidad', datetime.datetime.now().year))
-mes_elegido_str = st.session_state.get('mes_seleccionado_contabilidad', "Junio")
-
-mes_n = dic_meses.get(mes_elegido_str, 6)
-
-# Cálculo automático de los días del mes (bisiestos, meses de 30 o 31 días)
-_, ultimo_dia_mes = calendar.monthrange(anio_seleccionado, mes_n)
-
-fecha_inicio_str = f"{anio_seleccionado}-{mes_n:02d}-01"
-fecha_fin_str = f"{anio_seleccionado}-{mes_n:02d}-{ultimo_dia_mes:02d}"
-
-f_inicio_global = datetime.date(anio_seleccionado, mes_n, 1)
-f_fin_global = datetime.date(anio_seleccionado, mes_n, ultimo_dia_mes)
-
-# Inicializamos stats por seguridad si no existen
-if 'stats' not in st.session_state:
-    stats = {'retenido': 0.0, 'ventas': 0.0, 'compras': 0.0}
-
-#=====================================
-# 2. LÓGICA PRINCIPAL (AFUERA Y ABAJO DEL SIDEBAR - PANTALLA ANCHA)
-# =========================================================================
-
-# --- VALIDACIÓN DE CONEXIÓN GLOBAL ---
-if 'conn' not in st.session_state or st.session_state.conn is None:
-    st.session_state.conn = conectar_db()
-else:
-    # Verificamos de forma segura si sigue conectada sin rompernos si es None
-    try:
-        if not st.session_state.conn.is_connected():
-            st.session_state.conn = conectar_db()
-    except Exception:
-        st.session_state.conn = conectar_db()
-
-conn = st.session_state.conn
-
-# Doble validación final de seguridad
-if conn is None:
-    st.error("❌ No se pudo establecer una conexión válida con la base de datos.")
-    st.stop()
-
-
-# --- INTERRUPTOR DE PANTALLAS ---
 
 # PANTALLA: GESTIÓN DE USUARIOS
 if menu == "⚙️ Gestión de Usuarios": 
