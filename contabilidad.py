@@ -958,19 +958,20 @@ if "🏠 Inicio" in opcion_menu:
     st.markdown(
         """
         <style>
-            /* Expandir tarjetas de métricas estándar */
-            div[data-testid="stMetric"] {
+            /* Especificidad alta para métricas nativas exclusivamente */
+            section[data-testid="stMain"] div[data-testid="stMetric"] {
                 background-color: #ffffff;
                 padding: 15px;
                 border-radius: 8px;
                 width: 100% !important;
+                box-shadow: 0 1px 3px rgba(0,0,0,0.05);
             }
-            div[data-testid="stMetricValue"] {
+            section[data-testid="stMain"] div[data-testid="stMetricValue"] {
                 font-size: 20px !important;
                 white-space: normal !important;
                 overflow: visible !important;
             }
-            div[data-testid="stMetricLabel"] > label {
+            section[data-testid="stMain"] div[data-testid="stMetricLabel"] > label {
                 font-size: 13px !important;
                 white-space: normal !important;
                 overflow: visible !important;
