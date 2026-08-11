@@ -4506,29 +4506,49 @@ def obtener_todas_las_empresas(user_rol=None, user_id=None):
     try:
         cursor = conn_central.cursor(dictionary=True)
         
-        # 1. DIAGNÓSTICO: Ver qué tablas existen realmente en esta base de datos central de TiDB Cloud
+        # 1. Verificamos qué tablas existen
         cursor.execute("SHOW TABLES;")
         tablas_db = [list(row.values())[0] for row in cursor.fetchall()]
-        st.sidebar.write("📌 Tablas en BD central:", tablas_db)
+        st.sidebar.write("📌 Tablas disponibles:", tablas_db)
         
-        # 2. Intentamos listar los datos de la tabla 'clientes' (o puedes cambiar 'clientes' por la tabla real que veas arriba)
-        cursor.execute("SELECT * FROM clientes LIMIT 10;")
-        resultados = cursor.fetchall()
+        resultados = []
+        tabla_usada = ""
         
-        st.sidebar.write("📌 Muestra de la tabla clientes:", resultados)
+        # 2. Buscamos de forma inteligente en las tablas más probables
+        posibles_tablas = ['clientes', 'empresas', 'configuracion', 'usuarios', 'data_empresas']
+        for t in posibles_tablas:
+            if t in tablas_db:
+                try:
+                    cursor.execute(f"SELECT * FROM `{t}` LIMIT 500;")
+                    resultados = cursor.fetchall()
+                    if resultados:
+                        tabla_usada = t
+                        break
+                except Exception:
+                    continue
+                    
+        st.sidebar.write(f"📌 Tabla seleccionada con datos ({tabla_usada}):", len(resultados))
         cursor.close()
         
-        # Extraemos los datos encontrando cualquier columna que parezca un nombre de BD
+        # 3. Extraemos los nombres de las bases de datos de forma flexible
         lista = []
         for row in resultados:
-            key_encontrada = next((k for k in ['nombre_bd', 'nombre', 'bd', 'schema', 'empresa', 'database'] if k in row), None)
+            # Buscamos cualquier columna que tenga pinta de nombre de BD o empresa
+            key_encontrada = next((k for k in ['nombre_bd', 'nombre', 'bd', 'schema', 'empresa', 'database', 'db'] if k in row), None)
             if key_encontrada and row[key_encontrada]:
-                lista.append(row[key_encontrada])
+                lista.append(str(row[key_encontrada]).strip())
                 
-        return lista
+        # Si por alguna razón sigue vacío pero la tabla tiene registros, intentamos usar la primera columna de cada fila
+        if not lista and resultados:
+            for row in resultados:
+                primera_columna = list(row.values())[0]
+                if primera_columna:
+                    lista.append(str(primera_columna).strip())
+
+        return list(set(lista)) # Eliminamos duplicados si los hubiera
         
     except Exception as e:
-        st.error(f"Error de diagnóstico en BD: {e}")
+        st.error(f"Error al buscar empresas: {e}")
         return []
     finally:
         if conn_central and conn_central.is_connected():
