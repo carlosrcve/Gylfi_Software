@@ -40,6 +40,8 @@ from sqlalchemy import create_engine
 import warnings
 import pandas as pd
 import bcrypt
+import time
+
 
 def conectar_db(nombre_db=None):
     db_a_usar = nombre_db if nombre_db else "control_central"
