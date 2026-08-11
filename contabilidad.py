@@ -544,31 +544,34 @@ def obtener_saldos_acumulados(conexion, fecha_corte, nombre_db):
     try:
         cur.execute(f"USE `{db_segura}`")
         
-        # Primero probamos la consulta normal
-        cur.execute(f"""
+        # 1. Detectar automáticamente el nombre real de la columna de cuenta
+        cur.execute("SHOW COLUMNS FROM asientos_contables")
+        columnas = [row['Field'] for row in cur.fetchall()]
+        col_c = "plan_cuentas"
+        for posible in ['plan_cuentas', 'codigo_cuenta', 'cuenta', 'cuenta_contable', 'n_cuenta']:
+            if posible in columnas:
+                col_c = posible
+                break
+
+        # 2. Consulta blindada con CAST para fecha y TRIM para cuentas
+        query = f"""
             SELECT 
-                COALESCE(SUM(CASE WHEN plan_cuentas LIKE '1%' THEN (debe - haber) ELSE 0 END), 0) as activo,
-                COALESCE(SUM(CASE WHEN plan_cuentas LIKE '2%' THEN (haber - debe) ELSE 0 END), 0) as pasivo,
-                COALESCE(SUM(CASE WHEN plan_cuentas LIKE '3%' THEN (haber - debe) ELSE 0 END), 0) as patrimonio
+                COALESCE(SUM(CASE WHEN TRIM({col_c}) LIKE '1%' THEN (debe - haber) ELSE 0 END), 0) as activo,
+                COALESCE(SUM(CASE WHEN TRIM({col_c}) LIKE '2%' THEN (haber - debe) ELSE 0 END), 0) as pasivo,
+                COALESCE(SUM(CASE WHEN TRIM({col_c}) LIKE '3%' THEN (haber - debe) ELSE 0 END), 0) as patrimonio
             FROM asientos_contables 
-            WHERE fecha <= %s
-        """, (fecha_corte,))
+            WHERE CAST(fecha AS DATE) <= %s
+        """
         
+        cur.execute(query, (fecha_corte,))
         resultado = cur.fetchone()
         
-        # Si todo es cero, hacemos una validación rápida sin cambiar la UI
-        if resultado and resultado['activo'] == 0 and resultado['pasivo'] == 0:
-            # Esto es solo para log interno, no se verá en la pantalla
-            cur.execute("SELECT MIN(fecha) as min_f FROM asientos_contables")
-            min_f = cur.fetchone()
-            # Si la fecha mínima es mayor a nuestra fecha de corte, el problema es el rango
-            if min_f and min_f['min_f'] and min_f['min_f'] > fecha_corte:
-                print(f"DEBUG: Los datos empiezan en {min_f['min_f']}, pero buscas hasta {fecha_corte}")
-                
+        print(f"DEBUG SQL [{db_segura}] - Corte: {fecha_corte} | Columna cuenta usada: {col_c} | Resultado: {resultado}")
+        
         return resultado if resultado else {"activo": 0, "pasivo": 0, "patrimonio": 0}
 
     except Exception as e:
-        print(f"Error en consulta: {e}")
+        print(f"❌ Error crítico en obtener_saldos_acumulados para {db_segura}: {e}")
         return {"activo": 0, "pasivo": 0, "patrimonio": 0}
     finally:
         cur.close()
