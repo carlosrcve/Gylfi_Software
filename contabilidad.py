@@ -7408,7 +7408,8 @@ if conn is not None:
         if DB_ACTUAL and DB_ACTUAL != "control_central":
             with conn.cursor() as cursor:
                 cursor.execute(f"USE `{DB_ACTUAL}`")
-            st.success(f"✅ Conectado a: {EMPRESA} (`{DB_ACTUAL}`)")
+            #6M.
+         #st.success(f"✅ Conectado a: {EMPRESA} (`{DB_ACTUAL}`)")
     except Exception as e:
         st.warning(f"La conexión se perdió o la BD {DB_ACTUAL} no es accesible. Intentando reconectar...")
         st.session_state.conn = None # Forzamos recarga en el próximo ciclo
