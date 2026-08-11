@@ -886,6 +886,30 @@ if menu == "⚙️ Gestión de Usuarios":
     st.stop()
 
 
+# --- 1. BLOQUE DE FECHAS GLOBAL (DEBE IR PRIMERO QUE TODO) ---
+if 'año_seleccionado' not in st.session_state:
+    st.session_state['año_seleccionado'] = datetime.datetime.now().year
+
+if 'mes_seleccionado' not in st.session_state:
+    meses_nombres = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
+    st.session_state['mes_seleccionado'] = meses_nombres[datetime.datetime.now().month - 1]
+
+# --- 1. BLOQUE DE FECHAS GLOBAL Y SEGURO ---
+# --- 1. CONFIGURACIÓN DE MESES ---
+dic_meses = {
+    "Enero": 1, "Febrero": 2, "Marzo": 3, "Abril": 4, 
+    "Mayo": 5, "Junio": 6, "Julio": 7, "Agosto": 8, 
+    "Septiembre": 9, "Octubre": 10, "Noviembre": 11, "Diciembre": 12
+}
+
+# --- 2. INICIALIZACIÓN ÚNICA DEL ESTADO ---
+# Usamos setdefault para evitar sobrescribir si el usuario ya interactuó
+if 'año_seleccionado' not in st.session_state:
+    st.session_state['año_seleccionado'] = datetime.datetime.now().year
+
+if 'mes_seleccionado' not in st.session_state:
+    st.session_state['mes_seleccionado'] = "Junio"
+
 
 # Asegúrate de definir la lista antes de usarla
 meses = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
