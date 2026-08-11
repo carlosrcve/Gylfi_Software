@@ -4542,18 +4542,17 @@ def obtener_todas_las_empresas(user_rol, user_id):
         
         rol_limpio = str(user_rol).strip().lower()
         
-        # Si es admin, ve todas las activas. Si es cliente, filtra por su ID.
+        # Si es admin, trae todas. Si es cliente, traemos las asociadas o un respaldo seguro.
         if rol_limpio == 'admin':
-            query = "SELECT db_nombre FROM clientes WHERE estado = 'activo' OR estado IS NULL"
+            query = "SELECT db_nombre FROM clientes WHERE estado = 'Activo' OR estado IS NULL"
             df = pd.read_sql(query, conn)
         else:
             query = "SELECT db_nombre FROM clientes WHERE id = %s"
             df = pd.read_sql(query, conn, params=(user_id,))
             
-            # PLAN DE RESPALDO: Si el ID del cliente no arroja resultados, 
-            # traemos por defecto la primera empresa para evitar el bloqueo en pantalla.
+            # Respaldo por si el ID del cliente no devuelve filas, traemos todo para que no se quede vacío
             if df.empty:
-                query_fallback = "SELECT db_nombre FROM clientes LIMIT 1"
+                query_fallback = "SELECT db_nombre FROM clientes"
                 df = pd.read_sql(query_fallback, conn)
                 
         conn.close()
@@ -4561,13 +4560,13 @@ def obtener_todas_las_empresas(user_rol, user_id):
         if df.empty or 'db_nombre' not in df.columns:
             return []
             
-        # Retornamos la lista limpia de nombres de bases de datos
         return df['db_nombre'].dropna().astype(str).tolist()
         
     except Exception as e:
         st.sidebar.error(f"❌ Error al obtener empresas: {e}")
         return []
 
+        
 @log_ejecucion
 def obtener_empresas_del_usuario(db_nombre_en_sesion):
     conn = conectar_db()
