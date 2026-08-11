@@ -4524,34 +4524,32 @@ def obtener_todas_las_empresas(user_rol, user_id):
         
         rol_limpio = str(user_rol).strip().lower()
         
+        # 1. Si es admin, traemos todas las empresas activas de la tabla clientes
         if rol_limpio == 'admin':
             query = "SELECT db_nombre FROM clientes WHERE estado = 'Activo' OR estado IS NULL"
             df = pd.read_sql(query, conn)
+            conn.close()
+            
+            if df.empty or 'db_nombre' not in df.columns:
+                return []
+            return df['db_nombre'].dropna().astype(str).tolist()
+            
+        # 2. Si es cliente, leemos directamente el campo db_nombre que ya trae su usuario en la tabla
         else:
-            # Para el cliente (ej. Roberto con cliente_id = 2), buscamos su empresa vinculada
-            try:
-                id_cliente = int(user_id)
-            except (ValueError, TypeError):
-                id_cliente = 2  # Respaldo por defecto para Roberto (ID 2)
-                
-            query = "SELECT db_nombre FROM clientes WHERE id = %s"
-            df = pd.read_sql(query, conn, params=(id_cliente,))
+            query = "SELECT db_nombre FROM usuarios WHERE id = %s"
+            df = pd.read_sql(query, conn, params=(user_id,))
+            conn.close()
             
-            # Si la consulta directa no trae nada, forzamos la de pedacito_cielo_ca para el ID 2
-            if df.empty:
-                query_fb = "SELECT db_nombre FROM clientes WHERE id = 2"
-                df = pd.read_sql(query_fb, conn)
+            if df.empty or 'db_nombre' not in df.columns or pd.isna(df['db_nombre'].iloc[0]):
+                return []
                 
-        conn.close()
-        
-        if df.empty or 'db_nombre' not in df.columns:
-            return ['pedacito_cielo_ca']  # Garantía absoluta de que nunca devuelva vacío
+            db_asignada = str(df['db_nombre'].iloc[0])
+            # Retornamos la base de datos específica en una lista para el selectbox de Streamlit
+            return [db_asignada]
             
-        return df['db_nombre'].dropna().astype(str).tolist()
-        
     except Exception as e:
-        st.sidebar.error(f"❌ Error al obtener empresas: {e}")
-        return ['pedacito_cielo_ca']
+        st.sidebar.error(f"❌ Error al obtener la empresa del usuario: {e}")
+        return []
         
 @log_ejecucion
 def obtener_empresas_del_usuario(db_nombre_en_sesion):
