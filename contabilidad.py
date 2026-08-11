@@ -4518,27 +4518,31 @@ def marcar_retencion_completada(conn, id_factura, n_comprobante):
 @log_ejecucion
 def obtener_todas_las_empresas(user_rol, user_id):
     try:
-        conn = conectar_db()
+        # Asegúrate de pasar el nombre de tu base de datos central si lo requiere, 
+        # por ejemplo: conectar_db("control_central") o dejarlo si tu config por defecto es esa.
+        conn = conectar_db("control_central") if "conectar_db" in globals() else conectar_db()
         if not conn:
+            st.sidebar.error("❌ No se pudo establecer conexión para leer las empresas.")
             return []
         
-        # Omitimos el filtro de ID conflictivo y traemos directamente todas las empresas activas de la tabla
+        # Traemos todas las empresas activas sin depender del ID que pueda venir alterado
         query = "SELECT db_nombre FROM clientes WHERE estado = 'Activo' OR estado IS NULL"
         df = pd.read_sql(query, conn)
         
-        # Si por alguna razón el WHERE estricto no trajo nada, traemos todo sin condiciones
+        # Respaldo total por si la condición estricta no trae registros
         if df.empty:
             df = pd.read_sql("SELECT db_nombre FROM clientes", conn)
                 
         conn.close()
         
         if df.empty or 'db_nombre' not in df.columns:
+            st.sidebar.warning("⚠️ La tabla clientes no devolvió registros de 'db_nombre'.")
             return []
             
         return df['db_nombre'].dropna().astype(str).tolist()
         
     except Exception as e:
-        st.sidebar.error(f"❌ Error al obtener empresas: {e}")
+        st.sidebar.error(f"❌ Error crítico en obtener_todas_las_empresas: {e}")
         return []
         
 @log_ejecucion
