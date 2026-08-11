@@ -576,9 +576,6 @@ def obtener_saldos_acumulados(conexion, fecha_corte, nombre_db):
     return {"activo": 0, "pasivo": 0, "patrimonio": 0}
 
 
-
-
-
 def gestionar_sidebar():
     # 1. Recuperar rol e identificador de sesión
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
@@ -602,8 +599,8 @@ def gestionar_sidebar():
 
         st.markdown("---")
         
-        # Botón con key única para prevenir StreamlitDuplicateElementId
-        if st.button("🚪 Cerrar Sesión"):
+        # 🔑 Solución definitiva: Añadir un key único y fijo evita el conflicto del ID generado
+        if st.button("🚪 Cerrar Sesión", key="unique_logout_button_sidebar"):
             for key in list(st.session_state.keys()):
                 del st.session_state[key]
             st.rerun()
