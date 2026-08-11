@@ -4500,37 +4500,35 @@ def marcar_retencion_completada(conn, id_factura, n_comprobante):
 def obtener_todas_las_empresas(user_rol=None, user_id=None):
     conn_central = conectar_db()
     if not conn_central: 
+        st.error("❌ No se pudo conectar a la base de datos central.")
         return []
     
     try:
         cursor = conn_central.cursor(dictionary=True)
         
-        # Normalizamos el rol a minúsculas y manejamos nulos para evitar fallos
-        rol_limpio = str(user_rol).strip().lower() if user_rol else 'admin'
+        # 1. DIAGNÓSTICO: Ver qué tablas existen realmente en esta base de datos central de TiDB Cloud
+        cursor.execute("SHOW TABLES;")
+        tablas_db = [list(row.values())[0] for row in cursor.fetchall()]
+        st.sidebar.write("📌 Tablas en BD central:", tablas_db)
         
-        if rol_limpio in ['admin', 'administrador', 'None']:
-            # Traemos todas las empresas sin importar el rol si es admin o nulo
-            query = "SELECT nombre_bd FROM clientes"
-            cursor.execute(query)
-        else:
-            query = "SELECT nombre_bd FROM clientes WHERE usuario_id = %s"
-            cursor.execute(query, (user_id,))
-            
+        # 2. Intentamos listar los datos de la tabla 'clientes' (o puedes cambiar 'clientes' por la tabla real que veas arriba)
+        cursor.execute("SELECT * FROM clientes LIMIT 10;")
         resultados = cursor.fetchall()
+        
+        st.sidebar.write("📌 Muestra de la tabla clientes:", resultados)
         cursor.close()
         
-        # Extraemos una lista limpia buscando la columna de forma flexible
+        # Extraemos los datos encontrando cualquier columna que parezca un nombre de BD
         lista = []
         for row in resultados:
-            # Buscamos la clave correcta dinámicamente por si la columna se llama diferente
-            key_encontrada = next((k for k in ['nombre_bd', 'nombre', 'bd', 'schema', 'empresa'] if k in row), None)
+            key_encontrada = next((k for k in ['nombre_bd', 'nombre', 'bd', 'schema', 'empresa', 'database'] if k in row), None)
             if key_encontrada and row[key_encontrada]:
                 lista.append(row[key_encontrada])
                 
         return lista
         
     except Exception as e:
-        st.error(f"Error al filtrar empresas: {e}")
+        st.error(f"Error de diagnóstico en BD: {e}")
         return []
     finally:
         if conn_central and conn_central.is_connected():
