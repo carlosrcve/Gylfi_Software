@@ -4524,7 +4524,6 @@ def obtener_todas_las_empresas(user_rol, user_id):
         
         rol_limpio = str(user_rol).strip().lower()
         
-        # 1. Si es admin, traemos todas las empresas activas de la tabla clientes
         if rol_limpio == 'admin':
             query = "SELECT db_nombre FROM clientes WHERE estado = 'Activo' OR estado IS NULL"
             df = pd.read_sql(query, conn)
@@ -4534,7 +4533,6 @@ def obtener_todas_las_empresas(user_rol, user_id):
                 return []
             return df['db_nombre'].dropna().astype(str).tolist()
             
-        # 2. Si es cliente, leemos directamente el campo db_nombre que ya trae su usuario en la tabla
         else:
             query = "SELECT db_nombre FROM usuarios WHERE id = %s"
             df = pd.read_sql(query, conn, params=(user_id,))
@@ -4544,7 +4542,6 @@ def obtener_todas_las_empresas(user_rol, user_id):
                 return []
                 
             db_asignada = str(df['db_nombre'].iloc[0])
-            # Retornamos la base de datos específica en una lista para el selectbox de Streamlit
             return [db_asignada]
             
     except Exception as e:
