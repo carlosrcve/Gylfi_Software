@@ -603,7 +603,7 @@ def gestionar_sidebar():
         st.markdown("---")
         
         # Botón con key única para prevenir StreamlitDuplicateElementId
-        if st.button("🚪 Cerrar Sesión", key="btn_cerrar_sesion_sidebar"):
+        if st.button("🚪 Cerrar Sesión"):
             for key in list(st.session_state.keys()):
                 del st.session_state[key]
             st.rerun()
