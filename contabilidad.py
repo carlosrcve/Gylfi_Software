@@ -908,7 +908,7 @@ def obtener_detalle_cashea(db, f_inicio, f_fin):
 
 def consultar_bcv_directo_sin_bd(conn=None):
     # 1. Obtenemos la tasa (aprovechando el caché seguro)
-    tasa, fuente = obtener_tasa_bcv_segura()
+    tasa, fuente = obtener_tasa_bcv_hoy()
     
     # 2. Gestionamos los logs y la conexión de forma independiente
     if conn and conn.is_connected():
