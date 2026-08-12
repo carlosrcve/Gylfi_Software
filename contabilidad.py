@@ -3015,7 +3015,7 @@ if "🏠 Inicio" in opcion_menu:
                     st.info("No hay datos disponibles o error al recuperar el histórico para el periodo seleccionado.")
 
             with tab4:
-                # --- SECCIÓN: ASIENTO CONTABLE COMPLETO POR COMPROBANTE (MODO EMERGENCIA / SIN FILTRO DE FECHA) ---
+                # --- SECCIÓN: ASIENTO CONTABLE COMPLETO POR COMPROBANTE ---
                 st.divider()
                 st.subheader("👥 Detalle de Comprobantes - Cuentas por Pagar Accionistas")
 
@@ -3030,14 +3030,14 @@ if "🏠 Inicio" in opcion_menu:
                                  "Julio": 7, "Agosto": 8, "Septiembre": 9, "Octubre": 10, "Noviembre": 11, "Diciembre": 12}
                     mes_n = dic_meses.get(str(mes_sel).capitalize(), 5)
                     
-                    # 2. CONSULTA (Filtramos por fecha desde la BD para que sea más rápido)
                     f_i = f"{int(anio_sel)}-{mes_n:02d}-01"
                     f_f = f"{int(anio_sel)}-{mes_n:02d}-31"
                     
-                    # 2. Inicializamos las variables por seguridad antes de usarlas
-                    conn_tmp = None
                     df_comps = pd.DataFrame()
                     seleccion_opcion = None
+
+                    # --- CORRECCIÓN: Conectar correctamente usando tu función global ---
+                    conn_tmp = conectar_db(db_name) if 'conectar_db' in globals() else None
 
                     if conn_tmp:
                         try:
@@ -3053,7 +3053,10 @@ if "🏠 Inicio" in opcion_menu:
                         except Exception as e:
                             st.error(f"❌ Error al consultar: {e}")
                         finally:
-                            conn_tmp.close()
+                            try:
+                                conn_tmp.close()
+                            except:
+                                pass
 
                     # 3. MOSTRAR RESULTADOS FILTRADOS
                     if not df_comps.empty:
@@ -3065,8 +3068,10 @@ if "🏠 Inicio" in opcion_menu:
                         lista_opciones = df_comps['opcion'].tolist()
                         
                         seleccion_opcion = st.selectbox("📂 Selecciona el comprobante a visualizar:", lista_opciones, key="select_acc_final")
+                    else:
+                        st.warning(f"⚠️ No se encontraron comprobantes con cuentas de Accionista para {mes_sel} {anio_sel}.")
 
-                    # 4. Verificación segura con la variable ya declarada
+                    # 4. Verificación segura del asiento seleccionado
                     if seleccion_opcion:
                         comprobante_activo = seleccion_opcion.split(" ")[0]
                         df_asiento = obtener_asiento_por_comprobante(db_name, comprobante_activo)
@@ -3107,8 +3112,6 @@ if "🏠 Inicio" in opcion_menu:
                             col2.metric("Total Haber (Comprobante)", f"Bs. {formato_latino(total_haber)}")
                         else:
                             st.info("No se encontraron detalles para este comprobante.")
-                    else:
-                        st.error("⚠️ La base de datos no tiene NINGÚN registro con '2.2.1' o 'Accionista'. Revisa si el nombre de la empresa o la tabla son correctos.")
                 else:
                     st.warning("⚠️ Selecciona una empresa.")
                     
