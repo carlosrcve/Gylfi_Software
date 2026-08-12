@@ -1931,6 +1931,27 @@ def mostrar_tablero_conciliacion(conn, mes_sel, ano_sel):
         st.info("ℹ️ No hay movimientos conciliados en este periodo.")
 
 
+# Definido a nivel global para evitar recrearlo en cada llamada
+_MAPEO_BANCOS = {
+    "Banco de Venezuela": "BDV",
+    "Banesco": "Banesco",
+    "Banco Mercantil": "Mercantil"
+}
+
+def obtener_alias_banco(nombre_ui):
+    """
+    Garantiza que siempre busques el nombre correcto en la tabla 
+    mapeando el nombre de la interfaz al alias de la base de datos.
+    """
+    if not nombre_ui:
+        return nombre_ui
+        
+    # Limpiamos espacios en blanco accidentales al inicio o final
+    nombre_limpio = nombre_ui.strip()
+    
+    return _MAPEO_BANCOS.get(nombre_limpio, nombre_limpio)
+
+
 def gestionar_sidebar():
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
     user_id = st.session_state.get('user_id', st.session_state.get('cliente_id', 'N/A'))
