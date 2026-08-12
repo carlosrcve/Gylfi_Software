@@ -926,7 +926,7 @@ def consultar_bcv_directo_sin_bd(conn=None):
     return tasa, fuente
 
 
-@st.cache_data(ttl=3600)  # Caché de 1 hora para la tasa del BCV
+
 def obtener_tasa_bcv_hoy(_conn):
     """
     Busca la tasa en la BD. Si no existe para hoy, la consulta en la web 
