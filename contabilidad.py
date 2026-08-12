@@ -66,7 +66,9 @@ def conectar_db(nombre_db=None):
                     password="OhAcM2lizBMDXDgD",
                     database="control_central",
                     use_pure=True,
-                    connect_timeout=10,
+                    connect_timeout=30,  # Aumentado para evitar timeouts de red inicial
+                    read_timeout=60,     # Límite de lectura extendido
+                    write_timeout=60,
                     ssl_verify_cert=False,
                     ssl_disabled=False
                 )
@@ -77,10 +79,12 @@ def conectar_db(nombre_db=None):
             except Exception as ex:
                 print(f"Aviso al asegurar BD de cliente: {ex}")
 
-        # 2. VALIDAR CONEXIÓN EXISTENTE EN SESSION_STATE Y FORZAR EL CAMBIO DE ESQUEMA SI ES NECESARIO
         # 2. VALIDAR CONEXIÓN EXISTENTE EN SESSION_STATE
         if "conn" in st.session_state and st.session_state.conn is not None:
             try:
+                # Forzar verificación de salud con ping y auto-reconexión si expiró
+                st.session_state.conn.ping(reconnect=True, attempts=3, delay=1)
+                
                 if st.session_state.conn.is_connected():
                     cursor_test = st.session_state.conn.cursor()
                     cursor_test.execute("SELECT DATABASE()")
@@ -88,17 +92,16 @@ def conectar_db(nombre_db=None):
                     db_actual_en_servidor = res[0] if res else None
                     cursor_test.close()
                     
-                    # Si la base de datos es exactamente la misma, la reutilizamos sin miedo
+                    # Si la base de datos es la misma, la reutilizamos con seguridad
                     if db_actual_en_servidor == db_a_usar:
                         return st.session_state.conn
                     else:
-                        # Si cambió de cliente, cerramos la vieja para obligar a abrir una limpia abajo
                         st.session_state.conn.close()
                         st.session_state.conn = None
             except Exception:
                 st.session_state.conn = None
-      
-        # 3. CONEXIÓN OFICIAL A LA BASE DE DATOS REQUERIDA
+    
+        # 3. CONEXIÓN OFICIAL CON PARÁMETROS ANTITIMEOUT AMPLIADOS
         st.session_state.conn = mysql.connector.connect(
             host="gateway01.us-east-1.prod.aws.tidbcloud.com",
             port=4000,
@@ -106,7 +109,9 @@ def conectar_db(nombre_db=None):
             password="OhAcM2lizBMDXDgD",
             database=db_a_usar,
             use_pure=True,
-            connect_timeout=10,
+            connect_timeout=30,  # Tiempo de espera ampliado para conexiones lentas
+            read_timeout=60,     # Evita el error 3024 en consultas largas
+            write_timeout=60,    # Evita cortes en escrituras masivas
             ssl_verify_cert=False,
             ssl_disabled=False
         )
