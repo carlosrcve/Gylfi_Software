@@ -1514,10 +1514,8 @@ def consultar_tabla_db(conn, nombre_tabla, limite=None):
     return df
 
 
-
-def obtener_datos_agente_db(valor_busqueda):
-    # La conexión se abre y cierra DENTRO de la función cacheada 
-    # para no pasar el objeto 'conn' como argumento.
+# 1. Función "sucia" (que conecta a la BD y realiza la consulta)
+def _obtener_datos_de_bd(valor_busqueda):
     conn_central = conectar_db() 
     if not conn_central: 
         return None
@@ -1534,15 +1532,19 @@ def obtener_datos_agente_db(valor_busqueda):
         datos = cursor.fetchone()
         return datos
     except Exception as e:
-        # Nota: Evita exponer el valor buscado si es sensible en el error final
-        st.error(f"Error al obtener datos del agente.")
+        # Aquí capturamos el error para registro interno pero mostramos mensaje limpio al usuario
+        st.error(f"Error técnico al consultar base de datos: {e}")
         return None
     finally:
-        # El cursor y la conexión se cierran tras obtener el dato
         if 'cursor' in locals() and cursor:
             cursor.close()
         if conn_central and conn_central.is_connected():
             conn_central.close()
+
+# 2. Función "limpia" (que solo maneja el caché y llama a la anterior)
+@st.cache_data(ttl=3600) 
+def obtener_datos_agente_db(valor_busqueda):
+    return _obtener_datos_de_bd(valor_busqueda)
 
 
 
