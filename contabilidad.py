@@ -1911,7 +1911,18 @@ if menu_lateral == "📊 Auditoría Contable":
         if "PEDACITO" in str(nombre_sel).upper() and "CIELO" in str(nombre_sel).upper():
             modulos_disponibles.append("🧁 Inventarios")
 
-        opcion_menu = st.selectbox("📂 SELECCIONE UN MÓDULO", modulos_disponibles, key="opcion_menu_auditoria")
+        opcion_menu = st.selectbox("📂 SELECCIONE UN MÓDULO", modulos_disponibles)
+            st.session_state['opcion_menu_auditoria'] = opcion_menu
+
+            if opcion_menu == "📝 Asientos Contables":
+                sub_opcion = st.radio("Acciones:", ["Subir Datos", "Conciliación Bancaria", "Consultar Comprobante", "Consultar Saldos Iniciales", "Consultar Cierre Contable"], key="sub_asientos")
+            elif opcion_menu == "📊 Estados Financieros":
+                st.markdown("---")
+                sub_opcion = st.radio("Reportes Financieros:", ["Balance de Comprobación", "Balance General", "Estado de Resultados"], key="sub_estados")
+            elif opcion_menu == "📚 Libros Fiscales":
+                sub_opcion = st.radio("Reportes Fiscales:", ["Libro de Ventas", "Libro de Compras", "Comprobante de Retención ISLR", "Comprobante de Retención IVA"], key="sub_libros")
+            else:
+                sub_opcion = None
 
         st.divider()
         st.subheader("📅 Período de Consulta")
