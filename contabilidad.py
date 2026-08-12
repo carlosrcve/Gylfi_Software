@@ -1737,10 +1737,6 @@ def cargar_estado_cuenta_bdv(uploaded_file, conn):
 
 
 
-import calendar
-import pandas as pd
-import streamlit as st
-
 def mostrar_tablero_conciliacion(conn, mes_sel, ano_sel):
     st.title("⚖️ Conciliación Bancaria")
 
@@ -4432,19 +4428,16 @@ elif opcion_menu == "📝 Asientos Contables":
             st.error(f"❌ Error: No se pudo conectar a la base de datos {db_actual}")
             st.stop()
 
-        # 3. Encapsulamos toda la lógica en un try...finally para garantizar el cierre
-     
-        # 1. Selectores Globales
+        # 3. Selectores Globales (Aquí nacen los keys únicos)
         col1, col2 = st.columns([1, 1])
         with col1:
             mes_sel = st.selectbox("Mes", ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", 
-                                           "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"], index=2,key="mes_seleccionado")
+                                           "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"], index=2, key="mes_seleccionado")
         with col2:
             ano_sel = st.selectbox("Año", [2025, 2026, 2027], index=1, key="ano_seleccionado")
 
-
         # Tabs: Orden Lógico de trabajo
-        tab1,tab2,tab3,tab4,tab5  = st.tabs([
+        tab1, tab2, tab3, tab4, tab5 = st.tabs([
             "⚙️ Configuración Saldos", 
             "📂 Importar Movimientos", 
             "📜 Estado de Cuenta", 
