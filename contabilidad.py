@@ -1089,6 +1089,232 @@ def generar_reporte_multimoneda(conn, mes, ano, db):
     return df
 
 
+import pandas as pd
+import streamlit as st
+
+@st.cache_data(ttl=300)
+def obtener_analisis_gastos_clase5(db, f_i, f_f):
+    """
+    Obtiene el análisis de gastos de Clase 5 de forma segura y cacheada.
+    Nota: El caché durará 5 minutos; si necesitas datos en tiempo real estricto, 
+    considera quitar el decorador @st.cache_data.
+    """
+    # 1. Validar nombre de la base de datos para prevenir Inyección SQL
+    if not db or not db.replace("_", "").isalnum():
+        raise ValueError(f"Nombre de base de datos inválido: {db}")
+
+    # 2. Validar que conectar_db exista realmente
+    if 'conectar_db' not in globals() and 'conectar_db' not in locals():
+        print("❌ Error: La función 'conectar_db' no está definida.")
+        return pd.DataFrame()
+
+    conn = conectar_db(db)
+    if conn is None:
+        print("❌ Error: 'conectar_db' devolvió None (revisa tus credenciales o conexión a TiDB Cloud).")
+        return pd.DataFrame()
+    
+    # Asegurar rango de hora completo para evitar perder registros del último día
+    f_i_str = str(f_i).split()[0] + " 00:00:00"
+    f_f_str = str(f_f).split()[0] + " 23:59:59"
+
+    query = f"""
+        SELECT 
+            plan_cuentas, 
+            CASE 
+                WHEN plan_cuentas = '5.1.1.01.001' THEN 'Costos de Reparaciones de vehiculos'
+                WHEN plan_cuentas = '5.1.1.01.002' THEN 'Iva Credito Fiscal (Ingresos Exentos)'
+                ELSE 'Otros'
+            END as descripcion, 
+            (SUM(debe) - SUM(haber)) as total_gasto
+        FROM `{db}`.asientos_contables 
+        WHERE plan_cuentas IN ('5.1.1.01.001', '5.1.1.01.002')
+        AND fecha >= %s AND fecha <= %s
+        GROUP BY plan_cuentas
+        HAVING total_gasto != 0
+        ORDER BY total_gasto DESC
+    """
+    
+    try:
+        df = pd.read_sql(query, conn, params=(f_i_str, f_f_str))
+    except Exception as e:
+        print(f"❌ Error en Clase 5: {e}")
+        df = pd.DataFrame()
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+        
+    return df
+
+
+
+
+@st.cache_data(ttl=300)
+def obtener_analisis_gastos_clase6(db, f_i, f_f):
+    """
+    Obtiene gastos de Clase 6 con validación de seguridad para multi-empresa.
+    """
+    # 1. Validación de Seguridad (CRÍTICA)
+    if not db or not db.replace("_", "").isalnum():
+        raise ValueError(f"Nombre de base de datos no seguro: {db}")
+
+    conn = conectar_db(db)
+    if not conn:
+        return pd.DataFrame()
+    
+    # Asegurar hora final para que tome todo el día
+    f_i_str = str(f_i).split()[0] + " 00:00:00"
+    f_f_str = str(f_f).split()[0] + " 23:59:59"
+
+    # La estructura de la query es segura gracias a los parámetros %s
+    query = f"""
+        SELECT 
+            plan_cuentas, 
+            MAX(cuenta_contable) as cuenta_contable, 
+            (SUM(debe) - SUM(haber)) as total_gasto
+        FROM `{db}`.asientos_contables 
+        WHERE plan_cuentas LIKE '6%'
+          AND fecha >= %s AND fecha <= %s
+        GROUP BY plan_cuentas
+        HAVING total_gasto != 0
+        ORDER BY total_gasto DESC
+    """
+    
+    try:
+        df = pd.read_sql(query, conn, params=(f_i_str, f_f_str))
+    except Exception as e:
+        print(f"❌ Error en Clase 6 para {db}: {e}")
+        df = pd.DataFrame()
+    finally:
+        if conn:
+            conn.close()
+        
+    return df
+
+
+
+@st.cache_data(ttl=300)
+def obtener_historico_utilidad_acumulada(db, año, mes_limite):
+    df_default = pd.DataFrame({'mes': [], 'utilidad_mensual': []})
+    
+    # 1. Validación de Seguridad Estricta para el nombre de la BD
+    if not db or not db.replace("_", "").isalnum():
+        raise ValueError(f"Nombre de base de datos inválido: {db}")
+
+    # 2. Blindaje de Conexión
+    if 'conectar_db' not in globals() and 'conectar_db' not in locals():
+        print("❌ Error crítico: 'conectar_db' no está definida.")
+        return df_default
+        
+    conn = conectar_db(db)
+    if not conn:
+        return df_default
+        
+    try:
+        año = int(año)
+        mes_limite = int(mes_limite)
+    except (TypeError, ValueError):
+        año = 2026
+        mes_limite = 6
+
+    # 3. Consulta 100% Segura usando Parámetros (%s)
+    query = f"""
+        SELECT 
+            MONTH(STR_TO_DATE(fecha, '%Y-%m-%d')) as mes,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '4%' THEN haber ELSE 0 END) as ingresos_haber,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '4%' THEN debe ELSE 0 END) as ingresos_debe,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '5%' THEN haber ELSE 0 END) as costos_haber,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '5%' THEN debe ELSE 0 END) as costos_debe,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '6%' THEN haber ELSE 0 END) as gastos_haber,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '6%' THEN debe ELSE 0 END) as gastos_debe,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '7%' THEN haber ELSE 0 END) as otros_ingresos_haber,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '7%' THEN debe ELSE 0 END) as otros_ingresos_debe,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '8%' THEN haber ELSE 0 END) as otros_haber,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '8%' THEN debe ELSE 0 END) as oitros_debe
+        FROM `{db}`.asientos_contables 
+        WHERE YEAR(STR_TO_DATE(fecha, '%Y-%m-%d')) = %s 
+          AND MONTH(STR_TO_DATE(fecha, '%Y-%m-%d')) <= %s
+        GROUP BY MONTH(STR_TO_DATE(fecha, '%Y-%m-%d'))
+        ORDER BY mes ASC
+    """
+    
+    try:
+        # Pasamos año y mes como parámetros seguros
+        df = pd.read_sql(query, conn, params=(año, mes_limite))
+        if df.empty:
+            return df_default
+            
+        df = df.fillna(0)
+
+        df['utilidad_mensual'] = (
+            (df['ingresos_haber'] - df['ingresos_debe']) - 
+            (df['costos_debe'] - df['costos_haber']) - 
+            (df['gastos_debe'] - df['gastos_haber']) + 
+            (df['otros_ingresos_haber'] - df['otros_ingresos_debe']) - 
+            (df['oitros_debe'] - df['otros_haber'])
+        )
+        
+        return df[['mes', 'utilidad_mensual']]
+        
+    except Exception as e:
+        print(f"Error al calcular histórico acumulado: {e}")
+        return df_default
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except:
+                pass
+
+
+
+@st.cache_data(ttl=300)
+def obtener_asiento_por_comprobante(db, n_comprobante):
+    # 1. Validación de seguridad estricta para prevenir Inyección SQL en el esquema
+    if not db or not db.replace("_", "").isalnum():
+        raise ValueError(f"Nombre de base de datos inválido: {db}")
+
+    conn = conectar_db(db)
+    if not conn:
+        return pd.DataFrame()
+    
+    try:
+        # Trae TODAS las líneas que pertenecen a ese número de comprobante de forma segura
+        query = f"""
+            SELECT 
+                id, 
+                n_comprobante, 
+                descripcion, 
+                fecha, 
+                plan_cuentas, 
+                cuenta_contable, 
+                referencia, 
+                debe, 
+                haber
+            FROM `{db}`.asientos_contables 
+            WHERE n_comprobante = %s
+            ORDER BY id ASC
+        """
+        # Parámetro seguro para evitar inyección SQL
+        df = pd.read_sql(query, conn, params=(str(n_comprobante),))
+        
+        if not df.empty:
+            df['debe'] = pd.to_numeric(df['debe'], errors='coerce').fillna(0.0)
+            df['haber'] = pd.to_numeric(df['haber'], errors='coerce').fillna(0.0)
+            
+        return df
+    except Exception as e:
+        print(f"Error al obtener asiento completo en TiDB: {e}")
+        return pd.DataFrame()
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except:
+                pass
+
+
 def gestionar_sidebar():
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
     user_id = st.session_state.get('user_id', st.session_state.get('cliente_id', 'N/A'))
@@ -2381,3 +2607,547 @@ if "🏠 Inicio" in opcion_menu:
                         for a in alertas_duplicados: st.info(a)
                     else:
                         st.success("✨ ¡Análisis Completo! Data limpia y alineada.")
+
+
+        # --- FILA 10: REPORTE DE CONTABLE ---
+        st.divider()
+        try:
+            # Usamos las llaves exactas definidas en el sidebar de contabilidad
+            año = int(st.session_state.get('año_seleccionado_contabilidad', datetime.datetime.now().year))
+            mes_elegido_str = str(st.session_state.get('mes_seleccionado_contabilidad', 'Junio')).strip().capitalize()
+
+            # Mapeo robusto de meses
+            meses_map = {
+                'Enero': 1, 'Febrero': 2, 'Marzo': 3, 'Abril': 4, 'Mayo': 5, 'Junio': 6,
+                'Julio': 7, 'Agosto': 8, 'Septiembre': 9, 'Octubre': 10, 'Noviembre': 11, 'Diciembre': 12
+            }
+            
+            num_mes = meses_map.get(mes_elegido_str, 6)
+
+            # Construcción de fechas usando calendar para evitar errores en días máximos
+            ultimo_dia = int(calendar.monthrange(año, num_mes)[1])
+            
+            # Creamos tanto los strings como los objetos date de forma limpia
+            f_i_str = f"{año}-{num_mes:02d}-01"
+            f_f_str = f"{año}-{num_mes:02d}-{ultimo_dia:02d}"
+
+            f_i_date = datetime.date(año, num_mes, 1)
+            f_f_date = datetime.date(año, num_mes, ultimo_dia)
+
+            # Cuadro informativo de depuración en tiempo real reflejando el período activo
+            st.info(f"📅 Período Activo: **{mes_elegido_str} {año}** | Rango SQL: **{f_i_str} al {f_f_str}**")
+
+            # Validar Base de Datos activa
+            db = st.session_state.get('DB_ACTUAL')
+            if db and db != "{db}" and db != "None" and str(db).strip() != "":
+                try:
+                    # Pasamos los objetos date unificados a tus funciones
+                    df_acc = obtener_analisis_accionista_detallado(db, f_i_date, f_f_date)
+                    utilidad = obtener_historico_utilidad(db, f_inicio=f_i_str, f_fin=f_f_str)
+                except Exception as err:
+                    st.error(f"Error interno en la función de datos: {err}")
+                    st.stop()
+            else:
+                st.warning("⚠️ Selecciona una empresa.")
+                st.stop()
+
+            st.subheader(f"📊 Análisis Contable: {db}")
+            tab1, tab2, tab3, tab4, tab5 = st.tabs([
+                "👥 Accionistas", 
+                "📉 Gastos Operativos", 
+                "📈 Resumen Utilidad", 
+                "💳 Cuentas por Pagar Accionista", 
+                "💰 Otros Ingresos"
+            ])
+
+            with tab1:
+                st.markdown("### Clausula 4ta del Contrato")
+                
+                # 1. Procesamiento ultra-seguro de la utilidad devuelta
+                utilidad_bruta = 0.0
+                if utilidad is not None:
+                    if isinstance(utilidad, pd.DataFrame) and not utilidad.empty:
+                        if 'utilidad_mensual' in utilidad.columns:
+                            utilidad_bruta = float(utilidad['utilidad_mensual'].iloc[0])
+                        else:
+                            utilidad_bruta = float(utilidad.iloc[0, 0])
+                    elif isinstance(utilidad, (int, float)):
+                        utilidad_bruta = float(utilidad)
+                    elif isinstance(utilidad, (list, tuple)) and len(utilidad) > 0:
+                        try:
+                            utilidad_bruta = float(utilidad[0])
+                        except Exception:
+                            utilidad_bruta = 0.0
+
+                neto_disponible = utilidad_bruta * 0.66
+
+                # 2. Obtenemos de forma segura el DataFrame detallado de asientos y accionistas del período
+                df_config_accionistas = pd.DataFrame()
+    
+                # Abrimos una conexión local para este bloque
+                conn_tab = conectar_db(db) 
+
+                if conn_tab is None or not conn_tab.is_connected():
+                    st.error("❌ Error: No se pudo establecer conexión con la base de datos para los accionistas.")
+                else:
+                    try:
+                        cursor = conn_tab.cursor()
+                        cursor.execute(f"USE `{db}`;")
+                        
+                        # Validación y creación de tabla
+                        cursor.execute("""
+                            CREATE TABLE IF NOT EXISTS accionistas (
+                                id INT AUTO_INCREMENT PRIMARY KEY,
+                                nombre VARCHAR(255) NOT NULL,
+                                porcentaje_accionario DECIMAL(5,2) NOT NULL,
+                                codigo_cuenta_asociada VARCHAR(50) NOT NULL,
+                                descripcion_cuenta VARCHAR(255)
+                            );
+                        """)
+                        
+                        # Lectura directa
+                        df_config_accionistas = pd.read_sql(f"SELECT * FROM `{db}`.accionistas", conn_tab)
+                        cursor.close()
+                        
+                    except Exception as e:
+                        st.error(f"⚠️ Error al procesar la configuración de accionistas: {e}")
+                        df_config_accionistas = pd.DataFrame()
+                        
+                    finally:
+                        # CERRAMOS la conexión aquí mismo para evitar que se quede 'colgada'
+                        if conn_tab and conn_tab.is_connected():
+                            conn_tab.close()
+
+
+                nombres_grafico = []
+                valores_grafico = []
+                colores_grafico = []
+
+                if df_config_accionistas is not None and not df_config_accionistas.empty:
+                    for _, row in df_config_accionistas.iterrows():
+                        cuenta = str(row['codigo_cuenta_asociada']).strip()
+                        nombre = str(row['nombre']).strip()
+                        total_retiro = 0.0
+
+                        if df_acc is not None and not df_acc.empty and 'plan_cuentas' in df_acc.columns:
+                            df_acc['plan_cuentas'] = df_acc['plan_cuentas'].astype(str).str.strip()
+                            filtro_acc = df_acc[df_acc['plan_cuentas'] == cuenta]
+                            if not filtro_acc.empty:
+                                total_retiro = float(filtro_acc['neto'].sum())
+
+                        nombres_grafico.append(nombre)
+                        valores_grafico.append(total_retiro)
+                        colores_grafico.append('#1f77b4' if "Jean Marco" in nombre else '#33a02c')
+
+                # Agregar métricas globales al final
+                nombres_grafico.extend(['Utilidad Contable', 'Utilidad Neta'])
+                valores_grafico.extend([utilidad_bruta, neto_disponible])
+                colores_grafico.extend(['#ff7f0e', '#7f7f7f'])
+
+                if len(valores_grafico) > 0:
+                    valores_grafico_limpios = [float(v) if pd.notnull(v) else 0.0 for v in valores_grafico]
+                    
+                    fig = go.Figure(go.Bar(
+                        x=valores_grafico_limpios,
+                        y=nombres_grafico,
+                        orientation='h',
+                        marker_color=colores_grafico,
+                        texttemplate='%{x:,.2f}',
+                        textposition='outside'
+                    ))
+
+                    # Configuración del Layout
+                    mes_titulo = st.session_state.get('mes_seleccionado_contabilidad', 'Junio')
+                    anio_titulo = st.session_state.get('año_seleccionado_contabilidad', 2026)
+
+                    fig.update_layout(
+                        title=f"Comparativa: Retiros vs Utilidades ({mes_titulo} {anio_titulo})",
+                        height=450,
+                        xaxis=dict(title="Valor (Bs.)", zeroline=True, showgrid=True),
+                        yaxis=dict(type='category', autorange="reversed"),
+                        margin=dict(l=20, r=100, t=50, b=20)
+                    )
+                    
+                    # IMPORTANTE: st.plotly_chart debe estar identado dentro del 'with tab1:'
+                    st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.warning("No hay datos disponibles para mostrar en el gráfico.")
+
+            with tab2:
+                st.markdown("### 📉 Detalle de Gastos Operativos")
+
+                # --- 1. SECCIÓN CLASE 5 (Costos) ---
+                st.subheader("Costos (Clase 5)")
+                try:
+                    # Usamos f_i_str y f_f_str garantizando que existan y estén formateados correctamente
+                    df_gastos_c5 = obtener_analisis_gastos_clase5(db, f_i_str, f_f_str)
+                except Exception as err:
+                    st.error(f"Error al obtener costos de Clase 5: {err}")
+                    df_gastos_c5 = pd.DataFrame()
+
+                if df_gastos_c5 is not None and not df_gastos_c5.empty:
+                    df_gastos_c5.columns = [str(c).strip().lower() for c in df_gastos_c5.columns]
+                    
+                    col_cuenta = 'plan_cuentas' if 'plan_cuentas' in df_gastos_c5.columns else df_gastos_c5.columns[0]
+                    col_desc = 'descripcion' if 'descripcion' in df_gastos_c5.columns else df_gastos_c5.columns[1]
+                    col_total = 'total_gasto' if 'total_gasto' in df_gastos_c5.columns else df_gastos_c5.columns[2]
+
+                    # --- EXCLUIR CUENTAS QUE EMPIECEN POR '7' ---
+                    df_gastos_c5[col_cuenta] = df_gastos_c5[col_cuenta].astype(str).str.strip()
+                    df_gastos_c5 = df_gastos_c5[~df_gastos_c5[col_cuenta].str.startswith('7')]
+
+                if df_gastos_c5 is not None and not df_gastos_c5.empty:
+                    st.markdown(f"**Resumen de Costos del Período ({mes_elegido_str} {año}):**")
+                    lineas_c5 = []
+                    for _, row in df_gastos_c5.iterrows():
+                        cta = str(row[col_cuenta]).strip()
+                        desc = str(row[col_desc]).strip()
+                        monto = float(row[col_total]) if pd.notnull(row[col_total]) else 0.0
+                        lineas_c5.append(f"- **{cta} - {desc}**: Bs. {monto:,.2f}")
+                    
+                    st.markdown("\n".join(lineas_c5))
+
+                    # Gráfico Clase 5
+                    df_gastos_c5['etiqueta'] = df_gastos_c5[col_cuenta].astype(str) + ' - ' + df_gastos_c5[col_desc].astype(str)
+                    import plotly.express as px
+                    fig5 = px.bar(
+                        df_gastos_c5.sort_values(col_total, ascending=True), 
+                        x=col_total, y='etiqueta', orientation='h',
+                        title=f"Totalización: Cuentas Clase 5 ({mes_elegido_str} {año})",
+                        color_discrete_sequence=['#d62728'], text=col_total
+                    )
+                    fig5.update_traces(texttemplate='%{text:,.2f}', textposition='outside')
+                    fig5.update_layout(height=300, margin=dict(l=20, r=40, t=40, b=20), xaxis=dict(title="Monto (Bs.)"), yaxis=dict(title=""))
+                    st.plotly_chart(fig5, use_container_width=True)
+                else:
+                    st.info(f"No hay movimientos en cuentas de Clase 5 para el período del {f_i_str} al {f_f_str}.")
+
+                st.divider()
+
+                # --- 2. SECCIÓN CLASE 6 (Gastos Operativos) ---
+                st.subheader("Gastos Operativos (Clase 6)")
+                
+                try:
+                    df_gastos_c6 = obtener_analisis_gastos_clase6(db, f_i_str, f_f_str)
+                except Exception as err:
+                    st.error(f"Error al obtener gastos de Clase 6: {err}")
+                    df_gastos_c6 = pd.DataFrame()
+
+                if df_gastos_c6 is not None and not df_gastos_c6.empty:
+                    df_gastos_c6.columns = [str(c).strip().lower() for c in df_gastos_c6.columns]
+                    
+                    c6_cuenta = 'plan_cuentas' if 'plan_cuentas' in df_gastos_c6.columns else df_gastos_c6.columns[0]
+                    c6_nombre = 'cuenta_contable' if 'cuenta_contable' in df_gastos_c6.columns else ('descripcion' if 'descripcion' in df_gastos_c6.columns else df_gastos_c6.columns[1])
+                    c6_total = 'total_gasto' if 'total_gasto' in df_gastos_c6.columns else df_gastos_c6.columns[2]
+
+                    st.markdown(f"**Totalizado por Cuenta - Gastos Operativos ({mes_elegido_str} {año}):**")
+                    lineas_c6 = []
+                    for _, row in df_gastos_c6.iterrows():
+                        num_cta = str(row[c6_cuenta]).strip()
+                        nom_cta = str(row[c6_nombre]).strip()
+                        monto = float(row[c6_total]) if pd.notnull(row[c6_total]) else 0.0
+                        lineas_c6.append(f"- **{num_cta} - {nom_cta}**: Bs. {monto:,.2f}")
+                    
+                    st.markdown("\n".join(lineas_c6))
+
+                    # Gráfico Clase 6
+                    df_gastos_c6['etiqueta'] = df_gastos_c6[c6_cuenta].astype(str) + ' - ' + df_gastos_c6[c6_nombre].astype(str)
+                    fig6 = px.bar(
+                        df_gastos_c6.sort_values(c6_total, ascending=True), 
+                        x=c6_total, y='etiqueta', orientation='h',
+                        title=f"Total Gastos Operativos por Cuenta ({mes_elegido_str} {año})",
+                        color_discrete_sequence=['#1f77b4'], text=c6_total
+                    )
+                    fig6.update_traces(texttemplate='%{text:,.2f}', textposition='outside')
+                    fig6.update_layout(height=350, margin=dict(l=20, r=40, t=40, b=20), xaxis=dict(title="Monto (Bs.)"), yaxis=dict(title=""))
+                    st.plotly_chart(fig6, use_container_width=True)
+                else:
+                    st.info(f"No hay movimientos en cuentas de Clase 6 para el período del {f_i_str} al {f_f_str}.")
+
+
+            with tab3:
+                st.markdown("### 📊 Evolución de Saldo Neto Acumulado")
+                
+                df_utilidad = None
+                
+                # 1. Verificamos que la función realmente exista en memoria antes de llamarla
+                if 'obtener_historico_utilidad_acumulada' not in globals() and 'obtener_historico_utilidad_acumulada' not in locals():
+                    st.error("❌ Error crítico: La función 'obtener_historico_utilidad_acumulada' no está definida o no se importó correctamente.")
+                else:
+                    try:
+                        df_utilidad = obtener_historico_utilidad_acumulada(db)
+                    except Exception as e:
+                        st.error(f"Error al conectar con la base de datos para obtener el histórico: {e}")
+                        df_utilidad = None
+
+                # 2. Validación robusta del DataFrame resultante
+                if isinstance(df_utilidad, pd.DataFrame) and not df_utilidad.empty:
+                    meses_nombres = {1:'Ene', 2:'Feb', 3:'Mar', 4:'Abr', 5:'May', 6:'Jun', 7:'Jul', 8:'Ago', 9:'Sep', 10:'Oct', 11:'Nov', 12:'Dic'}
+                    df_utilidad['nombre_mes'] = df_utilidad['mes'].map(meses_nombres)
+                    
+                    utilidad_acumulada_total = df_utilidad['utilidad_mensual'].sum()
+                    
+                    col_total, col_detalle = st.columns([1, 2])
+                    
+                    with col_total:
+                        st.metric("Saldo Neto Acumulado al Periodo", f"Bs. {utilidad_acumulada_total:,.2f}")
+                        
+                    with col_detalle:
+                        st.markdown("**Utilidad por Mes del Periodo:**")
+                        etiquetas_meses = [f"**{row['nombre_mes']}:** Bs. {row['utilidad_mensual']:,.2f}" for _, row in df_utilidad.iterrows()]
+                        st.markdown(" | ".join(etiquetas_meses))
+                    
+                    # Gráfico de barras
+                    df_utilidad['color'] = df_utilidad['utilidad_mensual'].apply(lambda x: 'Ganancia' if x >= 0 else 'Pérdida')
+                    
+                    import plotly.express as px
+                    fig = px.bar(
+                        df_utilidad, 
+                        x='nombre_mes', 
+                        y='utilidad_mensual', 
+                        color='color',
+                        color_discrete_map={'Ganancia': '#2ecc71', 'Pérdida': '#e74c3c'},
+                        title="Desglose Mensual",
+                        text_auto='.2s'
+                    )
+                    
+                    fig.update_layout(plot_bgcolor='rgba(0,0,0,0)', showlegend=False)
+                    st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.info("No hay datos disponibles o error al recuperar el histórico para el periodo seleccionado.")
+
+            with tab4:
+                # --- SECCIÓN: ASIENTO CONTABLE COMPLETO POR COMPROBANTE (MODO EMERGENCIA / SIN FILTRO DE FECHA) ---
+                st.divider()
+                st.subheader("👥 Detalle de Comprobantes - Cuentas por Pagar Accionistas")
+
+                db_name = locals().get('db') or st.session_state.get('DB_ACTUAL')
+
+                if db_name and db_name != "{db}" and db_name != "None":
+                    
+                    # 1. OBTENER FECHAS DEL SIDEBAR
+                    anio_sel = st.session_state.get('anio', 2026)
+                    mes_sel = st.session_state.get('mes') or st.session_state.get('Mes') or "Mayo"
+                    dic_meses = {"Enero": 1, "Febrero": 2, "Marzo": 3, "Abril": 4, "Mayo": 5, "Junio": 6, 
+                                 "Julio": 7, "Agosto": 8, "Septiembre": 9, "Octubre": 10, "Noviembre": 11, "Diciembre": 12}
+                    mes_n = dic_meses.get(str(mes_sel).capitalize(), 5)
+                    
+                    # 2. CONSULTA (Filtramos por fecha desde la BD para que sea más rápido)
+                    f_i = f"{int(anio_sel)}-{mes_n:02d}-01"
+                    f_f = f"{int(anio_sel)}-{mes_n:02d}-31"
+                    
+                    # 2. Inicializamos las variables por seguridad antes de usarlas
+                    conn_tmp = None
+                    df_comps = pd.DataFrame()
+                    seleccion_opcion = None
+
+                    if conn_tmp:
+                        try:
+                            query_comps = f"""
+                                SELECT DISTINCT n_comprobante, fecha 
+                                FROM `{db_name}`.asientos_contables 
+                                WHERE (plan_cuentas LIKE '%%2.2.1%%' OR cuenta_contable LIKE '%%Accionista%%')
+                                AND fecha BETWEEN '{f_i}' AND '{f_f}'
+                                ORDER BY fecha DESC, n_comprobante DESC
+                            """
+                            df_comps = pd.read_sql(query_comps, conn_tmp)
+                            st.info(f"📅 **Filtrando datos para: {mes_sel} {anio_sel}**")
+                        except Exception as e:
+                            st.error(f"❌ Error al consultar: {e}")
+                        finally:
+                            conn_tmp.close()
+
+                    # 3. MOSTRAR RESULTADOS FILTRADOS
+                    if not df_comps.empty:
+                        def formato_latino(val):
+                            try: return f"{float(val):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                            except: return val
+
+                        df_comps['opcion'] = df_comps['n_comprobante'].astype(str) + " (Fecha: " + df_comps['fecha'].astype(str) + ")"
+                        lista_opciones = df_comps['opcion'].tolist()
+                        
+                        seleccion_opcion = st.selectbox("📂 Selecciona el comprobante a visualizar:", lista_opciones, key="select_acc_final")
+
+                    # 4. Verificación segura con la variable ya declarada
+                    if seleccion_opcion:
+                        comprobante_activo = seleccion_opcion.split(" ")[0]
+                        df_asiento = obtener_asiento_por_comprobante(db_name, comprobante_activo)
+                        
+                        if df_asiento is not None and not df_asiento.empty:
+                            st.markdown(f"**Asiento Contable Completo del Comprobante N°: `{comprobante_activo}`**")
+                            
+                            df_mostrar = df_asiento.copy()
+                            df_mostrar['debe_num'] = pd.to_numeric(df_mostrar['debe'], errors='coerce').fillna(0)
+                            df_mostrar['haber_num'] = pd.to_numeric(df_mostrar['haber'], errors='coerce').fillna(0)
+                            
+                            total_debe = df_mostrar['debe_num'].sum()
+                            total_haber = df_mostrar['haber_num'].sum()
+                            
+                            df_mostrar['debe'] = df_mostrar['debe_num'].apply(formato_latino)
+                            df_mostrar['haber'] = df_mostrar['haber_num'].apply(formato_latino)
+                            df_mostrar = df_mostrar.drop(columns=['debe_num', 'haber_num'], errors='ignore')
+                            
+                            st.dataframe(
+                                df_mostrar,
+                                use_container_width=True,
+                                height=350,
+                                column_config={
+                                    "id": st.column_config.NumberColumn("id", format="%d"),
+                                    "n_comprobante": st.column_config.TextColumn("N° Comprobante"),
+                                    "descripcion": st.column_config.TextColumn("Descripción"),
+                                    "fecha": st.column_config.DateColumn("Fecha"),
+                                    "plan_cuentas": st.column_config.TextColumn("Plan de Cuentas"),
+                                    "cuenta_contable": st.column_config.TextColumn("Cuenta Contable"),
+                                    "referencia": st.column_config.TextColumn("Referencia"),
+                                    "debe": st.column_config.TextColumn("Debe"),
+                                    "haber": st.column_config.TextColumn("Haber")
+                                }
+                            )
+                            
+                            col1, col2 = st.columns(2)
+                            col1.metric("Total Debe (Comprobante)", f"Bs. {formato_latino(total_debe)}")
+                            col2.metric("Total Haber (Comprobante)", f"Bs. {formato_latino(total_haber)}")
+                        else:
+                            st.info("No se encontraron detalles para este comprobante.")
+                    else:
+                        st.error("⚠️ La base de datos no tiene NINGÚN registro con '2.2.1' o 'Accionista'. Revisa si el nombre de la empresa o la tabla son correctos.")
+                else:
+                    st.warning("⚠️ Selecciona una empresa.")
+                    
+            with tab5:
+                st.divider()
+                st.subheader("💰 Detalle de Comprobantes - Otros Ingresos (7.1.1.01.001)")
+
+                db_actual = locals().get('db') or st.session_state.get('DB_ACTUAL')
+
+                if db_actual and db_actual != "{db}" and db_actual != "None":
+                    
+                    # 🎯 SELECTOR DIRECTO DE WIDGET: Leemos el año y mes exactos del sidebar con clave limpia
+                    col_s1, col_s2 = st.columns(2)
+                    
+                    # Si usas selectbox en el sidebar para el mes, capturamos su valor actual con seguridad:
+                    anio_sel = st.session_state.get('anio', 2026)
+                    
+                    # Forzamos la lectura del mes directamente desde el estado actual del selectbox de tu app
+                    # (Ajusta la llave 'Mes' o 'mes' según cómo se llame el selectbox en tu sidebar)
+                    mes_sel = st.session_state.get('mes') or st.session_state.get('Mes') or "Mayo"
+                    
+                    dic_meses = {
+                        "Enero": 1, "Febrero": 2, "Marzo": 3, "Abril": 4, 
+                        "Mayo": 5, "Junio": 6, "Julio": 7, "Agosto": 8, 
+                        "Septiembre": 9, "Octubre": 10, "Noviembre": 11, "Diciembre": 12
+                    }
+                    
+                    # Si el valor viene como texto, lo convertimos a número; si ya es número, lo dejamos pasar
+                    if str(mes_sel).isdigit():
+                        mes_n = int(mes_sel)
+                    else:
+                        mes_n = dic_meses.get(str(mes_sel).capitalize(), 5)
+                    
+                    import calendar
+                    _, ultimo_dia = calendar.monthrange(int(anio_sel), mes_n)
+                    
+                    # Rango de fechas totalmente sincronizado al mes activo del sidebar
+                    f_i_final = f"{int(anio_sel)}-{mes_n:02d}-01"
+                    f_f_final = f"{int(anio_sel)}-{mes_n:02d}-{ultimo_dia:02d}"
+
+                    st.info(f"🔄 **Período Activo Sincronizado:** Mes de **{mes_sel}** (`{f_i_final}` al `{f_f_final}`)")
+
+                    # Consulta limpia a la base de datos con el rango correcto
+                    df_comps = obtener_comprobantes_ingresos(db_actual, f_i_final, f_f_final)
+
+                    if not df_comps.empty:
+                        def formato_latino(val):
+                            try:
+                                s = f"{float(val):,.2f}"
+                                return s.replace(",", "X").replace(".", ",").replace("X", ".")
+                            except:
+                                return val
+
+                        total_debe_periodo = 0.0
+                        total_haber_periodo = 0.0
+                        
+                        conn_totales = conectar_db(db_actual)
+                        if conn_totales and 'n_comprobante' in df_comps.columns:
+                            try:
+                                lista_n_comps = tuple(df_comps['n_comprobante'].astype(str).unique())
+                                if lista_n_comps:
+                                    placeholders = ','.join(['%s'] * len(lista_n_comps))
+                                    query_totales = f"""
+                                        SELECT SUM(CAST(debe AS DECIMAL(18,2))) as total_debe, SUM(CAST(haber AS DECIMAL(18,2))) as total_haber 
+                                        FROM `{db_actual}`.asientos_contables 
+                                        WHERE n_comprobante IN ({placeholders})
+                                    """
+                                    df_t = pd.read_sql(query_totales, conn_totales, params=lista_n_comps)
+                                    if not df_t.empty:
+                                        total_debe_periodo = float(df_t['total_debe'].iloc[0] or 0.0)
+                                        total_haber_periodo = float(df_t['total_haber'].iloc[0] or 0.0)
+                            except Exception as e:
+                                st.error(f"Error al calcular totales: {e}")
+                            finally:
+                                try:
+                                    conn_totales.close()
+                                except Exception:
+                                    pass
+
+                        col_m1, col_m2, col_m3 = st.columns(3)
+                        col_m1.metric("Comprobantes en el Periodo", len(df_comps))
+                        col_m2.metric("Total Debe Global", f"Bs. {formato_latino(total_debe_periodo)}")
+                        col_m3.metric("Total Haber Global", f"Bs. {formato_latino(total_haber_periodo)}")
+                        
+                        st.divider()
+
+                        df_comps['opcion'] = df_comps['n_comprobante'].astype(str) + " (Fecha: " + df_comps['fecha'].astype(str) + ")"
+                        lista_opciones = df_comps['opcion'].tolist()
+                        
+                        seleccion_opcion = st.selectbox("📂 Selecciona el comprobante de Ingreso a visualizar:", lista_opciones, key="select_ingresos_v3")
+                        
+                        if seleccion_opcion:
+                            comprobante_activo = seleccion_opcion.split(" ")[0]
+                            df_asiento = obtener_asiento_por_comprobante(db_actual, comprobante_activo)
+                            
+                            if df_asiento is not None and not df_asiento.empty:
+                                st.markdown(f"**Asiento Contable Completo del Comprobante N°: `{comprobante_activo}`**")
+                                
+                                df_mostrar = df_asiento.copy()
+                                df_mostrar['debe_num'] = pd.to_numeric(df_mostrar['debe'], errors='coerce').fillna(0)
+                                df_mostrar['haber_num'] = pd.to_numeric(df_mostrar['haber'], errors='coerce').fillna(0)
+                                
+                                total_debe = df_mostrar['debe_num'].sum()
+                                total_haber = df_mostrar['haber_num'].sum()
+                                
+                                df_mostrar['debe'] = df_mostrar['debe_num'].apply(formato_latino)
+                                df_mostrar['haber'] = df_mostrar['haber_num'].apply(formato_latino)
+                                df_mostrar = df_mostrar.drop(columns=['debe_num', 'haber_num'], errors='ignore')
+                                
+                                st.dataframe(
+                                    df_mostrar,
+                                    use_container_width=True,
+                                    height=350,
+                                    column_config={
+                                        "id": st.column_config.NumberColumn("id", format="%d"),
+                                        "n_comprobante": st.column_config.TextColumn("N° Comprobante"),
+                                        "descripcion": st.column_config.TextColumn("Descripción"),
+                                        "fecha": st.column_config.DateColumn("Fecha"),
+                                        "plan_cuentas": st.column_config.TextColumn("Plan de Cuentas"),
+                                        "cuenta_contable": st.column_config.TextColumn("Cuenta Contable"),
+                                        "referencia": st.column_config.TextColumn("Referencia"),
+                                        "debe": st.column_config.TextColumn("Debe"),
+                                        "haber": st.column_config.TextColumn("Haber")
+                                    }
+                                )
+                                
+                                col1, col2 = st.columns(2)
+                                col1.metric("Total Debe (Comprobante)", f"Bs. {formato_latino(total_debe)}")
+                                col2.metric("Total Haber (Comprobante)", f"Bs. {formato_latino(total_haber)}")
+                            else:
+                                st.info("No se encontraron detalles para este comprobante.")
+                    else:
+                        st.warning(f"⚠️ No hay comprobantes de Otros Ingresos para el mes de **{mes_sel}** ({f_i_final} al {f_f_final}).")
+                else:
+                    st.warning("⚠️ Selecciona una empresa.")
+
+        except Exception as e:
+            st.error(f"Error procesando el reporte contable: {e}")
+            st.code(traceback.format_exc())  # Es
+                
