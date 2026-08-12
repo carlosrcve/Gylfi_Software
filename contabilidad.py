@@ -3023,33 +3023,45 @@ if "🏠 Inicio" in opcion_menu:
 
                 if db_name and db_name != "{db}" and db_name != "None":
                     
-                    # 1. OBTENER FECHAS DEL SIDEBAR
-                    anio_sel = st.session_state.get('anio', 2026)
-                    mes_sel = st.session_state.get('mes') or st.session_state.get('Mes') or "Mayo"
-                    dic_meses = {"Enero": 1, "Febrero": 2, "Marzo": 3, "Abril": 4, "Mayo": 5, "Junio": 6, 
-                                 "Julio": 7, "Agosto": 8, "Septiembre": 9, "Octubre": 10, "Noviembre": 11, "Diciembre": 12}
-                    mes_n = dic_meses.get(str(mes_sel).capitalize(), 5)
+                    # 1. OBTENER FECHAS DEL SIDEBAR USANDO LAS LLAVES CORRECTAS ('año_seleccionado' y 'mes_seleccionado')
+                    import datetime
+                    import calendar
+
+                    anio_sel = int(st.session_state.get('año_seleccionado', datetime.datetime.now().year))
+                    mes_nombre_sel = st.session_state.get('mes_seleccionado', "Enero")
                     
-                    f_i = f"{int(anio_sel)}-{mes_n:02d}-01"
-                    f_f = f"{int(anio_sel)}-{mes_n:02d}-31"
+                    dic_meses = {
+                        "Enero": 1, "Febrero": 2, "Marzo": 3, "Abril": 4, "Mayo": 5, "Junio": 6, 
+                        "Julio": 7, "Agosto": 8, "Septiembre": 9, "Octubre": 10, "Noviembre": 11, "Diciembre": 12
+                    }
+                    mes_n = dic_meses.get(str(mes_nombre_sel).capitalize(), 1)
+                    
+                    # Calcular dinámicamente el último día real del mes seleccionado (evita errores en febrero o meses de 30 días)
+                    _, ultimo_dia_mes = calendar.monthrange(anio_sel, mes_n)
+                    
+                    f_i = f"{anio_sel}-{mes_n:02d}-01"
+                    f_f = f"{anio_sel}-{mes_n:02d}-{ultimo_dia_mes:02d}"
                     
                     df_comps = pd.DataFrame()
                     seleccion_opcion = None
 
-                    # --- CORRECCIÓN: Conectar correctamente usando tu función global ---
+                    # 2. Conectar de forma segura
                     conn_tmp = conectar_db(db_name) if 'conectar_db' in globals() else None
 
                     if conn_tmp:
                         try:
+                            st.info(f"📅 **Filtrando datos para el período:** {f_i} al {f_f}")
+                            
+                            # Consulta optimizada usando parámetros seguros para las fechas
                             query_comps = f"""
                                 SELECT DISTINCT n_comprobante, fecha 
                                 FROM `{db_name}`.asientos_contables 
                                 WHERE (plan_cuentas LIKE '%%2.2.1%%' OR cuenta_contable LIKE '%%Accionista%%')
-                                AND fecha BETWEEN '{f_i}' AND '{f_f}'
+                                AND fecha BETWEEN %s AND %s
                                 ORDER BY fecha DESC, n_comprobante DESC
                             """
-                            df_comps = pd.read_sql(query_comps, conn_tmp)
-                            st.info(f"📅 **Filtrando datos para: {mes_sel} {anio_sel}**")
+                            df_comps = pd.read_sql(query_comps, conn_tmp, params=(f_i, f_f))
+                            
                         except Exception as e:
                             st.error(f"❌ Error al consultar: {e}")
                         finally:
@@ -3069,7 +3081,7 @@ if "🏠 Inicio" in opcion_menu:
                         
                         seleccion_opcion = st.selectbox("📂 Selecciona el comprobante a visualizar:", lista_opciones, key="select_acc_final")
                     else:
-                        st.warning(f"⚠️ No se encontraron comprobantes con cuentas de Accionista para {mes_sel} {anio_sel}.")
+                        st.warning(f"⚠️ No se encontraron comprobantes con cuentas de Accionista para el período: {mes_nombre_sel} {anio_sel}.")
 
                     # 4. Verificación segura del asiento seleccionado
                     if seleccion_opcion:
@@ -3123,15 +3135,12 @@ if "🏠 Inicio" in opcion_menu:
 
                 if db_actual and db_actual != "{db}" and db_actual != "None":
                     
-                    # 🎯 SELECTOR DIRECTO DE WIDGET: Leemos el año y mes exactos del sidebar con clave limpia
-                    col_s1, col_s2 = st.columns(2)
-                    
-                    # Si usas selectbox en el sidebar para el mes, capturamos su valor actual con seguridad:
-                    anio_sel = st.session_state.get('anio', 2026)
-                    
-                    # Forzamos la lectura del mes directamente desde el estado actual del selectbox de tu app
-                    # (Ajusta la llave 'Mes' o 'mes' según cómo se llame el selectbox en tu sidebar)
-                    mes_sel = st.session_state.get('mes') or st.session_state.get('Mes') or "Mayo"
+                    import datetime
+                    import calendar
+
+                    # Lectura robusta compatible con ambas nomenclaturas de sesión
+                    anio_sel = int(st.session_state.get('año_seleccionado') or st.session_state.get('anio', datetime.datetime.now().year))
+                    mes_sel = st.session_state.get('mes_seleccionado') or st.session_state.get('mes') or st.session_state.get('Mes') or "Mayo"
                     
                     dic_meses = {
                         "Enero": 1, "Febrero": 2, "Marzo": 3, "Abril": 4, 
@@ -3139,20 +3148,18 @@ if "🏠 Inicio" in opcion_menu:
                         "Septiembre": 9, "Octubre": 10, "Noviembre": 11, "Diciembre": 12
                     }
                     
-                    # Si el valor viene como texto, lo convertimos a número; si ya es número, lo dejamos pasar
+                    # Conversión segura de mes (texto o número)
                     if str(mes_sel).isdigit():
                         mes_n = int(mes_sel)
                     else:
                         mes_n = dic_meses.get(str(mes_sel).capitalize(), 5)
                     
-                    import calendar
-                    _, ultimo_dia = calendar.monthrange(int(anio_sel), mes_n)
+                    _, ultimo_dia = calendar.monthrange(anio_sel, mes_n)
                     
-                    # Rango de fechas totalmente sincronizado al mes activo del sidebar
-                    f_i_final = f"{int(anio_sel)}-{mes_n:02d}-01"
-                    f_f_final = f"{int(anio_sel)}-{mes_n:02d}-{ultimo_dia:02d}"
+                    f_i_final = f"{anio_sel}-{mes_n:02d}-01"
+                    f_f_final = f"{anio_sel}-{mes_n:02d}-{ultimo_dia:02d}"
 
-                    st.info(f"🔄 **Período Activo Sincronizado:** Mes de **{mes_sel}** (`{f_i_final}` al `{f_f_final}`)")
+                    st.info(f"🔄 **Período Activo Sincronizado:** Mes de **{mes_sel} {anio_sel}** (`{f_i_final}` al `{f_f_final}`)")
 
                     # Consulta limpia a la base de datos con el rango correcto
                     df_comps = obtener_comprobantes_ingresos(db_actual, f_i_final, f_f_final)
@@ -3168,7 +3175,7 @@ if "🏠 Inicio" in opcion_menu:
                         total_debe_periodo = 0.0
                         total_haber_periodo = 0.0
                         
-                        conn_totales = conectar_db(db_actual)
+                        conn_totales = conectar_db(db_actual) if 'conectar_db' in globals() else None
                         if conn_totales and 'n_comprobante' in df_comps.columns:
                             try:
                                 lista_n_comps = tuple(df_comps['n_comprobante'].astype(str).unique())
@@ -3188,7 +3195,7 @@ if "🏠 Inicio" in opcion_menu:
                             finally:
                                 try:
                                     conn_totales.close()
-                                except Exception:
+                                except:
                                     pass
 
                         col_m1, col_m2, col_m3 = st.columns(3)
@@ -3244,7 +3251,7 @@ if "🏠 Inicio" in opcion_menu:
                             else:
                                 st.info("No se encontraron detalles para este comprobante.")
                     else:
-                        st.warning(f"⚠️ No hay comprobantes de Otros Ingresos para el mes de **{mes_sel}** ({f_i_final} al {f_f_final}).")
+                        st.warning(f"⚠️ No hay comprobantes de Otros Ingresos para el mes de **{mes_sel} {anio_sel}** ({f_i_final} al {f_f_final}).")
                 else:
                     st.warning("⚠️ Selecciona una empresa.")
 
