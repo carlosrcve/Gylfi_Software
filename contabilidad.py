@@ -926,7 +926,7 @@ def consultar_bcv_directo_sin_bd(conn=None):
     return tasa, fuente
 
 
-def obtener_tasa_bcv_hoy(conn):
+def obtener_tasa_bcv_hoy(conn=None):
     """
     Busca la tasa en la BD. Si no existe para hoy, la consulta en la web 
     del BCV, la guarda en la BD y la retorna. Incluye autoreconexión.
