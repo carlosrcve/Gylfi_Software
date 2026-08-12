@@ -682,6 +682,161 @@ def obtener_salud_fiscal(f_inicio, f_fin, db):
 
 
 
+@st.cache_data(ttl=300)
+def obtener_datos_pie(db, f_fin):
+    df_vacio = pd.DataFrame(columns=['nombre', 'Saldo Final'])
+    
+    conn = conectar_db(db)
+    if not conn:
+        return df_vacio
+        
+    # Consulta optimizada (Quitamos el CAST para que use índices de MySQL)
+    query = f"""
+        SELECT 
+            descripcion as nombre,
+            SUM(debe) as "Saldo Final"
+        FROM `{db}`.asientos_contables 
+        WHERE plan_cuentas LIKE '6%'
+        AND fecha <= %s
+        GROUP BY descripcion
+        ORDER BY 2 DESC
+        LIMIT 10
+    """
+    
+    try:
+        # Usamos context manager with para asegurar que el cursor se cierre siempre
+        with conn.cursor() as cursor:
+            df = pd.read_sql(query, conn, params=(f_fin,))
+        return df if not df.empty else df_vacio
+    except Exception as e:
+        print(f"Error en obtener_datos_pie: {e}")
+        return df_vacio
+    finally:
+        if conn and conn.is_connected():
+            conn.close()
+
+
+@st.cache_data(ttl=300)
+def obtener_datos_barras(db, fecha_inicio, fecha_fin):
+    df_vacio = pd.DataFrame(columns=['Categoría', 'Monto'])
+    
+    conn = conectar_db(db)
+    if not conn:
+        return df_vacio
+        
+    query = f"""
+        SELECT 
+            CASE 
+                WHEN plan_cuentas LIKE '4%' THEN 'Ingresos' 
+                WHEN plan_cuentas LIKE '5%' THEN 'Egresos' 
+                ELSE 'Otros' 
+            END as Categoría, 
+            SUM(haber - debe) as Monto 
+        FROM `{db}`.asientos_contables 
+        WHERE fecha >= %s AND fecha <= %s
+        GROUP BY 1
+    """
+    
+    try:
+        # Ejecutamos la lectura asegurando parámetros seguros
+        df = pd.read_sql(query, conn, params=(fecha_inicio, fecha_fin))
+        return df if not df.empty else df_vacio
+    except Exception as e:
+        print(f"Error en obtener_datos_barras: {e}")
+        return df_vacio
+    finally:
+        # Garantía absoluta de cierre de conexión para proteger el rendimiento de MySQL
+        if conn and conn.is_connected():
+            conn.close()
+
+
+@st.cache_data(ttl=300)
+def obtener_historico_utilidad(db, f_inicio=None, f_fin=None):
+    df_default = pd.DataFrame({'utilidad_mensual': [0.0]})
+    
+    # Manejo de fechas por defecto antes de conectar
+    if f_inicio is not None and f_fin is None:
+        f_fin = f_inicio
+        f_inicio = None
+
+    if f_fin is None:
+        import datetime
+        f_fin = datetime.date.today()
+    
+    if hasattr(f_fin, 'strftime'):
+        fecha_fin_str = f_fin.strftime('%Y-%m-%d')
+    else:
+        fecha_fin_str = str(f_fin).split()[0]
+
+    if f_inicio is not None:
+        if hasattr(f_inicio, 'strftime'):
+            fecha_inicio_str = f_inicio.strftime('%Y-%m-%d')
+        else:
+            fecha_inicio_str = str(f_inicio).split()[0]
+    else:
+        partes = fecha_fin_str.split('-')
+        fecha_inicio_str = f"{partes[0]}-{partes[1]}-01"
+
+    # Conectamos de forma segura y local para la función cacheada
+    conn = conectar_db(db)
+    if not conn:
+        return df_default
+    
+    # Consulta optimizada (Sin DATE(fecha) para aprovechar los índices de MySQL)
+    query = f"""
+        SELECT 
+            COALESCE(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '4%' THEN haber ELSE 0 END), 0) as ing_haber,
+            COALESCE(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '4%' THEN debe ELSE 0 END), 0) as ing_debe,
+            
+            COALESCE(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '5%' THEN debe ELSE 0 END), 0) as cos_debe,
+            COALESCE(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '5%' THEN haber ELSE 0 END), 0) as cos_haber,
+            
+            COALESCE(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '6%' THEN debe ELSE 0 END), 0) as gas_debe,
+            COALESCE(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '6%' THEN haber ELSE 0 END), 0) as gas_haber,
+
+            COALESCE(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '7%' THEN haber ELSE 0 END), 0) as oing_haber,
+            COALESCE(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '7%' THEN debe ELSE 0 END), 0) as oing_debe,
+            
+            COALESCE(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '8%' THEN debe ELSE 0 END), 0) as oeg_debe,
+            COALESCE(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '8%' THEN haber ELSE 0 END), 0) as oeg_haber
+        FROM `{db}`.asientos_contables 
+        WHERE fecha >= %s AND fecha <= %s
+    """
+    
+    try:
+        with conn.cursor(dictionary=True) as cursor:
+            cursor.execute(query, (fecha_inicio_str, fecha_fin_str))
+            resultados = cursor.fetchall()
+
+        if not resultados:
+            return df_default
+            
+        df = pd.DataFrame(resultados)
+        
+        if df.empty or df.isnull().all().all():
+            return df_default
+            
+        df = df.fillna(0)
+
+        ingresos = float(df['ing_haber'].iloc[0]) - float(df['ing_debe'].iloc[0])
+        costos = float(df['cos_debe'].iloc[0]) - float(df['cos_haber'].iloc[0])
+        gastos = abs(float(df['gas_debe'].iloc[0]) - float(df['gas_haber'].iloc[0]))
+        otros_ingresos = float(df['oing_haber'].iloc[0]) - float(df['oing_debe'].iloc[0])
+        otros_egresos = abs(float(df['oeg_debe'].iloc[0]) - float(df['oeg_haber'].iloc[0]))
+
+        utilidad_neta = ingresos - costos - gastos + otros_ingresos - otros_egresos
+        
+        df['utilidad_mensual'] = utilidad_neta
+        return df
+        
+    except Exception as e:
+        print(f"❌ Error al calcular la utilidad para {fecha_inicio_str} al {fecha_fin_str}: {e}")
+        return df_default
+    finally:
+        if conn and conn.is_connected():
+            conn.close()
+
+
 
 def gestionar_sidebar():
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
@@ -1142,3 +1297,199 @@ if "🏠 Inicio" in opcion_menu:
         mini_kpi(f6, "ISLR por Pagar", kpis_fiscales.get('islr_pagar', 0), "#d62728")
 
         st.divider()
+        # ---FILA3:  SALUD FINANCIERA ---
+        st.subheader("🏥 Análisis de Salud Financiera")
+        r1, r2, r3 = st.columns(3)
+
+        # 1. Índice de Liquidez (Corregido con validación de seguridad)
+        liquidez = kpis.get('liquidez', 0)
+        estado_l = "✅ Saludable" if liquidez > 1.1 else "⚠️ Riesgo"
+        r1.metric("Índice de Liquidez", f"{liquidez:.2f}", estado_l)
+
+        # 2. Índice de Solvencia (Activo / Pasivo total, suele ser similar a liquidez pero a largo plazo)
+        # Si no lo tienes en el dict, lo calculamos aquí mismo
+        activo_v = kpis.get('activo', 0)
+        pasivo_v = kpis.get('pasivo', 0)
+        solvencia = activo_v / pasivo_v if pasivo_v != 0 else 0
+        estado_s = "✅ Solvente" if solvencia > 1.5 else "🟡 Ajustado"
+        r2.metric("Índice de Solvencia", f"{solvencia:.2f}", estado_s)
+
+        # 3. Capital Propio (Patrimonio Neto real)
+        capital_trabajo = kpis.get('capital_trabajo', 0)
+        r3.metric("capital de trabajo", f"Bs. {capital_trabajo:,.2f}", "capital_trabajo")
+
+
+        # --- FILA 4: ANÁLISIS VISUAL ---
+        st.divider()
+        col_izq, col_der = st.columns(2)
+
+        # 1. Recuperamos y blindamos los valores usando las keys oficiales del sidebar
+        año_val = st.session_state.get('año_seleccionado_contabilidad', 2026)
+        mes_val = st.session_state.get('mes_seleccionado_contabilidad', 'Mayo')
+
+        try:
+            año = int(str(año_val).strip())
+        except:
+            año = 2026
+
+        meses_map = {
+            'Enero': 1, 'Febrero': 2, 'Marzo': 3, 'Abril': 4, 
+            'Mayo': 5, 'Junio': 6, 'Julio': 7, 'Agosto': 8, 
+            'Septiembre': 9, 'Octubre': 10, 'Noviembre': 11, 'Diciembre': 12
+        }
+
+        if isinstance(mes_val, str):
+            mes = meses_map.get(mes_val.strip(), 5)
+        else:
+            try:
+                mes = int(mes_val)
+            except:
+                mes = 5
+
+        # Calculamos también el último día del mes de forma segura con calendar
+        import calendar
+        ultimo_dia = int(calendar.monthrange(año, mes)[1])
+
+        f_i = f"{año}-{mes:02d}-01"
+        f_f = f"{año}-{mes:02d}-{ultimo_dia:02d}"
+
+        # Variables de compatibilidad tipo date para consultas SQL
+        f_inicio_global = datetime.date(año, mes, 1)
+        f_fin_global = datetime.date(año, mes, ultimo_dia)
+
+        # 2. DEBUG VISUAL (Para verificar la fecha real en curso)
+        st.sidebar.info(f"Fecha en uso: {f_i} al {f_f}")  
+
+        db = st.session_state.get('DB_ACTUAL')
+
+        # --- ESTILOS CSS GLOBALES PARA FORMAR LA ESTÉTICA DE LA IMAGEN ---
+        st.markdown("""
+            <style>
+                /* Contenedores tipo tarjeta ejecutiva con bordes sutiles */
+                .report-card {
+                    background-color: #FFFFFF;
+                    border: 1px solid #E0E0E0;
+                    border-radius: 6px;
+                    padding: 15px 20px;
+                    margin-bottom: 15px;
+                    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+                }
+                /* Cabeceras estilo reporte oficial */
+                .report-header {
+                    background-color: #336699;
+                    color: white;
+                    padding: 8px 12px;
+                    font-size: 14px;
+                    font-weight: bold;
+                    border-top-left-radius: 4px;
+                    border-top-right-radius: 4px;
+                    margin-bottom: 10px;
+                }
+            </style>
+        """, unsafe_allow_html=True)
+
+        # --- TARJETA DE RESUMEN SUPERIOR (Estilo "Container-equivalent volume" de la imagen) ---
+        st.markdown("""
+            <div class="report-card" style="text-align: center; border-top: 4px solid #336699;">
+                <span style="color: #666666; font-size: 12px; font-weight: bold; text-transform: uppercase;">Resumen Ejecutivo de Operaciones</span>
+                <div style="color: #336699; font-size: 28px; font-weight: bold; margin-top: 5px;">Panel Financiero Oficial</div>
+            </div>
+        """, unsafe_allow_html=True)
+
+        # --- DISTRIBUCIÓN DE COLUMNAS ---
+        col_izq, col_der = st.columns(2)
+
+        # --- COLUMNA IZQUIERDA ---
+        with col_izq:
+            st.markdown('<div class="report-header">📊 Comparativo Ingresos / Egresos / Utilidad</div>', unsafe_allow_html=True)
+            with st.container():
+                st.markdown('<div class="report-card">', unsafe_allow_html=True)
+                if db:
+                    df_bar = obtener_datos_barras(db, f_i, f_f)
+                    df_util = obtener_historico_utilidad(db)
+                    
+                    utilidad_final = float(df_util['utilidad_mensual'].iloc[0]) if (df_util is not None and not df_util.empty) else 0.0
+                    
+                    ingresos = 0
+                    egresos = 0
+                    
+                    if df_bar is not None and not df_bar.empty:
+                        ingresos = df_bar.loc[df_bar['Categoría'] == 'Ingresos', 'Monto'].sum()
+                        egresos = df_bar.loc[df_bar['Categoría'] == 'Egresos', 'Monto'].sum()
+                    
+                    df_final = pd.DataFrame({
+                        'Categoría': ['Ingresos', 'Egresos', 'Utilidad'], 
+                        'Monto': [ingresos, egresos, utilidad_final]
+                    })
+                    
+                    # Gráfico de barras con azules corporativos y grises de la referencia
+                    fig = px.bar(
+                        df_final, x='Categoría', y='Monto', color='Categoría', 
+                        color_discrete_map={
+                            'Ingresos': '#336699',   # Azul institucional principal
+                            'Egresos': '#808080',    # Gris sobrio de reporte
+                            'Utilidad': '#4682B4'    # Azul acero corporativo
+                        }, 
+                        text='Monto',
+                        template="plotly_white"
+                    )
+                    
+                    fig.update_traces(texttemplate='%{text:,.2f}', textposition='outside')
+                    fig.update_layout(
+                        margin=dict(t=20, b=20, l=20, r=20),
+                        showlegend=False,
+                        xaxis_title="",
+                        yaxis_title="",
+                        font=dict(family="Arial, sans-serif", size=12, color="#333333")
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+                st.markdown('</div>', unsafe_allow_html=True)
+
+        # --- COLUMNA DERECHA ---
+        with col_der:
+            st.markdown('<div class="report-header">🍕 Distribución de Gastos (Supplies by Sector)</div>', unsafe_allow_html=True)
+            with st.container():
+                st.markdown('<div class="report-card">', unsafe_allow_html=True)
+                if db:
+                    df_pie = obtener_datos_pie(db, f_i) 
+                    if df_pie is not None and not df_pie.empty:
+                        
+                        # Paleta estricta de tonos azules y grises corporativos de la imagen
+                        colores_azules_institucionales = [
+                            '#336699', '#4682B4', '#5C93C4', '#70A3D2', 
+                            '#85B4E0', '#696969', '#808080', '#A9A9A9', '#2E4053'
+                        ]
+                        
+                        fig_pie = px.pie(
+                            df_pie, 
+                            values='Saldo Final', 
+                            names='nombre', 
+                            hole=0.45,
+                            template="plotly_white",
+                            color_discrete_sequence=colores_azules_institucionales
+                        )
+                        
+                        fig_pie.update_traces(
+                            textposition='auto', 
+                            textinfo='percent',
+                            hoverinfo='label+value+percent',
+                            marker=dict(line=dict(color='#FFFFFF', width=2))
+                        )
+                        
+                        fig_pie.update_layout(
+                            margin=dict(t=20, b=20, l=10, r=10),
+                            legend=dict(
+                                orientation="v",
+                                yanchor="middle",
+                                y=0.5,
+                                xanchor="left",
+                                x=1.02,
+                                font=dict(size=11)
+                            ),
+                            font=dict(family="Arial, sans-serif", size=12, color="#333333")
+                        )
+                        
+                        st.plotly_chart(fig_pie, use_container_width=True)
+                    else:
+                        st.warning("No hay gastos.")
+                st.markdown('</div>', unsafe_allow_html=True)
