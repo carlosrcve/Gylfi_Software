@@ -1921,28 +1921,42 @@ if "🏠 Inicio" in opcion_menu:
             except:
                 mes = 5
 
-        # 1. Asegurar que año y mes sean enteros
+       # 1. Obtenemos el valor de mes actual de donde lo guardes (session_state o tu variable global)
+        # Asegúrate de capturar el valor real de tu selectbox de meses aquí:
+        mes_crudo = st.session_state.get('mes_seleccionado') or st.session_state.get('mes') or mes
+
+        # 2. Diccionario de traducción de texto a número (por si viene como nombre de mes)
+        dic_meses = {
+            "Enero": 1, "Febrero": 2, "Marzo": 3, "Abril": 4, 
+            "Mayo": 5, "Junio": 6, "Julio": 7, "Agosto": 8, 
+            "Septiembre": 9, "Octubre": 10, "Noviembre": 11, "Diciembre": 12
+        }
+
+        # 3. Conversión blindada: si es texto lo busca en el diccionario, si es número lo convierte
         try:
             año_int = int(año)
-            mes_int = int(mes)
         except (ValueError, TypeError):
-            # Si falla, usamos la fecha actual como respaldo seguro
             año_int = datetime.datetime.now().year
-            mes_int = datetime.datetime.now().month
 
-        # 2. Calcular el último día del mes de forma segura
+        if str(mes_crudo).isdigit():
+            mes_int = int(mes_crudo)
+        else:
+            # Si es texto (ej. "Junio"), lo busca; si no lo encuentra, por defecto usa 6 (o el actual)
+            mes_int = dic_meses.get(str(mes_crudo).capitalize(), 6)
+
+        # 4. Calcular el último día del mes de forma segura
         _, ultimo_dia = calendar.monthrange(año_int, mes_int)
 
-        # 3. Generar los strings para las consultas SQL
+        # 5. Generar los strings para las consultas SQL
         f_i = f"{año_int:04d}-{mes_int:02d}-01"
         f_f = f"{año_int:04d}-{mes_int:02d}-{ultimo_dia:02d}"
 
-        # 4. Variables tipo date (útiles si tu ORM o función SQL las requiere así)
+        # 6. Variables tipo date
         f_inicio_global = datetime.date(año_int, mes_int, 1)
         f_fin_global = datetime.date(año_int, mes_int, ultimo_dia)
 
-        # 5. DEBUG VISUAL
-        st.sidebar.info(f"📅 Rango activo: {f_i} al {f_f}")  
+        # 7. DEBUG VISUAL (Asegúrate de mostrar también el mes en texto para validar visualmente)
+        st.sidebar.info(f"📅 Rango activo ({mes_crudo}): {f_i} al {f_f}")  
 
         db = st.session_state.get('DB_ACTUAL')
 
