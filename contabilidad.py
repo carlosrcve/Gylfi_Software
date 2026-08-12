@@ -927,49 +927,73 @@ def consultar_bcv_directo_sin_bd(conn=None):
 
 
 
-def obtener_tasa_bcv_hoy(_conn):
+def obtener_tasa_bcv_hoy(conn):
     """
     Busca la tasa en la BD. Si no existe para hoy, la consulta en la web 
-    del BCV, la guarda en la BD y la retorna. El guion bajo en _conn 
-    evita que Streamlit intente hacerle hash.
+    del BCV, la guarda en la BD y la retorna. Incluye autoreconexión.
     """
+    # 1. VERIFICACIÓN DE SEGURIDAD: Reconexión automática
+    try:
+        if conn and not conn.is_connected():
+            conn.reconnect(attempts=3, delay=2)
+    except Exception:
+        pass 
+
+    # 2. Intentamos abrir el cursor
+    try:
+        cursor = conn.cursor(buffered=True)
+    except Exception:
+        return consultar_bcv_directo_sin_bd()
+
     hoy = date.today()
     
-    # 1. Intento de lectura desde Base de Datos
     try:
-        if _conn and _conn.is_connected():
-            with _conn.cursor(buffered=True) as cursor:
-                cursor.execute("SELECT tasa_valor FROM kingdirver_ca.tasas_diarias WHERE fecha = %s", (hoy,))
-                resultado = cursor.fetchone()
-                if resultado:
-                    return float(resultado[0]), "Base de Datos"
-    except Exception as e:
-        print(f"Error al leer tasa en BD: {e}")
+        # A. Verificar en BD
+        cursor.execute("SELECT tasa_valor FROM kingdirver_ca.tasas_diarias WHERE fecha = %s", (hoy,))
+        resultado = cursor.fetchone()
+        
+        if resultado:
+            cursor.close()
+            return float(resultado[0]), "Base de Datos"
+        
+        # B. Si no está en BD, consultamos la Web
+        url = "https://www.bcv.org.ve/"
+        headers = {"User-Agent": "Mozilla/5.0..."}
+        
+        response = requests.get(url, headers=headers, verify=False, timeout=10)
+        if response.status_code == 200:
+            soup = BeautifulSoup(response.content, 'html.parser')
+            dolar_container = soup.find('div', id='dolar')
+            
+            if dolar_container:
+                tasa_texto = dolar_container.find('strong').text.strip()
+                tasa_float = float(tasa_texto.replace(',', '.'))
+                
+                # --- AQUÍ ESTÁ EL LOG QUE QUERÍAS ---
+                try:
+                    # Ubica donde obtienes la tasa (cuando la traes de la web o de la BD)
+                    # Y justo ahí, añade esta llamada:
 
-    # 2. Si no está en BD, consulta Web
-    tasa, fuente = consultar_bcv_directo_sin_bd(conn=_conn)
-    
-    # 3. Guardado en BD (solo si la consulta web fue exitosa)
-    if fuente == "Web BCV (Sin BD)" and tasa > 1.0:
-        try:
-            with _conn.cursor() as cursor:
+                    registrar_log_automatico(conn, "CONSULTA_TASA_BCV", f"El usuario {st.session_state.usuario} consultó la tasa del BCV")
+                except Exception:
+                    pass # Si el log falla, no pasa nada, la app sigue viva
+                
+                # Guardar en BD
                 cursor.execute("""
                     INSERT INTO kingdirver_ca.tasas_diarias (fecha, tasa_valor) 
                     VALUES (%s, %s)
                     ON DUPLICATE KEY UPDATE tasa_valor = %s
-                """, (hoy, tasa, tasa))
-                _conn.commit()
+                """, (hoy, tasa_float, tasa_float))
+                conn.commit()
                 
-            # Log de éxito
-            try:
-                usuario = st.session_state.get('usuario', 'Desconocido')
-                registrar_log_automatico(_conn, "CONSULTA_TASA_BCV", f"Usuario {usuario} obtuvo tasa vía web: {tasa}")
-            except:
-                pass
-        except Exception as e:
-            print(f"Error al guardar tasa en BD: {e}")
-            
-    return tasa, fuente
+                cursor.close()
+                return tasa_float, "Web BCV"
+        
+        cursor.close()
+        return consultar_bcv_directo_sin_bd()
+        
+    except Exception:
+        return consultar_bcv_directo_sin_bd()
 
 
 def gestionar_sidebar():
