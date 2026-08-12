@@ -2267,7 +2267,7 @@ if "🏠 Inicio" in opcion_menu:
         # FILA 9 ..... NUEVO MÓDULO PREMIUM: AUDITORÍA FORENSE CON IA
         st.divider()
         st.markdown("## 📊 AUDITORÍA FORENSE CON IA")
-        query_completa = "SELECT * FROM asientos_contables"
+        query_completa = f"SELECT * FROM `{db_actual}`.asientos_contables"
         df_diario = pd.read_sql(query_completa, conn) 
         col_analisis = 'debe' 
         simb = "Bs."
