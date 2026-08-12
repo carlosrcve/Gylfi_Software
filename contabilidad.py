@@ -1897,6 +1897,17 @@ if menu_lateral == "⚙️ Gestión de Usuarios":
         st.error(f"Error al acceder a la gestión central: {e}")
     st.stop()
 
+# Sacamos los datos directamente de lo que ya se seleccionó en el Sidebar
+if 'DB_ACTUAL' in st.session_state and st.session_state.get('DB_ACTUAL'):
+    EMPRESA = st.session_state.get('CLIENTE_NOMBRE', "Empresa Seleccionada")
+    # Si también guardas el RIF en el session_state, lo buscas aquí:
+    RIF = st.session_state.get('rif_empresa_seleccionada', "J-00000000-0")
+else:
+    EMPRESA = "Seleccione Cliente"
+    RIF = "J-00000000-0"
+
+DATOS_EMPRESA = {"nombre": EMPRESA, "rif": RIF}
+
 if menu_lateral == "📊 Auditoría Contable":
     with st.sidebar:
         st.divider()
