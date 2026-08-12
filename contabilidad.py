@@ -836,6 +836,39 @@ def obtener_historico_utilidad(db, f_inicio=None, f_fin=None):
             conn.close()
 
 
+@st.cache_data(ttl=300)
+def obtener_detalle_movimientos_banco(db, f_i, f_f):
+    """
+    Función para obtener el detalle de movimientos de la cuenta 1.1.1.02 de forma segura y cacheada.
+    """
+    df_vacio = pd.DataFrame(columns=['fecha', 'descripcion', 'debe', 'haber'])
+    
+    conn = conectar_db(db)
+    if not conn:
+        return df_vacio
+        
+    query = f"""
+        SELECT 
+            fecha, 
+            descripcion, 
+            debe, 
+            haber
+        FROM `{db}`.asientos_contables
+        WHERE plan_cuentas LIKE '1.1.1.02%'
+        AND fecha >= %s AND fecha <= %s
+        ORDER BY fecha ASC
+    """
+    
+    try:
+        df = pd.read_sql(query, conn, params=(f_i, f_f))
+        return df if not df.empty else df_vacio
+    except Exception as e:
+        print(f"Error en obtener_detalle_movimientos_banco para {db}: {e}")
+        return df_vacio
+    finally:
+        if conn and conn.is_connected():
+            conn.close()
+
 
 def gestionar_sidebar():
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
@@ -1492,3 +1525,189 @@ if "🏠 Inicio" in opcion_menu:
                     else:
                         st.warning("No hay gastos.")
                 st.markdown('</div>', unsafe_allow_html=True)
+
+        # --- FILA 5: FLUJO DE EFECTIVO ---
+        st.divider()
+        st.subheader("💸 Movimiento de Caja (Efectivo Real)")
+
+        # 1. VARIABLES GLOBALES Y CONEXIÓN
+        f_i = fecha_inicio_str  
+        f_f = fecha_fin_str
+        db = st.session_state.get('DB_ACTUAL')
+
+        st.caption(f"📍 Empresa activa: `{db}` | Periodo: {f_i} al {f_f}")
+
+        if db and db != "{db}" and db != "None":
+            try:
+                conn = conectar_db(db)
+                cursor = conn.cursor(dictionary=True)
+                
+                # A. Saldo Inicial Fijo (Protegido por si la tabla no existe)
+                debe_s_ini, haber_s_ini = 0.0, 0.0
+                try:
+                    cursor.execute(f"SELECT COALESCE(SUM(debe), 0) as d, COALESCE(SUM(haber), 0) as h FROM `{db}`.saldos_iniciales WHERE plan_cuentas LIKE '1.1.1.02%'")
+                    res_s_ini = cursor.fetchone()
+                    if res_s_ini:
+                        debe_s_ini = float(res_s_ini['d'] or 0.0)
+                        haber_s_ini = float(res_s_ini['h'] or 0.0)
+                except Exception:
+                    # Si la tabla saldos_iniciales no existe, continúa sin interrumpir
+                    pass
+
+                # B. Movimientos históricos anteriores a f_i
+                debe_hist, haber_hist = 0.0, 0.0
+                try:
+                    cursor.execute(f"SELECT COALESCE(SUM(debe), 0) as d, COALESCE(SUM(haber), 0) as h FROM `{db}`.asientos_contables WHERE plan_cuentas LIKE '1.1.1.02%' AND fecha < %s", (f_i,))
+                    res_hist = cursor.fetchone()
+                    if res_hist:
+                        debe_hist = float(res_hist['d'] or 0.0)
+                        haber_hist = float(res_hist['h'] or 0.0)
+                except Exception:
+                    pass
+
+                saldo_inicial_neto = (debe_s_ini + debe_hist) - (haber_s_ini + haber_hist)
+
+                # C. Movimientos del Periodo (f_i a f_f)
+                entradas_mes, salidas_mes = 0.0, 0.0
+                try:
+                    query_mes = f"""
+                        SELECT COALESCE(SUM(debe), 0) as ent, COALESCE(SUM(haber), 0) as sal 
+                        FROM `{db}`.asientos_contables
+                        WHERE plan_cuentas LIKE '1.1.1.02%' AND fecha BETWEEN %s AND %s
+                    """
+                    cursor.execute(query_mes, (f_i, f_f))
+                    res_mes = cursor.fetchone()
+                    if res_mes:
+                        entradas_mes = float(res_mes['ent'] or 0.0)
+                        salidas_mes = float(res_mes['sal'] or 0.0)
+                except Exception:
+                    pass
+
+                saldo_real = saldo_inicial_neto + entradas_mes - salidas_mes
+
+                # D. INTENTO AUTOMÁTICO DE CUENTAS POR COBRAR DESDE LA DB
+                cxc_db = 0.0
+                try:
+                    cursor.execute(f"SELECT COALESCE(SUM(debe - haber), 0) as cxc FROM `{db}`.asientos_contables WHERE plan_cuentas LIKE '1.1.2%'")
+                    res_cxc = cursor.fetchone()
+                    if res_cxc and res_cxc['cxc']:
+                        cxc_db = float(res_cxc['cxc'])
+                except Exception:
+                    cxc_db = 0.0
+
+                conn.close()
+
+                # 2. MÉTRICAS PRINCIPALES DEL PERIODO
+                c1, c2, c3 = st.columns(3)
+                c1.metric("Entradas (Mes)", f"Bs. {entradas_mes:,.2f}")
+                c2.metric("Salidas (Mes)", f"Bs. {salidas_mes:,.2f}")
+                c3.metric("Saldo Real Total", f"Bs. {saldo_real:,.2f}")
+
+                # RESUMEN AUTOMÁTICO IA - MÉTRICAS
+                balance_neto_mes = entradas_mes - salidas_mes
+                tendencia_mes = "positivo" if balance_neto_mes >= 0 else "negativo"
+                st.info(f"🤖 **Resumen de Caja:** Durante este periodo, las entradas totalizaron Bs. {entradas_mes:,.2f} frente a salidas de Bs. {salidas_mes:,.2f}, arrojando un flujo neto {tendencia_mes} de Bs. {balance_neto_mes:,.2f} y cerrando con un saldo real disponible de Bs. {saldo_real:,.2f}.")
+
+                # 3. CONTROLES DE SIMULACIÓN (Toma el valor detectado o permite ajustarlo)
+                st.sidebar.header("⚙️ Simulación de Escenarios (Stress Testing)")
+                
+                cuentas_por_cobrar = st.sidebar.number_input(
+                    "Cuentas por Cobrar (Detectadas / Manual):", 
+                    value=max(cxc_db, 0.0), 
+                    step=10000.0,
+                    help="Si la empresa tiene saldo en cuentas por cobrar (ej. cuenta 1.1.2), aparecerá aquí automáticamente."
+                )
+
+                pct_retraso = st.sidebar.slider(
+                    "% de Facturas que se retrasan a 60 días:", 
+                    min_value=0, 
+                    max_value=100, 
+                    value=0, 
+                    step=5
+                )
+
+                impacto_retraso = cuentas_por_cobrar * (pct_retraso / 100.0)
+
+                # 4. PROYECCIÓN DE FLUJO DE CAJA Y ANÁLISIS DE DESVIACIONES
+                st.markdown("---")
+                st.subheader("📈 Proyección de Liquidez y Análisis de Estrés")
+                st.caption("Estimación basada en el flujo neto diario con simulación a 30, 60 y 90 días.")
+
+                import datetime as dt
+
+                if isinstance(f_i, str):
+                    d1 = dt.datetime.strptime(f_i, "%Y-%m-%d")
+                else:
+                    d1 = f_i
+
+                if isinstance(f_f, str):
+                    d2 = dt.datetime.strptime(f_f, "%Y-%m-%d")
+                else:
+                    d2 = f_f
+
+                dias_rango = max((d2 - d1).days + 1, 1)
+
+                flujo_neto_periodo = entradas_mes - salidas_mes
+                promedio_diario_neto = flujo_neto_periodo / dias_rango
+
+                # Proyecciones Meta (30, 60 y 90 días)
+                proj_30_meta = saldo_real + (promedio_diario_neto * 30)
+                proj_60_meta = saldo_real + (promedio_diario_neto * 60)
+                proj_90_meta = saldo_real + (promedio_diario_neto * 90)
+
+                proj_30_ajustada = proj_30_meta - impacto_retraso
+
+                if proj_30_meta != 0:
+                    desviacion_absoluta = proj_30_ajustada - proj_30_meta
+                    desviacion_pct = (desviacion_absoluta / abs(proj_30_meta)) * 100
+                else:
+                    desviacion_absoluta, desviacion_pct = 0.0, 0.0
+
+                # Bloque 1: Proyecciones Temporales (30, 60 y 90 Días)
+                st.write("##### 🗓️ HORIZONTE DE LIQUIDEZ PROYECTADO")
+                m1, m2, m3 = st.columns(3)
+                m1.metric("Proyección 30 Días", f"Bs. {proj_30_meta:,.2f}", delta=f"{promedio_diario_neto * 30:,.2f} Bs est.")
+                m2.metric("Proyección 60 Días", f"Bs. {proj_60_meta:,.2f}", delta=f"{promedio_diario_neto * 60:,.2f} Bs est.")
+                m3.metric("Proyección 90 Días", f"Bs. {proj_90_meta:,.2f}", delta=f"{promedio_diario_neto * 90:,.2f} Bs est.")
+
+                st.info(f"🤖 **Resumen de Proyección:** Con base en un promedio diario de Bs. {promedio_diario_neto:,.2f}, se proyecta una disponibilidad de Bs. {proj_30_meta:,.2f} a 30 días, alcanzando Bs. {proj_60_meta:,.2f} a 60 días y Bs. {proj_90_meta:,.2f} al cierre de los 90 días.")
+
+                # Bloque 2: Escenario de Estrés
+                st.write("##### ⚡ ESCENARIO DE SIMULACIÓN Y MORA")
+                p1, p2, p3 = st.columns(3)
+                p1.metric("30 Días Ajustado", f"Bs. {proj_30_ajustada:,.2f}", delta=f"{desviacion_pct:.2f}%")
+                p2.metric("Impacto por Retraso", f"Bs. {impacto_retraso:,.2f}")
+                p3.metric("Desviación Absoluta", f"Bs. {desviacion_absoluta:,.2f}")
+
+                st.info(f"🤖 **Resumen de Stress Testing:** Con un monto bajo análisis de Bs. {cuentas_por_cobrar:,.2f} y un retraso simulado del {pct_retraso}%, el impacto en caja es de Bs. {impacto_retraso:,.2f}, dejando la liquidez proyectada en Bs. {proj_30_ajustada:,.2f}.")
+
+                # 5. SEMÁFORO DE RIESGO INTELIGENTE
+                if proj_30_ajustada < 0 or desviacion_pct <= -15.0:
+                    st.error(f"🚨 **ALERTA DE ILIQUIDEZ POTENCIAL ({desviacion_pct:.1f}%):** El escenario de retraso genera un déficit crítico en la disponibilidad a 30 días.")
+                elif -15.0 < desviacion_pct < 0:
+                    st.warning(f"⚠️ **Advertencia de Riesgo Leve ({desviacion_pct:.1f}%):** Existe una desviación negativa frente a la meta proyectada.")
+                else:
+                    st.success("✅ **Salud de Caja Estable:** Las proyecciones se mantienen en niveles seguros de liquidez.")
+
+                # 6. DETALLE DE MOVIMIENTOS
+                st.markdown("---")
+                st.write("### Detalle de Movimientos")
+                try:
+                    df_flujo = obtener_detalle_movimientos_banco(db, f_i, f_f) 
+                except Exception:
+                    df_flujo = None
+
+                if df_flujo is not None and not df_flujo.empty:
+                    st.dataframe(df_flujo, use_container_width=True, hide_index=True, column_config={
+                        "fecha": st.column_config.DateColumn("Fecha"),
+                        "descripcion": "Concepto",
+                        "debe": st.column_config.NumberColumn("Entradas", format="Bs. %.2f"),
+                        "haber": st.column_config.NumberColumn("Salidas", format="Bs. %.2f")
+                    })
+                else:
+                    st.info(f"No hay movimientos en este rango del {f_i} al {f_f}.")
+
+            except Exception as e:
+                st.error(f"Error en consulta contable para `{db}`: {e}")
+        else:
+            st.warning("⚠️ Selecciona una empresa para ver los movimientos de caja.")
