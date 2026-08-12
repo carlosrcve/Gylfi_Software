@@ -1387,6 +1387,32 @@ def obtener_analisis_accionista_detallado(db, f_i, f_f):
                 
     return df
 
+
+@st.cache_data(ttl=300)
+def obtener_comprobantes_ingresos(db, f_inicio, f_fin):
+    conn = conectar_db(db)
+    if not conn:
+        return pd.DataFrame()
+    
+    try:
+        query = f"""
+            SELECT DISTINCT n_comprobante, fecha 
+            FROM `{db}`.asientos_contables 
+            WHERE plan_cuentas LIKE '7.1.1.01.001%'
+            AND fecha BETWEEN %s AND %s
+            ORDER BY fecha DESC, n_comprobante DESC
+        """
+        df = pd.read_sql(query, conn, params=(f_inicio, f_fin))
+        conn.close()
+        return df
+    except Exception as e:
+        print(f"Error al obtener comprobantes de ingresos: {e}")
+        if conn:
+            conn.close()
+        return pd.DataFrame()
+
+
+
 def gestionar_sidebar():
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
     user_id = st.session_state.get('user_id', st.session_state.get('cliente_id', 'N/A'))
