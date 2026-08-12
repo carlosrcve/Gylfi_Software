@@ -1921,19 +1921,28 @@ if "🏠 Inicio" in opcion_menu:
             except:
                 mes = 5
 
-        # Calculamos también el último día del mes de forma segura con calendar
-        import calendar
-        ultimo_dia = int(calendar.monthrange(año, mes)[1])
+        # 1. Asegurar que año y mes sean enteros
+        try:
+            año_int = int(año)
+            mes_int = int(mes)
+        except (ValueError, TypeError):
+            # Si falla, usamos la fecha actual como respaldo seguro
+            año_int = datetime.datetime.now().year
+            mes_int = datetime.datetime.now().month
 
-        f_i = f"{año}-{mes:02d}-01"
-        f_f = f"{año}-{mes:02d}-{ultimo_dia:02d}"
+        # 2. Calcular el último día del mes de forma segura
+        _, ultimo_dia = calendar.monthrange(año_int, mes_int)
 
-        # Variables de compatibilidad tipo date para consultas SQL
-        f_inicio_global = datetime.date(año, mes, 1)
-        f_fin_global = datetime.date(año, mes, ultimo_dia)
+        # 3. Generar los strings para las consultas SQL
+        f_i = f"{año_int:04d}-{mes_int:02d}-01"
+        f_f = f"{año_int:04d}-{mes_int:02d}-{ultimo_dia:02d}"
 
-        # 2. DEBUG VISUAL (Para verificar la fecha real en curso)
-        st.sidebar.info(f"Fecha en uso: {f_i} al {f_f}")  
+        # 4. Variables tipo date (útiles si tu ORM o función SQL las requiere así)
+        f_inicio_global = datetime.date(año_int, mes_int, 1)
+        f_fin_global = datetime.date(año_int, mes_int, ultimo_dia)
+
+        # 5. DEBUG VISUAL
+        st.sidebar.info(f"📅 Rango activo: {f_i} al {f_f}")  
 
         db = st.session_state.get('DB_ACTUAL')
 
