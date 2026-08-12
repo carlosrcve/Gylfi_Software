@@ -870,6 +870,104 @@ def obtener_detalle_movimientos_banco(db, f_i, f_f):
             conn.close()
 
 
+@st.cache_data(ttl=60) # ttl reducido para evitar saldos desactualizados
+def obtener_detalle_cashea(db, f_inicio, f_fin):
+    df_vacio = pd.DataFrame(columns=['fecha', 'descripcion', 'referencia', 'debe', 'haber', 'saldo'])
+    conn = conectar_db(db)
+    
+    if not conn:
+        return df_vacio
+        
+    try:
+        # A. Saldo inicial
+        query_saldo_inicial = f"SELECT SUM(haber - debe) as saldo_ant FROM `{db}`.asientos_contables WHERE plan_cuentas LIKE '2.1.3.01.001%' AND fecha < %s"
+        df_ini = pd.read_sql(query_saldo_inicial, conn, params=(f_inicio,))
+        saldo_inicial = float(df_ini['saldo_ant'].iloc[0] or 0.0)
+        
+        # B. Movimientos
+        query = f"SELECT fecha, descripcion, referencia, debe, haber FROM `{db}`.asientos_contables WHERE plan_cuentas LIKE '2.1.3.01.001%' AND fecha BETWEEN %s AND %s ORDER BY fecha ASC, id ASC"
+        df = pd.read_sql(query, conn, params=(f_inicio, f_fin))
+        
+        if df.empty:
+            return df_vacio
+            
+        # Limpieza
+        df['debe'] = pd.to_numeric(df['debe'], errors='coerce').fillna(0)
+        df['haber'] = pd.to_numeric(df['haber'], errors='coerce').fillna(0)
+        df['saldo'] = saldo_inicial + (df['haber'] - df['debe']).cumsum()
+        return df
+
+    except Exception as e:
+        st.error(f"Error técnico al cargar movimientos: {e}") # Feedback visual para el dev
+        return df_vacio
+        
+    finally:
+        # La forma más segura de cerrar, garantizada incluso si hay errores
+        if conn and conn.is_connected():
+            conn.close()
+
+def consultar_bcv_directo_sin_bd(conn=None):
+    # 1. Obtenemos la tasa (aprovechando el caché seguro)
+    tasa, fuente = obtener_tasa_bcv_segura()
+    
+    # 2. Gestionamos los logs y la conexión de forma independiente
+    if conn and conn.is_connected():
+        try:
+            usuario = st.session_state.get('usuario', 'Desconocido')
+            registrar_log_automatico(conn, "CONSULTA_TASA_BCV", f"Usuario {usuario} consultando BCV. Tasa: {tasa}")
+        except Exception as log_err:
+            print(f"Error registrando log de BCV: {log_err}")
+        finally:
+            try:
+                conn.ping(reconnect=True, attempts=2, delay=1)
+            except Exception:
+                pass
+                
+    return tasa, fuente
+
+
+@st.cache_data(ttl=3600)  # Caché de 1 hora para evitar peticiones masivas al BCV
+def obtener_tasa_bcv_hoy(conn):
+    hoy = date.today()
+    
+    # 1. Intento de lectura desde Base de Datos
+    try:
+        if conn and conn.is_connected():
+            with conn.cursor(buffered=True) as cursor:
+                cursor.execute("SELECT tasa_valor FROM kingdirver_ca.tasas_diarias WHERE fecha = %s", (hoy,))
+                resultado = cursor.fetchone()
+                if resultado:
+                    return float(resultado[0]), "Base de Datos"
+    except Exception as e:
+        print(f"Error al leer tasa en BD: {e}")
+
+    # 2. Si no está en BD, consulta Web (fuera del cache de BD si falla)
+    # Nota: El cache_data de arriba gestionará las llamadas redundantes
+    tasa, fuente = consultar_bcv_directo_sin_bd(conn=conn)
+    
+    # 3. Guardado en BD (solo si la consulta web fue exitosa)
+    if fuente == "Web BCV (Sin BD)" and tasa > 1.0:
+        try:
+            with conn.cursor() as cursor:
+                cursor.execute("""
+                    INSERT INTO kingdirver_ca.tasas_diarias (fecha, tasa_valor) 
+                    VALUES (%s, %s)
+                    ON DUPLICATE KEY UPDATE tasa_valor = %s
+                """, (hoy, tasa, tasa))
+                conn.commit()
+                
+            # Log de éxito
+            try:
+                usuario = st.session_state.get('usuario', 'Desconocido')
+                registrar_log_automatico(conn, "CONSULTA_TASA_BCV", f"Usuario {usuario} obtuvo tasa vía web: {tasa}")
+            except:
+                pass
+        except Exception as e:
+            print(f"Error al guardar tasa en BD: {e}")
+            
+    return tasa, fuente
+
+
 def gestionar_sidebar():
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
     user_id = st.session_state.get('user_id', st.session_state.get('cliente_id', 'N/A'))
@@ -1711,3 +1809,115 @@ if "🏠 Inicio" in opcion_menu:
                 st.error(f"Error en consulta contable para `{db}`: {e}")
         else:
             st.warning("⚠️ Selecciona una empresa para ver los movimientos de caja.")
+
+        # --- FILA 6: PROVEEDORES ---
+        st.divider()
+        st.subheader("📦 Gestión Operativa")
+        p1, p2 = st.columns(2)
+        p1.info(f"**Top Proveedor:** {kpis.get('top_proveedor', 'N/A')} ({kpis.get('top_porcentaje', 0)}%)")
+        n_a = kpis.get('alertas_retencion', 0)
+        if n_a > 0: 
+            p2.warning(f"⚠️ {n_a} facturas sin retención aplicada.")
+        else: 
+            p2.success("✅ Retenciones al día.")    
+
+        # --- FILA 7. SECCIÓN: CUENTA CASHEA ---
+        st.divider()
+        st.subheader("💳 Detalle de Créditos: Cashea (2.1.3.01.001)")
+
+        db_actual = st.session_state.get('DB_ACTUAL')
+
+        if db_actual and db_actual != "{db}" and db_actual != "None":
+            df_cashea = obtener_detalle_cashea(db_actual, f_inicio_global, f_fin_global)
+
+            if df_cashea is not None and not df_cashea.empty:
+                saldo_final = df_cashea['saldo'].iloc[-1]
+                st.metric("Saldo Actual en Cashea", f"Bs. {saldo_final:,.2f}")
+                
+                # Tabla limpia, expandida a todo el ancho y con formato profesional
+                st.dataframe(
+                    df_cashea, 
+                    use_container_width=True,  # Ocupa todo el ancho de la pantalla correctamente
+                    height=350,                # Altura controlada con scroll vertical si hay muchos registros
+                    column_config={
+                        "fecha": st.column_config.DateColumn("Fecha"),
+                        "descripcion": st.column_config.TextColumn("Descripción"),
+                        "ref": st.column_config.TextColumn("Referencia"),
+                        "debe": st.column_config.NumberColumn("Pago (Debe)", format="Bs. %.2f"),
+                        "haber": st.column_config.NumberColumn("Crédito (Haber)", format="Bs. %.2f"),
+                        "saldo": st.column_config.NumberColumn("Saldo Acumulado", format="Bs. %.2f")
+                    }
+                )
+            else:
+                st.info(f"No hay movimientos registrados para Cashea en este periodo.")
+        else:
+            st.warning("⚠️ Selecciona una empresa para ver los créditos de Cashea.")
+
+
+        # --- FILA 7: TIPO DE CAMBIO BANCO CENTRAL DE VENEZUELA ---
+        st.divider()
+        st.markdown("### 🏦 Indicadores Cambiarios")
+
+        if db_actual and db_actual != "{db}" and db_actual != "None":
+            try: 
+                conn_bcv = conectar_db(db_actual)
+                if not conn_bcv:
+                    st.warning(f"⚠️ No se pudo establecer conexión con la base de datos para {db_actual}.")
+                else:
+                    # Blindaje por si la función no está definida o retorna None
+                    tasa_dolar = 0.0
+                    origen_datos = "No disponible"
+                    
+                    if 'obtener_tasa_bcv_hoy' in globals() and callable(obtener_tasa_bcv_hoy):
+                        t_val, o_val = obtener_tasa_bcv_hoy(conn_bcv)
+                        tasa_dolar = t_val if t_val is not None else 0.0
+                        origen_datos = o_val if o_val is not None else "Manual / Desconocido"
+
+                    col_tasa, col_info = st.columns([1, 2])
+
+                    with col_tasa:
+                        s = f"{tasa_dolar:,.8f}"
+                        tasa_formateada = f"Bs. {s.replace(',', 'X').replace('.', ',').replace('X', '.')}"
+                        st.metric(label="💵 Tasa Oficial BCV (USD/VES)", value=tasa_formateada)
+
+                    with col_info:
+                        st.caption("ℹ️ **Actualización Automática:**")
+                        st.info(f"El sistema sincroniza directamente con el Banco Central de Venezuela. \n\n**Fuente de lectura actual:** {origen_datos}")
+                        
+                        # 🔥 BOTÓN DE ACTUALIZACIÓN FORZADA
+                        if st.button("🔄 Forzar Sincronización BCV"):
+                            from datetime import date
+                            try:
+                                if conn_bcv.is_connected():
+                                    conn_bcv.handle_unread_result()
+                                
+                                tasa_fresca, origen_fresco = 0.0, "Error"
+                                if 'consultar_bcv_directo_sin_bd' in globals() and callable(consultar_bcv_directo_sin_bd):
+                                    tasa_fresca, origen_fresco = consultar_bcv_directo_sin_bd(conn_bcv)
+                                
+                                if origen_fresco and "Error" not in origen_fresco and tasa_fresca > 0:
+                                    hoy = date.today()
+                                    cursor = conn_bcv.cursor()
+                                    try:
+                                        cursor.execute(f"""
+                                            INSERT INTO `{db_actual}`.tasas_diarias (fecha, tasa_valor) 
+                                            VALUES (%s, %s)
+                                            ON DUPLICATE KEY UPDATE tasa_valor = %s
+                                        """, (hoy, tasa_fresca, tasa_fresca))
+                                        conn_bcv.commit()
+                                        st.success("¡Tasa actualizada con éxito desde el BCV!")
+                                        st.rerun()
+                                    except Exception as db_err:
+                                        st.error(f"La tabla 'tasas_diarias' no existe en {db_actual} o hay un error SQL: {db_err}")
+                                    finally:
+                                        cursor.close()
+                                else:
+                                    st.error("No se pudo conectar a la web del BCV en este momento.")
+                            except Exception as e:
+                                st.error(f"Error al sincronizar: {e}")
+                    
+                    conn_bcv.close()
+            except Exception as e:
+                st.error(f"Error al cargar indicadores cambiarios: {e}")
+        else:
+            st.warning("⚠️ Selecciona una empresa para ver los indicadores cambiarios.")
