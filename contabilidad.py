@@ -1513,6 +1513,161 @@ def consultar_tabla_db(conn, nombre_tabla, limite=None):
                 
     return df
 
+
+import streamlit as st
+
+# Usamos cache_data porque el valor_busqueda es un tipo simple (str o int), 
+# lo que permite a Streamlit generar un hash perfecto.
+@st.cache_data(ttl=3600) # El caché durará 1 hora
+def obtener_datos_agente_db(valor_busqueda):
+    # La conexión se abre y cierra DENTRO de la función cacheada 
+    # para no pasar el objeto 'conn' como argumento.
+    conn_central = conectar_db() 
+    if not conn_central: 
+        return None
+
+    try:
+        cursor = conn_central.cursor(dictionary=True)
+        # Consulta parametrizada (SEGURO)
+        if isinstance(valor_busqueda, str):
+            query = "SELECT id, nombre_empresa, rif, domicilio_fiscal FROM clientes WHERE db_nombre = %s"
+        else:
+            query = "SELECT id, nombre_empresa, rif, domicilio_fiscal FROM clientes WHERE id = %s"
+        
+        cursor.execute(query, (valor_busqueda,))
+        datos = cursor.fetchone()
+        return datos
+    except Exception as e:
+        # Nota: Evita exponer el valor buscado si es sensible en el error final
+        st.error(f"Error al obtener datos del agente.")
+        return None
+    finally:
+        # El cursor y la conexión se cierran tras obtener el dato
+        if 'cursor' in locals() and cursor:
+            cursor.close()
+        if conn_central and conn_central.is_connected():
+            conn_central.close()
+
+
+
+def consultar_libro_diario_db(conn_activa=None, fecha_inicio=None, fecha_fin=None):
+    # 1. Seguridad y Contexto
+    usuario = st.session_state.get('usuario', 'Desconocido')
+    cliente = st.session_state.get('cliente_id', 'N/A')
+    db_a_usar = st.session_state.get('DB_ACTUAL')
+    
+    if not db_a_usar:
+        return pd.DataFrame()
+
+    # 2. Conexión Inteligente (Se define primero la conexión antes del log)
+    es_conexion_interna = False
+    if conn_activa:
+        conn = conn_activa
+    else:
+        conn = conectar_db(db_a_usar)
+        es_conexion_interna = True
+    
+    if not conn or not hasattr(conn, 'is_connected') or not conn.is_connected():
+        return pd.DataFrame()
+
+    # 3. Registrar el log pasando la conexión real ('conn') en lugar de None
+    try:
+        registrar_log_automatico(conn, "CONSULTA_LIBRO_DIARIO", f"Usuario {usuario} consultó libro diario para {cliente}")
+    except Exception as log_error:
+        print(f"No se pudo registrar el log: {log_error}")
+
+    try:
+        # 4. Preparar consulta
+        if fecha_inicio and fecha_fin:
+            query = "SELECT * FROM asientos_contables WHERE fecha BETWEEN %s AND %s ORDER BY id ASC"
+            params = (fecha_inicio, fecha_fin)
+        else:
+            query = "SELECT * FROM asientos_contables ORDER BY id ASC"
+            params = None
+        
+        # 5. Ejecución con pandas
+        df = pd.read_sql(query, conn, params=params)
+        
+        # 6. Normalización Universal
+        if not df.empty:
+            df.columns = [c.lower() for c in df.columns]
+            
+            mapeo = {
+                'plan_cuentas': 'plan_de_cuentas',
+                'cuenta': 'plan_de_cuentas',
+                'monto_debe': 'debe',
+                'monto_haber': 'haber',
+                'debito': 'debe',
+                'credito': 'haber'
+            }
+            df.rename(columns=mapeo, inplace=True)
+            
+            # Verificación de integridad
+            if 'debe' not in df.columns or 'haber' not in df.columns:
+                st.warning(f"⚠️ Estructura incompatible. Columnas detectadas: {df.columns.tolist()}")
+                return pd.DataFrame()
+            
+            return df
+        
+        return pd.DataFrame()
+        
+    except Exception as e:
+        st.error(f"Error procesando libro diario: {e}")
+        return pd.DataFrame()
+        
+    finally:
+        # Solo cerramos si la creamos nosotros y la conexión sigue abierta
+        if es_conexion_interna and conn and hasattr(conn, 'is_connected') and conn.is_connected():
+            conn.close()
+
+
+def actualizar_libro_diario_en_db(db_nombre, df_cambios):
+    conn = conectar_db(db_nombre)
+    if not conn:
+        return False
+        
+    cursor = conn.cursor()
+    try:
+        sql = """
+            UPDATE asientos_contables 
+            SET n_comprobante = %s, descripcion = %s, fecha = %s, 
+                plan_cuentas = %s, cuenta_contable = %s, referencia = %s, 
+                debe = %s, haber = %s 
+            WHERE id = %s
+        """
+        
+        # 1. Preparar una lista de tuplas con todos los datos de forma masiva
+        datos_a_actualizar = [
+            (
+                row['n_comprobante'], 
+                row['descripcion'], 
+                row['fecha'], 
+                row['plan_de_cuentas'], 
+                row['cuenta_contable'], 
+                row['referencia'], 
+                float(row['debe']), 
+                float(row['haber']), 
+                int(row['id'])
+            )
+            for _, row in df_cambios.iterrows()
+        ]
+        
+        # 2. Ejecutar todas las actualizaciones en una sola llamada optimizada
+        cursor.executemany(sql, datos_a_actualizar)
+        
+        conn.commit()
+        return True
+    except Exception as e:
+        conn.rollback() # Revertir cambios si algo falla a mitad de lote
+        st.error(f"Error técnico en SQL: {str(e)}")
+        return False
+    finally:
+        if cursor:
+            cursor.close()
+        if conn and conn.is_connected():
+            conn.close()
+
+
 def gestionar_sidebar():
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
     user_id = st.session_state.get('user_id', st.session_state.get('cliente_id', 'N/A'))
@@ -3768,3 +3923,211 @@ elif opcion_menu == "📂 Plan de Cuentas":
     finally:
         if conn_empresa and conn_empresa.is_connected():
             conn_empresa.close()
+
+
+elif opcion_menu == "📝 Asientos Contables":
+    st.write(f"DEBUG: Empresa actual en sesión: {st.session_state.get('DB_ACTUAL')}")
+     # 1. Recuperamos contexto de seguridad
+    # 1. Recuperamos contexto de seguridad
+    db_actual = st.session_state.get('DB_ACTUAL')
+    cliente_id = st.session_state.get('cliente_id')
+    rol = st.session_state.get('rol')
+    
+    # 2. Validación centralizada
+    if not db_actual:
+        st.error("No se ha seleccionado una base de datos.")
+        st.stop()
+
+    # Filtro de acceso: Verificamos permiso de la empresa antes de cargar nada
+    empresa_data = obtener_datos_agente_db(db_actual)
+    if empresa_data and rol != 'admin':
+        if empresa_data.get('id') != cliente_id:
+            st.error("⚠️ Acceso denegado a esta empresa.")
+            st.stop()
+
+    # Mantenemos la lógica de sub_opcion
+    if sub_opcion == "Subir Datos":
+        st.markdown(f"## 📝 Gestión de Libro Diario: {EMPRESA}")
+        
+        # 1. Validación de Seguridad: ¿Hay base de datos?
+        if 'DB_ACTUAL' in st.session_state and st.session_state['DB_ACTUAL']:
+            db_nombre = st.session_state['DB_ACTUAL']
+            tab1, tab2, tab3 = st.tabs(["📖 Ver Libro Diario", "📤 Importar Excel", "🗑️ Vaciar Asiento de Diarios"])
+
+            def exportar_a_excel(df):
+                output = io.BytesIO()
+                with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+                    df.to_excel(writer, index=False, sheet_name='LibroDiario')
+                return output.getvalue()
+
+            with tab1:
+                # --- 1. Selector de fechas ---
+                col1, col2 = st.columns(2)
+                with col1:
+                    f_inicio = st.date_input("Fecha Inicio") 
+                with col2:
+                    f_fin = st.date_input("Fecha Fin")
+
+                # ABRIMOS la conexión primero
+                conn_temp = conectar_db(db_actual)
+                
+                # Pasamos la conexión (objeto), no el nombre (string)
+                df_diario = consultar_libro_diario_db(conn_activa=conn_temp, fecha_inicio=f_inicio, fecha_fin=f_fin)
+                
+                # CERRAMOS la conexión después de usarla
+                conn_temp.close()
+                
+                # --- 3. Visualización limpia ---
+                if df_diario is not None and not df_diario.empty:
+                    # Normalización
+                    df_diario.columns = [c.lower() for c in df_diario.columns]
+                    
+                    # 1. Definimos df_editado SIEMPRE. 
+                    # El editor devuelve el dataframe actualizado.
+                    df_editado = st.data_editor(
+                        df_diario, 
+                        use_container_width=True, 
+                        hide_index=True,
+                        key="editor_diario"
+                    )
+
+                    # 2. Botón de Guardar
+                    if st.button("💾 Guardar Cambios"):
+                        # Alinear tipos de datos antes de comparar
+                        # Esto asegura que estamos comparando manzanas con manzanas
+                        df_editado_limpio = df_editado.astype(df_diario.dtypes)
+                        
+                        # Comparamos
+                        if not df_editado_limpio.equals(df_diario):
+                            # Filtramos las diferencias usando el df_editado limpio
+                            cambios = df_editado_limpio[df_editado_limpio.ne(df_diario).any(axis=1)]
+                            
+                            try:
+                                exito = actualizar_libro_diario_en_db(db_actual, cambios)
+                                if exito:
+                                    st.success(f"Se actualizaron {len(cambios)} registros.")
+                                    st.rerun()
+                                else:
+                                    st.error("Error al guardar en la base de datos.")
+                            except Exception as e:
+                                st.error(f"Error técnico: {str(e)}")
+                        else:
+                            st.warning("No se detectaron cambios para guardar.")
+                    
+                    # 3. Descarga y Totales (ahora siempre tienen acceso a df_editado)
+                    excel_data = exportar_a_excel(df_editado)
+                    st.download_button(
+                        label="📥 Descargar Libro Diario",
+                        data=excel_data,
+                        file_name=f"Libro_Diario_{f_inicio}_al_{f_fin}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    )
+                    
+                    t_debe = df_editado['debe'].sum()
+                    t_haber = df_editado['haber'].sum()
+                    
+                    st.divider()
+                    c1, c2, c3 = st.columns(3)
+                    c1.metric("TOTAL DEBE", formato_contable(t_debe))
+                    c2.metric("TOTAL HABER", formato_contable(t_haber))
+                    
+                    dif = abs(t_debe - t_haber)
+                    if dif < 0.01:
+                        c3.success("✅ DIARIO CUADRADO")
+                    else:
+                        c3.error(f"❌ DESCUADRE: {formato_contable(t_debe - t_haber)}")
+                        
+                else:
+                    st.info("No hay asientos registrados para este rango de fechas.")
+                    
+            with tab2:
+                # --- PESTAÑA 2: IMPORTACIÓN ---
+                st.markdown("### 📤 Cargar nuevos Asientos Contables")
+                archivo_excel = st.file_uploader("Seleccione el archivo .xlsx", type=["xlsx", "xls"], key="up_diario_tabs")
+                
+                if archivo_excel:
+                    try:
+                        # 1. Lectura segura
+                        df_subido = pd.read_excel(archivo_excel, header=None, skiprows=1, dtype=object)
+                        
+                        # Si el Excel trae más de 9 columnas, recortamos o ajustamos para evitar el error de tamaño
+                        columnas_esperadas = ['id_ex', 'N_comprobante', 'Descripcion', 'Fecha', 'plan_de_cuentas', 'cuenta_contable', 'Ref', 'Debe', 'Haber']
+                        
+                        if len(df_subido.columns) > len(columnas_esperadas):
+                            # Si sobra una columna (ej. la primera es un índice de Excel), nos quedamos con las necesarias desde la 0 o desde la 1
+                            # Aquí asumimos que tomamos las columnas que coinciden con el total esperado
+                            df_subido = df_subido.iloc[:, :len(columnas_esperadas)]
+                        
+                        df_subido.columns = columnas_esperadas
+                        df_subido = df_subido.drop(columns=['id_ex'])
+                        
+                        # Limpieza
+                        if str(df_subido.iloc[0, 1]).lower() in ['n_comprobante', 'nan']:
+                            df_subido = df_subido.iloc[1:].reset_index(drop=True)
+                        df_subido['Fecha'] = pd.to_datetime(df_subido['Fecha'], errors='coerce').dt.date
+
+                        st.write("### ✅ Vista previa de la carga:")
+                        st.dataframe(df_subido, hide_index=True, use_container_width=True)
+
+                        # 2. Importación segura
+                        if st.button("🚀 Confirmar e Importar al Diario"):
+                            conn = conectar_db(db_actual) 
+                            
+                            if conn and conn.is_connected():
+                                try:
+                                    with st.spinner(f"Subiendo datos a la base: {db_actual}..."):
+                                        if cargar_asientos_contables_db(df_subido, conn):
+                                            st.balloons()
+                                            st.success(f"✅ ¡Asientos procesados con éxito en {db_actual}!")
+                                except Exception as e:
+                                    st.error(f"Error crítico en la inserción: {e}")
+                                finally:
+                                    conn.close()
+                            else:
+                                st.error("❌ No se pudo establecer conexión con la base de datos.")
+                    
+                    except Exception as e:
+                        st.error(f"Error al procesar el archivo: {e}")
+
+            with tab3:
+                # --- PESTAÑA 3: ADMINISTRACIÓN (LIMPIEZA SELECTIVA) ---
+                st.markdown("### ⚙️ Administración: Limpieza por Fechas")
+                with st.container(border=True):
+                    st.warning("⚠️ **BORRADO SELECTIVO DE ASIENTOS**")
+                    
+                    # 1. Selector de rango a eliminar
+                    col_f1, col_f2 = st.columns(2)
+                    f_eliminar_inicio = col_f1.date_input("Desde:", key="del_inicio")
+                    f_eliminar_fin = col_f2.date_input("Hasta:", key="del_fin")
+                    
+                    st.write(f"Se eliminarán los asientos entre **{f_eliminar_inicio}** y **{f_eliminar_fin}**.")
+                    
+                    # 2. Confirmación doble
+                    check_borrar = st.checkbox("Estoy seguro de borrar este periodo.", key="check_borrar_rango")
+                    
+                    if check_borrar:
+                        if st.button("🧨 BORRAR RANGO SELECCIONADO", type="primary"):
+                            conn = conectar_db(db_actual)
+                            
+                            if conn and conn.is_connected():
+                                try:
+                                    cursor = conn.cursor()
+                                    # USAMOS DELETE EN LUGAR DE TRUNCATE
+                                    query_delete = "DELETE FROM asientos_contables WHERE fecha BETWEEN %s AND %s"
+                                    cursor.execute(query_delete, (f_eliminar_inicio, f_eliminar_fin))
+                                    
+                                    filas_afectadas = cursor.rowcount
+                                    conn.commit()
+                                    cursor.close()
+                                    
+                                    st.success(f"✅ Éxito: Se eliminaron {filas_afectadas} asientos del periodo.")
+                                except Exception as e:
+                                    st.error(f"Error al ejecutar la limpieza: {e}")
+                                finally:
+                                    conn.close()
+                            else:
+                                st.error("❌ Error de conexión.")
+        else:
+            st.warning("⚠️ Por favor, seleccione una empresa en el panel lateral para gestionar sus asientos.")
+
+
