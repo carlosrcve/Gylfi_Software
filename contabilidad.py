@@ -1663,6 +1663,273 @@ def actualizar_libro_diario_en_db(db_nombre, df_cambios):
             conn.close()
 
 
+import pandas as pd
+import streamlit as st
+
+def cargar_estado_cuenta_bdv(uploaded_file, conn):
+    # 1. Recuperamos las variables del estado global
+    mes_sel = st.session_state.get('mes_seleccionado')
+    ano_sel = st.session_state.get('ano_seleccionado')
+
+    # 2. Validación de seguridad
+    if not mes_sel or not ano_sel:
+        st.error("❌ No se ha seleccionado mes o año en el dashboard.")
+        return False
+
+    # 3. Verificamos si el mes está cerrado
+    if mes_esta_cerrado(conn, mes_sel, ano_sel):
+        st.error("❌ No se pueden realizar cambios. El mes está bloqueado.")
+        return False
+    
+    # Registro de actividad
+    usuario_actual = st.session_state.get('usuario', 'Desconocido')
+    cliente_actual = st.session_state.get('cliente_id', 'N/A')
+    registrar_log_automatico(conn, "CARGA_ESTADO_CUENTA", f"Usuario {usuario_actual} cargó estado de cuenta para {cliente_actual}")
+    
+    cursor = conn.cursor(buffered=True)
+    try:
+        # 2. Leemos el archivo
+        df = pd.read_excel(uploaded_file)
+        df.columns = df.columns.str.strip()
+        
+        movimientos_insertados = 0
+        
+        # 3. Procesamos filas de forma segura
+        for index, row in df.iterrows():
+            if pd.isna(row.get('Referencia')): 
+                continue
+            
+            fecha_str = pd.to_datetime(row['Fecha']).strftime('%Y-%m-%d')
+            
+            # Limpieza de montos (asegurando que sean floats)
+            debito = float(str(row.get('Débito', 0)).replace('.', '').replace(',', '.')) if pd.notna(row.get('Débito')) else 0
+            credito = float(str(row.get('Crédito', 0)).replace('.', '').replace(',', '.')) if pd.notna(row.get('Crédito')) else 0
+            monto = credito - debito
+            
+            query = """
+                INSERT INTO banco_movimientos 
+                (banco_nombre, cuenta_numero, fecha_movimiento, referencia, descripcion, monto, estado_conciliacion)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+            """
+            valores = ('BDV', '0102', fecha_str, str(row['Referencia']), str(row['Descripción']), monto, 'Pendiente')
+            
+            cursor.execute(query, valores)
+            movimientos_insertados += 1
+            
+        conn.commit()
+        st.success(f"✅ ¡Éxito! Se guardaron {movimientos_insertados} registros.")
+        
+        return True  
+        
+    except Exception as e:
+        conn.rollback() # Revertir cambios si algo falla
+        st.error(f"❌ Error al procesar el archivo: {e}")
+        return False
+        
+    finally:
+        if cursor:
+            cursor.close() 
+        if conn and conn.is_connected():
+            try:
+                conn.ping(reconnect=True)
+            except:
+                pass
+
+
+
+import calendar
+import pandas as pd
+import streamlit as st
+
+def mostrar_tablero_conciliacion(conn, mes_sel, ano_sel):
+    st.title("⚖️ Conciliación Bancaria")
+
+    # INICIALIZA AQUÍ
+    saldo_final_libros = 0.0
+
+    # --- 1. SELECCIÓN DE EMPRESA ---
+    cursor_menu = conn.cursor()
+    try:
+        cursor_menu.execute("SELECT db_nombre FROM control_central.clientes WHERE estado = 'Activo'")
+        empresas_db = [row[0] for row in cursor_menu.fetchall()]
+    finally:
+        cursor_menu.close()
+
+    if not empresas_db:
+        st.warning("No se encontraron empresas activas.")
+        return
+
+    empresa_seleccionada = st.sidebar.selectbox("Seleccione Empresa", empresas_db)
+    
+    if st.session_state.get('DB_ACTUAL') != empresa_seleccionada:
+        st.session_state['DB_ACTUAL'] = empresa_seleccionada
+        st.rerun()
+
+    db = st.session_state.get('DB_ACTUAL')
+    if not db: 
+        return
+
+    # --- 2. PREPARACIÓN DE FECHAS ---
+    meses_dict = {
+        "Enero": "01", "Febrero": "02", "Marzo": "03", "Abril": "04", 
+        "Mayo": "05", "Junio": "06", "Julio": "07", "Agosto": "08", 
+        "Septiembre": "09", "Octubre": "10", "Noviembre": "11", "Diciembre": "12"
+    }
+    mes_num = meses_dict[mes_sel]
+    fecha_inicio = f"{ano_sel}-{mes_num}-01"
+    ultimo_dia = calendar.monthrange(int(ano_sel), int(mes_num))[1]
+    fecha_fin = f"{ano_sel}-{mes_num}-{ultimo_dia:02d}"
+
+    # Cálculo dinámico del mes anterior para el saldo inicial en libros
+    meses_lista = list(meses_dict.keys())
+    idx_mes_actual = meses_lista.index(mes_sel)
+    if idx_mes_actual == 0:
+        mes_anterior = "Diciembre"
+        ano_anterior = str(int(ano_sel) - 1)
+    else:
+        mes_anterior = meses_lista[idx_mes_actual - 1]
+        ano_anterior = str(ano_sel)
+
+    # --- 3. CARGA DE BANCOS (Usando la DB seleccionada) ---
+    cursor = conn.cursor(buffered=True)
+    try:
+        query_bancos = f"SELECT nombre, codigo FROM `{db}`.plan_cuentas WHERE nombre LIKE '%BANCO%' AND tipo = 'Detalle'"
+        cursor.execute(query_bancos)
+        bancos_dict = {b[0]: b[1] for b in cursor.fetchall()}
+        
+        if not bancos_dict:
+            st.warning("No se encontraron cuentas bancarias.")
+            return
+
+        # Seleccion de Banco
+        nombre_banco_sel = st.sidebar.selectbox("Seleccione Banco", list(bancos_dict.keys()))
+        cuenta_codigo = bancos_dict[nombre_banco_sel]
+        
+        # Transformación de nombre para la BD (Alias)
+        banco_db = obtener_alias_banco(nombre_banco_sel)
+
+        # --- 4. CONSULTAS PRINCIPALES ---
+        # A. Saldo Banco
+        sql_saldos = f"""SELECT saldo_inicial, saldo_final 
+                        FROM `{db}`.saldos_bancarios 
+                        WHERE banco = %s AND mes = %s AND ano = %s"""
+        cursor.execute(sql_saldos, (banco_db, mes_sel, str(ano_sel)))
+        res_banco = cursor.fetchone()
+        saldo_inicial, saldo_final_banco = (float(res_banco[0]), float(res_banco[1])) if res_banco else (0.0, 0.0)
+
+        # B. Saldo Libros (Dinámico con el mes anterior correcto)
+        query_saldo_anterior = f"""
+            SELECT saldo_final 
+            FROM `{db}`.saldos_bancarios 
+            WHERE banco = %s AND mes = %s AND ano = %s
+        """
+        cursor.execute(query_saldo_anterior, (banco_db, mes_anterior, str(ano_anterior)))
+        res_anterior = cursor.fetchone()
+        saldo_mes_anterior = float(res_anterior[0]) if res_anterior else 0.0
+
+        # Obtener movimientos del mes seleccionado de forma segura
+        query_movimientos_mes = f"""
+            SELECT IFNULL(SUM(debe), 0.0), IFNULL(SUM(haber), 0.0) 
+            FROM `{db}`.asientos_contables 
+            WHERE TRIM(cuenta_contable) = TRIM(%s) 
+            AND fecha BETWEEN %s AND %s
+        """
+        cursor.execute(query_movimientos_mes, (nombre_banco_sel, fecha_inicio, fecha_fin))
+        debe_mes, haber_mes = cursor.fetchone()
+
+        # Cálculo final de libros
+        saldo_final_libros = saldo_mes_anterior + (float(debe_mes) - float(haber_mes))
+
+        # C. Movimientos de Banco (Pendientes y Conciliados) usando consultas seguras con parámetros
+        query_mov_pendientes = f"SELECT * FROM `{db}`.banco_movimientos WHERE estado_conciliacion = 'Pendiente' AND fecha_movimiento BETWEEN %s AND %s"
+        df_banco = pd.read_sql(query_mov_pendientes, conn, params=(fecha_inicio, fecha_fin))
+
+        query_mov_conciliados = f"SELECT * FROM `{db}`.banco_movimientos WHERE estado_conciliacion = 'Conciliado' AND fecha_movimiento BETWEEN %s AND %s"
+        df_conciliado = pd.read_sql(query_mov_conciliados, conn, params=(fecha_inicio, fecha_fin))
+
+    except Exception as e:
+        st.error(f"Error en la consulta para {db}: {e}")
+        df_banco = pd.DataFrame()
+        df_conciliado = pd.DataFrame()
+    finally:
+        cursor.close()
+
+    # --- 5. VISUALIZACIÓN ---
+    st.subheader("📊 Historial y Cuadre de Saldos")
+    
+    m1, m2, m3 = st.columns(3)
+    m1.metric("Saldo Inicial", f"{saldo_inicial:,.2f}")
+    m2.metric("Saldo Final Libros", f"{saldo_final_libros:,.2f}")
+    m3.metric("Saldo Final Banco", f"{saldo_final_banco:,.2f}")
+    
+    diferencia = round(saldo_final_libros - saldo_final_banco, 2)
+    if abs(diferencia) <= 0.01:
+        st.success(f"✅ ¡Conciliación Correcta! (Diferencia: {diferencia:,.2f})")
+    else:
+        st.error(f"⚠️ Diferencia detectada: {diferencia:,.2f}. Revisa los movimientos pendientes.")
+
+    st.subheader("📥 Pendientes por Conciliar")
+    col_p1, col_p2 = st.columns(2)
+    col_p1.write("📥 Ingresos Pendientes")
+    col_p1.dataframe(df_banco[df_banco['monto'] > 0] if not df_banco.empty else pd.DataFrame())
+    col_p2.write("📤 Egresos Pendientes")
+    col_p2.dataframe(df_banco[df_banco['monto'] < 0] if not df_banco.empty else pd.DataFrame())
+        
+    if 'saldo_final_libros' not in st.session_state:
+        st.session_state.saldo_final_libros = 0.0
+
+    if st.button("🚀 Ejecutar Conciliación"):
+        resultado = conciliar_datos(conn, fecha_inicio, fecha_fin, db)
+        st.session_state.saldo_final_libros = resultado
+        st.rerun()
+
+    # --- 6. LÓGICA DE PDF CENTRALIZADA ---
+    st.divider()
+    st.subheader("📄 Reporte de Conciliación")
+    
+    lista_ingresos = df_banco[df_banco['monto'] > 0].to_dict('records') if not df_banco.empty else []
+    lista_egresos = df_banco[df_banco['monto'] < 0].to_dict('records') if not df_banco.empty else []
+    
+    diferencia_pdf = round(saldo_final_banco - saldo_final_libros, 2)
+    if abs(diferencia_pdf) > 0.01:
+        partida_ajuste = {"fecha_movimiento": fecha_fin, "referencia": "AJUSTE", "descripcion": "Diferencia por redondeo", "monto": diferencia_pdf}
+        if diferencia_pdf > 0: 
+            lista_ingresos.append(partida_ajuste)
+        else: 
+            lista_egresos.append(partida_ajuste)
+
+    try:
+        pdf_data = crear_pdf_conciliacion(
+            conn,
+            df_conciliado, 
+            saldo_inicial, 
+            saldo_final_banco, 
+            saldo_final_libros, 
+            lista_ingresos, 
+            lista_egresos
+        )
+        
+        st.download_button(
+            label="📄 Descargar Conciliación PDF", 
+            data=pdf_data, 
+            file_name=f"conciliacion_{mes_sel}_{ano_sel}.pdf", 
+            mime="application/pdf"
+        )
+    except Exception as e:
+        st.error(f"Error generando el PDF: {e}")
+
+    # --- 7. MOVIMIENTOS CONCILIADOS ---
+    if not df_conciliado.empty:
+        st.subheader("✅ Movimientos Conciliados")
+        col_d, col_h = st.columns(2)
+        col_d.write("Ingresos")
+        col_d.dataframe(df_conciliado[df_conciliado['monto'] > 0])
+        col_h.write("Egresos")
+        col_h.dataframe(df_conciliado[df_conciliado['monto'] < 0])
+    else:
+        st.info("ℹ️ No hay movimientos conciliados en este periodo.")
+
+
 def gestionar_sidebar():
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
     user_id = st.session_state.get('user_id', st.session_state.get('cliente_id', 'N/A'))
@@ -4146,5 +4413,373 @@ elif opcion_menu == "📝 Asientos Contables":
                                 st.error("❌ Error de conexión.")
         else:
             st.warning("⚠️ Por favor, seleccione una empresa en el panel lateral para gestionar sus asientos.")
+
+
+    if sub_opcion == "Conciliación Bancaria":
+        st.title("🏦 Conciliación Bancaria")
+        st.markdown("---")
+
+        # 1. Recuperamos contexto y validamos
+        db_actual = st.session_state.get('DB_ACTUAL')
+        if not db_actual:
+            st.error("No se ha seleccionado una base de datos.")
+            st.stop()
+
+        # 2. Abrimos la conexión de forma segura
+        conn = conectar_db(db_actual)
+        
+        if not conn or not conn.is_connected():
+            st.error(f"❌ Error: No se pudo conectar a la base de datos {db_actual}")
+            st.stop()
+
+        # 3. Encapsulamos toda la lógica en un try...finally para garantizar el cierre
+     
+        # 1. Selectores Globales
+        col1, col2 = st.columns([1, 1])
+        with col1:
+            mes_sel = st.selectbox("Mes", ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", 
+                                           "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"], index=2,key="mes_seleccionado")
+        with col2:
+            ano_sel = st.selectbox("Año", [2025, 2026, 2027], index=1, key="ano_seleccionado")
+
+
+        # Tabs: Orden Lógico de trabajo
+        tab1,tab2,tab3,tab4,tab5  = st.tabs([
+            "⚙️ Configuración Saldos", 
+            "📂 Importar Movimientos", 
+            "📜 Estado de Cuenta", 
+            "📊 Conciliación Bancaria", 
+            "🔒 Cierre de Mes"
+        ])
+
+        with tab1:
+            st.subheader("⚙️ Gestión de Saldos Bancarios")
+
+            # 1. SEGURIDAD Y CONTEXTO
+            db_actual = st.session_state.get('DB_ACTUAL')
+            cliente_id = st.session_state.get('cliente_id')
+            rol = st.session_state.get('rol')
+
+            if not db_actual:
+                st.error("No se ha seleccionado una base de datos de empresa.")
+                st.stop()
+
+            empresa_data = obtener_datos_agente_db(db_actual)
+
+            # 2. FILTRO DE ACCESO
+            if empresa_data and rol != 'admin':
+                if empresa_data['id'] != cliente_id:
+                    st.error("⚠️ Acceso denegado: No tienes permisos para esta empresa.")
+                    st.stop()
+
+            if not empresa_data:
+                st.error("⚠️ No se pudieron cargar los datos de la empresa.")
+            else:
+                # 3. CARGA DE DATOS DINÁMICA
+                try:
+                    if conn and not conn.is_connected():
+                        conn.reconnect(attempts=3, delay=1)
+
+                    query_saldos = f"""
+                        SELECT id, banco, mes, ano, saldo_inicial, saldo_final 
+                        FROM `{db_actual}`.saldos_bancarios 
+                        ORDER BY ano DESC, id DESC
+                    """
+                    
+                    df_saldos = pd.read_sql(query_saldos, conn)
+                    
+                    if not df_saldos.empty:
+                        df_view = df_saldos.copy()
+                        def formatear_moneda(valor):
+                            return "{:,.2f}".format(valor).replace(",", "X").replace(".", ",").replace("X", ".")
+
+                        df_view['saldo_inicial'] = df_view['saldo_inicial'].apply(formatear_moneda)
+                        df_view['saldo_final'] = df_view['saldo_final'].apply(formatear_moneda)
+                        st.dataframe(df_view, use_container_width=True)
+                    else:
+                        st.info(f"No hay saldos registrados para {empresa_data['nombre_empresa']}.")
+                        
+                except Exception as e:
+                    st.error(f"Error al cargar la tabla de saldos: {e}")
+
+                # 4. FORMULARIO DE REGISTRO
+                st.markdown("---")
+                st.subheader("➕ Agregar / Editar Saldo")
+                with st.form("form_saldos_main", clear_on_submit=True):
+                    c1, c2 = st.columns(2)
+                    m_input = c1.selectbox("Mes", ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", 
+                                                   "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"])
+                    a_input = c2.selectbox("Año", [2025, 2026, 2027])
+                    
+                    c4, c5 = st.columns(2)
+                    val_ini = c4.number_input("Saldo Inicial", value=0.00, format="%.2f")
+                    val_fin = c5.number_input("Saldo Final", value=0.00, format="%.2f")
+                    
+                    if st.form_submit_button("Guardar / Actualizar Registro"):
+                        # Asegúrate que tu función guardar_saldo_mensual también use db_actual internamente
+                        if guardar_saldo_mensual(conn, 'BDV', m_input, a_input, val_ini, val_fin, db_name=db_actual):
+                            st.success(f"✅ Registro de {m_input} guardado.")
+                            st.rerun()
+
+                # 5. ELIMINACIÓN SEGURA Y DINÁMICA
+                with st.expander("🗑️ Eliminar un registro"):
+                    id_eliminar = st.number_input("ID del registro a eliminar", min_value=1, step=1)
+                    if st.button("Confirmar Eliminación"):
+                        try:
+                            cursor = conn.cursor()
+                            # USAMOS db_actual PARA QUE CADA CLIENTE SOLO BORRE SUS DATOS
+                            cursor.execute(f"DELETE FROM `{db_actual}`.saldos_bancarios WHERE id = %s", (id_eliminar,))
+                            conn.commit()
+                            cursor.close()
+                            st.warning("Registro eliminado.")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Error al eliminar: {e}")
+
+        # --- TAB 3: IMPORTACIÓN DE MOVIMIENTOS ---
+        with tab2:
+            st.subheader("📂 Importar nuevo estado de cuenta")
+
+            # 1. SEGURIDAD Y CONTEXTO
+            db_actual = st.session_state.get('DB_ACTUAL')
+            cliente_id = st.session_state.get('cliente_id')
+            rol = st.session_state.get('rol')
+
+            if not db_actual:
+                st.error("No se ha seleccionado una base de datos de empresa.")
+                st.stop()
+
+            empresa_data = obtener_datos_agente_db(db_actual)
+
+            # 2. FILTRO DE ACCESO
+            if empresa_data and rol != 'admin':
+                if empresa_data['id'] != cliente_id:
+                    st.error("⚠️ Acceso denegado: No tienes permisos para esta empresa.")
+                    st.stop()
+
+            if not empresa_data:
+                st.error("⚠️ No se pudieron cargar los datos de la empresa.")
+            else:
+                # 3. INTERFAZ DE CARGA
+                banco_sel = st.selectbox("Seleccione el Banco", ["Banco de Venezuela (BDV)", "Banesco", "Mercantil"], key="banco_select")
+                archivo_banco = st.file_uploader("Suba el archivo Excel (.xlsx) del banco", type=["xlsx"], key="file_banco")
+
+                if archivo_banco:
+                    if st.button("Procesar e Importar"):
+                        with st.spinner(f"Procesando archivo de {banco_sel}..."):
+                            try:
+                                # 4. ASEGURAR CONEXIÓN (Protocolo anti-socket roto)
+                                if not conn.is_connected():
+                                    conn.reconnect(attempts=3, delay=1)
+
+                                resultado = False
+                                
+                                # Llamada a funciones, pasando la base de datos dinámica si fuera necesario
+                                if banco_sel == "Banco de Venezuela (BDV)":
+                                    resultado = cargar_estado_cuenta_bdv(archivo_banco, conn)
+                                elif banco_sel == "Banesco":
+                                    resultado = cargar_estado_cuenta_banesco(archivo_banco, conn)
+                                elif banco_sel == "Mercantil":
+                                    resultado = cargar_estado_cuenta_mercantil(archivo_banco, conn)
+                                
+                                if resultado:
+                                    st.success(f"✅ Movimientos de {banco_sel} importados con éxito.")
+                                    st.balloons()
+                                    st.rerun()
+                                else:
+                                    st.error(f"❌ No se pudieron procesar los datos de {banco_sel}.")
+                                    
+                            except Exception as e:
+                                st.error(f"Error crítico procesando {banco_sel}: {e}")
+
+        # --- TAB 3: ESTADO DE CUENTA BANCARIO ---
+        with tab3:
+            st.subheader("📂 Estado de Cuenta Bancario")
+
+            # 1. SEGURIDAD Y CONTEXTO (Integración 15/06/2026)
+            db_actual = st.session_state.get('DB_ACTUAL')
+            cliente_id = st.session_state.get('cliente_id')
+            rol = st.session_state.get('rol')
+
+            if not db_actual:
+                st.error("No se ha seleccionado una base de datos de empresa.")
+                st.stop()
+
+            empresa_data = obtener_datos_agente_db(db_actual)
+
+            # 2. FILTRO DE ACCESO
+            if empresa_data and rol != 'admin':
+                if empresa_data['id'] != cliente_id:
+                    st.error("⚠️ Acceso denegado: No tienes permisos para esta empresa.")
+                    st.stop()
+
+            if not empresa_data:
+                st.error("⚠️ No se pudieron cargar los datos de la empresa.")
+            else:
+                # 3. LÓGICA DE CONSULTA
+                # 3. LÓGICA DE CONSULTA
+                mes_map = {"Enero": 1, "Febrero": 2, "Marzo": 3, "Abril": 4, "Mayo": 5, "Junio": 6,
+                           "Julio": 7, "Agosto": 8, "Septiembre": 9, "Octubre": 10, "Noviembre": 11, "Diciembre": 12}
+                mes_num = mes_map[mes_sel]
+
+                # Inicializamos df_cuenta como vacío por seguridad
+                df_cuenta = pd.DataFrame()
+
+                try:
+                    # 1. BLINDAJE DE CONEXIÓN: Verificar si está activa antes de usarla
+                    if conn is None or not conn.is_connected():
+                        st.warning("Reconectando a la base de datos...")
+                        conn = conectar_db(db_actual) # Asumiendo que esta función crea la conexión
+                        
+                    # Si después de intentar reconectar sigue sin haber conexión, abortamos
+                    if conn is None or not conn.is_connected():
+                        st.error("No se pudo establecer conexión con la base de datos.")
+                        st.stop()
+
+                    # DEBUG: Verificamos qué base de datos estamos atacando
+                    st.write(f"Conectando a base de datos: `{db_actual}`")
+
+                    # Consulta de prueba para ver si la tabla tiene algo
+                    query_check = f"SELECT COUNT(*) as total FROM `{db_actual}`.banco_movimientos"
+                    res_check = pd.read_sql(query_check, conn)
+                    st.write(f"Total de registros totales en la tabla: {res_check['total'][0]}")
+
+                    # Consulta real por rango
+                    import calendar
+                    fecha_inicio = f"{ano_sel}-{mes_num:02d}-01"
+                    ultimo_dia = calendar.monthrange(int(ano_sel), int(mes_num))[1]
+                    fecha_fin = f"{ano_sel}-{mes_num:02d}-{ultimo_dia}"
+
+                    query = f"""
+                        SELECT id, banco_nombre, cuenta_numero, fecha_movimiento, referencia, 
+                               descripcion, monto, estado_conciliacion 
+                        FROM `{db_actual}`.banco_movimientos 
+                        WHERE fecha_movimiento >= %s AND fecha_movimiento <= %s
+                        ORDER BY fecha_movimiento DESC
+                    """
+                    df_cuenta = pd.read_sql(query, conn, params=(fecha_inicio, fecha_fin))
+                    
+                    # Mostrar resultados
+                    if not df_cuenta.empty:
+                        st.dataframe(df_cuenta, use_container_width=True)
+                        st.write(f"**Total movimientos encontrados:** {len(df_cuenta)}")
+                    else:
+                        st.info(f"No hay movimientos para {empresa_data['nombre_empresa']} en {mes_sel} {ano_sel}.")
+
+                except Exception as e:
+                    st.error(f"Error específico en la consulta: {e}")
+
+                # 4. ZONA ADMINISTRATIVA (Corregida: Dinámica y Segura)
+                if rol == 'admin':
+                    with st.expander("⚠️ Zona de Administración"):
+                        if st.button("🗑️ Vaciar Todo (CUIDADO)"):
+                            try:
+                                cursor = conn.cursor()
+                                # USAMOS LA VARIABLE DINÁMICA {db_actual}
+                                cursor.execute(f"DELETE FROM `{db_actual}`.banco_movimientos WHERE empresa_id = %s", (cliente_id,))
+                                conn.commit()
+                                cursor.close()
+                                st.success("Registros de esta empresa eliminados.")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Error al vaciar registros: {e}")
+
+        with tab4:
+            st.subheader("📊 Resumen del Periodo")
+
+            # 1. SEGURIDAD Y CONTEXTO
+            db_actual = st.session_state.get('DB_ACTUAL')
+            cliente_id = st.session_state.get('cliente_id')
+            rol = st.session_state.get('rol')
+
+            if not db_actual:
+                st.error("No se ha seleccionado una base de datos de empresa.")
+                st.stop()
+
+            empresa_data = obtener_datos_agente_db(db_actual)
+
+            # 2. FILTRO DE ACCESO
+            if empresa_data and rol != 'admin':
+                if empresa_data['id'] != cliente_id:
+                    st.error("⚠️ Acceso denegado: No tienes permisos para esta empresa.")
+                    st.stop()
+
+            if not empresa_data:
+                st.error("⚠️ No se pudieron cargar los datos de la empresa.")
+            else:
+                # 3. VERIFICACIÓN DE CONEXIÓN Y LANZAMIENTO
+                # Intentamos asegurar la conexión antes de llamar a la función del tablero
+                try:
+                    if conn and not conn.is_connected():
+                        conn.reconnect(attempts=3, delay=1)
+                    
+                    # Ahora que la seguridad y la conexión están blindadas, lanzamos el tablero
+                    if conn and conn.is_connected():
+                        mostrar_tablero_conciliacion(conn, mes_sel, ano_sel)
+                    else:
+                        st.error("❌ ERROR CRÍTICO: No se pudo establecer conexión con la base de datos.")
+                        
+                except Exception as e:
+                    st.error(f"❌ Error al conectar con el tablero: {e}")
+
+        # --- TAB 5: CIERRE DE MES (CANDADO DE SEGURIDAD) ---
+        with tab5:
+            st.subheader("🔒 Cierre y Bloqueo de Mes")
+            # 1. SEGURIDAD INTEGRADA (Igual que en tus otras funciones)
+            db_actual = st.session_state.get('DB_ACTUAL')
+            cliente_id = st.session_state.get('cliente_id')
+            rol = st.session_state.get('rol')
+
+            if not db_actual:
+                st.error("No se ha seleccionado una base de datos de empresa.")
+                st.stop()
+
+            empresa_data = obtener_datos_agente_db(db_actual)
+
+            if empresa_data and rol != 'admin':
+                if empresa_data['id'] != cliente_id:
+                    st.error("⚠️ Acceso denegado: No tienes permisos para esta empresa.")
+                    st.stop()
+
+            # 2. LÓGICA DE CIERRE (Uso dinámico de db_actual)
+            mes_map = {"Enero": 1, "Febrero": 2, "Marzo": 3, "Abril": 4, "Mayo": 5, "Junio": 6,
+                       "Julio": 7, "Agosto": 8, "Septiembre": 9, "Octubre": 10, "Noviembre": 11, "Diciembre": 12}
+            mes_num = mes_map[mes_sel]
+
+            # Asegurar conexión antes de consultar
+            try:
+                if not conn.is_connected():
+                    conn.reconnect(attempts=3, delay=1)
+            except:
+                pass 
+
+            cursor = conn.cursor(buffered=True)
+
+            # 3. CONSULTA DINÁMICA (Usamos f-string para la base de datos)
+            query_check = f"SELECT COUNT(*) FROM `{db_actual}`.banco_movimientos WHERE MONTH(fecha_movimiento) = %s AND YEAR(fecha_movimiento) = %s AND estado_conciliacion = 'Cerrado'"
+            cursor.execute(query_check, (mes_num, ano_sel))
+            es_cerrado = cursor.fetchone()[0] > 0
+            cursor.close()
+
+            if es_cerrado:
+                st.error(f"🔒 El mes de {mes_sel} {ano_sel} en {empresa_data['nombre_empresa']} está CERRADO.")
+            else:
+                st.warning("⚠️ Acción irreversible: El cierre de mes bloquea ediciones.")
+                if st.checkbox("✅ Entiendo las consecuencias, quiero cerrar el mes"):
+                    if st.button("Confirmar Cierre de Mes"):
+                        cursor = conn.cursor()
+                        # 4. UPDATE DINÁMICO
+                        query_update = f"""
+                            UPDATE `{db_actual}`.banco_movimientos 
+                            SET estado_conciliacion = 'Cerrado' 
+                            WHERE MONTH(fecha_movimiento) = %s AND YEAR(fecha_movimiento) = %s
+                        """
+                        cursor.execute(query_update, (mes_num, ano_sel))
+                        conn.commit()
+                        cursor.close()
+                        st.success("✅ Mes cerrado con éxito.")
+                        st.rerun()
+
+
 
 
