@@ -1514,37 +1514,34 @@ def consultar_tabla_db(conn, nombre_tabla, limite=None):
     return df
 
 
-# 1. Función "sucia" (que conecta a la BD y realiza la consulta)
-def _obtener_datos_de_bd(valor_busqueda):
+# 1. Función interna que maneja la conexión y la consulta a la BD
+def _obtener_datos_agente_db_real(valor_busqueda):
     conn_central = conectar_db() 
     if not conn_central: 
         return None
 
     try:
         cursor = conn_central.cursor(dictionary=True)
-        # Consulta parametrizada (SEGURO)
         if isinstance(valor_busqueda, str):
-            query = "SELECT id, nombre_empresa, rif, domicilio_fiscal FROM clientes WHERE db_nombre = %s"
+            query = "SELECT id, nombre_empresa, rif FROM clientes WHERE db_nombre = %s"
         else:
-            query = "SELECT id, nombre_empresa, rif, domicilio_fiscal FROM clientes WHERE id = %s"
+            query = "SELECT id, nombre_empresa, rif FROM clientes WHERE id = %s"
         
         cursor.execute(query, (valor_busqueda,))
         datos = cursor.fetchone()
+        cursor.close()
         return datos
     except Exception as e:
-        # Aquí capturamos el error para registro interno pero mostramos mensaje limpio al usuario
-        st.error(f"Error técnico al consultar base de datos: {e}")
+        st.error(f"Error en consulta DB: {e} | Valor buscado: {valor_busqueda}")
         return None
     finally:
-        if 'cursor' in locals() and cursor:
-            cursor.close()
         if conn_central and conn_central.is_connected():
             conn_central.close()
 
-# 2. Función "limpia" (que solo maneja el caché y llama a la anterior)
-@st.cache_data(ttl=3600) 
+# 2. Función pública con caché (esta es la que llamas en tu app)
+@st.cache_data(ttl=3600)
 def obtener_datos_agente_db(valor_busqueda):
-    return _obtener_datos_de_bd(valor_busqueda)
+    return _obtener_datos_agente_db_real(valor_busqueda)
 
 
 
