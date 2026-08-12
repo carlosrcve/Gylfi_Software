@@ -1668,8 +1668,6 @@ def actualizar_libro_diario_en_db(db_nombre, df_cambios):
             conn.close()
 
 
-import pandas as pd
-import streamlit as st
 
 def cargar_estado_cuenta_bdv(uploaded_file, conn):
     # 1. Recuperamos las variables del estado global
@@ -1951,7 +1949,91 @@ def obtener_alias_banco(nombre_ui):
     
     return _MAPEO_BANCOS.get(nombre_limpio, nombre_limpio)
 
+# 1. Función de datos (Pura y cacheada para acelerar TiDB Cloud)
+@st.cache_data(ttl=600)  # Guarda en caché por 10 minutos
+def _obtener_datos_asiento(db_nombre, numero_comprobante):
+    conn = conectar_db(db_nombre)
+    if not conn:
+        return None
+    try:
+        query = f"""
+            SELECT 
+                fecha, 
+                descripcion, 
+                n_comprobante,
+                cuenta_contable AS codigo, 
+                plan_cuentas AS nombre, 
+                debe, 
+                haber
+            FROM asientos_contables 
+            WHERE n_comprobante = '{numero_comprobante}'
+        """
+        return pd.read_sql(query, conn)
+    except Exception as e:
+        print(f"Error en consulta: {e}")
+        return None
+    finally:
+        if conn and conn.is_connected():
+            conn.close()
 
+# 2. Función visual (Sin caché, encargada de renderizar la UI de Streamlit)
+def disenar_reporte_asiento_contable(numero_comprobante):
+    db_nombre = st.session_state.get('DB_ACTUAL', 'kingdirver_ca')
+    
+    # Llamamos a la función de datos cacheada
+    df_asiento = _obtener_datos_asiento(db_nombre, numero_comprobante)
+
+    if df_asiento is None or df_asiento.empty:
+        st.warning(f"⚠️ No se encontró data para el comprobante Nº: {numero_comprobante}")
+        return
+
+    # --- TODO TU DISEÑO E INTERFAZ SE MANTIENE IGUAL AQUÍ ---
+    st.markdown("---")
+    col_logo, col_info = st.columns([1, 3])
+    with col_logo:
+        st.image("https://cdn-icons-png.flaticon.com/512/2645/2645328.png", width=80)
+    with col_info:
+        st.markdown(f"## {EMPRESA}")
+        st.markdown(f"**RIF:** J-50775718-8")
+        st.markdown(f"<p style='text-align: right; color: gray;'>Generado: {pd.Timestamp.now().strftime('%d/%m/%Y %H:%M')}</p>", unsafe_allow_html=True)
+
+    st.markdown("<h1 style='text-align: center; color: #1E3A8A;'>Asiento Contable</h1>", unsafe_allow_html=True)
+    st.markdown(f"<p style='text-align: center; font-weight: bold;'>Comprobante Nº: {numero_comprobante}</p>", unsafe_allow_html=True)
+    st.markdown("---")
+
+    c1, c2 = st.columns(2)
+    c1.info(f"**📅 Fecha:** {df_asiento['fecha'].iloc[0]}")
+    c2.info(f"**📝 Descripción:** {df_asiento['descripcion'].iloc[0]}")
+    
+    st.markdown("---")
+
+    df_mostrar = df_asiento[['codigo', 'nombre', 'debe', 'haber']].copy()
+    df_mostrar.columns = ['Código Cuenta', 'Plan de Cuentas', 'Debe (Bs.)', 'Haber (Bs.)']
+
+    st.dataframe(
+        df_mostrar.style.format({
+            'Debe (Bs.)': formato_contable,
+            'Haber (Bs.)': formato_contable
+        }), 
+        use_container_width=True, 
+        hide_index=True
+    )
+
+    t_debe = df_asiento['debe'].sum()
+    t_haber = df_asiento['haber'].sum()
+    dif = t_debe - t_haber
+
+    st.divider()
+
+    ct1, ct2 = st.columns(2)
+    ct1.metric("TOTAL DEBE", f"Bs. {formato_contable(t_debe)}")
+    ct2.metric("TOTAL HABER", f"Bs. {formato_contable(t_haber)}")
+
+    if abs(dif) < 0.01:
+        st.success("✅ Partida Doble Cuadrada")
+    else:
+        st.error(f"❌ Descuadre Detectado: Bs. {formato_contable(dif)}")
+        
 def gestionar_sidebar():
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
     user_id = st.session_state.get('user_id', st.session_state.get('cliente_id', 'N/A'))
@@ -4803,6 +4885,88 @@ elif opcion_menu == "📝 Asientos Contables":
                         cursor.close()
                         st.success("✅ Mes cerrado con éxito.")
                         st.rerun()
+
+
+    elif sub_opcion == "Consultar Comprobante":
+        st.subheader("🔍 Buscador de Comprobantes")
+
+        # 1. SEGURIDAD Y CONTEXTO (Integración 15/06/2026)
+        db_actual = st.session_state.get('DB_ACTUAL')
+        cliente_id = st.session_state.get('cliente_id')
+        rol = st.session_state.get('rol')
+
+        if not db_actual:
+            st.error("No se ha seleccionado una base de datos de empresa.")
+            st.stop()
+
+        empresa_data = obtener_datos_agente_db(db_actual)
+
+        # 2. FILTRO DE ACCESO
+        if empresa_data and rol != 'admin':
+            if empresa_data['id'] != cliente_id:
+                st.error("⚠️ Acceso denegado: No tienes permisos para esta empresa.")
+                st.stop()
+
+        if not empresa_data:
+            st.error("⚠️ No se pudieron cargar los datos de la empresa.")
+        else:
+            # --- PARTE 1: CARGAR EL LISTADO (DINÁMICO) ---
+            df_listado = pd.DataFrame()
+            conn_list = conectar_db(db_actual) # Usamos db_actual, no una fija
+            
+            if conn_list:
+                try:
+                    # Consulta dinámica a la base de datos de la empresa activa
+                    query_listado = f"""
+                        SELECT n_comprobante as 'Nº', MAX(fecha) as 'Fecha', MAX(descripcion) as 'Concepto' 
+                        FROM `{db_actual}`.asientos_contables 
+                        GROUP BY n_comprobante ORDER BY fecha DESC
+                    """
+                    df_listado = pd.read_sql(query_listado, conn_list)
+                finally:
+                    conn_list.close()
+
+            # --- PARTE 2: INTERFAZ DE SELECCIÓN ---
+            n_comp_seleccionado = ""
+            if not df_listado.empty:
+                with st.expander("📋 Listado de Comprobantes", expanded=True):
+                    event = st.dataframe(
+                        df_listado, use_container_width=True, hide_index=True,
+                        on_select="rerun", selection_mode="single-row"
+                    )
+                    if len(event.selection.rows) > 0:
+                        idx = event.selection.rows[0]
+                        n_comp_seleccionado = str(df_listado.iloc[idx]['Nº'])
+
+            # --- PARTE 3: GENERAR REPORTE ---
+            with st.expander("🔍 Generar Reporte", expanded=True):
+                n_comp = st.text_input("Nº de Comprobante", value=n_comp_seleccionado, key="busc_comp")
+                btn_comp = st.button("🔎 Generar Reporte", type="primary", use_container_width=True)
+
+            if (btn_comp or n_comp_seleccionado) and n_comp:
+                # Reporte visual
+                disenar_reporte_asiento_contable(n_comp)
+                
+                # PDF (Conexión dinámica)
+                conn_pdf = conectar_db(db_actual)
+                if conn_pdf:
+                    try:
+                        query_pdf = f"SELECT * FROM `{db_actual}`.asientos_contables WHERE n_comprobante = %s"
+                        df_asiento_pdf = pd.read_sql(query_pdf, conn_pdf, params=(n_comp,))
+                        
+                        if not df_asiento_pdf.empty:
+                            st.divider()
+                            pdf_bytes = generar_pdf_comprobante(df_asiento_pdf, n_comp, conn_pdf)
+                            st.download_button(
+                                label=f"📥 Descargar PDF {n_comp}",
+                                data=pdf_bytes,
+                                file_name=f"Comprobante_{n_comp}.pdf",
+                                mime="application/pdf",
+                                use_container_width=True
+                            )
+                    finally:
+                        conn_pdf.close()
+
 
 
 
