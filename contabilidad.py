@@ -907,14 +907,14 @@ def obtener_detalle_cashea(db, f_inicio, f_fin):
             conn.close()
 
 def consultar_bcv_directo_sin_bd(conn=None):
-    # 1. Obtenemos la tasa (aprovechando el caché seguro)
-    tasa, fuente = obtener_tasa_bcv_hoy()
+    """Realiza el scraping web directo sin bucles recursivos."""
+    tasa, fuente = _obtener_tasa_web_directa()
     
-    # 2. Gestionamos los logs y la conexión de forma independiente
+    # Gestionamos los logs de forma independiente si hay conexión
     if conn and conn.is_connected():
         try:
             usuario = st.session_state.get('usuario', 'Desconocido')
-            registrar_log_automatico(conn, "CONSULTA_TASA_BCV", f"Usuario {usuario} consultando BCV. Tasa: {tasa}")
+            registrar_log_automatico(conn, "CONSULTA_TASA_BCV", f"Usuario {usuario} consultando BCV directo. Tasa: {tasa}")
         except Exception as log_err:
             print(f"Error registrando log de BCV: {log_err}")
         finally:
@@ -928,8 +928,8 @@ def consultar_bcv_directo_sin_bd(conn=None):
 
 def obtener_tasa_bcv_hoy(conn=None):
     """
-    Busca la tasa en la BD. Si no existe para hoy, la consulta en la web 
-    del BCV, la guarda en la BD y la retorna. Incluye autoreconexión.
+    Busca la tasa en la BD. Si no existe para hoy, va a la web del BCV, 
+    la guarda en la BD y la retorna.
     """
     # 1. VERIFICACIÓN DE SEGURIDAD: Reconexión automática
     try:
@@ -938,16 +938,16 @@ def obtener_tasa_bcv_hoy(conn=None):
     except Exception:
         pass 
 
-    # 2. Intentamos abrir el cursor
-    try:
-        cursor = conn.cursor(buffered=True)
-    except Exception:
-        return consultar_bcv_directo_sin_bd()
+    # Si no hay conexión válida, pasamos directo a la web
+    if not conn:
+        return _obtener_tasa_web_directa()
 
     hoy = date.today()
+    cursor = None
     
     try:
-        # A. Verificar en BD
+        # A. Intentar abrir el cursor y verificar en BD
+        cursor = conn.cursor(buffered=True)
         cursor.execute("SELECT tasa_valor FROM kingdirver_ca.tasas_diarias WHERE fecha = %s", (hoy,))
         resultado = cursor.fetchone()
         
@@ -955,10 +955,47 @@ def obtener_tasa_bcv_hoy(conn=None):
             cursor.close()
             return float(resultado[0]), "Base de Datos"
         
-        # B. Si no está en BD, consultamos la Web
-        url = "https://www.bcv.org.ve/"
-        headers = {"User-Agent": "Mozilla/5.0..."}
+        cursor.close()
+    except Exception:
+        if cursor:
+            try:
+                cursor.close()
+            except:
+                pass
+
+    # B. Si no está en la BD (o falló la consulta), consultamos la web directamente
+    tasa_float, fuente_web = _obtener_tasa_web_directa()
+    
+    if tasa_float > 0 and conn:
+        try:
+            # Registrar log
+            usuario = st.session_state.get('usuario', 'Desconocido')
+            registrar_log_automatico(conn, "CONSULTA_TASA_BCV", f"El usuario {usuario} consultó la tasa del BCV")
+        except Exception:
+            pass 
         
+        # Guardar en BD de forma segura
+        try:
+            cursor_ins = conn.cursor(buffered=True)
+            cursor_ins.execute("""
+                INSERT INTO kingdirver_ca.tasas_diarias (fecha, tasa_valor) 
+                VALUES (%s, %s)
+                ON DUPLICATE KEY UPDATE tasa_valor = %s
+            """, (hoy, tasa_float, tasa_float))
+            conn.commit()
+            cursor_ins.close()
+        except Exception:
+            pass
+            
+    return tasa_float, fuente_web
+
+
+def _obtener_tasa_web_directa():
+    """Función de scraping puro y aislado (cero recursión)."""
+    url = "https://www.bcv.org.ve/"
+    headers = {"User-Agent": "Mozilla/5.0..."}
+    
+    try:
         response = requests.get(url, headers=headers, verify=False, timeout=10)
         if response.status_code == 200:
             soup = BeautifulSoup(response.content, 'html.parser')
@@ -967,32 +1004,11 @@ def obtener_tasa_bcv_hoy(conn=None):
             if dolar_container:
                 tasa_texto = dolar_container.find('strong').text.strip()
                 tasa_float = float(tasa_texto.replace(',', '.'))
-                
-                # --- AQUÍ ESTÁ EL LOG QUE QUERÍAS ---
-                try:
-                    # Ubica donde obtienes la tasa (cuando la traes de la web o de la BD)
-                    # Y justo ahí, añade esta llamada:
-
-                    registrar_log_automatico(conn, "CONSULTA_TASA_BCV", f"El usuario {st.session_state.usuario} consultó la tasa del BCV")
-                except Exception:
-                    pass # Si el log falla, no pasa nada, la app sigue viva
-                
-                # Guardar en BD
-                cursor.execute("""
-                    INSERT INTO kingdirver_ca.tasas_diarias (fecha, tasa_valor) 
-                    VALUES (%s, %s)
-                    ON DUPLICATE KEY UPDATE tasa_valor = %s
-                """, (hoy, tasa_float, tasa_float))
-                conn.commit()
-                
-                cursor.close()
                 return tasa_float, "Web BCV"
-        
-        cursor.close()
-        return consultar_bcv_directo_sin_bd()
-        
     except Exception:
-        return consultar_bcv_directo_sin_bd()
+        pass
+        
+    return 0.0, "Error Web BCV"
 
 
 def gestionar_sidebar():
