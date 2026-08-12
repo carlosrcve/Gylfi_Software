@@ -4431,8 +4431,13 @@ elif opcion_menu == "📝 Asientos Contables":
         # 3. Selectores Globales (Aquí nacen los keys únicos)
         col1, col2 = st.columns([1, 1])
         with col1:
-            mes_sel = st.selectbox("Mes", ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", 
-                                           "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"], index=2, key="mes_seleccionado")
+            mes_sel = st.selectbox(
+                "Mes", 
+                ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", 
+                 "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"], 
+                index=2, 
+                key="mes_seleccionado_conciliacion"  # <--- Cambia el key aquí por uno único
+            )
         with col2:
             ano_sel = st.selectbox("Año", [2025, 2026, 2027], index=1, key="ano_seleccionado")
 
