@@ -683,30 +683,29 @@ def obtener_salud_fiscal(f_inicio, f_fin, db):
 
 
 @st.cache_data(ttl=300)
-def obtener_datos_pie(db, f_fin):
+def obtener_datos_pie(db, fecha_inicio, fecha_fin):
     df_vacio = pd.DataFrame(columns=['nombre', 'Saldo Final'])
     
     conn = conectar_db(db)
     if not conn:
         return df_vacio
         
-    # Consulta optimizada (Quitamos el CAST para que use índices de MySQL)
     query = f"""
         SELECT 
             descripcion as nombre,
             SUM(debe) as "Saldo Final"
         FROM `{db}`.asientos_contables 
         WHERE plan_cuentas LIKE '6%'
-        AND fecha <= %s
+        AND fecha >= %s AND fecha <= %s
         GROUP BY descripcion
+        HAVING SUM(debe) > 0
         ORDER BY 2 DESC
         LIMIT 10
     """
     
     try:
-        # Usamos context manager with para asegurar que el cursor se cierre siempre
         with conn.cursor() as cursor:
-            df = pd.read_sql(query, conn, params=(f_fin,))
+            df = pd.read_sql(query, conn, params=(fecha_inicio, fecha_fin))
         return df if not df.empty else df_vacio
     except Exception as e:
         print(f"Error en obtener_datos_pie: {e}")
@@ -1451,7 +1450,7 @@ if "🏠 Inicio" in opcion_menu:
             with st.container():
                 st.markdown('<div class="report-card">', unsafe_allow_html=True)
                 if db:
-                    df_pie = obtener_datos_pie(db, f_i) 
+                    df_pie = obtener_datos_pie(db, f_fin)
                     if df_pie is not None and not df_pie.empty:
                         
                         # Paleta estricta de tonos azules y grises corporativos de la imagen
