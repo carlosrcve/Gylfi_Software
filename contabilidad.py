@@ -926,14 +926,19 @@ def consultar_bcv_directo_sin_bd(conn=None):
     return tasa, fuente
 
 
-@st.cache_data(ttl=3600)  # Caché de 1 hora para evitar peticiones masivas al BCV
-def obtener_tasa_bcv_hoy(conn):
+@st.cache_data(ttl=3600)  # Caché de 1 hora para la tasa del BCV
+def obtener_tasa_bcv_hoy(_conn):
+    """
+    Busca la tasa en la BD. Si no existe para hoy, la consulta en la web 
+    del BCV, la guarda en la BD y la retorna. El guion bajo en _conn 
+    evita que Streamlit intente hacerle hash.
+    """
     hoy = date.today()
     
     # 1. Intento de lectura desde Base de Datos
     try:
-        if conn and conn.is_connected():
-            with conn.cursor(buffered=True) as cursor:
+        if _conn and _conn.is_connected():
+            with _conn.cursor(buffered=True) as cursor:
                 cursor.execute("SELECT tasa_valor FROM kingdirver_ca.tasas_diarias WHERE fecha = %s", (hoy,))
                 resultado = cursor.fetchone()
                 if resultado:
@@ -941,25 +946,24 @@ def obtener_tasa_bcv_hoy(conn):
     except Exception as e:
         print(f"Error al leer tasa en BD: {e}")
 
-    # 2. Si no está en BD, consulta Web (fuera del cache de BD si falla)
-    # Nota: El cache_data de arriba gestionará las llamadas redundantes
-    tasa, fuente = consultar_bcv_directo_sin_bd(conn=conn)
+    # 2. Si no está en BD, consulta Web
+    tasa, fuente = consultar_bcv_directo_sin_bd(conn=_conn)
     
     # 3. Guardado en BD (solo si la consulta web fue exitosa)
     if fuente == "Web BCV (Sin BD)" and tasa > 1.0:
         try:
-            with conn.cursor() as cursor:
+            with _conn.cursor() as cursor:
                 cursor.execute("""
                     INSERT INTO kingdirver_ca.tasas_diarias (fecha, tasa_valor) 
                     VALUES (%s, %s)
                     ON DUPLICATE KEY UPDATE tasa_valor = %s
                 """, (hoy, tasa, tasa))
-                conn.commit()
+                _conn.commit()
                 
             # Log de éxito
             try:
                 usuario = st.session_state.get('usuario', 'Desconocido')
-                registrar_log_automatico(conn, "CONSULTA_TASA_BCV", f"Usuario {usuario} obtuvo tasa vía web: {tasa}")
+                registrar_log_automatico(_conn, "CONSULTA_TASA_BCV", f"Usuario {usuario} obtuvo tasa vía web: {tasa}")
             except:
                 pass
         except Exception as e:
