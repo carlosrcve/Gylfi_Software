@@ -1011,6 +1011,84 @@ def _obtener_tasa_web_directa():
     return 0.0, "Error Web BCV"
 
 
+def generar_reporte_multimoneda(conn, mes, ano, db):
+    """
+    Consolida saldos iniciales con los asientos contables del mes seleccionado, 
+    aplicando la conversión a USD de forma segura y eficiente para cualquier empresa.
+    """
+    if not conn:
+        return pd.DataFrame()  # Retornar un DataFrame vacío por consistencia de tipos
+        
+    # Validar que se haya proporcionado el nombre de la base de datos
+    if not db:
+        raise ValueError("Se requiere especificar el nombre de la base de datos de la empresa.")
+
+    # Validar el nombre de la base de datos para prevenir Inyección SQL (permite letras, números y guiones bajos)
+    if not db.replace("_", "").isalnum():
+        raise ValueError(f"Nombre de base de datos inválido: {db}")
+
+    cursor = conn.cursor(dictionary=True)
+    
+    query = f"""
+        SELECT 
+            t_origen.fecha,
+            t_origen.plan_cuentas,      
+            t_origen.cuenta_contable,
+            t_origen.descripcion,
+            t_origen.debe,
+            t_origen.haber,
+            COALESCE(
+                (SELECT t.tasa_valor FROM `{db}`.tasas_diarias t WHERE t.fecha = t_origen.fecha LIMIT 1),
+                (SELECT t2.tasa_valor FROM `{db}`.tasas_diarias t2 WHERE t2.fecha <= t_origen.fecha ORDER BY t2.fecha DESC LIMIT 1),
+                (SELECT t3.tasa_valor FROM `{db}`.tasas_diarias t3 ORDER BY t3.fecha ASC LIMIT 1),
+                1.0000
+            ) AS tasa_bcv
+        FROM (
+            -- PARTE 1: Saldos Iniciales
+            SELECT fecha, plan_cuentas, cuenta_contable, descripcion, debe, haber
+            FROM `{db}`.saldos_iniciales
+            WHERE YEAR(fecha) = %s
+            
+            UNION ALL
+            
+            -- PARTE 2: Asientos Contables 
+            SELECT fecha, cuenta_contable AS plan_cuentas, cuenta_contable, descripcion, debe, haber
+            FROM `{db}`.asientos_contables
+            WHERE MONTH(fecha) = %s AND YEAR(fecha) = %s
+        ) AS t_origen
+        ORDER BY t_origen.fecha ASC
+    """
+    
+    try:
+        cursor.execute(query, (ano, mes, ano))
+        datos = cursor.fetchall()
+    except Exception as e:
+        print(f"Error en consulta contable para la empresa {db}: {e}")
+        datos = []
+    finally:
+        try:
+            cursor.close()
+        except Exception:
+            pass
+            
+    # Procesamiento con Pandas
+    if not datos:
+        return pd.DataFrame()
+        
+    df = pd.DataFrame(datos)
+    
+    # Aseguramos que los tipos de datos sean numéricos puros
+    df['debe'] = pd.to_numeric(df['debe'], errors='coerce').fillna(0.0)
+    df['haber'] = pd.to_numeric(df['haber'], errors='coerce').fillna(0.0)
+    df['tasa_bcv'] = pd.to_numeric(df['tasa_bcv'], errors='coerce').fillna(1.0)
+    
+    # 🔥 Operación matemática en memoria de Python
+    df['debe_usd'] = df['debe'] / df['tasa_bcv']
+    df['haber_usd'] = df['haber'] / df['tasa_bcv']
+    
+    return df
+
+
 def gestionar_sidebar():
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
     user_id = st.session_state.get('user_id', st.session_state.get('cliente_id', 'N/A'))
@@ -1968,3 +2046,220 @@ if "🏠 Inicio" in opcion_menu:
                 st.error(f"Error al cargar indicadores cambiarios: {e}")
         else:
             st.warning("⚠️ Selecciona una empresa para ver los indicadores cambiarios.")
+
+
+        # --- FILA 8: SECCIÓN VISUAL: REPORTE CONTABLE MULTIMONEDA ---
+        st.divider()
+        st.markdown("## 📊 Reporte de Libro Diario Multimoneda")
+        
+        # 1. Filtros de búsqueda y acciones (Agregamos una 4ta columna para el botón)
+        col_filtro1, col_filtro2, col_filtro3, col_boton = st.columns([1.5, 1.5, 2, 2])
+
+        with col_filtro1:
+            meses_lista = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
+            
+            # Buscamos si ya hay un mes seleccionado globalmente, si no, usamos el actual
+            mes_actual_global = st.session_state.get('mes_seleccionado', meses_lista[date.today().month - 1])
+            
+            # Si el valor global es un número (1-12), lo convertimos a texto para el selectbox
+            if isinstance(mes_actual_global, int):
+                mes_actual_str = meses_lista[mes_actual_global - 1]
+            else:
+                mes_actual_str = mes_actual_global if mes_actual_global in meses_lista else "Enero"
+                
+            idx_mes = meses_lista.index(mes_actual_str)
+
+            # ✅ Usamos una KEY totalmente independiente para este selectbox sin romper el session_state
+            mes_seleccionado_str = st.selectbox(
+                "Seleccione el Mes:", 
+                meses_lista, 
+                index=idx_mes, 
+                key="selectbox_mes_multimoneda"
+            )
+            
+            # Convertimos el texto seleccionado a su valor numérico (1-12) para las consultas SQL
+            dic_m_inv = {m: i+1 for i, m in enumerate(meses_lista)}
+            mes_seleccionado = dic_m_inv.get(mes_seleccionado_str, 1)
+
+        with col_filtro2:
+            anio_actual_global = st.session_state.get('año_seleccionado', 2026)
+
+            # 1. Aseguramos que la llave exista y que no sea menor a 2024 antes de crear el widget
+            if "number_input_anio_multimoneda" not in st.session_state or st.session_state["number_input_anio_multimoneda"] < 2024:
+                st.session_state["number_input_anio_multimoneda"] = max(2024, int(anio_actual_global))
+
+            # 2. Creamos el input usando únicamente su key sincronizada
+            ano_seleccionado = st.number_input(
+                "Seleccione el Año:", 
+                min_value=2024, 
+                max_value=2030, 
+                step=1, 
+                key="number_input_anio_multimoneda"
+            )
+            
+
+        with col_filtro3:
+            # Metemos un espacio en blanco arriba para alinear verticalmente el toggle con los selectores
+            st.markdown("<div style='padding-top: 25px;'></div>", unsafe_allow_html=True)
+            moneda_vista = "Dólares (USD)" if st.toggle("🇺🇸 Ver reporte en USD", value=False, key="toggle_moneda_multimoneda") else "Bolívares (VES)"
+        # --- BLOQUE LÓGICO DE DATOS (Debe ejecutarse antes para poder descargar) ---
+        try:
+            # 1. Abrimos una conexión fresca y exclusiva para este reporte
+            conn_local = conectar_db(db_actual)
+            
+            if not conn_local or not conn_local.is_connected():
+                st.error("⚠️ No se pudo establecer una conexión activa con la base de datos para generar el reporte.")
+                st.stop()
+
+            # 2. Ejecutamos la función asegurándonos de que devuelva un DataFrame
+            resultado_bruto = generar_reporte_multimoneda(conn_local, mes_seleccionado, ano_seleccionado, db_actual)
+            
+            # 3. Cerramos la conexión local de forma limpia
+            if conn_local.is_connected():
+                conn_local.close()
+             
+            # 🛡️ Blindaje crítico: Convertimos a DataFrame si viene como lista o None
+            if isinstance(resultado_bruto, list):
+                df_diario = pd.DataFrame(resultado_bruto)
+            elif isinstance(resultado_bruto, pd.DataFrame):
+                df_diario = resultado_bruto
+            else:
+                df_diario = pd.DataFrame()
+
+            if df_diario.empty:
+                st.warning(f"⚠️ No se encontraron registros en el Libro Diario para el período {mes_seleccionado}/{ano_seleccionado}.")
+            else:
+                df_mostrar = df_diario.copy()
+                
+                # Formateo interno de datos según la moneda seleccionada
+                if moneda_vista == "Dólares (USD)":
+                    df_mostrar['Debe_Vis'] = df_mostrar['debe_usd'].map(lambda x: f"$ {x:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.'))
+                    df_mostrar['Haber_Vis'] = df_mostrar['haber_usd'].map(lambda x: f"$ {x:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.'))
+                else:
+                    df_mostrar['Debe_Vis'] = df_mostrar['debe'].map(lambda x: f"Bs. {x:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.'))
+                    df_mostrar['Haber_Vis'] = df_mostrar['haber'].map(lambda x: f"Bs. {x:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.'))
+                
+                df_visual = df_mostrar[['fecha', 'cuenta_contable', 'descripcion', 'Debe_Vis', 'Haber_Vis', 'tasa_bcv']]
+                df_visual.columns = ['Fecha', 'Cuenta Contable', 'Descripción', f'Debe ({moneda_vista})', f'Haber ({moneda_vista})', 'Tasa Ref. BCV']
+                
+                # 🔥 BOTÓN DE DESCARGA EN LA CUARTA COLUMNA
+                with col_boton:
+                    st.markdown("<div style='padding-top: 25px;'></div>", unsafe_allow_html=True)
+                    
+                    import io
+                    buffer = io.BytesIO()
+                    with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+                        df_visual.to_excel(writer, index=False, sheet_name='Libro Diario Multimoneda')
+                    buffer.seek(0)
+                    
+                    nombre_mes = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"][mes_seleccionado-1]
+                    nombre_archivo = f"Libro_Diario_{nombre_mes}_{ano_seleccionado}_{moneda_vista.split()[0]}.xlsx"
+                    
+                    st.download_button(
+                        label="📥 Descargar Excel",
+                        data=buffer,
+                        file_name=nombre_archivo,
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        use_container_width=True
+                    )
+
+                # 2. Renderizar la tabla principal en la app abajo de los filtros
+                st.dataframe(df_visual, use_container_width=True, hide_index=True)
+                
+                # 3. Totales de Control al pie de página (Acumulados)
+                tot_debe = df_diario['debe_usd'].sum() if moneda_vista == "Dólares (USD)" else df_diario['debe'].sum()
+                tot_haber = df_diario['haber_usd'].sum() if moneda_vista == "Dólares (USD)" else df_diario['haber'].sum()
+                
+                simbolo = "$" if moneda_vista == "Dólares (USD)" else "Bs."
+                
+                col_t1, col_t2 = st.columns(2)
+                col_t1.metric("Total Debe Acumulado", f"{simbolo} {tot_debe:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.'))
+                col_t2.metric("Total Haber Acumulado", f"{simbolo} {tot_haber:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.'))
+
+                # =========================================================================
+                # 🔥 ZONA DE REPORTES FINANCIEROS EN DIVISAS
+                # =========================================================================
+                st.markdown("<br>", unsafe_allow_html=True)                
+
+                with st.expander("📊 Reportes Financieros Consolidados (Multimoneda)", expanded=False):
+                    st.markdown(f"### 📋 Balance de Comprobación — Período Seleccionado ({moneda_vista})")
+                    st.write("Consolidación analítica de saldos: Apertura, Movimientos mensuales y Saldos de Cierre.")
+                    
+                    if st.button("🧮 Generar Balance de Comprobación", use_container_width=True):
+                        
+                        if df_diario is None or df_diario.empty:
+                            st.warning("⚠️ El registro del diario está vacío o no se pudo cargar para este período.")
+                        else:
+                            try:
+                                col_debe_calc = 'debe_usd' if moneda_vista == "Dólares (USD)" else 'debe'
+                                col_haber_calc = 'haber_usd' if moneda_vista == "Dólares (USD)" else 'haber'
+                                
+                                df_diario['es_inicial'] = df_diario['descripcion'].str.contains("SALDOS INICIALES", case=False, na=False)
+                                
+                                balance_data = []
+                                for (codigo, cuenta), group in df_diario.groupby(['plan_cuentas', 'cuenta_contable']):
+                                    grupo_inicial = group[group['es_inicial']]
+                                    grupo_mes = group[~group['es_inicial']]
+                                    
+                                    ini_debe = grupo_inicial[col_debe_calc].sum()
+                                    ini_haber = grupo_inicial[col_haber_calc].sum()
+                                    saldo_inicial = ini_debe - ini_haber
+                                    
+                                    mes_debe = grupo_mes[col_debe_calc].sum()
+                                    mes_haber = grupo_mes[col_haber_calc].sum()
+                                    
+                                    saldo_final = saldo_inicial + mes_debe - mes_haber
+                                    
+                                    balance_data.append({
+                                        'Código Contable': str(codigo) if pd.notna(codigo) else "S/C",
+                                        'Cuenta Contable': str(cuenta),
+                                        'Saldo Inicial Num': saldo_inicial,
+                                        'Debe Num': mes_debe,
+                                        'Haber Num': mes_haber,
+                                        'Saldo Final Num': saldo_final
+                                    })
+                                
+                                df_balance = pd.DataFrame(balance_data)
+                                if not df_balance.empty:
+                                    df_balance = df_balance.sort_values(by='Código Contable').reset_index(drop=True)
+                                
+                                simb = "$" if moneda_vista == "Dólares (USD)" else "Bs."
+                                
+                                def f_monto(val):
+                                    if pd.isna(val) or val == 0:
+                                        return f"{simb} 0,00"
+                                    if val < 0:
+                                        return f"({simb} {abs(val):,.2f})".replace(',', 'X').replace('.', ',').replace('X', '.')
+                                    return f"{simb} {val:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+
+                                df_balance_visual = pd.DataFrame({
+                                    'Código Contable': df_balance['Código Contable'],
+                                    'Cuenta Contable': df_balance['Cuenta Contable'],
+                                    'Saldo Inicial': df_balance['Saldo Inicial Num'].apply(f_monto),
+                                    'Debe': df_balance['Debe Num'].apply(f_monto),
+                                    'Haber': df_balance['Haber Num'].apply(f_monto),
+                                    'Saldo Final': df_balance['Saldo Final Num'].apply(f_monto)
+                                })
+                                
+                                st.dataframe(df_balance_visual, use_container_width=True, hide_index=True)
+                                
+                                tot_inicial = df_balance['Saldo Inicial Num'].sum()
+                                tot_debe = df_balance['Debe Num'].sum()
+                                tot_haber = df_balance['Haber Num'].sum()
+                                tot_final = df_balance['Saldo Final Num'].sum()
+                                
+                                c1, c2, c3, c4 = st.columns(4)
+                                c1.metric("Total Saldo Inicial", f_monto(tot_inicial))
+                                c2.metric("Total Debe (Mes)", f_monto(tot_debe))
+                                c3.metric("Total Haber (Mes)", f_monto(tot_haber))
+                                c4.metric("Total Saldo Final", f_monto(tot_final))
+                                
+                                if abs(tot_debe - tot_haber) < 0.01:
+                                    st.success("✨ ¡Partida Doble verificada! Los movimientos del mes cargaron perfectamente cuadrados.")
+                                else:
+                                    st.error("⚠️ Alerta contable: Los movimientos cargados en el Debe y Haber del mes difieren.")
+                            except Exception as inner_e:
+                                st.error(f"Error interno al calcular el balance: {inner_e}")
+
+        except Exception as e:
+            st.error(f"❌ Ocurrió un error al procesar el Libro Diario o el Balance de Comprobación: {e}")
