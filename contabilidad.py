@@ -1315,6 +1315,78 @@ def obtener_asiento_por_comprobante(db, n_comprobante):
                 pass
 
 
+
+@st.cache_data(ttl=300)
+def obtener_analisis_accionista_detallado(db, f_i, f_f):
+    # 1. Validación estricta de seguridad para el esquema
+    if not db or not str(db).strip().replace("_", "").isalnum():
+        return pd.DataFrame()
+
+    db_clean = str(db).strip().lower()
+
+    # Validación de existencia de función conectar_db
+    if 'conectar_db' not in globals() and 'conectar_db' not in locals():
+        return pd.DataFrame()
+
+    conn = conectar_db(db)
+    if not conn or not conn.is_connected():
+        return pd.DataFrame()
+
+    s_fi = str(f_i).split()[0]
+    s_ff = str(f_f).split()[0]
+    
+    df = pd.DataFrame()
+    try:
+        cursor = conn.cursor()
+        
+        # Validación segura mediante information_schema parametrizado
+        cursor.execute("""
+            SELECT COUNT(*) 
+            FROM information_schema.tables 
+            WHERE LOWER(table_schema) = %s AND table_name = 'asientos_contables'
+        """, (db_clean,))
+        existe_asientos = cursor.fetchone()[0]
+
+        cursor.execute("""
+            SELECT COUNT(*) 
+            FROM information_schema.tables 
+            WHERE LOWER(table_schema) = %s AND table_name = 'accionistas'
+        """, (db_clean,))
+        existe_accionistas = cursor.fetchone()[0]
+        cursor.close()
+
+        if existe_asientos > 0 and existe_accionistas > 0:
+            # Query blindada con parámetros seguros
+            query = f"""
+                SELECT 
+                    a.plan_cuentas, 
+                    a.fecha, 
+                    a.descripcion, 
+                    a.debe, 
+                    a.haber, 
+                    (a.debe - a.haber) as neto,
+                    acc.nombre as nombre_accionista
+                FROM `{db}`.asientos_contables a
+                INNER JOIN `{db}`.accionistas acc ON TRIM(a.plan_cuentas) = TRIM(acc.codigo_cuenta_asociada)
+                WHERE DATE(a.fecha) BETWEEN %s AND %s
+                ORDER BY a.fecha DESC
+            """
+            df = pd.read_sql(query, conn, params=(s_fi, s_ff))
+        else:
+            st.warning(f"⚠️ Verificación fallida: tablas no encontradas en '{db}'.")
+            
+    except Exception as e:
+        st.error(f"Error en la consulta de accionistas: {e}")
+        df = pd.DataFrame()
+    finally:
+        if conn and conn.is_connected():
+            try:
+                conn.close()
+            except:
+                pass
+                
+    return df
+
 def gestionar_sidebar():
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
     user_id = st.session_state.get('user_id', st.session_state.get('cliente_id', 'N/A'))
