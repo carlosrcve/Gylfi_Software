@@ -2267,9 +2267,26 @@ if "🏠 Inicio" in opcion_menu:
         # FILA 9 ..... NUEVO MÓDULO PREMIUM: AUDITORÍA FORENSE CON IA
         st.divider()
         st.markdown("## 📊 AUDITORÍA FORENSE CON IA")
+        
+        # --- VERIFICACIÓN DE CONEXIÓN VIVA ANTES DE USAR PANDAS ---
+        try:
+            if conn and not conn.is_connected():
+                conn.reconnect(attempts=3, delay=2)
+            else:
+                conn.ping(reconnect=True, attempts=3, delay=2)
+        except Exception:
+            pass
+
+        # Usamos la base de datos activa que corresponda (reemplaza 'db_actual' por la variable de tu empresa)
         query_completa = f"SELECT * FROM `{db_actual}`.asientos_contables"
-        df_diario = pd.read_sql(query_completa, conn) 
-        col_analisis = 'debe' 
+        
+        try:
+            df_diario = pd.read_sql(query_completa, conn) 
+        except Exception as db_err:
+            st.error(f"Error de conexión con la base de datos: {db_err}")
+            df_diario = pd.DataFrame()
+
+        col_analisis = 'debe'
         simb = "Bs."
         st.divider()
         st.markdown("<br>", unsafe_allow_html=True)
