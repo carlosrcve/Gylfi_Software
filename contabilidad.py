@@ -43,6 +43,15 @@ import bcrypt
 import time
 import datetime
 
+
+# 1. ESTO VA AQUÍ, AL PURO PRINCIPIO
+st.set_page_config(
+    page_title="Mi App Contable",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+
 def conectar_db(nombre_db=None):
     db_a_usar = nombre_db if nombre_db else "control_central"
     
