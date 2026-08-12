@@ -1514,11 +1514,7 @@ def consultar_tabla_db(conn, nombre_tabla, limite=None):
     return df
 
 
-import streamlit as st
 
-# Usamos cache_data porque el valor_busqueda es un tipo simple (str o int), 
-# lo que permite a Streamlit generar un hash perfecto.
-@st.cache_data(ttl=3600) # El caché durará 1 hora
 def obtener_datos_agente_db(valor_busqueda):
     # La conexión se abre y cierra DENTRO de la función cacheada 
     # para no pasar el objeto 'conn' como argumento.
