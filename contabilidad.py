@@ -1028,14 +1028,15 @@ if "🏠 Inicio" in opcion_menu:
         
         ultimo_dia = calendar.monthrange(anio_f, m_idx)[1]
 
-        f_inicio_global = datetime.date(anio_f, m_idx, 1)
+        # CAMBIO: El inicio siempre es el 1 de enero del año seleccionado (Acumulado Anual)
+        f_inicio_global = datetime.date(anio_f, 1, 1)
         f_fin_global = datetime.date(anio_f, m_idx, ultimo_dia)
 
         fecha_inicio_str = f_inicio_global.strftime('%Y-%m-%d')
         fecha_fin_str = f_fin_global.strftime('%Y-%m-%d')
 
         st.title(f"📊 Auditoría Profesional: {db_objetivo}")
-        st.markdown(f"**Período de Análisis:** {f_inicio_global.strftime('%d/%m/%Y')} al {f_fin_global.strftime('%d/%m/%Y')}")
+        st.markdown(f"**Período de Análisis (Acumulado):** {f_inicio_global.strftime('%d/%m/%Y')} al {f_fin_global.strftime('%d/%m/%Y')}")
         st.divider()
         
         # --- FILA 1: INDICADORES FINANCIEROS ---
