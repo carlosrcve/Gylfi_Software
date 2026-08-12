@@ -1450,7 +1450,7 @@ if "🏠 Inicio" in opcion_menu:
             with st.container():
                 st.markdown('<div class="report-card">', unsafe_allow_html=True)
                 if db:
-                    df_pie = obtener_datos_pie(db, f_fin)
+                    df_pie = obtener_datos_pie(db, fecha_inicio_str, fecha_fin_str)
                     if df_pie is not None and not df_pie.empty:
                         
                         # Paleta estricta de tonos azules y grises corporativos de la imagen
