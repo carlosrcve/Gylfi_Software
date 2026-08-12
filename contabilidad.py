@@ -926,7 +926,6 @@ def consultar_bcv_directo_sin_bd(conn=None):
     return tasa, fuente
 
 
-
 def obtener_tasa_bcv_hoy(conn):
     """
     Busca la tasa en la BD. Si no existe para hoy, la consulta en la web 
@@ -1897,6 +1896,7 @@ if "🏠 Inicio" in opcion_menu:
                     origen_datos = "No disponible"
                     
                     if 'obtener_tasa_bcv_hoy' in globals() and callable(obtener_tasa_bcv_hoy):
+                        # ⚠️ CORRECCIÓN: Asegúrate de pasarle 'conn_bcv' aquí para que no de el error de argumentos
                         t_val, o_val = obtener_tasa_bcv_hoy(conn_bcv)
                         tasa_dolar = t_val if t_val is not None else 0.0
                         origen_datos = o_val if o_val is not None else "Manual / Desconocido"
@@ -1917,12 +1917,15 @@ if "🏠 Inicio" in opcion_menu:
                             from datetime import date
                             try:
                                 if conn_bcv.is_connected():
-                                    conn_bcv.handle_unread_result()
-                                
+                                    # ⚠️ CORRECCIÓN: Comentamos esto para evitar bloqueos/congelamientos de Streamlit
+                                    # conn_bcv.handle_unread_result()
+                                    pass
+                            
                                 tasa_fresca, origen_fresco = 0.0, "Error"
                                 if 'consultar_bcv_directo_sin_bd' in globals() and callable(consultar_bcv_directo_sin_bd):
+                                    # ⚠️ CORRECCIÓN: Asegúrate de pasarle 'conn_bcv' por si tu función lo requiere
                                     tasa_fresca, origen_fresco = consultar_bcv_directo_sin_bd(conn_bcv)
-                                
+                            
                                 if origen_fresco and "Error" not in origen_fresco and tasa_fresca > 0:
                                     hoy = date.today()
                                     cursor = conn_bcv.cursor()
