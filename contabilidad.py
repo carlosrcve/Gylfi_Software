@@ -1412,6 +1412,97 @@ def obtener_comprobantes_ingresos(db, f_inicio, f_fin):
         return pd.DataFrame()
 
 
+def actualizar_tabla_completa_db(conn, nombre_tabla, df_nuevo):
+    """
+    Actualización genérica segura: hace TRUNCATE y luego inserta el DF completo.
+    """
+    if not conn or not conn.is_connected():
+        raise Exception("No hay conexión activa a la base de datos.")
+
+    # 🛡️ SEGURIDAD: Validar que el nombre de la tabla contenga solo caracteres alfanuméricos y guiones bajos
+    if not re.match(r"^[a-zA-Z0-9_]+$", nombre_tabla):
+        raise ValueError(f"Nombre de tabla inválido o inseguro: {nombre_tabla}")
+
+    # 🛡️ SEGURIDAD: Validar que los nombres de las columnas también sean seguros
+    for col in df_nuevo.columns:
+        if not re.match(r"^[a-zA-Z0-9_]+$", str(col)):
+            raise ValueError(f"Nombre de columna inválido o inseguro: {col}")
+
+    cursor = conn.cursor()
+    try:
+        # 1. Limpiar tabla de forma segura usando backticks para delimitar la tabla
+        cursor.execute("SET FOREIGN_KEY_CHECKS = 0;")
+        cursor.execute(f"TRUNCATE TABLE `{nombre_tabla}`")
+        
+        # 2. Generar el INSERT dinámico de forma segura con columnas validadas
+        columnas = ", ".join([f"`{col}`" for col in df_nuevo.columns])
+        placeholders = ", ".join(["%s"] * len(df_nuevo.columns))
+        sql = f"INSERT INTO `{nombre_tabla}` ({columnas}) VALUES ({placeholders})"
+        
+        # 3. Insertar datos de forma masiva
+        datos = [tuple(row) for row in df_nuevo.values]
+        cursor.executemany(sql, datos)
+        
+        conn.commit()
+        
+    except Exception as e:
+        conn.rollback()
+        raise e 
+    finally:
+        # Garantizar por seguridad que las llaves foráneas siempre se vuelven a activar
+        try:
+            cursor.execute("SET FOREIGN_KEY_CHECKS = 1;")
+        except:
+            pass
+            
+        if cursor:
+            cursor.close()
+
+
+
+def consultar_tabla_db(conn, nombre_tabla, limite=None):
+    """
+    Consulta registros de forma segura utilizando la conexión activa.
+    """
+    df = pd.DataFrame()
+    cursor = None
+    
+    # 🛡️ SEGURIDAD: Validar estrictamente el nombre de la tabla para evitar Inyección SQL
+    if not re.match(r"^[a-zA-Z0-9_]+$", str(nombre_tabla)):
+        raise ValueError(f"Nombre de tabla inválido o inseguro: {nombre_tabla}")
+
+    if not conn or not conn.is_connected():
+        raise Exception("No hay conexión activa a la base de datos.")
+
+    try:
+        usuario = st.session_state.get('usuario', 'Desconocido')
+        cliente = st.session_state.get('cliente_id', 'N/A')
+        
+        # Registrar log de forma segura
+        if 'registrar_log_automatico' in globals():
+            registrar_log_automatico(conn, "CONSULTA_TABLA", f"Usuario {usuario} consultó {nombre_tabla} para cliente {cliente}")
+        
+        cursor = conn.cursor()
+        
+        # Construcción segura utilizando backticks
+        query = f"SELECT * FROM `{nombre_tabla}`"
+        if limite and isinstance(limite, int):
+            query += f" LIMIT {limite}"
+            
+        df = pd.read_sql(query, conn)
+        
+    except Exception as e:
+        st.error(f"Error al consultar la tabla {nombre_tabla}: {e}")
+    finally:
+        if cursor:
+            cursor.close()
+        if conn and conn.is_connected():
+            try:
+                conn.ping(reconnect=True)
+            except:
+                pass
+                
+    return df
 
 def gestionar_sidebar():
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
@@ -3549,3 +3640,122 @@ if "🏠 Inicio" in opcion_menu:
 
         else:
             pass
+
+
+elif opcion_menu == "📂 Plan de Cuentas":
+    st.subheader("Gestión de Plan de Cuentas")
+    
+    # 1. Recuperamos datos del estado
+    db_actual = st.session_state.get('DB_ACTUAL')
+    if not db_actual:
+        st.error("No se ha seleccionado una base de datos.")
+        st.stop()
+
+    # 2. Conexión centralizada
+    conn_empresa = conectar_db(db_actual)
+    
+    try:
+        # Definición de las pestañas para un look consistente
+        # Definición de las 4 pestañas
+        tab1, tab2, tab3, tab4 = st.tabs([
+            "📥 Cargar Plan", 
+            "📋 Visualizar Plan", 
+            "🗑️ Vaciar Plan", 
+            "📥 Descargar Excel"
+        ])
+        
+        
+        with tab1:
+            st.markdown("### Subir Archivo Excel")
+            archivo_plan = st.file_uploader("Seleccione el archivo", type=["xlsx", "xls"], key="plan_up")
+            
+            if archivo_plan:
+                df_plan = pd.read_excel(archivo_plan)
+                df_plan.columns = df_plan.columns.str.strip().str.lower()
+                df_plan = df_plan.rename(columns={'nombre de la cuenta': 'nombre'})
+                
+                st.write("Vista previa:")
+                st.dataframe(df_plan.head(20), use_container_width=True, height=500)
+                
+                if st.button("🚀 Iniciar Importación a Base de Datos", type="primary"):
+                    columnas_sql = ['id', 'codigo', 'nombre', 'nivel', 'tipo', 'padre']
+                    if all(col in df_plan.columns for col in columnas_sql):
+                        from sqlalchemy import create_engine
+                        engine = create_engine(f"mysql+mysqlconnector://{DB_CONFIG['user']}:{DB_CONFIG['password']}@{DB_CONFIG['host']}:{DB_CONFIG['port']}/{db_actual}")
+                        
+                        df_final = df_plan[columnas_sql]
+                        df_final.to_sql('plan_cuentas', con=engine, if_exists='append', index=False)
+                        st.success(f"✅ ¡Plan de cuentas sincronizado con {db_actual}!")
+                        st.balloons()
+                    else:
+                        st.error("❌ Faltan columnas en el archivo.")
+
+        with tab2:
+            st.markdown("### 📋 Plan de Cuentas (Edición, Nuevos y Eliminación)")
+            
+            # 1. Cargamos los datos actuales
+            df_actual = consultar_tabla_db(conn_empresa, "plan_cuentas")
+            
+            if df_actual is None or df_actual.empty:
+                df_actual = pd.DataFrame(columns=['id', 'codigo', 'nombre', 'nivel', 'tipo', 'padre'])
+            
+            # 2. Editor interactivo
+            # num_rows="dynamic" habilita el botón de eliminar (icono de basura) y agregar fila
+            df_editado = st.data_editor(
+                df_actual, 
+                key="editor_plan_cuentas", 
+                num_rows="dynamic", 
+                use_container_width=True,
+                column_config={
+                    "id": st.column_config.NumberColumn("ID", disabled=True), # ID inalterable
+                    "codigo": st.column_config.TextColumn("Código Contable", required=True),
+                    "nombre": st.column_config.TextColumn("Nombre Cuenta", required=True),
+                    "tipo": st.column_config.SelectboxColumn("Tipo", options=["Activo", "Pasivo", "Patrimonio", "Ingreso", "Egreso"]),
+                }
+            )
+            
+            # 3. Guardado inteligente
+            if st.button("💾 Guardar Cambios en Plan de Cuentas", type="primary"):
+                try:
+                    # Usamos tu función de actualización completa
+                    actualizar_tabla_completa_db(conn_empresa, "plan_cuentas", df_editado)
+                    st.success("✅ ¡Plan de cuentas actualizado correctamente!")
+                    st.balloons()
+                    st.rerun() # Recargamos para refrescar IDs si hubo nuevos
+                except Exception as e:
+                    st.error(f"❌ Error al guardar: {e}")
+
+        with tab3:
+            st.markdown("### ⚠️ Vaciar Plan de Cuentas")
+            st.warning("Esta acción borrará TODA la información del plan de cuentas de esta empresa.")
+            if st.checkbox("Estoy seguro de querer borrar todo"):
+                if st.button("🗑️ ELIMINAR TODOS LOS DATOS", type="primary"):
+                    cursor = conn_empresa.cursor()
+                    cursor.execute("TRUNCATE TABLE plan_cuentas")
+                    conn_empresa.commit()
+                    st.success("✅ ¡Tabla vaciada exitosamente!")
+                    st.balloons()
+                    st.rerun()
+
+        with tab4:
+            st.markdown("### 📥 Descargar Respaldo")
+            df_actual = consultar_tabla_db(conn_empresa, "plan_cuentas")
+            if df_actual is not None and not df_actual.empty:
+                import io
+                output = io.BytesIO()
+                with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                    df_actual.to_excel(writer, index=False, sheet_name='PlanCuentas')
+                st.download_button(
+                    label="📥 Descargar Excel",
+                    data=output.getvalue(),
+                    file_name="Plan_de_Cuentas_Respaldo.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
+            else:
+                st.info("No hay datos para descargar.")
+
+    except Exception as e:
+        st.error(f"❌ Error crítico: {e}")
+    finally:
+        if conn_empresa and conn_empresa.is_connected():
+            conn_empresa.close()
