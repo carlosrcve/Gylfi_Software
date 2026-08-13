@@ -6031,8 +6031,8 @@ elif sub_opcion == "Estado de Resultados":
     st.subheader(f"📈 Estado de Resultados: {EMPRESA}")
     
     col_f1, col_f2 = st.columns(2)
-    f_er_desde = col_f1.date_input("Desde", f_inicio_global, key="er_desde")
-    f_er_hasta = col_f2.date_input("Hasta", f_fin_global, key="er_hasta")
+    f_er_desde = col_f1.date_input("Desde", st.session_state.get('f_inicio_global', datetime.date.today()), key="er_desde")
+    f_er_hasta = col_f2.date_input("Hasta", st.session_state.get('f_fin_global', datetime.date.today()), key="er_hasta")
     
     # 4. CONEXIÓN Y PROCESAMIENTO
     conn_er = conectar_db(db_actual)
