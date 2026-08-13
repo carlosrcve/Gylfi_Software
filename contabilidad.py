@@ -239,11 +239,9 @@ def login_screen():
     # --- ESTILOS CSS PROFESIONALES ---
     st.markdown("""
         <style>
-        /* Contenedor principal */
         .stApp {
             background-color: #f8fafc;
         }
-        /* Tarjeta de Login */
         .login-box {
             background-color: white;
             padding: 2rem;
@@ -252,7 +250,6 @@ def login_screen():
             border: 1px solid #e2e8f0;
             margin-bottom: 20px;
         }
-        /* Botón estilo corporativo */
         .stButton > button {
             width: 100%;
             background: linear-gradient(90deg, #0f172a 0%, #334155 100%);
@@ -267,7 +264,6 @@ def login_screen():
             background: linear-gradient(90deg, #334155 0%, #0f172a 100%);
             transform: translateY(-2px);
         }
-        /* Ajuste de etiquetas de inputs */
         label {
             font-weight: 500 !important;
             color: #475569 !important;
@@ -295,15 +291,12 @@ def login_screen():
         with st.container():
             st.markdown('<div class="login-box">', unsafe_allow_html=True)
             
-            # --- MENSAJE DE BIENVEVIDA FIJO EN EL FRAME DE LOGIN ---
             st.info("☁️ **¡Bienvenido a Gylfi Software en la Nube!**")
             
-            # Encabezado con Marketing
             st.image("https://cdn-icons-png.flaticon.com/512/5164/5164023.png", width=60)
             st.subheader("Auditoría Inteligente")
             st.caption("Bienvenido al ecosistema contable de Carlos Rodriguez")
             
-            # Inputs limpios
             user = st.text_input("Usuario", placeholder="ej: admin_kd", key="user_input")
             password = st.text_input("Contraseña", type="password", placeholder="••••••••", key="pass_input")
             
@@ -314,7 +307,6 @@ def login_screen():
                 if res:
                     play_success_sound()
                     st.toast("¡Acceso Concedido!", icon="🔒")
-                    st.success(f"🚀 ¡Bienvenido, {res['rol'].upper()}! Cargando sistema...")
                     
                     # --- GUARDAMOS EL ESTADO CORRECTAMENTE ---
                     st.session_state['logueado'] = True
@@ -323,11 +315,7 @@ def login_screen():
                     st.session_state['user_id'] = res['id']         
                     st.session_state['cliente_id'] = res.get('cliente_id') 
                     
-                    # Aumentamos ligeramente la pausa a 2 segundos para que el usuario alcance a leer el éxito
-                    # Limpiamos la pantalla del login y mostramos la plantilla grande de bienvenida
-                    st.empty()
-                    pantalla_bienvenida(res['rol'])
-                    time.sleep(2.0) 
+                    # Recargamos limpio para que el flujo principal tome el control sin bloqueos
                     st.rerun()
                 else:
                     st.error("❌ Credenciales incorrectas")
@@ -4591,10 +4579,20 @@ def gestionar_sidebar():
         st.markdown("---")
         
         # Botón de cerrar sesión
-        if st.sidebar.button("🚪 Cerrar Sesión", key="btn_logout_unico_definitivo"):
-            for key in list(st.session_state.keys()):
-                del st.session_state[key]
-            st.rerun()
+        if 'logueado' not in st.session_state or not st.session_state['logueado']:
+            login_screen()
+        else:
+            # Si acaba de entrar, puedes mostrar la transición una sola vez de forma fluida
+            if not st.session_state.get('bienvenida_vista', False):
+                pantalla_bienvenida(st.session_state['rol'])
+                st.session_state['bienvenida_vista'] = True
+                st.rerun()
+    
+    # AQUÍ VA EL RESTO DE TU APLICACIÓN Y TU BOTÓN DE CERRAR SESIÓN
+    if st.sidebar.button("🚪 Cerrar Sesión", key="btn_logout_unico_definitivo"):
+        for key in list(st.session_state.keys()):
+            del st.session_state[key]
+        st.rerun()
 
         # --- Navegación ---
         if user_rol == 'admin':
