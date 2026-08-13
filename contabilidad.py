@@ -737,63 +737,57 @@ def obtener_historico_utilidad(db, f_inicio=None, f_fin=None):
     if not conn:
         return df_default
     
-    if f_inicio is not None and f_fin is None:
-        f_fin = f_inicio
-        f_inicio = None
-
+    if f_inicio is None:
+        f_inicio = st.session_state.get("f_inicio_global")
     if f_fin is None:
+        f_fin = st.session_state.get("f_fin_global")
+
+    if f_inicio is None or f_fin is None:
         import datetime
+        anio_actual = datetime.datetime.now().year
+        f_inicio = datetime.date(anio_actual, 1, 1)
         f_fin = datetime.date.today()
-    
-    fecha_fin_str = f_fin.strftime('%Y-%m-%d') if hasattr(f_fin, 'strftime') else str(f_fin).split()[0]
 
-    if f_inicio is not None:
-        fecha_inicio_str = f_inicio.strftime('%Y-%m-%d') if hasattr(f_inicio, 'strftime') else str(f_inicio).split()[0]
-    else:
-        partes = fecha_fin_str.split('-')
-        # Forzamos que traiga todo el año actual (desde el 1 de enero) para calcular mes a mes
-        fecha_inicio_str = f"{partes[0]}-01-01"
+    anio_base = f_inicio.year
     
-    anio_base = int(fecha_inicio_str.split('-')[0])
+    # Construimos los 12 meses del año base seleccionado
+    meses_skeleton = pd.DataFrame({
+        'anio': [anio_base] * 12,
+        'mes': list(range(1, 13))
+    })
 
-    # Agrupamos por año y mes para que cada período devuelva su propia utilidad por separado
+    # Consulta optimizada para traer el movimiento puramente mensual (mes a mes independiente)
     query = f"""
         SELECT 
-            YEAR(fecha) as anio,
-            MONTH(fecha) as mes,
+            YEAR(STR_TO_DATE(LEFT(fecha, 10), '%Y-%m-%d')) as anio,
+            MONTH(STR_TO_DATE(LEFT(fecha, 10), '%Y-%m-%d')) as mes,
             
-            COALESCE(SUM(CASE WHEN plan_cuentas LIKE '4%' THEN haber ELSE 0 END), 0) as ing_haber,
-            COALESCE(SUM(CASE WHEN plan_cuentas LIKE '4%' THEN debe ELSE 0 END), 0) as ing_debe,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '4%%' THEN haber ELSE 0 END) as ing_haber,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '4%%' THEN debe ELSE 0 END) as ing_debe,
             
-            COALESCE(SUM(CASE WHEN plan_cuentas LIKE '5%' THEN debe ELSE 0 END), 0) as cos_debe,
-            COALESCE(SUM(CASE WHEN plan_cuentas LIKE '5%' THEN haber ELSE 0 END), 0) as cos_haber,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '5%%' THEN debe ELSE 0 END) as cos_debe,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '5%%' THEN haber ELSE 0 END) as cos_haber,
             
-            COALESCE(SUM(CASE WHEN plan_cuentas LIKE '6%' THEN debe ELSE 0 END), 0) as gas_debe,
-            COALESCE(SUM(CASE WHEN plan_cuentas LIKE '6%' THEN haber ELSE 0 END), 0) as gas_haber,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '6%%' THEN debe ELSE 0 END) as gas_debe,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '6%%' THEN haber ELSE 0 END) as gas_haber,
 
-            COALESCE(SUM(CASE WHEN plan_cuentas LIKE '7%' THEN haber ELSE 0 END), 0) as oing_haber,
-            COALESCE(SUM(CASE WHEN plan_cuentas LIKE '7%' THEN debe ELSE 0 END), 0) as oing_debe,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '7%%' THEN haber ELSE 0 END) as oing_haber,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '7%%' THEN debe ELSE 0 END) as oing_debe,
             
-            COALESCE(SUM(CASE WHEN plan_cuentas LIKE '8%' THEN debe ELSE 0 END), 0) as oeg_debe,
-            COALESCE(SUM(CASE WHEN plan_cuentas LIKE '8%' THEN haber ELSE 0 END), 0) as oeg_haber
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '8%%' THEN debe ELSE 0 END) as oeg_debe,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '8%%' THEN haber ELSE 0 END) as oeg_haber
         FROM `{db}`.asientos_contables 
-        WHERE fecha >= %s AND fecha <= %s
-        GROUP BY YEAR(fecha), MONTH(fecha)
+        WHERE YEAR(STR_TO_DATE(LEFT(fecha, 10), '%Y-%m-%d')) = %s
+        GROUP BY YEAR(STR_TO_DATE(LEFT(fecha, 10), '%Y-%m-%d')), MONTH(STR_TO_DATE(LEFT(fecha, 10), '%Y-%m-%d'))
         ORDER BY anio ASC, mes ASC
     """
     
     cursor = conn.cursor(dictionary=True)
     try:
-        cursor.execute(query, (fecha_inicio_str, fecha_fin_str))
+        cursor.execute(query, (anio_base,))
         resultados = cursor.fetchall()
         
         df_sql = pd.DataFrame(resultados) if resultados else pd.DataFrame(columns=['anio', 'mes'])
-
-        # Creamos una plantilla con los 12 meses para que no falte ningún mes en la gráfica o tabla
-        meses_skeleton = pd.DataFrame({
-            'anio': [anio_base] * 12,
-            'mes': list(range(1, 13))
-        })
 
         if not df_sql.empty and 'mes' in df_sql.columns:
             df = pd.merge(meses_skeleton, df_sql, on=['anio', 'mes'], how='left')
@@ -802,7 +796,7 @@ def obtener_historico_utilidad(db, f_inicio=None, f_fin=None):
 
         df = df.fillna(0)
 
-        # Cálculo independiente mes a mes (ya no acumulado)
+        # Cálculo de la utilidad estrictamente mensual (independiente por cada fila/mes)
         ingresos = df['ing_haber'] - df['ing_debe']
         costos = df['cos_debe'] - df['cos_haber']
         gastos = (df['gas_debe'] - df['gas_haber']).abs()
@@ -821,7 +815,7 @@ def obtener_historico_utilidad(db, f_inicio=None, f_fin=None):
         return df[['anio', 'mes', 'mes_nombre', 'utilidad_mensual']]
         
     except Exception as e:
-        print(f"❌ Error al calcular el histórico mensual: {e}")
+        print(f"❌ Error al calcular la utilidad mensual: {e}")
         return df_default
         
     finally:
