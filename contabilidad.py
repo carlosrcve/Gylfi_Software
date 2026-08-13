@@ -5846,7 +5846,7 @@ elif sub_opcion == "Balance General":
 
     # 3. INTERFAZ Y PROCESAMIENTO
     st.subheader(f"📊 Balance General: {empresa_data.get('nombre', EMPRESA)}")
-    f_corte = st.date_input("Fecha de Corte", value=f_fin_global, key="bg_corte")
+    f_corte = st.date_input("Fecha de Corte", value=st.session_state.get('f_fin_global', datetime.date.today()), key="bg_corte")
     
     # --- CONEXIÓN TEMPORAL BLINDADA ---
     conn_temporal = conectar_db(db_actual)
