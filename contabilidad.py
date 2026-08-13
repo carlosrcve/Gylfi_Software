@@ -2365,6 +2365,59 @@ def generar_balance_profesional(conn, f_i, f_f, sucursal):
         if cursor: cursor.close()
 
 
+def generar_balance_comprobacion(conn, f_i, f_f, sucursal):
+    registrar_log_automatico(conn, "BALANCE_COMPROBACION", f"Balance para {st.session_state.cliente_id}")
+    
+    if not sucursal or not conn:
+        return pd.DataFrame(columns=['Código', 'Debe', 'Haber', 'Saldo Inicial', 'Saldo Final'])
+    
+    db = st.session_state.get('DB_ACTUAL')
+    
+    try:
+        # 1. Consultas estrictas: Solo traemos plan_cuentas y el valor calculado. Nada más.
+        # Esto elimina cualquier posibilidad de que una columna llamada 'nombre' cause conflicto.
+        sql_si = f"SELECT plan_cuentas, SUM(debe) - SUM(haber) as val FROM `{db}`.saldos_iniciales GROUP BY plan_cuentas"
+        sql_ac = f"SELECT plan_cuentas, SUM(debe) - SUM(haber) as val FROM `{db}`.asientos_contables WHERE fecha < %s GROUP BY plan_cuentas"
+        sql_mo_d = f"SELECT plan_cuentas, SUM(debe) as val FROM `{db}`.asientos_contables WHERE fecha BETWEEN %s AND %s GROUP BY plan_cuentas"
+        sql_mo_h = f"SELECT plan_cuentas, SUM(haber) as val FROM `{db}`.asientos_contables WHERE fecha BETWEEN %s AND %s GROUP BY plan_cuentas"
+
+        # 2. Ejecución y nombres de columnas únicos desde el inicio
+        df_si = pd.read_sql(sql_si, conn).rename(columns={'val': 'si'})
+        df_ac = pd.read_sql(sql_ac, conn, params=(f_i,)).rename(columns={'val': 'ac'})
+        df_md = pd.read_sql(sql_mo_d, conn, params=(f_i, f_f)).rename(columns={'val': 'debe'})
+        df_mh = pd.read_sql(sql_mo_h, conn, params=(f_i, f_f)).rename(columns={'val': 'haber'})
+
+        # 3. Join mediante indexación (la forma más segura de evitar duplicados)
+        for df in [df_si, df_ac, df_md, df_mh]:
+            df.set_index('plan_cuentas', inplace=True)
+            
+        # Concatenamos horizontalmente
+        balance = pd.concat([df_si, df_ac, df_md, df_mh], axis=1).fillna(0)
+        balance.index.name = 'Código'
+        balance.reset_index(inplace=True)
+        
+        # 4. Cálculo final
+        balance['Tipo'] = balance['Código'].astype(str).str[0]
+        
+        def calcular(row):
+            si_bruto = row['si'] + row['ac']
+            if row['Tipo'] in ['1', '5']:
+                s_final = si_bruto + row['debe'] - row['haber']
+            else:
+                s_final = si_bruto - row['debe'] + row['haber']
+            return pd.Series([si_bruto, s_final])
+
+        balance[['Saldo Inicial', 'Saldo Final']] = balance.apply(calcular, axis=1)
+        
+        return balance[['Código', 'Saldo Inicial', 'debe', 'haber', 'Saldo Final']].rename(columns={
+            'debe': 'Debe', 
+            'haber': 'Haber'
+        })
+
+    except Exception as e:
+        st.error(f"❌ Error crítico: {e}")
+        return pd.DataFrame()
+
 def gestionar_sidebar():
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
     user_id = st.session_state.get('user_id', st.session_state.get('cliente_id', 'N/A'))
