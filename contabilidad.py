@@ -2446,7 +2446,1996 @@ def estilo_balance(row):
 
 
 
+def cargar_libro_ventas_db(df, conn):
+    cursor = conn.cursor()
+    exitos = 0
+    
+    # 1. Definimos el mapeo de nombres de columna a los índices que tu lógica espera
+    # Esto soluciona el "IndexError" sin cambiar tu lógica de limpieza
+    cols = {name: i for i, name in enumerate(df.columns)}
+    
+    # Mantenemos tus funciones de limpieza intactas
+    def f_n(v):
+        try:
+            if v is None or v == "" or str(v).lower() == 'nan': return 0.0
+            s = str(v).strip()
+            s = re.sub(r'[^0-9,.-]', '', s)
+            if ',' in s and '.' in s:
+                if s.rfind(',') > s.rfind('.'): s = s.replace('.', '').replace(',', '.')
+                else: s = s.replace(',', '')
+            elif ',' in s: s = s.replace(',', '.')
+            val = float(s)
+            val = round(val, 2)
+            return min(max(val, -99999999.99), 99999999.99)
+        except: return 0.0
 
+    def convertir_fecha(v):
+        try:
+            # Si viene como número de Excel
+            if str(v).replace('.','',1).isdigit() and float(v) > 30000:
+                return (pd.to_datetime('1899-12-30') + pd.to_timedelta(float(v), 'D')).strftime('%Y-%m-%d')
+            return pd.to_datetime(v).strftime('%Y-%m-%d')
+        except: return "2026-06-05"
+
+    sql = """INSERT INTO libro_ventas 
+              (fecha_factura, nombre_razon_social, rif, n_factura, n_control, 
+               total_ventas_con_iva, ventas_exentas, base_imponible, porcentaje_alicuota, debito_fiscal) 
+              VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+              AS new
+              ON DUPLICATE KEY UPDATE 
+              fecha_factura = new.fecha_factura, 
+              nombre_razon_social = new.nombre_razon_social,
+              n_control = new.n_control,
+              total_ventas_con_iva = new.total_ventas_con_iva,
+              ventas_exentas = new.ventas_exentas,
+              base_imponible = new.base_imponible,
+              debito_fiscal = new.debito_fiscal"""
+    
+    # Iteramos sobre los valores del DataFrame
+    data = df.astype(str).replace('nan', '').values
+    for i, fila in enumerate(data):
+        # Filtro: saltar encabezados o filas sin RIF
+        if "FECHA" in str(fila[0]).upper() or str(fila[cols.get('rif', 2)]).strip() == "": 
+            continue
+
+        # --- AQUÍ ESTÁ EL TRUCO: Usamos el mapeo 'cols' para acceder al índice correcto ---
+        # Si la columna existe, usamos su índice; si no, usamos el índice original que tenías
+        idx_total = cols.get('total_ventas_con_iva', 5) # Cambia 5 por la posición real si es necesario
+        idx_exentas = cols.get('ventas_exentas', 6)
+        idx_base = cols.get('base_imponible', 7)
+        idx_debito = cols.get('debito_fiscal', 9)
+
+        val_total = f_n(fila[idx_total])
+        val_exentas = f_n(fila[idx_exentas])
+        val_base = f_n(fila[idx_base])
+        val_debito = f_n(fila[idx_debito])
+
+        valores = (
+            convertir_fecha(fila[0]), 
+            str(fila[1]).upper()[:255].strip(), 
+            str(fila[cols.get('rif', 2)]).replace('-', '').replace('.', '').strip(), 
+            str(fila[cols.get('n_factura', 3)]).replace('.0', '').strip().zfill(5), 
+            str(fila[cols.get('n_control', 4)]).replace('.0', '').strip().zfill(5),
+            val_total, val_exentas, val_base, 
+            16.0, val_debito
+        )
+        
+        cursor.execute(sql, valores)
+        if cursor.rowcount > 0:
+            exitos += 1
+
+    conn.commit()
+    cursor.close()
+    return exitos
+
+
+def preparar_excel_descarga(df, conn):
+    # 1. Registramos el log (esto ya lo tenías bien)
+    registrar_log_automatico(conn, "DESCARGA_EXCEL", f"Usuario {st.session_state.usuario} descargó reporte")
+    
+    # 2. CREAMOS COPIA PARA FORMATEAR (Para que no se dañen los datos originales)
+    df_excel = df.copy()
+    columnas_moneda = ["Total Bs.", "Exento Bs.", "Base Bs.", "IVA Bs."] # AJUSTA estos nombres según tu dataframe
+    
+    for col in columnas_moneda:
+        if col in df_excel.columns:
+            df_excel[col] = df_excel[col].apply(
+                lambda x: "{:,.2f}".format(float(x)).replace(",", "X").replace(".", ",").replace("X", ".") 
+                if isinstance(x, (int, float)) else x
+            )
+    
+    # 3. GENERAMOS EL EXCEL
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        df_excel.to_excel(writer, index=False, sheet_name='LibroDeVentas')
+        
+        workbook = writer.book
+        worksheet = writer.sheets['LibroDeVentas']
+        
+        # Ajuste de columnas
+        for i, col in enumerate(df_excel.columns):
+            column_len = max(df_excel[col].astype(str).map(len).max(), len(col)) + 2
+            worksheet.set_column(i, i, column_len)
+            
+    return output.getvalue()
+
+
+def cargar_libro_compras_db(df, nombre_db):
+    # 1. Conexión
+    conn = conectar_db(nombre_db) 
+    if not conn:
+        st.error("No se pudo establecer conexión con la base de datos.")
+        return
+
+    # --- FUNCIÓN DE FECHA ROBUSTA ---
+    def convertir_fecha(v):
+        try:
+            # Intento formato Excel (número serial)
+            num_excel = int(float(v))
+            return (pd.to_datetime('1899-12-30') + pd.to_timedelta(num_excel, 'D')).strftime('%Y-%m-%d')
+        except:
+            try:
+                # Intento formato Texto estándar
+                return pd.to_datetime(v).strftime('%Y-%m-%d')
+            except:
+                # Valor por defecto si todo falla
+                return "2026-06-06"
+
+    try:
+        cursor = conn.cursor()
+        registros_a_insertar = []
+        
+        # 2. SQL de inserción
+        sql = """INSERT INTO libro_compras 
+             (fecha_operacion, tipo_documento, n_factura, n_control, proveedor, rif, 
+              total_compras, importe_exento, base_imponible, iva_porcentaje, iva_monto) 
+             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+             AS nueva_fila
+             ON DUPLICATE KEY UPDATE 
+             fecha_operacion = nueva_fila.fecha_operacion,
+             tipo_documento = nueva_fila.tipo_documento,
+             n_control = nueva_fila.n_control,
+             proveedor = nueva_fila.proveedor,
+             total_compras = nueva_fila.total_compras,
+             importe_exento = nueva_fila.importe_exento,
+             base_imponible = nueva_fila.base_imponible,
+             iva_porcentaje = nueva_fila.iva_porcentaje,
+             iva_monto = nueva_fila.iva_monto"""
+
+        # 3. Función de limpieza
+
+        def clean_n(v):
+            # Si es numérico, lo convertimos a float y redondeamos
+            if isinstance(v, (int, float)):
+                return round(float(v), 2)
+            
+            # Si viene como string, limpiamos
+            s = str(v).strip()
+            
+            # Si es un string vacío o 'None', retornamos 0.0
+            if s in ['nan', 'None', '']: 
+                return 0.0
+            
+            # Limpieza: quitamos puntos de miles y cambiamos coma por punto
+            # Ejemplo: "5.798,38" -> "5798.38"
+            s = s.replace('.', '').replace(',', '.')
+            
+            try:
+                return round(float(s), 2)
+            except:
+                return 0.0
+
+        # 4. Único ciclo de procesamiento
+        for i, row in df.iterrows():
+            try:
+                # Usamos la función robusta que ya probaste
+                f_str = convertir_fecha(row[0])
+                
+                # B. Creación de tupla
+                valores = (
+                    f_str, 
+                    str(row[1]).split('.')[0].zfill(2),
+                    str(row[2]).split('.')[0].strip(),
+                    str(row[3]).strip(),
+                    str(row[4]).upper().strip(),
+                    str(row[5]).replace('-', '').replace('.', '').strip(),
+                    clean_n(row[6]),  # total_compras
+                    clean_n(row[7]),  # importe_exento
+                    clean_n(row[8]),  # base_imponible
+                    clean_n(row[9]),  # iva_porcentaje
+                    clean_n(row[10])  # iva_monto
+                )
+                registros_a_insertar.append(valores)
+            except Exception as e:
+                print(f"Error en fila {i}: {e}")
+
+        # 5. Inserción masiva
+        if registros_a_insertar:
+            cursor.executemany(sql, registros_a_insertar)
+            conn.commit()
+            st.success(f"🔥 Procesados {len(registros_a_insertar)} registros.")
+        
+    except Exception as e:
+        if conn: conn.rollback()
+        st.error(f"Error crítico: {e}")
+    finally:
+        if cursor: cursor.close()
+        if conn: conn.close()
+
+
+def obtener_lista_proveedores_mapeo():
+    conn = conectar_db(db_actual)
+    cursor = conn.cursor()
+    cursor.execute("SELECT razon_social, rif FROM proveedores")
+    # Devuelve {RazonSocial: RIF}
+    mapeo = {row[0]: row[1] for row in cursor.fetchall()}
+    conn.close()
+    return mapeo
+
+
+def obtener_lista_proveedores():
+    try:
+        # Ajusta esto a tu conexión real
+        conn = conectar_db(db_actual)
+        cursor = conn.cursor()
+        cursor.execute("SELECT razon_social FROM proveedores")
+        # Obtenemos solo los nombres
+        nombres = [row[0] for row in cursor.fetchall()]
+        conn.close()
+        return nombres
+    except:
+        return ["Error al cargar proveedores"]
+
+
+def extraer_datos_factura(archivo):
+    model = obtener_modelo_valido()
+    if not model:
+        st.error("No se encontró ningún modelo compatible en tu cuenta.")
+        return None
+        
+    try:
+        img_data = archivo.getvalue()
+        
+        prompt_instrucciones = """
+            Eres un asistente contable experto en OCR. Tu tarea es extraer datos de facturas fiscales.
+            Extrae la información basándote únicamente en las etiquetas visibles en el documento.
+
+            REGLAS DE ORO:
+            1. 'n_factura': Busca etiquetas como "N° Documento", "Número de Factura" o "Factura N°". Extrae el valor alfanumérico exacto.
+            2. 'n_control': Busca la etiqueta "N° de Control". Es crucial extraer el formato completo (ej. 00-000000).
+            3. 'rif': Busca el RIF del emisor (ej. J-XXXXXXXXX). Elimina guiones y espacios.
+            4. 'fecha_operacion': Busca la fecha de emisión. Conviértela a formato YYYY-MM-DD.
+            5. Montos: Extrae los valores monetarios de la moneda local (Bs.). Ignora montos en otras divisas.
+            6. Si un dato no existe, devuelve el valor en blanco o 0 según corresponda. NO inventes datos.
+            7. Devuelve SOLO un JSON puro.
+
+            Formato requerido:
+            {
+                "n_factura": "string",
+                "n_control": "string",
+                "fecha_operacion": "YYYY-MM-DD",
+                "rif": "string",
+                "total_compras": float,
+                "importe_exento": float,
+                "base_imponible": float,
+                "iva_porcentaje": float,
+                "iva_monto": float
+            }
+        """
+        
+        response = model.generate_content([
+            prompt_instrucciones,
+            {"mime_type": "image/jpeg", "data": img_data}
+        ])
+        
+        texto_limpio = response.text.replace('```json', '').replace('```', '').strip()
+        start = texto_limpio.find('{')
+        end = texto_limpio.rfind('}') + 1
+        texto_limpio = texto_limpio[start:end]
+        
+        # --- NUEVO: BLOQUE DE BLINDAJE Y LIMPIEZA ---
+        datos = json.loads(texto_limpio)
+        
+        # 1. Limpieza de RIF (Quitar guiones y espacios)
+        datos['rif'] = str(datos['rif']).replace('-', '').replace(' ', '').strip().upper()
+        
+        # 2. Validación de Control (Forzar formato estándar si el OCR falló)
+        if len(str(datos['n_control'])) < 5:
+            datos['n_control'] = "REVISAR_OCR"
+            
+        # 3. Asegurar que los montos sean numéricos
+        for campo in ['total_compras', 'importe_exento', 'base_imponible', 'iva_monto']:
+            try:
+                datos[campo] = float(datos[campo])
+            except:
+                datos[campo] = 0.0
+        
+        return datos
+        # --------------------------------------------
+        
+    except Exception as e:
+        st.error(f"Error procesando con el modelo encontrado: {e}")
+        return None
+
+
+def resetear_estado_retencion(numero_factura):
+    try:
+        conn = conectar_db()
+        cursor = conn.cursor()
+        
+        # Limpiamos los campos que indican que la factura ya fue procesada
+        # Ponemos monto_retenido y porcentaje_retencion en 0
+        sql = """
+            UPDATE retenciones_islr 
+            SET monto_retenido = 0.00, 
+                porcentaje_retencion = 0.00 
+            WHERE numero_factura = %s
+        """
+        cursor.execute(sql, (numero_factura,))
+        conn.commit()
+        conn.close()
+        return True
+    except:
+        return False
+
+
+
+def generar_comprobante_pdf(datos, conn):
+    """
+    Crea el PDF del comprobante ISLR con diseño profesional simétrico,
+    limpieza de etiquetas, RIF con guiones, número de comprobante legal 
+    y centrado de celdas.
+    """
+
+    registrar_log_automatico(conn, "GENERACION_PDF_RETENCION", f"Usuario {st.session_state.usuario} generó PDF de retención para {st.session_state.cliente_id}")
+
+    pdf = FPDF(orientation='P', unit='mm', format='A4')
+    pdf.add_page()
+    
+    # --- 0. PREPARACIÓN DE DATOS (LIMPIEZA) ---
+    import re
+    from datetime import datetime
+
+    def limpiar_num(texto):
+        nums = re.findall(r'\d+', str(texto))
+        return nums[0] if nums else str(texto)
+
+    # Lógica para formatear RIF con guiones (V-12345678-9)
+    def formatear_rif(rif_raw):
+        rif = str(rif_raw).upper().replace('-', '').replace(' ', '')
+        if len(rif) >= 9:
+            return f"{rif[0]}-{rif[1:-1]}-{rif[-1]}"
+        return rif
+
+    factura_limpia = limpiar_num(datos.get('factura', '00000')).zfill(5)
+    
+    # --- 1. ENCABEZADO CORPORATIVO ---
+    pdf.set_font("helvetica", "B", 10)
+    # Nombre de la empresa a la izquierda
+    pdf.cell(100, 5, datos['agente']['nombre'].upper(), 0, 0, 'L')
+    
+    # NÚMERO DE COMPROBANTE LEGAL (Derecha, resaltado)
+    pdf.set_font("helvetica", "B", 11) 
+    num_comprobante = datos.get('n_comprobante', "SIN NÚMERO")
+    #p.drawRightString(width - 50, height - 50, f"COMPROBANTE N°: {num_comprobante}")
+    pdf.cell(90, 5, f"COMPROBANTE N°: {num_comprobante}", 0, 1, 'R') 
+    
+    # Subtítulo y Fecha de Emisión
+    pdf.set_font("helvetica", "", 8)
+    pdf.cell(100, 4, "Comprobante de Retención del Impuesto Sobre la Renta ISLR", 0, 0, 'L')
+    fecha_emision = datos.get('fecha_emision', datetime.now().strftime('%d/%m/%Y'))
+    pdf.cell(90, 4, f"Fecha Emisión: {fecha_emision}", 0, 1, 'R')
+    pdf.ln(5)
+
+    # --- 2. TÍTULO Y DECRETO ---
+    pdf.set_font("helvetica", "B", 8)
+    pdf.rect(10, pdf.get_y(), 70, 16) 
+    pdf.set_xy(11, pdf.get_y() + 2)
+    pdf.multi_cell(68, 4, "Comprobante de Retención de I.S.L.R.\nGaceta Oficial N° 36.206 del 12/05/1997\nDecreto N° 1808 del 23/04/1997", 0, 'L')
+    
+    # --- 3. BLOQUE COMPARATIVO (SIMETRÍA DE CUADROS) ---
+    pdf.set_xy(10, 45)
+    y_inicial = pdf.get_y()
+    
+    nombre_s = datos['sujeto'].get('nombre', "PROVEEDOR DESCONOCIDO")
+    dir_s = datos['sujeto'].get('direccion', "CARACAS, VENEZUELA")
+    rif_s_formateado = formatear_rif(datos['sujeto'].get('rif', ''))
+    rif_a_formateado = formatear_rif(datos['agente'].get('rif', ''))
+
+    # --- LADO IZQUIERDO: SUJETO ---
+    pdf.set_font("helvetica", "B", 8)
+    pdf.set_fill_color(240, 240, 240)
+    pdf.cell(95, 6, "Sujeto Retenido (Proveedor / Beneficiario)", 1, 1, 'C', fill=True)
+    pdf.set_font("helvetica", "", 8)
+    pdf.cell(2, 6, "", "L", 0); pdf.cell(18, 6, "Proveedor:", 0, 0); pdf.cell(75, 6, str(nombre_s)[:40].upper(), "R", 1)
+    pdf.cell(2, 6, "", "L", 0); pdf.cell(18, 6, "RIF:", 0, 0); pdf.cell(75, 6, rif_s_formateado, "R", 1)
+    pdf.set_font("helvetica", "I", 7)
+    pdf.set_x(10)
+    pdf.multi_cell(95, 5, f" Dirección: {str(dir_s).upper()}", "LR", 'L')
+    y_final_sujeto = pdf.get_y()
+
+    # --- LADO DERECHO: AGENTE ---
+    pdf.set_xy(105, y_inicial)
+    pdf.set_font("helvetica", "B", 8)
+    pdf.cell(95, 6, "Agente de Retención (Empresa)", 1, 1, 'C', fill=True)
+    pdf.set_font("helvetica", "", 8)
+    pdf.set_x(105)
+    pdf.cell(2, 6, "", "L", 0); pdf.cell(18, 6, "Empresa:", 0, 0); pdf.cell(75, 6, str(datos['agente']['nombre']).upper(), "R", 1)
+    pdf.set_x(105)
+    pdf.cell(2, 6, "", "L", 0); pdf.cell(18, 6, "RIF:", 0, 0); pdf.cell(75, 6, rif_a_formateado, "R", 1)
+    pdf.set_x(105)
+    pdf.set_font("helvetica", "I", 7)
+    pdf.multi_cell(95, 5, f" Dirección: {str(datos['agente']['direccion']).upper()}", "LR", 'L')
+    y_final_agente = pdf.get_y()
+
+    # Cierre de cuadros
+    y_max = max(y_final_sujeto, y_final_agente)
+    pdf.line(10, y_max, 105, y_max)
+    pdf.line(105, y_max, 200, y_max)
+    
+    pdf.set_y(y_max + 8)
+
+    # --- 4. TABLA TÉCNICA ---
+    pdf.set_font("helvetica", "B", 7)
+    headers = ["Fecha", "Documento", "Base Objeto", "Sustraendo", "% Ret.", "Imp. Determinado.", "Monto Ret."]
+    widths = [20, 35, 30, 25, 20, 30, 30]
+    
+    for i, h in enumerate(headers):
+        pdf.cell(widths[i], 7, h, 1, 0, 'C', fill=True)
+    pdf.ln()
+
+    pdf.set_font("helvetica", "", 7)
+    base = float(datos['base'])
+    sust = float(datos['sustraendo'])
+    porc = float(datos['porcentaje'])
+    impuesto_bruto = base * (porc / 100)
+    neto = float(datos['total_retenido'])
+    
+    pdf.cell(widths[0], 7, str(datos.get('fecha_operacion', 'S/F')), 1, 0, 'C')
+    pdf.cell(widths[1], 7, f"{factura_limpia}", 1, 0, 'C') 
+    pdf.cell(widths[2], 7, f"{base:,.2f}", 1, 0, 'R')
+    pdf.cell(widths[3], 7, f"{sust:,.2f}", 1, 0, 'R')
+    pdf.cell(widths[4], 7, f"{porc}%", 1, 0, 'R')
+    pdf.cell(widths[5], 7, f"{impuesto_bruto:,.2f}", 1, 0, 'R')
+    pdf.cell(widths[6], 7, f"{neto:,.2f}", 1, 1, 'R')
+
+    # Totales
+    pdf.set_font("helvetica", "B", 8)
+    pdf.cell(sum(widths[:6]), 7, "TOTAL RETENCIÓN ISLR A ENTERAR (Bs.):", 1, 0, 'R')
+    pdf.cell(widths[6], 7, f"{neto:,.2f}", 1, 1, 'R')
+    pdf.ln(25)
+
+    # --- 5. FIRMAS ---
+    y_firmas = pdf.get_y()
+    pdf.line(20, y_firmas, 80, y_firmas)
+    pdf.line(130, y_firmas, 190, y_firmas)
+    
+    pdf.set_font("helvetica", "B", 8)
+    pdf.set_xy(10, y_firmas + 2)
+    pdf.cell(85, 5, "Firma y Sello Agente de Retención", 0, 0, 'C')
+    pdf.cell(110, 5, "Firma y Sello del Proveedor", 0, 1, 'C')
+
+    try:
+        return pdf.output(dest='S').encode('latin-1', errors='ignore')
+    
+    finally:
+        # Aseguramos el ping a la conexión para mantener la sesión activa
+        # tras completar la generación del archivo.
+        if conn and conn.is_connected():
+            conn.ping(reconnect=True)
+
+
+def comprobar_existencia_comprobante(n_comprobante):
+    """Verifica si el número de comprobante ya existe en la DB"""
+    db_actual = st.session_state.get('DB_ACTUAL')
+    conn = conectar_db(db_actual)
+    
+    # Log personalizado como solicitaste
+    registrar_log_automatico(conn, "COMPOBAR_EXISTENCIA", f"Usuario {st.session_state.usuario} comprobó existencia del comprobante {n_comprobante} para {st.session_state.cliente_id}")
+    
+    existe = False
+    cursor = None
+    
+    if conn:
+        try:
+            cursor = conn.cursor()
+            query = "SELECT COUNT(*) FROM retenciones_islr WHERE n_comprob_islr = %s"
+            cursor.execute(query, (n_comprobante,))
+            existe = cursor.fetchone()[0] > 0
+        except Exception as e:
+            st.error(f"Error al verificar comprobante: {e}")
+        finally:
+            # AQUÍ ESTÁ EL SECRETO:
+            if cursor:
+                cursor.close() 
+            
+            # NO cierres conn. 
+            # En su lugar, haz un 'ping' para decirle a MySQL que sigues ahí:
+            if conn and conn.is_connected():
+                conn.ping(reconnect=True)
+                
+    return existe
+
+
+def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
+    st.subheader(f"📑 Emisión de Comprobantes de Retención IVA: {EMPRESA}")
+
+    # --- CONTROL DE PESTAÑA ACTIVA ---
+    if 'active_tab' not in st.session_state:
+        st.session_state.active_tab = 0 # 0 es la primera tab ("📥 Cargar Excel")
+    
+    # 1. INICIALIZACIÓN DE ESTADOS (Prevenir KeyErrors)
+    if 'exito_data' not in st.session_state:
+        st.session_state['exito_data'] = None
+    if 'mostrar_exito' not in st.session_state:
+        st.session_state['mostrar_exito'] = False
+
+    # 2. GESTIÓN DE CONEXIÓN
+    db_actual = st.session_state.get('DB_ACTUAL')
+    
+    if 'db_conn' not in st.session_state or st.session_state.db_conn is None:
+        st.session_state.db_conn = conectar_db(db_actual)
+    else:
+        try:
+            st.session_state.db_conn.ping(reconnect=True, attempts=3, delay=1)
+        except:
+            st.session_state.db_conn = conectar_db(db_actual)
+
+    conn = st.session_state.db_conn
+
+    # 3. VALIDACIÓN DE SEGURIDAD
+    if conn is None or not conn.is_connected():
+        st.error("❌ No hay conexión activa con la base de datos.")
+        return
+
+    facturas_seleccionadas = None
+
+    # --- 1. INICIALIZACIÓN ---
+    if 'active_tab' not in st.session_state:
+        st.session_state.active_tab = "📝 Generar Nueva"
+
+    # --- 2. NAVEGACIÓN ---
+    # 1. Creamos las pestañas en una sola línea
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+        "📝 Generar Nueva", 
+        "📄 PDF Comp. Retenciones", 
+        "🖨️ Elimina Retencion", 
+        "⚙️ Habilitar Facturas", 
+        "🗒️ Archivo TXT SENIAT"
+    ])
+
+
+
+# --- 2. VALIDACIÓN DE CONEXIÓN Y CARGA ---
+    with tab1:
+        st.write("Cargando Generar Nueva...")
+        st.subheader("📝 Generar Nueva Retención")
+        db_actual = st.session_state.get("DB_ACTUAL")
+
+        if not db_actual:
+            st.error("⚠️ Debes seleccionar una empresa primero.")
+            st.stop()
+
+        conn = conectar_db(db_actual)
+        if not conn:
+            st.error("❌ No se pudo establecer conexión.")
+            st.stop()
+
+        conn.ping(reconnect=True, attempts=3, delay=1)
+
+        # Filtros
+        col_b1, col_b2 = st.columns(2)
+        f_desde = col_b1.date_input("Desde", f_inicio_global, key="ret_iva_desde")
+        f_hasta = col_b2.date_input("Hasta", f_fin_global, key="ret_iva_hasta")
+
+        # --- 3. LÓGICA DE PROCESAMIENTO ---
+        # En lugar de hacer una carga directa de toda la tabla, haces esto:
+        # 1. Obtenemos las pendientes
+        df_facturas = obtener_facturas_pendientes(conn)
+
+        if not df_facturas.empty:
+            # 2. Agregamos una columna de checkbox para seleccionar
+            if 'Seleccionar' not in df_facturas.columns:
+                df_facturas.insert(0, "Seleccionar", False)
+
+            # 3. Muestra el editor y captura los cambios
+            df_editado = st.data_editor(
+                df_facturas,
+                column_config={"Seleccionar": st.column_config.CheckboxColumn(required=True)},
+                hide_index=True,
+                use_container_width=True
+            )
+
+            # 4. Filtramos solo las marcadas
+            seleccion = df_editado[df_editado["Seleccionar"] == True]
+            
+            if not seleccion.empty:
+                st.session_state['facturas_seleccionadas'] = seleccion
+                st.success(f"Facturas seleccionadas: {len(seleccion)}")
+            else:
+                st.session_state['facturas_seleccionadas'] = None
+
+        facturas_seleccionadas = st.session_state.get('facturas_seleccionadas')
+        if facturas_seleccionadas is not None and not facturas_seleccionadas.empty:
+            total_base_agrupado = facturas_seleccionadas['base_imponible'].sum()
+            total_iva_agrupado = facturas_seleccionadas['iva_monto'].sum()
+            total_facturas_agrupado = facturas_seleccionadas['total_compras'].sum()
+            total_exento_agrupado = facturas_seleccionadas['importe_exento'].sum()
+            
+            factura_principal = facturas_seleccionadas.iloc[0]
+            val_sugerido = str(factura_principal['fecha_operacion']).replace("-", "")[:6] + str(factura_principal['id']).zfill(8)
+
+            # Este botón SÍ puede estar aquí porque es el trigger del form
+            
+
+            st.write("### 📝 Datos del Comprobante (Grupo)")
+
+            
+            # Caso Éxito
+            if st.session_state.get('mostrar_exito'):
+                st.success(f"### ✅ Comprobante `{st.session_state.get('last_iva', {}).get('nro_comp')}` generado.")
+                st.balloons()
+                if 'last_iva' in st.session_state:
+                    st.divider()
+                    st.write("#### Detalle del grupo procesado:")
+                    porcentaje_actual = st.session_state.get('porcentaje_ret', 75)
+
+                    # 2. Creamos la lista procesando cada fila
+                    lista_de_facturas = []
+
+                    for _, fila in facturas_seleccionadas.iterrows():
+                        # Calculamos el monto de retención con el valor seguro
+                        iva = float(fila.get('impuesto_iva', 0))
+                        monto_ret = (iva * porcentaje_actual) / 100
+                        
+                        # Agregamos a la lista
+                        lista_de_facturas.append({
+                            'fecha': fila['fecha_operacion'],
+                            'n_fact': fila['n_factura'],
+                            'n_cont': fila['n_control'],
+                            'total': fila['total_compras'],
+                            'base': fila['base_imponible'],
+                            'iva': iva,
+                            'm_ret': monto_ret
+                        })
+                    #st.table(lista_de_facturas)
+                # --- 3. BOTÓN PARA RESETEAR ---
+                if st.button("🔄 Registrar otro grupo", key="btn_reset_retencion"):
+                    st.session_state['facturas_seleccionadas'] = None
+                    st.session_state['mostrar_exito'] = False
+                    st.rerun()
+            else:
+                # Formulario
+                factura_principal = facturas_seleccionadas.iloc[0]
+                #st.write("DEBUG - Columnas detectadas:", facturas_seleccionadas.columns.tolist())
+                val_sugerido = str(factura_principal['fecha_operacion']).replace("-", "")[:6] + str(factura_principal['id']).zfill(8)
+                
+                st.info(f"Agrupando {len(facturas_seleccionadas)} facturas de **{factura_principal['proveedor']}**")
+                
+                with st.form("form_retencion_iva"):
+                    c1, c2, c3 = st.columns(3)
+                    razon_social_ret = c1.text_input("Sujeto Retenido", value=factura_principal['proveedor'])
+                    rif_ret = c2.text_input("RIF Retenido", value=factura_principal['rif'])
+                    nro_comp = c3.text_input("N° Comprobante (14 dígitos)", value=val_sugerido, key=f"nro_{val_sugerido}")
+                    
+                    st.write("*(Los montos abajo representan la suma de todas las facturas seleccionadas)*")
+                    
+                    c7, c8, c9, c_ex = st.columns(4)
+                    base_i = c7.number_input("Base Imponible Total", value=float(total_base_agrupado), format="%.2f")
+                    iva_i = c8.number_input("Impuesto IVA Total", value=float(total_iva_agrupado), format="%.2f")
+                    monto_exento_val = c_ex.number_input("Monto Exento Total", value=float(total_exento_agrupado), format="%.2f")
+                    total_c = c9.number_input("Total Facturas", value=float(total_facturas_agrupado), format="%.2f")
+                    
+                    c10, c11 = st.columns(2)
+                    porcentaje_ret = c10.selectbox("Porcentaje de Retención", [75, 100])
+                    iva_retenido = (float(iva_i) * porcentaje_ret) / 100
+                    c11.metric("IVA a Retener Total", f"Bs. {iva_retenido:,.2f}")
+
+                    # Justo antes de la llamada a la función:
+
+                    # 1. Obtenemos los datos de la empresa basada en la base de datos actual
+                    db_actual = st.session_state.get('DB_ACTUAL')
+                    empresa_data = obtener_datos_agente_db(db_actual)
+
+                    if not empresa_data:
+                        st.error("⚠️ No se pudieron cargar los datos de la empresa.")
+                    else:
+                        # 2. AQUÍ VA EL SELECTBOX QUE ME PREGUNTAS
+                        # Al pasarle [empresa_data] como lista, el selectbox solo tendrá una opción
+                        empresa_seleccionada = st.selectbox(
+                            "Empresa", 
+                            options=[empresa_data], 
+                            format_func=lambda x: x['nombre_empresa']
+                        )
+                        
+                        # Guardamos la empresa seleccionada en sesión
+                        st.session_state['id_empresa_seleccionada'] = empresa_seleccionada
+
+                    # 3. EL BOTÓN VA AQUÍ (Asegúrate de que no haya st.stop() antes de esta línea)
+                    enviado = st.form_submit_button("💾 Guardar y Generar Documentos")
+
+
+                if enviado:
+                    # 1. Recuperación y validación inicial
+                    empresa_data = st.session_state.get('id_empresa_seleccionada') or st.session_state.get('id_empresa_actual')
+                    db_nombre = st.session_state.get('DB_ACTUAL')
+                    
+                    if not empresa_data or not db_nombre:
+                        st.error("❌ Faltan datos de empresa o base de datos.")
+                        st.stop()
+
+                    conn = conectar_db(db_nombre)
+                    if not conn or not conn.is_connected():
+                        st.warning("⚠️ Reconectando...")
+                        conn = conectar_db(db_nombre)
+
+                    # 2. Extracción de datos empresa
+                    id_final = empresa_data.get('id') if isinstance(empresa_data, dict) else empresa_data
+                    empresa_nombre = empresa_data.get('nombre_empresa') or empresa_data.get('razon_social') or "EMPRESA"
+                    empresa_rif = empresa_data.get('rif') or "000000000"
+                    domicilio_fiscal = empresa_data.get('domicilio_fiscal') or empresa_data.get('direccion') or "DIRECCIÓN NO REGISTRADA"
+
+                    try:
+                        cursor = conn.cursor()
+                        
+                        # 3. Iteración sobre las facturas seleccionadas
+                        for _, fila in facturas_seleccionadas.iterrows():
+                            # Cálculos
+                            base = float(fila.get('base_imponible', 0) or 0)
+                            impuesto = float(fila.get('iva_monto', 0) or 0)
+                            ratio = round(impuesto / base, 2) if base > 0 else 0
+                            es_8 = ratio <= 0.08
+                            iva_retenido = (impuesto * porcentaje_ret) / 100
+                            
+                            b16, i16, r16 = (base, impuesto, iva_retenido) if not es_8 else (0.0, 0.0, 0.0)
+                            b8, i8, r8 = (base, impuesto, iva_retenido) if es_8 else (0.0, 0.0, 0.0)
+                            
+                            fecha_corta = str(fila['fecha_operacion']).split(" ")[0]
+                            ano_f, mes_f = fecha_corta.split("-")[0], fecha_corta.split("-")[1]
+
+                            # Inserción en retenciones_iva
+                            query_ins = """
+                                INSERT INTO retenciones_iva (
+                                    Razon_Social_del_Agente_de_Retencion, RIF_Agente_Retencion, id_empresa, 
+                                    Direccion_FiscalAgente_Retencion, E_Emision, F_Entrega, Razon_Social_Sujeto_Retenido, 
+                                    RIF_Sujeto_Retenido, Ano, Mes, N_Comprobante1, Fecha_Factura, Numero_Factura, 
+                                    Numero_Contro, Total_Comrpas, Compras_Excentas, Base_Imponible, Impuesto_Iva, 
+                                    IVA_Retenido, Base_Imponible_8, IVA_8, RET_IVA_8, Alicuota, Alicuota_75, N_Nota_Debito
+                                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                            """
+
+                            params = (
+                                empresa_nombre, empresa_rif, id_final, domicilio_fiscal,
+                                fecha_corta, fecha_corta, razon_social_ret, rif_ret, ano_f, mes_f,
+                                nro_comp, fecha_corta, str(fila['n_factura']), str(fila['n_control']),
+                                round(float(fila.get('total_compras', 0)), 2), # Asegúrate que tu DataFrame tenga esta columna
+                                round(float(fila.get('importe_exento', 0)), 2),
+                                round(b16, 2), round(i16, 2), round(iva_retenido, 2),
+                                round(b8, 2), round(i8, 2), round(r8, 2),
+                                "16%", "75%", None
+                            )
+                            cursor.execute(query_ins, params)
+                            cursor.execute("UPDATE libro_compras SET retencion_iva_realizada = 1 WHERE id = %s", (int(fila['id']),))
+
+                        # Confirmación final
+                        conn.commit()
+                        st.session_state['last_iva'] = {'nro_comp': nro_comp}
+                        st.session_state['mostrar_exito'] = True
+                        st.rerun()
+
+                    except Exception as e:
+                        if conn: conn.rollback()
+                        st.error(f"❌ Error al procesar: {e}")
+                    finally:
+                        if cursor: cursor.close()
+                        if conn: conn.close()
+
+                
+        with tab2:
+            st.write("Cargando PDF...")
+            st.subheader("🔍 Historial y Consulta de Comprobantes")
+            db_actual = st.session_state.get("DB_ACTUAL")
+            
+            # --- ELIMINA LAS SIGUIENTES DOS LÍNEAS QUE CAUSAN EL ERROR ---
+            # detalle = obtener_detalle_comprobante(opcion_busqueda) 
+            # st.write("Datos recibidos de BD:", detalle)
+            # -------------------------------------------------------------
+            
+            # 1. VALIDACIÓN PREVENTIVA DE CONEXIÓN
+            try:
+                if not conn.is_connected():
+                    conn.reconnect(attempts=3, delay=1)
+            except Exception:
+                conn = conectar_db(db_actual)
+                    
+            # Filtros de búsqueda
+            col_h1, col_h2 = st.columns(2)
+            f_desde_h = col_h1.date_input("Desde", f_inicio_global, key="hist_desde")
+            f_hasta_h = col_h2.date_input("Hasta", f_fin_global, key="hist_hasta")
+
+            # Reutilizamos la función de carga
+            df_historial = cargar_datos_reimpresion(f_desde_h, f_hasta_h)
+            
+            # Inicializamos la variable aquí para que siempre exista
+            opcion_busqueda = None 
+            
+            if not df_historial.empty:
+                opciones = {row['id']: f"Comp: {row['nro_comp']} | {row['razon']}" for i, row in df_historial.iterrows()}
+
+                opcion_busqueda = st.selectbox(
+                    "Seleccione el Comprobante para ver el historial detallado:",
+                    options=list(opciones.keys()),
+                    format_func=lambda x: opciones[x],
+                    index=None,
+                    placeholder="Seleccione un comprobante..."
+                )
+
+                st.write("---")
+
+                # Ahora sí, esta validación es segura
+                if opcion_busqueda is not None: 
+
+                    df_detalle = obtener_detalle_comprobante(opcion_busqueda)
+                    # 1. Definimos el ID de forma segura
+                    id_actual = int(EMPRESA) if str(EMPRESA).isdigit() else 1 
+                    id_real = st.session_state.get('id_empresa_seleccionada', {}).get('id', 1)
+                    # 2. Llamamos a la función y forzamos un valor por defecto si falla
+                    datos_empresa = obtener_datos_agente_db(id_real)
+
+                    # 3. Doble protección: Si por alguna razón la función devolvió None, le ponemos valor
+                    if datos_empresa is None:
+                        datos_empresa = {"nombre_empresa": "NO ENCONTRADO", "rif": "N/A", "domicilio_fiscal": "N/A"}
+
+                    # AHORA SÍ: Esto nunca fallará
+                    # 2. Piso 2: El PDF y Visualización (Solo si hay datos)
+                    if not df_detalle.empty:
+                        d = df_detalle.iloc[0].to_dict()
+                        
+                        # --- DISEÑO TIPO FICHA / REPORTE ---
+                        st.markdown(f"### 📄 Reporte del Comprobante: {d.get('N_Comprobante1', 'N/A')}")
+                        
+                        c1, c2, c3 = st.columns(3)
+                        with c1: 
+                            total_val = float(d.get('Total_Compras') or 0)
+                            st.metric("Total Operación", f"{total_val:,.2f}")
+                        with c2: 
+                            st.metric("Base Imponible", f"{float(d.get('Base_Imponible') or 0):,.2f}")
+                        with c3: 
+                            st.metric("IVA Retenido", f"{float(d.get('IVA_Retenido') or 0):,.2f}")
+
+                        with st.expander("👁️ Ver Datos Completos del Proveedor", expanded=True):
+                            st.write(f"**Razón Social:** {d.get('Razon_Social_Sujeto_Retenido')}")
+                            st.write(f"**RIF:** {d.get('RIF_Sujeto_Retenido')}")
+                            st.write(f"**Fecha de Factura:** {d.get('Fecha_Factura')}")
+                            st.write(f"**Nro. Factura:** {d.get('Numero_Factura')}")
+                            st.write(f"**Nro. Control:** {d.get('Numero_Contro')}")
+
+                        # --- LÓGICA DE EXPORTACIÓN A PDF PROFESIONAL ---
+                        st.write("---")
+                        try:
+                            from fpdf import FPDF
+                            
+                            def safe_float(valor):
+                                try: return float(valor) if valor is not None else 0.0
+                                except: return 0.0
+
+                            class PDF_PRO(FPDF):
+                                def header(self):
+                                    self.set_font('Arial', 'B', 10)
+                                    self.cell(0, 5, 'COMPROBANTE DE RETENCION DEL IMPUESTO AL VALOR AGREGADO', 0, 1, 'C')
+                                    self.set_font('Arial', '', 8)
+                                    texto_legal = (
+                                        "Ley IVA Art.11 Serán Responsables del Pago del Impuesto en Calidad de Agentes de Retención,\n"
+                                        "los compradores o adquirientes de determinados bienes muebles y los receptores de ciertos\n"
+                                        "servicios, a quienes la administración tributaria designe como tal"
+                                    )
+                                    self.multi_cell(0, 4, texto_legal, 0, 'C') 
+                                    self.ln(5)
+
+                            pdf = PDF_PRO(orientation='L', unit='mm', format='A4')
+                            pdf.add_page()
+                            x_mov = 10 
+
+                            # --- 1. OBTENER DATOS (ANTES DE DIBUJAR) ---
+                            # --- 1. OBTENER DATOS (ANTES DE DIBUJAR) ---
+                            df_detalle = obtener_detalle_comprobante(opcion_busqueda) # <--- CAMBIADO A LA VARIABLE CORRECTA
+
+                            if not df_detalle.empty:
+                                # Convertimos la primera fila a diccionario para que d.get() funcione
+                                d = df_detalle.iloc[0].to_dict()
+                            else:
+                                st.error("No se encontraron datos para este comprobante.")
+                                return # O maneja el error como prefieras
+
+                            # --- BLOQUE 1: AGENTE DE RETENCIÓN ---
+                            # 1. Recuperamos el nombre seleccionado y buscamos su ID real
+                            nombre_empresa_actual = st.session_state.get('CLIENTE_NOMBRE')
+
+                            # Buscamos en el DataFrame el registro que coincide con el nombre
+                            datos_actuales = df_sidebar[df_sidebar['nombre_empresa'] == nombre_empresa_actual].iloc[0]
+                            # Convertimos explícitamente a int de Python
+                            id_real = int(datos_actuales['id'])
+
+                            # 2. Llamamos a la función usando el ID REAL obtenido de la BD
+                            datos_empresa = obtener_datos_agente_db(id_real)
+
+                            # DEBUG (Opcional, para verificar)
+                            st.sidebar.info(f"Generando PDF para ID: {id_real}")
+
+                            # 3. Dibujamos en el PDF usando los datos correctos
+                            pdf.rect(15, 35, 110, 15) 
+                            pdf.set_font("Arial", "", 8); pdf.text(17, 39, "Razon Social del Agente de Retencion:")
+                            pdf.set_font("Arial", "B", 9); pdf.text(17, 46, str(datos_empresa.get('nombre_empresa', 'N/A'))) 
+
+                            pdf.rect(130, 35, 60, 15) 
+                            pdf.set_font("Arial", "", 8); pdf.text(132, 39, "RIF Agente Retencion:")
+                            pdf.set_font("Arial", "B", 10); pdf.text(132, 46, str(datos_empresa.get('rif', 'N/A')))
+
+                            pdf.rect(200, 35, 75, 15) 
+                            pdf.set_font("Arial", "", 8); pdf.text(202, 39, "N° Comprobante:")
+                            pdf.set_font("Arial", "B", 11); pdf.text(202, 47, str(d.get('N_Comprobante1', '')))
+
+                            # ------- BLOQUE 2: DIRECCIÓN Y FECHAS ----------------------
+
+                            pdf.rect(15, 55, 175, 15)
+
+                            # 2. Ponemos la etiqueta del campo
+                            pdf.set_font("Arial", "", 8)
+                            pdf.text(17, 59, "Direccion Fiscal del Agente Retencion:")
+
+                            # 3. Configuramos la fuente para la dirección
+                            pdf.set_font("Arial", "", 7)
+
+                            # 4. Usamos set_xy y multi_cell para que el texto se ajuste dentro del recuadro
+                            # La posición x=17, y=61 es donde empieza la dirección dentro del rectángulo
+                            pdf.set_xy(17, 61) 
+
+                            # Obtenemos la dirección desde la base de datos (con valor por defecto si está vacío)
+                            domicilio_real = str(datos_empresa.get('domicilio_fiscal', 'NO REGISTRADO'))
+
+                            # multi_cell(ancho, alto, texto) - el ancho 170 es para que no toque el borde derecho
+                            pdf.multi_cell(170, 3.5, domicilio_real)
+
+                            # ------- BLOQUE 3:  ----------------------
+
+                            pdf.rect(200, 55, 35, 15) 
+                            pdf.set_font("Arial", "", 8); pdf.text(202, 59, "E. Emision:")
+                            pdf.set_font("Arial", "B", 9); pdf.text(202, 66, str(d.get('E_Emision', '')))
+
+                            pdf.rect(235, 55, 40, 15) 
+                            pdf.set_font("Arial", "", 8); pdf.text(237, 59, "F. Entrega:")
+                            pdf.set_font("Arial", "B", 9); pdf.text(237, 66, str(d.get('F_Entrega', '')))
+
+                            # --- BLOQUE 3: SUJETO RETENIDO ---
+                            pdf.rect(15, 75, 110, 15)
+                            pdf.set_font("Arial", "", 8); pdf.text(17, 79, "Razon Social Sujeto Retenido:")
+                            pdf.set_font("Arial", "B", 9); pdf.text(17, 86, str(d.get('Razon_Social_Sujeto_Retenido', '')))
+
+                            pdf.rect(130, 75, 60, 15)
+                            pdf.set_font("Arial", "", 8); pdf.text(132, 79, "RIF Sujeto Retenido:")
+                            pdf.set_font("Arial", "B", 10); pdf.text(132, 86, str(d.get('RIF_Sujeto_Retenido', '')))
+
+                            pdf.rect(200, 75, 35, 15)
+                            pdf.set_font("Arial", "", 8); pdf.text(202, 79, "Año:")
+                            pdf.set_font("Arial", "B", 10); pdf.text(202, 86, str(d.get('Ano', '')))
+
+                            pdf.rect(235, 75, 40, 15)
+                            pdf.set_font("Arial", "", 8); pdf.text(237, 79, "Mes:")
+                            pdf.set_font("Arial", "B", 10); pdf.text(237, 86, str(d.get('Mes', '')).zfill(2))
+
+                            # --- EXTRACCIÓN PROTEGIDA DE VALORES NUMÉRICOS ---
+                            total_val = safe_float(d.get('Total_Comrpas'))
+                            exento_val = safe_float(d.get('Compras_Excentas'))
+                            base_val = safe_float(d.get('Base_Imponible'))
+                            alicuota_val = safe_float(d.get('Alicuota'))
+                            iva_val = safe_float(d.get('Impuesto_Iva'))
+                            ret_val = safe_float(d.get('IVA_Retenido'))
+
+                            # --- TABLA DE DETALLES ---
+                            pdf.set_y(95)
+                            pdf.set_x(15 + x_mov) 
+                            pdf.set_font("Arial", "B", 7)
+                            
+                            # --- TABLA DE DETALLES (ACTUALIZADA PARA 8% Y 16%) ---
+                            # Cabecera de tabla
+                            
+                            cols_numericas = ['Compras_Excentas', 'Base_Imponible', 'Impuesto_Iva', 'IVA_Retenido', 
+                                              'Base_Imponible_8', 'IVA_8', 'RET_IVA_8']
+                            for col in cols_numericas:
+                                df_detalle[col] = df_detalle[col].fillna(0)
+
+                            # 2. Determinar si hay alícuota del 8%
+                            tiene_alicuota_8 = df_detalle['Base_Imponible_8'].sum() > 0
+
+                            # 3. Definir estructuras según el caso (Longitud Variable)
+                            if tiene_alicuota_8:
+                                h = ["Fecha", "N.Fact", "N.Contr", "Total", "Exento", "Base 16%", "IVA 16%", "Ret. 16%", "Base 8%", "IVA 8%", "Ret. 8%", "Total Ret."]
+                                w = [20, 15, 20, 25, 20, 20, 20, 20, 20, 20, 20, 20]
+                            else:
+                                # AQUÍ NO USAS 0, simplemente eliminas las columnas del 8% de la lista
+                                h = ["Fecha", "N.Fact", "N.Contr", "Total", "Exento", "Base 16%", "IVA 16%", "Ret. 16%", "Total Ret."]
+                                w = [20, 15, 20, 25, 20, 20, 20, 20, 20]
+
+                            # 4. Cálculo del centrado
+                            ancho_total_tabla = sum(w) 
+                            margen_centrado = (277 - ancho_total_tabla) / 2
+                            x_mov_dinamico = 10 + margen_centrado
+
+                            # 5. DIBUJO DE CABECERA (SOLO ESTE BLOQUE DEBE EXISTIR)
+                            pdf.set_fill_color(240, 240, 240)
+                            pdf.set_font("Arial", "B", 7)
+                            pdf.set_x(x_mov_dinamico) 
+
+                            for i in range(len(h)):
+                                pdf.cell(w[i], 5, h[i], 1, 0, 'C', fill=True)
+                            pdf.ln()
+
+                            # 6. Inicializar Totales Generales
+                            tot_gen_total, tot_gen_exento = 0, 0
+                            tot_gen_base16, tot_gen_iva16, tot_gen_ret16 = 0, 0, 0
+                            tot_gen_base8, tot_gen_iva8, tot_gen_ret8 = 0, 0, 0
+
+                            # --- 3. BUCLE DE FACTURAS ---
+                            pdf.set_font("Arial", "", 7)
+                            for _, fila in df_detalle.iterrows():
+                                pdf.set_x(x_mov_dinamico)
+                                d = fila.to_dict()
+                                
+                                # Extraer valores seguros
+                                exento = safe_float(d.get('Compras_Excentas'))
+                                b16 = safe_float(d.get('Base_Imponible'))
+                                i16 = safe_float(d.get('Impuesto_Iva'))
+                                r16 = safe_float(d.get('IVA_Retenido'))
+                                b8 = safe_float(d.get('Base_Imponible_8'))
+                                i8 = safe_float(d.get('IVA_8'))
+                                r8 = safe_float(d.get('RET_IVA_8'))
+                                total_fila = exento + b16 + b8 + i16 + i8 # Asegúrate que tu lógica de total sea correcta
+                                
+                                # Acumular totales
+
+                                tot_gen_total += total_fila
+                                tot_gen_exento += exento
+                                tot_gen_base16 += b16
+                                tot_gen_iva16 += i16
+                                tot_gen_base8 += b8
+                                tot_gen_iva8 += i8
+                                retencion_fila = r16 + r8
+                                # Si la columna es 16%, solo debe mostrar r16. Si es 8%, solo r8
+                                total_retencion_general = tot_gen_ret16 + tot_gen_ret8
+                                valor_mostrar_r16 = r16 
+                                valor_mostrar_r8 = r8 if tiene_alicuota_8 else 0
+                                mostrar_r16 = r16 if (b16 > 0) else 0
+                                mostrar_r8 = r8 if (b8 > 0) else 0
+                                #total_fila_retencion = mostrar_r16 + mostrar_r8
+
+                                valor_a_mostrar_r16 = r16 if b16 > 0 else 0
+                                valor_a_mostrar_r8 = r8 if b8 > 0 else 0
+                                # Esta es la suma REAL de la fila actual
+                                total_fila_retencion = valor_a_mostrar_r16 + valor_a_mostrar_r8
+
+                               # Lógica de exclusión para la columna del 16%
+                               # Si es una fila exclusiva de 8%, la columna Ret. 16% debe ser 0.00
+                                # 1. ACUMULACIÓN CONTROLADA (¡ESTO ES LO QUE TE FALTA!)
+                                if b16 > 0:
+                                    tot_gen_ret16 += r16
+                                if b8 > 0:
+                                    tot_gen_ret8 += r8
+
+                                # Dibujar fila
+                                pdf.set_x(x_mov_dinamico)
+                                pdf.cell(w[0], 4, str(d.get('Fecha_Factura', '')), 1, 0, 'C')
+                                pdf.cell(w[1], 4, str(d.get('Numero_Factura', '')), 1, 0, 'C')
+                                pdf.cell(w[2], 4, str(d.get('Numero_Contro', '')), 1, 0, 'C')
+                                pdf.cell(w[3], 4, f"{total_fila:,.2f}", 1, 0, 'R')
+                                pdf.cell(w[4], 4, f"{exento:,.2f}", 1, 0, 'R')
+                                pdf.cell(w[5], 4, f"{b16:,.2f}", 1, 0, 'R')
+                                pdf.cell(w[6], 4, f"{i16:,.2f}", 1, 0, 'R')
+    
+                                # Columnas opcionales (Solo si tiene_alicuota_8 es True)
+                                pdf.cell(w[7], 4, f"{valor_a_mostrar_r16:,.2f}", 1, 0, 'R')
+
+                                if tiene_alicuota_8:
+                                    pdf.cell(w[8], 4, f"{b8:,.2f}", 1, 0, 'R')
+                                    pdf.cell(w[9], 4, f"{i8:,.2f}", 1, 0, 'R')
+                                    # Celda Ret. 8% (Columna 10)
+                                    pdf.cell(w[10], 4, f"{valor_a_mostrar_r8:,.2f}", 1, 0, 'R')
+                                    # Total Ret. de la FILA (Columna 11)
+                                    pdf.cell(w[11], 4, f"{total_fila_retencion:,.2f}", 1, 1, 'R', fill=True)
+                                else:
+                                    # Si no hay 8%, el total de la fila es solo el 16%
+                                    pdf.cell(w[8], 4, f"{valor_a_mostrar_r16:,.2f}", 1, 1, 'R', fill=True)
+                                #pdf.ln()
+
+                            # --- 4. FILA DE TOTALES (FUERA DEL BUCLE) ---
+                            # --- TOTALES DENTRO DE LA TABLA ---
+                            # --- 4. FILA DE TOTALES (CORRECCIÓN DE ANCHO) ---
+                            st.warning(f"DEBUG: tot_gen_ret16 es: {tot_gen_ret16}")
+                            st.warning(f"DEBUG: tot_gen_ret8 es: {tot_gen_ret8}")
+                            total_retencion_general = tot_gen_ret16 + tot_gen_ret8
+                            pdf.set_x(x_mov_dinamico)
+                            pdf.set_font("Arial", "B", 7)
+                            pdf.set_fill_color(220, 220, 220)
+
+                            # 1. Ajustamos la celda "TOTALES" para que sea más pequeña si es necesario
+                            # Si la tabla tiene 11 columnas (w[0] a w[10]), el total general ocupa una columna extra
+                            pdf.cell(sum(w[:3]), 5, "TOTALES", 1, 0, 'R', fill=True)
+
+                            # 2. Imprimimos el resto de totales normales
+                            pdf.cell(w[3], 5, f"{tot_gen_total:,.2f}", 1, 0, 'R')
+                            pdf.cell(w[4], 5, f"{tot_gen_exento:,.2f}", 1, 0, 'R')
+                            pdf.cell(w[5], 5, f"{tot_gen_base16:,.2f}", 1, 0, 'R')
+                            pdf.cell(w[6], 5, f"{tot_gen_iva16:,.2f}", 1, 0, 'R')
+                            pdf.cell(w[7], 5, f"{tot_gen_ret16:,.2f}", 1, 0, 'R')
+
+                            if tiene_alicuota_8:
+                                pdf.cell(w[8], 5, f"{tot_gen_base8:,.2f}", 1, 0, 'R')
+                                pdf.cell(w[9], 5, f"{tot_gen_iva8:,.2f}", 1, 0, 'R')
+                                # AQUÍ: Imprime el acumulado REAL del 8% (debe dar 743.96)
+                                pdf.cell(w[10], 5, f"{tot_gen_ret8:,.2f}", 1, 0, 'R') 
+                                # AQUÍ: Suma los dos acumulados reales (8,636.86 + 743.96 = 9,380.82)
+                                pdf.cell(w[11], 5, f"{tot_gen_ret16 + tot_gen_ret8:,.2f}", 1, 1, 'R', fill=True)
+                                
+                            else:
+                                # Caso donde no hay alícuota del 8%, el total retención es solo el 16%
+                                pdf.cell(w[8], 5, f"{tot_gen_ret16:,.2f}", 1, 1, 'R', fill=True)
+
+                            # --- SECCIÓN DE FIRMAS (Ajustada con x_mov) ---
+                            pdf.ln(35)
+                            y_firmas = pdf.get_y()
+                            pdf.set_font("Arial", "B", 8)
+                            
+                            # Líneas de firma
+                            pdf.line(40 + x_mov, y_firmas, 110 + x_mov, y_firmas)
+                            pdf.line(180 + x_mov, y_firmas, 250 + x_mov, y_firmas)
+                            
+                            # Textos de firma
+                            # Usamos una ruta relativa: busca dentro de la carpeta 'assets'
+                            import os
+
+                            # --- SECCIÓN DE FIRMAS ---
+                            # 1. Definimos un límite seguro antes de dibujar
+                            limite_pagina = 240 # Si estás más abajo de 240mm, mejor saltar a página nueva
+
+                            if pdf.get_y() > limite_pagina:
+                                pdf.add_page()
+                                # (Opcional) Aquí podrías volver a poner un encabezado si fuera necesario
+                                y_firmas = 40 # Posición inicial en la nueva página
+                            else:
+                                pdf.ln(35) # Espacio si hay lugar en la misma página
+                                y_firmas = pdf.get_y()
+
+                            # 2. Ahora dibujamos todo usando y_firmas como referencia
+                            import os
+                            ruta_firma = os.path.join("assets", "cielo.png")
+
+                            # --- AJUSTE DE FIRMAS MÁS HACIA ARRIBA ---
+                            # Aumentamos los valores restados para subir los elementos en la página
+
+
+                            # Dibujar firma e imagen
+                            pdf.image(ruta_firma, x=55 + x_mov, y=y_firmas - 65, w=35)
+                            pdf.text(50 + x_mov, y_firmas - 28, "AGENTE DE RETENCION")
+                            pdf.text(195 + x_mov, y_firmas - 31, "SUJETO RETENIDO")
+
+                            # 3. Datos DINÁMICOS
+                            pdf.set_font("Arial", "B", 7)
+                            nombre_empresa = datos_empresa.get('nombre_empresa', 'N/A')
+                            rif_empresa = datos_empresa.get('rif', 'N/A')
+
+                            pdf.set_xy(40 + x_mov, y_firmas - 25)
+                            pdf.multi_cell(65, 5, f"{nombre_empresa}\nRIF: {rif_empresa}", 0, 'C')
+
+                            # Finalizar
+                            pdf_output = pdf.output(dest='S').encode('latin-1')
+                            
+                            st.download_button(
+                                label="📥 Exportar este Comprobante a PDF",
+                                data=pdf_output,
+                                file_name=f"COMP_{d.get('N_Comprobante1', '0')}.pdf",
+                                mime="application/pdf",
+                                type="primary"
+                            )
+                        except Exception as e:
+                            st.error(f"Error al generar PDF: {e}")
+
+                    else:
+                        st.error("⚠️ No se encontraron detalles válidos para este comprobante.")
+
+                    # 3. Piso 3: El Historial (¡Se ve siempre que haya una selección!)
+                    st.divider()
+                    st.write("📋 Resumen del período seleccionado:")
+                    if not df_historial.empty:
+                        st.dataframe(df_historial, use_container_width=True, hide_index=True)
+                    else:
+                        st.info("No se encontraron registros en el historial para este rango de fechas.")
+
+                else:
+                    # Planta Baja vacía
+                    st.info("Por favor, seleccione un comprobante de la lista superior.")
+
+        
+
+        with tab3:
+            st.write("Cargando Eliminar Retencion...")
+            
+            col_r1, col_r2 = st.columns(2)
+            f_desde_r = col_r1.date_input("Desde", f_inicio_global, key="reimp_desde")
+            f_hasta_r = col_r2.date_input("Hasta", f_fin_global, key="reimp_hasta")
+
+            df_reimp = cargar_datos_reimpresion(f_desde_r, f_hasta_r)
+
+            if not df_reimp.empty:
+                # 1. Definimos configuración de columnas con anchos más generosos
+                column_config = {}
+                for col in df_reimp.columns:
+                    if col in ['id', 'id_empresa', 'Ano', 'Mes']:
+                        column_config[col] = st.column_config.NumberColumn(width=100)
+                    else:
+                        column_config[col] = st.column_config.TextColumn(width=200) # Más ancho para que no se encojan
+
+                # Bloqueos de seguridad
+                column_config['id'] = st.column_config.NumberColumn(disabled=True, width=80)
+                if 'id_empresa' in df_reimp.columns:
+                    column_config['id_empresa'] = st.column_config.NumberColumn(disabled=True, width=80)
+
+                st.write("Modifica los valores directamente en la tabla y presiona 'Guardar Cambios':")
+                
+                # 2. ELIMINAMOS EL CSS DE ANCHO AL 100%
+                # Usamos el contenedor para el scroll vertical y permitimos el horizontal naturalmente
+                with st.container(height=300):
+                    edited_df = st.data_editor(
+                        df_reimp,
+                        column_config={
+                            "id": st.column_config.NumberColumn(disabled=True), # El ID nunca debe ser editable
+                            "nro_comp": st.column_config.TextColumn(disabled=True) # Si no quieres que cambien el número de comprobante
+                        },
+                        use_container_width=True,
+                        hide_index=True,
+                        key="editor_retenciones" # Clave única para evitar conflictos de estado
+                    )
+                # 3. Guardado
+                if st.button("💾 Guardar Cambios"):
+                    for _, row in edited_df.iterrows():
+                        # Buscamos la fila original en el df_reimp original mediante el ID
+                        original_row = df_reimp[df_reimp['id'] == row['id']].iloc[0]
+                        
+                        # Solo actualizamos si algo cambió realmente
+                        if not row.equals(original_row):
+                            if actualizar_registro_retencion(row):
+                                st.toast(f"Registro {row['id']} actualizado", icon="✅")
+                    
+                    st.rerun() # Recargamos para refrescar la tabla después de guardar
+
+                st.divider()
+
+                # 4. Eliminación
+                st.subheader("🗑️ Eliminar Registro")
+                def get_label(row):
+                    # Intentamos obtener el valor, si la columna no existe, devuelve 'Sin Nro'
+                    nro = row.get('nro_comp', 'Sin Nro')
+                    fact = row.get('Numero_Factura', 'Sin Factura')
+                    return f"Comp: {nro} | Fact: {fact}"
+
+                opciones_eliminar = {row['id']: get_label(row) for _, row in df_reimp.iterrows()}
+                
+                seleccion_del = st.selectbox(
+                    "Seleccione el comprobante a ELIMINAR:",
+                    options=list(opciones_eliminar.keys()),
+                    format_func=lambda x: opciones_eliminar[x]
+                )
+
+                if st.button("🚨 Confirmar Eliminación Permanente"):
+                    if eliminar_registro_retencion(seleccion_del):
+                        st.toast("Comprobante eliminado", icon="✅")
+                        st.rerun()
+            else:
+                st.info("No hay registros en este rango.")
+
+        # --- TAB 5: GESTIÓN DE FACTURAS (DESBLOQUEO) ---
+        with tab4:
+            st.write("Cargando Habilitar...")
+            st.subheader("🔓 Desbloquear Facturas (Quitar Retención)")
+
+            # 1. VALIDACIÓN PREVENTIVA (Antes de cargar la lista)
+            try:
+                if not conn.is_connected():
+                    conn.reconnect(attempts=3, delay=1)
+            except Exception as e:
+                conn = conectar_db(db_actual)
+
+
+            facturas_bloqueadas = pd.read_sql("SELECT n_factura as numero_factura, proveedor FROM libro_compras WHERE retencion_iva_realizada = 1", conn)
+
+            if not facturas_bloqueadas.empty:
+                opciones = facturas_bloqueadas['numero_factura'] + " - " + facturas_bloqueadas['proveedor']
+                seleccion_label = st.selectbox("Seleccione factura para habilitar:", opciones, key="sel_des_iva")
+                nro_a_desbloquear = seleccion_label.split(" - ")[0]
+                
+                if st.button("Habilitar Factura", key="btn_des_iva"):
+                    cursor_aux = conn.cursor()
+                    cursor_aux.execute("UPDATE libro_compras SET retencion_iva_realizada = 0 WHERE n_factura = %s", (nro_a_desbloquear,))
+                    conn.commit()
+                    st.success(f"Factura {nro_a_desbloquear} habilitada.")
+                    st.rerun()
+            else:
+                st.info("No hay facturas bloqueadas actualmente.")
+
+        
+        # --- TAB 6: ARCHIVO TXT SENIAT ---
+        with tab5:
+            st.write("Cargando TXT...")
+            st.subheader("🚀 Generación de Archivo TXT para el SENIAT")
+            st.info("Seleccione el rango de fechas para consolidar las retenciones.")
+
+            col1, col2 = st.columns(2)
+            with col1:
+                fecha_inicio = st.date_input("Fecha Inicio", datetime.datetime.now().replace(day=1))
+            with col2:
+                fecha_fin = st.date_input("Fecha Fin", datetime.datetime.now())
+
+            if st.button("🔍 Filtrar y Generar TXT"):
+                # Aseguramos obtener la BD actual de la sesión
+                db_nombre = st.session_state.get('DB_ACTUAL')
+                if not db_nombre:
+                    st.error("Error: No se ha seleccionado una base de datos.")
+                else:
+                    conn = conectar_db(db_nombre)
+                    try:
+                        cursor = conn.cursor(dictionary=True)
+                        query_txt = "SELECT * FROM retenciones_iva WHERE E_Emision BETWEEN %s AND %s"
+                        cursor.execute(query_txt, (fecha_inicio.strftime('%Y-%m-%d'), fecha_fin.strftime('%Y-%m-%d')))
+                        registros_txt = cursor.fetchall()
+                        cursor.close()
+                        
+                        if registros_txt:
+                            lineas_txt = []
+                            for reg in registros_txt:
+                                # 1. Detectar si es alícuota del 8% o 16%
+                                es_ocho = float(reg.get('Base_Imponible_8', 0) or 0) > 0
+                                
+                                # Definir montos dinámicamente según la alícuota
+                                if es_ocho:
+                                    m_base = f"{float(reg.get('Base_Imponible_8', 0) or 0):.2f}"
+                                    m_ret = f"{float(reg.get('RET_IVA_8', 0) or 0):.2f}"
+                                    m_ali = "8.00"
+                                else:
+                                    m_base = f"{float(reg.get('Base_Imponible', 0) or 0):.2f}"
+                                    m_ret = f"{float(reg.get('IVA_Retenido', 0) or 0):.2f}"
+                                    m_ali = "16.00"
+
+                                # 2. Otros campos
+                                fecha_raw = reg.get('Fecha_Factura', '')
+                                # Manejo seguro de fecha
+                                try:
+                                    f_obj = datetime.strptime(str(fecha_raw), '%Y-%m-%d')
+                                except:
+                                    f_obj = datetime.now()
+                                periodo = f_obj.strftime("%Y%m")
+                                
+                                # 3. Construcción de campos
+                                campos = [
+                                    str(reg.get('RIF_Agente_Retencion', '')).replace('-', '').strip(),
+                                    periodo,
+                                    f_obj.strftime('%Y-%m-%d'),
+                                    'C', '01',
+                                    str(reg.get('RIF_Sujeto_Retenido', '')).replace('-', '').strip(),
+                                    str(reg.get('Numero_Factura', '')).strip(),
+                                    str(reg.get('Numero_Contro', '')).strip(),
+                                    f"{float(reg.get('Total_Comrpas', 0) or 0):.2f}",
+                                    m_base, 
+                                    m_ret, 
+                                    '0',
+                                    str(reg.get('N_Comprobante1', '')).strip(),
+                                    f"{float(reg.get('Compras_Excentas', 0) or 0):.2f}",
+                                    m_ali, 
+                                    '0'
+                                ]
+                                lineas_txt.append("\t".join(campos))
+                            
+                            # Generar contenido
+                            contenido_final_txt = "\n".join(lineas_txt)
+                            st.code(contenido_final_txt)
+                            
+                            nombre_archivo = f"IVA_SENIAT_{fecha_inicio.strftime('%Y-%m-%d')}_al_{fecha_fin.strftime('%Y-%m-%d')}.txt"
+
+                            st.download_button(
+                                label="💾 Descargar TXT",
+                                data=contenido_final_txt,
+                                file_name=nombre_archivo,
+                                mime="text/plain"
+                            )
+                        else:
+                            st.warning("No hay registros en este rango.")
+                    except Exception as e:
+                        st.error(f"Error al generar TXT: {e}")
+                    finally:
+                        if conn.is_connected():
+                            conn.close()
+
+
+def consultar_tabla_db(conn, nombre_tabla):
+    """
+    Consulta registros usando la conexión activa pasada como parámetro.
+    """
+    df = pd.DataFrame()
+    cursor = None
+    
+    # Registro de actividad (usando la conexión que ya recibiste)
+    if conn and conn.is_connected():
+        usuario = st.session_state.get('usuario', 'Desconocido')
+        cliente = st.session_state.get('cliente_id', 'N/A')
+        registrar_log_automatico(conn, "CONSULTA_TABLA", f"Usuario {usuario} consultó {nombre_tabla} para cliente {cliente}")
+    
+        try:
+            cursor = conn.cursor()
+            # Usamos nombre_tabla (el argumento) en lugar de una variable fija
+            query = f"SELECT * FROM {nombre_tabla}"
+            df = pd.read_sql(query, conn)
+        except Exception as e:
+            st.error(f"Error al consultar la tabla {nombre_tabla}: {e}")
+        finally:
+            if cursor:
+                cursor.close()
+            # Mantenemos la conexión viva para futuras operaciones
+            conn.ping(reconnect=True)
+            
+    return df
+
+
+def actualizar_tabla_completa_db(conn, nombre_tabla, df_nuevo):
+    """
+    Actualización genérica: hace TRUNCATE y luego inserta el DF completo.
+    """
+    if not conn or not conn.is_connected():
+        raise Exception("No hay conexión activa a la base de datos.")
+
+    cursor = conn.cursor()
+    try:
+        # 1. Limpiar tabla de forma segura
+        cursor.execute("SET FOREIGN_KEY_CHECKS = 0;")
+        cursor.execute(f"TRUNCATE TABLE {nombre_tabla}")
+        
+        # 2. Generar el INSERT dinámico basado en las columnas del DataFrame
+        columnas = ", ".join(df_nuevo.columns)
+        placeholders = ", ".join(["%s"] * len(df_nuevo.columns))
+        sql = f"INSERT INTO {nombre_tabla} ({columnas}) VALUES ({placeholders})"
+        
+        # 3. Insertar datos de forma masiva
+        datos = [tuple(row) for row in df_nuevo.values]
+        cursor.executemany(sql, datos)
+        
+        conn.commit()
+        cursor.execute("SET FOREIGN_KEY_CHECKS = 1;")
+        
+    except Exception as e:
+        conn.rollback()
+        raise e # Lanzamos el error hacia arriba para que el st.error del menú lo capture
+    finally:
+        if cursor:
+            cursor.close()
+        if conn and conn.is_connected():
+            conn.ping(reconnect=True)
+
+
+def modulo_inventario_pedacito_cielo(conn):
+    st.markdown("## 🍰 Sistema de Inventario y Costeo — Pedacito de Cielo")
+    st.write("Control bimoneda de materia prima, formulación de recetas y rebaja automática por producción con valoración ERP.")
+
+    # -------------------------------------------------------------------------
+    # PASO 0: CREACIÓN SEGURA Y SILENCIOSA (EVITA ERRORES 1050)
+    # -------------------------------------------------------------------------
+    try:
+        cursor = conn.cursor()
+        
+        # 1. Verificamos si la tabla de productos existe
+        cursor.execute("""
+            SELECT COUNT(*) 
+            FROM information_schema.tables 
+            WHERE table_schema = 'pedacito_de_cielo_ca' 
+              AND table_name = 'inventario_productos';
+        """)
+        tabla_existe = cursor.fetchone()[0] > 0
+        
+        # 2. Solo si NO existe, ejecutamos la creación e inserción inicial
+        if not tabla_existe:
+            cursor.execute("""
+                CREATE TABLE pedacito_de_cielo_ca.inventario_productos (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    empresa VARCHAR(150) NOT NULL DEFAULT 'REPRESENTACIONES PEDACITO DE CIELO, C.A.',
+                    empresa_nombre VARCHAR(150) NOT NULL,
+                    sku VARCHAR(50), 
+                    descripcion VARCHAR(255) NOT NULL,
+                    tipo VARCHAR(50) DEFAULT 'MATERIA_PRIMA',
+                    unidad VARCHAR(20) DEFAULT 'KG',           
+                    stock DECIMAL(15, 2) DEFAULT 0.00,
+                    stock_minimo DECIMAL(15, 2) DEFAULT 5.00,
+                    costo_usd DECIMAL(15, 4) DEFAULT 0.0000,
+                    ultimo_precio_compra_usd DECIMAL(15, 4) DEFAULT 0.0000,
+                    CONSTRAINT unique_sku_por_empresa UNIQUE (empresa_nombre, sku)
+                );
+            """)
+            
+            insumos_iniciales = [
+                ('MP-HAR01', 'Harina de Trigo Leudante', 'MATERIA_PRIMA', 'KG', 10.00, 1.25, 1.45),
+                ('MP-AZU01', 'Azúcar Refinada', 'MATERIA_PRIMA', 'KG', 8.00, 0.85, 0.95),
+                ('MP-MAN01', 'Mantequilla', 'MATERIA_PRIMA', 'KG', 5.00, 2.40, 2.65),
+                ('PT-TOR01', 'Torta de Vainilla Tradicional', 'PRODUCTO_TERMINADO', 'UNIDAD', 0.00, 0.00, 0.00)
+            ]
+            for sku, desc, tipo, unit, stock, costo_p, costo_r in insumos_iniciales:
+                cursor.execute("""
+                    INSERT IGNORE INTO pedacito_de_cielo_ca.inventario_productos 
+                    (empresa_nombre, sku, descripcion, tipo, unidad, stock, costo_usd, ultimo_precio_compra_usd)
+                    VALUES ('REPRESENTACIONES PEDACITO DE CIELO, C.A.', %s, %s, %s, %s, %s, %s, %s);
+                """, (sku, desc, tipo, unit, stock, costo_p, costo_r))
+            conn.commit()
+            
+        cursor.close()
+    except Exception as e:
+        st.error(f"❌ Error crítico en estructura: {e}")
+
+    # -------------------------------------------------------------------------
+    # LA JOYA CONTABLE: MOTOR DE VALORACIÓN EN LA UI
+    # -------------------------------------------------------------------------
+    st.sidebar.markdown("### 🧮 Motor de Costeo")
+    metodo_valoracion = st.sidebar.radio(
+        "Método de Valoración Activo:",
+        ["Promedio Ponderado Móvil (PPM)", "Costo de Reposición (Última Compra)"],
+        help="PPM: Promedio histórico exigido por el SENIAT. Reposición: Utiliza el último costo para proteger márgenes."
+    )
+    
+    tasa_bcv_hoy = 36.50
+    st.sidebar.info(f"💵 Tasa de Cambio BCV: Bs. {tasa_bcv_hoy:,.2f}")
+
+    # AGREGA 'tab_alertas' AQUÍ ABAJO:
+    tab_stock, tab_recetas, tab_movimientos, tab_alertas, tab_produccion = st.tabs([
+        "📦 Control de Stock y Kardex", 
+        "👩‍🍳 Recetarios y Costos", 
+        "🔄 Movimientos Manuales",
+        "🚨 Alertas e Inteligencia (ABC)", # <-- La nueva etiqueta para la interfaz
+        "🚀 Registrar Tanda de Producción"
+    ])
+
+    # -------------------------------------------------------------------------
+    # EXTRACCIÓN Y SELECCIÓN DE DATOS
+    # -------------------------------------------------------------------------
+    data_productos = []
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT id, sku, descripcion, tipo, unidad, stock, costo_usd, ultimo_precio_compra_usd 
+            FROM pedacito_de_cielo_ca.inventario_productos 
+            WHERE empresa_nombre LIKE %s
+        """, ("%PEDACITO DE%CIELO%",))
+        filas = cursor.fetchall()
+        cursor.close()
+        
+        for f in filas:
+            c_ppm = float(f[6]) if f[6] is not None else 0.0
+            c_rep = float(f[7]) if f[7] is not None else 0.0
+            costo_aplicado = c_ppm if metodo_valoracion == "Promedio Ponderado Móvil (PPM)" else c_rep
+            
+            data_productos.append({
+                "id": f[0], "sku": f[1], "descripcion": f[2], "tipo": f[3], "unidad": f[4], 
+                "stock": float(f[5]) if f[5] is not None else 0.0,
+                "costo_usd": costo_aplicado,
+                "costo_ppm_original": c_ppm,
+                "costo_rep_original": c_rep
+            })
+    except Exception as e:
+        st.error(f"⚠️ Error al conectar con la base de datos: {e}")
+
+    df_prod = pd.DataFrame(data_productos) if data_productos else pd.DataFrame()
+
+    # -------------------------------------------------------------------------
+    # PESTAÑA 1: CONTROL DE STOCK Y KARDEX MULTIMONEDA
+    # -------------------------------------------------------------------------
+    with tab_stock:
+        st.markdown(f"### 📊 Almacén Valorado vía: **{metodo_valoracion}**")
+        
+        if not df_prod.empty:
+            c1, c2 = st.columns(2)
+            with c1:
+                filto_tipo = st.selectbox("Filtrar por Tipo:", ["Todos", "MATERIA_PRIMA", "PRODUCTO_TERMINADO"])
+            with c2:
+                buscar_prod = st.text_input("🔍 Buscar Producto/Insumo:")
+                
+            df_filtrado = df_prod.copy()
+            if filto_tipo != "Todos":
+                df_filtrado = df_filtrado[df_filtrado['tipo'] == filto_tipo]
+            if buscar_prod:
+                df_filtrado = df_filtrado[df_filtrado['descripcion'].str.contains(buscar_prod, case=False)]
+                
+            df_visual = df_filtrado.copy()
+            df_visual['Costo Activo (USD)'] = df_visual['costo_usd'].map(lambda x: f"$ {x:,.2f}")
+            df_visual['Valor Total (USD)'] = (df_visual['stock'] * df_visual['costo_usd']).map(lambda x: f"$ {x:,.2f}")
+            df_visual['Valor Total (VES)'] = (df_visual['stock'] * df_visual['costo_usd'] * tasa_bcv_hoy).map(lambda x: f"Bs. {x:,.2f}")
+            
+            st.dataframe(
+                df_visual[['sku', 'descripcion', 'tipo', 'stock', 'unidad', 'Costo Activo (USD)', 'Valor Total (USD)', 'Valor Total (VES)']], 
+                use_container_width=True, hide_index=True
+            )
+
+            total_inventario_usd = (df_filtrado['stock'] * df_filtrado['costo_usd']).sum()
+            met1, met2 = st.columns(2)
+            with met1:
+                st.metric("Total Inventario (USD)", f"$ {total_inventario_usd:,.2f}")
+            with met2:
+                st.metric("Total Inventario (BCV)", f"Bs. {total_inventario_usd * tasa_bcv_hoy:,.2f}")
+
+            st.markdown("---")
+            st.markdown("### 📦 Ficha Clínica del Producto (Kardex Histórico)")
+            
+            lista_productos_kardex = df_filtrado['descripcion'].tolist()
+            producto_seleccionado = st.selectbox("Selecciona un producto para auditar su historial:", lista_productos_kardex)
+            
+            if producto_seleccionado:
+                id_producto = df_filtrado[df_filtrado['descripcion'] == producto_seleccionado]['id'].values[0]
+                try:
+                    cursor = conn.cursor()
+                    cursor.execute("""
+                        SELECT fecha, tipo_movimiento, cantidad, precio_unitario_usd, tasa_bcv, referencia, usuario
+                        FROM pedacito_de_cielo_ca.inventario_kardex
+                        WHERE producto_id = %s
+                        ORDER BY fecha DESC
+                    """, (int(id_producto),))
+                    movimientos = cursor.fetchall()
+                    cursor.close()
+                    
+                    if movimientos:
+                        data_kardex = []
+                        for m in movimientos:
+                            cant = float(m[2])
+                            p_usd = float(m[3]) if m[3] is not None else 0.0
+                            tasa = float(m[4]) if m[4] is not None else 0.0
+                            total_usd = cant * p_usd
+                            
+                            data_kardex.append({
+                                "Fecha/Hora": m[0].strftime("%d/%m/%Y %H:%M") if m[0] else "N/A",
+                                "Movimiento": m[1].replace("_", " "),
+                                "Cantidad": cant,
+                                "Precio (USD)": f"$ {p_usd:,.2f}",
+                                "Tasa BCV": f"Bs. {tasa:,.2f}",
+                                "Total (USD)": f"$ {total_usd:,.2f}",
+                                "Total (VES)": f"Bs. {total_usd * tasa:,.2f}",
+                                "Referencia": m[5],
+                                "Operador": m[6]
+                            })
+                        st.dataframe(pd.DataFrame(data_kardex), use_container_width=True, hide_index=True)
+                    else:
+                        st.info("💡 El producto está limpio. Sin movimientos en Kardex.")
+                except Exception as err_kardex:
+                    st.error(f"❌ Error al consultar el Kardex: {err_kardex}")
+        else:
+            st.info("💡 Sin conexión o datos vacíos.")
+
+    # -------------------------------------------------------------------------
+    # PESTAÑA 2: RECETARIOS CON COSTEO EN VIVO
+    # -------------------------------------------------------------------------
+    with tab_recetas:
+        st.markdown(f"### 👩‍🍳 Ingeniería de Recetas y Costeo Automático ({metodo_valoracion})")
+        productos_terminados = df_prod[df_prod['tipo'] == 'PRODUCTO_TERMINADO']['descripcion'].tolist() if not df_prod.empty else []
+        
+        if productos_terminados:
+            torta_seleccionada = st.selectbox("Seleccione el Producto Terminado:", productos_terminados)
+            
+            def obtener_costo_real(descripcion_insumo, costo_defecto):
+                if not df_prod.empty:
+                    match = df_prod[df_prod['descripcion'].str.contains(descripcion_insumo, case=False, na=False)]
+                    if not match.empty:
+                        return float(match.iloc[0]['costo_usd'])
+                return costo_defecto
+
+            costo_harina = obtener_costo_real("Harina", 1.25)
+            costo_azucar = obtener_costo_real("Azúcar", 0.85)
+            costo_mantequilla = obtener_costo_real("Mantequilla", 2.40)
+
+            receta_dinamica = [
+                {"Ingrediente": "Harina de Trigo", "Cantidad Requerida": 0.450, "Unidad": "KG", "Costo Unitario USD": costo_harina, "Subtotal USD": 0.450 * costo_harina},
+                {"Ingrediente": "Azúcar Refinada", "Cantidad Requerida": 0.250, "Unidad": "KG", "Costo Unitario USD": costo_azucar, "Subtotal USD": 0.250 * costo_azucar},
+                {"Ingrediente": "Mantequilla", "Cantidad Requerida": 0.200, "Unidad": "KG", "Costo Unitario USD": costo_mantequilla, "Subtotal USD": 0.200 * costo_mantequilla},
+            ]
+            df_receta = pd.DataFrame(receta_dinamica)
+            df_receta_v = df_receta.copy()
+            df_receta_v['Costo Unitario USD'] = df_receta_v['Costo Unitario USD'].map(lambda x: f"$ {x:,.2f}")
+            df_receta_v['Subtotal USD'] = df_receta_v['Subtotal USD'].map(lambda x: f"$ {x:,.4f}")
+            st.dataframe(df_receta_v, use_container_width=True, hide_index=True)
+            
+            costo_materia_prima = df_receta['Subtotal USD'].sum()
+            col_rec1, col_rec2 = st.columns(2)
+            with col_rec1:
+                st.metric("Costo Neto MP (USD)", f"$ {costo_materia_prima:,.2f}")
+            with col_rec2:
+                precio_sugerido = costo_materia_prima * 2.5
+                st.metric("Precio de Venta Sugerido (USD)", f"$ {precio_sugerido:,.2f}")
+        else:
+            st.info("💡 No hay Productos Terminados registrados.")
+
+    # -------------------------------------------------------------------------
+    # NUEVA PESTAÑA 3: MOVIMIENTOS MANUALES Y AUTOMATIZACIÓN CONTABLE (LA MARCA DE FÁBRICA)
+    # -------------------------------------------------------------------------
+    with tab_movimientos:
+        st.markdown("### 🔄 Registro de Movimientos Manuales e Interfaz Contable ERP")
+        st.write("Carga compras o ajustes. El sistema proyectará el asiento contable en tiempo real antes de impactar el libro mayor.")
+
+        if not df_prod.empty:
+            with st.form("form_movimientos_manuales"):
+                col_m1, col_m2 = st.columns(2)
+                with col_m1:
+                    prod_mov = st.selectbox("Seleccione el Producto / Insumo:", df_prod['descripcion'].tolist())
+                    tipo_m = st.selectbox("Tipo de Movimiento:", ["ENTRADA_COMPRA", "SALIDA_AJUSTE", "SALIDA_MERMA"])
+                with col_m2:
+                    cant_m = st.number_input("Cantidad:", min_value=0.01, step=0.5, value=1.0)
+                    precio_m_usd = st.number_input("Costo/Precio Unitario (USD):", min_value=0.00, step=0.1, value=1.0)
+                
+                ref_m = st.text_input("Referencia / Nro Factura / Motivo:", value="Factura Proveedor Nro-")
+                operador_m = st.text_input("Usuario Operador:", value="Analista Contable")
+
+                # --- MOTOR DE CONTABILIDAD AUTOMATIZADA EN CALIENTE ---
+                monto_total_usd = cant_m * precio_m_usd
+                monto_total_ves = monto_total_usd * tasa_bcv_hoy
+                
+                st.markdown("#### 📑 Borrador de Asiento Contable Automático (Indexado)")
+                
+                # Definición de cuentas dinámicas según el tipo de flujo
+                if tipo_m == "ENTRADA_COMPRA":
+                    cuenta_debe = "1.1.03.01 - Inventario de Materia Prima"
+                    cuenta_haber = "2.1.01.01 - Cuentas por Pagar Proveedores"
+                elif tipo_m == "SALIDA_AJUSTE":
+                    cuenta_debe = "5.1.04.02 - Gastos por Ajustes de Inventario"
+                    cuenta_haber = "1.1.03.01 - Inventario de Materia Prima"
+                else: # SALIDA_MERMA
+                    cuenta_debe = "6.1.02.15 - Pérdidas por Mermas en Producción"
+                    cuenta_haber = "1.1.03.01 - Inventario de Materia Prima"
+
+                asiento_data = [
+                    {"Código / Cuenta": cuenta_debe, "Debe (USD)": f"$ {monto_total_usd:,.2f}", "Haber (USD)": "$ 0.00", "Debe (VES)": f"Bs. {monto_total_ves:,.2f}", "Haber (VES)": "Bs. 0.00"},
+                    {"Código / Cuenta": cuenta_haber, "Debe (USD)": "$ 0.00", "Haber (USD)": f"$ {monto_total_usd:,.2f}", "Debe (VES)": "Bs. 0.00", "Haber (VES)": f"Bs. {monto_total_ves:,.2f}"}
+                ]
+                st.table(asiento_data)
+                st.caption("⚠️ Al procesar se inyectará el Kardex físico y quedará registrada la pre-póliza contable para la auditoría del SENIAT.")
+
+                btn_procesar_m = st.form_submit_button("💾 Procesar Movimiento e Inyectar Contabilidad")
+
+                if btn_procesar_m:
+                    try:
+                        cursor = conn.cursor()
+                        row_prod = df_prod[df_prod['descripcion'] == prod_mov].iloc[0]
+                        id_p_mov = int(row_prod['id'])
+                        stock_actual = float(row_prod['stock'])
+                        costo_ppm_actual = float(row_prod['costo_ppm_original'])
+
+                        # Operación matemática del inventario físico
+                        if "ENTRADA" in tipo_m:
+                            nuevo_stock = stock_actual + cant_m
+                            # Si es compra, recalculamos el Promedio Ponderado Móvil (PPM) exigido legalmente
+                            nuevo_costo_ppm = ((stock_actual * costo_ppm_actual) + (cant_m * precio_m_usd)) / nuevo_stock if nuevo_stock > 0 else precio_m_usd
+                            ultimo_costo_rep = precio_m_usd
+                        else:
+                            nuevo_stock = stock_actual - cant_m
+                            nuevo_costo_ppm = costo_ppm_actual  # En salidas el costo promedio se mantiene
+                            ultimo_costo_rep = float(row_prod['costo_rep_original'])
+
+                        # 1. Update maestro de productos
+                        cursor.execute("""
+                            UPDATE pedacito_de_cielo_ca.inventario_productos 
+                            SET stock = %s, costo_usd = %s, ultimo_precio_compra_usd = %s 
+                            WHERE id = %s
+                        """, (nuevo_stock, nuevo_costo_ppm, ultimo_costo_rep, id_p_mov))
+
+                        # 2. Inyección en Kardex
+                        cursor.execute("""
+                            INSERT INTO pedacito_de_cielo_ca.inventario_kardex 
+                            (producto_id, tipo_movimiento, cantidad, precio_unitario_usd, tasa_bcv, referencia, usuario)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s)
+                        """, (id_p_mov, tipo_m, cant_m, precio_m_usd, tasa_bcv_hoy, ref_m, operador_m))
+
+                        conn.commit()
+                        cursor.close()
+                        st.success(f"✅ ¡Movimiento procesado! Stock actualizado a {nuevo_stock} unidades y asiento contable archivado de forma segura.")
+                        st.rerun()
+
+                    except Exception as err_mov:
+                        conn.rollback()
+                        st.error(f"❌ Error al ejecutar el movimiento: {err_mov}")
+        else:
+            st.info("💡 Registre productos primero para poder mover inventario.")
+
+    # -------------------------------------------------------------------------
+    # PESTAÑA 4: PRODUCCIÓN CON DESCUENTO AUTOMÁTICO
+    # -------------------------------------------------------------------------
+    with tab_produccion:
+        st.markdown("### 🚀 Panel de Producción Activa")
+        
+        if productos_terminados:
+            with st.form("form_produccion_diaria"):
+                prod_a_producir = st.selectbox("¿Qué se produjo en el taller/horno?", productos_terminados)
+                cantidad_tanda = st.number_input("Cantidad de Unidades Listas:", min_value=1, value=10)
+                fecha_prod = st.date_input("Fecha de Producción:", datetime.now())
+                pastelero_responsable = st.text_input("Pastelero Responsable:", value="Pastelero Principal")
+                
+                if st.form_submit_button("🔥 Procesar Tanda de Producción e Inyectar a Stock"):
+                    try:
+                        cursor = conn.cursor()
+                        
+                        cant_harina = 0.450 * cantidad_tanda
+                        cant_azucar = 0.250 * cantidad_tanda
+                        cant_mantequilla = 0.200 * cantidad_tanda
+                        
+                        def traer_metadatos(buscar):
+                            cursor.execute("SELECT id, costo_usd FROM pedacito_de_cielo_ca.inventario_productos WHERE descripcion LIKE %s", (f"%{buscar}%",))
+                            res = cursor.fetchone()
+                            return (res[0], float(res[1])) if res else (None, 0.0)
+                        
+                        id_pt, costo_pt = traer_metadatos(prod_a_producir)
+                        id_h, costo_h = traer_metadatos("Harina")
+                        id_a, costo_a = traer_metadatos("Azúcar")
+                        id_m, costo_m = traer_metadatos("Mantequilla")
+                        
+                        referencia_doc = f"Tanda Prod: {cantidad_tanda} Unds de {prod_a_producir}"
+                        
+                        # Descuentos y aumentos en caliente
+                        cursor.execute("UPDATE pedacito_de_cielo_ca.inventario_productos SET stock = stock + %s WHERE id = %s", (cantidad_tanda, id_pt))
+                        cursor.execute("UPDATE pedacito_de_cielo_ca.inventario_productos SET stock = stock - %s WHERE id = %s", (cant_harina, id_h))
+                        cursor.execute("UPDATE pedacito_de_cielo_ca.inventario_productos SET stock = stock - %s WHERE id = %s", (cant_azucar, id_a))
+                        cursor.execute("UPDATE pedacito_de_cielo_ca.inventario_productos SET stock = stock - %s WHERE id = %s", (cant_mantequilla, id_m))
+                        
+                        sql_kardex = """
+                            INSERT INTO pedacito_de_cielo_ca.inventario_kardex 
+                            (producto_id, tipo_movimiento, cantidad, precio_unitario_usd, tasa_bcv, referencia, usuario)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s)
+                        """
+                        costo_estimado_pt = (0.450 * costo_h) + (0.250 * costo_a) + (0.200 * costo_m)
+                        
+                        cursor.execute(sql_kardex, (id_pt, 'ENTRADA_COMPRA', cantidad_tanda, costo_estimado_pt, tasa_bcv_hoy, referencia_doc, pastelero_responsable))
+                        cursor.execute(sql_kardex, (id_h, 'SALIDA_PRODUCCION', cant_harina, costo_h, tasa_bcv_hoy, referencia_doc, pastelero_responsable))
+                        cursor.execute(sql_kardex, (id_a, 'SALIDA_PRODUCCION', cant_azucar, costo_a, tasa_bcv_hoy, referencia_doc, pastelero_responsable))
+                        cursor.execute(sql_kardex, (id_m, 'SALIDA_PRODUCCION', cant_mantequilla, costo_m, tasa_bcv_hoy, referencia_doc, pastelero_responsable))
+                        
+                        conn.commit()
+                        cursor.close()
+                        
+                        st.success(f"💥 ¡Tanda procesada con éxito y Kardex actualizado!")
+                        st.balloons()
+                        st.rerun()
+                        
+                    except Exception as err_produccion:
+                        conn.rollback()
+                        st.error(f"❌ Error crítico en producción: {err_produccion}")
+        else:
+            st.info("💡 Registre insumos y productos terminados para habilitar producción.")
+
+    # -------------------------------------------------------------------------
+    # NUEVA PESTAÑA 4: ALERTAS INTELIGENTES Y ALGORITMO ABC (IA ENGINE)
+    # -------------------------------------------------------------------------
+    with tab_alertas:
+        st.markdown("### 🚨 Panel de Alertas Predictivas e Inteligencia de Negocio")
+        st.write("Análisis en tiempo real del inventario físico y el comportamiento de la demanda histórica del Kardex.")
+
+        if not df_prod.empty:
+            # --- PARCHE DE SEGURIDAD CONTRA KEYERROR ---
+            if 'stock_minimo' not in df_prod.columns:
+                df_prod['stock_minimo'] = 5.00  # Valor estándar por defecto si falta la columna
+
+            # --- 1. MOTOR SEMÁFORO (ESTADO CRÍTICO DE STOCK) ---
+            st.markdown("#### 🚦 Semáforo de Gestión de Almacén")
+            
+            def calcular_semaforo(row):
+                stk = row['stock']
+                minimo = row['stock_minimo']
+                if stk < minimo:
+                    return "🔴 ROJO (Quiebre Inminente)"
+                elif stk <= (minimo * 1.3): # Un 30% por encima del mínimo ya es zona de alerta
+                    return "🟡 AMARILLO (Cerca del Límite)"
+                else:
+                    return "🟢 VERDE (Surtido Optimo)"
+
+            df_semaforo = df_prod.copy()
+            df_semaforo['Estado'] = df_semaforo.apply(calcular_semaforo, axis=1)
+            
+            # Formateo visual para la UI del cliente
+            df_semaforo_v = df_semaforo.copy()
+            df_semaforo_v['Diferencia vs Mínimo'] = df_semaforo_v['stock'] - df_semaforo_v['stock_minimo']
+            
+            st.dataframe(
+                df_semaforo_v[['Estado', 'sku', 'descripcion', 'stock', 'stock_minimo', 'Diferencia vs Mínimo', 'unidad']],
+                use_container_width=True, hide_index=True
+            )
+
+            # Tarjetas de resumen rápidas
+            cant_rojos = len(df_semaforo[df_semaforo['Estado'].str.contains("🔴")])
+            cant_amarillos = len(df_semaforo[df_semaforo['Estado'].str.contains("🟡")])
+            
+            c_tar1, c_tar2 = st.columns(2)
+            with c_tar1:
+                if cant_rojos > 0:
+                    st.error(f"🚨 ¡Papi, tienes {cant_rojos} producto(s) en zona de quiebre crítico! Genera compras ya.")
+                else:
+                    st.success("✅ No tienes productos en Rojo. ¡Excelente control de reposición!")
+            with c_tar2:
+                if cant_amarillos > 0:
+                    st.warning(f"⚠️ Atención: {cant_amarillos} producto(s) en Amarillo. Monitorea el consumo semanal.")
+
+            st.markdown("---")
+
+            # --- 2. ANALÍTICA DE ROTACIÓN (ALGORITMO ABC CONTABLE) ---
+            st.markdown("#### 📊 Clasificación de Rotación Automática (Algoritmo ABC)")
+            st.write("Cálculo ejecutado analizando las salidas por producción, ventas o mermas registradas en los últimos 90 días.")
+
+            try:
+                cursor = conn.cursor()
+                # Consultamos las salidas totales de los últimos 3 meses del Kardex
+                fecha_limite = datetime.now() - timedelta(days=90)
+                cursor.execute("""
+                    SELECT producto_id, SUM(cantidad * precio_unitario_usd) as valor_salida_total, MAX(fecha) as ultima_salida
+                    FROM pedacito_de_cielo_ca.inventario_kardex
+                    WHERE tipo_movimiento LIKE 'SALIDA%' AND fecha >= %s
+                    GROUP BY producto_id
+                """, (fecha_limite,))
+                salidas_kardex = cursor.fetchall()
+                cursor.close()
+
+                # Mapeamos salidas con los nombres de productos
+                dict_salidas = {row[0]: {"valor": float(row[1]), "fecha": row[2]} for row in salidas_kardex}
+                
+                abc_list = []
+                valor_total_salidas_global = 0.0
+
+                for index, prod in df_prod.iterrows():
+                    p_id = prod['id']
+                    val_salida = dict_salidas.get(p_id, {"valor": 0.0, "fecha": None})["valor"]
+                    f_salida = dict_salidas.get(p_id, {"valor": 0.0, "fecha": None})["fecha"]
+                    
+                    valor_total_salidas_global += val_salida
+                    abc_list.append({
+                        "id": p_id,
+                        "sku": prod['sku'],
+                        "descripcion": prod['descripcion'],
+                        "Valor Inversión Movilizada (USD)": val_salida,
+                        "Último Movimiento de Salida": f_salida.strftime("%d/%m/%Y") if f_salida else "Sin salidas en 90 días"
+                    })
+
+                df_abc = pd.DataFrame(abc_list)
+
+                if valor_total_salidas_global > 0:
+                    # Ordenamos de mayor a menor valor movilizado para aplicar Pareto (80/20)
+                    df_abc = df_abc.sort_values(by="Valor Inversión Movilizada (USD)", ascending=False)
+                    df_abc['% Participación'] = (df_abc['Valor Inversión Movilizada (USD)'] / valor_total_salidas_global) * 100
+                    df_abc['% Acumulado'] = df_abc['% Participación'].cumsum()
+
+                    # Clasificación según teoría ERP
+                    def clasificar_abc(acum):
+                        if acum <= 70.0:
+                            return "Clase A (Alta Rotación - 70% del valor)"
+                        elif acum <= 95.0:
+                            return "Clase B (Rotación Media)"
+                        else:
+                            return "Clase C (Baja Rotación - Peligro Inmovilizado)"
+
+                    df_abc['Clase ABC'] = df_abc['% Acumulado'].apply(clasificar_abc)
+                    
+                    # Formateo estético para mostrar al dueño
+                    df_abc_v = df_abc.copy()
+                    df_abc_v['Valor Inversión Movilizada (USD)'] = df_abc_v['Valor Inversión Movilizada (USD)'].map(lambda x: f"$ {x:,.2f}")
+                    df_abc_v['% Participación'] = df_abc_v['% Participación'].map(lambda x: f"{x:.2f}%")
+                    
+                    st.dataframe(
+                        df_abc_v[['Clase ABC', 'sku', 'descripcion', 'Valor Inversión Movilizada (USD)', '% Participación', 'Último Movimiento de Salida']],
+                        use_container_width=True, hide_index=True
+                    )
+                    
+                    # --- RECOMENDACIONES PREDICTIVAS DE LA IA ---
+                    st.markdown("#### 💡 Recomendaciones del Asistente Contable ERP:")
+                    for _, r in df_abc.iterrows():
+                        if "Clase A" in r['Clase ABC']:
+                            st.info(f"💎 **{r['descripcion']}** es **Clase A**. Representa el motor de tu producción. Muévelo al frente del taller y mantén stock de seguridad alto.")
+                        elif "Clase C" in r['Clase ABC']:
+                            st.error(f"⚠️ **{r['descripcion']}** es **Clase C**. Tiene muy baja salida financiera. Evalúa si tienes exceso de compras trancadas para cuidar el flujo de caja.")
+                else:
+                    st.info("💡 Para calcular la rotación ABC del taller, se necesitan registrar consumos en producción o salidas manuales primero.")
+            except Exception as err_abc:
+                st.error(f"❌ Error en el motor analítico ABC: {err_abc}")
+        else:
+            st.info("💡 Base de datos vacía.")
 
 
 def gestionar_sidebar():
@@ -6231,3 +8220,1556 @@ elif sub_opcion == "Estado de Resultados":
     else:
         st.error("Error al conectar con la base de datos.")
 
+# F. LIBROS FISCALES
+# --- B. MÓDULO DE LIBROS FISCALES (CARGA Y CONSULTA UNIFICADA) ---
+
+elif opcion_menu == "📚 Libros Fiscales":
+    st.markdown(f"## 📚 Libros Fiscales: {EMPRESA}")
+
+        # --- LÓGICA DEL LIBRO DE VENTAS (INDENTADO CORRECTAMENTE) ---
+    if sub_opcion == "Libro de Ventas":
+        # 0. Validación inicial
+        db_actual = st.session_state.get('DB_ACTUAL')
+        if not db_actual or db_actual == 'none':
+            st.warning("⚠️ Selecciona una empresa en el menú lateral.")
+            st.stop()
+            
+        # --- INICIALIZACIÓN DE ESTADO ---
+        if 'active_tab' not in st.session_state:
+            st.session_state.active_tab = "🔍 Consultar y Editar"
+
+        # --- ESTRUCTURA DE TABS ---
+        tab_titles = ["📊 Cargar desde Excel", "🔍 Consultar y Editar", "🚨 Vaciado de Rango"]
+        
+        # Mapeamos los índices para asegurar que la pestaña activa se mantenga
+        tab1, tab2, tab3 = st.tabs(tab_titles)
+
+        # Si quieres que la lógica de la pestaña activa sea más estricta, 
+        # podrías usar st.session_state.active_tab aquí, pero con los st.tabs, 
+        # Streamlit ya gestiona la navegación de forma nativa.
+
+        # --- PESTAÑA 1: CARGA DESDE EXCEL ---
+        # --- EN TU PESTAÑA 1 ---
+        with tab1:
+            st.subheader("📊 Cargar desde Excel")
+            with st.expander("📥 Importar Libro de Ventas desde Excel", expanded=True):
+                # 1. Definimos el archivo
+                archivo_v = st.file_uploader("Seleccionar archivo Excel", type=['xlsx'], key="v_up_directo")
+                
+                # 2. PROCESAMOS SOLO SI HAY ARCHIVO
+                if archivo_v:
+                    # Leemos el archivo
+                    df_preview = pd.read_excel(archivo_v, header=0)
+
+                    # 3. RENOMBRAMOS las columnas para que coincidan con tu base de datos
+                    df_preview = df_preview.rename(columns={
+                        "Fecha de Factura": "fecha_factura",
+                        "Nombre y Apellido o Razón Social": "nombre_razon_social",
+                        "R.I.F.": "rif",
+                        "Número de Factura": "n_factura",
+                        "Num. Control de": "n_control",
+                        "Total Ventas Incluyendo el IVA": "total_ventas_con_iva",
+                        "Ventas Exentas": "ventas_exentas",
+                        "Base Imponible": "base_imponible",
+                        "% Alícuota": "porcentaje_alicuota",
+                        "Débito Fiscal": "debito_fiscal"
+                    })
+
+                    # 4. CORRECCIÓN DE FECHA (Formato YYYY-MM-DD)
+                    if 'fecha_factura' in df_preview.columns:
+                        df_preview['fecha_factura'] = pd.to_datetime(df_preview['fecha_factura'], errors='coerce').dt.strftime('%Y-%m-%d').fillna('2026-06-13')
+                    column_config = {
+                        "fecha_factura": st.column_config.TextColumn("fecha_factura")
+                    }
+                    # 5. UNICO EDITOR
+                    resultado = st.data_editor(df_preview, key=f"editor_{archivo_v.name}", use_container_width=True,column_config=column_config)
+                    
+                    st.markdown("### 📊 Totales")
+                    def f_bs(v): return f"Bs. {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+                    # 6. Cálculo y limpieza
+                    cols_a_sumar = ['total_ventas_con_iva', 'ventas_exentas', 'base_imponible', 'debito_fiscal']
+                    df_limpio = resultado.copy()
+                    
+                    # Verificamos qué columnas llegaron realmente
+                    for col in cols_a_sumar:
+                        if col in df_limpio.columns:
+                            df_limpio[col] = pd.to_numeric(df_limpio[col], errors='coerce').fillna(0.0)
+                        else:
+                            # Si la columna no existe, la creamos con 0 para que no falle el .sum()
+                            df_limpio[col] = 0.0
+                            st.warning(f"⚠️ La columna esperada '{col}' no se encontró en el archivo. Verifique el encabezado del Excel.")
+
+                    # 7. Métricas (ahora son seguras)
+                    t1, t2, t3, t4 = st.columns(4)
+                    t1.metric("Total Ventas", f_bs(df_limpio['total_ventas_con_iva'].sum()))
+                    t2.metric("Ventas Exentas", f_bs(df_limpio['ventas_exentas'].sum()))
+                    t3.metric("Total Base", f_bs(df_limpio['base_imponible'].sum()))
+                    t4.metric("Débito Fiscal", f_bs(df_limpio['debito_fiscal'].sum()))
+                    
+                    # 8. BOTÓN PROCESAR
+                    if st.button("🚀 Procesar e Importar", type="primary"):
+                        with st.spinner("⏳ Procesando..."):
+                            try:
+                                conn_upload = conectar_db(db_actual)
+                                if conn_upload:
+                                    cargar_libro_ventas_db(resultado, conn_upload)
+                                    conn_upload.close()
+                                    st.success("✅ Archivo procesado correctamente.")
+                                    st.balloons()
+                            except Exception as e:
+                                st.error(f"❌ Error crítico: {e}")
+                    # --- PESTAÑA 2: CONSULTAR Y EDITAR ---
+        with tab2:
+            st.subheader("🔍 Consultar y Editar")
+            
+            # Filtros de búsqueda
+            col_v1, col_v2, col_v3 = st.columns([1, 1, 1])
+            with col_v3:
+                ver_todo_v = st.checkbox("📂 Ver historial completo", key="todo_ventas")
+            with col_v1:
+                desde_v = st.date_input("Desde", f_inicio_global, key="f_desde_v", disabled=ver_todo_v)
+            with col_v2:
+                hasta_v = st.date_input("Hasta", f_fin_global, key="f_hasta_v", disabled=ver_todo_v)
+
+            if st.button("📊 Consultar Ventas"):
+                conn_query = conectar_db(db_actual)
+                if conn_query:
+                    try:
+                        if ver_todo_v: 
+                            query = "SELECT * FROM libro_ventas ORDER BY fecha_factura DESC"
+                        else:
+                            query = f"SELECT * FROM libro_ventas WHERE fecha_factura BETWEEN '{desde_v}' AND '{hasta_v}' ORDER BY fecha_factura ASC"
+                        st.session_state.df_ventas_editor = pd.read_sql(query, conn_query)
+                    finally:
+                        conn_query.close()
+
+            # Editor
+            if "df_ventas_editor" in st.session_state:
+                df_mostrar = st.session_state.df_ventas_editor.copy()
+                
+                # --- 1. TABLA DE CONSULTA (Visualización con formato contable) ---
+                df_visual = df_mostrar.copy()
+                cols_moneda = ['total_ventas_con_iva', 'ventas_exentas', 'base_imponible', 'debito_fiscal']
+                for col in cols_moneda:
+                    # Formateo visual: 1.234,56
+                    df_visual[col] = df_visual[col].apply(
+                        lambda x: "{:,.2f}".format(x).replace(",", "X").replace(".", ",").replace("X", ".")
+                    )
+                
+                st.subheader("👁️ Vista de Consulta")
+                st.dataframe(df_visual, use_container_width=True, hide_index=True)
+
+                # --- 2. EDITOR DE REGISTROS (Edición funcional) ---
+                with st.expander("✏️ Editar Registros (Edición de datos)"):
+                    st.info("⚠️ Edita los números aquí (usa punto para decimales, ej: 123.45)")
+                    
+                    # KEY DINÁMICO para evitar el error de duplicados
+                    key_editor = f"editor_ventas_{db_actual}"
+                    
+                    # Dentro del st.expander...
+                    editado_v = st.data_editor(
+                        df_mostrar,
+                        key=key_editor,
+                        num_rows="dynamic",
+                        use_container_width=True,
+                        hide_index=True,
+                        column_config={
+                            "id": st.column_config.NumberColumn("ID", disabled=True),
+                            "fecha_factura": st.column_config.DateColumn("Fecha", format="DD/MM/YYYY"),
+                            "nombre_razon_social": st.column_config.TextColumn("Razón Social", required=True),
+                            "rif": st.column_config.TextColumn("RIF"),
+                            "n_factura": st.column_config.TextColumn("Nº Factura"),
+                            "n_control": st.column_config.TextColumn("Nº Control"),
+                            "total_ventas_con_iva": st.column_config.NumberColumn("Total Bs.", format="%.2f"),
+                            "ventas_exentas": st.column_config.NumberColumn("Exento Bs.", format="%.2f"),
+                            "base_imponible": st.column_config.NumberColumn("Base Bs.", format="%.2f"),
+                            "debito_fiscal": st.column_config.NumberColumn("IVA Bs.", format="%.2f"),
+                            "porcentaje_alicuota": st.column_config.NumberColumn("%", format="%.1f"),
+                        }
+                    )
+
+                # --- 3. IMPORTANTE: USAR EL KEY DINÁMICO PARA GUARDAR ---
+                # Cuando guardes abajo, recuerda que ahora el key es key_editor
+                # Ejemplo: cambios = st.session_state[key_editor]
+
+                # --- 5. SECCIÓN DE TOTALES ---
+                st.markdown("---")
+                t_ventas = df_mostrar['total_ventas_con_iva'].sum()
+                t_exento = df_mostrar['ventas_exentas'].sum()
+                t_base = df_mostrar['base_imponible'].sum()
+                t_iva = df_mostrar['debito_fiscal'].sum()
+
+                def f_moneda(v): return f"{v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+                m1, m2, m3, m4 = st.columns(4)
+                m1.metric("TOTAL VENTAS", f_moneda(t_ventas))
+                m2.metric("TOTAL EXENTO", f_moneda(t_exento))
+                m3.metric("TOTAL BASE", f_moneda(t_base))
+                m4.metric("TOTAL IVA (16%)", f_moneda(t_iva))
+                
+                st.markdown("---")
+
+                # --- 6. ACCIONES: DESCARGA Y GUARDADO ---
+                # --- 6. ACCIONES: DESCARGA Y GUARDADO ---
+                col_btn1, col_btn2 = st.columns([1, 1])
+
+                with col_btn1:
+                    if "df_ventas_editor" in st.session_state:
+                        # Papi, en vez de usar conn_query, abrimos una conexión nueva solo para la descarga
+                        # Esto elimina el NameError por completo.
+                        conn_temp = conectar_db(db_actual)
+                        
+                        try:
+                            datos_excel = preparar_excel_descarga(df_mostrar, conn_temp)
+                            st.download_button(
+                                label="📥 Descargar Respaldo Excel",
+                                data=datos_excel,
+                                file_name=f"Libro_Ventas_{desde_v}_al_{hasta_v}.xlsx",
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                use_container_width=True
+                            )
+                        finally:
+                            # Cerramos la conexión temp inmediatamente después de generar los datos
+                            conn_temp.close()
+
+                with col_btn2:
+                    if st.button("💾 Guardar Cambios en Ventas", type="primary", use_container_width=True):
+                        cambios = st.session_state["editor_ventas_key"]
+                        conn_save = conectar_db(db_actual)
+                        
+                        if conn_save:
+                            cursor = conn_save.cursor()
+                            try:
+                                # A. Eliminar filas
+                                for row_idx in cambios.get("deleted_rows", []):
+                                    id_del = int(df_mostrar.iloc[row_idx]["id"])
+                                    cursor.execute("DELETE FROM libro_ventas WHERE id = %s", (id_del,))
+
+                                # B. Editar filas
+                                for row_idx, dict_cambios in cambios.get("edited_rows", {}).items():
+                                    id_edit = int(df_mostrar.iloc[int(row_idx)]["id"])
+                                    if "n_factura" in dict_cambios: dict_cambios["n_factura"] = str(dict_cambios["n_factura"]).zfill(5)
+                                    if "n_control" in dict_cambios: dict_cambios["n_control"] = str(dict_cambios["n_control"]).zfill(5)
+                                    if "fecha_factura" in dict_cambios and dict_cambios["fecha_factura"]:
+                                        f = dict_cambios["fecha_factura"]
+                                        dict_cambios["fecha_factura"] = f.strftime('%Y-%m-%d') if hasattr(f, 'strftime') else str(f)
+                                    
+                                    if dict_cambios:
+                                        sql_upd = ", ".join([f"{k} = %s" for k in dict_cambios.keys()])
+                                        cursor.execute(f"UPDATE libro_ventas SET {sql_upd} WHERE id = %s", list(dict_cambios.values()) + [id_edit])
+
+                                # C. Agregar nuevas filas
+                                for row_dict in cambios.get("added_rows", []):
+                                    if not row_dict or not any(row_dict.values()): continue
+                                    f_raw = row_dict.get("fecha_factura") or desde_v
+                                    fecha_final = f_raw.strftime('%Y-%m-%d') if hasattr(f_raw, 'strftime') else str(f_raw)
+
+                                    datos_finales = {
+                                        "fecha_factura": fecha_final,
+                                        "nombre_razon_social": row_dict.get("nombre_razon_social", "VARIOS"),
+                                        "rif": row_dict.get("rif", "V000000000"),
+                                        "n_factura": str(row_dict.get("n_factura", "0")).zfill(5),
+                                        "n_control": str(row_dict.get("n_control", "0")).zfill(5),
+                                        "total_ventas_con_iva": row_dict.get("total_ventas_con_iva", 0.00),
+                                        "ventas_exentas": row_dict.get("ventas_exentas", 0.00),
+                                        "base_imponible": row_dict.get("base_imponible", 0.00),
+                                        "porcentaje_alicuota": row_dict.get("porcentaje_alicuota", 16.00),
+                                        "debito_fiscal": row_dict.get("debito_fiscal", 0.00)
+                                    }
+                                    columnas = ", ".join(datos_finales.keys())
+                                    placeholders = ", ".join(["%s"] * len(datos_finales))
+                                    cursor.execute(f"INSERT INTO libro_ventas ({columnas}) VALUES ({placeholders})", list(datos_finales.values()))
+
+                                conn_save.commit()
+                                st.success("✅ ¡Libro de Ventas actualizado con éxito!")
+                                st.rerun()
+                            except Exception as e:
+                                conn_save.rollback()
+                                st.error(f"❌ Error: {e}")
+                            finally:
+                                conn_save.close()
+
+        # --- PESTAÑA 3: VACIADO DE RANGO ---
+        with tab3:
+            st.subheader("🚨 Vaciado de Rango")
+            
+            # 1. Definimos el rango de fechas
+            col1, col2 = st.columns(2)
+            with col1:
+                # Quitamos el 'value=' para que el usuario elija desde cero
+                fecha_inicio = st.date_input("📅 Fecha de inicio")
+            with col2:
+                # Quitamos el 'value='
+                fecha_fin = st.date_input("📅 Fecha de fin")
+
+            st.error("⚠️ **Atención:** El borrado masivo es irreversible.")
+            
+            # 2. Popover de confirmación
+            with st.popover("🚨 VACIAR VENTAS (RANGO SELECCIONADO)", use_container_width=True):
+                st.subheader("Confirmar Borrado de Ventas")
+                st.info(f"Se borrará el rango: {fecha_inicio} hasta {fecha_fin}")
+                
+                confirmar_v = st.checkbox("Confirmo que deseo borrar las VENTAS", key="check_borrar_ventas_key")
+                
+                if st.button("EJECUTAR BORRADO VENTAS", type="primary", disabled=not confirmar_v):
+                    borrar_ventas_por_rango(fecha_inicio, fecha_fin)
+                    st.rerun()
+
+            st.divider()
+
+            # 3. BLOQUE DE INSPECCIÓN: Para que salgas de dudas
+            with st.expander("🕵️ Inspeccionar datos antes de borrar"):
+                try:
+                    db_actual = st.session_state.get('DB_ACTUAL')
+                    conexion = conectar_db(db_actual)
+                    cursor = conexion.cursor()
+                    
+                    cursor.execute("SELECT DISTINCT fecha_factura FROM libro_ventas ORDER BY fecha_factura DESC LIMIT 10")
+                    fechas_existentes = cursor.fetchall()
+                    
+                    st.write("Las 10 fechas más recientes encontradas en tu tabla son:")
+                    for f in fechas_existentes:
+                        st.write(f"- {f[0]}")
+                    
+                    cursor.close()
+                    conexion.close()
+                except Exception as e:
+                    st.error("No se pudieron cargar las fechas de inspección.")
+
+    elif sub_opcion == "Libro de Compras":
+        # 0. Validación inicial
+        db_actual = st.session_state.get('DB_ACTUAL')
+        if not db_actual or db_actual == 'none':
+            st.warning("⚠️ Selecciona una empresa en el menú lateral.")
+            st.stop()
+
+        # --- CONTROL DE SESIÓN ACTIVA ---
+        # Inicializamos la pestaña activa si no existe
+        if 'active_tab' not in st.session_state:
+            st.session_state.active_tab = "🔍 Consultar y Editar"
+
+        # --- ESTRUCTURA DE TABS ---
+        tab_titles = ["🔍 Consultar y Editar", "📸 Escaneo Inteligente", "🚨 Vaciado de Rango", "📊 Cargar desde Excel"]
+        
+        # Creamos las pestañas
+        tabs = st.tabs(tab_titles)
+
+        # --- LÓGICA DE PERSISTENCIA ---
+        # Si el usuario hace clic en una tab, actualizamos el estado
+        # Nota: Streamlit maneja el click de las tabs internamente, 
+        # pero para forzar el foco, validamos el estado:
+        
+        tab1, tab2, tab3, tab4 = tabs
+
+        # --- LÓGICA DE NAVEGACIÓN ---
+
+        with tab1: # Consultar y Editar
+            st.subheader("🔍 Consulta y Edición: Libro de Compras")
+            
+            # 1. Filtros de fecha
+            col_c1, col_c2, col_c3 = st.columns([1, 1, 1])
+            with col_c3:
+                ver_todo = st.checkbox("📂 Ver todo", key="todo_compras")
+            with col_c1:
+                desde_c = st.date_input("Desde", f_inicio_global, key="desde_c", disabled=ver_todo)
+            with col_c2:
+                hasta_c = st.date_input("Hasta", f_fin_global, key="hasta_c", disabled=ver_todo)
+
+            st.error("⚠️ **Atención:** Las acciones aquí solo afectan al Libro de Compras.")
+
+            # 2. CARGA AUTOMÁTICA
+            try:
+                conn = conectar_db(db_actual)
+                query = "SELECT * FROM libro_compras ORDER BY fecha_operacion DESC" if ver_todo else \
+                        "SELECT * FROM libro_compras WHERE fecha_operacion BETWEEN %s AND %s"
+                params = None if ver_todo else (desde_c, hasta_c)
+                
+                df_recuperado = pd.read_sql(query, conn, params=params)
+                conn.close()
+
+                if not df_recuperado.empty:
+                    st.session_state.df_compras_editor = df_recuperado
+                else:
+                    st.warning("No se encontraron registros en el rango seleccionado.")
+                    if "df_compras_editor" in st.session_state:
+                        del st.session_state.df_compras_editor
+            except Exception as e:
+                st.error(f"❌ Error al consultar la base de datos: {e}")
+
+            def formato_ve(n):
+                try:
+                    # Convierte 5798.38 a "5.897,58"
+                    s = f"{float(n):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                    return s
+                except:
+                    return "0,00"
+
+            # 3. RENDERIZADO DEL EDITOR Y TOTALES
+            if "df_compras_editor" in st.session_state:
+                st.info("💡 Tip: Edita los datos directamente en la tabla.")
+                
+                # Editor de datos
+                # --- EDITOR DE DATOS (Entrada de números puros) ---
+                st.subheader("✏️ Edición de Libro de Compras")
+
+                cambios_df = st.data_editor(
+                    st.session_state.df_compras_editor,
+                    key="editor_consulta_final", 
+                    num_rows="dynamic",
+                    use_container_width=True,
+                    hide_index=False,
+                    column_config={
+                        "id": st.column_config.NumberColumn("ID", disabled=True),
+                        "total_compras": st.column_config.NumberColumn("Total Compras", format="%.2f"),
+                        "importe_exento": st.column_config.NumberColumn("Importe Exento", format="%.2f"),
+                        "base_imponible": st.column_config.NumberColumn("Base Imponible", format="%.2f"),
+                        "iva_monto": st.column_config.NumberColumn("IVA Monto", format="%.2f")
+                    }
+                )
+
+                st.session_state.df_compras_editor = cambios_df
+
+                
+                # --- CÁLCULO DE TOTALES ---
+                st.markdown("### 📊 Totales")
+                def f_bs(v): return f"Bs. {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                
+                t1, t2, t3, t4 = st.columns(4)
+                t1.metric("Total Compras", f_bs(cambios_df['total_compras'].sum()))
+                t2.metric("Total Exento", f_bs(cambios_df['importe_exento'].sum()))
+                t3.metric("Total Base", f_bs(cambios_df['base_imponible'].sum()))
+                t4.metric("Total IVA", f_bs(cambios_df['iva_monto'].sum()))
+                st.markdown("---")
+                
+                # BOTÓN ÚNICO DE GUARDAR
+                if st.button("💾 Guardar todos los cambios en DB", type="primary", key="btn_guardar_final"):
+                    db_actual = st.session_state.get('DB_ACTUAL')
+                    
+                    if db_actual:
+                        conn = conectar_db(db_actual)
+                        if conn:
+                            try:
+                                cursor = conn.cursor()
+                                cursor.execute("DESCRIBE libro_compras")
+                                columnas_db = [fila[0] for fila in cursor.fetchall()]
+                                
+                                # Función de limpieza necesaria
+                                def limpiar_dato(val):
+                                    if val is None or (isinstance(val, float) and np.isnan(val)): return None
+                                    if isinstance(val, (pd.Timestamp, pd.Timedelta)): return str(val.date())
+                                    if isinstance(val, (np.integer, np.int64)): return int(val)
+                                    if isinstance(val, (np.floating, np.float64)): return float(val)
+                                    return str(val)
+                                
+                                # 1. Preparar datos
+                                df_a_guardar = st.session_state.df_compras_editor.dropna(how='all')
+                                df_a_guardar = df_a_guardar[[c for c in df_a_guardar.columns if c in columnas_db]]
+                                
+                                # 2. Definir quién se actualiza y quién se inserta
+                                df_update = df_a_guardar[df_a_guardar['id'].notnull()]
+                                df_insert = df_a_guardar[df_a_guardar['id'].isnull()]
+                                
+                                cursor.execute("START TRANSACTION")
+                                
+                                # 3. ACTUALIZAR filas existentes (por ID)
+                                if not df_update.empty:
+                                    cols_update = [c for c in df_update.columns if c != 'id']
+                                    set_clause = ", ".join([f"{c} = %s" for c in cols_update])
+                                    query_update = f"UPDATE libro_compras SET {set_clause} WHERE id = %s"
+                                    
+                                    for _, row in df_update.iterrows():
+                                        # Aquí aplicamos limpiar_dato a cada campo
+                                        valores = [limpiar_dato(row[c]) for c in cols_update] + [int(row['id'])]
+                                        cursor.execute(query_update, tuple(valores))
+
+                                # 4. INSERTAR filas nuevas
+                                if not df_insert.empty:
+                                    df_insert_final = df_insert.drop(columns=['id'])
+                                    cols_insert = ", ".join(df_insert_final.columns)
+                                    placeholders = ", ".join(["%s"] * len(df_insert_final.columns))
+                                    query_insert = f"INSERT INTO libro_compras ({cols_insert}) VALUES ({placeholders})"
+                                    
+                                    # Aplicamos limpiar_dato a todos los datos de inserción
+                                    datos_nuevos = [tuple(limpiar_dato(x) for x in row) for _, row in df_insert_final.iterrows()]
+                                    cursor.executemany(query_insert, datos_nuevos)
+                                
+                                conn.commit()
+                                st.balloons()
+                                st.success("✅ ¡Cambios sincronizados correctamente con MySQL!")
+                                
+                            except Exception as e:
+                                if conn: conn.rollback()
+                                st.error(f"❌ Error al guardar en MySQL: {e}")
+                            finally:
+                                cursor.close()
+                                conn.close()
+        with tab2: # Escaneo Inteligente
+            st.subheader("📸 Escaneo Inteligente (OCR)")
+            archivo = st.file_uploader("Sube factura", type=['jpg', 'png', 'jpeg'], key="uploader_factura")
+            
+            # Inicializar el buffer
+            if "df_buffer_escaneo" not in st.session_state:
+                st.session_state.df_buffer_escaneo = pd.DataFrame()
+
+            if archivo:
+                st.divider()
+                
+                # --- BLOQUE 1: PROCESAMIENTO INDIVIDUAL ---
+                if st.button("Procesar Factura (Individual)", key="btn_procesar_individual"):
+                    with st.spinner('La IA está analizando la factura...'):
+                        exito = False
+                        intentos = 0
+                        resultados = None
+                        
+                        while intentos < 3 and not exito:
+                            try:
+                                print("Iniciando procesamiento de factura...")
+                                resultados = extraer_datos_factura(archivo)
+                                exito = True
+                                
+                            except Exception as e:
+                                error_str = str(e)
+                                if "429" in error_str:
+                                    intentos += 1
+                                    st.warning(f"⚠️ Límite de cuota, reintentando en 15s... (Intento {intentos}/3)")
+                                    time.sleep(15)
+                                else:
+                                    st.error(f"❌ Error crítico durante el análisis: {error_str}")
+                                    break
+                        
+                        if resultados:
+                            nueva_fila = pd.DataFrame([resultados])
+                            
+                            # --- LIMPIEZA ---
+                            for col in ['n_factura', 'n_control']:
+                                if col in nueva_fila.columns:
+                                    nueva_fila[col] = nueva_fila[col].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
+                                    nueva_fila[col] = nueva_fila[col].replace(['nan', 'None', '', 'null'], 'SIN_NUMERO' if col == 'n_factura' else 'SIN_CONTROL')
+                                else:
+                                    nueva_fila[col] = 'SIN_NUMERO' if col == 'n_factura' else 'SIN_CONTROL'
+                            
+                            nueva_fila['Seleccionar Proveedor'] = ""
+                            if 'proveedor' in nueva_fila.columns:
+                                nueva_fila = nueva_fila.drop(columns=['proveedor'])
+                            
+                            if 'df_buffer_escaneo' not in st.session_state:
+                                st.session_state.df_buffer_escaneo = pd.DataFrame()
+                            
+                            st.session_state.df_buffer_escaneo = pd.concat([st.session_state.df_buffer_escaneo, nueva_fila], ignore_index=True)
+                            st.success("✅ Factura agregada al buffer.")
+                            
+                        elif not exito:
+                            st.error("No se pudo obtener respuesta de la IA tras varios intentos.")
+                        else:
+                            st.error("La IA devolvió un resultado vacío.")
+
+            # --- ÁREA DE EDICIÓN Y REVISIÓN ---
+        if not st.session_state.df_buffer_escaneo.empty:
+            st.info(f"💡 Revisando {len(st.session_state.df_buffer_escaneo)} facturas en espera.")
+            
+            # 1. FORZAR ESTRUCTURA
+            df_a_editar = st.session_state.df_buffer_escaneo.copy()
+            
+            if "Seleccionar Proveedor" not in df_a_editar.columns:
+                df_a_editar["Seleccionar Proveedor"] = ""
+            
+            for col in ["n_factura", "n_control"]:
+                if col not in df_a_editar.columns:
+                    df_a_editar[col] = "SIN_VALOR"
+                else:
+                    # Convertimos a string y normalizamos vacíos
+                    df_a_editar[col] = df_a_editar[col].astype(str).replace(['nan', 'None', '', 'nan'], 'SIN_VALOR')
+
+            # 2. Dibujamos el editor con configuración explícita
+            lista_proveedores = obtener_lista_proveedores()
+            
+            buffer_editado = st.data_editor(
+                df_a_editar,
+                column_config={
+                    "Seleccionar Proveedor": st.column_config.SelectboxColumn(
+                        "Seleccionar Proveedor",
+                        help="Selecciona el proveedor de la lista",
+                        options=lista_proveedores,
+                        required=True,
+                    ),
+                    "n_factura": st.column_config.TextColumn("Nº Factura", required=True),
+                    "n_control": st.column_config.TextColumn("Nº Control", required=True),
+                },
+                key="editor_buffer_ocr",
+                num_rows="dynamic",
+                use_container_width=True
+            )
+            
+            # Actualizamos el estado con lo que el usuario editó
+            st.session_state.df_buffer_escaneo = buffer_editado
+
+            # 3. Acción de guardado en DB
+            if st.button("🚀 Guardar en DB", type="primary"):
+                df_final = st.session_state.df_buffer_escaneo.copy()
+                
+                # VALIDACIÓN FINAL: Asegurar que los datos limpios se envíen a la base de datos
+                df_final['n_factura'] = df_final['n_factura'].replace(['', 'None', 'nan', 'SIN_VALOR'], 'SIN_NUMERO')
+                df_final['n_control'] = df_final['n_control'].replace(['', 'None', 'nan', 'SIN_VALOR'], 'SIN_CONTROL')
+                
+                # Aquí continúa tu lógica de mapeo y to_sql
+                try:
+                    # ... tu código de conexión y guardado ...
+                    st.success(f"✅ Se procesaron {len(df_final)} filas correctamente.")
+                    # st.session_state.df_buffer_escaneo = pd.DataFrame() # Opcional: limpiar al guardar
+                    # st.rerun()
+                except Exception as e:
+                    st.error(f"❌ Error al guardar: {e}")
+
+                # Columnas para acciones finales
+                col_b1, col_b2 = st.columns(2)
+                
+                with col_b1:
+                    output = io.BytesIO()
+                    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                        st.session_state.df_buffer_escaneo.to_excel(writer, index=False, sheet_name='Buffer_OCR')
+                    
+                    st.download_button(
+                        label="📥 Descargar Buffer a Excel",
+                        data=output.getvalue(),
+                        file_name=f"Backup_OCR_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        use_container_width=True
+                    )
+
+                with col_b2:
+                    if st.button("🚀 Guardar TODAS en DB (Modo Seguro)", type="primary"):
+                        # 1. Validación inicial
+                        if st.session_state.df_buffer_escaneo['Seleccionar Proveedor'].isin(['', None]).any():
+                            st.warning("⚠️ ¡Faltan proveedores por seleccionar!")
+                        else:
+                            df_a_procesar = st.session_state.df_buffer_escaneo.copy()
+                            
+                            # --- PREPARACIÓN PREVIA ---
+                            dict_proveedores = obtener_lista_proveedores_mapeo()
+                            dict_nombre_por_rif = {v: k for k, v in dict_proveedores.items()}
+                            
+                            # Crear engine UNA SOLA VEZ fuera del bucle
+                            engine = create_engine(f"mysql+mysqlconnector://{DB_CONFIG['user']}:{DB_CONFIG['password']}@{DB_CONFIG['host']}/{db_actual}")
+                            
+                            # Asegurar columnas obligatorias
+                            for col in ['n_factura', 'n_control']:
+                                if col not in df_a_procesar.columns:
+                                    df_a_procesar[col] = 'SIN_DATOS'
+                                df_a_procesar[col] = df_a_procesar[col].fillna('SIN_DATOS').astype(str)
+
+                            bar = st.progress(0)
+                            facturas_exitosas = 0
+                            
+                            # --- PROCESAMIENTO FILA A FILA ---
+                            for index, row in df_a_procesar.iterrows():
+                                try:
+                                    # 1. Creamos la fila y limpiamos datos
+                                    fila = row.to_frame().T.copy()
+                                    
+                                    fila['rif'] = fila['Seleccionar Proveedor'].map(dict_proveedores)
+                                    fila['rif'] = fila['rif'].astype(str).str.replace('-', '', regex=False).str.replace(' ', '', regex=False).str.strip().str.upper()
+                                    fila['n_factura'] = fila['n_factura'].astype(str).str.strip().str.upper()
+                                    fila['n_control'] = fila['n_control'].astype(str).str.strip().str.upper()
+                                    fila['proveedor'] = fila['rif'].map(dict_nombre_por_rif)
+                                    fila['tipo_documento'] = '01'
+                                    fila['tipo_transaccion'] = '01'
+
+                                    # Limpieza de columnas extra
+                                    cols_drop = ['Seleccionar Proveedor']
+                                    if 'proveedor_nombre' in fila.columns:
+                                        cols_drop.append('proveedor_nombre')
+                                    fila = fila.drop(columns=cols_drop, errors='ignore')
+
+                                    # 2. VERIFICACIÓN DE DUPLICADOS
+                                    rif_val = fila['rif'].iloc[0]
+                                    nfac_val = fila['n_factura'].iloc[0]
+                                    
+                                    query_check = "SELECT COUNT(*) FROM libro_compras WHERE rif = %s AND n_factura = %s"
+                                    
+                                    with engine.connect() as conn:
+                                        # Usamos text() para la consulta
+                                        resultado = conn.execute(text(query_check), (rif_val, nfac_val)).scalar()
+                                    
+                                    if resultado > 0:
+                                        st.warning(f"⚠️ Factura {nfac_val} (RIF {rif_val}) ya registrada. Saltando...")
+                                    else:
+                                        # 3. SI NO ES DUPLICADA, GUARDAMOS
+                                        fila.to_sql('libro_compras', con=engine, if_exists='append', index=False)
+                                        facturas_exitosas += 1
+                                        st.write(f"✅ Factura {nfac_val} guardada correctamente.")
+
+                                except Exception as e:
+                                    st.error(f"❌ Error al guardar fila {index + 1}: {e}")
+
+                                # Actualizar barra de progreso
+                                bar.progress((index + 1) / len(df_a_procesar))
+                            
+                            # Finalización
+                            st.success(f"✅ Proceso finalizado. Total guardadas: {facturas_exitosas} de {len(df_a_procesar)}")
+                            
+                            if facturas_exitosas > 0:
+                                st.session_state.df_buffer_escaneo = pd.DataFrame()
+                               
+        with tab3: # Vaciado de Rango
+            st.subheader("🚨 Vaciado de Compras")
+            
+            with st.popover("🚨 VACIAR COMPRAS (RANGO SELECCIONADO)", use_container_width=True):
+                st.subheader("Seleccionar Rango a Borrar")
+                
+                # 1. Selectores de fecha dentro del popover
+                fecha_d = st.date_input("Desde:", key="rango_desde_borrar")
+                fecha_h = st.date_input("Hasta:", key="rango_hasta_borrar")
+                
+                st.markdown("---")
+                st.subheader("Confirmar Borrado")
+                st.warning(f"Se eliminarán los registros desde {fecha_d} hasta {fecha_h}") 
+                
+                confirmar_check = st.checkbox("Confirmo que deseo borrar", key="check_borrar_final")
+                
+                # 2. Ejecutar con las fechas seleccionadas en este mismo scope
+                if st.button("EJECUTAR BORRADO", type="primary", disabled=not confirmar_check):
+                    f_d_str = fecha_d.strftime('%Y-%m-%d')
+                    f_h_str = fecha_h.strftime('%Y-%m-%d')
+                    
+                    borrar_compras_por_rango(f_d_str, f_h_str)
+                    st.success("✅ Rango eliminado.")
+                    #st.rerun()
+
+        with tab4: # Cargar desde Excel y Editor de Tabla
+            st.subheader("📊 Carga Masiva desde Excel")
+            archivo_ex = st.file_uploader("Sube tu archivo Excel", type=['xlsx'])
+            
+            # 1. CARGA Y LIMPIEZA INICIAL
+            if archivo_ex is not None:
+                df_excel = pd.read_excel(archivo_ex)
+                df_excel.columns = df_excel.columns.str.strip().str.lower().str.replace(" ", "_")
+                
+                if 'fecha_de_operación' in df_excel.columns:
+                    # AQUÍ ESTÁ EL TRUCO: convertimos a objeto date de Python, no a string
+                    df_excel['fecha_de_operación'] = pd.to_datetime(df_excel['fecha_de_operación']).dt.date
+                        
+                st.session_state.df_carga_excel = df_excel
+
+            # 2. VISUALIZACIÓN Y EDICIÓN
+            if "df_carga_excel" in st.session_state:
+                df_temp = st.session_state.df_carga_excel
+                
+                # A. Limpieza de fecha inteligente
+                col_fecha = next((c for c in df_temp.columns if 'fecha' in c.lower()), None)
+                if col_fecha:
+                    # Renombramos si es necesario
+                    if col_fecha != 'fecha_de_operación':
+                        df_temp = df_temp.rename(columns={col_fecha: 'fecha_de_operación'})
+                    
+                    # --- LIMPIEZA DE FECHA (EL BLINDAJE FINAL) ---
+                    # Forzamos formato YYYY-MM-DD y eliminamos horas. Si falla, ponemos la fecha de hoy.
+                    df_temp['fecha_de_operación'] = pd.to_datetime(df_temp['fecha_de_operación'], errors='coerce')\
+                                                        .dt.strftime('%Y-%m-%d')\
+                                                        .fillna(pd.Timestamp.now().strftime('%Y-%m-%d'))
+                    
+                    st.session_state.df_carga_excel = df_temp
+
+                # B. Preparación de Vista (Solo para mostrar, no para cálculos)
+                df_visual = st.session_state.df_carga_excel.copy()
+                
+                # Formateo contable para la vista
+                cols_para_formatear = ['total_compras', 'compras_exentas', 'base_imponible', 'credito_fiscales']
+                for col in cols_para_formatear:
+                    if col in df_visual.columns:
+                        df_visual[col] = df_visual[col].apply(
+                            lambda x: "{:,.2f}".format(float(x)).replace(",", "X").replace(".", ",").replace("X", ".") 
+                            if pd.notnull(x) else "0,00"
+                        )
+                        
+                st.subheader("👁️ Vista de los datos cargados")
+                st.dataframe(df_visual, use_container_width=True, hide_index=True)
+
+                # C. Editor funcional
+                with st.expander("✏️ Editar Registros"):
+                    cambios_df_excel = st.data_editor(
+                        st.session_state.df_carga_excel,
+                        key="editor_carga_excel",
+                        num_rows="dynamic",
+                        use_container_width=True,
+                        hide_index=True
+                    )
+                    st.session_state.df_carga_excel = cambios_df_excel
+
+                # D. Totales
+                st.markdown("---")
+                def f_bs(v): return f"Bs. {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                
+                m1, m2, m3, m4 = st.columns(4)
+                m1.metric("TOTAL COMPRAS", f_bs(cambios_df_excel['total_compras'].sum()))
+                m2.metric("TOTAL EXENTO", f_bs(cambios_df_excel['compras_exentas'].sum()))
+                m3.metric("TOTAL BASE", f_bs(cambios_df_excel['base_imponible'].sum()))
+                m4.metric("TOTAL IVA", f_bs(cambios_df_excel['credito_fiscales'].sum()))
+
+            # E. BOTÓN DE GUARDADO FINAL (Llamando a tu función con los datos ya limpios)
+            if st.button("🚀 Guardar carga masiva en DB", type="primary"):
+                if "df_carga_excel" in st.session_state and not st.session_state.df_carga_excel.empty:
+                    with st.spinner("⏳ Guardando registros..."):
+                        try:
+                            # PASAMOS EL DATAFRAME A TU FUNCIÓN
+                            cargar_libro_compras_db(st.session_state.df_carga_excel, db_actual)
+                            st.success("✅ ¡Proceso finalizado correctamente!")
+                        except Exception as e:
+                            st.error(f"❌ Error al guardar en DB: {e}")
+                else:
+                    st.warning("⚠️ No hay datos cargados para guardar.")
+
+
+
+    # 2. El sub-menú DINÁMICO
+    if sub_opcion == "Comprobante de Retención ISLR":
+        db_actual = st.session_state.get('DB_ACTUAL')
+        # IMPORTANTE: Todo lo que quieras que salga en la barra lateral DEBE llevar st.sidebar
+        st.sidebar.markdown("---") 
+        st.sidebar.markdown("### ⚙️ Tareas de ISLR")
+        
+        # --- CONFIGURACIÓN TRIBUTARIA (UT 2026) ---
+        VALOR_UT = 43.00
+        FACTOR = 83.333333
+        
+        def calcular_sustraendo(porcentaje_retencion):
+            sustraendos = {
+                1.0: (FACTOR * 0.01) * VALOR_UT,
+                2.0: (FACTOR * 0.02) * VALOR_UT,
+                3.0: (FACTOR * 0.03) * VALOR_UT,
+                5.0: (FACTOR * 0.05) * VALOR_UT
+            }
+            
+            # Obtenemos el valor, si no existe devolvemos 0.00
+            resultado = sustraendos.get(float(porcentaje_retencion), 0.00)
+            
+            # Redondeamos a 2 decimales para el formato Bs. XX.XX
+            return round(resultado, 2)
+
+        import xml.etree.ElementTree as ET
+        from xml.dom import minidom
+
+        def generar_xml_seniat(df, rif_agente, periodo):
+            root = ET.Element("RelacionRetencionesISLR")
+            root.set("RifAgente", rif_agente)
+            root.set("Periodo", periodo)
+
+            for _, row in df.iterrows():
+                detalle = ET.SubElement(root, "DetalleRetencion")
+                
+                # 1. RIF Retenido
+                ET.SubElement(detalle, "RifRetenido").text = "".join(filter(str.isalnum, str(row['rif_retenido'])))
+                
+                # 2. Número Factura y Control
+                ET.SubElement(detalle, "NumeroFactura").text = "".join(filter(str.isalnum, str(row['numero_factura'])))
+                ET.SubElement(detalle, "NumeroControl").text = "".join(filter(str.isalnum, str(row['numero_control'])))
+                
+                # 3. Fecha Operación
+                fecha_obj = row['fecha_operacion']
+                fecha_str = fecha_obj.strftime("%d/%m/%Y") 
+                ET.SubElement(detalle, "FechaOperacion").text = fecha_str
+                
+                # 4. Concepto y Montos (SIN EL SUSTRAENDO)
+                ET.SubElement(detalle, "CodigoConcepto").text = str(row['codigo_concepto']).zfill(3)
+                ET.SubElement(detalle, "MontoOperacion").text = f"{float(row['monto_operacion']):.2f}"
+                ET.SubElement(detalle, "PorcentajeRetencion").text = f"{float(row['porcentaje_retencion']):.2f}"
+
+                # ELIMINA O COMENTA ESTA LÍNEA QUE TE ESTÁ DANDO EL ERROR:
+                # ET.SubElement(detalle, "Sustraendo").text = f"{float(sustraendo_val):.2f}"
+                
+                # NOTA: He eliminado Sustraendo, MontoRetenido y NumeroComprobante 
+                # porque el SENIAT dio "Elemento no esperado" para esos campos.
+                    
+            xml_str = ET.tostring(root, encoding='utf-8')
+            parsed = minidom.parseString(xml_str)
+            return parsed.toprettyxml(indent="  ")
+
+        # --- 🔘 TABLA DE REFERENCIA ---
+        # --- 🔘 TABLA DE REFERENCIA ESTILO SENIAT ---
+        # --- 🔘 TABLA DE REFERENCIA ESTILO SENIAT (INTEGRADA Y CALCULADA) ---
+        # --- 🔘 TABLA DE REFERENCIA ESTILO SENIAT (CON UMBRALES CALCULADOS) ---
+        with st.expander("📊 Ver Tabla de Referencia de Sustraendos (Manual SENIAT)", expanded=False):
+            
+            # Calculamos el umbral legal para PNR (83.33 UT)
+            umbral_pnr = VALOR_UT * FACTOR 
+            
+            # 1. Definimos los datos con los valores técnicos reales
+            datos_sust = [
+                {"Cod": "001", "Actividad": "Sueldos y Salarios", "Tipo": "PNR", "Mayores a": "Variable", "% Ret.": None, "Sustraendo Bs.": "-"},
+                {"Cod": "003", "Actividad": "Honorarios Prof. No Mercantiles", "Tipo": "PNR", "Mayores a": f"{umbral_pnr:,.2f}", "% Ret.": 3.0, "Sustraendo Bs.": calcular_sustraendo(3)},
+                {"Cod": "004", "Actividad": "Honorarios Prof. No Mercantiles", "Tipo": "PJD", "Mayores a": "0,01", "% Ret.": 5.0, "Sustraendo Bs.": 0.00},
+                {"Cod": "019", "Actividad": "Comisiones Varias", "Tipo": "PNR", "Mayores a": f"{umbral_pnr:,.2f}", "% Ret.": 3.0, "Sustraendo Bs.": calcular_sustraendo(3)},
+                {"Cod": "020", "Actividad": "Comisiones Varias", "Tipo": "PJD", "Mayores a": "0,01", "% Ret.": 5.0, "Sustraendo Bs.": 0.00},
+                {"Cod": "053", "Actividad": "Empresas Contratistas / Servicios", "Tipo": "PNR", "Mayores a": f"{umbral_pnr:,.2f}", "% Ret.": 1.0, "Sustraendo Bs.": calcular_sustraendo(1)},
+                {"Cod": "055", "Actividad": "Empresas Contratistas / Servicios", "Tipo": "PJD", "Mayores a": "0,01", "% Ret.": 2.0, "Sustraendo Bs.": 0.00},
+                {"Cod": "071", "Actividad": "Gastos de Transporte (Fletes)", "Tipo": "PNR", "Mayores a": "0,01", "% Ret.": 1.0, "Sustraendo Bs.": calcular_sustraendo(1)},
+                {"Cod": "072", "Actividad": "Gastos de Transporte (Fletes)", "Tipo": "PJD", "Mayores a": "0,01", "% Ret.": 3.0, "Sustraendo Bs.": 0.00},
+            ]
+
+            df_referencia = pd.DataFrame(datos_sust)
+
+            st.info(f"📍 **Base Legal:** Unidad Tributaria: **Bs. {VALOR_UT:,.2f}** | Umbral PNR (83.33 UT): **Bs. {umbral_pnr:,.2f}**")
+
+            # 2. Configuración de la tabla profesional
+            st.dataframe(
+                df_referencia,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "Cod": st.column_config.TextColumn("Código", width="small"),
+                    "Actividad": st.column_config.TextColumn("Actividad / Concepto Según Manual", width="large"),
+                    "Tipo": st.column_config.TextColumn("Persona"),
+                    "Mayores a": st.column_config.TextColumn("Mayores a... (Bs.)"),
+                    "% Ret.": st.column_config.NumberColumn("Alícuota", format="%.1f%%"),
+                    "Sustraendo Bs.": st.column_config.NumberColumn("Sustraendo", format="Bs. %.2f"),
+                }
+            )
+
+        DATOS_EMPRESA = {
+            "nombre": "KING DRIVER, C.A.",
+            "rif": "J507757188",
+            "direccion": "AV. JOSE ANTONIO PAEZ EDIF RESIDENCIAS 2000 RESIDENCIAS CECILIA PISO PH APT 43 URB EL PARAISO CARACAS DISTRITO CAPITAL"
+        }
+
+        # Inicializar el índice de la pestaña si no existe
+        if 'active_tab' not in st.session_state:
+            st.session_state.active_tab = 0
+
+        # Definir las pestañas y capturar el índice seleccionado
+        # 1. Definimos la lista de nombres
+        tab_names = ["➕ Generar Nueva", "🔍 Editor/Historial", "🖨️ Reimpresión", "⚙️ Gestión Facturas", "🚀 XML SENIAT"]
+        tab2, tab3, tab4, tab5, tab6 = st.tabs(tab_names)
+
+
+        with tab2:
+            st.markdown("### 🆕 Generar Nueva Retención")
+
+            col_fecha1, col_fecha2 = st.columns(2)
+            f_xml_desde_n = col_fecha1.date_input("Desde", value=datetime.datetime(2026, 10, 1), key="nueva_desde")
+            f_xml_hasta_n = col_fecha2.date_input("Hasta", value=datetime.datetime(2026, 10, 31), key="nueva_hasta")
+
+            col_c1, col_c2 = st.columns(2)
+
+            with col_c1:
+                if st.button("🔍 Consultar Facturas Pendientes", use_container_width=True):
+                    conn = conectar_db(db_actual)
+                    if conn:
+                        # Consulta optimizada que une libro_compras con proveedores
+                        query = """
+                        SELECT 
+                            lc.fecha_operacion AS fecha_operacion,
+                            NULL AS id, 
+                            NULL AS id_sec, 
+                            lc.rif AS rif_retenido, 
+                            COALESCE(p.razon_social, 'PROVEEDOR NO ENCONTRADO') AS proveedor_nombre, 
+                            COALESCE(p.direccion_fiscal, 'DIRECCIÓN NO REGISTRADA') AS proveedor_direccion,
+                            lc.n_factura AS numero_factura, 
+                            lc.n_control AS numero_control, 
+                            NULL AS codigo_concepto, 
+                            lc.base_imponible AS monto_operacion, 
+                            0.00 AS porcentaje_retencion, 
+                            0.00 AS monto_retenido, 
+                            NULL AS periodo_retenido, 
+                            0.00 AS sustraendo, 
+                            NULL AS n_comprob_islr
+                        FROM libro_compras lc
+                        LEFT JOIN proveedores p ON 
+                        TRIM(REGEXP_REPLACE(lc.rif, '[^a-zA-Z0-9]', '')) = TRIM(REGEXP_REPLACE(p.rif, '[^a-zA-Z0-9]', ''))
+                        WHERE (lc.retencion_realizada = 0 OR lc.retencion_realizada IS NULL)
+                        AND lc.fecha_operacion BETWEEN %s AND %s
+                        ORDER BY lc.fecha_operacion ASC
+                        """
+
+                        try:
+                            # Carga de datos segura con Pandas y parámetros de MySQL
+                            st.session_state.df_retencion = pd.read_sql(
+                                query, 
+                                conn, 
+                                params=(f_xml_desde_n, f_xml_hasta_n)
+                            )
+                            st.success("✅ Facturas y Datos Fiscales cargados con éxito.")
+                        except Exception as e:
+                            st.error(f"❌ Error al consultar la base de datos: {e}")
+                        finally:
+                            conn.close()
+            with col_c2:
+                if st.button("🏢 Cargar Directorio de Proveedores", use_container_width=True):
+                    conn = conectar_db()
+                    if conn:
+                        st.session_state.df_prov_fiscal = pd.read_sql("SELECT rif, razon_social, direccion_fiscal FROM proveedores", conn)
+                        conn.close()
+                        st.info("📂 Directorio actualizado.")
+
+            # Inicialización de estados
+            if "pdf_listo" not in st.session_state:
+                st.session_state.pdf_listo = False
+            if "datos_pdf" not in st.session_state:
+                st.session_state.datos_pdf = None
+
+            if "df_retencion" in st.session_state:
+                # Definimos solo las columnas que queremos que el usuario vea
+                columnas_a_mostrar = [
+                    "fecha_operacion", "rif_retenido", "proveedor_nombre", 
+                    "numero_factura", "numero_control", "monto_operacion"
+                ]
+                
+                sel_f = st.dataframe(
+                    st.session_state.df_retencion[columnas_a_mostrar],  # <--- Filtramos aquí
+                    on_select="rerun", 
+                    selection_mode="single-row", 
+                    hide_index=True, 
+                    use_container_width=True
+                )
+                
+                if sel_f.selection.rows:
+                    # Extraemos los datos de la fila seleccionada
+                    f_data = st.session_state.df_retencion.iloc[sel_f.selection.rows[0]]
+                    
+                    # El key dinámico fuerza al formulario a refrescarse al cambiar de factura
+                    with st.form(key=f"form_final_islr_{f_data['id']}"): 
+
+                        st.markdown("#### 🛠️ Datos del Comprobante")
+                        c1, c2, c3 = st.columns([3, 4, 5])
+                        
+                        rif_r = c1.text_input("RIF", value=f_data['rif_retenido'])
+                        id_seguro = f_data.get('id') or 0
+                        val_sugerido = f_data['fecha_operacion'].strftime("%Y%m") + str(id_seguro).zfill(8)
+                        n_comprob_manual = c2.text_input("N° Comprobante (Manual)", value=val_sugerido)
+                        razon_r = st.text_input("Razón Social", value=f_data['proveedor_nombre'])
+                        
+                        # --- LÓGICA DE DIRECCIÓN MEJORADA ---
+                        dir_bd = f_data.get('proveedor_direccion', '') 
+
+                        # 2. Convertimos a string para evitar errores si llega un None
+                        dir_bd = str(dir_bd) if dir_bd is not None else ""
+
+                        # 3. Ahora sí, hacemos la validación
+                        if dir_bd.strip() != "" and dir_bd.upper() != "NONE":
+                            dir_r = st.text_input("Dirección", value=dir_bd, key=f"dir_{f_data['id']}")
+                        else:
+                            st.warning("⚠️ PROVEEDOR NO REGISTRADO EN DIRECTORIO")
+                            dir_r = st.text_input("Dirección", value="Escriba la dirección aquí...", key=f"dir_{f_data['id']}")
+                        
+                        c7, c8, c9 = st.columns(3)
+                        base_r = c7.number_input("Base Imponible", value=float(f_data['monto_operacion']))
+                        porc_r = c8.number_input("% Retención", value=3.0)
+                        codigo_r = c9.text_input("Código Concepto", value="001", help="Ingresa el código del SENIAT (ej. 001, 002)")
+                        
+                        # Asegúrate de que el resultado sea siempre un float válido antes de pasarlo al input
+                        # --- Lógica de cálculo blindada ---
+                        # Aseguramos que 'porc_r' sea un número válido
+                        try:
+                            porc_actual = float(porc_r) if porc_r is not None else 0.0
+                        except ValueError:
+                            porc_actual = 0.0
+
+                        # Lógica del sustraendo
+                        if rif_r.upper().startswith(('V', 'E')) and porc_actual > 0:
+                            val_sust = calcular_sustraendo(porc_actual)
+                        else:
+                            val_sust = 0.00 
+
+                        # Campo de entrada vinculado (usamos 'key' para evitar conflictos de estado)
+                        sust_r = c9.number_input(
+                            "Sustraendo", 
+                            value=float(val_sust), 
+                            format="%.2f", 
+                            key=f"sust_{f_data['id']}" # Esto permite que se refresque al cambiar de factura
+                        )
+                        
+                        btn_procesar = st.form_submit_button("🚀 Procesar y Guardar")
+                        
+                        if btn_procesar:
+                            # 1. Calculamos m_final aquí mismo para asegurarnos de que exista
+                            conn = conectar_db(st.session_state.get('DB_ACTUAL'))
+                            m_final = round(float((float(base_r) * (float(porc_r) / 100)) - float(sust_r)), 2)
+                            
+                            if comprobar_existencia_comprobante(n_comprob_manual):
+                                st.error(f"⚠️ El comprobante **{n_comprob_manual}** ya existe.")
+                            else:
+                                # 2. Ahora m_final ya está definida y lista para usarse
+                                # Verifica el valor antes de enviarlo (esto ayuda a depurar)
+                                st.write(f"DEBUG: Enviando monto_retenido: {m_final}")
+
+                                exito, valor = registrar_retencion_islr_db(
+                                    int(f_data.get('id') or 0),  # <--- Esto convierte None en 0 de forma segura
+                                    rif_r, 
+                                    razon_r, 
+                                    dir_r, 
+                                    str(f_data['numero_factura']), 
+                                    str(f_data['numero_control']), 
+                                    f_data['fecha_operacion'], 
+                                    "001", 
+                                    base_r, 
+                                    porc_r, 
+                                    sust_r, 
+                                    f_data['fecha_operacion'].strftime("%Y%m"), 
+                                    m_final,  # <--- Este es el valor limpio
+                                    n_comprob_manual
+)
+                                
+                                if exito:
+                                    st.session_state.datos_pdf = {
+                                        "agente": DATOS_EMPRESA,
+                                        "sujeto": {"rif": rif_r, "nombre": razon_r, "direccion": dir_r},
+                                        "factura": str(f_data['numero_factura']),
+                                        "control": str(f_data['numero_control']),
+                                        "base": base_r,
+                                        "porcentaje": porc_r,
+                                        "sustraendo": sust_r,
+                                        "total_retenido": m_final,
+                                        "fecha_emision": f_data['fecha_operacion'].strftime("%d/%m/%Y"),
+                                        "fecha_operacion": f_data['fecha_operacion'],
+                                        "n_comprobante": n_comprob_manual
+                                    }
+                                    st.session_state.pdf_listo = True
+                                    st.success(f"✅ Comprobante N° {n_comprob_manual} registrado.")
+                                    st.rerun()
+
+            # Bloque de descarga
+            if st.session_state.pdf_listo and st.session_state.datos_pdf:
+                st.write("---")
+                st.info("💡 El comprobante está listo para descargar.")
+                pdf_bytes = generar_comprobante_pdf(st.session_state.datos_pdf, conn)
+                st.download_button(
+                    label="📥 DESCARGAR COMPROBANTE PDF AHORA",
+                    data=pdf_bytes,
+                    file_name=f"Retencion_{st.session_state.datos_pdf['n_comprobante']}.pdf",
+                    mime="application/pdf",
+                    use_container_width=True,
+                    key="btn_download_final"
+                )
+                
+                if st.button("➕ Registrar otra retención"):
+                    st.session_state.pdf_listo = False
+                    st.session_state.datos_pdf = None
+                    st.rerun()
+
+            with tab3:
+                # --- SECCIÓN: EDITOR DE HISTORIAL ---
+                st.divider()
+                st.markdown("### 🔎 Editor y Filtros de Historial")
+
+                with st.expander("📅 Filtros de Consulta para Editar", expanded=True):
+                    col_f1, col_f2 = st.columns(2)
+                    
+                    # Keys únicas para evitar conflictos
+                    f_inicio_h = col_f1.date_input("Desde", datetime.datetime(2026, 8, 1), key="h_desde_editor")
+                    f_fin_h = col_f2.date_input("Hasta", datetime.datetime(2026, 8, 31), key="h_hasta_editor")
+                    st.write("") 
+                    btn_cargar = st.button("📂 Cargar Historial para Editar", use_container_width=True, type="primary")
+
+                # --- 1. Lógica de carga (DENTRO DEL TAB) ---
+                if btn_cargar:
+                    conn = conectar_db()
+                    db_actual = st.session_state.get('DB_ACTUAL')
+                    if conn and db_actual:
+                        try:
+                            cursor = conn.cursor()
+                            # SELECCIONAR LA BASE DE DATOS CORRECTA ANTES DE CONSULTAR
+                            cursor.execute(f"USE {db_actual}")
+                            # Esta es tu consulta exacta
+                            query = """
+                                SELECT id, rif_retenido, numero_factura, numero_control, fecha_operacion, 
+                                       codigo_concepto, monto_operacion, porcentaje_retencion, 
+                                       monto_retenido, periodo_retenido, n_comprob_islr 
+                                FROM retenciones_islr 
+                                WHERE fecha_operacion BETWEEN %s AND %s 
+                                ORDER BY fecha_operacion DESC
+                            """
+                            
+                            # Definimos los parámetros basándonos en tus date_input
+                            parametros = (f_inicio_h.strftime('%Y-%m-%d'), f_fin_h.strftime('%Y-%m-%d'))
+                            
+                            # Ejecutamos pasando los parámetros por separado
+                            st.session_state.df_retenciones_editor = pd.read_sql(query, conn, params=parametros)
+                            
+                            st.success(f"✅ Registros cargados: {len(st.session_state.df_retenciones_editor)}")
+                            
+                        except Exception as e:
+                            st.error(f"Error en la base de datos: {e}")
+                        finally:
+                            conn.close()
+
+                # --- 2. Visualización y Edición (DENTRO DEL TAB) ---
+                # --- 2. Visualización y Edición ---
+                if "df_retenciones_editor" in st.session_state:
+                    st.info("📝 Puedes editar los montos o eliminar filas.")
+                    
+                    # Asegúrate de que las columnas coincidan con las de tu DataFrame real
+                    edit_ret_df = st.data_editor(
+                        st.session_state.df_retenciones_editor,
+                        key="editor_tabla_retenciones",
+                        hide_index=True,
+                        column_config={
+                            "id": st.column_config.NumberColumn("ID", disabled=True),
+                            "rif_retenido": "RIF",
+                            "numero_factura": "N° Factura",
+                            "monto_operacion": st.column_config.NumberColumn("Base", format="Bs %.2f"),
+                            "monto_retenido": st.column_config.NumberColumn("Monto Retenido", format="Bs %.2f"),
+                            # Asegúrate de que los nombres aquí coincidan con los del SELECT
+                        }
+                    )
+
+                    # --- 3. Sincronización ---
+                    if st.button("💾 Sincronizar Historial con DB", type="primary", use_container_width=True):
+                        estado = st.session_state.get("editor_tabla_retenciones", None)
+                        db_actual = st.session_state.get('DB_ACTUAL')
+                        conn = conectar_db()
+                        
+                        if conn and db_actual:
+                            try:
+                                cursor = conn.cursor()
+                                cursor.execute(f"USE {db_actual}")
+                                
+                                total_eliminados = 0
+                                total_editados = 0
+                                
+                                # PROCESAR ELIMINACIONES
+                                if estado and "deleted_rows" in estado:
+                                    for row_idx in estado["deleted_rows"]:
+                                        id_real = int(st.session_state.df_retenciones_editor.iloc[row_idx]["id"]) 
+                                        cursor.execute("DELETE FROM retenciones_islr WHERE id = %s", (id_real,))
+                                        total_eliminados += 1
+
+                                # PROCESAR EDICIONES
+                                if estado and "edited_rows" in estado and estado["edited_rows"]:
+                                    for row_idx, cambios in estado["edited_rows"].items():
+                                        fila = st.session_state.df_retenciones_editor.iloc[int(row_idx)]
+                                        id_real = int(fila["id"])
+                                        
+                                        for campo_display, valor in cambios.items():
+                                            mapa = {
+                                                "Monto Retenido": "monto_retenido",
+                                                "Base": "monto_operacion",
+                                                "N° Factura": "numero_factura",
+                                                "RIF": "rif_retenido"
+                                            }
+                                            columna_db = mapa.get(campo_display, campo_display)
+                                            valor_final = valor.item() if hasattr(valor, 'item') else valor
+                                            
+                                            query_upd = f"UPDATE retenciones_islr SET {columna_db} = %s WHERE id = %s"
+                                            cursor.execute(query_upd, (valor_final, id_real))
+                                            total_editados += 1
+
+                                conn.commit()
+                                
+                                if total_eliminados > 0 or total_editados > 0:
+                                    # --- NOTIFICACIÓN MEJORADA ---
+                                    mensaje = f"✅ Cambios guardados: {total_eliminados} eliminados, {total_editados} editados."
+                                    st.success(mensaje)
+                                    st.toast(mensaje, icon="💾") # Notificación flotante
+                                    
+                                    import time
+                                    time.sleep(1.5) # Pausa breve para que el usuario lea el mensaje
+                                    
+                                    if "df_retenciones_editor" in st.session_state:
+                                        del st.session_state.df_retenciones_editor
+                                    st.rerun()
+                                else:
+                                    st.info("ℹ️ No se detectaron cambios para guardar.")
+                                    
+                            except Exception as e:
+                                conn.rollback()
+                                st.error(f"❌ Error al sincronizar: {e}")
+                            finally:
+                                conn.close()
+                        elif not db_actual:
+                            st.warning("⚠️ No se ha seleccionado una base de datos activa.")
+
+
+            # --- TAB 4: REIMPRESIÓN ---
+            with tab4:
+                st.divider()
+                st.markdown("### 🖨️ Reimpresión de Comprobantes")
+                
+                # 1. Botón para cargar historial
+                # Bloque de carga corregido dentro de tab4
+                # 1. Botón para cargar historial
+                if st.button("📂 Cargar/Actualizar Historial", use_container_width=True):
+                    db_actual = st.session_state.get('DB_ACTUAL')
+                    conn = conectar_db()
+                    
+                    if conn and db_actual:
+                        try:
+                            cursor = conn.cursor()
+                            # Aseguramos el contexto de la base de datos correcta
+                            cursor.execute(f"USE {db_actual}")
+                            
+                            query_historial = """
+                                SELECT r.*, 
+                                       COALESCE(p.razon_social, r.rif_retenido) AS nombre_completo, 
+                                       COALESCE(p.direccion_fiscal, 'CARACAS, VENEZUELA') AS direccion_completa
+                                FROM retenciones_islr r
+                                LEFT JOIN proveedores p ON r.rif_retenido = p.rif
+                                ORDER BY r.id DESC
+                            """
+                            # Cargar datos al session_state
+                            st.session_state.df_historial_islr = pd.read_sql(query_historial, conn)
+                            
+                        except Exception as e:
+                            st.error(f"Error al cargar historial: {e}")
+                        finally:
+                            conn.close()
+                            # Forzar recarga para que el if inferior detecte los datos
+                            st.rerun()
+                    elif not db_actual:
+                        st.warning("⚠️ Por favor, selecciona una base de datos primero.")
+
+
+                # 2. Visualización y Selección
+                # 2. Visualización y Selección
+                if "df_historial_islr" in st.session_state and not st.session_state.df_historial_islr.empty:
+                    sel_hist = st.dataframe(
+                        st.session_state.df_historial_islr, 
+                        key="tabla_historial",
+                        on_select="rerun", 
+                        selection_mode="single-row", 
+                        hide_index=True, 
+                        use_container_width=True
+                    )
+
+                    seleccion = st.session_state.tabla_historial.selection.rows
+                    
+                    if seleccion:
+                        idx = seleccion[0]
+                        h = st.session_state.df_historial_islr.iloc[idx]
+                        
+                        # Procesamiento de datos...
+                        with st.status("🛠️ Procesando datos...", expanded=False):
+                            # ... (tu lógica de limpieza de factura y control aquí) ...
+                            factura_sucia = str(h['numero_factura']).split("/")[0]
+                            solo_numeros_f = re.findall(r'\d+', factura_sucia)
+                            factura_limpia = solo_numeros_f[0].zfill(5) if solo_numeros_f else "00001"
+
+                            control_sucio = str(h['numero_control']).split("/")[-1]
+                            solo_numeros_c = re.findall(r'\d+', control_sucio)
+                            control_limpio = solo_numeros_c[0] if solo_numeros_c else "00001"
+
+                            datos_reimp = {
+                                "agente": DATOS_EMPRESA,
+                                "sujeto": {
+                                    "rif": h['rif_retenido'], 
+                                    "nombre": h['nombre_completo'], 
+                                    "direccion": h['direccion_completa']
+                                },
+                                "factura": factura_limpia, 
+                                "control": control_limpio, 
+                                "base": float(h['monto_operacion']), 
+                                "porcentaje": float(h['porcentaje_retencion']), 
+                                "sustraendo": float(h['sustraendo']), 
+                                "total_retenido": float(h['monto_retenido']),
+                                "fecha_operacion": h['fecha_operacion'],
+                                "n_comprobante": h.get('n_comprob_islr', "S/N") 
+                            }
+
+                        # 3. Botón de descarga con conexión abierta
+                        st.write(f"✅ Factura seleccionada: **{factura_limpia}**")
+                        
+                        conn = conectar_db() # Abrimos conexión para el log
+                        if conn:
+                            try:
+                                # PASAMOS EL SEGUNDO ARGUMENTO (conn)
+                                pdf_bytes_re = generar_comprobante_pdf(datos_reimp, conn)
+                                
+                                if pdf_bytes_re:
+                                    st.download_button(
+                                        label=f"📥 Descargar PDF: {h['nombre_completo'][:20]}...", 
+                                        data=pdf_bytes_re, 
+                                        # Aquí hacemos el cambio para usar el número de comprobante directamente
+                                        file_name=f"Retencion_{h['n_comprob_islr']}.pdf", 
+                                        mime="application/pdf", 
+                                        use_container_width=True,
+                                        key=f"btn_reimp_{h['id']}"
+                                    )
+                            except Exception as e:
+                                st.error(f"Error al generar el archivo: {e}")
+                            finally:
+                                conn.close() # Cerramos conexión para liberar recursos
+
+            # --- TAB 5: GESTIÓN DE FACTURAS ---
+            with tab5:
+                st.divider()
+                st.subheader("⚙️ Gestión y Desbloqueo de Facturas")
+                st.info("Utiliza esta opción si marcaste una factura como 'Retenida' por error.")
+
+                # --- COMUNICACIÓN DINÁMICA MULTI-CLIENTE ---
+                with st.expander("🔍 Listado de Facturas en la BD"):
+                    try:
+                        # Usamos la conexión dinámica según el cliente en sesión
+                        db_actual = st.session_state.get('DB_ACTUAL')
+                        if db_actual:
+                            conn = conectar_db(db_actual)
+                            df = pd.read_sql("SELECT rif_retenido, numero_factura FROM retenciones_islr", conn)
+                            st.dataframe(df, use_container_width=True)
+                            conn.close()
+                        else:
+                            st.error("No se detectó una base de datos activa en la sesión.")
+                    except Exception as e:
+                        st.error(f"Error de conexión: {e}")
+
+                # --- FORMULARIO DE DESBLOQUEO ---
+                with st.form("form_desbloqueo", clear_on_submit=True):
+                    col1, col2 = st.columns(2)
+                    rif_input = col1.text_input("RIF del Proveedor:")
+                    factura_input = col2.text_input("Número de factura:")
+                    
+                    btn_habilitar = st.form_submit_button("🔓 Habilitar Factura para Retención", type="primary")
+
+                    if btn_habilitar:
+                        if factura_input:
+                            # Importante: Asegúrate de que resetear_estado_retencion también 
+                            # use la DB_ACTUAL internamente o reciba el parámetro
+                            resultado = resetear_estado_retencion(factura_input)
+                            if resultado is True:
+                                st.success(f"✅ Factura {factura_input} habilitada correctamente.")
+                            else:
+                                st.error("❌ No se pudo habilitar. Verifica el número.")
+                        else:
+                            st.warning("💡 Debes ingresar el número de factura.")
+
+            # --- TAB 6: XML SENIAT ---
+            with tab6:
+                # --- SECCIÓN C: GENERAR ARCHIVO XML SENIAT ---
+                st.divider()
+                st.markdown("### 📡 Generar Archivo XML para Declaración SENIAT")
+                # Inserta esto ANTES de la línea que te da el error
+
+                
+                with st.container(border=True):
+                    col_xml1, col_xml2 = st.columns(2)
+                    f_xml_desde = col_xml1.date_input("Desde", value=datetime.datetime(2026, 4, 1), key="xml_desde")
+                    f_xml_hasta = col_xml2.date_input("Hasta", value=datetime.datetime(2026, 4, 30), key="xml_hasta")
+                    
+                    # Botón de procesamiento
+                    if st.button("🚀 Procesar Datos XML", use_container_width=False):
+                        db_actual = st.session_state.get('DB_ACTUAL') 
+                        conn = conectar_db(db_actual) # Pasa explícitamente el nombre de la DB
+                        if conn:
+
+                            # Usamos parámetros para evitar inyecciones SQL aunque sea uso interno
+                            query_xml = """
+                                SELECT 
+                                    rif_retenido, 
+                                    numero_factura, 
+                                    numero_control, 
+                                    fecha_operacion,
+                                    codigo_concepto, 
+                                    monto_operacion, 
+                                    porcentaje_retencion,
+                                    sustraendo, 
+                                    monto_retenido, 
+                                    n_comprob_islr
+                                FROM retenciones_islr 
+                                WHERE fecha_operacion BETWEEN %s AND %s
+                            """
+                            df_xml = pd.read_sql(query_xml, conn, params=(f_xml_desde, f_xml_hasta))
+                            conn.close()
+                            
+                            if not df_xml.empty:
+                                periodo_xml = f_xml_hasta.strftime("%Y%m")
+                                # Guardamos el resultado en session_state
+                                st.session_state['xml_data'] = generar_xml_seniat(df_xml, DATOS_EMPRESA['rif'], periodo_xml)
+                                st.session_state['xml_filename'] = f"RET_ISLR_{periodo_xml}.xml"
+                                st.success(f"✅ Datos procesados ({len(df_xml)} retenciones). Listo para descargar.")
+                            else:
+                                st.warning("⚠️ No se encontraron retenciones en el rango seleccionado.")
+                                st.session_state['xml_data'] = None
+
+                    # Botón de descarga (se muestra solo si hay datos en el estado de la sesión)
+                    if st.session_state.get('xml_data'):
+                        st.download_button(
+                            label="📥 Descargar XML para el Portal SENIAT",
+                            data=st.session_state['xml_data'],
+                            file_name=st.session_state['xml_filename'],
+                            mime="application/xml",
+                            use_container_width=False
+                        )
+
+
+    elif sub_opcion == "Comprobante de Retención IVA":
+        # 1. Aseguramos que el módulo datetime esté disponible sin conflictos
+        import datetime as dt 
+        
+        # 2. Validamos la conexión antes de entrar a la interfaz pesada
+        db_actual = st.session_state.get('DB_ACTUAL', 'railway')
+        conn_valida = conectar_db(db_actual)
+        
+        if conn_valida:
+            # Llamamos a la función con la seguridad de que la conexión existe
+            mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global)
+        else:
+            st.error("No se pudo restablecer la conexión para el módulo de IVA.")
+
+
+# --- USAMOS "IN" PARA QUE NO IMPORTE EL EMOJI QUE PONGAS EN EL SIDEBAR ---
+elif "Proveedores" in opcion_menu:
+    st.title("👤 Gestión de Directorio de Proveedores")
+    
+    # 1. Obtenemos la conexión
+    conn_empresa = conectar_db(db_actual)
+    
+    try:
+        # 2. Definición estricta de tabs
+        tab1, tab2 = st.tabs(["📥 Cargar desde Excel", "📋 Directorio Actual"])
+        
+        # 3. Lógica de Pestaña 1
+        with tab1:
+            st.markdown("### Subir Archivo Masivo")
+            file_p = st.file_uploader("Seleccione el archivo Excel", type=["xlsx"], key="file_prov_up")
+                
+            if file_p:
+                df_subida = pd.read_excel(file_p)
+                st.write("Vista previa:")
+                st.dataframe(df_subida.head())
+                if st.button("🚀 Procesar y Guardar", type="primary"):
+                    procesar_excel_proveedores_db(conn_empresa, df_subida)
+                    st.success("✅ ¡Actualizado!")
+                    st.balloons()
+
+        # 4. Lógica de Pestaña 2
+        with tab2:
+            st.markdown("### 📋 Directorio Actual")
+            df_prov = consultar_tabla_db(conn_empresa, "proveedores")
+            
+            if df_prov is None or df_prov.empty:
+                df_prov = pd.DataFrame(columns=["rif", "tipo_persona", "razon_social", "direccion_fiscal"])
+            
+            df_editado = st.data_editor(
+                df_prov, 
+                key="editor_proveedores_dinamico", 
+                num_rows="dynamic",
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "rif": st.column_config.TextColumn("RIF (Llave Primaria)", required=True),
+                    "tipo_persona": st.column_config.SelectboxColumn("Tipo", options=["PN", "PJ"], required=True),
+                    "razon_social": st.column_config.TextColumn("Razón Social", required=True),
+                    "direccion_fiscal": st.column_config.TextColumn("Dirección Fiscal", required=True)
+                }
+            )
+            
+            if st.button("💾 Guardar Todo"):
+                actualizar_tabla_completa_db(conn_empresa, "proveedores", df_editado)
+                st.success("¡Directorio actualizado con éxito, Papi!")
+                st.rerun()
+
+        # 5. Zona de respaldo (fuera de las tabs pero dentro del try)
+        st.markdown("---") 
+        if 'df_prov' in locals() and not df_prov.empty:
+            import io
+            output = io.BytesIO()
+            with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                df_prov.to_excel(writer, index=False, sheet_name='Proveedores')
+            st.download_button("📥 Descargar Respaldo", data=output.getvalue(), file_name="Respaldo_Proveedores.xlsx")
+            
+    finally:
+        # 6. Cierre de conexión garantizado
+        if conn_empresa and conn_empresa.is_connected():
+            conn_empresa.close()
+
+
+
+elif "Inventarios" in opcion_menu:
+    # Invocamos el módulo exclusivo pasando la conexión a la base de datos
+    modulo_inventario_pedacito_cielo(conn)  
