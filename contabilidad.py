@@ -847,42 +847,34 @@ def obtener_historico_utilidad(db, f_inicio=None, f_fin=None):
         import datetime
         f_fin = datetime.date.today()
     
-    if hasattr(f_fin, 'strftime'):
-        fecha_fin_str = f_fin.strftime('%Y-%m-%d')
-    else:
-        fecha_fin_str = str(f_fin).split()[0]
+    fecha_fin_str = f_fin.strftime('%Y-%m-%d') if hasattr(f_fin, 'strftime') else str(f_fin).split()[0]
 
     if f_inicio is not None:
-        if hasattr(f_inicio, 'strftime'):
-            fecha_inicio_str = f_inicio.strftime('%Y-%m-%d')
-        else:
-            fecha_inicio_str = str(f_inicio).split()[0]
+        fecha_inicio_str = f_inicio.strftime('%Y-%m-%d') if hasattr(f_inicio, 'strftime') else str(f_inicio).split()[0]
     else:
-        # CORRECCIÓN: Si no hay inicio, toma el inicio de ese mes específico (igual que tu respaldo) 
-        # en vez de arrancar todo el año por defecto. Cambia a "-01-01" si prefieres ver todo el año.
         partes = fecha_fin_str.split('-')
-        fecha_inicio_str = f"{partes[0]}-{partes[1]}-01"
+        fecha_inicio_str = f"{partes[0]}-01-01"
     
-    # Consulta agrupada mes a mes utilizando STR_TO_DATE y TRIM para evitar fallos de formato
+    # Consulta agrupada mes a mes usando exactamente la estructura segura de tu respaldo (LIKE '4%%' y TRIM)
     query = f"""
         SELECT 
             YEAR(STR_TO_DATE(fecha, '%Y-%m-%d')) as anio,
             MONTH(STR_TO_DATE(fecha, '%Y-%m-%d')) as mes,
             
-            COALESCE(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '4%%' THEN haber ELSE 0 END), 0) as ing_haber,
-            COALESCE(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '4%%' THEN debe ELSE 0 END), 0) as ing_debe,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '4%%' THEN haber ELSE 0 END) as ing_haber,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '4%%' THEN debe ELSE 0 END) as ing_debe,
             
-            COALESCE(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '5%%' THEN debe ELSE 0 END), 0) as cos_debe,
-            COALESCE(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '5%%' THEN haber ELSE 0 END), 0) as cos_haber,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '5%%' THEN debe ELSE 0 END) as cos_debe,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '5%%' THEN haber ELSE 0 END) as cos_haber,
             
-            COALESCE(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '6%%' THEN debe ELSE 0 END), 0) as gas_debe,
-            COALESCE(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '6%%' THEN haber ELSE 0 END), 0) as gas_haber,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '6%%' THEN debe ELSE 0 END) as gas_debe,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '6%%' THEN haber ELSE 0 END) as gas_haber,
 
-            COALESCE(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '7%%' THEN haber ELSE 0 END), 0) as oing_haber,
-            COALESCE(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '7%%' THEN debe ELSE 0 END), 0) as oing_debe,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '7%%' THEN haber ELSE 0 END) as oing_haber,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '7%%' THEN debe ELSE 0 END) as oing_debe,
             
-            COALESCE(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '8%%' THEN debe ELSE 0 END), 0) as oeg_debe,
-            COALESCE(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '8%%' THEN haber ELSE 0 END), 0) as oeg_haber
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '8%%' THEN debe ELSE 0 END) as oeg_debe,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '8%%' THEN haber ELSE 0 END) as oeg_haber
         FROM `{db}`.asientos_contables 
         WHERE STR_TO_DATE(fecha, '%Y-%m-%d') BETWEEN STR_TO_DATE(%s, '%Y-%m-%d') AND STR_TO_DATE(%s, '%Y-%m-%d')
         GROUP BY YEAR(STR_TO_DATE(fecha, '%Y-%m-%d')), MONTH(STR_TO_DATE(fecha, '%Y-%m-%d'))
@@ -896,14 +888,14 @@ def obtener_historico_utilidad(db, f_inicio=None, f_fin=None):
         
         df_sql = pd.DataFrame(resultados) if resultados else pd.DataFrame(columns=['anio', 'mes'])
 
-        # Creamos una base con los meses del rango para asegurar consistencia
+        # Plantilla con los 12 meses para garantizar que junio y los demás aparezcan correctamente
         anio_base = int(fecha_inicio_str.split('-')[0])
         meses_skeleton = pd.DataFrame({
             'anio': [anio_base] * 12,
             'mes': list(range(1, 13))
         })
 
-        if not df_sql.empty:
+        if not df_sql.empty and 'mes' in df_sql.columns:
             df = pd.merge(meses_skeleton, df_sql, on=['anio', 'mes'], how='left')
         else:
             df = meses_skeleton
@@ -929,7 +921,7 @@ def obtener_historico_utilidad(db, f_inicio=None, f_fin=None):
         return df[['anio', 'mes', 'mes_nombre', 'utilidad_mensual']]
         
     except Exception as e:
-        print(f"❌ Error al calcular el histórico mensual para {fecha_inicio_str} al {fecha_fin_str}: {e}")
+        print(f"❌ Error al calcular el histórico mensual: {e}")
         return df_default
         
     finally:
