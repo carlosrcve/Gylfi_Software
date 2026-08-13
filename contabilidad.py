@@ -2427,6 +2427,22 @@ def formato_contable(valor):
     except:
         return "0,00"
 
+def estilo_balance(row):
+    """Aplica colores y negritas según el nivel de la cuenta"""
+    # Nivel 1: Títulos principales (Activo, Pasivo, etc.) - Azul Oscuro
+    if row['nivel'] == 1:
+        return ['background-color: #1a5276; color: white; font-weight: bold'] * len(row)
+    
+    # Nivel 2: Sub-títulos (Activo Corriente, etc.) - Azul Claro
+    elif row['nivel'] == 2:
+        return ['background-color: #d4e6f1; color: black; font-weight: bold'] * len(row)
+    
+    # Nivel 3 y 4: Grupos intermedios - Solo Negrita
+    elif row['nivel'] in [3, 4]:
+        return ['font-weight: bold'] * len(row)
+    
+    # Nivel 5: Cuentas de detalle (Caja, Bancos) - Normal
+    return [''] * len(row)
 
 def gestionar_sidebar():
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
