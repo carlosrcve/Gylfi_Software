@@ -443,11 +443,12 @@ def registrar_log_automatico(conn, accion, detalles):
     finally:
         if cursor:
             cursor.close()
+
 @st.cache_data(ttl=300)
 def obtener_historico_utilidad(db, f_inicio=None, f_fin=None):
     # Nota: Como usa caché, la conexión la abrimos y cerramos de forma local y segura aquí dentro
     conn = conectar_db(db)
-    df_default = pd.DataFrame({'utilidad_mensual': [0.0]})
+    df_default = pd.DataFrame(columns=['anio', 'mes', 'mes_nombre', 'utilidad_mensual'])
     
     if not conn:
         return df_default
@@ -466,11 +467,14 @@ def obtener_historico_utilidad(db, f_inicio=None, f_fin=None):
         fecha_inicio_str = f_inicio.strftime('%Y-%m-%d') if hasattr(f_inicio, 'strftime') else str(f_inicio).split()[0]
     else:
         partes = fecha_fin_str.split('-')
-        fecha_inicio_str = f"{partes[0]}-{partes[1]}-01"
+        # Por defecto, si no pasan inicio, tomamos el 1ro de enero del año actual o de la fecha fin
+        fecha_inicio_str = f"{partes[0]}-01-01"
     
-    # Optimizamos la consulta quitando DATE() para que use índices de fecha en MySQL
+    # Consulta agrupada mes a mes usando YEAR y MONTH para separar la utilidad por períodos
     query = f"""
         SELECT 
+            YEAR(fecha) as anio,
+            MONTH(fecha) as mes,
             COALESCE(SUM(CASE WHEN plan_cuentas LIKE '4%' THEN haber ELSE 0 END), 0) as ing_haber,
             COALESCE(SUM(CASE WHEN plan_cuentas LIKE '4%' THEN debe ELSE 0 END), 0) as ing_debe,
             
@@ -487,6 +491,8 @@ def obtener_historico_utilidad(db, f_inicio=None, f_fin=None):
             COALESCE(SUM(CASE WHEN plan_cuentas LIKE '8%' THEN haber ELSE 0 END), 0) as oeg_haber
         FROM `{db}`.asientos_contables 
         WHERE fecha >= %s AND fecha <= %s
+        GROUP BY YEAR(fecha), MONTH(fecha)
+        ORDER BY anio ASC, mes ASC
     """
     
     cursor = conn.cursor(dictionary=True)
@@ -504,19 +510,28 @@ def obtener_historico_utilidad(db, f_inicio=None, f_fin=None):
             
         df = df.fillna(0)
 
-        ingresos = float(df['ing_haber'].iloc[0]) - float(df['ing_debe'].iloc[0])
-        costos = float(df['cos_debe'].iloc[0]) - float(df['cos_haber'].iloc[0])
-        gastos = abs(float(df['gas_debe'].iloc[0]) - float(df['gas_haber'].iloc[0]))
-        otros_ingresos = float(df['oing_haber'].iloc[0]) - float(df['oing_debe'].iloc[0])
-        otros_egresos = abs(float(df['oeg_debe'].iloc[0]) - float(df['oeg_haber'].iloc[0]))
+        # Calculamos la utilidad neta fila por fila (mes a mes)
+        ingresos = df['ing_haber'] - df['ing_debe']
+        costos = df['cos_debe'] - df['cos_haber']
+        gastos = (df['gas_debe'] - df['gas_haber']).abs()
+        otros_ingresos = df['oing_haber'] - df['oing_debe']
+        otros_egresos = (df['oeg_debe'] - df['oeg_haber']).abs()
 
-        utilidad_neta = ingresos - costos - gastos + otros_ingresos - otros_egresos
+        df['utilidad_mensual'] = ingresos - costos - gastos + otros_ingresos - otros_egresos
         
-        df['utilidad_mensual'] = utilidad_neta
-        return df
+        # Diccionario para formatear el nombre del mes de forma amigable
+        dic_meses_nombres = {
+            1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril", 
+            5: "Mayo", 6: "Junio", 7: "Julio", 8: "Agosto", 
+            9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre"
+        }
+        df['mes_nombre'] = df['mes'].map(dic_meses_nombres)
+        
+        # Devolvemos las columnas clave listas para graficar o mostrar en tabla
+        return df[['anio', 'mes', 'mes_nombre', 'utilidad_mensual']]
         
     except Exception as e:
-        print(f"❌ Error al calcular la utilidad para {fecha_inicio_str} al {fecha_fin_str}: {e}")
+        print(f"❌ Error al calcular el histórico mensual para {fecha_inicio_str} al {fecha_fin_str}: {e}")
         return df_default
         
     finally:
