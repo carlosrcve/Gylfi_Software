@@ -9775,8 +9775,6 @@ elif opcion_menu == "📚 Libros Fiscales":
 elif "Proveedores" in opcion_menu:
     st.title("👤 Gestión de Directorio de Proveedores")
     
-    st.title("👤 Gestión de Directorio de Proveedores")
-    
     # 0. ASEGURAR QUE db_actual ESTÉ DEFINIDA
     db_actual = st.session_state.get('DB_ACTUAL')
     
