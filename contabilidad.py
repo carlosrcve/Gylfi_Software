@@ -446,7 +446,6 @@ def registrar_log_automatico(conn, accion, detalles):
 
 @st.cache_data(ttl=300)
 def obtener_historico_utilidad(db, f_inicio=None, f_fin=None):
-    # Nota: Como usa caché, la conexión la abrimos y cerramos de forma local y segura aquí dentro
     conn = conectar_db(db)
     df_default = pd.DataFrame(columns=['anio', 'mes', 'mes_nombre', 'utilidad_mensual'])
     
@@ -467,10 +466,10 @@ def obtener_historico_utilidad(db, f_inicio=None, f_fin=None):
         fecha_inicio_str = f_inicio.strftime('%Y-%m-%d') if hasattr(f_inicio, 'strftime') else str(f_inicio).split()[0]
     else:
         partes = fecha_fin_str.split('-')
-        # Por defecto, si no pasan inicio, tomamos el 1ro de enero del año actual o de la fecha fin
+        # Por defecto tomamos todo el año de la fecha fin para garantizar la visibilidad de todos los meses (incluyendo junio)
         fecha_inicio_str = f"{partes[0]}-01-01"
     
-    # Consulta agrupada mes a mes usando YEAR y MONTH para separar la utilidad por períodos
+    # Consulta agrupada mes a mes
     query = f"""
         SELECT 
             YEAR(fecha) as anio,
@@ -499,15 +498,21 @@ def obtener_historico_utilidad(db, f_inicio=None, f_fin=None):
     try:
         cursor.execute(query, (fecha_inicio_str, fecha_fin_str))
         resultados = cursor.fetchall()
-
-        if not resultados:
-            return df_default
-            
-        df = pd.DataFrame(resultados)
         
-        if df.empty or df.isnull().all().all():
-            return df_default
-            
+        df_sql = pd.DataFrame(resultados) if resultados else pd.DataFrame(columns=['anio', 'mes'])
+
+        # Creamos una base con los 12 meses del año consultado para evitar huecos en junio u otros meses
+        anio_base = int(fecha_inicio_str.split('-')[0])
+        meses_skeleton = pd.DataFrame({
+            'anio': [anio_base] * 12,
+            'mes': list(range(1, 13))
+        })
+
+        if not df_sql.empty:
+            df = pd.merge(meses_skeleton, df_sql, on=['anio', 'mes'], how='left')
+        else:
+            df = meses_skeleton
+
         df = df.fillna(0)
 
         # Calculamos la utilidad neta fila por fila (mes a mes)
@@ -527,7 +532,6 @@ def obtener_historico_utilidad(db, f_inicio=None, f_fin=None):
         }
         df['mes_nombre'] = df['mes'].map(dic_meses_nombres)
         
-        # Devolvemos las columnas clave listas para graficar o mostrar en tabla
         return df[['anio', 'mes', 'mes_nombre', 'utilidad_mensual']]
         
     except Exception as e:
