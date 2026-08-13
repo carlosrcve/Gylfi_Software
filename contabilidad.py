@@ -2646,1447 +2646,1572 @@ if menu_lateral == "📊 Auditoría Contable":
 
 
 if "🏠 Inicio" in opcion_menu:
+    # --- INYECCIÓN DE CSS ---
+    st.markdown("""<style>
+            .block-container { max-width: 100% !important; padding-left: 3rem !important; padding-right: 3rem !important; }
+            div[data-testid="stVerticalBlock"] div[data-testid="stHorizontalBlock"] > div { flex: 1 !important; min-width: 0 !important; }
+            div[data-testid="element-container"] { width: 100% !important; }
+        </style>""", unsafe_allow_html=True)
 
-        # --- INYECCIÓN DE CSS ---
-        st.markdown("""<style>
-                .block-container { max-width: 100% !important; padding-left: 3rem !important; padding-right: 3rem !important; }
-                div[data-testid="stVerticalBlock"] div[data-testid="stHorizontalBlock"] > div { flex: 1 !important; min-width: 0 !important; }
-                div[data-testid="element-container"] { width: 100% !important; }
-            </style>""", unsafe_allow_html=True)
+    user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
+    nombre_usuario_actual = (st.session_state.get('nombre_usuario') or st.session_state.get('username') or st.session_state.get('usuario') or '').strip().lower()
 
-        user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
-        nombre_usuario_actual = (st.session_state.get('nombre_usuario') or st.session_state.get('username') or st.session_state.get('usuario') or '').strip().lower()
-
-        conn_ctrl = conectar_db()
-        db_objetivo = None
-        
-        if conn_ctrl:
-            try:
-                if user_rol == 'admin':
-                    db_objetivo = st.session_state.get('DB_ACTUAL')
-                    if not db_objetivo or db_objetivo == 'No seleccionada':
-                        # Admin por defecto toma la primera del sistema
-                        df_temp = pd.read_sql("SELECT db_nombre FROM clientes LIMIT 1", conn_ctrl)
-                        if not df_temp.empty: db_objetivo = str(df_temp['db_nombre'].iloc[0])
-                else:
-                    # --- BÚSQUEDA DIRECTA Y SEGURA ---
-                    # Buscamos directamente en la tabla usuarios usando el nombre de usuario
-                    query = f"SELECT db_nombre FROM usuarios WHERE LOWER(TRIM(usuario)) = '{nombre_usuario_actual}'"
-                    df_temp = pd.read_sql(query, conn_ctrl)
-                    
-                    if not df_temp.empty and df_temp['db_nombre'].iloc[0]:
-                        db_objetivo = str(df_temp['db_nombre'].iloc[0]).strip()
-                    else:
-                        st.error(f"❌ Acceso denegado: El usuario '{nombre_usuario_actual}' no tiene una empresa (DB) asociada.")
-                        st.stop()
-            except Exception as e:
-                st.error(f"❌ Error al resolver la base de datos: {e}")
-                st.stop()
-            finally:
-                conn_ctrl.close()
-
-        if not db_objetivo:
-            st.error("❌ No se pudo determinar la base de datos de trabajo.")
-            st.stop()
-
-        st.session_state['DB_ACTUAL'] = db_objetivo
-        st.session_state['db_a_conectar'] = db_objetivo
-
-        # --- LÓGICA DE CONEXIÓN ---
-        if 'conn' not in st.session_state or st.session_state.get('ultima_db_conectada') != db_objetivo or st.session_state.conn is None:
-            try:
-                nueva_conn = conectar_db(db_objetivo)
-                if nueva_conn:
-                    st.session_state.conn = nueva_conn
-                    st.session_state.ultima_db_conectada = db_objetivo
-                else:
-                    st.error(f"❌ No se pudo conectar a la base de datos: {db_objetivo}")
-                    st.stop()
-            except Exception as e:
-                st.error(f"Error crítico conectando: {e}")
-                st.session_state.conn = None
-                st.stop()
-        
-        conn = st.session_state.conn
+    conn_ctrl = conectar_db()
+    db_objetivo = None
+    
+    if conn_ctrl:
         try:
-            conn.ping(reconnect=True, attempts=3, delay=1)
-            if db_objetivo and db_objetivo != "control_central":
-                with conn.cursor() as cursor:
-                    cursor.execute(f"USE `{db_objetivo}`")
+            if user_rol == 'admin':
+                db_objetivo = st.session_state.get('DB_ACTUAL')
+                if not db_objetivo or db_objetivo == 'No seleccionada':
+                    # Admin por defecto toma la primera del sistema
+                    df_temp = pd.read_sql("SELECT db_nombre FROM clientes LIMIT 1", conn_ctrl)
+                    if not df_temp.empty: db_objetivo = str(df_temp['db_nombre'].iloc[0])
+            else:
+                # --- BÚSQUEDA DIRECTA Y SEGURA ---
+                # Buscamos directamente en la tabla usuarios usando el nombre de usuario
+                query = f"SELECT db_nombre FROM usuarios WHERE LOWER(TRIM(usuario)) = '{nombre_usuario_actual}'"
+                df_temp = pd.read_sql(query, conn_ctrl)
+                
+                if not df_temp.empty and df_temp['db_nombre'].iloc[0]:
+                    db_objetivo = str(df_temp['db_nombre'].iloc[0]).strip()
+                else:
+                    st.error(f"❌ Acceso denegado: El usuario '{nombre_usuario_actual}' no tiene una empresa (DB) asociada.")
+                    st.stop()
         except Exception as e:
-            st.warning(f"La conexión se perdió o la BD {db_objetivo} no es accesible. Reconectando...")
-            st.session_state.conn = None 
+            st.error(f"❌ Error al resolver la base de datos: {e}")
+            st.stop()
+        finally:
+            conn_ctrl.close()
+
+    if not db_objetivo:
+        st.error("❌ No se pudo determinar la base de datos de trabajo.")
+        st.stop()
+
+    st.session_state['DB_ACTUAL'] = db_objetivo
+    st.session_state['db_a_conectar'] = db_objetivo
+
+    # --- LÓGICA DE CONEXIÓN ---
+    if 'conn' not in st.session_state or st.session_state.get('ultima_db_conectada') != db_objetivo or st.session_state.conn is None:
+        try:
+            nueva_conn = conectar_db(db_objetivo)
+            if nueva_conn:
+                st.session_state.conn = nueva_conn
+                st.session_state.ultima_db_conectada = db_objetivo
+            else:
+                st.error(f"❌ No se pudo conectar a la base de datos: {db_objetivo}")
+                st.stop()
+        except Exception as e:
+            st.error(f"Error crítico conectando: {e}")
+            st.session_state.conn = None
+            st.stop()
+    
+    conn = st.session_state.conn
+    try:
+        conn.ping(reconnect=True, attempts=3, delay=1)
+        if db_objetivo and db_objetivo != "control_central":
+            with conn.cursor() as cursor:
+                cursor.execute(f"USE `{db_objetivo}`")
+    except Exception as e:
+        st.warning(f"La conexión se perdió o la BD {db_objetivo} no es accesible. Reconectando...")
+        st.session_state.conn = None 
+        st.rerun()
+
+    dic_meses = {
+        "Enero": 1, "Febrero": 2, "Marzo": 3, "Abril": 4, 
+        "Mayo": 5, "Junio": 6, "Julio": 7, "Agosto": 8, 
+        "Septiembre": 9, "Octubre": 10, "Noviembre": 11, "Diciembre": 12
+    }
+    meses_lista = list(dic_meses.keys())
+    
+    anio_f = int(st.session_state.get('año_seleccionado', datetime.datetime.now().year))
+    mes_nombre_f = st.session_state.get('mes_seleccionado', meses_lista[datetime.datetime.now().month - 1])
+    
+    m_idx = dic_meses.get(mes_nombre_f, 1)
+    
+    ultimo_dia = calendar.monthrange(anio_f, m_idx)[1]
+
+    # CAMBIO: El inicio siempre es el 1 de enero del año seleccionado (Acumulado Anual)
+    f_inicio_global = datetime.date(anio_f, 1, 1)
+    f_fin_global = datetime.date(anio_f, m_idx, ultimo_dia)
+
+    fecha_inicio_str = f_inicio_global.strftime('%Y-%m-%d')
+    fecha_fin_str = f_fin_global.strftime('%Y-%m-%d')
+
+    st.session_state["f_inicio_global"] = datetime.date(anio_f, 1, 1)
+    st.session_state["f_fin_global"] = datetime.date(anio_f, m_idx, ultimo_dia)
+
+    st.title(f"📊 Auditoría Profesional: {db_objetivo}")
+    st.markdown(f"**Período de Análisis (Acumulado):** {f_inicio_global.strftime('%d/%m/%Y')} al {f_fin_global.strftime('%d/%m/%Y')}")
+    st.divider()
+        
+    # --- FILA 1: INDICADORES FINANCIEROS ---
+    col_titulo, col_vacia, col_btn = st.columns([0.5, 0.3, 0.2])
+    with col_titulo:
+        st.subheader("Indicadores Financieros en Tiempo Real")
+
+    with col_btn:
+        if st.button("🔄 Actualizar Datos", use_container_width=True):
+            st.cache_data.clear()
             st.rerun()
 
-        dic_meses = {
-            "Enero": 1, "Febrero": 2, "Marzo": 3, "Abril": 4, 
-            "Mayo": 5, "Junio": 6, "Julio": 7, "Agosto": 8, 
-            "Septiembre": 9, "Octubre": 10, "Noviembre": 11, "Diciembre": 12
-        }
-        meses_lista = list(dic_meses.keys())
-        
-        anio_f = int(st.session_state.get('año_seleccionado', datetime.datetime.now().year))
-        mes_nombre_f = st.session_state.get('mes_seleccionado', meses_lista[datetime.datetime.now().month - 1])
-        
-        m_idx = dic_meses.get(mes_nombre_f, 1)
-        
-        ultimo_dia = calendar.monthrange(anio_f, m_idx)[1]
+    with st.spinner(f'Comunicando con MySQL para {db_objetivo}...'):
+        if conn and conn.is_connected():
+            kpis = obtener_saldos_acumulados(conn, f_fin_global, db_objetivo)
+        else:
+            kpis = None
 
-        # CAMBIO: El inicio siempre es el 1 de enero del año seleccionado (Acumulado Anual)
-        f_inicio_global = datetime.date(anio_f, 1, 1)
-        f_fin_global = datetime.date(anio_f, m_idx, ultimo_dia)
+        if kpis is None:
+            kpis = {"activo": 0, "pasivo": 0, "patrimonio": 0}
 
-        fecha_inicio_str = f_inicio_global.strftime('%Y-%m-%d')
-        fecha_fin_str = f_fin_global.strftime('%Y-%m-%d')
+        df_utilidad = obtener_historico_utilidad(db_objetivo, f_inicio=f_inicio_global, f_fin=f_fin_global)
+        if df_utilidad is None:
+            df_utilidad = pd.DataFrame()
 
-        st.session_state["f_inicio_global"] = datetime.date(anio_f, 1, 1)
-        st.session_state["f_fin_global"] = datetime.date(anio_f, m_idx, ultimo_dia)
+    valor_activo = kpis.get('activo', 0)
+    valor_pasivo = kpis.get('pasivo', 0)
+    valor_patrimonio = kpis.get('patrimonio', 0)
 
-        st.title(f"📊 Auditoría Profesional: {db_objetivo}")
-        st.markdown(f"**Período de Análisis (Acumulado):** {f_inicio_global.strftime('%d/%m/%Y')} al {f_fin_global.strftime('%d/%m/%Y')}")
-        st.divider()
-        
-        # --- FILA 1: INDICADORES FINANCIEROS ---
-        col_titulo, col_vacia, col_btn = st.columns([0.5, 0.3, 0.2])
-        with col_titulo:
-            st.subheader("Indicadores Financieros en Tiempo Real")
+    u_v = 0
+    if not df_utilidad.empty and 'utilidad_mensual' in df_utilidad.columns:
+        u_v = df_utilidad['utilidad_mensual'].iloc[0]
 
-        with col_btn:
-            if st.button("🔄 Actualizar Datos", use_container_width=True):
-                st.cache_data.clear()
-                st.rerun()
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.container(border=True).metric("💰 ACTIVO", f"Bs. {valor_activo:,.2f}")
+    with col2:
+        st.container(border=True).metric("📉 PASIVO", f"Bs. {valor_pasivo:,.2f}")
+    with col3:
+        st.container(border=True).metric("🏗️ PATRIMONIO", f"Bs. {valor_patrimonio:,.2f}")
+    with col4:
+        st.container(border=True).metric(
+            "📊 UTILIDAD NETA ACUM.", 
+            f"Bs. {u_v:,.2f}",
+            delta_color="normal" if u_v >= 0 else "inverse"
+        )
+    
+    # --- FILA 2: SALUD FISCAL (SENIAT) ---
+    kpis_fiscales = obtener_salud_fiscal(f_inicio_global, f_fin_global, db_objetivo)
 
-        with st.spinner(f'Comunicando con MySQL para {db_objetivo}...'):
-            if conn and conn.is_connected():
-                kpis = obtener_saldos_acumulados(conn, f_fin_global, db_objetivo)
-            else:
-                kpis = None
-
-            if kpis is None:
-                kpis = {"activo": 0, "pasivo": 0, "patrimonio": 0}
-
-            df_utilidad = obtener_historico_utilidad(db_objetivo, f_inicio=f_inicio_global, f_fin=f_fin_global)
-            if df_utilidad is None:
-                df_utilidad = pd.DataFrame()
-
-        valor_activo = kpis.get('activo', 0)
-        valor_pasivo = kpis.get('pasivo', 0)
-        valor_patrimonio = kpis.get('patrimonio', 0)
-
-        u_v = 0
-        if not df_utilidad.empty and 'utilidad_mensual' in df_utilidad.columns:
-            u_v = df_utilidad['utilidad_mensual'].iloc[0]
-
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            st.container(border=True).metric("💰 ACTIVO", f"Bs. {valor_activo:,.2f}")
-        with col2:
-            st.container(border=True).metric("📉 PASIVO", f"Bs. {valor_pasivo:,.2f}")
-        with col3:
-            st.container(border=True).metric("🏗️ PATRIMONIO", f"Bs. {valor_patrimonio:,.2f}")
-        with col4:
-            st.container(border=True).metric(
-                "📊 UTILIDAD NETA ACUM.", 
-                f"Bs. {u_v:,.2f}",
-                delta_color="normal" if u_v >= 0 else "inverse"
-            )
-        
-        # --- FILA 2: SALUD FISCAL (SENIAT) ---
-        kpis_fiscales = obtener_salud_fiscal(f_inicio_global, f_fin_global, db_objetivo)
-
-        # Función actualizada con diseño de frame horizontal expandido
-        def mini_kpi(col, titulo, valor, color="#555555"):
-            with col.container(border=True):
-                st.markdown(f"""
-                    <div style="text-align: center; padding: 4px; width: 100%;">
-                        <div style="
-                            font-size: 0.85rem; 
-                            background-color: {color}20; 
-                            color: {color}; 
-                            font-weight: bold; 
-                            padding: 6px 4px; 
-                            border-radius: 6px; 
-                            margin-bottom: 8px;
-                            white-space: normal;
-                            min-height: 48px;
-                            display: flex;
-                            align-items: center;
-                            justify-content: center;
-                            line-height: 1.1;">
-                            {titulo}
-                        </div>
-                        <div style="font-size: 0.90rem; font-weight: bold; color: #333333; padding-bottom: 2px; white-space: nowrap;">
-                            Bs. {valor:,.2f}
-                        </div>
+    # Función actualizada con diseño de frame horizontal expandido
+    def mini_kpi(col, titulo, valor, color="#555555"):
+        with col.container(border=True):
+            st.markdown(f"""
+                <div style="text-align: center; padding: 4px; width: 100%;">
+                    <div style="
+                        font-size: 0.85rem; 
+                        background-color: {color}20; 
+                        color: {color}; 
+                        font-weight: bold; 
+                        padding: 6px 4px; 
+                        border-radius: 6px; 
+                        margin-bottom: 8px;
+                        white-space: normal;
+                        min-height: 48px;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        line-height: 1.1;">
+                        {titulo}
                     </div>
-                """, unsafe_allow_html=True)
+                    <div style="font-size: 0.90rem; font-weight: bold; color: #333333; padding-bottom: 2px; white-space: nowrap;">
+                        Bs. {valor:,.2f}
+                    </div>
+                </div>
+            """, unsafe_allow_html=True)
 
-        # 3. Dibujar Ingresos
-        st.subheader("Ingresos")
-        i1, i2, i3 = st.columns(3)
-        mini_kpi(i1, "Ingresos Exentos", kpis_fiscales.get('ingresos_exentas', 0), "#1f77b4")
-        mini_kpi(i2, "Ingresos Gravados", kpis_fiscales.get('ingresos_gravados', 0), "#2ca02c")
+    # 3. Dibujar Ingresos
+    st.subheader("Ingresos")
+    i1, i2, i3 = st.columns(3)
+    mini_kpi(i1, "Ingresos Exentos", kpis_fiscales.get('ingresos_exentas', 0), "#1f77b4")
+    mini_kpi(i2, "Ingresos Gravados", kpis_fiscales.get('ingresos_gravados', 0), "#2ca02c")
 
-        # 4. Compras y Gastos
-        st.subheader("Compras y Gastos")
-        c1, c2, c3, c4, c5, c6, c7 = st.columns(7)
-        mini_kpi(c1, "Compras Exentas", kpis_fiscales.get('compras_exentas', 0), "#ff7f0e")
-        mini_kpi(c2, "Compras IVA 16%", kpis_fiscales.get('compras_16', 0), "#ff7f0e")
-        mini_kpi(c3, "DPP", kpis_fiscales.get('DPP1', 0), "#d62728")
-        mini_kpi(c4, "Comis. Banc.", kpis_fiscales.get('comisiones_bancarias1', 0), "#8c564b")
-        mini_kpi(c5, "Gastos Pers.", kpis_fiscales.get('gastos_personales1', 0), "#8c564b")
-        mini_kpi(c6, "Otros Ing.", kpis_fiscales.get('otros_ingresos', 0), "#9467bd")
-        mini_kpi(c7, "Otros Egr.", kpis_fiscales.get('otros_egresos', 0), "#7f7f7f")
+    # 4. Compras y Gastos
+    st.subheader("Compras y Gastos")
+    c1, c2, c3, c4, c5, c6, c7 = st.columns(7)
+    mini_kpi(c1, "Compras Exentas", kpis_fiscales.get('compras_exentas', 0), "#ff7f0e")
+    mini_kpi(c2, "Compras IVA 16%", kpis_fiscales.get('compras_16', 0), "#ff7f0e")
+    mini_kpi(c3, "DPP", kpis_fiscales.get('DPP1', 0), "#d62728")
+    mini_kpi(c4, "Comis. Banc.", kpis_fiscales.get('comisiones_bancarias1', 0), "#8c564b")
+    mini_kpi(c5, "Gastos Pers.", kpis_fiscales.get('gastos_personales1', 0), "#8c564b")
+    mini_kpi(c6, "Otros Ing.", kpis_fiscales.get('otros_ingresos', 0), "#9467bd")
+    mini_kpi(c7, "Otros Egr.", kpis_fiscales.get('otros_egresos', 0), "#7f7f7f")
 
-        # 5. Obligaciones Fiscales
-        st.subheader("Obligaciones Fiscales")
-        f1, f2, f3, f4, f5, f6 = st.columns(6)
-        mini_kpi(f1, "Débito Fiscal", kpis_fiscales.get('iva_debito_fiscal', 0), "#d62728")
-        mini_kpi(f2, "IVA por Pagar", kpis_fiscales.get('iva_por_pagar', 0), "#d62728")
-        mini_kpi(f3, "Ret. IVA Prov.", kpis_fiscales.get('retencion_iva_compras', 0), "#bcbd22")
-        mini_kpi(f4, "ISLR ANTIC", kpis_fiscales.get('pagos_anticipados_islr', 0), "#bcbd22")
-        mini_kpi(f5, "Ret. ISLR", kpis_fiscales.get('retencion_islr_proveedores', 0), "#d62728")
-        mini_kpi(f6, "ISLR por Pagar", kpis_fiscales.get('islr_pagar', 0), "#d62728")
+    # 5. Obligaciones Fiscales
+    st.subheader("Obligaciones Fiscales")
+    f1, f2, f3, f4, f5, f6 = st.columns(6)
+    mini_kpi(f1, "Débito Fiscal", kpis_fiscales.get('iva_debito_fiscal', 0), "#d62728")
+    mini_kpi(f2, "IVA por Pagar", kpis_fiscales.get('iva_por_pagar', 0), "#d62728")
+    mini_kpi(f3, "Ret. IVA Prov.", kpis_fiscales.get('retencion_iva_compras', 0), "#bcbd22")
+    mini_kpi(f4, "ISLR ANTIC", kpis_fiscales.get('pagos_anticipados_islr', 0), "#bcbd22")
+    mini_kpi(f5, "Ret. ISLR", kpis_fiscales.get('retencion_islr_proveedores', 0), "#d62728")
+    mini_kpi(f6, "ISLR por Pagar", kpis_fiscales.get('islr_pagar', 0), "#d62728")
 
-        st.divider()
-        # ---FILA3:  SALUD FINANCIERA ---
-        st.subheader("🏥 Análisis de Salud Financiera")
-        r1, r2, r3 = st.columns(3)
+    st.divider()
+    # ---FILA3:  SALUD FINANCIERA ---
+    st.subheader("🏥 Análisis de Salud Financiera")
+    r1, r2, r3 = st.columns(3)
 
-        # 1. Índice de Liquidez (Corregido con validación de seguridad)
-        liquidez = kpis.get('liquidez', 0)
-        estado_l = "✅ Saludable" if liquidez > 1.1 else "⚠️ Riesgo"
-        r1.metric("Índice de Liquidez", f"{liquidez:.2f}", estado_l)
+    # 1. Índice de Liquidez (Corregido con validación de seguridad)
+    liquidez = kpis.get('liquidez', 0)
+    estado_l = "✅ Saludable" if liquidez > 1.1 else "⚠️ Riesgo"
+    r1.metric("Índice de Liquidez", f"{liquidez:.2f}", estado_l)
 
-        # 2. Índice de Solvencia (Activo / Pasivo total, suele ser similar a liquidez pero a largo plazo)
-        # Si no lo tienes en el dict, lo calculamos aquí mismo
-        activo_v = kpis.get('activo', 0)
-        pasivo_v = kpis.get('pasivo', 0)
-        solvencia = activo_v / pasivo_v if pasivo_v != 0 else 0
-        estado_s = "✅ Solvente" if solvencia > 1.5 else "🟡 Ajustado"
-        r2.metric("Índice de Solvencia", f"{solvencia:.2f}", estado_s)
+    # 2. Índice de Solvencia (Activo / Pasivo total, suele ser similar a liquidez pero a largo plazo)
+    # Si no lo tienes en el dict, lo calculamos aquí mismo
+    activo_v = kpis.get('activo', 0)
+    pasivo_v = kpis.get('pasivo', 0)
+    solvencia = activo_v / pasivo_v if pasivo_v != 0 else 0
+    estado_s = "✅ Solvente" if solvencia > 1.5 else "🟡 Ajustado"
+    r2.metric("Índice de Solvencia", f"{solvencia:.2f}", estado_s)
 
-        # 3. Capital Propio (Patrimonio Neto real)
-        capital_trabajo = kpis.get('capital_trabajo', 0)
-        r3.metric("capital de trabajo", f"Bs. {capital_trabajo:,.2f}", "capital_trabajo")
+    # 3. Capital Propio (Patrimonio Neto real)
+    capital_trabajo = kpis.get('capital_trabajo', 0)
+    r3.metric("capital de trabajo", f"Bs. {capital_trabajo:,.2f}", "capital_trabajo")
 
 
-        # --- FILA 4: ANÁLISIS VISUAL ---
-        st.divider()
-        col_izq, col_der = st.columns(2)
+    # --- FILA 4: ANÁLISIS VISUAL ---
+    st.divider()
+    col_izq, col_der = st.columns(2)
 
-        # 1. Recuperamos y blindamos los valores usando las keys oficiales del sidebar
-        año_val = st.session_state.get('año_seleccionado_contabilidad', 2026)
-        mes_val = st.session_state.get('mes_seleccionado_contabilidad', 'Mayo')
+    # 1. Recuperamos y blindamos los valores usando las keys oficiales del sidebar
+    año_val = st.session_state.get('año_seleccionado_contabilidad', 2026)
+    mes_val = st.session_state.get('mes_seleccionado_contabilidad', 'Mayo')
 
+    try:
+        año = int(str(año_val).strip())
+    except:
+        año = 2026
+
+    meses_map = {
+        'Enero': 1, 'Febrero': 2, 'Marzo': 3, 'Abril': 4, 
+        'Mayo': 5, 'Junio': 6, 'Julio': 7, 'Agosto': 8, 
+        'Septiembre': 9, 'Octubre': 10, 'Noviembre': 11, 'Diciembre': 12
+    }
+
+    if isinstance(mes_val, str):
+        mes = meses_map.get(mes_val.strip(), 5)
+    else:
         try:
-            año = int(str(año_val).strip())
+            mes = int(mes_val)
         except:
-            año = 2026
+            mes = 5
 
-        meses_map = {
-            'Enero': 1, 'Febrero': 2, 'Marzo': 3, 'Abril': 4, 
-            'Mayo': 5, 'Junio': 6, 'Julio': 7, 'Agosto': 8, 
-            'Septiembre': 9, 'Octubre': 10, 'Noviembre': 11, 'Diciembre': 12
-        }
+   # 1. Obtenemos el valor de mes actual de donde lo guardes (session_state o tu variable global)
+    # Asegúrate de capturar el valor real de tu selectbox de meses aquí:
+    mes_crudo = st.session_state.get('mes_seleccionado') or st.session_state.get('mes') or mes
 
-        if isinstance(mes_val, str):
-            mes = meses_map.get(mes_val.strip(), 5)
-        else:
-            try:
-                mes = int(mes_val)
-            except:
-                mes = 5
+    # 2. Diccionario de traducción de texto a número (por si viene como nombre de mes)
+    dic_meses = {
+        "Enero": 1, "Febrero": 2, "Marzo": 3, "Abril": 4, 
+        "Mayo": 5, "Junio": 6, "Julio": 7, "Agosto": 8, 
+        "Septiembre": 9, "Octubre": 10, "Noviembre": 11, "Diciembre": 12
+    }
 
-       # 1. Obtenemos el valor de mes actual de donde lo guardes (session_state o tu variable global)
-        # Asegúrate de capturar el valor real de tu selectbox de meses aquí:
-        mes_crudo = st.session_state.get('mes_seleccionado') or st.session_state.get('mes') or mes
+    # 3. Conversión blindada: si es texto lo busca en el diccionario, si es número lo convierte
+    try:
+        año_int = int(año)
+    except (ValueError, TypeError):
+        año_int = datetime.datetime.now().year
 
-        # 2. Diccionario de traducción de texto a número (por si viene como nombre de mes)
-        dic_meses = {
-            "Enero": 1, "Febrero": 2, "Marzo": 3, "Abril": 4, 
-            "Mayo": 5, "Junio": 6, "Julio": 7, "Agosto": 8, 
-            "Septiembre": 9, "Octubre": 10, "Noviembre": 11, "Diciembre": 12
-        }
+    if str(mes_crudo).isdigit():
+        mes_int = int(mes_crudo)
+    else:
+        # Si es texto (ej. "Junio"), lo busca; si no lo encuentra, por defecto usa 6 (o el actual)
+        mes_int = dic_meses.get(str(mes_crudo).capitalize(), 6)
 
-        # 3. Conversión blindada: si es texto lo busca en el diccionario, si es número lo convierte
-        try:
-            año_int = int(año)
-        except (ValueError, TypeError):
-            año_int = datetime.datetime.now().year
+    # 4. Calcular el último día del mes de forma segura
+    _, ultimo_dia = calendar.monthrange(año_int, mes_int)
 
-        if str(mes_crudo).isdigit():
-            mes_int = int(mes_crudo)
-        else:
-            # Si es texto (ej. "Junio"), lo busca; si no lo encuentra, por defecto usa 6 (o el actual)
-            mes_int = dic_meses.get(str(mes_crudo).capitalize(), 6)
+    # 5. Generar los strings para las consultas SQL
+    f_i = f"{año_int:04d}-{mes_int:02d}-01"
+    f_f = f"{año_int:04d}-{mes_int:02d}-{ultimo_dia:02d}"
 
-        # 4. Calcular el último día del mes de forma segura
-        _, ultimo_dia = calendar.monthrange(año_int, mes_int)
+    # 6. Variables tipo date
+    f_inicio_global = datetime.date(año_int, mes_int, 1)
+    f_fin_global = datetime.date(año_int, mes_int, ultimo_dia)
 
-        # 5. Generar los strings para las consultas SQL
-        f_i = f"{año_int:04d}-{mes_int:02d}-01"
-        f_f = f"{año_int:04d}-{mes_int:02d}-{ultimo_dia:02d}"
+    # 7. DEBUG VISUAL (Asegúrate de mostrar también el mes en texto para validar visualmente)
+    st.sidebar.info(f"📅 Rango activo ({mes_crudo}): {f_i} al {f_f}")  
 
-        # 6. Variables tipo date
-        f_inicio_global = datetime.date(año_int, mes_int, 1)
-        f_fin_global = datetime.date(año_int, mes_int, ultimo_dia)
+    db = st.session_state.get('DB_ACTUAL')
 
-        # 7. DEBUG VISUAL (Asegúrate de mostrar también el mes en texto para validar visualmente)
-        st.sidebar.info(f"📅 Rango activo ({mes_crudo}): {f_i} al {f_f}")  
+    # --- ESTILOS CSS GLOBALES PARA FORMAR LA ESTÉTICA DE LA IMAGEN ---
+    st.markdown("""
+        <style>
+            /* Contenedores tipo tarjeta ejecutiva con bordes sutiles */
+            .report-card {
+                background-color: #FFFFFF;
+                border: 1px solid #E0E0E0;
+                border-radius: 6px;
+                padding: 15px 20px;
+                margin-bottom: 15px;
+                box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+            }
+            /* Cabeceras estilo reporte oficial */
+            .report-header {
+                background-color: #336699;
+                color: white;
+                padding: 8px 12px;
+                font-size: 14px;
+                font-weight: bold;
+                border-top-left-radius: 4px;
+                border-top-right-radius: 4px;
+                margin-bottom: 10px;
+            }
+        </style>
+    """, unsafe_allow_html=True)
 
-        db = st.session_state.get('DB_ACTUAL')
+    # --- TARJETA DE RESUMEN SUPERIOR (Estilo "Container-equivalent volume" de la imagen) ---
+    st.markdown("""
+        <div class="report-card" style="text-align: center; border-top: 4px solid #336699;">
+            <span style="color: #666666; font-size: 12px; font-weight: bold; text-transform: uppercase;">Resumen Ejecutivo de Operaciones</span>
+            <div style="color: #336699; font-size: 28px; font-weight: bold; margin-top: 5px;">Panel Financiero Oficial</div>
+        </div>
+    """, unsafe_allow_html=True)
 
-        # --- ESTILOS CSS GLOBALES PARA FORMAR LA ESTÉTICA DE LA IMAGEN ---
-        st.markdown("""
-            <style>
-                /* Contenedores tipo tarjeta ejecutiva con bordes sutiles */
-                .report-card {
-                    background-color: #FFFFFF;
-                    border: 1px solid #E0E0E0;
-                    border-radius: 6px;
-                    padding: 15px 20px;
-                    margin-bottom: 15px;
-                    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
-                }
-                /* Cabeceras estilo reporte oficial */
-                .report-header {
-                    background-color: #336699;
-                    color: white;
-                    padding: 8px 12px;
-                    font-size: 14px;
-                    font-weight: bold;
-                    border-top-left-radius: 4px;
-                    border-top-right-radius: 4px;
-                    margin-bottom: 10px;
-                }
-            </style>
-        """, unsafe_allow_html=True)
+    # --- DISTRIBUCIÓN DE COLUMNAS ---
+    col_izq, col_der = st.columns(2)
 
-        # --- TARJETA DE RESUMEN SUPERIOR (Estilo "Container-equivalent volume" de la imagen) ---
-        st.markdown("""
-            <div class="report-card" style="text-align: center; border-top: 4px solid #336699;">
-                <span style="color: #666666; font-size: 12px; font-weight: bold; text-transform: uppercase;">Resumen Ejecutivo de Operaciones</span>
-                <div style="color: #336699; font-size: 28px; font-weight: bold; margin-top: 5px;">Panel Financiero Oficial</div>
-            </div>
-        """, unsafe_allow_html=True)
+    # --- COLUMNA IZQUIERDA ---
+    with col_izq:
+        st.markdown('<div class="report-header">📊 Comparativo Ingresos / Egresos / Utilidad</div>', unsafe_allow_html=True)
+        with st.container():
+            st.markdown('<div class="report-card">', unsafe_allow_html=True)
+            if db:
+                df_bar = obtener_datos_barras(db, f_i, f_f)
+                df_util = obtener_historico_utilidad(db)
+                
+                utilidad_final = float(df_util['utilidad_mensual'].iloc[0]) if (df_util is not None and not df_util.empty) else 0.0
+                
+                ingresos = 0
+                egresos = 0
+                
+                if df_bar is not None and not df_bar.empty:
+                    ingresos = df_bar.loc[df_bar['Categoría'] == 'Ingresos', 'Monto'].sum()
+                    egresos = df_bar.loc[df_bar['Categoría'] == 'Egresos', 'Monto'].sum()
+                
+                df_final = pd.DataFrame({
+                    'Categoría': ['Ingresos', 'Egresos', 'Utilidad'], 
+                    'Monto': [ingresos, egresos, utilidad_final]
+                })
+                
+                # Gráfico de barras con azules corporativos y grises de la referencia
+                fig = px.bar(
+                    df_final, x='Categoría', y='Monto', color='Categoría', 
+                    color_discrete_map={
+                        'Ingresos': '#336699',   # Azul institucional principal
+                        'Egresos': '#808080',    # Gris sobrio de reporte
+                        'Utilidad': '#4682B4'    # Azul acero corporativo
+                    }, 
+                    text='Monto',
+                    template="plotly_white"
+                )
+                
+                fig.update_traces(texttemplate='%{text:,.2f}', textposition='outside')
+                fig.update_layout(
+                    margin=dict(t=20, b=20, l=20, r=20),
+                    showlegend=False,
+                    xaxis_title="",
+                    yaxis_title="",
+                    font=dict(family="Arial, sans-serif", size=12, color="#333333")
+                )
+                st.plotly_chart(fig, use_container_width=True)
+            st.markdown('</div>', unsafe_allow_html=True)
 
-        # --- DISTRIBUCIÓN DE COLUMNAS ---
-        col_izq, col_der = st.columns(2)
-
-        # --- COLUMNA IZQUIERDA ---
-        with col_izq:
-            st.markdown('<div class="report-header">📊 Comparativo Ingresos / Egresos / Utilidad</div>', unsafe_allow_html=True)
-            with st.container():
-                st.markdown('<div class="report-card">', unsafe_allow_html=True)
-                if db:
-                    df_bar = obtener_datos_barras(db, f_i, f_f)
-                    df_util = obtener_historico_utilidad(db)
+    # --- COLUMNA DERECHA ---
+    with col_der:
+        st.markdown('<div class="report-header">🍕 Distribución de Gastos (Supplies by Sector)</div>', unsafe_allow_html=True)
+        with st.container():
+            st.markdown('<div class="report-card">', unsafe_allow_html=True)
+            if db:
+                df_pie = obtener_datos_pie(db, fecha_inicio_str, fecha_fin_str)
+                if df_pie is not None and not df_pie.empty:
                     
-                    utilidad_final = float(df_util['utilidad_mensual'].iloc[0]) if (df_util is not None and not df_util.empty) else 0.0
+                    # Paleta estricta de tonos azules y grises corporativos de la imagen
+                    colores_azules_institucionales = [
+                        '#336699', '#4682B4', '#5C93C4', '#70A3D2', 
+                        '#85B4E0', '#696969', '#808080', '#A9A9A9', '#2E4053'
+                    ]
                     
-                    ingresos = 0
-                    egresos = 0
-                    
-                    if df_bar is not None and not df_bar.empty:
-                        ingresos = df_bar.loc[df_bar['Categoría'] == 'Ingresos', 'Monto'].sum()
-                        egresos = df_bar.loc[df_bar['Categoría'] == 'Egresos', 'Monto'].sum()
-                    
-                    df_final = pd.DataFrame({
-                        'Categoría': ['Ingresos', 'Egresos', 'Utilidad'], 
-                        'Monto': [ingresos, egresos, utilidad_final]
-                    })
-                    
-                    # Gráfico de barras con azules corporativos y grises de la referencia
-                    fig = px.bar(
-                        df_final, x='Categoría', y='Monto', color='Categoría', 
-                        color_discrete_map={
-                            'Ingresos': '#336699',   # Azul institucional principal
-                            'Egresos': '#808080',    # Gris sobrio de reporte
-                            'Utilidad': '#4682B4'    # Azul acero corporativo
-                        }, 
-                        text='Monto',
-                        template="plotly_white"
+                    fig_pie = px.pie(
+                        df_pie, 
+                        values='Saldo Final', 
+                        names='nombre', 
+                        hole=0.45,
+                        template="plotly_white",
+                        color_discrete_sequence=colores_azules_institucionales
                     )
                     
-                    fig.update_traces(texttemplate='%{text:,.2f}', textposition='outside')
-                    fig.update_layout(
-                        margin=dict(t=20, b=20, l=20, r=20),
-                        showlegend=False,
-                        xaxis_title="",
-                        yaxis_title="",
+                    fig_pie.update_traces(
+                        textposition='auto', 
+                        textinfo='percent',
+                        hoverinfo='label+value+percent',
+                        marker=dict(line=dict(color='#FFFFFF', width=2))
+                    )
+                    
+                    fig_pie.update_layout(
+                        margin=dict(t=20, b=20, l=10, r=10),
+                        legend=dict(
+                            orientation="v",
+                            yanchor="middle",
+                            y=0.5,
+                            xanchor="left",
+                            x=1.02,
+                            font=dict(size=11)
+                        ),
                         font=dict(family="Arial, sans-serif", size=12, color="#333333")
                     )
-                    st.plotly_chart(fig, use_container_width=True)
-                st.markdown('</div>', unsafe_allow_html=True)
-
-        # --- COLUMNA DERECHA ---
-        with col_der:
-            st.markdown('<div class="report-header">🍕 Distribución de Gastos (Supplies by Sector)</div>', unsafe_allow_html=True)
-            with st.container():
-                st.markdown('<div class="report-card">', unsafe_allow_html=True)
-                if db:
-                    df_pie = obtener_datos_pie(db, fecha_inicio_str, fecha_fin_str)
-                    if df_pie is not None and not df_pie.empty:
-                        
-                        # Paleta estricta de tonos azules y grises corporativos de la imagen
-                        colores_azules_institucionales = [
-                            '#336699', '#4682B4', '#5C93C4', '#70A3D2', 
-                            '#85B4E0', '#696969', '#808080', '#A9A9A9', '#2E4053'
-                        ]
-                        
-                        fig_pie = px.pie(
-                            df_pie, 
-                            values='Saldo Final', 
-                            names='nombre', 
-                            hole=0.45,
-                            template="plotly_white",
-                            color_discrete_sequence=colores_azules_institucionales
-                        )
-                        
-                        fig_pie.update_traces(
-                            textposition='auto', 
-                            textinfo='percent',
-                            hoverinfo='label+value+percent',
-                            marker=dict(line=dict(color='#FFFFFF', width=2))
-                        )
-                        
-                        fig_pie.update_layout(
-                            margin=dict(t=20, b=20, l=10, r=10),
-                            legend=dict(
-                                orientation="v",
-                                yanchor="middle",
-                                y=0.5,
-                                xanchor="left",
-                                x=1.02,
-                                font=dict(size=11)
-                            ),
-                            font=dict(family="Arial, sans-serif", size=12, color="#333333")
-                        )
-                        
-                        st.plotly_chart(fig_pie, use_container_width=True)
-                    else:
-                        st.warning("No hay gastos.")
-                st.markdown('</div>', unsafe_allow_html=True)
-
-        # --- FILA 5: FLUJO DE EFECTIVO ---
-        st.divider()
-        st.subheader("💸 Movimiento de Caja (Efectivo Real)")
-
-        # 1. VARIABLES GLOBALES Y CONEXIÓN
-        f_i = fecha_inicio_str  
-        f_f = fecha_fin_str
-        db = st.session_state.get('DB_ACTUAL')
-
-        st.caption(f"📍 Empresa activa: `{db}` | Periodo: {f_i} al {f_f}")
-
-        if db and db != "{db}" and db != "None":
-            try:
-                conn = conectar_db(db)
-                cursor = conn.cursor(dictionary=True)
-                
-                # A. Saldo Inicial Fijo (Protegido por si la tabla no existe)
-                debe_s_ini, haber_s_ini = 0.0, 0.0
-                try:
-                    cursor.execute(f"SELECT COALESCE(SUM(debe), 0) as d, COALESCE(SUM(haber), 0) as h FROM `{db}`.saldos_iniciales WHERE plan_cuentas LIKE '1.1.1.02%'")
-                    res_s_ini = cursor.fetchone()
-                    if res_s_ini:
-                        debe_s_ini = float(res_s_ini['d'] or 0.0)
-                        haber_s_ini = float(res_s_ini['h'] or 0.0)
-                except Exception:
-                    # Si la tabla saldos_iniciales no existe, continúa sin interrumpir
-                    pass
-
-                # B. Movimientos históricos anteriores a f_i
-                debe_hist, haber_hist = 0.0, 0.0
-                try:
-                    cursor.execute(f"SELECT COALESCE(SUM(debe), 0) as d, COALESCE(SUM(haber), 0) as h FROM `{db}`.asientos_contables WHERE plan_cuentas LIKE '1.1.1.02%' AND fecha < %s", (f_i,))
-                    res_hist = cursor.fetchone()
-                    if res_hist:
-                        debe_hist = float(res_hist['d'] or 0.0)
-                        haber_hist = float(res_hist['h'] or 0.0)
-                except Exception:
-                    pass
-
-                saldo_inicial_neto = (debe_s_ini + debe_hist) - (haber_s_ini + haber_hist)
-
-                # C. Movimientos del Periodo (f_i a f_f)
-                entradas_mes, salidas_mes = 0.0, 0.0
-                try:
-                    query_mes = f"""
-                        SELECT COALESCE(SUM(debe), 0) as ent, COALESCE(SUM(haber), 0) as sal 
-                        FROM `{db}`.asientos_contables
-                        WHERE plan_cuentas LIKE '1.1.1.02%' AND fecha BETWEEN %s AND %s
-                    """
-                    cursor.execute(query_mes, (f_i, f_f))
-                    res_mes = cursor.fetchone()
-                    if res_mes:
-                        entradas_mes = float(res_mes['ent'] or 0.0)
-                        salidas_mes = float(res_mes['sal'] or 0.0)
-                except Exception:
-                    pass
-
-                saldo_real = saldo_inicial_neto + entradas_mes - salidas_mes
-
-                # D. INTENTO AUTOMÁTICO DE CUENTAS POR COBRAR DESDE LA DB
-                cxc_db = 0.0
-                try:
-                    cursor.execute(f"SELECT COALESCE(SUM(debe - haber), 0) as cxc FROM `{db}`.asientos_contables WHERE plan_cuentas LIKE '1.1.2%'")
-                    res_cxc = cursor.fetchone()
-                    if res_cxc and res_cxc['cxc']:
-                        cxc_db = float(res_cxc['cxc'])
-                except Exception:
-                    cxc_db = 0.0
-
-                conn.close()
-
-                # 2. MÉTRICAS PRINCIPALES DEL PERIODO
-                c1, c2, c3 = st.columns(3)
-                c1.metric("Entradas (Mes)", f"Bs. {entradas_mes:,.2f}")
-                c2.metric("Salidas (Mes)", f"Bs. {salidas_mes:,.2f}")
-                c3.metric("Saldo Real Total", f"Bs. {saldo_real:,.2f}")
-
-                # RESUMEN AUTOMÁTICO IA - MÉTRICAS
-                balance_neto_mes = entradas_mes - salidas_mes
-                tendencia_mes = "positivo" if balance_neto_mes >= 0 else "negativo"
-                st.info(f"🤖 **Resumen de Caja:** Durante este periodo, las entradas totalizaron Bs. {entradas_mes:,.2f} frente a salidas de Bs. {salidas_mes:,.2f}, arrojando un flujo neto {tendencia_mes} de Bs. {balance_neto_mes:,.2f} y cerrando con un saldo real disponible de Bs. {saldo_real:,.2f}.")
-
-                # 3. CONTROLES DE SIMULACIÓN (Toma el valor detectado o permite ajustarlo)
-                st.sidebar.header("⚙️ Simulación de Escenarios (Stress Testing)")
-                
-                cuentas_por_cobrar = st.sidebar.number_input(
-                    "Cuentas por Cobrar (Detectadas / Manual):", 
-                    value=max(cxc_db, 0.0), 
-                    step=10000.0,
-                    help="Si la empresa tiene saldo en cuentas por cobrar (ej. cuenta 1.1.2), aparecerá aquí automáticamente."
-                )
-
-                pct_retraso = st.sidebar.slider(
-                    "% de Facturas que se retrasan a 60 días:", 
-                    min_value=0, 
-                    max_value=100, 
-                    value=0, 
-                    step=5
-                )
-
-                impacto_retraso = cuentas_por_cobrar * (pct_retraso / 100.0)
-
-                # 4. PROYECCIÓN DE FLUJO DE CAJA Y ANÁLISIS DE DESVIACIONES
-                st.markdown("---")
-                st.subheader("📈 Proyección de Liquidez y Análisis de Estrés")
-                st.caption("Estimación basada en el flujo neto diario con simulación a 30, 60 y 90 días.")
-
-                import datetime as dt
-
-                if isinstance(f_i, str):
-                    d1 = dt.datetime.strptime(f_i, "%Y-%m-%d")
-                else:
-                    d1 = f_i
-
-                if isinstance(f_f, str):
-                    d2 = dt.datetime.strptime(f_f, "%Y-%m-%d")
-                else:
-                    d2 = f_f
-
-                dias_rango = max((d2 - d1).days + 1, 1)
-
-                flujo_neto_periodo = entradas_mes - salidas_mes
-                promedio_diario_neto = flujo_neto_periodo / dias_rango
-
-                # Proyecciones Meta (30, 60 y 90 días)
-                proj_30_meta = saldo_real + (promedio_diario_neto * 30)
-                proj_60_meta = saldo_real + (promedio_diario_neto * 60)
-                proj_90_meta = saldo_real + (promedio_diario_neto * 90)
-
-                proj_30_ajustada = proj_30_meta - impacto_retraso
-
-                if proj_30_meta != 0:
-                    desviacion_absoluta = proj_30_ajustada - proj_30_meta
-                    desviacion_pct = (desviacion_absoluta / abs(proj_30_meta)) * 100
-                else:
-                    desviacion_absoluta, desviacion_pct = 0.0, 0.0
-
-                # Bloque 1: Proyecciones Temporales (30, 60 y 90 Días)
-                st.write("##### 🗓️ HORIZONTE DE LIQUIDEZ PROYECTADO")
-                m1, m2, m3 = st.columns(3)
-                m1.metric("Proyección 30 Días", f"Bs. {proj_30_meta:,.2f}", delta=f"{promedio_diario_neto * 30:,.2f} Bs est.")
-                m2.metric("Proyección 60 Días", f"Bs. {proj_60_meta:,.2f}", delta=f"{promedio_diario_neto * 60:,.2f} Bs est.")
-                m3.metric("Proyección 90 Días", f"Bs. {proj_90_meta:,.2f}", delta=f"{promedio_diario_neto * 90:,.2f} Bs est.")
-
-                st.info(f"🤖 **Resumen de Proyección:** Con base en un promedio diario de Bs. {promedio_diario_neto:,.2f}, se proyecta una disponibilidad de Bs. {proj_30_meta:,.2f} a 30 días, alcanzando Bs. {proj_60_meta:,.2f} a 60 días y Bs. {proj_90_meta:,.2f} al cierre de los 90 días.")
-
-                # Bloque 2: Escenario de Estrés
-                st.write("##### ⚡ ESCENARIO DE SIMULACIÓN Y MORA")
-                p1, p2, p3 = st.columns(3)
-                p1.metric("30 Días Ajustado", f"Bs. {proj_30_ajustada:,.2f}", delta=f"{desviacion_pct:.2f}%")
-                p2.metric("Impacto por Retraso", f"Bs. {impacto_retraso:,.2f}")
-                p3.metric("Desviación Absoluta", f"Bs. {desviacion_absoluta:,.2f}")
-
-                st.info(f"🤖 **Resumen de Stress Testing:** Con un monto bajo análisis de Bs. {cuentas_por_cobrar:,.2f} y un retraso simulado del {pct_retraso}%, el impacto en caja es de Bs. {impacto_retraso:,.2f}, dejando la liquidez proyectada en Bs. {proj_30_ajustada:,.2f}.")
-
-                # 5. SEMÁFORO DE RIESGO INTELIGENTE
-                if proj_30_ajustada < 0 or desviacion_pct <= -15.0:
-                    st.error(f"🚨 **ALERTA DE ILIQUIDEZ POTENCIAL ({desviacion_pct:.1f}%):** El escenario de retraso genera un déficit crítico en la disponibilidad a 30 días.")
-                elif -15.0 < desviacion_pct < 0:
-                    st.warning(f"⚠️ **Advertencia de Riesgo Leve ({desviacion_pct:.1f}%):** Existe una desviación negativa frente a la meta proyectada.")
-                else:
-                    st.success("✅ **Salud de Caja Estable:** Las proyecciones se mantienen en niveles seguros de liquidez.")
-
-                # 6. DETALLE DE MOVIMIENTOS
-                st.markdown("---")
-                st.write("### Detalle de Movimientos")
-                try:
-                    df_flujo = obtener_detalle_movimientos_banco(db, f_i, f_f) 
-                except Exception:
-                    df_flujo = None
-
-                if df_flujo is not None and not df_flujo.empty:
-                    st.dataframe(df_flujo, use_container_width=True, hide_index=True, column_config={
-                        "fecha": st.column_config.DateColumn("Fecha"),
-                        "descripcion": "Concepto",
-                        "debe": st.column_config.NumberColumn("Entradas", format="Bs. %.2f"),
-                        "haber": st.column_config.NumberColumn("Salidas", format="Bs. %.2f")
-                    })
-                else:
-                    st.info(f"No hay movimientos en este rango del {f_i} al {f_f}.")
-
-            except Exception as e:
-                st.error(f"Error en consulta contable para `{db}`: {e}")
-        else:
-            st.warning("⚠️ Selecciona una empresa para ver los movimientos de caja.")
-
-        # --- FILA 6: PROVEEDORES ---
-        st.divider()
-        st.subheader("📦 Gestión Operativa")
-        p1, p2 = st.columns(2)
-        p1.info(f"**Top Proveedor:** {kpis.get('top_proveedor', 'N/A')} ({kpis.get('top_porcentaje', 0)}%)")
-        n_a = kpis.get('alertas_retencion', 0)
-        if n_a > 0: 
-            p2.warning(f"⚠️ {n_a} facturas sin retención aplicada.")
-        else: 
-            p2.success("✅ Retenciones al día.")    
-
-        # --- FILA 7. SECCIÓN: CUENTA CASHEA ---
-        st.divider()
-        st.subheader("💳 Detalle de Créditos: Cashea (2.1.3.01.001)")
-
-        db_actual = st.session_state.get('DB_ACTUAL')
-
-        if db_actual and db_actual != "{db}" and db_actual != "None":
-            df_cashea = obtener_detalle_cashea(db_actual, f_inicio_global, f_fin_global)
-
-            if df_cashea is not None and not df_cashea.empty:
-                saldo_final = df_cashea['saldo'].iloc[-1]
-                st.metric("Saldo Actual en Cashea", f"Bs. {saldo_final:,.2f}")
-                
-                # Tabla limpia, expandida a todo el ancho y con formato profesional
-                st.dataframe(
-                    df_cashea, 
-                    use_container_width=True,  # Ocupa todo el ancho de la pantalla correctamente
-                    height=350,                # Altura controlada con scroll vertical si hay muchos registros
-                    column_config={
-                        "fecha": st.column_config.DateColumn("Fecha"),
-                        "descripcion": st.column_config.TextColumn("Descripción"),
-                        "ref": st.column_config.TextColumn("Referencia"),
-                        "debe": st.column_config.NumberColumn("Pago (Debe)", format="Bs. %.2f"),
-                        "haber": st.column_config.NumberColumn("Crédito (Haber)", format="Bs. %.2f"),
-                        "saldo": st.column_config.NumberColumn("Saldo Acumulado", format="Bs. %.2f")
-                    }
-                )
-            else:
-                st.info(f"No hay movimientos registrados para Cashea en este periodo.")
-        else:
-            st.warning("⚠️ Selecciona una empresa para ver los créditos de Cashea.")
-
-
-        # --- FILA 7: TIPO DE CAMBIO BANCO CENTRAL DE VENEZUELA ---
-        st.divider()
-        st.markdown("### 🏦 Indicadores Cambiarios")
-
-        if db_actual and db_actual != "{db}" and db_actual != "None":
-            try: 
-                conn_bcv = conectar_db(db_actual)
-                if not conn_bcv:
-                    st.warning(f"⚠️ No se pudo establecer conexión con la base de datos para {db_actual}.")
-                else:
-                    # Blindaje por si la función no está definida o retorna None
-                    tasa_dolar = 0.0
-                    origen_datos = "No disponible"
                     
-                    if 'obtener_tasa_bcv_hoy' in globals() and callable(obtener_tasa_bcv_hoy):
-                        # ⚠️ CORRECCIÓN: Asegúrate de pasarle 'conn_bcv' aquí para que no de el error de argumentos
-                        t_val, o_val = obtener_tasa_bcv_hoy(conn_bcv)
-                        tasa_dolar = t_val if t_val is not None else 0.0
-                        origen_datos = o_val if o_val is not None else "Manual / Desconocido"
+                    st.plotly_chart(fig_pie, use_container_width=True)
+                else:
+                    st.warning("No hay gastos.")
+            st.markdown('</div>', unsafe_allow_html=True)
 
-                    col_tasa, col_info = st.columns([1, 2])
+    # --- FILA 5: FLUJO DE EFECTIVO ---
+    st.divider()
+    st.subheader("💸 Movimiento de Caja (Efectivo Real)")
 
-                    with col_tasa:
-                        s = f"{tasa_dolar:,.8f}"
-                        tasa_formateada = f"Bs. {s.replace(',', 'X').replace('.', ',').replace('X', '.')}"
-                        st.metric(label="💵 Tasa Oficial BCV (USD/VES)", value=tasa_formateada)
+    # 1. VARIABLES GLOBALES Y CONEXIÓN
+    f_i = fecha_inicio_str  
+    f_f = fecha_fin_str
+    db = st.session_state.get('DB_ACTUAL')
 
-                    with col_info:
-                        st.caption("ℹ️ **Actualización Automática:**")
-                        st.info(f"El sistema sincroniza directamente con el Banco Central de Venezuela. \n\n**Fuente de lectura actual:** {origen_datos}")
-                        
-                        # 🔥 BOTÓN DE ACTUALIZACIÓN FORZADA
-                        if st.button("🔄 Forzar Sincronización BCV"):
-                            from datetime import date
-                            try:
-                                if conn_bcv.is_connected():
-                                    # ⚠️ CORRECCIÓN: Comentamos esto para evitar bloqueos/congelamientos de Streamlit
-                                    # conn_bcv.handle_unread_result()
-                                    pass
-                            
-                                tasa_fresca, origen_fresco = 0.0, "Error"
-                                if 'consultar_bcv_directo_sin_bd' in globals() and callable(consultar_bcv_directo_sin_bd):
-                                    # ⚠️ CORRECCIÓN: Asegúrate de pasarle 'conn_bcv' por si tu función lo requiere
-                                    tasa_fresca, origen_fresco = consultar_bcv_directo_sin_bd(conn_bcv)
-                            
-                                if origen_fresco and "Error" not in origen_fresco and tasa_fresca > 0:
-                                    hoy = date.today()
-                                    cursor = conn_bcv.cursor()
-                                    try:
-                                        cursor.execute(f"""
-                                            INSERT INTO `{db_actual}`.tasas_diarias (fecha, tasa_valor) 
-                                            VALUES (%s, %s)
-                                            ON DUPLICATE KEY UPDATE tasa_valor = %s
-                                        """, (hoy, tasa_fresca, tasa_fresca))
-                                        conn_bcv.commit()
-                                        st.success("¡Tasa actualizada con éxito desde el BCV!")
-                                        st.rerun()
-                                    except Exception as db_err:
-                                        st.error(f"La tabla 'tasas_diarias' no existe en {db_actual} o hay un error SQL: {db_err}")
-                                    finally:
-                                        cursor.close()
-                                else:
-                                    st.error("No se pudo conectar a la web del BCV en este momento.")
-                            except Exception as e:
-                                st.error(f"Error al sincronizar: {e}")
-                    
-                    conn_bcv.close()
-            except Exception as e:
-                st.error(f"Error al cargar indicadores cambiarios: {e}")
-        else:
-            st.warning("⚠️ Selecciona una empresa para ver los indicadores cambiarios.")
+    st.caption(f"📍 Empresa activa: `{db}` | Periodo: {f_i} al {f_f}")
 
-
-        # --- FILA 8: SECCIÓN VISUAL: REPORTE CONTABLE MULTIMONEDA ---
-        st.divider()
-        st.markdown("## 📊 Reporte de Libro Diario Multimoneda")
-        
-        # 1. Filtros de búsqueda y acciones (Agregamos una 4ta columna para el botón)
-        col_filtro1, col_filtro2, col_filtro3, col_boton = st.columns([1.5, 1.5, 2, 2])
-
-        with col_filtro1:
-            meses_lista = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
-            
-            # Buscamos si ya hay un mes seleccionado globalmente, si no, usamos el actual
-            mes_actual_global = st.session_state.get('mes_seleccionado', meses_lista[date.today().month - 1])
-            
-            # Si el valor global es un número (1-12), lo convertimos a texto para el selectbox
-            if isinstance(mes_actual_global, int):
-                mes_actual_str = meses_lista[mes_actual_global - 1]
-            else:
-                mes_actual_str = mes_actual_global if mes_actual_global in meses_lista else "Enero"
-                
-            idx_mes = meses_lista.index(mes_actual_str)
-
-            # ✅ Usamos una KEY totalmente independiente para este selectbox sin romper el session_state
-            mes_seleccionado_str = st.selectbox(
-                "Seleccione el Mes:", 
-                meses_lista, 
-                index=idx_mes, 
-                key="selectbox_mes_multimoneda"
-            )
-            
-            # Convertimos el texto seleccionado a su valor numérico (1-12) para las consultas SQL
-            dic_m_inv = {m: i+1 for i, m in enumerate(meses_lista)}
-            mes_seleccionado = dic_m_inv.get(mes_seleccionado_str, 1)
-
-        with col_filtro2:
-            anio_actual_global = st.session_state.get('año_seleccionado', 2026)
-
-            # 1. Aseguramos que la llave exista y que no sea menor a 2024 antes de crear el widget
-            if "number_input_anio_multimoneda" not in st.session_state or st.session_state["number_input_anio_multimoneda"] < 2024:
-                st.session_state["number_input_anio_multimoneda"] = max(2024, int(anio_actual_global))
-
-            # 2. Creamos el input usando únicamente su key sincronizada
-            ano_seleccionado = st.number_input(
-                "Seleccione el Año:", 
-                min_value=2024, 
-                max_value=2030, 
-                step=1, 
-                key="number_input_anio_multimoneda"
-            )
-            
-
-        with col_filtro3:
-            # Metemos un espacio en blanco arriba para alinear verticalmente el toggle con los selectores
-            st.markdown("<div style='padding-top: 25px;'></div>", unsafe_allow_html=True)
-            moneda_vista = "Dólares (USD)" if st.toggle("🇺🇸 Ver reporte en USD", value=False, key="toggle_moneda_multimoneda") else "Bolívares (VES)"
-        # --- BLOQUE LÓGICO DE DATOS (Debe ejecutarse antes para poder descargar) ---
+    if db and db != "{db}" and db != "None":
         try:
-            # 1. Abrimos una conexión fresca y exclusiva para este reporte
-            conn_local = conectar_db(db_actual)
+            conn = conectar_db(db)
+            cursor = conn.cursor(dictionary=True)
             
-            if not conn_local or not conn_local.is_connected():
-                st.error("⚠️ No se pudo establecer una conexión activa con la base de datos para generar el reporte.")
-                st.stop()
+            # A. Saldo Inicial Fijo (Protegido por si la tabla no existe)
+            debe_s_ini, haber_s_ini = 0.0, 0.0
+            try:
+                cursor.execute(f"SELECT COALESCE(SUM(debe), 0) as d, COALESCE(SUM(haber), 0) as h FROM `{db}`.saldos_iniciales WHERE plan_cuentas LIKE '1.1.1.02%'")
+                res_s_ini = cursor.fetchone()
+                if res_s_ini:
+                    debe_s_ini = float(res_s_ini['d'] or 0.0)
+                    haber_s_ini = float(res_s_ini['h'] or 0.0)
+            except Exception:
+                # Si la tabla saldos_iniciales no existe, continúa sin interrumpir
+                pass
 
-            # 2. Ejecutamos la función asegurándonos de que devuelva un DataFrame
-            resultado_bruto = generar_reporte_multimoneda(conn_local, mes_seleccionado, ano_seleccionado, db_actual)
+            # B. Movimientos históricos anteriores a f_i
+            debe_hist, haber_hist = 0.0, 0.0
+            try:
+                cursor.execute(f"SELECT COALESCE(SUM(debe), 0) as d, COALESCE(SUM(haber), 0) as h FROM `{db}`.asientos_contables WHERE plan_cuentas LIKE '1.1.1.02%' AND fecha < %s", (f_i,))
+                res_hist = cursor.fetchone()
+                if res_hist:
+                    debe_hist = float(res_hist['d'] or 0.0)
+                    haber_hist = float(res_hist['h'] or 0.0)
+            except Exception:
+                pass
+
+            saldo_inicial_neto = (debe_s_ini + debe_hist) - (haber_s_ini + haber_hist)
+
+            # C. Movimientos del Periodo (f_i a f_f)
+            entradas_mes, salidas_mes = 0.0, 0.0
+            try:
+                query_mes = f"""
+                    SELECT COALESCE(SUM(debe), 0) as ent, COALESCE(SUM(haber), 0) as sal 
+                    FROM `{db}`.asientos_contables
+                    WHERE plan_cuentas LIKE '1.1.1.02%' AND fecha BETWEEN %s AND %s
+                """
+                cursor.execute(query_mes, (f_i, f_f))
+                res_mes = cursor.fetchone()
+                if res_mes:
+                    entradas_mes = float(res_mes['ent'] or 0.0)
+                    salidas_mes = float(res_mes['sal'] or 0.0)
+            except Exception:
+                pass
+
+            saldo_real = saldo_inicial_neto + entradas_mes - salidas_mes
+
+            # D. INTENTO AUTOMÁTICO DE CUENTAS POR COBRAR DESDE LA DB
+            cxc_db = 0.0
+            try:
+                cursor.execute(f"SELECT COALESCE(SUM(debe - haber), 0) as cxc FROM `{db}`.asientos_contables WHERE plan_cuentas LIKE '1.1.2%'")
+                res_cxc = cursor.fetchone()
+                if res_cxc and res_cxc['cxc']:
+                    cxc_db = float(res_cxc['cxc'])
+            except Exception:
+                cxc_db = 0.0
+
+            conn.close()
+
+            # 2. MÉTRICAS PRINCIPALES DEL PERIODO
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Entradas (Mes)", f"Bs. {entradas_mes:,.2f}")
+            c2.metric("Salidas (Mes)", f"Bs. {salidas_mes:,.2f}")
+            c3.metric("Saldo Real Total", f"Bs. {saldo_real:,.2f}")
+
+            # RESUMEN AUTOMÁTICO IA - MÉTRICAS
+            balance_neto_mes = entradas_mes - salidas_mes
+            tendencia_mes = "positivo" if balance_neto_mes >= 0 else "negativo"
+            st.info(f"🤖 **Resumen de Caja:** Durante este periodo, las entradas totalizaron Bs. {entradas_mes:,.2f} frente a salidas de Bs. {salidas_mes:,.2f}, arrojando un flujo neto {tendencia_mes} de Bs. {balance_neto_mes:,.2f} y cerrando con un saldo real disponible de Bs. {saldo_real:,.2f}.")
+
+            # 3. CONTROLES DE SIMULACIÓN (Toma el valor detectado o permite ajustarlo)
+            st.sidebar.header("⚙️ Simulación de Escenarios (Stress Testing)")
             
-            # 3. Cerramos la conexión local de forma limpia
-            if conn_local.is_connected():
-                conn_local.close()
-             
-            # 🛡️ Blindaje crítico: Convertimos a DataFrame si viene como lista o None
-            if isinstance(resultado_bruto, list):
-                df_diario = pd.DataFrame(resultado_bruto)
-            elif isinstance(resultado_bruto, pd.DataFrame):
-                df_diario = resultado_bruto
+            cuentas_por_cobrar = st.sidebar.number_input(
+                "Cuentas por Cobrar (Detectadas / Manual):", 
+                value=max(cxc_db, 0.0), 
+                step=10000.0,
+                help="Si la empresa tiene saldo en cuentas por cobrar (ej. cuenta 1.1.2), aparecerá aquí automáticamente."
+            )
+
+            pct_retraso = st.sidebar.slider(
+                "% de Facturas que se retrasan a 60 días:", 
+                min_value=0, 
+                max_value=100, 
+                value=0, 
+                step=5
+            )
+
+            impacto_retraso = cuentas_por_cobrar * (pct_retraso / 100.0)
+
+            # 4. PROYECCIÓN DE FLUJO DE CAJA Y ANÁLISIS DE DESVIACIONES
+            st.markdown("---")
+            st.subheader("📈 Proyección de Liquidez y Análisis de Estrés")
+            st.caption("Estimación basada en el flujo neto diario con simulación a 30, 60 y 90 días.")
+
+            import datetime as dt
+
+            if isinstance(f_i, str):
+                d1 = dt.datetime.strptime(f_i, "%Y-%m-%d")
             else:
-                df_diario = pd.DataFrame()
+                d1 = f_i
 
-            if df_diario.empty:
-                st.warning(f"⚠️ No se encontraron registros en el Libro Diario para el período {mes_seleccionado}/{ano_seleccionado}.")
+            if isinstance(f_f, str):
+                d2 = dt.datetime.strptime(f_f, "%Y-%m-%d")
             else:
-                df_mostrar = df_diario.copy()
-                
-                # Formateo interno de datos según la moneda seleccionada
-                if moneda_vista == "Dólares (USD)":
-                    df_mostrar['Debe_Vis'] = df_mostrar['debe_usd'].map(lambda x: f"$ {x:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.'))
-                    df_mostrar['Haber_Vis'] = df_mostrar['haber_usd'].map(lambda x: f"$ {x:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.'))
-                else:
-                    df_mostrar['Debe_Vis'] = df_mostrar['debe'].map(lambda x: f"Bs. {x:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.'))
-                    df_mostrar['Haber_Vis'] = df_mostrar['haber'].map(lambda x: f"Bs. {x:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.'))
-                
-                df_visual = df_mostrar[['fecha', 'cuenta_contable', 'descripcion', 'Debe_Vis', 'Haber_Vis', 'tasa_bcv']]
-                df_visual.columns = ['Fecha', 'Cuenta Contable', 'Descripción', f'Debe ({moneda_vista})', f'Haber ({moneda_vista})', 'Tasa Ref. BCV']
-                
-                # 🔥 BOTÓN DE DESCARGA EN LA CUARTA COLUMNA
-                with col_boton:
-                    st.markdown("<div style='padding-top: 25px;'></div>", unsafe_allow_html=True)
-                    
-                    import io
-                    buffer = io.BytesIO()
-                    with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-                        df_visual.to_excel(writer, index=False, sheet_name='Libro Diario Multimoneda')
-                    buffer.seek(0)
-                    
-                    nombre_mes = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"][mes_seleccionado-1]
-                    nombre_archivo = f"Libro_Diario_{nombre_mes}_{ano_seleccionado}_{moneda_vista.split()[0]}.xlsx"
-                    
-                    st.download_button(
-                        label="📥 Descargar Excel",
-                        data=buffer,
-                        file_name=nombre_archivo,
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        use_container_width=True
-                    )
+                d2 = f_f
 
-                # 2. Renderizar la tabla principal en la app abajo de los filtros
-                st.dataframe(df_visual, use_container_width=True, hide_index=True)
-                
-                # 3. Totales de Control al pie de página (Acumulados)
-                tot_debe = df_diario['debe_usd'].sum() if moneda_vista == "Dólares (USD)" else df_diario['debe'].sum()
-                tot_haber = df_diario['haber_usd'].sum() if moneda_vista == "Dólares (USD)" else df_diario['haber'].sum()
-                
-                simbolo = "$" if moneda_vista == "Dólares (USD)" else "Bs."
-                
-                col_t1, col_t2 = st.columns(2)
-                col_t1.metric("Total Debe Acumulado", f"{simbolo} {tot_debe:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.'))
-                col_t2.metric("Total Haber Acumulado", f"{simbolo} {tot_haber:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.'))
+            dias_rango = max((d2 - d1).days + 1, 1)
 
-                # =========================================================================
-                # 🔥 ZONA DE REPORTES FINANCIEROS EN DIVISAS
-                # =========================================================================
-                st.markdown("<br>", unsafe_allow_html=True)                
+            flujo_neto_periodo = entradas_mes - salidas_mes
+            promedio_diario_neto = flujo_neto_periodo / dias_rango
 
-                with st.expander("📊 Reportes Financieros Consolidados (Multimoneda)", expanded=False):
-                    st.markdown(f"### 📋 Balance de Comprobación — Período Seleccionado ({moneda_vista})")
-                    st.write("Consolidación analítica de saldos: Apertura, Movimientos mensuales y Saldos de Cierre.")
-                    
-                    if st.button("🧮 Generar Balance de Comprobación", use_container_width=True):
-                        
-                        if df_diario is None or df_diario.empty:
-                            st.warning("⚠️ El registro del diario está vacío o no se pudo cargar para este período.")
-                        else:
-                            try:
-                                col_debe_calc = 'debe_usd' if moneda_vista == "Dólares (USD)" else 'debe'
-                                col_haber_calc = 'haber_usd' if moneda_vista == "Dólares (USD)" else 'haber'
-                                
-                                df_diario['es_inicial'] = df_diario['descripcion'].str.contains("SALDOS INICIALES", case=False, na=False)
-                                
-                                balance_data = []
-                                for (codigo, cuenta), group in df_diario.groupby(['plan_cuentas', 'cuenta_contable']):
-                                    grupo_inicial = group[group['es_inicial']]
-                                    grupo_mes = group[~group['es_inicial']]
-                                    
-                                    ini_debe = grupo_inicial[col_debe_calc].sum()
-                                    ini_haber = grupo_inicial[col_haber_calc].sum()
-                                    saldo_inicial = ini_debe - ini_haber
-                                    
-                                    mes_debe = grupo_mes[col_debe_calc].sum()
-                                    mes_haber = grupo_mes[col_haber_calc].sum()
-                                    
-                                    saldo_final = saldo_inicial + mes_debe - mes_haber
-                                    
-                                    balance_data.append({
-                                        'Código Contable': str(codigo) if pd.notna(codigo) else "S/C",
-                                        'Cuenta Contable': str(cuenta),
-                                        'Saldo Inicial Num': saldo_inicial,
-                                        'Debe Num': mes_debe,
-                                        'Haber Num': mes_haber,
-                                        'Saldo Final Num': saldo_final
-                                    })
-                                
-                                df_balance = pd.DataFrame(balance_data)
-                                if not df_balance.empty:
-                                    df_balance = df_balance.sort_values(by='Código Contable').reset_index(drop=True)
-                                
-                                simb = "$" if moneda_vista == "Dólares (USD)" else "Bs."
-                                
-                                def f_monto(val):
-                                    if pd.isna(val) or val == 0:
-                                        return f"{simb} 0,00"
-                                    if val < 0:
-                                        return f"({simb} {abs(val):,.2f})".replace(',', 'X').replace('.', ',').replace('X', '.')
-                                    return f"{simb} {val:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+            # Proyecciones Meta (30, 60 y 90 días)
+            proj_30_meta = saldo_real + (promedio_diario_neto * 30)
+            proj_60_meta = saldo_real + (promedio_diario_neto * 60)
+            proj_90_meta = saldo_real + (promedio_diario_neto * 90)
 
-                                df_balance_visual = pd.DataFrame({
-                                    'Código Contable': df_balance['Código Contable'],
-                                    'Cuenta Contable': df_balance['Cuenta Contable'],
-                                    'Saldo Inicial': df_balance['Saldo Inicial Num'].apply(f_monto),
-                                    'Debe': df_balance['Debe Num'].apply(f_monto),
-                                    'Haber': df_balance['Haber Num'].apply(f_monto),
-                                    'Saldo Final': df_balance['Saldo Final Num'].apply(f_monto)
-                                })
-                                
-                                st.dataframe(df_balance_visual, use_container_width=True, hide_index=True)
-                                
-                                tot_inicial = df_balance['Saldo Inicial Num'].sum()
-                                tot_debe = df_balance['Debe Num'].sum()
-                                tot_haber = df_balance['Haber Num'].sum()
-                                tot_final = df_balance['Saldo Final Num'].sum()
-                                
-                                c1, c2, c3, c4 = st.columns(4)
-                                c1.metric("Total Saldo Inicial", f_monto(tot_inicial))
-                                c2.metric("Total Debe (Mes)", f_monto(tot_debe))
-                                c3.metric("Total Haber (Mes)", f_monto(tot_haber))
-                                c4.metric("Total Saldo Final", f_monto(tot_final))
-                                
-                                if abs(tot_debe - tot_haber) < 0.01:
-                                    st.success("✨ ¡Partida Doble verificada! Los movimientos del mes cargaron perfectamente cuadrados.")
-                                else:
-                                    st.error("⚠️ Alerta contable: Los movimientos cargados en el Debe y Haber del mes difieren.")
-                            except Exception as inner_e:
-                                st.error(f"Error interno al calcular el balance: {inner_e}")
+            proj_30_ajustada = proj_30_meta - impacto_retraso
+
+            if proj_30_meta != 0:
+                desviacion_absoluta = proj_30_ajustada - proj_30_meta
+                desviacion_pct = (desviacion_absoluta / abs(proj_30_meta)) * 100
+            else:
+                desviacion_absoluta, desviacion_pct = 0.0, 0.0
+
+            # Bloque 1: Proyecciones Temporales (30, 60 y 90 Días)
+            st.write("##### 🗓️ HORIZONTE DE LIQUIDEZ PROYECTADO")
+            m1, m2, m3 = st.columns(3)
+            m1.metric("Proyección 30 Días", f"Bs. {proj_30_meta:,.2f}", delta=f"{promedio_diario_neto * 30:,.2f} Bs est.")
+            m2.metric("Proyección 60 Días", f"Bs. {proj_60_meta:,.2f}", delta=f"{promedio_diario_neto * 60:,.2f} Bs est.")
+            m3.metric("Proyección 90 Días", f"Bs. {proj_90_meta:,.2f}", delta=f"{promedio_diario_neto * 90:,.2f} Bs est.")
+
+            st.info(f"🤖 **Resumen de Proyección:** Con base en un promedio diario de Bs. {promedio_diario_neto:,.2f}, se proyecta una disponibilidad de Bs. {proj_30_meta:,.2f} a 30 días, alcanzando Bs. {proj_60_meta:,.2f} a 60 días y Bs. {proj_90_meta:,.2f} al cierre de los 90 días.")
+
+            # Bloque 2: Escenario de Estrés
+            st.write("##### ⚡ ESCENARIO DE SIMULACIÓN Y MORA")
+            p1, p2, p3 = st.columns(3)
+            p1.metric("30 Días Ajustado", f"Bs. {proj_30_ajustada:,.2f}", delta=f"{desviacion_pct:.2f}%")
+            p2.metric("Impacto por Retraso", f"Bs. {impacto_retraso:,.2f}")
+            p3.metric("Desviación Absoluta", f"Bs. {desviacion_absoluta:,.2f}")
+
+            st.info(f"🤖 **Resumen de Stress Testing:** Con un monto bajo análisis de Bs. {cuentas_por_cobrar:,.2f} y un retraso simulado del {pct_retraso}%, el impacto en caja es de Bs. {impacto_retraso:,.2f}, dejando la liquidez proyectada en Bs. {proj_30_ajustada:,.2f}.")
+
+            # 5. SEMÁFORO DE RIESGO INTELIGENTE
+            if proj_30_ajustada < 0 or desviacion_pct <= -15.0:
+                st.error(f"🚨 **ALERTA DE ILIQUIDEZ POTENCIAL ({desviacion_pct:.1f}%):** El escenario de retraso genera un déficit crítico en la disponibilidad a 30 días.")
+            elif -15.0 < desviacion_pct < 0:
+                st.warning(f"⚠️ **Advertencia de Riesgo Leve ({desviacion_pct:.1f}%):** Existe una desviación negativa frente a la meta proyectada.")
+            else:
+                st.success("✅ **Salud de Caja Estable:** Las proyecciones se mantienen en niveles seguros de liquidez.")
+
+            # 6. DETALLE DE MOVIMIENTOS
+            st.markdown("---")
+            st.write("### Detalle de Movimientos")
+            try:
+                df_flujo = obtener_detalle_movimientos_banco(db, f_i, f_f) 
+            except Exception:
+                df_flujo = None
+
+            if df_flujo is not None and not df_flujo.empty:
+                st.dataframe(df_flujo, use_container_width=True, hide_index=True, column_config={
+                    "fecha": st.column_config.DateColumn("Fecha"),
+                    "descripcion": "Concepto",
+                    "debe": st.column_config.NumberColumn("Entradas", format="Bs. %.2f"),
+                    "haber": st.column_config.NumberColumn("Salidas", format="Bs. %.2f")
+                })
+            else:
+                st.info(f"No hay movimientos en este rango del {f_i} al {f_f}.")
 
         except Exception as e:
-            st.error(f"❌ Ocurrió un error al procesar el Libro Diario o el Balance de Comprobación: {e}")
+            st.error(f"Error en consulta contable para `{db}`: {e}")
+    else:
+        st.warning("⚠️ Selecciona una empresa para ver los movimientos de caja.")
 
-        # FILA 9 ..... NUEVO MÓDULO PREMIUM: AUDITORÍA FORENSE CON IA
-        st.divider()
-        st.markdown("## 📊 AUDITORÍA FORENSE CON IA")
-        
-        # --- VERIFICACIÓN DE CONEXIÓN VIVA ANTES DE USAR PANDAS ---
-        try:
-            if conn and not conn.is_connected():
-                conn.reconnect(attempts=3, delay=2)
+    # --- FILA 6: PROVEEDORES ---
+    st.divider()
+    st.subheader("📦 Gestión Operativa")
+    p1, p2 = st.columns(2)
+    p1.info(f"**Top Proveedor:** {kpis.get('top_proveedor', 'N/A')} ({kpis.get('top_porcentaje', 0)}%)")
+    n_a = kpis.get('alertas_retencion', 0)
+    if n_a > 0: 
+        p2.warning(f"⚠️ {n_a} facturas sin retención aplicada.")
+    else: 
+        p2.success("✅ Retenciones al día.")    
+
+    # --- FILA 7. SECCIÓN: CUENTA CASHEA ---
+    st.divider()
+    st.subheader("💳 Detalle de Créditos: Cashea (2.1.3.01.001)")
+
+    db_actual = st.session_state.get('DB_ACTUAL')
+
+    if db_actual and db_actual != "{db}" and db_actual != "None":
+        df_cashea = obtener_detalle_cashea(db_actual, f_inicio_global, f_fin_global)
+
+        if df_cashea is not None and not df_cashea.empty:
+            saldo_final = df_cashea['saldo'].iloc[-1]
+            st.metric("Saldo Actual en Cashea", f"Bs. {saldo_final:,.2f}")
+            
+            # Tabla limpia, expandida a todo el ancho y con formato profesional
+            st.dataframe(
+                df_cashea, 
+                use_container_width=True,  # Ocupa todo el ancho de la pantalla correctamente
+                height=350,                # Altura controlada con scroll vertical si hay muchos registros
+                column_config={
+                    "fecha": st.column_config.DateColumn("Fecha"),
+                    "descripcion": st.column_config.TextColumn("Descripción"),
+                    "ref": st.column_config.TextColumn("Referencia"),
+                    "debe": st.column_config.NumberColumn("Pago (Debe)", format="Bs. %.2f"),
+                    "haber": st.column_config.NumberColumn("Crédito (Haber)", format="Bs. %.2f"),
+                    "saldo": st.column_config.NumberColumn("Saldo Acumulado", format="Bs. %.2f")
+                }
+            )
+        else:
+            st.info(f"No hay movimientos registrados para Cashea en este periodo.")
+    else:
+        st.warning("⚠️ Selecciona una empresa para ver los créditos de Cashea.")
+
+
+    # --- FILA 7: TIPO DE CAMBIO BANCO CENTRAL DE VENEZUELA ---
+    st.divider()
+    st.markdown("### 🏦 Indicadores Cambiarios")
+
+    if db_actual and db_actual != "{db}" and db_actual != "None":
+        try: 
+            conn_bcv = conectar_db(db_actual)
+            if not conn_bcv:
+                st.warning(f"⚠️ No se pudo establecer conexión con la base de datos para {db_actual}.")
             else:
-                conn.ping(reconnect=True, attempts=3, delay=2)
-        except Exception:
-            pass
+                # Blindaje por si la función no está definida o retorna None
+                tasa_dolar = 0.0
+                origen_datos = "No disponible"
+                
+                if 'obtener_tasa_bcv_hoy' in globals() and callable(obtener_tasa_bcv_hoy):
+                    # ⚠️ CORRECCIÓN: Asegúrate de pasarle 'conn_bcv' aquí para que no de el error de argumentos
+                    t_val, o_val = obtener_tasa_bcv_hoy(conn_bcv)
+                    tasa_dolar = t_val if t_val is not None else 0.0
+                    origen_datos = o_val if o_val is not None else "Manual / Desconocido"
 
-        # Usamos la base de datos activa que corresponda (reemplaza 'db_actual' por la variable de tu empresa)
-        query_completa = f"SELECT * FROM `{db_actual}`.asientos_contables"
+                col_tasa, col_info = st.columns([1, 2])
+
+                with col_tasa:
+                    s = f"{tasa_dolar:,.8f}"
+                    tasa_formateada = f"Bs. {s.replace(',', 'X').replace('.', ',').replace('X', '.')}"
+                    st.metric(label="💵 Tasa Oficial BCV (USD/VES)", value=tasa_formateada)
+
+                with col_info:
+                    st.caption("ℹ️ **Actualización Automática:**")
+                    st.info(f"El sistema sincroniza directamente con el Banco Central de Venezuela. \n\n**Fuente de lectura actual:** {origen_datos}")
+                    
+                    # 🔥 BOTÓN DE ACTUALIZACIÓN FORZADA
+                    if st.button("🔄 Forzar Sincronización BCV"):
+                        from datetime import date
+                        try:
+                            if conn_bcv.is_connected():
+                                # ⚠️ CORRECCIÓN: Comentamos esto para evitar bloqueos/congelamientos de Streamlit
+                                # conn_bcv.handle_unread_result()
+                                pass
+                        
+                            tasa_fresca, origen_fresco = 0.0, "Error"
+                            if 'consultar_bcv_directo_sin_bd' in globals() and callable(consultar_bcv_directo_sin_bd):
+                                # ⚠️ CORRECCIÓN: Asegúrate de pasarle 'conn_bcv' por si tu función lo requiere
+                                tasa_fresca, origen_fresco = consultar_bcv_directo_sin_bd(conn_bcv)
+                        
+                            if origen_fresco and "Error" not in origen_fresco and tasa_fresca > 0:
+                                hoy = date.today()
+                                cursor = conn_bcv.cursor()
+                                try:
+                                    cursor.execute(f"""
+                                        INSERT INTO `{db_actual}`.tasas_diarias (fecha, tasa_valor) 
+                                        VALUES (%s, %s)
+                                        ON DUPLICATE KEY UPDATE tasa_valor = %s
+                                    """, (hoy, tasa_fresca, tasa_fresca))
+                                    conn_bcv.commit()
+                                    st.success("¡Tasa actualizada con éxito desde el BCV!")
+                                    st.rerun()
+                                except Exception as db_err:
+                                    st.error(f"La tabla 'tasas_diarias' no existe en {db_actual} o hay un error SQL: {db_err}")
+                                finally:
+                                    cursor.close()
+                            else:
+                                st.error("No se pudo conectar a la web del BCV en este momento.")
+                        except Exception as e:
+                            st.error(f"Error al sincronizar: {e}")
+                
+                conn_bcv.close()
+        except Exception as e:
+            st.error(f"Error al cargar indicadores cambiarios: {e}")
+    else:
+        st.warning("⚠️ Selecciona una empresa para ver los indicadores cambiarios.")
+
+
+    # --- FILA 8: SECCIÓN VISUAL: REPORTE CONTABLE MULTIMONEDA ---
+    st.divider()
+    st.markdown("## 📊 Reporte de Libro Diario Multimoneda")
+    
+    # 1. Filtros de búsqueda y acciones (Agregamos una 4ta columna para el botón)
+    col_filtro1, col_filtro2, col_filtro3, col_boton = st.columns([1.5, 1.5, 2, 2])
+
+    with col_filtro1:
+        meses_lista = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
         
-        try:
-            df_diario = pd.read_sql(query_completa, conn) 
-        except Exception as db_err:
-            st.error(f"Error de conexión con la base de datos: {db_err}")
+        # Buscamos si ya hay un mes seleccionado globalmente, si no, usamos el actual
+        mes_actual_global = st.session_state.get('mes_seleccionado', meses_lista[date.today().month - 1])
+        
+        # Si el valor global es un número (1-12), lo convertimos a texto para el selectbox
+        if isinstance(mes_actual_global, int):
+            mes_actual_str = meses_lista[mes_actual_global - 1]
+        else:
+            mes_actual_str = mes_actual_global if mes_actual_global in meses_lista else "Enero"
+            
+        idx_mes = meses_lista.index(mes_actual_str)
+
+        # ✅ Usamos una KEY totalmente independiente para este selectbox sin romper el session_state
+        mes_seleccionado_str = st.selectbox(
+            "Seleccione el Mes:", 
+            meses_lista, 
+            index=idx_mes, 
+            key="selectbox_mes_multimoneda"
+        )
+        
+        # Convertimos el texto seleccionado a su valor numérico (1-12) para las consultas SQL
+        dic_m_inv = {m: i+1 for i, m in enumerate(meses_lista)}
+        mes_seleccionado = dic_m_inv.get(mes_seleccionado_str, 1)
+
+    with col_filtro2:
+        anio_actual_global = st.session_state.get('año_seleccionado', 2026)
+
+        # 1. Aseguramos que la llave exista y que no sea menor a 2024 antes de crear el widget
+        if "number_input_anio_multimoneda" not in st.session_state or st.session_state["number_input_anio_multimoneda"] < 2024:
+            st.session_state["number_input_anio_multimoneda"] = max(2024, int(anio_actual_global))
+
+        # 2. Creamos el input usando únicamente su key sincronizada
+        ano_seleccionado = st.number_input(
+            "Seleccione el Año:", 
+            min_value=2024, 
+            max_value=2030, 
+            step=1, 
+            key="number_input_anio_multimoneda"
+        )
+        
+
+    with col_filtro3:
+        # Metemos un espacio en blanco arriba para alinear verticalmente el toggle con los selectores
+        st.markdown("<div style='padding-top: 25px;'></div>", unsafe_allow_html=True)
+        moneda_vista = "Dólares (USD)" if st.toggle("🇺🇸 Ver reporte en USD", value=False, key="toggle_moneda_multimoneda") else "Bolívares (VES)"
+    # --- BLOQUE LÓGICO DE DATOS (Debe ejecutarse antes para poder descargar) ---
+    try:
+        # 1. Abrimos una conexión fresca y exclusiva para este reporte
+        conn_local = conectar_db(db_actual)
+        
+        if not conn_local or not conn_local.is_connected():
+            st.error("⚠️ No se pudo establecer una conexión activa con la base de datos para generar el reporte.")
+            st.stop()
+
+        # 2. Ejecutamos la función asegurándonos de que devuelva un DataFrame
+        resultado_bruto = generar_reporte_multimoneda(conn_local, mes_seleccionado, ano_seleccionado, db_actual)
+        
+        # 3. Cerramos la conexión local de forma limpia
+        if conn_local.is_connected():
+            conn_local.close()
+         
+        # 🛡️ Blindaje crítico: Convertimos a DataFrame si viene como lista o None
+        if isinstance(resultado_bruto, list):
+            df_diario = pd.DataFrame(resultado_bruto)
+        elif isinstance(resultado_bruto, pd.DataFrame):
+            df_diario = resultado_bruto
+        else:
             df_diario = pd.DataFrame()
 
-        col_analisis = 'debe'
-        simb = "Bs."
-        st.divider()
-        st.markdown("<br>", unsafe_allow_html=True)
-        with st.expander("🕵️‍♂️ Módulo de Auditoría Forense con IA (Antifraude)", expanded=False):
-            st.markdown("### 🔍 Análisis de Patrones y Detección Automatizada de Anomalías")
-            st.write("La IA analiza los asientos del mes buscando importes atípicos, desviaciones estadísticas y registros duplicados.")
+        if df_diario.empty:
+            st.warning(f"⚠️ No se encontraron registros en el Libro Diario para el período {mes_seleccionado}/{ano_seleccionado}.")
+        else:
+            df_mostrar = df_diario.copy()
             
-            if st.button("🚀 Ejecutar Escáner Antifraude", use_container_width=True):
-                st.info("Procesando algoritmos estadísticos sobre el Libro Diario...")
+            # Formateo interno de datos según la moneda seleccionada
+            if moneda_vista == "Dólares (USD)":
+                df_mostrar['Debe_Vis'] = df_mostrar['debe_usd'].map(lambda x: f"$ {x:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.'))
+                df_mostrar['Haber_Vis'] = df_mostrar['haber_usd'].map(lambda x: f"$ {x:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.'))
+            else:
+                df_mostrar['Debe_Vis'] = df_mostrar['debe'].map(lambda x: f"Bs. {x:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.'))
+                df_mostrar['Haber_Vis'] = df_mostrar['haber'].map(lambda x: f"Bs. {x:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.'))
+            
+            df_visual = df_mostrar[['fecha', 'cuenta_contable', 'descripcion', 'Debe_Vis', 'Haber_Vis', 'tasa_bcv']]
+            df_visual.columns = ['Fecha', 'Cuenta Contable', 'Descripción', f'Debe ({moneda_vista})', f'Haber ({moneda_vista})', 'Tasa Ref. BCV']
+            
+            # 🔥 BOTÓN DE DESCARGA EN LA CUARTA COLUMNA
+            with col_boton:
+                st.markdown("<div style='padding-top: 25px;'></div>", unsafe_allow_html=True)
                 
-                # 1. Preparación de datos
-                # Limpieza de columnas numéricas
-                df_diario['debe'] = pd.to_numeric(df_diario['debe'], errors='coerce').fillna(0)
-                df_diario['haber'] = pd.to_numeric(df_diario['haber'], errors='coerce').fillna(0)
+                import io
+                buffer = io.BytesIO()
+                with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+                    df_visual.to_excel(writer, index=False, sheet_name='Libro Diario Multimoneda')
+                buffer.seek(0)
                 
-                # Cálculo de monto auditable (ajustado por moneda)
-                if moneda_vista == "Dólares (USD)":
-                    # Asegúrate que las columnas debe_usd/haber_usd existan en tu tabla
-                    df_diario['monto_auditable'] = df_diario['debe_usd'] + df_diario['haber_usd']
-                else:
-                    df_diario['monto_auditable'] = df_diario['debe'] + df_diario['haber']
+                nombre_mes = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"][mes_seleccionado-1]
+                nombre_archivo = f"Libro_Diario_{nombre_mes}_{ano_seleccionado}_{moneda_vista.split()[0]}.xlsx"
                 
-                # 2. Filtrado: Excluir saldos iniciales y montos cero
-                df_asientos = df_diario[
-                    (~df_diario['descripcion'].str.contains("SALDOS INICIALES", case=False, na=False)) & 
-                    (df_diario['monto_auditable'] != 0)
-                ].copy()
-                
-                # --- BLOQUE DE DEPURACIÓN (AUTOPSIA DE DATOS) ---
-                if df_asientos.empty:
-                    st.warning("⚠️ El escáner no encontró movimientos. Ejecutando diagnóstico de integridad:")
-                    st.write(f"Total registros en diario: {len(df_diario)}")
-                    # --- DEPURACIÓN PREVIA ---
-                    st.write("Registros disponibles en el objeto df_diario:", len(df_diario))
-                    st.write(df_diario.head(5)) # Esto te confirmará si los gastos de mayo están presentes
-                                            
-                    # Ver qué descartó el filtro
-                    ejemplo_descartados = df_diario[df_diario['descripcion'].str.contains("SALDO", case=False, na=False)].head(3)
-                    if not ejemplo_descartados.empty:
-                        st.write("Registros descartados por coincidir con 'SALDO':")
-                        st.dataframe(ejemplo_descartados[['fecha', 'descripcion', 'monto_auditable']])
-                    
-                    st.error("📊 Ninguna fila superó los filtros. Revisa si tus gastos reales contienen la palabra 'SALDO' o si el monto es 0.")
-                    
-                else:
-                    # -----------------------------------------------------------------
-                    # ALGORITMO 1: DETECCIÓN DE DUPLICADOS
-                    # -----------------------------------------------------------------
-                    anomalies_found = False
-                    alertas_duplicados = []
-                    alertas_montos = []
-                    
-                    duplicados = df_asientos[df_asientos.duplicated(subset=['fecha', 'cuenta_contable', col_analisis], keep=False)]
-                    if not duplicados.empty:
-                        anomalies_found = True
-                        for cuenta, gp in duplicados.groupby('cuenta_contable'):
-                            monto_dup = gp[col_analisis].iloc[0]
-                            alertas_duplicados.append(f"🚩 **Sospecha de Duplicidad:** Se encontraron {len(gp)} registros idénticos el mismo día en la cuenta **{cuenta}** por {simb} {monto_dup:,.2f}.")
-                    # -----------------------------------------------------------------
-                    # ALGORITMO 2: Z-SCORE (DESVIACIÓN) - SEGURO CONTRA Nulos
-                    # -----------------------------------------------------------------
-                    # Calculamos la media y la desviación estándar de forma segura
-                    stats = df_asientos.groupby('cuenta_contable')[col_analisis].agg(['mean', 'std']).reset_index()
-                    
-                    # Si hay un solo registro por cuenta, la std es NaN. La rellenamos con 0.
-                    stats['std'] = stats['std'].fillna(0.0)
-                    
-                    df_audit = df_asientos.merge(stats, on='cuenta_contable', how='left')
-                    
-                    # Si la desviación estándar es 0 (porque la cuenta solo tiene 1 registro o todos valen igual), 
-                    # asignamos un valor artificial seguro para evitar divisiones por cero, pero marcando que no hay dispersión real.
-                    df_audit['std_safe'] = df_audit['std'].replace(0.0, 1.0)
-                    
-                    df_audit['z_score'] = (df_audit[col_analisis] - df_audit['mean']) / df_audit['std_safe']
-                    
-                    # Solo evaluamos Z-score en cuentas donde realmente hubo variación (std > 0)
-                    anomalas_std = df_audit[(df_audit['std'] > 0) & (df_audit['z_score'] > 2.0) & (df_audit[col_analisis] > df_audit['mean'] * 1.5)]
-                    
-                    if not anomalas_std.empty:
-                        for idx, row in anomalas_std.iterrows():
-                            porcentaje_desvio = ((row[col_analisis] - row['mean']) / row['mean']) * 100 if row['mean'] > 0 else 100
-                            if porcentaje_desvio > 15:
-                                anomalies_found = True
-                                alertas_montos.append(f"🚨 **Monto Atípico:** Cuenta **{row['cuenta_contable']}**, registro *'{row['descripcion']}'* ({simb} {row[col_analisis]:,.2f}). ¡{porcentaje_desvio:.0f}% por encima del promedio!")
+                st.download_button(
+                    label="📥 Descargar Excel",
+                    data=buffer,
+                    file_name=nombre_archivo,
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True
+                )
 
-                    # -----------------------------------------------------------------
-                    # RENDERIZADO
-                    # -----------------------------------------------------------------
-                    if anomalies_found:
-                        st.error("❌ ¡Alerta del Sistema! Se detectaron inconsistencias.")
-                        for a in alertas_montos: st.warning(a)
-                        for a in alertas_duplicados: st.info(a)
+            # 2. Renderizar la tabla principal en la app abajo de los filtros
+            st.dataframe(df_visual, use_container_width=True, hide_index=True)
+            
+            # 3. Totales de Control al pie de página (Acumulados)
+            tot_debe = df_diario['debe_usd'].sum() if moneda_vista == "Dólares (USD)" else df_diario['debe'].sum()
+            tot_haber = df_diario['haber_usd'].sum() if moneda_vista == "Dólares (USD)" else df_diario['haber'].sum()
+            
+            simbolo = "$" if moneda_vista == "Dólares (USD)" else "Bs."
+            
+            col_t1, col_t2 = st.columns(2)
+            col_t1.metric("Total Debe Acumulado", f"{simbolo} {tot_debe:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.'))
+            col_t2.metric("Total Haber Acumulado", f"{simbolo} {tot_haber:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.'))
+
+            # =========================================================================
+            # 🔥 ZONA DE REPORTES FINANCIEROS EN DIVISAS
+            # =========================================================================
+            st.markdown("<br>", unsafe_allow_html=True)                
+
+            with st.expander("📊 Reportes Financieros Consolidados (Multimoneda)", expanded=False):
+                st.markdown(f"### 📋 Balance de Comprobación — Período Seleccionado ({moneda_vista})")
+                st.write("Consolidación analítica de saldos: Apertura, Movimientos mensuales y Saldos de Cierre.")
+                
+                if st.button("🧮 Generar Balance de Comprobación", use_container_width=True):
+                    
+                    if df_diario is None or df_diario.empty:
+                        st.warning("⚠️ El registro del diario está vacío o no se pudo cargar para este período.")
                     else:
-                        st.success("✨ ¡Análisis Completo! Data limpia y alineada.")
+                        try:
+                            col_debe_calc = 'debe_usd' if moneda_vista == "Dólares (USD)" else 'debe'
+                            col_haber_calc = 'haber_usd' if moneda_vista == "Dólares (USD)" else 'haber'
+                            
+                            df_diario['es_inicial'] = df_diario['descripcion'].str.contains("SALDOS INICIALES", case=False, na=False)
+                            
+                            balance_data = []
+                            for (codigo, cuenta), group in df_diario.groupby(['plan_cuentas', 'cuenta_contable']):
+                                grupo_inicial = group[group['es_inicial']]
+                                grupo_mes = group[~group['es_inicial']]
+                                
+                                ini_debe = grupo_inicial[col_debe_calc].sum()
+                                ini_haber = grupo_inicial[col_haber_calc].sum()
+                                saldo_inicial = ini_debe - ini_haber
+                                
+                                mes_debe = grupo_mes[col_debe_calc].sum()
+                                mes_haber = grupo_mes[col_haber_calc].sum()
+                                
+                                saldo_final = saldo_inicial + mes_debe - mes_haber
+                                
+                                balance_data.append({
+                                    'Código Contable': str(codigo) if pd.notna(codigo) else "S/C",
+                                    'Cuenta Contable': str(cuenta),
+                                    'Saldo Inicial Num': saldo_inicial,
+                                    'Debe Num': mes_debe,
+                                    'Haber Num': mes_haber,
+                                    'Saldo Final Num': saldo_final
+                                })
+                            
+                            df_balance = pd.DataFrame(balance_data)
+                            if not df_balance.empty:
+                                df_balance = df_balance.sort_values(by='Código Contable').reset_index(drop=True)
+                            
+                            simb = "$" if moneda_vista == "Dólares (USD)" else "Bs."
+                            
+                            def f_monto(val):
+                                if pd.isna(val) or val == 0:
+                                    return f"{simb} 0,00"
+                                if val < 0:
+                                    return f"({simb} {abs(val):,.2f})".replace(',', 'X').replace('.', ',').replace('X', '.')
+                                return f"{simb} {val:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
 
+                            df_balance_visual = pd.DataFrame({
+                                'Código Contable': df_balance['Código Contable'],
+                                'Cuenta Contable': df_balance['Cuenta Contable'],
+                                'Saldo Inicial': df_balance['Saldo Inicial Num'].apply(f_monto),
+                                'Debe': df_balance['Debe Num'].apply(f_monto),
+                                'Haber': df_balance['Haber Num'].apply(f_monto),
+                                'Saldo Final': df_balance['Saldo Final Num'].apply(f_monto)
+                            })
+                            
+                            st.dataframe(df_balance_visual, use_container_width=True, hide_index=True)
+                            
+                            tot_inicial = df_balance['Saldo Inicial Num'].sum()
+                            tot_debe = df_balance['Debe Num'].sum()
+                            tot_haber = df_balance['Haber Num'].sum()
+                            tot_final = df_balance['Saldo Final Num'].sum()
+                            
+                            c1, c2, c3, c4 = st.columns(4)
+                            c1.metric("Total Saldo Inicial", f_monto(tot_inicial))
+                            c2.metric("Total Debe (Mes)", f_monto(tot_debe))
+                            c3.metric("Total Haber (Mes)", f_monto(tot_haber))
+                            c4.metric("Total Saldo Final", f_monto(tot_final))
+                            
+                            if abs(tot_debe - tot_haber) < 0.01:
+                                st.success("✨ ¡Partida Doble verificada! Los movimientos del mes cargaron perfectamente cuadrados.")
+                            else:
+                                st.error("⚠️ Alerta contable: Los movimientos cargados en el Debe y Haber del mes difieren.")
+                        except Exception as inner_e:
+                            st.error(f"Error interno al calcular el balance: {inner_e}")
 
-        # --- FILA 10: REPORTE DE CONTABLE ---
-        st.divider()
-        try:
-            # Usamos las llaves exactas definidas en el sidebar de contabilidad
-            año = int(st.session_state.get('año_seleccionado_contabilidad', datetime.datetime.now().year))
-            mes_elegido_str = str(st.session_state.get('mes_seleccionado_contabilidad', 'Junio')).strip().capitalize()
+    except Exception as e:
+        st.error(f"❌ Ocurrió un error al procesar el Libro Diario o el Balance de Comprobación: {e}")
 
-            # Mapeo robusto de meses
-            meses_map = {
-                'Enero': 1, 'Febrero': 2, 'Marzo': 3, 'Abril': 4, 'Mayo': 5, 'Junio': 6,
-                'Julio': 7, 'Agosto': 8, 'Septiembre': 9, 'Octubre': 10, 'Noviembre': 11, 'Diciembre': 12
-            }
+    # FILA 9 ..... NUEVO MÓDULO PREMIUM: AUDITORÍA FORENSE CON IA
+    st.divider()
+    st.markdown("## 📊 AUDITORÍA FORENSE CON IA")
+    
+    # --- VERIFICACIÓN DE CONEXIÓN VIVA ANTES DE USAR PANDAS ---
+    try:
+        if conn and not conn.is_connected():
+            conn.reconnect(attempts=3, delay=2)
+        else:
+            conn.ping(reconnect=True, attempts=3, delay=2)
+    except Exception:
+        pass
+
+    # Usamos la base de datos activa que corresponda (reemplaza 'db_actual' por la variable de tu empresa)
+    query_completa = f"SELECT * FROM `{db_actual}`.asientos_contables"
+    
+    try:
+        df_diario = pd.read_sql(query_completa, conn) 
+    except Exception as db_err:
+        st.error(f"Error de conexión con la base de datos: {db_err}")
+        df_diario = pd.DataFrame()
+
+    col_analisis = 'debe'
+    simb = "Bs."
+    st.divider()
+    st.markdown("<br>", unsafe_allow_html=True)
+    with st.expander("🕵️‍♂️ Módulo de Auditoría Forense con IA (Antifraude)", expanded=False):
+        st.markdown("### 🔍 Análisis de Patrones y Detección Automatizada de Anomalías")
+        st.write("La IA analiza los asientos del mes buscando importes atípicos, desviaciones estadísticas y registros duplicados.")
+        
+        if st.button("🚀 Ejecutar Escáner Antifraude", use_container_width=True):
+            st.info("Procesando algoritmos estadísticos sobre el Libro Diario...")
             
-            num_mes = meses_map.get(mes_elegido_str, 6)
-
-            # Construcción de fechas usando calendar para evitar errores en días máximos
-            ultimo_dia = int(calendar.monthrange(año, num_mes)[1])
+            # 1. Preparación de datos
+            # Limpieza de columnas numéricas
+            df_diario['debe'] = pd.to_numeric(df_diario['debe'], errors='coerce').fillna(0)
+            df_diario['haber'] = pd.to_numeric(df_diario['haber'], errors='coerce').fillna(0)
             
-            # Creamos tanto los strings como los objetos date de forma limpia
-            f_i_str = f"{año}-{num_mes:02d}-01"
-            f_f_str = f"{año}-{num_mes:02d}-{ultimo_dia:02d}"
+            # Cálculo de monto auditable (ajustado por moneda)
+            if moneda_vista == "Dólares (USD)":
+                # Asegúrate que las columnas debe_usd/haber_usd existan en tu tabla
+                df_diario['monto_auditable'] = df_diario['debe_usd'] + df_diario['haber_usd']
+            else:
+                df_diario['monto_auditable'] = df_diario['debe'] + df_diario['haber']
+            
+            # 2. Filtrado: Excluir saldos iniciales y montos cero
+            df_asientos = df_diario[
+                (~df_diario['descripcion'].str.contains("SALDOS INICIALES", case=False, na=False)) & 
+                (df_diario['monto_auditable'] != 0)
+            ].copy()
+            
+            # --- BLOQUE DE DEPURACIÓN (AUTOPSIA DE DATOS) ---
+            if df_asientos.empty:
+                st.warning("⚠️ El escáner no encontró movimientos. Ejecutando diagnóstico de integridad:")
+                st.write(f"Total registros en diario: {len(df_diario)}")
+                # --- DEPURACIÓN PREVIA ---
+                st.write("Registros disponibles en el objeto df_diario:", len(df_diario))
+                st.write(df_diario.head(5)) # Esto te confirmará si los gastos de mayo están presentes
+                                        
+                # Ver qué descartó el filtro
+                ejemplo_descartados = df_diario[df_diario['descripcion'].str.contains("SALDO", case=False, na=False)].head(3)
+                if not ejemplo_descartados.empty:
+                    st.write("Registros descartados por coincidir con 'SALDO':")
+                    st.dataframe(ejemplo_descartados[['fecha', 'descripcion', 'monto_auditable']])
+                
+                st.error("📊 Ninguna fila superó los filtros. Revisa si tus gastos reales contienen la palabra 'SALDO' o si el monto es 0.")
+                
+            else:
+                # -----------------------------------------------------------------
+                # ALGORITMO 1: DETECCIÓN DE DUPLICADOS
+                # -----------------------------------------------------------------
+                anomalies_found = False
+                alertas_duplicados = []
+                alertas_montos = []
+                
+                duplicados = df_asientos[df_asientos.duplicated(subset=['fecha', 'cuenta_contable', col_analisis], keep=False)]
+                if not duplicados.empty:
+                    anomalies_found = True
+                    for cuenta, gp in duplicados.groupby('cuenta_contable'):
+                        monto_dup = gp[col_analisis].iloc[0]
+                        alertas_duplicados.append(f"🚩 **Sospecha de Duplicidad:** Se encontraron {len(gp)} registros idénticos el mismo día en la cuenta **{cuenta}** por {simb} {monto_dup:,.2f}.")
+                # -----------------------------------------------------------------
+                # ALGORITMO 2: Z-SCORE (DESVIACIÓN) - SEGURO CONTRA Nulos
+                # -----------------------------------------------------------------
+                # Calculamos la media y la desviación estándar de forma segura
+                stats = df_asientos.groupby('cuenta_contable')[col_analisis].agg(['mean', 'std']).reset_index()
+                
+                # Si hay un solo registro por cuenta, la std es NaN. La rellenamos con 0.
+                stats['std'] = stats['std'].fillna(0.0)
+                
+                df_audit = df_asientos.merge(stats, on='cuenta_contable', how='left')
+                
+                # Si la desviación estándar es 0 (porque la cuenta solo tiene 1 registro o todos valen igual), 
+                # asignamos un valor artificial seguro para evitar divisiones por cero, pero marcando que no hay dispersión real.
+                df_audit['std_safe'] = df_audit['std'].replace(0.0, 1.0)
+                
+                df_audit['z_score'] = (df_audit[col_analisis] - df_audit['mean']) / df_audit['std_safe']
+                
+                # Solo evaluamos Z-score en cuentas donde realmente hubo variación (std > 0)
+                anomalas_std = df_audit[(df_audit['std'] > 0) & (df_audit['z_score'] > 2.0) & (df_audit[col_analisis] > df_audit['mean'] * 1.5)]
+                
+                if not anomalas_std.empty:
+                    for idx, row in anomalas_std.iterrows():
+                        porcentaje_desvio = ((row[col_analisis] - row['mean']) / row['mean']) * 100 if row['mean'] > 0 else 100
+                        if porcentaje_desvio > 15:
+                            anomalies_found = True
+                            alertas_montos.append(f"🚨 **Monto Atípico:** Cuenta **{row['cuenta_contable']}**, registro *'{row['descripcion']}'* ({simb} {row[col_analisis]:,.2f}). ¡{porcentaje_desvio:.0f}% por encima del promedio!")
 
-            f_i_date = datetime.date(año, num_mes, 1)
-            f_f_date = datetime.date(año, num_mes, ultimo_dia)
+                # -----------------------------------------------------------------
+                # RENDERIZADO
+                # -----------------------------------------------------------------
+                if anomalies_found:
+                    st.error("❌ ¡Alerta del Sistema! Se detectaron inconsistencias.")
+                    for a in alertas_montos: st.warning(a)
+                    for a in alertas_duplicados: st.info(a)
+                else:
+                    st.success("✨ ¡Análisis Completo! Data limpia y alineada.")
 
-            # Cuadro informativo de depuración en tiempo real reflejando el período activo
-            st.info(f"📅 Período Activo: **{mes_elegido_str} {año}** | Rango SQL: **{f_i_str} al {f_f_str}**")
 
-            # Validar Base de Datos activa
-            db = st.session_state.get('DB_ACTUAL')
-            if db and db != "{db}" and db != "None" and str(db).strip() != "":
+    # --- FILA 10: REPORTE DE CONTABLE ---
+    st.divider()
+    try:
+        # Usamos las llaves exactas definidas en el sidebar de contabilidad
+        año = int(st.session_state.get('año_seleccionado_contabilidad', datetime.datetime.now().year))
+        mes_elegido_str = str(st.session_state.get('mes_seleccionado_contabilidad', 'Junio')).strip().capitalize()
+
+        # Mapeo robusto de meses
+        meses_map = {
+            'Enero': 1, 'Febrero': 2, 'Marzo': 3, 'Abril': 4, 'Mayo': 5, 'Junio': 6,
+            'Julio': 7, 'Agosto': 8, 'Septiembre': 9, 'Octubre': 10, 'Noviembre': 11, 'Diciembre': 12
+        }
+        
+        num_mes = meses_map.get(mes_elegido_str, 6)
+
+        # Construcción de fechas usando calendar para evitar errores en días máximos
+        ultimo_dia = int(calendar.monthrange(año, num_mes)[1])
+        
+        # Creamos tanto los strings como los objetos date de forma limpia
+        f_i_str = f"{año}-{num_mes:02d}-01"
+        f_f_str = f"{año}-{num_mes:02d}-{ultimo_dia:02d}"
+
+        f_i_date = datetime.date(año, num_mes, 1)
+        f_f_date = datetime.date(año, num_mes, ultimo_dia)
+
+        # Cuadro informativo de depuración en tiempo real reflejando el período activo
+        st.info(f"📅 Período Activo: **{mes_elegido_str} {año}** | Rango SQL: **{f_i_str} al {f_f_str}**")
+
+        # Validar Base de Datos activa
+        db = st.session_state.get('DB_ACTUAL')
+        if db and db != "{db}" and db != "None" and str(db).strip() != "":
+            try:
+                # Pasamos los objetos date unificados a tus funciones
+                df_acc = obtener_analisis_accionista_detallado(db, f_i_date, f_f_date)
+                utilidad = obtener_historico_utilidad(db, f_inicio=f_i_str, f_fin=f_f_str)
+            except Exception as err:
+                st.error(f"Error interno en la función de datos: {err}")
+                st.stop()
+        else:
+            st.warning("⚠️ Selecciona una empresa.")
+            st.stop()
+
+        st.subheader(f"📊 Análisis Contable: {db}")
+        tab1, tab2, tab3, tab4, tab5 = st.tabs([
+            "👥 Accionistas", 
+            "📉 Gastos Operativos", 
+            "📈 Resumen Utilidad", 
+            "💳 Cuentas por Pagar Accionista", 
+            "💰 Otros Ingresos"
+        ])
+
+        with tab1:
+            st.markdown("### Clausula 4ta del Contrato")
+            
+            # 1. Procesamiento ultra-seguro de la utilidad devuelta
+            utilidad_bruta = 0.0
+            if utilidad is not None:
+                if isinstance(utilidad, pd.DataFrame) and not utilidad.empty:
+                    if 'utilidad_mensual' in utilidad.columns:
+                        utilidad_bruta = float(utilidad['utilidad_mensual'].iloc[0])
+                    else:
+                        utilidad_bruta = float(utilidad.iloc[0, 0])
+                elif isinstance(utilidad, (int, float)):
+                    utilidad_bruta = float(utilidad)
+                elif isinstance(utilidad, (list, tuple)) and len(utilidad) > 0:
+                    try:
+                        utilidad_bruta = float(utilidad[0])
+                    except Exception:
+                        utilidad_bruta = 0.0
+
+            neto_disponible = utilidad_bruta * 0.66
+
+            # 2. Obtenemos de forma segura el DataFrame detallado de asientos y accionistas del período
+            df_config_accionistas = pd.DataFrame()
+
+            # Abrimos una conexión local para este bloque
+            conn_tab = conectar_db(db) 
+
+            if conn_tab is None or not conn_tab.is_connected():
+                st.error("❌ Error: No se pudo establecer conexión con la base de datos para los accionistas.")
+            else:
                 try:
-                    # Pasamos los objetos date unificados a tus funciones
-                    df_acc = obtener_analisis_accionista_detallado(db, f_i_date, f_f_date)
-                    utilidad = obtener_historico_utilidad(db, f_inicio=f_i_str, f_fin=f_f_str)
-                except Exception as err:
-                    st.error(f"Error interno en la función de datos: {err}")
-                    st.stop()
+                    cursor = conn_tab.cursor()
+                    cursor.execute(f"USE `{db}`;")
+                    
+                    # Validación y creación de tabla
+                    cursor.execute("""
+                        CREATE TABLE IF NOT EXISTS accionistas (
+                            id INT AUTO_INCREMENT PRIMARY KEY,
+                            nombre VARCHAR(255) NOT NULL,
+                            porcentaje_accionario DECIMAL(5,2) NOT NULL,
+                            codigo_cuenta_asociada VARCHAR(50) NOT NULL,
+                            descripcion_cuenta VARCHAR(255)
+                        );
+                    """)
+                    
+                    # Lectura directa
+                    df_config_accionistas = pd.read_sql(f"SELECT * FROM `{db}`.accionistas", conn_tab)
+                    cursor.close()
+                    
+                except Exception as e:
+                    st.error(f"⚠️ Error al procesar la configuración de accionistas: {e}")
+                    df_config_accionistas = pd.DataFrame()
+                    
+                finally:
+                    # CERRAMOS la conexión aquí mismo para evitar que se quede 'colgada'
+                    if conn_tab and conn_tab.is_connected():
+                        conn_tab.close()
+
+
+            nombres_grafico = []
+            valores_grafico = []
+            colores_grafico = []
+
+            if df_config_accionistas is not None and not df_config_accionistas.empty:
+                for _, row in df_config_accionistas.iterrows():
+                    cuenta = str(row['codigo_cuenta_asociada']).strip()
+                    nombre = str(row['nombre']).strip()
+                    total_retiro = 0.0
+
+                    if df_acc is not None and not df_acc.empty and 'plan_cuentas' in df_acc.columns:
+                        df_acc['plan_cuentas'] = df_acc['plan_cuentas'].astype(str).str.strip()
+                        filtro_acc = df_acc[df_acc['plan_cuentas'] == cuenta]
+                        if not filtro_acc.empty:
+                            total_retiro = float(filtro_acc['neto'].sum())
+
+                    nombres_grafico.append(nombre)
+                    valores_grafico.append(total_retiro)
+                    colores_grafico.append('#1f77b4' if "Jean Marco" in nombre else '#33a02c')
+
+            # Agregar métricas globales al final
+            nombres_grafico.extend(['Utilidad Contable', 'Utilidad Neta'])
+            valores_grafico.extend([utilidad_bruta, neto_disponible])
+            colores_grafico.extend(['#ff7f0e', '#7f7f7f'])
+
+            if len(valores_grafico) > 0:
+                valores_grafico_limpios = [float(v) if pd.notnull(v) else 0.0 for v in valores_grafico]
+                
+                fig = go.Figure(go.Bar(
+                    x=valores_grafico_limpios,
+                    y=nombres_grafico,
+                    orientation='h',
+                    marker_color=colores_grafico,
+                    texttemplate='%{x:,.2f}',
+                    textposition='outside'
+                ))
+
+                # Configuración del Layout
+                mes_titulo = st.session_state.get('mes_seleccionado_contabilidad', 'Junio')
+                anio_titulo = st.session_state.get('año_seleccionado_contabilidad', 2026)
+
+                fig.update_layout(
+                    title=f"Comparativa: Retiros vs Utilidades ({mes_titulo} {anio_titulo})",
+                    height=450,
+                    xaxis=dict(title="Valor (Bs.)", zeroline=True, showgrid=True),
+                    yaxis=dict(type='category', autorange="reversed"),
+                    margin=dict(l=20, r=100, t=50, b=20)
+                )
+                
+                # IMPORTANTE: st.plotly_chart debe estar identado dentro del 'with tab1:'
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.warning("No hay datos disponibles para mostrar en el gráfico.")
+
+        with tab2:
+            st.markdown("### 📉 Detalle de Gastos Operativos")
+
+            # --- 1. SECCIÓN CLASE 5 (Costos) ---
+            st.subheader("Costos (Clase 5)")
+            try:
+                # Usamos f_i_str y f_f_str garantizando que existan y estén formateados correctamente
+                df_gastos_c5 = obtener_analisis_gastos_clase5(db, f_i_str, f_f_str)
+            except Exception as err:
+                st.error(f"Error al obtener costos de Clase 5: {err}")
+                df_gastos_c5 = pd.DataFrame()
+
+            if df_gastos_c5 is not None and not df_gastos_c5.empty:
+                df_gastos_c5.columns = [str(c).strip().lower() for c in df_gastos_c5.columns]
+                
+                col_cuenta = 'plan_cuentas' if 'plan_cuentas' in df_gastos_c5.columns else df_gastos_c5.columns[0]
+                col_desc = 'descripcion' if 'descripcion' in df_gastos_c5.columns else df_gastos_c5.columns[1]
+                col_total = 'total_gasto' if 'total_gasto' in df_gastos_c5.columns else df_gastos_c5.columns[2]
+
+                # --- EXCLUIR CUENTAS QUE EMPIECEN POR '7' ---
+                df_gastos_c5[col_cuenta] = df_gastos_c5[col_cuenta].astype(str).str.strip()
+                df_gastos_c5 = df_gastos_c5[~df_gastos_c5[col_cuenta].str.startswith('7')]
+
+            if df_gastos_c5 is not None and not df_gastos_c5.empty:
+                st.markdown(f"**Resumen de Costos del Período ({mes_elegido_str} {año}):**")
+                lineas_c5 = []
+                for _, row in df_gastos_c5.iterrows():
+                    cta = str(row[col_cuenta]).strip()
+                    desc = str(row[col_desc]).strip()
+                    monto = float(row[col_total]) if pd.notnull(row[col_total]) else 0.0
+                    lineas_c5.append(f"- **{cta} - {desc}**: Bs. {monto:,.2f}")
+                
+                st.markdown("\n".join(lineas_c5))
+
+                # Gráfico Clase 5
+                df_gastos_c5['etiqueta'] = df_gastos_c5[col_cuenta].astype(str) + ' - ' + df_gastos_c5[col_desc].astype(str)
+                import plotly.express as px
+                fig5 = px.bar(
+                    df_gastos_c5.sort_values(col_total, ascending=True), 
+                    x=col_total, y='etiqueta', orientation='h',
+                    title=f"Totalización: Cuentas Clase 5 ({mes_elegido_str} {año})",
+                    color_discrete_sequence=['#d62728'], text=col_total
+                )
+                fig5.update_traces(texttemplate='%{text:,.2f}', textposition='outside')
+                fig5.update_layout(height=300, margin=dict(l=20, r=40, t=40, b=20), xaxis=dict(title="Monto (Bs.)"), yaxis=dict(title=""))
+                st.plotly_chart(fig5, use_container_width=True)
+            else:
+                st.info(f"No hay movimientos en cuentas de Clase 5 para el período del {f_i_str} al {f_f_str}.")
+
+            st.divider()
+
+            # --- 2. SECCIÓN CLASE 6 (Gastos Operativos) ---
+            st.subheader("Gastos Operativos (Clase 6)")
+            
+            try:
+                df_gastos_c6 = obtener_analisis_gastos_clase6(db, f_i_str, f_f_str)
+            except Exception as err:
+                st.error(f"Error al obtener gastos de Clase 6: {err}")
+                df_gastos_c6 = pd.DataFrame()
+
+            if df_gastos_c6 is not None and not df_gastos_c6.empty:
+                df_gastos_c6.columns = [str(c).strip().lower() for c in df_gastos_c6.columns]
+                
+                c6_cuenta = 'plan_cuentas' if 'plan_cuentas' in df_gastos_c6.columns else df_gastos_c6.columns[0]
+                c6_nombre = 'cuenta_contable' if 'cuenta_contable' in df_gastos_c6.columns else ('descripcion' if 'descripcion' in df_gastos_c6.columns else df_gastos_c6.columns[1])
+                c6_total = 'total_gasto' if 'total_gasto' in df_gastos_c6.columns else df_gastos_c6.columns[2]
+
+                st.markdown(f"**Totalizado por Cuenta - Gastos Operativos ({mes_elegido_str} {año}):**")
+                lineas_c6 = []
+                for _, row in df_gastos_c6.iterrows():
+                    num_cta = str(row[c6_cuenta]).strip()
+                    nom_cta = str(row[c6_nombre]).strip()
+                    monto = float(row[c6_total]) if pd.notnull(row[c6_total]) else 0.0
+                    lineas_c6.append(f"- **{num_cta} - {nom_cta}**: Bs. {monto:,.2f}")
+                
+                st.markdown("\n".join(lineas_c6))
+
+                # Gráfico Clase 6
+                df_gastos_c6['etiqueta'] = df_gastos_c6[c6_cuenta].astype(str) + ' - ' + df_gastos_c6[c6_nombre].astype(str)
+                fig6 = px.bar(
+                    df_gastos_c6.sort_values(c6_total, ascending=True), 
+                    x=c6_total, y='etiqueta', orientation='h',
+                    title=f"Total Gastos Operativos por Cuenta ({mes_elegido_str} {año})",
+                    color_discrete_sequence=['#1f77b4'], text=c6_total
+                )
+                fig6.update_traces(texttemplate='%{text:,.2f}', textposition='outside')
+                fig6.update_layout(height=350, margin=dict(l=20, r=40, t=40, b=20), xaxis=dict(title="Monto (Bs.)"), yaxis=dict(title=""))
+                st.plotly_chart(fig6, use_container_width=True)
+            else:
+                st.info(f"No hay movimientos en cuentas de Clase 6 para el período del {f_i_str} al {f_f_str}.")
+
+
+        with tab3:
+            st.markdown("### 📊 Evolución de Saldo Neto Acumulado")
+            
+            df_utilidad = None
+            
+            # 1. Verificamos que la función realmente exista en memoria antes de llamarla
+            if 'obtener_historico_utilidad_acumulada' not in globals() and 'obtener_historico_utilidad_acumulada' not in locals():
+                st.error("❌ Error crítico: La función 'obtener_historico_utilidad_acumulada' no está definida o no se importó correctamente.")
+            else:
+                try:
+                    df_utilidad = obtener_historico_utilidad_acumulada(db)
+                except Exception as e:
+                    st.error(f"Error al conectar con la base de datos para obtener el histórico: {e}")
+                    df_utilidad = None
+
+            # 2. Validación robusta del DataFrame resultante
+            if isinstance(df_utilidad, pd.DataFrame) and not df_utilidad.empty:
+                meses_nombres = {1:'Ene', 2:'Feb', 3:'Mar', 4:'Abr', 5:'May', 6:'Jun', 7:'Jul', 8:'Ago', 9:'Sep', 10:'Oct', 11:'Nov', 12:'Dic'}
+                df_utilidad['nombre_mes'] = df_utilidad['mes'].map(meses_nombres)
+                
+                utilidad_acumulada_total = df_utilidad['utilidad_mensual'].sum()
+                
+                col_total, col_detalle = st.columns([1, 2])
+                
+                with col_total:
+                    st.metric("Saldo Neto Acumulado al Periodo", f"Bs. {utilidad_acumulada_total:,.2f}")
+                    
+                with col_detalle:
+                    st.markdown("**Utilidad por Mes del Periodo:**")
+                    etiquetas_meses = [f"**{row['nombre_mes']}:** Bs. {row['utilidad_mensual']:,.2f}" for _, row in df_utilidad.iterrows()]
+                    st.markdown(" | ".join(etiquetas_meses))
+                
+                # Gráfico de barras
+                df_utilidad['color'] = df_utilidad['utilidad_mensual'].apply(lambda x: 'Ganancia' if x >= 0 else 'Pérdida')
+                
+                import plotly.express as px
+                fig = px.bar(
+                    df_utilidad, 
+                    x='nombre_mes', 
+                    y='utilidad_mensual', 
+                    color='color',
+                    color_discrete_map={'Ganancia': '#2ecc71', 'Pérdida': '#e74c3c'},
+                    title="Desglose Mensual",
+                    text_auto='.2s'
+                )
+                
+                fig.update_layout(plot_bgcolor='rgba(0,0,0,0)', showlegend=False)
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.info("No hay datos disponibles o error al recuperar el histórico para el periodo seleccionado.")
+
+        with tab4:
+            # --- SECCIÓN: ASIENTO CONTABLE COMPLETO POR COMPROBANTE ---
+            st.divider()
+            st.subheader("👥 Detalle de Comprobantes - Cuentas por Pagar Accionistas")
+
+            db_name = locals().get('db') or st.session_state.get('DB_ACTUAL')
+
+            if db_name and db_name != "{db}" and db_name != "None":
+                
+                # 1. OBTENER FECHAS DEL SIDEBAR USANDO LAS LLAVES CORRECTAS ('año_seleccionado' y 'mes_seleccionado')
+                import datetime
+                import calendar
+
+                anio_sel = int(st.session_state.get('año_seleccionado', datetime.datetime.now().year))
+                mes_nombre_sel = st.session_state.get('mes_seleccionado', "Enero")
+                
+                dic_meses = {
+                    "Enero": 1, "Febrero": 2, "Marzo": 3, "Abril": 4, "Mayo": 5, "Junio": 6, 
+                    "Julio": 7, "Agosto": 8, "Septiembre": 9, "Octubre": 10, "Noviembre": 11, "Diciembre": 12
+                }
+                mes_n = dic_meses.get(str(mes_nombre_sel).capitalize(), 1)
+                
+                # Calcular dinámicamente el último día real del mes seleccionado (evita errores en febrero o meses de 30 días)
+                _, ultimo_dia_mes = calendar.monthrange(anio_sel, mes_n)
+                
+                f_i = f"{anio_sel}-{mes_n:02d}-01"
+                f_f = f"{anio_sel}-{mes_n:02d}-{ultimo_dia_mes:02d}"
+                
+                df_comps = pd.DataFrame()
+                seleccion_opcion = None
+
+                # 2. Conectar de forma segura
+                conn_tmp = conectar_db(db_name) if 'conectar_db' in globals() else None
+
+                if conn_tmp:
+                    try:
+                        st.info(f"📅 **Filtrando datos para el período:** {f_i} al {f_f}")
+                        
+                        # Consulta optimizada usando parámetros seguros para las fechas
+                        query_comps = f"""
+                            SELECT DISTINCT n_comprobante, fecha 
+                            FROM `{db_name}`.asientos_contables 
+                            WHERE (plan_cuentas LIKE '%%2.2.1%%' OR cuenta_contable LIKE '%%Accionista%%')
+                            AND fecha BETWEEN %s AND %s
+                            ORDER BY fecha DESC, n_comprobante DESC
+                        """
+                        df_comps = pd.read_sql(query_comps, conn_tmp, params=(f_i, f_f))
+                        
+                    except Exception as e:
+                        st.error(f"❌ Error al consultar: {e}")
+                    finally:
+                        try:
+                            conn_tmp.close()
+                        except:
+                            pass
+
+                # 3. MOSTRAR RESULTADOS FILTRADOS
+                if not df_comps.empty:
+                    def formato_latino(val):
+                        try: return f"{float(val):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                        except: return val
+
+                    df_comps['opcion'] = df_comps['n_comprobante'].astype(str) + " (Fecha: " + df_comps['fecha'].astype(str) + ")"
+                    lista_opciones = df_comps['opcion'].tolist()
+                    
+                    seleccion_opcion = st.selectbox("📂 Selecciona el comprobante a visualizar:", lista_opciones, key="select_acc_final")
+                else:
+                    st.warning(f"⚠️ No se encontraron comprobantes con cuentas de Accionista para el período: {mes_nombre_sel} {anio_sel}.")
+
+                # 4. Verificación segura del asiento seleccionado
+                if seleccion_opcion:
+                    comprobante_activo = seleccion_opcion.split(" ")[0]
+                    df_asiento = obtener_asiento_por_comprobante(db_name, comprobante_activo)
+                    
+                    if df_asiento is not None and not df_asiento.empty:
+                        st.markdown(f"**Asiento Contable Completo del Comprobante N°: `{comprobante_activo}`**")
+                        
+                        df_mostrar = df_asiento.copy()
+                        df_mostrar['debe_num'] = pd.to_numeric(df_mostrar['debe'], errors='coerce').fillna(0)
+                        df_mostrar['haber_num'] = pd.to_numeric(df_mostrar['haber'], errors='coerce').fillna(0)
+                        
+                        total_debe = df_mostrar['debe_num'].sum()
+                        total_haber = df_mostrar['haber_num'].sum()
+                        
+                        df_mostrar['debe'] = df_mostrar['debe_num'].apply(formato_latino)
+                        df_mostrar['haber'] = df_mostrar['haber_num'].apply(formato_latino)
+                        df_mostrar = df_mostrar.drop(columns=['debe_num', 'haber_num'], errors='ignore')
+                        
+                        st.dataframe(
+                            df_mostrar,
+                            use_container_width=True,
+                            height=350,
+                            column_config={
+                                "id": st.column_config.NumberColumn("id", format="%d"),
+                                "n_comprobante": st.column_config.TextColumn("N° Comprobante"),
+                                "descripcion": st.column_config.TextColumn("Descripción"),
+                                "fecha": st.column_config.DateColumn("Fecha"),
+                                "plan_cuentas": st.column_config.TextColumn("Plan de Cuentas"),
+                                "cuenta_contable": st.column_config.TextColumn("Cuenta Contable"),
+                                "referencia": st.column_config.TextColumn("Referencia"),
+                                "debe": st.column_config.TextColumn("Debe"),
+                                "haber": st.column_config.TextColumn("Haber")
+                            }
+                        )
+                        
+                        col1, col2 = st.columns(2)
+                        col1.metric("Total Debe (Comprobante)", f"Bs. {formato_latino(total_debe)}")
+                        col2.metric("Total Haber (Comprobante)", f"Bs. {formato_latino(total_haber)}")
+                    else:
+                        st.info("No se encontraron detalles para este comprobante.")
             else:
                 st.warning("⚠️ Selecciona una empresa.")
-                st.stop()
-
-            st.subheader(f"📊 Análisis Contable: {db}")
-            tab1, tab2, tab3, tab4, tab5 = st.tabs([
-                "👥 Accionistas", 
-                "📉 Gastos Operativos", 
-                "📈 Resumen Utilidad", 
-                "💳 Cuentas por Pagar Accionista", 
-                "💰 Otros Ingresos"
-            ])
-
-            with tab1:
-                st.markdown("### Clausula 4ta del Contrato")
                 
-                # 1. Procesamiento ultra-seguro de la utilidad devuelta
-                utilidad_bruta = 0.0
-                if utilidad is not None:
-                    if isinstance(utilidad, pd.DataFrame) and not utilidad.empty:
-                        if 'utilidad_mensual' in utilidad.columns:
-                            utilidad_bruta = float(utilidad['utilidad_mensual'].iloc[0])
-                        else:
-                            utilidad_bruta = float(utilidad.iloc[0, 0])
-                    elif isinstance(utilidad, (int, float)):
-                        utilidad_bruta = float(utilidad)
-                    elif isinstance(utilidad, (list, tuple)) and len(utilidad) > 0:
+        with tab5:
+            st.divider()
+            st.subheader("💰 Detalle de Comprobantes - Otros Ingresos (7.1.1.01.001)")
+
+            db_actual = locals().get('db') or st.session_state.get('DB_ACTUAL')
+
+            if db_actual and db_actual != "{db}" and db_actual != "None":
+                
+                import datetime
+                import calendar
+
+                # Lectura robusta compatible con ambas nomenclaturas de sesión
+                anio_sel = int(st.session_state.get('año_seleccionado') or st.session_state.get('anio', datetime.datetime.now().year))
+                mes_sel = st.session_state.get('mes_seleccionado') or st.session_state.get('mes') or st.session_state.get('Mes') or "Mayo"
+                
+                dic_meses = {
+                    "Enero": 1, "Febrero": 2, "Marzo": 3, "Abril": 4, 
+                    "Mayo": 5, "Junio": 6, "Julio": 7, "Agosto": 8, 
+                    "Septiembre": 9, "Octubre": 10, "Noviembre": 11, "Diciembre": 12
+                }
+                
+                # Conversión segura de mes (texto o número)
+                if str(mes_sel).isdigit():
+                    mes_n = int(mes_sel)
+                else:
+                    mes_n = dic_meses.get(str(mes_sel).capitalize(), 5)
+                
+                _, ultimo_dia = calendar.monthrange(anio_sel, mes_n)
+                
+                f_i_final = f"{anio_sel}-{mes_n:02d}-01"
+                f_f_final = f"{anio_sel}-{mes_n:02d}-{ultimo_dia:02d}"
+
+                st.info(f"🔄 **Período Activo Sincronizado:** Mes de **{mes_sel} {anio_sel}** (`{f_i_final}` al `{f_f_final}`)")
+
+                # Consulta limpia a la base de datos con el rango correcto
+                df_comps = obtener_comprobantes_ingresos(db_actual, f_i_final, f_f_final)
+
+                if not df_comps.empty:
+                    def formato_latino(val):
                         try:
-                            utilidad_bruta = float(utilidad[0])
-                        except Exception:
-                            utilidad_bruta = 0.0
+                            s = f"{float(val):,.2f}"
+                            return s.replace(",", "X").replace(".", ",").replace("X", ".")
+                        except:
+                            return val
 
-                neto_disponible = utilidad_bruta * 0.66
-
-                # 2. Obtenemos de forma segura el DataFrame detallado de asientos y accionistas del período
-                df_config_accionistas = pd.DataFrame()
-    
-                # Abrimos una conexión local para este bloque
-                conn_tab = conectar_db(db) 
-
-                if conn_tab is None or not conn_tab.is_connected():
-                    st.error("❌ Error: No se pudo establecer conexión con la base de datos para los accionistas.")
-                else:
-                    try:
-                        cursor = conn_tab.cursor()
-                        cursor.execute(f"USE `{db}`;")
-                        
-                        # Validación y creación de tabla
-                        cursor.execute("""
-                            CREATE TABLE IF NOT EXISTS accionistas (
-                                id INT AUTO_INCREMENT PRIMARY KEY,
-                                nombre VARCHAR(255) NOT NULL,
-                                porcentaje_accionario DECIMAL(5,2) NOT NULL,
-                                codigo_cuenta_asociada VARCHAR(50) NOT NULL,
-                                descripcion_cuenta VARCHAR(255)
-                            );
-                        """)
-                        
-                        # Lectura directa
-                        df_config_accionistas = pd.read_sql(f"SELECT * FROM `{db}`.accionistas", conn_tab)
-                        cursor.close()
-                        
-                    except Exception as e:
-                        st.error(f"⚠️ Error al procesar la configuración de accionistas: {e}")
-                        df_config_accionistas = pd.DataFrame()
-                        
-                    finally:
-                        # CERRAMOS la conexión aquí mismo para evitar que se quede 'colgada'
-                        if conn_tab and conn_tab.is_connected():
-                            conn_tab.close()
-
-
-                nombres_grafico = []
-                valores_grafico = []
-                colores_grafico = []
-
-                if df_config_accionistas is not None and not df_config_accionistas.empty:
-                    for _, row in df_config_accionistas.iterrows():
-                        cuenta = str(row['codigo_cuenta_asociada']).strip()
-                        nombre = str(row['nombre']).strip()
-                        total_retiro = 0.0
-
-                        if df_acc is not None and not df_acc.empty and 'plan_cuentas' in df_acc.columns:
-                            df_acc['plan_cuentas'] = df_acc['plan_cuentas'].astype(str).str.strip()
-                            filtro_acc = df_acc[df_acc['plan_cuentas'] == cuenta]
-                            if not filtro_acc.empty:
-                                total_retiro = float(filtro_acc['neto'].sum())
-
-                        nombres_grafico.append(nombre)
-                        valores_grafico.append(total_retiro)
-                        colores_grafico.append('#1f77b4' if "Jean Marco" in nombre else '#33a02c')
-
-                # Agregar métricas globales al final
-                nombres_grafico.extend(['Utilidad Contable', 'Utilidad Neta'])
-                valores_grafico.extend([utilidad_bruta, neto_disponible])
-                colores_grafico.extend(['#ff7f0e', '#7f7f7f'])
-
-                if len(valores_grafico) > 0:
-                    valores_grafico_limpios = [float(v) if pd.notnull(v) else 0.0 for v in valores_grafico]
+                    total_debe_periodo = 0.0
+                    total_haber_periodo = 0.0
                     
-                    fig = go.Figure(go.Bar(
-                        x=valores_grafico_limpios,
-                        y=nombres_grafico,
-                        orientation='h',
-                        marker_color=colores_grafico,
-                        texttemplate='%{x:,.2f}',
-                        textposition='outside'
-                    ))
-
-                    # Configuración del Layout
-                    mes_titulo = st.session_state.get('mes_seleccionado_contabilidad', 'Junio')
-                    anio_titulo = st.session_state.get('año_seleccionado_contabilidad', 2026)
-
-                    fig.update_layout(
-                        title=f"Comparativa: Retiros vs Utilidades ({mes_titulo} {anio_titulo})",
-                        height=450,
-                        xaxis=dict(title="Valor (Bs.)", zeroline=True, showgrid=True),
-                        yaxis=dict(type='category', autorange="reversed"),
-                        margin=dict(l=20, r=100, t=50, b=20)
-                    )
-                    
-                    # IMPORTANTE: st.plotly_chart debe estar identado dentro del 'with tab1:'
-                    st.plotly_chart(fig, use_container_width=True)
-                else:
-                    st.warning("No hay datos disponibles para mostrar en el gráfico.")
-
-            with tab2:
-                st.markdown("### 📉 Detalle de Gastos Operativos")
-
-                # --- 1. SECCIÓN CLASE 5 (Costos) ---
-                st.subheader("Costos (Clase 5)")
-                try:
-                    # Usamos f_i_str y f_f_str garantizando que existan y estén formateados correctamente
-                    df_gastos_c5 = obtener_analisis_gastos_clase5(db, f_i_str, f_f_str)
-                except Exception as err:
-                    st.error(f"Error al obtener costos de Clase 5: {err}")
-                    df_gastos_c5 = pd.DataFrame()
-
-                if df_gastos_c5 is not None and not df_gastos_c5.empty:
-                    df_gastos_c5.columns = [str(c).strip().lower() for c in df_gastos_c5.columns]
-                    
-                    col_cuenta = 'plan_cuentas' if 'plan_cuentas' in df_gastos_c5.columns else df_gastos_c5.columns[0]
-                    col_desc = 'descripcion' if 'descripcion' in df_gastos_c5.columns else df_gastos_c5.columns[1]
-                    col_total = 'total_gasto' if 'total_gasto' in df_gastos_c5.columns else df_gastos_c5.columns[2]
-
-                    # --- EXCLUIR CUENTAS QUE EMPIECEN POR '7' ---
-                    df_gastos_c5[col_cuenta] = df_gastos_c5[col_cuenta].astype(str).str.strip()
-                    df_gastos_c5 = df_gastos_c5[~df_gastos_c5[col_cuenta].str.startswith('7')]
-
-                if df_gastos_c5 is not None and not df_gastos_c5.empty:
-                    st.markdown(f"**Resumen de Costos del Período ({mes_elegido_str} {año}):**")
-                    lineas_c5 = []
-                    for _, row in df_gastos_c5.iterrows():
-                        cta = str(row[col_cuenta]).strip()
-                        desc = str(row[col_desc]).strip()
-                        monto = float(row[col_total]) if pd.notnull(row[col_total]) else 0.0
-                        lineas_c5.append(f"- **{cta} - {desc}**: Bs. {monto:,.2f}")
-                    
-                    st.markdown("\n".join(lineas_c5))
-
-                    # Gráfico Clase 5
-                    df_gastos_c5['etiqueta'] = df_gastos_c5[col_cuenta].astype(str) + ' - ' + df_gastos_c5[col_desc].astype(str)
-                    import plotly.express as px
-                    fig5 = px.bar(
-                        df_gastos_c5.sort_values(col_total, ascending=True), 
-                        x=col_total, y='etiqueta', orientation='h',
-                        title=f"Totalización: Cuentas Clase 5 ({mes_elegido_str} {año})",
-                        color_discrete_sequence=['#d62728'], text=col_total
-                    )
-                    fig5.update_traces(texttemplate='%{text:,.2f}', textposition='outside')
-                    fig5.update_layout(height=300, margin=dict(l=20, r=40, t=40, b=20), xaxis=dict(title="Monto (Bs.)"), yaxis=dict(title=""))
-                    st.plotly_chart(fig5, use_container_width=True)
-                else:
-                    st.info(f"No hay movimientos en cuentas de Clase 5 para el período del {f_i_str} al {f_f_str}.")
-
-                st.divider()
-
-                # --- 2. SECCIÓN CLASE 6 (Gastos Operativos) ---
-                st.subheader("Gastos Operativos (Clase 6)")
-                
-                try:
-                    df_gastos_c6 = obtener_analisis_gastos_clase6(db, f_i_str, f_f_str)
-                except Exception as err:
-                    st.error(f"Error al obtener gastos de Clase 6: {err}")
-                    df_gastos_c6 = pd.DataFrame()
-
-                if df_gastos_c6 is not None and not df_gastos_c6.empty:
-                    df_gastos_c6.columns = [str(c).strip().lower() for c in df_gastos_c6.columns]
-                    
-                    c6_cuenta = 'plan_cuentas' if 'plan_cuentas' in df_gastos_c6.columns else df_gastos_c6.columns[0]
-                    c6_nombre = 'cuenta_contable' if 'cuenta_contable' in df_gastos_c6.columns else ('descripcion' if 'descripcion' in df_gastos_c6.columns else df_gastos_c6.columns[1])
-                    c6_total = 'total_gasto' if 'total_gasto' in df_gastos_c6.columns else df_gastos_c6.columns[2]
-
-                    st.markdown(f"**Totalizado por Cuenta - Gastos Operativos ({mes_elegido_str} {año}):**")
-                    lineas_c6 = []
-                    for _, row in df_gastos_c6.iterrows():
-                        num_cta = str(row[c6_cuenta]).strip()
-                        nom_cta = str(row[c6_nombre]).strip()
-                        monto = float(row[c6_total]) if pd.notnull(row[c6_total]) else 0.0
-                        lineas_c6.append(f"- **{num_cta} - {nom_cta}**: Bs. {monto:,.2f}")
-                    
-                    st.markdown("\n".join(lineas_c6))
-
-                    # Gráfico Clase 6
-                    df_gastos_c6['etiqueta'] = df_gastos_c6[c6_cuenta].astype(str) + ' - ' + df_gastos_c6[c6_nombre].astype(str)
-                    fig6 = px.bar(
-                        df_gastos_c6.sort_values(c6_total, ascending=True), 
-                        x=c6_total, y='etiqueta', orientation='h',
-                        title=f"Total Gastos Operativos por Cuenta ({mes_elegido_str} {año})",
-                        color_discrete_sequence=['#1f77b4'], text=c6_total
-                    )
-                    fig6.update_traces(texttemplate='%{text:,.2f}', textposition='outside')
-                    fig6.update_layout(height=350, margin=dict(l=20, r=40, t=40, b=20), xaxis=dict(title="Monto (Bs.)"), yaxis=dict(title=""))
-                    st.plotly_chart(fig6, use_container_width=True)
-                else:
-                    st.info(f"No hay movimientos en cuentas de Clase 6 para el período del {f_i_str} al {f_f_str}.")
-
-
-            with tab3:
-                st.markdown("### 📊 Evolución de Saldo Neto Acumulado")
-                
-                df_utilidad = None
-                
-                # 1. Verificamos que la función realmente exista en memoria antes de llamarla
-                if 'obtener_historico_utilidad_acumulada' not in globals() and 'obtener_historico_utilidad_acumulada' not in locals():
-                    st.error("❌ Error crítico: La función 'obtener_historico_utilidad_acumulada' no está definida o no se importó correctamente.")
-                else:
-                    try:
-                        df_utilidad = obtener_historico_utilidad_acumulada(db)
-                    except Exception as e:
-                        st.error(f"Error al conectar con la base de datos para obtener el histórico: {e}")
-                        df_utilidad = None
-
-                # 2. Validación robusta del DataFrame resultante
-                if isinstance(df_utilidad, pd.DataFrame) and not df_utilidad.empty:
-                    meses_nombres = {1:'Ene', 2:'Feb', 3:'Mar', 4:'Abr', 5:'May', 6:'Jun', 7:'Jul', 8:'Ago', 9:'Sep', 10:'Oct', 11:'Nov', 12:'Dic'}
-                    df_utilidad['nombre_mes'] = df_utilidad['mes'].map(meses_nombres)
-                    
-                    utilidad_acumulada_total = df_utilidad['utilidad_mensual'].sum()
-                    
-                    col_total, col_detalle = st.columns([1, 2])
-                    
-                    with col_total:
-                        st.metric("Saldo Neto Acumulado al Periodo", f"Bs. {utilidad_acumulada_total:,.2f}")
-                        
-                    with col_detalle:
-                        st.markdown("**Utilidad por Mes del Periodo:**")
-                        etiquetas_meses = [f"**{row['nombre_mes']}:** Bs. {row['utilidad_mensual']:,.2f}" for _, row in df_utilidad.iterrows()]
-                        st.markdown(" | ".join(etiquetas_meses))
-                    
-                    # Gráfico de barras
-                    df_utilidad['color'] = df_utilidad['utilidad_mensual'].apply(lambda x: 'Ganancia' if x >= 0 else 'Pérdida')
-                    
-                    import plotly.express as px
-                    fig = px.bar(
-                        df_utilidad, 
-                        x='nombre_mes', 
-                        y='utilidad_mensual', 
-                        color='color',
-                        color_discrete_map={'Ganancia': '#2ecc71', 'Pérdida': '#e74c3c'},
-                        title="Desglose Mensual",
-                        text_auto='.2s'
-                    )
-                    
-                    fig.update_layout(plot_bgcolor='rgba(0,0,0,0)', showlegend=False)
-                    st.plotly_chart(fig, use_container_width=True)
-                else:
-                    st.info("No hay datos disponibles o error al recuperar el histórico para el periodo seleccionado.")
-
-            with tab4:
-                # --- SECCIÓN: ASIENTO CONTABLE COMPLETO POR COMPROBANTE ---
-                st.divider()
-                st.subheader("👥 Detalle de Comprobantes - Cuentas por Pagar Accionistas")
-
-                db_name = locals().get('db') or st.session_state.get('DB_ACTUAL')
-
-                if db_name and db_name != "{db}" and db_name != "None":
-                    
-                    # 1. OBTENER FECHAS DEL SIDEBAR USANDO LAS LLAVES CORRECTAS ('año_seleccionado' y 'mes_seleccionado')
-                    import datetime
-                    import calendar
-
-                    anio_sel = int(st.session_state.get('año_seleccionado', datetime.datetime.now().year))
-                    mes_nombre_sel = st.session_state.get('mes_seleccionado', "Enero")
-                    
-                    dic_meses = {
-                        "Enero": 1, "Febrero": 2, "Marzo": 3, "Abril": 4, "Mayo": 5, "Junio": 6, 
-                        "Julio": 7, "Agosto": 8, "Septiembre": 9, "Octubre": 10, "Noviembre": 11, "Diciembre": 12
-                    }
-                    mes_n = dic_meses.get(str(mes_nombre_sel).capitalize(), 1)
-                    
-                    # Calcular dinámicamente el último día real del mes seleccionado (evita errores en febrero o meses de 30 días)
-                    _, ultimo_dia_mes = calendar.monthrange(anio_sel, mes_n)
-                    
-                    f_i = f"{anio_sel}-{mes_n:02d}-01"
-                    f_f = f"{anio_sel}-{mes_n:02d}-{ultimo_dia_mes:02d}"
-                    
-                    df_comps = pd.DataFrame()
-                    seleccion_opcion = None
-
-                    # 2. Conectar de forma segura
-                    conn_tmp = conectar_db(db_name) if 'conectar_db' in globals() else None
-
-                    if conn_tmp:
+                    conn_totales = conectar_db(db_actual) if 'conectar_db' in globals() else None
+                    if conn_totales and 'n_comprobante' in df_comps.columns:
                         try:
-                            st.info(f"📅 **Filtrando datos para el período:** {f_i} al {f_f}")
-                            
-                            # Consulta optimizada usando parámetros seguros para las fechas
-                            query_comps = f"""
-                                SELECT DISTINCT n_comprobante, fecha 
-                                FROM `{db_name}`.asientos_contables 
-                                WHERE (plan_cuentas LIKE '%%2.2.1%%' OR cuenta_contable LIKE '%%Accionista%%')
-                                AND fecha BETWEEN %s AND %s
-                                ORDER BY fecha DESC, n_comprobante DESC
-                            """
-                            df_comps = pd.read_sql(query_comps, conn_tmp, params=(f_i, f_f))
-                            
+                            lista_n_comps = tuple(df_comps['n_comprobante'].astype(str).unique())
+                            if lista_n_comps:
+                                placeholders = ','.join(['%s'] * len(lista_n_comps))
+                                query_totales = f"""
+                                    SELECT SUM(CAST(debe AS DECIMAL(18,2))) as total_debe, SUM(CAST(haber AS DECIMAL(18,2))) as total_haber 
+                                    FROM `{db_actual}`.asientos_contables 
+                                    WHERE n_comprobante IN ({placeholders})
+                                """
+                                df_t = pd.read_sql(query_totales, conn_totales, params=lista_n_comps)
+                                if not df_t.empty:
+                                    total_debe_periodo = float(df_t['total_debe'].iloc[0] or 0.0)
+                                    total_haber_periodo = float(df_t['total_haber'].iloc[0] or 0.0)
                         except Exception as e:
-                            st.error(f"❌ Error al consultar: {e}")
+                            st.error(f"Error al calcular totales: {e}")
                         finally:
                             try:
-                                conn_tmp.close()
+                                conn_totales.close()
                             except:
                                 pass
 
-                    # 3. MOSTRAR RESULTADOS FILTRADOS
-                    if not df_comps.empty:
-                        def formato_latino(val):
-                            try: return f"{float(val):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-                            except: return val
+                    col_m1, col_m2, col_m3 = st.columns(3)
+                    col_m1.metric("Comprobantes en el Periodo", len(df_comps))
+                    col_m2.metric("Total Debe Global", f"Bs. {formato_latino(total_debe_periodo)}")
+                    col_m3.metric("Total Haber Global", f"Bs. {formato_latino(total_haber_periodo)}")
+                    
+                    st.divider()
 
-                        df_comps['opcion'] = df_comps['n_comprobante'].astype(str) + " (Fecha: " + df_comps['fecha'].astype(str) + ")"
-                        lista_opciones = df_comps['opcion'].tolist()
-                        
-                        seleccion_opcion = st.selectbox("📂 Selecciona el comprobante a visualizar:", lista_opciones, key="select_acc_final")
-                    else:
-                        st.warning(f"⚠️ No se encontraron comprobantes con cuentas de Accionista para el período: {mes_nombre_sel} {anio_sel}.")
-
-                    # 4. Verificación segura del asiento seleccionado
+                    df_comps['opcion'] = df_comps['n_comprobante'].astype(str) + " (Fecha: " + df_comps['fecha'].astype(str) + ")"
+                    lista_opciones = df_comps['opcion'].tolist()
+                    
+                    seleccion_opcion = st.selectbox("📂 Selecciona el comprobante de Ingreso a visualizar:", lista_opciones, key="select_ingresos_v3")
+                    
                     if seleccion_opcion:
                         comprobante_activo = seleccion_opcion.split(" ")[0]
-                        df_asiento = obtener_asiento_por_comprobante(db_name, comprobante_activo)
+                        df_asiento = obtener_asiento_por_comprobante(db_actual, comprobante_activo)
                         
                         if df_asiento is not None and not df_asiento.empty:
                             st.markdown(f"**Asiento Contable Completo del Comprobante N°: `{comprobante_activo}`**")
@@ -4125,407 +4250,281 @@ if "🏠 Inicio" in opcion_menu:
                         else:
                             st.info("No se encontraron detalles para este comprobante.")
                 else:
-                    st.warning("⚠️ Selecciona una empresa.")
-                    
-            with tab5:
-                st.divider()
-                st.subheader("💰 Detalle de Comprobantes - Otros Ingresos (7.1.1.01.001)")
-
-                db_actual = locals().get('db') or st.session_state.get('DB_ACTUAL')
-
-                if db_actual and db_actual != "{db}" and db_actual != "None":
-                    
-                    import datetime
-                    import calendar
-
-                    # Lectura robusta compatible con ambas nomenclaturas de sesión
-                    anio_sel = int(st.session_state.get('año_seleccionado') or st.session_state.get('anio', datetime.datetime.now().year))
-                    mes_sel = st.session_state.get('mes_seleccionado') or st.session_state.get('mes') or st.session_state.get('Mes') or "Mayo"
-                    
-                    dic_meses = {
-                        "Enero": 1, "Febrero": 2, "Marzo": 3, "Abril": 4, 
-                        "Mayo": 5, "Junio": 6, "Julio": 7, "Agosto": 8, 
-                        "Septiembre": 9, "Octubre": 10, "Noviembre": 11, "Diciembre": 12
-                    }
-                    
-                    # Conversión segura de mes (texto o número)
-                    if str(mes_sel).isdigit():
-                        mes_n = int(mes_sel)
-                    else:
-                        mes_n = dic_meses.get(str(mes_sel).capitalize(), 5)
-                    
-                    _, ultimo_dia = calendar.monthrange(anio_sel, mes_n)
-                    
-                    f_i_final = f"{anio_sel}-{mes_n:02d}-01"
-                    f_f_final = f"{anio_sel}-{mes_n:02d}-{ultimo_dia:02d}"
-
-                    st.info(f"🔄 **Período Activo Sincronizado:** Mes de **{mes_sel} {anio_sel}** (`{f_i_final}` al `{f_f_final}`)")
-
-                    # Consulta limpia a la base de datos con el rango correcto
-                    df_comps = obtener_comprobantes_ingresos(db_actual, f_i_final, f_f_final)
-
-                    if not df_comps.empty:
-                        def formato_latino(val):
-                            try:
-                                s = f"{float(val):,.2f}"
-                                return s.replace(",", "X").replace(".", ",").replace("X", ".")
-                            except:
-                                return val
-
-                        total_debe_periodo = 0.0
-                        total_haber_periodo = 0.0
-                        
-                        conn_totales = conectar_db(db_actual) if 'conectar_db' in globals() else None
-                        if conn_totales and 'n_comprobante' in df_comps.columns:
-                            try:
-                                lista_n_comps = tuple(df_comps['n_comprobante'].astype(str).unique())
-                                if lista_n_comps:
-                                    placeholders = ','.join(['%s'] * len(lista_n_comps))
-                                    query_totales = f"""
-                                        SELECT SUM(CAST(debe AS DECIMAL(18,2))) as total_debe, SUM(CAST(haber AS DECIMAL(18,2))) as total_haber 
-                                        FROM `{db_actual}`.asientos_contables 
-                                        WHERE n_comprobante IN ({placeholders})
-                                    """
-                                    df_t = pd.read_sql(query_totales, conn_totales, params=lista_n_comps)
-                                    if not df_t.empty:
-                                        total_debe_periodo = float(df_t['total_debe'].iloc[0] or 0.0)
-                                        total_haber_periodo = float(df_t['total_haber'].iloc[0] or 0.0)
-                            except Exception as e:
-                                st.error(f"Error al calcular totales: {e}")
-                            finally:
-                                try:
-                                    conn_totales.close()
-                                except:
-                                    pass
-
-                        col_m1, col_m2, col_m3 = st.columns(3)
-                        col_m1.metric("Comprobantes en el Periodo", len(df_comps))
-                        col_m2.metric("Total Debe Global", f"Bs. {formato_latino(total_debe_periodo)}")
-                        col_m3.metric("Total Haber Global", f"Bs. {formato_latino(total_haber_periodo)}")
-                        
-                        st.divider()
-
-                        df_comps['opcion'] = df_comps['n_comprobante'].astype(str) + " (Fecha: " + df_comps['fecha'].astype(str) + ")"
-                        lista_opciones = df_comps['opcion'].tolist()
-                        
-                        seleccion_opcion = st.selectbox("📂 Selecciona el comprobante de Ingreso a visualizar:", lista_opciones, key="select_ingresos_v3")
-                        
-                        if seleccion_opcion:
-                            comprobante_activo = seleccion_opcion.split(" ")[0]
-                            df_asiento = obtener_asiento_por_comprobante(db_actual, comprobante_activo)
-                            
-                            if df_asiento is not None and not df_asiento.empty:
-                                st.markdown(f"**Asiento Contable Completo del Comprobante N°: `{comprobante_activo}`**")
-                                
-                                df_mostrar = df_asiento.copy()
-                                df_mostrar['debe_num'] = pd.to_numeric(df_mostrar['debe'], errors='coerce').fillna(0)
-                                df_mostrar['haber_num'] = pd.to_numeric(df_mostrar['haber'], errors='coerce').fillna(0)
-                                
-                                total_debe = df_mostrar['debe_num'].sum()
-                                total_haber = df_mostrar['haber_num'].sum()
-                                
-                                df_mostrar['debe'] = df_mostrar['debe_num'].apply(formato_latino)
-                                df_mostrar['haber'] = df_mostrar['haber_num'].apply(formato_latino)
-                                df_mostrar = df_mostrar.drop(columns=['debe_num', 'haber_num'], errors='ignore')
-                                
-                                st.dataframe(
-                                    df_mostrar,
-                                    use_container_width=True,
-                                    height=350,
-                                    column_config={
-                                        "id": st.column_config.NumberColumn("id", format="%d"),
-                                        "n_comprobante": st.column_config.TextColumn("N° Comprobante"),
-                                        "descripcion": st.column_config.TextColumn("Descripción"),
-                                        "fecha": st.column_config.DateColumn("Fecha"),
-                                        "plan_cuentas": st.column_config.TextColumn("Plan de Cuentas"),
-                                        "cuenta_contable": st.column_config.TextColumn("Cuenta Contable"),
-                                        "referencia": st.column_config.TextColumn("Referencia"),
-                                        "debe": st.column_config.TextColumn("Debe"),
-                                        "haber": st.column_config.TextColumn("Haber")
-                                    }
-                                )
-                                
-                                col1, col2 = st.columns(2)
-                                col1.metric("Total Debe (Comprobante)", f"Bs. {formato_latino(total_debe)}")
-                                col2.metric("Total Haber (Comprobante)", f"Bs. {formato_latino(total_haber)}")
-                            else:
-                                st.info("No se encontraron detalles para este comprobante.")
-                    else:
-                        st.warning(f"⚠️ No hay comprobantes de Otros Ingresos para el mes de **{mes_sel} {anio_sel}** ({f_i_final} al {f_f_final}).")
-                else:
-                    st.warning("⚠️ Selecciona una empresa.")
-
-        except Exception as e:
-            st.error(f"Error procesando el reporte contable: {e}")
-            st.code(traceback.format_exc())  # Es
-        
-
-        # --- FILA 11: CALENDARIO ESPECIAL PEDACITO DE CIELO ---
-        # CALENDARIO FSICAL DE CONTRIBUYENTE ESPECIAL
-        # FORZAMOS el nombre correcto de tu BD en TiDB Cloud
-        db_objetivo = "pedacito_de_cielo_ca"
-
-        if db == db_objetivo or "pedacito" in str(db).lower():
-            
-            # 1. Conexión segura a TiDB Cloud
-            conexion_activa = conectar_db(db_objetivo)
-            
-            if conexion_activa is not None:
-                try:
-                    # Solución al error 'Unread result found': consumimos o cerramos limpiamente
-                    cursor = conexion_activa.cursor()
-                    cursor.execute("SELECT 1") 
-                    cursor.fetchall() # Consumimos los resultados pendientes del buffer
-                    cursor.close()
-                except Exception as e:
-                    st.error(f"❌ Error al ejecutar en la base de datos: {e}")
-                    st.stop()
+                    st.warning(f"⚠️ No hay comprobantes de Otros Ingresos para el mes de **{mes_sel} {anio_sel}** ({f_i_final} al {f_f_final}).")
             else:
-                st.error(f"❌ No se pudo establecer la conexión con '{db_objetivo}'.")
+                st.warning("⚠️ Selecciona una empresa.")
+
+    except Exception as e:
+        st.error(f"Error procesando el reporte contable: {e}")
+        st.code(traceback.format_exc())  # Es
+    
+
+    # --- FILA 11: CALENDARIO ESPECIAL PEDACITO DE CIELO ---
+    # CALENDARIO FSICAL DE CONTRIBUYENTE ESPECIAL
+    # FORZAMOS el nombre correcto de tu BD en TiDB Cloud
+    db_objetivo = "pedacito_de_cielo_ca"
+
+    if db == db_objetivo or "pedacito" in str(db).lower():
+        
+        # 1. Conexión segura a TiDB Cloud
+        conexion_activa = conectar_db(db_objetivo)
+        
+        if conexion_activa is not None:
+            try:
+                # Solución al error 'Unread result found': consumimos o cerramos limpiamente
+                cursor = conexion_activa.cursor()
+                cursor.execute("SELECT 1") 
+                cursor.fetchall() # Consumimos los resultados pendientes del buffer
+                cursor.close()
+            except Exception as e:
+                st.error(f"❌ Error al ejecutar en la base de datos: {e}")
                 st.stop()
-                    
-            with tab1:
-                # ==========================================
-                # 1. LÍNEA DIVISORIA ANTES DE LAS ALERTAS
-                # ==========================================
-                st.divider()
-
-                # ==========================================
-                # 2. SISTEMA DE ALERTAS Y CONTROL DE PAGOS
-                # ==========================================
-                st.markdown("### 🔔 Estado de Alertas Fiscales Próximas")
-
-                hoy = date.today()
+        else:
+            st.error(f"❌ No se pudo establecer la conexión con '{db_objetivo}'.")
+            st.stop()
                 
-                eventos_fiscales = [
-                    {"id": "iva_1", "concepto": "IVA / Anticipos (1era Quincena)", "fecha": date(2026, 8, 31), "mes_idx": 7},
-                    {"id": "iva_2", "concepto": "IVA / Anticipos (2da Quincena)", "fecha": date(2026, 8, 14), "mes_idx": 7},
-                    {"id": "islr", "concepto": "Retenciones de ISLR", "fecha": date(2026, 8, 7), "mes_idx": 7},
-                    {"id": "pensiones", "concepto": "Ley de Protección de Pensiones", "fecha": date(2026, 8, 17), "mes_idx": 7},
-                ]
+        with tab1:
+            # ==========================================
+            # 1. LÍNEA DIVISORIA ANTES DE LAS ALERTAS
+            # ==========================================
+            st.divider()
 
-                # Archivo local para persistencia de pagos
-                archivo_pagos = "pagos_pedacito.json"
+            # ==========================================
+            # 2. SISTEMA DE ALERTAS Y CONTROL DE PAGOS
+            # ==========================================
+            st.markdown("### 🔔 Estado de Alertas Fiscales Próximas")
 
-                def cargar_pagos_disco():
-                    if os.path.exists(archivo_pagos):
-                        try:
-                            with open(archivo_pagos, "r") as f:
-                                return json.load(f)
-                        except:
-                            pass
-                    return {"iva_1": False, "iva_2": False, "islr": False, "pensiones": False}
+            hoy = date.today()
+            
+            eventos_fiscales = [
+                {"id": "iva_1", "concepto": "IVA / Anticipos (1era Quincena)", "fecha": date(2026, 8, 31), "mes_idx": 7},
+                {"id": "iva_2", "concepto": "IVA / Anticipos (2da Quincena)", "fecha": date(2026, 8, 14), "mes_idx": 7},
+                {"id": "islr", "concepto": "Retenciones de ISLR", "fecha": date(2026, 8, 7), "mes_idx": 7},
+                {"id": "pensiones", "concepto": "Ley de Protección de Pensiones", "fecha": date(2026, 8, 17), "mes_idx": 7},
+            ]
 
-                def guardar_pagos_disco(datos):
+            # Archivo local para persistencia de pagos
+            archivo_pagos = "pagos_pedacito.json"
+
+            def cargar_pagos_disco():
+                if os.path.exists(archivo_pagos):
                     try:
-                        with open(archivo_pagos, "w") as f:
-                            json.dump(datos, f)
+                        with open(archivo_pagos, "r") as f:
+                            return json.load(f)
                     except:
                         pass
+                return {"iva_1": False, "iva_2": False, "islr": False, "pensiones": False}
 
-                # Inicializamos en session_state cargando desde el archivo si no existe
-                if 'pagos_realizados_pedacito' not in st.session_state:
-                    st.session_state['pagos_realizados_pedacito'] = cargar_pagos_disco()
+            def guardar_pagos_disco(datos):
+                try:
+                    with open(archivo_pagos, "w") as f:
+                        json.dump(datos, f)
+                except:
+                    pass
 
-                # Contenedor para que el cliente pueda marcar si ya pagó
-                st.markdown("##### 📝 Control de Pagos Realizados:")
+            # Inicializamos en session_state cargando desde el archivo si no existe
+            if 'pagos_realizados_pedacito' not in st.session_state:
+                st.session_state['pagos_realizados_pedacito'] = cargar_pagos_disco()
+
+            # Contenedor para que el cliente pueda marcar si ya pagó
+            st.markdown("##### 📝 Control de Pagos Realizados:")
+            
+            col_c1, col_c2 = st.columns(2)
+            with col_c1:
+                val_iva_2 = st.checkbox("✅ IVA 2da Quincena Pagado", value=st.session_state['pagos_realizados_pedacito'].get("iva_2", False), key="chk_iva_2")
+                val_islr = st.checkbox("✅ Retenciones ISLR Pagadas", value=st.session_state['pagos_realizados_pedacito'].get("islr", False), key="chk_islr")
+            with col_c2:
+                val_pensiones = st.checkbox("✅ Ley de Pensiones Pagada", value=st.session_state['pagos_realizados_pedacito'].get("pensiones", False), key="chk_pensiones")
+                val_iva_1 = st.checkbox("✅ IVA 1era Quincena Pagado", value=st.session_state['pagos_realizados_pedacito'].get("iva_1", False), key="chk_iva_1")
+
+            # Actualizar diccionario y guardar en disco si hubo cambios
+            nuevos_pagos = {
+                "iva_1": val_iva_1,
+                "iva_2": val_iva_2,
+                "islr": val_islr,
+                "pensiones": val_pensiones
+            }
+
+            if nuevos_pagos != st.session_state['pagos_realizados_pedacito']:
+                st.session_state['pagos_realizados_pedacito'] = nuevos_pagos
+                guardar_pagos_disco(nuevos_pagos)
+
+            pagos_realizados = st.session_state['pagos_realizados_pedacito']
+
+            # Evaluador de Alertas y Sonido
+            alerta_activa = False
+            mensajes_urgentes = []
+            
+            for evento in eventos_fiscales:
+                dias_restantes = (evento["fecha"] - hoy).days
+                pagado = pagos_realizados.get(evento["id"], False)
                 
-                col_c1, col_c2 = st.columns(2)
-                with col_c1:
-                    val_iva_2 = st.checkbox("✅ IVA 2da Quincena Pagado", value=st.session_state['pagos_realizados_pedacito'].get("iva_2", False), key="chk_iva_2")
-                    val_islr = st.checkbox("✅ Retenciones ISLR Pagadas", value=st.session_state['pagos_realizados_pedacito'].get("islr", False), key="chk_islr")
-                with col_c2:
-                    val_pensiones = st.checkbox("✅ Ley de Pensiones Pagada", value=st.session_state['pagos_realizados_pedacito'].get("pensiones", False), key="chk_pensiones")
-                    val_iva_1 = st.checkbox("✅ IVA 1era Quincena Pagado", value=st.session_state['pagos_realizados_pedacito'].get("iva_1", False), key="chk_iva_1")
+                if pagado:
+                    st.info(f"✔️ **{evento['concepto']}**: Declarado y pagado a tiempo. ¡Sin deudas pendientes para esta fecha!")
+                elif 0 <= dias_restantes <= 3:
+                    alerta_activa = True
+                    mensaje_alerta = f"⚠️ **¡ATENCIÓN!** Se acerca la declaración y pago de **{evento['concepto']}** programada para la fecha **{evento['fecha'].strftime('%d/%m/%Y')}** (Faltan {dias_restantes} días)."
+                    mensajes_urgentes.append(mensaje_alerta)
 
-                # Actualizar diccionario y guardar en disco si hubo cambios
-                nuevos_pagos = {
-                    "iva_1": val_iva_1,
-                    "iva_2": val_iva_2,
-                    "islr": val_islr,
-                    "pensiones": val_pensiones
-                }
+            if alerta_activa:
+                # Reproductor de audio oculto
+                audio_html = """
+                    <audio autoplay style="display:none;">
+                      <source src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3" type="audio/mpeg">
+                    </audio>
+                """
+                st.markdown(audio_html, unsafe_allow_html=True)
 
-                if nuevos_pagos != st.session_state['pagos_realizados_pedacito']:
-                    st.session_state['pagos_realizados_pedacito'] = nuevos_pagos
-                    guardar_pagos_disco(nuevos_pagos)
-
-                pagos_realizados = st.session_state['pagos_realizados_pedacito']
-
-                # Evaluador de Alertas y Sonido
-                alerta_activa = False
-                mensajes_urgentes = []
-                
-                for evento in eventos_fiscales:
-                    dias_restantes = (evento["fecha"] - hoy).days
-                    pagado = pagos_realizados.get(evento["id"], False)
-                    
-                    if pagado:
-                        st.info(f"✔️ **{evento['concepto']}**: Declarado y pagado a tiempo. ¡Sin deudas pendientes para esta fecha!")
-                    elif 0 <= dias_restantes <= 3:
-                        alerta_activa = True
-                        mensaje_alerta = f"⚠️ **¡ATENCIÓN!** Se acerca la declaración y pago de **{evento['concepto']}** programada para la fecha **{evento['fecha'].strftime('%d/%m/%Y')}** (Faltan {dias_restantes} días)."
-                        mensajes_urgentes.append(mensaje_alerta)
-
-                if alerta_activa:
-                    # Reproductor de audio oculto
-                    audio_html = """
-                        <audio autoplay style="display:none;">
-                          <source src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3" type="audio/mpeg">
-                        </audio>
-                    """
-                    st.markdown(audio_html, unsafe_allow_html=True)
-
-                    # Notificación flotante estilo bancario (toast superior) que desaparece en 5 segundos
-                    texto_notificacion = "<br>".join(mensajes_urgentes)
-                    banco_notif_html = f"""
-                        <div id="banco-toast-alerta" style="
-                            position: fixed;
-                            top: 20px;
-                            right: 20px;
-                            z-index: 999999;
-                            background-color: #fff3cd;
-                            color: #856404;
-                            padding: 16px 20px;
-                            border-radius: 8px;
-                            border-left: 6px solid #ffeeba;
-                            border: 1px solid #ffeeba;
-                            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-                            font-family: sans-serif;
-                            max-width: 400px;
-                            animation: slideIn 0.5s ease-out;
-                        ">
-                            <div style="font-weight: bold; margin-bottom: 5px; font-size: 15px;">🔔 Notificación Fiscal Urgente</div>
-                            <div style="font-size: 13px; line-height: 1.4;">{texto_notificacion}</div>
-                        </div>
-
-                        <style>
-                        @keyframes slideIn {{
-                            from {{ transform: translateX(100%); opacity: 0; }}
-                            to {{ transform: translateX(0); opacity: 1; }}
-                        }}
-                        @keyframes fadeOut {{
-                            from {{ opacity: 1; }}
-                            to {{ opacity: 0; }}
-                        }}
-                        </style>
-
-                        <script>
-                            setTimeout(function() {{
-                                var toast = document.getElementById('banco-toast-alerta');
-                                if (toast) {{
-                                    toast.style.animation = 'fadeOut 0.5s ease-out forwards';
-                                    setTimeout(function() {{
-                                        toast.remove();
-                                    }}, 500);
-                                }}
-                            }}, 5000);
-                        </script>
-                    """
-                    st.markdown(banco_notif_html, unsafe_allow_html=True)
-                    
-                else:
-                    if not any(pagos_realizados.values()) and not any(0 <= (e["fecha"] - hoy).days <= 3 for e in eventos_fiscales):
-                        st.success("✅ No hay obligaciones fiscales críticas a menos de 3 días de vencimiento en este momento.")
-
-                # ==========================================
-                # 3. LÍNEA DIVISORIA ANTES DEL CALENDARIO FISCAL
-                # ==========================================
-                st.divider()
-
-                # ==========================================
-                # 4. TÍTULOS Y TABLAS DEL CALENDARIO FISCAL
-                # ==========================================
-                st.subheader("📊 Calendario Fiscal 2026 - Sujeto Especial (SENIAT)")
-                st.markdown("### 🗓️ Cronograma de Declaraciones y Pagos")
-                
-                # Estilo visual moderno para las tablas
-                st.markdown("""
-                <style>
-                    .fiscal-table {
-                        width: 100%;
-                        border-collapse: collapse;
-                        margin-bottom: 20px;
+                # Notificación flotante estilo bancario (toast superior) que desaparece en 5 segundos
+                texto_notificacion = "<br>".join(mensajes_urgentes)
+                banco_notif_html = f"""
+                    <div id="banco-toast-alerta" style="
+                        position: fixed;
+                        top: 20px;
+                        right: 20px;
+                        z-index: 999999;
+                        background-color: #fff3cd;
+                        color: #856404;
+                        padding: 16px 20px;
+                        border-radius: 8px;
+                        border-left: 6px solid #ffeeba;
+                        border: 1px solid #ffeeba;
+                        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
                         font-family: sans-serif;
-                        font-size: 14px;
-                    }
-                    .fiscal-table th {
-                        background-color: #2b313e;
-                        color: white;
-                        text-align: center;
-                        padding: 8px;
-                        border: 1px solid #ddd;
-                    }
-                    .fiscal-table td {
-                        text-align: center;
-                        padding: 8px;
-                        border: 1px solid #ddd;
-                    }
-                    .header-iva { background-color: #d4edda; color: #155724; font-weight: bold; text-align: left; padding: 8px; }
-                    .header-islr { background-color: #fff3cd; color: #856404; font-weight: bold; text-align: left; padding: 8px; }
-                    .header-pensiones { background-color: #cce5ff; color: #004085; font-weight: bold; text-align: left; padding: 8px; }
-                </style>
-                """, unsafe_allow_html=True)
+                        max-width: 400px;
+                        animation: slideIn 0.5s ease-out;
+                    ">
+                        <div style="font-weight: bold; margin-bottom: 5px; font-size: 15px;">🔔 Notificación Fiscal Urgente</div>
+                        <div style="font-size: 13px; line-height: 1.4;">{texto_notificacion}</div>
+                    </div>
 
-                meses = ["ENE", "FEB", "MAR", "ABR", "MAY", "JUN", "JUL", "AGO", "SEPT", "OCT", "NOV", "DIC"]
+                    <style>
+                    @keyframes slideIn {{
+                        from {{ transform: translateX(100%); opacity: 0; }}
+                        to {{ transform: translateX(0); opacity: 1; }}
+                    }}
+                    @keyframes fadeOut {{
+                        from {{ opacity: 1; }}
+                        to {{ opacity: 0; }}
+                    }}
+                    </style>
+
+                    <script>
+                        setTimeout(function() {{
+                            var toast = document.getElementById('banco-toast-alerta');
+                            if (toast) {{
+                                toast.style.animation = 'fadeOut 0.5s ease-out forwards';
+                                setTimeout(function() {{
+                                    toast.remove();
+                                }}, 500);
+                            }}
+                        }}, 5000);
+                    </script>
+                """
+                st.markdown(banco_notif_html, unsafe_allow_html=True)
                 
-                q1_vals = ["❌", "❌", "❌", "❌", "❌", "❌", "❌", "31", "29", "20", "27", "16"]
-                q2_vals = ["❌", "❌", "❌", "❌", "❌", "❌", "❌", "14", "14", "05", "13", "03"]
-                islr_vals = ["❌", "❌", "❌", "❌", "❌", "❌", "❌", "07", "08", "09", "06", "09"]
-                pensiones_vals = ["❌", "❌", "❌", "❌", "❌", "❌", "❌", "17", "29", "20", "27", "16"]
+            else:
+                if not any(pagos_realizados.values()) and not any(0 <= (e["fecha"] - hoy).days <= 3 for e in eventos_fiscales):
+                    st.success("✅ No hay obligaciones fiscales críticas a menos de 3 días de vencimiento en este momento.")
 
-                if pagos_realizados["iva_1"]:
-                    q1_vals[7] = "✅ Pagado"
-                if pagos_realizados["iva_2"]:
-                    q2_vals[7] = "✅ Pagado"
-                if pagos_realizados["islr"]:
-                    islr_vals[7] = "✅ Pagado"
-                if pagos_realizados["pensiones"]:
-                    pensiones_vals[7] = "✅ Pagado"
+            # ==========================================
+            # 3. LÍNEA DIVISORIA ANTES DEL CALENDARIO FISCAL
+            # ==========================================
+            st.divider()
 
-                # Renderizar Tabla 1: IVA 1era Quincena
-                st.markdown("#### 1. IVA, Anticipos de ISLR, IGTF y Retenciones de IVA")
-                html_iva_1 = f"""
-                <table class="fiscal-table">
-                    <tr><th colspan="13" class="header-iva">Primera Quincena (01 al 15) - R.I.F. Terminado en 0</th></tr>
-                    <tr><th>R.I.F.</th>{"".join([f"<th>{m}</th>" for m in meses])}</tr>
-                    <tr><td><b>0</b></td>{"".join([f"<td>{val}</td>" for val in q1_vals])}</tr>
-                </table>
-                """
-                st.markdown(html_iva_1, unsafe_allow_html=True)
+            # ==========================================
+            # 4. TÍTULOS Y TABLAS DEL CALENDARIO FISCAL
+            # ==========================================
+            st.subheader("📊 Calendario Fiscal 2026 - Sujeto Especial (SENIAT)")
+            st.markdown("### 🗓️ Cronograma de Declaraciones y Pagos")
+            
+            # Estilo visual moderno para las tablas
+            st.markdown("""
+            <style>
+                .fiscal-table {
+                    width: 100%;
+                    border-collapse: collapse;
+                    margin-bottom: 20px;
+                    font-family: sans-serif;
+                    font-size: 14px;
+                }
+                .fiscal-table th {
+                    background-color: #2b313e;
+                    color: white;
+                    text-align: center;
+                    padding: 8px;
+                    border: 1px solid #ddd;
+                }
+                .fiscal-table td {
+                    text-align: center;
+                    padding: 8px;
+                    border: 1px solid #ddd;
+                }
+                .header-iva { background-color: #d4edda; color: #155724; font-weight: bold; text-align: left; padding: 8px; }
+                .header-islr { background-color: #fff3cd; color: #856404; font-weight: bold; text-align: left; padding: 8px; }
+                .header-pensiones { background-color: #cce5ff; color: #004085; font-weight: bold; text-align: left; padding: 8px; }
+            </style>
+            """, unsafe_allow_html=True)
 
-                # Renderizar Tabla 2: IVA 2da Quincena
-                html_iva_2 = f"""
-                <table class="fiscal-table">
-                    <tr><th colspan="13" class="header-iva" style="background-color: #e2f0d9;">Segunda Quincena (16 al último) - R.I.F. Terminado en 0</th></tr>
-                    <tr><th>R.I.F.</th>{"".join([f"<th>{m}</th>" for m in meses])}</tr>
-                    <tr><td><b>0</b></td>{"".join([f"<td>{val}</td>" for val in q2_vals])}</tr>
-                </table>
-                """
-                st.markdown(html_iva_2, unsafe_allow_html=True)
+            meses = ["ENE", "FEB", "MAR", "ABR", "MAY", "JUN", "JUL", "AGO", "SEPT", "OCT", "NOV", "DIC"]
+            
+            q1_vals = ["❌", "❌", "❌", "❌", "❌", "❌", "❌", "31", "29", "20", "27", "16"]
+            q2_vals = ["❌", "❌", "❌", "❌", "❌", "❌", "❌", "14", "14", "05", "13", "03"]
+            islr_vals = ["❌", "❌", "❌", "❌", "❌", "❌", "❌", "07", "08", "09", "06", "09"]
+            pensiones_vals = ["❌", "❌", "❌", "❌", "❌", "❌", "❌", "17", "29", "20", "27", "16"]
 
-                # Renderizar Retenciones ISLR
-                st.markdown("#### 2. Retenciones de Impuesto Sobre la Renta")
-                html_islr = f"""
-                <table class="fiscal-table">
-                    <tr><th>R.I.F.</th>{"".join([f"<th>{m}</th>" for m in meses])}</tr>
-                    <tr><td><b>0</b></td>{"".join([f"<td>{val}</td>" for val in islr_vals])}</tr>
-                </table>
-                """
-                st.markdown(html_islr, unsafe_allow_html=True)
+            if pagos_realizados["iva_1"]:
+                q1_vals[7] = "✅ Pagado"
+            if pagos_realizados["iva_2"]:
+                q2_vals[7] = "✅ Pagado"
+            if pagos_realizados["islr"]:
+                islr_vals[7] = "✅ Pagado"
+            if pagos_realizados["pensiones"]:
+                pensiones_vals[7] = "✅ Pagado"
 
-                # Renderizar Ley de Pensiones
-                st.markdown("#### 3. Ley de Protección de las Pensiones de Seguridad Social")
-                html_pensiones = f"""
-                <table class="fiscal-table">
-                    <tr><th>R.I.F.</th>{"".join([f"<th>{m}</th>" for m in meses])}</tr>
-                    <tr><td><b>0</b></td>{"".join([f"<td>{val}</td>" for val in pensiones_vals])}</tr>
-                </table>
-                """
-                st.markdown(html_pensiones, unsafe_allow_html=True)
+            # Renderizar Tabla 1: IVA 1era Quincena
+            st.markdown("#### 1. IVA, Anticipos de ISLR, IGTF y Retenciones de IVA")
+            html_iva_1 = f"""
+            <table class="fiscal-table">
+                <tr><th colspan="13" class="header-iva">Primera Quincena (01 al 15) - R.I.F. Terminado en 0</th></tr>
+                <tr><th>R.I.F.</th>{"".join([f"<th>{m}</th>" for m in meses])}</tr>
+                <tr><td><b>0</b></td>{"".join([f"<td>{val}</td>" for val in q1_vals])}</tr>
+            </table>
+            """
+            st.markdown(html_iva_1, unsafe_allow_html=True)
 
-        else:
-            pass
+            # Renderizar Tabla 2: IVA 2da Quincena
+            html_iva_2 = f"""
+            <table class="fiscal-table">
+                <tr><th colspan="13" class="header-iva" style="background-color: #e2f0d9;">Segunda Quincena (16 al último) - R.I.F. Terminado en 0</th></tr>
+                <tr><th>R.I.F.</th>{"".join([f"<th>{m}</th>" for m in meses])}</tr>
+                <tr><td><b>0</b></td>{"".join([f"<td>{val}</td>" for val in q2_vals])}</tr>
+            </table>
+            """
+            st.markdown(html_iva_2, unsafe_allow_html=True)
+
+            # Renderizar Retenciones ISLR
+            st.markdown("#### 2. Retenciones de Impuesto Sobre la Renta")
+            html_islr = f"""
+            <table class="fiscal-table">
+                <tr><th>R.I.F.</th>{"".join([f"<th>{m}</th>" for m in meses])}</tr>
+                <tr><td><b>0</b></td>{"".join([f"<td>{val}</td>" for val in islr_vals])}</tr>
+            </table>
+            """
+            st.markdown(html_islr, unsafe_allow_html=True)
+
+            # Renderizar Ley de Pensiones
+            st.markdown("#### 3. Ley de Protección de las Pensiones de Seguridad Social")
+            html_pensiones = f"""
+            <table class="fiscal-table">
+                <tr><th>R.I.F.</th>{"".join([f"<th>{m}</th>" for m in meses])}</tr>
+                <tr><td><b>0</b></td>{"".join([f"<td>{val}</td>" for val in pensiones_vals])}</tr>
+            </table>
+            """
+            st.markdown(html_pensiones, unsafe_allow_html=True)
+
+    else:
+        pass
 
 
 elif opcion_menu == "📂 Plan de Cuentas":
