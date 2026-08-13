@@ -2418,6 +2418,16 @@ def generar_balance_comprobacion(conn, f_i, f_f, sucursal):
         st.error(f"❌ Error crítico: {e}")
         return pd.DataFrame()
 
+
+@st.cache_data(ttl=300)
+def formato_contable(valor):
+    """Formatea los números como montos contables de Venezuela (Bs. 1.234,56)"""
+    try:
+        return "{:,.2f}".format(valor).replace(",", "X").replace(".", ",").replace("X", ".")
+    except:
+        return "0,00"
+
+
 def gestionar_sidebar():
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
     user_id = st.session_state.get('user_id', st.session_state.get('cliente_id', 'N/A'))
