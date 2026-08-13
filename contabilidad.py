@@ -750,13 +750,11 @@ def obtener_historico_utilidad(db, f_inicio=None, f_fin=None):
 
     anio_base = f_inicio.year
     
-    # Construimos los 12 meses del año base seleccionado
     meses_skeleton = pd.DataFrame({
         'anio': [anio_base] * 12,
         'mes': list(range(1, 13))
     })
 
-    # Consulta optimizada para traer el movimiento puramente mensual (mes a mes independiente)
     query = f"""
         SELECT 
             YEAR(STR_TO_DATE(LEFT(fecha, 10), '%Y-%m-%d')) as anio,
@@ -796,14 +794,18 @@ def obtener_historico_utilidad(db, f_inicio=None, f_fin=None):
 
         df = df.fillna(0)
 
-        # Cálculo de la utilidad estrictamente mensual (independiente por cada fila/mes)
         ingresos = df['ing_haber'] - df['ing_debe']
         costos = df['cos_debe'] - df['cos_haber']
         gastos = (df['gas_debe'] - df['gas_haber']).abs()
         otros_ingresos = df['oing_haber'] - df['oing_debe']
         otros_egresos = (df['oeg_debe'] - df['oeg_haber']).abs()
 
-        df['utilidad_mensual'] = ingresos - costos - gastos + otros_ingresos - otros_egresos
+        # AQUÍ ESTÁ EL CÁLCULO DE LA BD ACUMULADA:
+        # Se calcula la utilidad bruta que viene acumulada
+        df['utilidad_acumulada'] = ingresos - costos - gastos + otros_ingresos - otros_egresos
+        
+        # AQUÍ DES-ACUMULAMOS: Restamos la fila actual con la anterior
+        df['utilidad_mensual'] = df['utilidad_acumulada'].diff().fillna(df['utilidad_acumulada'])
         
         dic_meses_nombres = {
             1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril", 
@@ -812,7 +814,8 @@ def obtener_historico_utilidad(db, f_inicio=None, f_fin=None):
         }
         df['mes_nombre'] = df['mes'].map(dic_meses_nombres)
         
-        return df[['anio', 'mes', 'mes_nombre', 'utilidad_mensual']]
+        # Devolvemos ambas: la mensual para el gráfico y la acumulada por si acaso
+        return df[['anio', 'mes', 'mes_nombre', 'utilidad_mensual', 'utilidad_acumulada']]
         
     except Exception as e:
         print(f"❌ Error al calcular la utilidad mensual: {e}")
@@ -4599,18 +4602,18 @@ if "🏠 Inicio" in opcion_menu:
     valor_patrimonio = kpis.get('patrimonio', 0)
 
     u_v = 0
-    if not df_utilidad.empty and 'utilidad_mensual' in df_utilidad.columns:
-        # Si f_fin_global está definido, filtramos el DataFrame hasta ese mes exacto antes de sumar
+    if not df_utilidad.empty and 'utilidad_acumulada' in df_utilidad.columns:
         if 'f_fin_global' in st.session_state and st.session_state['f_fin_global']:
             mes_limite = st.session_state['f_fin_global'].month
             anio_limite = st.session_state['f_fin_global'].year
             
-            # Filtramos solo los meses desde enero hasta el mes seleccionado en la UI
-            df_filtrado = df_utilidad[(df_utilidad['anio'] == anio_limite) & (df_utilidad['mes'] <= mes_limite)]
-            u_v = df_filtrado['utilidad_mensual'].sum()
+            # Tomamos exactamente la fila del mes que seleccionó en el filtro
+            fila_mes = df_utilidad[(df_utilidad['anio'] == anio_limite) & (df_utilidad['mes'] == mes_limite)]
+            if not fila_mes.empty:
+                # Al ser acumulativa, el valor de ese mes ya tiene la suma total hasta esa fecha
+                u_v = fila_mes['utilidad_acumulada'].iloc[0]
         else:
-            # Fallback por si acaso
-            u_v = df_utilidad['utilidad_mensual'].sum()
+            u_v = df_utilidad['utilidad_acumulada'].iloc[-1]
 
     col1, col2, col3, col4 = st.columns(4)
     with col1:
