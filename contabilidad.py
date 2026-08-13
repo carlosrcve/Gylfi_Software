@@ -2033,7 +2033,312 @@ def disenar_reporte_asiento_contable(numero_comprobante):
         st.success("✅ Partida Doble Cuadrada")
     else:
         st.error(f"❌ Descuadre Detectado: Bs. {formato_contable(dif)}")
+
+
+@st.cache_data(ttl=60)
+def consultar_saldos_iniciales_db(db_nombre):
+    """
+    Consulta los saldos iniciales de la empresa activa de forma rápida y directa.
+    """
+    if not db_nombre:
+        return pd.DataFrame()
+
+    conn = None
+    cursor = None
+    
+    try:
+        # Conexión directa a la BD del cliente
+        conn = conectar_db(db_nombre)
         
+        if conn and conn.is_connected():
+            cursor = conn.cursor(dictionary=True)
+            query = "SELECT * FROM saldos_iniciales ORDER BY id ASC"
+            cursor.execute(query)
+            
+            resultados = cursor.fetchall()
+            return pd.DataFrame(resultados) if resultados else pd.DataFrame()
+        else:
+            st.error("❌ No se pudo establecer conexión con la base de datos.")
+            return pd.DataFrame()
+            
+    except Exception as e:
+        st.error(f"❌ Error en la consulta de saldos en {db_nombre}: {e}")
+        return pd.DataFrame()
+        
+    finally:
+        # Cierre estricto de recursos para liberar el socket en TiDB Cloud
+        if cursor:
+            try:
+                cursor.close()
+            except Exception:
+                pass
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
+def mostrar_interfaz_mayor(f_ini_g, f_fin_g, db_nombre):
+    st.subheader("📖 Libro Mayor Analítico")
+
+    # 1. ESTADOS DE SESIÓN
+    cuenta_previa = st.session_state.get('cuenta_a_buscar', "")
+    if 'reporte_mayor' not in st.session_state: st.session_state.reporte_mayor = None
+    if 'movs_solos' not in st.session_state: st.session_state.movs_solos = None
+    if 'cuenta_actual' not in st.session_state: st.session_state.cuenta_actual = ""
+
+    conn = conectar_db(db_nombre)
+    cursor = None
+    
+    if conn:
+        try:
+            cursor = conn.cursor()
+            
+            # Auditoría y consulta de cuentas de forma segura (sin interpolar db_nombre)
+            usuario = st.session_state.get('usuario', 'Desconocido')
+            registrar_log_automatico(conn, "CONSULTA_LIBRO_MAYOR", f"Usuario {usuario} consultó mayor en {db_nombre}")
+            
+            query_cuentas = "SELECT DISTINCT cuenta_contable FROM asientos_contables ORDER BY cuenta_contable"
+            df_cuentas = pd.read_sql(query_cuentas, conn)
+            
+            if not df_cuentas.empty:
+                lista_opciones = df_cuentas['cuenta_contable'].tolist()
+                idx_inicial = lista_opciones.index(cuenta_previa) if cuenta_previa in lista_opciones else 0
+                
+                cuenta_sel = st.selectbox("Seleccione cuenta de detalle:", lista_opciones, index=idx_inicial)
+                
+                col1, col2 = st.columns(2)
+                f_m_d = col1.date_input("Desde", f_ini_g, key="m_d")
+                f_m_h = col2.date_input("Hasta", f_fin_g, key="m_h")
+                
+                saldo_inicial_periodo = 0.0
+
+                if st.button("🔍 Generar Movimientos"):
+                    # Asumimos que ejecutar_mayor_analitico retorna el reporte completo y los movimientos puros
+                    res_reporte, saldo_inicial_periodo = ejecutar_mayor_analitico(db_nombre, cuenta_sel, f_m_d, f_m_h)
+                    
+                    if not res_reporte.empty:
+                        st.session_state.reporte_mayor = res_reporte
+                        # Guardamos también los movimientos puros si la función los retorna, o usamos el mismo reporte
+                        st.session_state.movs_solos = res_reporte 
+                        
+                        st.session_state.saldo_final_reporte = saldo_inicial_periodo + res_reporte['debe'].sum() - res_reporte['haber'].sum()
+                        st.session_state.cuenta_actual = cuenta_sel
+                    else:
+                        st.warning("No se obtuvieron datos.")
+                        st.session_state.reporte_mayor = None
+                        st.session_state.movs_solos = None
+
+                st.divider()
+
+                if st.session_state.reporte_mayor is not None:
+                    reporte = st.session_state.reporte_mayor
+                    movs_solos = st.session_state.movs_solos
+                    
+                    if not reporte.empty and movs_solos is not None:
+                        t_debe = movs_solos['debe'].sum()
+                        t_haber = movs_solos['haber'].sum()
+                        s_final = st.session_state.get('saldo_final_reporte', 0.0)
+
+                        m1, m2, m3 = st.columns(3)
+                        m1.metric("TOTAL DEBE", f"Bs. {t_debe:,.2f}")
+                        m2.metric("TOTAL HABER", f"Bs. {t_haber:,.2f}")
+                        m3.metric("SALDO FINAL", f"Bs. {s_final:,.2f}")
+
+                        fmt = {'debe': '{:,.2f}', 'haber': '{:,.2f}', 'Saldo': '{:,.2f}'}
+                        st.dataframe(
+                            reporte.style.format(fmt), 
+                            use_container_width=True, 
+                            hide_index=True
+                        )
+                        
+                        if st.button("📄 Generar Reporte PDF para Auditoría"):
+                            try:
+                                from fpdf import FPDF
+                                
+                                class PDF(FPDF):
+                                    def header(self):
+                                        self.set_font('Arial', 'B', 14)
+                                        self.cell(0, 10, 'KING DRIVER, C.A. - LIBRO MAYOR ANALÍTICO', ln=True, align='C')
+                                        self.set_font('Arial', 'I', 10)
+                                        self.cell(0, 5, f'Período: {f_m_d.strftime("%d/%m/%Y")} al {f_m_h.strftime("%d/%m/%Y")}', ln=True, align='C')
+                                        self.ln(10)
+
+                                pdf = PDF()
+                                pdf.add_page()
+                                pdf.set_font("Arial", 'B', 10)
+                                pdf.cell(0, 10, f"CUENTA: {st.session_state.cuenta_actual}", ln=True)
+                                
+                                # Encabezado de tabla
+                                pdf.set_fill_color(230, 230, 230)
+                                pdf.cell(25, 8, "Fecha", 1, 0, 'C', True)
+                                pdf.cell(85, 8, "Descripción", 1, 0, 'C', True)
+                                pdf.cell(26, 8, "Debe", 1, 0, 'C', True)
+                                pdf.cell(26, 8, "Haber", 1, 0, 'C', True)
+                                pdf.cell(26, 8, "Saldo", 1, 1, 'C', True)
+                                
+                                # Filas
+                                pdf.set_font("Arial", size=8)
+                                for _, fila in reporte.iterrows():
+                                    pdf.cell(25, 7, str(fila['fecha']), 1)
+                                    pdf.cell(85, 7, str(fila['descripcion'])[:50], 1)
+                                    pdf.cell(26, 7, f"{fila['debe']:,.2f}", 1, 0, 'R')
+                                    pdf.cell(26, 7, f"{fila['haber']:,.2f}", 1, 0, 'R')
+                                    pdf.cell(26, 7, f"{fila['Saldo']:,.2f}", 1, 1, 'R')
+                                
+                                # Totales finales
+                                pdf.ln(5)
+                                pdf.set_font("Arial", 'B', 10)
+                                pdf.cell(110, 8, "TOTALES GENERALES:", 0, 0, 'R')
+                                pdf.cell(26, 8, f"{t_debe:,.2f}", 1, 0, 'R')
+                                pdf.cell(26, 8, f"{t_haber:,.2f}", 1, 0, 'R')
+                                pdf.cell(26, 8, f"{s_final:,.2f}", 1, 1, 'R')
+
+                                # Botón de descarga
+                                pdf_bytes = pdf.output(dest='S').encode('latin-1')
+                                st.download_button(
+                                    label="⬇️ Descargar Archivo PDF",
+                                    data=pdf_bytes,
+                                    file_name=f"Mayor_{st.session_state.cuenta_actual}.pdf",
+                                    mime="application/pdf"
+                                )
+                            except Exception as e:
+                                st.error(f"Error generando PDF: {e}")
+                    else:
+                        st.warning("No se encontraron movimientos para esta cuenta.")
+            else:
+                st.warning(f"⚠️ No hay datos contables en la base de datos: {db_nombre}")
+        
+        except Exception as e:
+            st.error(f"❌ Error en el Libro Mayor: {e}")
+        finally:
+            if cursor:
+                try: cursor.close()
+                except: pass
+            if conn:
+                try: conn.close()
+                except: pass
+    else:
+        st.error("❌ No se pudo establecer conexión con la base de datos.")
+
+
+def generar_balance_profesional(conn, f_i, f_f, sucursal):
+    db = st.session_state.get('DB_ACTUAL')
+    if not db:
+        st.error("Papi, no has seleccionado ninguna base de datos.")
+        return None
+
+    registrar_log_automatico(conn, "CONSULTA_BALANCE_GENERAL", f"Usuario {st.session_state.usuario} consultó balance para {st.session_state.cliente_id}")
+
+    cursor = None
+    try:
+        cursor = conn.cursor()
+        cursor.execute(f"USE `{db}`")
+        
+        # 1. Obtener datos
+        df_saldos = generar_balance_comprobacion(conn, f_i, f_f, sucursal)
+        query_plan = f"SELECT codigo, nombre, nivel, padre FROM `{db}`.plan_cuentas ORDER BY codigo"
+        df_plan = pd.read_sql(query_plan, conn)
+        
+        # --- AQUÍ ESTÁ LA SOLUCIÓN ---
+        # Eliminamos cualquier columna que no sea la llave o la necesaria para evitar colisiones
+        # Nos quedamos solo con las columnas que el merge necesita
+        cols_plan = ['codigo', 'nombre', 'nivel', 'padre']
+        cols_saldos = ['Código', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final']
+        
+        df_plan = df_plan[cols_plan]
+        df_saldos = df_saldos[cols_saldos]
+        
+        # Merge limpio
+        df = pd.merge(df_plan, df_saldos, left_on='codigo', right_on='Código', how='left')
+        
+        # --- CONTINUACIÓN DEL CÁLCULO ---
+        cols_numericas = ['Saldo Inicial', 'Debe', 'Haber', 'Saldo Final']
+        df[cols_numericas] = df[cols_numericas].fillna(0).astype(float)
+        
+        # 1. Limpieza inicial: Ponemos a cero los padres para empezar la suma desde abajo
+        padres_codigos = df['padre'].unique()
+        df.loc[df['codigo'].isin(padres_codigos), cols_numericas] = 0.0
+
+        # 1. Asegurar tipos y valores (nada de NaN)
+        df[cols_numericas] = df[cols_numericas].fillna(0.0).astype(float)
+        
+        # 2. CALCULAR SALDO FINAL PRIMERO (La base real de datos)
+        df['Saldo Final'] = df['Saldo Inicial'] + df['Debe'] - df['Haber']
+        
+        # 3. Limpiar saldos de los padres (Nivel 5 a 2) para que inicien en 0 y solo contengan la suma de hijos
+        # Esto asegura que el roll-up sea puro.
+        padres_codigos = df['padre'].dropna().unique()
+        df.loc[df['codigo'].isin(padres_codigos), cols_numericas] = 0.0
+
+
+        # Identifica quién está descuadrado:
+
+        
+        # 4. Roll-up jerárquico
+        niveles = sorted(df['nivel'].unique(), reverse=True)
+        
+        for n in niveles:
+            if n <= 1: continue 
+            
+            resumen = df[df['nivel'] == n].groupby('padre')[cols_numericas].sum()
+            
+            for p_codigo, fila_suma in resumen.iterrows():
+                p_codigo_str = str(p_codigo).strip()
+                # Usamos .loc para actualizar de forma segura
+                mask = df['codigo'].astype(str).str.strip() == p_codigo_str
+                
+                if mask.any():
+                    # Sumamos los valores del nivel N al nivel N-1
+                    df.loc[mask, cols_numericas] += fila_suma
+                else:
+                    print(f"⚠️ Alerta: El padre '{p_codigo_str}' no existe en el plan.")
+        # 1. Asegurar que df no sea nulo antes de procesar
+        if df is None or df.empty:
+            st.error("⚠️ Error: El DataFrame está vacío o no se pudo generar.")
+            return df  # Retornamos el df vacío para que la app no colapse
+
+
+        # --- BLOQUE SEGURO DE PROCESAMIENTO ---
+
+        # 1. Filtramos solo los registros con movimiento real
+        # Suma limpia, sin restas.
+        # Definimos la función genérica para obtener el valor de cualquier columna
+        # 1. Definimos tu función para extraer cualquier columna por código
+        def get_columna(cod, col):
+            fila = df[df['codigo'].astype(str) == str(cod)]
+            return fila[col].sum() if not fila.empty else 0
+
+        # 2. Aplicamos la lógica específica que pediste para los totales
+        # Ajusta los signos (+ o -) según la naturaleza de tus cuentas
+        saldo_inicial = get_columna('1', 'Saldo Inicial') +get_columna('2', 'Saldo Inicial') +get_columna('3', 'Saldo Inicial')+get_columna('4', 'Saldo Inicial')+get_columna('5', 'Saldo Inicial')+get_columna('6', 'Saldo Inicial')+get_columna('7', 'Saldo Inicial')+get_columna('8', 'Saldo Inicial')
+        total_debe = get_columna('1', 'Debe') -get_columna('2', 'Debe') -get_columna('3', 'Debe')-get_columna('4', 'Debe')-get_columna('5', 'Debe')-get_columna('6', 'Debe')-get_columna('7', 'Debe')-get_columna('8', 'Debe')
+        total_haber = get_columna('1', 'Haber') - get_columna('2', 'Haber') - get_columna('4', 'Haber')- get_columna('5', 'Haber')- get_columna('6', 'Haber')- get_columna('7', 'Haber')- get_columna('8', 'Haber')
+        saldo_final_resumen = get_columna('4', 'Saldo Final')+get_columna('5', 'Saldo Final')+get_columna('6', 'Saldo Final')+get_columna('7', 'Saldo Final')+get_columna('8', 'Saldo Final')
+        # 3. Creamos la fila resumen
+        fila_total = pd.DataFrame([{
+            'codigo': 'Σ',
+            'nombre': 'RESUMEN MOVIMIENTOS',
+            'nivel': 0,
+            'padre': None,
+            'Saldo Inicial': saldo_inicial,
+            'Debe': total_debe,
+            'Haber': total_haber,
+            'Saldo Final': saldo_final_resumen
+        }])
+
+        # 4. Concatenamos
+        df = pd.concat([df, fila_total], ignore_index=True)
+        return df
+
+    except Exception as e:
+        st.error(f"Error procesando la base de datos: {e}")
+        return None
+    finally:
+        if cursor: cursor.close()
+
+
 def gestionar_sidebar():
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
     user_id = st.session_state.get('user_id', st.session_state.get('cliente_id', 'N/A'))
@@ -4967,7 +5272,413 @@ elif opcion_menu == "📝 Asientos Contables":
                     finally:
                         conn_pdf.close()
 
+    elif sub_opcion == "Consultar Saldos Iniciales":
+        st.subheader("🏁 Comprobante de Apertura")
+
+        # 1. SEGURIDAD Y CONTEXTO
+        db_actual = st.session_state.get('DB_ACTUAL')
+        cliente_id = st.session_state.get('cliente_id')
+        rol = st.session_state.get('rol')
+
+        if not db_actual:
+            st.error("No se ha seleccionado una base de datos de empresa.")
+            st.stop()
+
+        empresa_data = obtener_datos_agente_db(db_actual)
+
+        # 2. FILTRO DE ACCESO
+        if empresa_data and rol != 'admin':
+            if empresa_data['id'] != cliente_id:
+                st.error("⚠️ Acceso denegado: No tienes permisos para esta empresa.")
+                st.stop()
+
+        if not empresa_data:
+            st.error("⚠️ No se pudieron cargar los datos de la empresa.")
+        else:
+            # --- MENÚ DE PESTAÑAS (Solo se muestra si la seguridad pasa) ---
+            tab1, tab2, tab3 = st.tabs(["📖 Ver Comprobante", "📥 Importar Excel", "🗑️ Gestionar Data"])
+
+            with tab1:
+                # IMPORTANTE: Asegúrate de que consultar_saldos_iniciales_db() 
+                # acepte 'db_actual' como argumento para ser dinámico.
+                df_apertura = consultar_saldos_iniciales_db(db_actual)
+                
+                if not df_apertura.empty:
+                    df_apertura.columns = [c.lower() for c in df_apertura.columns]
+                    
+                    fmt = {'debe': formato_contable, 'haber': formato_contable}
+                    st.dataframe(df_apertura.style.format(fmt), use_container_width=True, hide_index=True)
+                    
+                    t_debe = df_apertura['debe'].astype(float).sum()
+                    t_haber = df_apertura['haber'].astype(float).sum()
+                    
+                    c1, c2 = st.columns(2)
+                    c1.metric("TOTAL DEBE", formato_contable(t_debe))
+                    c2.metric("TOTAL HABER", formato_contable(t_haber))
+                    
+                    if abs(t_debe - t_haber) < 0.01:
+                        st.success("✅ La apertura está cuadrada.")
+                    else:
+                        st.error(f"❌ Descuadre: {formato_contable(t_debe - t_haber)}")
+                else:
+                    st.warning(f"⚠️ No hay datos cargados para {empresa_data['nombre_empresa']}. Ve a la pestaña 'Importar Excel'.")
+            
+            # Aquí iría el resto de la lógica para tab2 y tab3...
+
+            with tab2:
+                st.markdown("### 📤 Cargar nuevo Comprobante de Apertura")
+
+                # 1. SEGURIDAD Y CONTEXTO
+                db_actual = st.session_state.get('DB_ACTUAL')
+                cliente_id = st.session_state.get('cliente_id')
+                rol = st.session_state.get('rol')
+
+                if not db_actual:
+                    st.error("No se ha seleccionado una base de datos de empresa.")
+                    st.stop()
+
+                empresa_data = obtener_datos_agente_db(db_actual)
+
+                # 2. FILTRO DE ACCESO
+                if empresa_data and rol != 'admin':
+                    if empresa_data['id'] != cliente_id:
+                        st.error("⚠️ Acceso denegado: No tienes permisos para esta empresa.")
+                        st.stop()
+
+                if not empresa_data:
+                    st.error("⚠️ No se pudieron cargar los datos de la empresa.")
+                else:
+                    # 3. PROCESAMIENTO DEL ARCHIVO
+                    archivo_excel = st.file_uploader("Seleccione el archivo .xlsx", type=["xlsx", "xls"], key="uploader_tab")
+                    
+                    if archivo_excel:
+                        try:
+                            df_subido = pd.read_excel(archivo_excel, header=None, skiprows=1, dtype=object)
+                            df_subido.columns = ['id_ex', 'N_comprobante', 'Descripcion', 'Fecha', 
+                                                 'plan_de_cuentas', 'cuenta_contable', 'Ref', 'Debe', 'Haber']
+                            df_subido = df_subido.drop(columns=['id_ex'])
+                            
+                            if str(df_subido.iloc[0, 0]).lower() in ['n_comprobante', 'nan']:
+                                df_subido = df_subido.iloc[1:].reset_index(drop=True)
+
+                            df_subido['Fecha'] = pd.to_datetime(df_subido['Fecha'], errors='coerce').dt.date
+
+                            # Limpiamos los montos numéricamente para calcular bien
+                            df_subido['Debe_num'] = df_subido['Debe'].apply(limpiar_monto_contable)
+                            df_subido['Haber_num'] = df_subido['Haber'].apply(limpiar_monto_contable)
+
+                            st.write("### ✅ Vista previa del archivo:")
+                            st.dataframe(
+                                df_subido.style.format({
+                                    'Debe': lambda x: formato_contable(limpiar_monto_contable(x)),
+                                    'Haber': lambda x: formato_contable(limpiar_monto_contable(x))
+                                }), 
+                                hide_index=True, use_container_width=True
+                            )
+
+                            # Validación por cada comprobante individual
+                            resumen_comprobantes = df_subido.groupby('N_comprobante')[['Debe_num', 'Haber_num']].sum().reset_index()
+                            
+                            st.write("### 📊 Auditoría por Comprobante:")
+                            todo_cuadrado = True
+                            
+                            for index, row in resumen_comprobantes.iterrows():
+                                comp = row['N_comprobante']
+                                t_debe = row['Debe_num']
+                                t_haber = row['Haber_num']
+                                diferencia = abs(t_debe - t_haber)
+                                
+
+                            # Totales globales del archivo
+                            v_debe = df_subido['Debe_num'].sum()
+                            v_haber = df_subido['Haber_num'].sum()
+
+                            st.markdown("---")
+                            c1, c2, c3 = st.columns(3)
+                            c1.metric("TOTAL GENERAL DEBE", formato_contable(v_debe))
+                            c2.metric("TOTAL GENERAL HABER", formato_contable(v_haber))
+                            
+                            if todo_cuadrado and abs(v_debe - v_haber) < 0.01:
+                                c3.success("✅ TODO EL ARCHIVO CUADRA")
+                                if st.button("🚀 Confirmar e Importar"):
+                                    df_final_import = df_subido.drop(columns=['Debe_num', 'Haber_num'])
+                                    if cargar_saldos_iniciales_db(df_final_import, nombre_db=db_actual):
+                                        st.balloons()
+                                        st.success("✅ ¡ASIENTOS GUARDADOS EXITOSAMENTE!")
+                                        st.rerun()
+                            else:
+                                c3.error("❌ HAY COMPROBANTES DESCUADRADOS EN EL ARCHIVO")
+                                st.warning("⚠️ Revisa las filas del comprobante 110002 en tu Excel, ya que tienen montos en el Debe pero les falta su contrapartida en el Haber.")
+
+                        except Exception as e:
+                            st.error(f"Error crítico: {e}")
+
+            with tab3:
+                st.markdown("### ⚙️ Administración de Datos")
+
+                # 1. SEGURIDAD Y CONTEXTO
+                db_actual = st.session_state.get('DB_ACTUAL')
+                cliente_id = st.session_state.get('cliente_id')
+                rol = st.session_state.get('rol')
+
+                if not db_actual:
+                    st.error("No se ha seleccionado una base de datos de empresa.")
+                    st.stop()
+
+                empresa_data = obtener_datos_agente_db(db_actual)
+
+                # 2. FILTRO DE ACCESO
+                if empresa_data and rol != 'admin':
+                    if empresa_data['id'] != cliente_id:
+                        st.error("⚠️ Acceso denegado: No tienes permisos para esta empresa.")
+                        st.stop()
+
+                if not empresa_data:
+                    st.error("⚠️ No se pudieron cargar los datos de la empresa.")
+                else:
+                    # 3. INTERFAZ DE BORRADO SEGURO
+                    with st.container(border=True):
+                        st.error("⚠️ **ADVERTENCIA CRÍTICA: BORRADO PERMANENTE**")
+                        st.write(f"Estás operando sobre la base de datos: **{db_actual}**")
+                        
+                        confirmar_borrado = st.checkbox("He leído la advertencia y estoy de acuerdo en borrar toda la información de esta empresa.")
+
+                        if confirmar_borrado:
+                            if st.button("🧨 VACIAR TABLA DE SALDOS", type="primary", use_container_width=True):
+                                # Usamos la conexión dinámica
+                                conn = conectar_db(db_actual)
+                                if conn:
+                                    try:
+                                        cursor = conn.cursor()
+                                        # ESPECIFICAMOS LA BASE DE DATOS DINÁMICAMENTE
+                                        cursor.execute(f"TRUNCATE TABLE `{db_actual}`.saldos_iniciales")
+                                        conn.commit()
+                                        st.success("✅ La tabla ha sido vaciada exitosamente.")
+                                        import time
+                                        time.sleep(1)
+                                        st.rerun()
+                                    except Exception as e:
+                                        st.error(f"Error al vaciar: {e}")
+                                    finally:
+                                        cursor.close()
+                                        conn.close()
+                        else:
+                            st.info("💡 Debe marcar la casilla de arriba para habilitar el botón de borrado.")
+
+    elif sub_opcion == "Consultar Cierre Contable":
+        st.subheader("🔒 Asientos de Cierre")
+        st.info("Aquí puedes programar la consulta a la tabla de cierres (similar a la de apertura).")
+
+
+# D. MAYOR ANALÍTICO
+elif opcion_menu == "📖 Mayor Analítico":
+    st.subheader("📖 Mayor Analítico")
+
+    # 1. SEGURIDAD Y CONTEXTO
+    db_actual = st.session_state.get('DB_ACTUAL')
+    cliente_id = st.session_state.get('cliente_id')
+    rol = st.session_state.get('rol')
+
+    if not db_actual:
+        st.error("No se ha seleccionado una base de datos de empresa.")
+        st.stop()
+
+    empresa_data = obtener_datos_agente_db(db_actual)
+
+    # 2. FILTRO DE ACCESO
+    if empresa_data and rol != 'admin':
+        if empresa_data['id'] != cliente_id:
+            st.error("⚠️ Acceso denegado: No tienes permisos para esta empresa.")
+            st.stop()
+
+    if not empresa_data:
+        st.error("⚠️ No se pudieron cargar los datos de la empresa.")
+    else:
+        # 3. EJECUCIÓN SEGURA
+        mostrar_interfaz_mayor(f_inicio_global, f_fin_global, db_actual)
 
 
 
+# E. ESTADOS FINANCIEROS -> BALANCE COMPROBACIÓN
+elif sub_opcion == "Balance de Comprobación":
+    # 1. Obtener datos de sesión
+    EMPRESA = st.session_state.get('CLIENTE_NOMBRE')
+    db_actual = st.session_state.get('DB_ACTUAL')
+    sucursal = st.session_state.get('SUCURSAL_SELECCIONADA', 'Todas')
+    
+    if not db_actual or db_actual == 'none':
+        st.warning("⚠️ Por favor, seleccione un Cliente/Empresa en el panel lateral.")
+        st.stop()
+    
+    st.subheader(f"⚖️ Balance de Comprobación: {EMPRESA}")
+    
+    # --- FILTROS DE FECHA ---
+    col_f1, col_f2 = st.columns(2)
+    f_bal_desde = col_f1.date_input("Desde", f_inicio_global, key="bal_desde")
+    f_bal_hasta = col_f2.date_input("Hasta", f_fin_global, key="bal_hasta")
 
+    # 2. CONEXIÓN EXCLUSIVA PARA EL BALANCE
+    conn_temporal = conectar_db(db_actual)
+    
+    if conn_temporal:
+        try:
+            # Despertar conexión
+            conn_temporal.ping(reconnect=True)
+            
+            # 3. Generar el reporte usando la conexión temporal
+            df_bal = generar_balance_profesional(conn_temporal, f_bal_desde, f_bal_hasta, sucursal)
+            
+            if not df_bal.empty:
+                columnas_finales = ['codigo', 'nombre', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final', 'nivel']
+                df_display = df_bal[columnas_finales].copy()
+                
+                # Preparar columna con sangría para la pantalla
+                df_display['Cuenta'] = df_display.apply(lambda x: f"{'    ' * (int(x['nivel'])-1)}{x['nombre']}", axis=1)
+                nombre_archivo_pdf = f"Balance_{EMPRESA}_{f_bal_hasta.strftime('%d_%m_%Y')}.pdf"
+
+                # --- VISUALIZACIÓN EN DATAFRAME ---
+                st.dataframe(
+                    df_display.style.format({
+                        'Saldo Inicial': formato_contable, 
+                        'Debe': formato_contable, 
+                        'Haber': formato_contable, 
+                        'Saldo Final': formato_contable
+                    }).apply(estilo_balance, axis=1),
+                    column_order=['codigo', 'Cuenta', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final'],
+                    use_container_width=True, height=500, hide_index=True
+                )
+
+                # --- OBTENER TOTALES DIRECTO DE LA FILA Σ ---
+                fila_sigma = df_display[df_display['codigo'] == 'Σ']
+
+                # Inicializamos y extraemos de forma segura para pantalla y PDF
+                if not fila_sigma.empty:
+                    t = fila_sigma.iloc[0]
+                    t_inicial = float(t['Saldo Inicial'])
+                    t_debe = float(t['Debe'])
+                    t_haber = float(t['Haber'])
+                    t_final = float(t['Saldo Final'])
+                else:
+                    t_inicial = t_debe = t_haber = t_final = 0.0
+
+                # --- VISUALIZACIÓN DEL RESUMEN PATRIMONIAL ---
+                st.markdown("### 📊 Resumen Patrimonial")
+
+                c1, c2, c3, c4 = st.columns(4)
+                c1.metric("Saldo Inicial", formato_contable(t_inicial))
+                c2.metric("Total Debe", formato_contable(t_debe))
+                c3.metric("Total Haber", formato_contable(t_haber))
+                c4.metric("Saldo Final", formato_contable(t_final))
+
+                # Mensaje de cuadre
+                if abs(abs(t_debe) - abs(t_haber)) < 0.01:
+                    st.success("✅ La ecuación patrimonial está balanceada.")
+                else:
+                    diferencia = t_debe - t_haber
+                    st.error(f"❌ Descuadre detectado: {formato_contable(diferencia)}")
+
+                # --- BOTONES DE EXPORTACIÓN ---
+                st.divider()
+                col_btn1, col_btn2 = st.columns(2)
+
+                # 1. EXCEL
+                columnas_excel = {
+                    'codigo': 'Código',
+                    'nombre': 'Cuenta',
+                    'Saldo Inicial': 'Saldo Inicial',
+                    'Debe': 'Debe',
+                    'Haber': 'Haber',
+                    'Saldo Final': 'Saldo Final'
+                }
+                df_excel = df_bal[list(columnas_excel.keys())].copy()
+                df_excel = df_excel.rename(columns=columnas_excel)
+
+                output_ex = io.BytesIO()
+                with pd.ExcelWriter(output_ex, engine='xlsxwriter') as writer:
+                    df_excel.to_excel(writer, index=False, sheet_name='Balance')
+                    workbook  = writer.book
+                    worksheet = writer.sheets['Balance']
+                    format_num = workbook.add_format({'num_format': '#,##0.00'})
+                    
+                    worksheet.set_column('B:B', 40)
+                    worksheet.set_column('C:F', 18, format_num)
+
+                col_btn1.download_button(
+                    label="📥 Descargar Excel Limpio",
+                    data=output_ex.getvalue(),
+                    file_name=f"Balance_{EMPRESA}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True
+                )
+
+                # 2. PDF PROFESIONAL
+                if col_btn2.button("📄 Generar PDF Profesional", use_container_width=True, type="primary"):
+                    try:
+                        from fpdf import FPDF
+                        
+                        class PDF(FPDF):
+                            def header(self):
+                                self.set_font('Arial', 'B', 10)
+                                self.cell(100, 5, f"{EMPRESA}", ln=0)
+                                self.set_font('Arial', '', 8)
+                                self.cell(0, 5, f"Fecha: {datetime.now().strftime('%d/%m/%Y')}", ln=1, align='R')
+                                self.ln(10)
+                                self.set_font('Arial', 'B', 12)
+                                self.cell(0, 5, "Balance de Comprobación", ln=1, align='C')
+                                self.set_font('Arial', '', 9)
+                                self.cell(0, 5, f"Periodo: {f_bal_desde.strftime('%d/%m/%Y')} al {f_bal_hasta.strftime('%d/%m/%Y')}", ln=1, align='C')
+                                self.ln(5)
+                                # Encabezados de tabla
+                                self.set_fill_color(230, 230, 230)
+                                self.set_font('Arial', 'B', 8)
+                                self.cell(25, 7, " Código", 1, 0, 'L', True)
+                                self.cell(70, 7, " Descripción", 1, 0, 'L', True)
+                                self.cell(24, 7, "S. Inicial", 1, 0, 'C', True)
+                                self.cell(24, 7, "Debe", 1, 0, 'C', True)
+                                self.cell(24, 7, "Haber", 1, 0, 'C', True)
+                                self.cell(24, 7, "S. Final", 1, 1, 'C', True)
+
+                        pdf = PDF()
+                        pdf.add_page()
+                        for _, row in df_display.iterrows():
+                            pdf.set_font("Arial", 'B' if row['nivel'] <= 2 else '', 7)
+                            indent = "  " * (int(row['nivel']) - 1)
+                            pdf.cell(25, 6, str(row['codigo']), 1)
+                            pdf.cell(70, 6, f"{indent}{row['nombre']}"[:45], 1)
+                            pdf.cell(24, 6, f"{row['Saldo Inicial']:,.2f}", 1, 0, 'R')
+                            pdf.cell(24, 6, f"{row['Debe']:,.2f}", 1, 0, 'R')
+                            pdf.cell(24, 6, f"{row['Haber']:,.2f}", 1, 0, 'R')
+                            pdf.cell(24, 6, f"{row['Saldo Final']:,.2f}", 1, 1, 'R')
+
+                        # Totales finales en el PDF (Usando las variables correctamente asignadas)
+                        pdf.set_fill_color(0, 0, 0)
+                        pdf.set_text_color(255, 255, 255)
+                        pdf.set_font("Arial", 'B', 8)
+                        pdf.cell(95, 8, "TOTALES GENERALES (NETO)", 1, 0, 'R', True)
+                        pdf.cell(24, 8, f"{t_inicial:,.2f}", 1, 0, 'R', True)
+                        pdf.cell(24, 8, f"{t_debe:,.2f}", 1, 0, 'R', True)
+                        pdf.cell(24, 8, f"{t_haber:,.2f}", 1, 0, 'R', True)
+                        pdf.cell(24, 8, f"{t_final:,.2f}", 1, 1, 'R', True)
+
+                        pdf_bytes = pdf.output(dest='S').encode('latin-1')
+                        st.download_button(
+                            label="⬇️ Descargar PDF Ahora", 
+                            data=pdf_bytes, 
+                            file_name=nombre_archivo_pdf, 
+                            mime="application/pdf", 
+                            use_container_width=True
+                        )
+                    except Exception as e_pdf:
+                        st.error(f"Error generando PDF: {e_pdf}")
+
+            else:
+                st.info("No hay datos para el rango seleccionado.")
+
+        except Exception as e:
+            st.error(f"Error procesando balance: {e}")
+        
+        finally:
+            if conn_temporal.is_connected():
+                conn_temporal.close()
+    else:
+        st.error("No se pudo establecer la conexión para el reporte.")
