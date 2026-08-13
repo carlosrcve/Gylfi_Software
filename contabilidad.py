@@ -4578,25 +4578,19 @@ def gestionar_sidebar():
 
         st.markdown("---")
         
-        # Botón de cerrar sesión
+        # Validación inicial de sesión en el sidebar
         if 'logueado' not in st.session_state or not st.session_state['logueado']:
             login_screen()
+            st.stop()
         else:
-            # Si acaba de entrar, puedes mostrar la transición una sola vez de forma fluida
             if not st.session_state.get('bienvenida_vista', False):
                 pantalla_bienvenida(st.session_state['rol'])
                 st.session_state['bienvenida_vista'] = True
                 st.rerun()
-    
-    # AQUÍ VA EL RESTO DE TU APLICACIÓN Y TU BOTÓN DE CERRAR SESIÓN
-    if st.sidebar.button("🚪 Cerrar Sesión", key="btn_logout_unico_definitivo"):
-        for key in list(st.session_state.keys()):
-            del st.session_state[key]
-        st.rerun()
 
         # --- Navegación ---
         if user_rol == 'admin':
-            menu = st.radio("Navegación", ["📊 Auditoría Contable", "⚙️ Gestión de Usuarios"], key="menu_nav")
+            menu = st.sidebar.radio("Navegación", ["📊 Auditoría Contable", "⚙️ Gestión de Usuarios"], key="menu_nav")
         else:
             menu = "📊 Auditoría Contable"
 
@@ -4648,7 +4642,6 @@ def gestionar_sidebar():
                 if user_rol != 'admin':
                     filtrado_exitoso = False
                     
-                    # 1. Filtrar por ID de usuario o cliente en sesión
                     c_id = st.session_state.get('cliente_id') or st.session_state.get('user_id')
                     if c_id and any(col in df_sidebar.columns for col in ['id', 'cliente_id', 'usuario_id']):
                         col_encontrada = next(c for c in ['id', 'cliente_id', 'usuario_id'] if c in df_sidebar.columns)
@@ -4657,7 +4650,6 @@ def gestionar_sidebar():
                             df_sidebar = match_id
                             filtrado_exitoso = True
 
-                    # 2. Filtrar por coincidencia exacta del nombre de usuario en las columnas de la tabla
                     if not filtrado_exitoso:
                         limpiar_nombre = str(nombre_usuario_actual).strip().lower()
                         for col_u in ['nombre_usuario', 'usuario', 'username', 'user', 'login']:
@@ -4668,7 +4660,6 @@ def gestionar_sidebar():
                                     filtrado_exitoso = True
                                     break
                     
-                    # 3. Si aun así no encuentra por campos exactos, busca por coincidencia parcial del nombre (Ej. Ejan Maroc)
                     if not filtrado_exitoso:
                         limpiar_nombre = str(nombre_usuario_actual).strip().lower()
                         for col_c in df_sidebar.columns:
@@ -4680,12 +4671,10 @@ def gestionar_sidebar():
 
             df_filtrado = df_sidebar
 
-            # Si es usuario normal y no se encontró registro, se muestra advertencia clara en lugar de inventar otra empresa
             if user_rol != 'admin' and df_filtrado.empty:
                 st.error(f"❌ El usuario '{nombre_usuario_actual}' no tiene una empresa asignada en la base de datos.")
                 st.stop()
 
-            # Resguardo absoluto solo si es admin y la tabla está totalmente vacía
             if df_filtrado.empty:
                 df_filtrado = pd.DataFrame({
                     'id': [1],
@@ -4696,7 +4685,6 @@ def gestionar_sidebar():
 
             nombres_empresas = df_filtrado['nombre_empresa'].tolist()
             
-            # Aseguramos que el selectbox recuerde la opción seleccionada previamente
             index_actual = 0
             if 'cliente_seleccionado_previo' in st.session_state and st.session_state['cliente_seleccionado_previo'] in nombres_empresas:
                 index_actual = nombres_empresas.index(st.session_state['cliente_seleccionado_previo'])
@@ -4722,11 +4710,10 @@ def gestionar_sidebar():
             datos_sel = fila_seleccionada.iloc[0]
             db_seleccionada = str(datos_sel['db_nombre']).strip()
             
-            # --- VALIDACIÓN Y REINICIO DE CONEXIÓN LIMPIO ---
             if st.session_state.get('DB_ACTUAL') != db_seleccionada:
                 st.session_state['DB_ACTUAL'] = db_seleccionada
                 st.session_state['db_a_conectar'] = db_seleccionada
-                st.session_state['conn'] = None  # Limpiamos conexión vieja de forma segura
+                st.session_state['conn'] = None 
                 st.rerun()
 
             st.session_state['DB_ACTUAL'] = db_seleccionada
@@ -4735,7 +4722,16 @@ def gestionar_sidebar():
             if 'id' in datos_sel:
                 st.session_state['cliente_id_seleccionado'] = int(datos_sel['id'])
 
+        st.divider()
+
+        # --- BOTÓN DE CERRAR SESIÓN UBICADO AL FINAL DEL SIDEBAR ---
+        if st.sidebar.button("🚪 Cerrar Sesión", key="btn_logout_unico_definitivo"):
+            for key in list(st.session_state.keys()):
+                del st.session_state[key]
+            st.rerun()
+
     return menu
+
 # ==========================================
 # EJECUCIÓN PRINCIPAL EN EL SCRIPT
 # ==========================================
