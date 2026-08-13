@@ -2444,6 +2444,11 @@ def estilo_balance(row):
     # Nivel 5: Cuentas de detalle (Caja, Bancos) - Normal
     return [''] * len(row)
 
+
+
+
+
+
 def gestionar_sidebar():
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
     user_id = st.session_state.get('user_id', st.session_state.get('cliente_id', 'N/A'))
@@ -5811,3 +5816,420 @@ elif sub_opcion == "Balance de Comprobación":
                 conn_temporal.close()
     else:
         st.error("No se pudo establecer la conexión para el reporte.")
+
+
+
+# F. ESTADOS FINANCIEROS -> BALANCE GENERAL
+elif sub_opcion == "Balance General":
+    # 1. Obtener datos de sesión
+    EMPRESA = st.session_state.get('CLIENTE_NOMBRE')
+    db_actual = st.session_state.get('DB_ACTUAL')
+    cliente_id = st.session_state.get('cliente_id')
+    rol = st.session_state.get('rol')
+    sucursal = st.session_state.get('SUCURSAL_ACTUAL', 'Todas')
+
+    # 2. VALIDACIÓN DE SEGURIDAD
+    if not db_actual or db_actual == 'none':
+        st.warning("⚠️ Por favor, seleccione un Cliente/Empresa en el panel lateral.")
+        st.stop()
+
+    # Obtenemos los datos de la empresa
+    empresa_data = obtener_datos_agente_db(db_actual)
+
+    if not empresa_data:
+        st.error("⚠️ No se pudieron cargar los datos de la empresa.")
+        st.stop()
+
+    # Filtro de acceso por rol
+    if rol != 'admin':
+        if empresa_data.get('id') != cliente_id:
+            st.error("⚠️ Acceso denegado: No tienes permisos para esta empresa.")
+            st.stop()
+
+    # 3. INTERFAZ Y PROCESAMIENTO
+    st.subheader(f"📊 Balance General: {empresa_data.get('nombre', EMPRESA)}")
+    f_corte = st.date_input("Fecha de Corte", value=f_fin_global, key="bg_corte")
+    
+    # --- CONEXIÓN TEMPORAL BLINDADA ---
+    conn_temporal = conectar_db(db_actual)
+    
+    if conn_temporal:
+        try:
+            conn_temporal.ping(reconnect=True)
+            
+            # Generar datos
+            # 1. Generar datos desde el inicio hasta el corte
+            df_datos = generar_balance_profesional(conn_temporal, "2000-01-01", f_corte, sucursal)
+            
+            if not df_datos.empty:
+                # 1. Preparación y Agrupación inicial de los datos
+                df_bg = df_datos[df_datos['codigo'].astype(str).str.startswith(('1', '2', '3'))].copy()
+                df_bg = df_bg.groupby(['codigo', 'nombre', 'nivel'])['Saldo Final'].sum().reset_index()
+                
+                # Creamos la columna 'Cuenta' con sangría visual para el reporte
+                df_bg['Cuenta'] = df_bg.apply(lambda x: f"{'    ' * (int(x['nivel'])-1)}{x['nombre']}", axis=1)
+
+                # 2. Lógica para identificar cuentas finales (hojas) y obtener totales reales
+                todos_los_codigos = df_bg['codigo'].astype(str).unique()
+                
+                def es_hoja(codigo):
+                    # Es hoja si ningún otro código del DF empieza por el código actual + punto
+                    return not any(c.startswith(str(codigo) + '.') for c in todos_los_codigos)
+
+                df_bg['es_hoja'] = df_bg['codigo'].apply(es_hoja)
+
+                # 3. Cálculo de Totales (usando solo las cuentas hoja y valor absoluto)
+                # Esto evita la duplicación al sumar padres e hijos
+                act = df_bg[df_bg['es_hoja'] & df_bg['codigo'].astype(str).str.startswith('1')]['Saldo Final'].abs().sum()
+                pas = df_bg[df_bg['es_hoja'] & df_bg['codigo'].astype(str).str.startswith('2')]['Saldo Final'].abs().sum()
+                pat = df_bg[df_bg['es_hoja'] & df_bg['codigo'].astype(str).str.startswith('3')]['Saldo Final'].abs().sum()
+
+                # 4. Renderizado del Reporte
+                st.dataframe(
+                    df_bg.style.format({'Saldo Final': formato_contable}).apply(estilo_balance, axis=1),
+                    column_order=['codigo', 'Cuenta', 'Saldo Final'],
+                    use_container_width=True, height=500, hide_index=True
+                )
+                
+                # 5. Obtención de utilidad y cierre de balance
+                utilidad_ejercicio = st.session_state.get('utilidad_ejercicio', 0.0)
+                patrimonio_total = pat + utilidad_ejercicio
+                
+
+                if utilidad_ejercicio == 0.0:
+                    st.sidebar.warning("⚠️ Nota: La utilidad del ejercicio no está cargada. El balance podría mostrar descuadre.")
+                
+                # Ecuación ajustada para visualización: Patrimonio + Utilidad
+                patrimonio_ajustado = abs(pat) + utilidad_ejercicio
+                descuadre = act - (abs(pas) + patrimonio_ajustado)
+                
+                st.divider()
+                c1, c2, c3 = st.columns(3)
+                c1.metric("ACTIVOS", formato_contable(act))
+                c2.metric("PASIVOS", formato_contable(abs(pas)))
+                # Mostramos el patrimonio ajustado
+                c3.metric("PATRIMONIO + UTILIDAD", formato_contable(patrimonio_ajustado))
+                
+                # VALIDACIÓN INTELIGENTE
+                st.subheader("Estado de Validación")
+                if abs(descuadre) < 100: # Margen por redondeos
+                    st.success("✅ ¡Balance Cuadrado!")
+                else:
+                    st.error(f"❌ Descuadre contable detectado: {formato_contable(descuadre)}")
+
+                # --- ÁREA DE DESCARGAS (Excel/PDF) ---
+                # ÁREA DE DESCARGAS
+                st.write("### 📥 Exportar Reporte")
+                col_ex, col_pdf = st.columns(2)
+
+                # --- EXCEL ---
+                output_bg = io.BytesIO()
+                with pd.ExcelWriter(output_bg, engine='xlsxwriter') as writer:
+                    df_bg.to_excel(writer, index=False, sheet_name='Balance_General')
+                
+                col_ex.download_button(
+                    label="📥 Descargar Excel",
+                    data=output_bg.getvalue(),
+                    file_name=f"Balance_General_{EMPRESA}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True
+                )
+
+                # --- PDF ---
+                if col_pdf.button("📄 Generar PDF Profesional", use_container_width=True, type="primary"):
+                    try:
+                        from fpdf import FPDF
+                        from datetime import datetime
+
+                        class PDF(FPDF):
+                            def header(self):
+                                self.set_font('Arial', 'B', 10)
+                                self.cell(100, 5, f"{EMPRESA}", ln=0)
+                                self.set_font('Arial', '', 8)
+                                self.cell(0, 5, f"Fecha: {datetime.now().strftime('%d/%m/%Y')}", ln=1, align='R')
+                                self.ln(10)
+                                self.set_font('Arial', 'B', 12)
+                                self.cell(0, 5, "BALANCE GENERAL", ln=1, align='C')
+                                self.set_font('Arial', '', 9)
+                                self.cell(0, 5, f"Al Corte: {f_corte.strftime('%d/%m/%Y')}", ln=1, align='C')
+                                self.ln(5)
+                                self.set_fill_color(230, 230, 230)
+                                self.set_font('Arial', 'B', 9)
+                                self.cell(30, 8, " Código", 1, 0, 'L', True)
+                                self.cell(110, 8, " Cuenta / Descripción", 1, 0, 'L', True)
+                                self.cell(50, 8, "Monto (Bs.)", 1, 1, 'C', True)
+
+                        pdf = PDF()
+                        pdf.add_page()
+                        for _, row in df_bg.iterrows():
+                            pdf.set_font("Arial", 'B' if row['nivel'] <= 2 else '', 8)
+                            indent = "  " * (int(row['nivel']) - 1)
+                            pdf.cell(30, 7, str(row['codigo']), 1)
+                            pdf.cell(110, 7, f"{indent}{row['nombre']}"[:60], 1)
+                            pdf.cell(50, 7, f"{abs(row['Saldo Final']):,.2f}", 1, 1, 'R')
+
+                        # Franja de validación en PDF
+                        pdf.set_fill_color(0, 0, 0)
+                        pdf.set_text_color(255, 255, 255)
+                        pdf.set_font("Arial", 'B', 9)
+                        total_verificacion = act - (abs(pas) + abs(pat))
+                        pdf.cell(140, 10, "TOTAL ECUACIÓN PATRIMONIAL (ACT - PAS - PAT)", 1, 0, 'R', True)
+                        pdf.cell(50, 10, f"{total_verificacion:,.2f}", 1, 1, 'R', True)
+
+                        pdf_bytes = pdf.output(dest='S').encode('latin-1')
+                        st.download_button(
+                            label="⬇️ Descargar PDF Ahora",
+                            data=pdf_bytes,
+                            file_name=f"Balance_General_{EMPRESA}.pdf",
+                            mime="application/pdf",
+                            use_container_width=True
+                        )
+                    except Exception as e_pdf:
+                        st.error(f"Error al generar el PDF: {e_pdf}")
+
+                # VALIDACIÓN EN PANTALLA
+                if abs(act - (abs(pas) + abs(pat))) < 0.01:
+                    st.success("✅ Ecuación Patrimonial Cuadrada")
+                else:
+                    st.error(f"❌ Ecuación Patrimonial Descuadrada: {formato_contable(act - (abs(pas) + abs(pat)))}")
+            else:
+                st.info("No se encontraron datos para generar el balance.")
+
+        except Exception as e:
+            st.error(f"Error procesando el Balance General: {e}")
+        finally:
+            if conn_temporal.is_connected():
+                conn_temporal.close()
+    else:
+        st.error("No se pudo conectar a la base de datos del cliente.")
+
+
+# G. ESTADOS FINANCIEROS -> ESTADO DE RESULTADOS
+elif sub_opcion == "Estado de Resultados":
+    # 1. OBTENCIÓN DE DATOS DE SESIÓN Y SEGURIDAD
+    EMPRESA = st.session_state.get('CLIENTE_NOMBRE')
+    db_actual = st.session_state.get('DB_ACTUAL')
+    cliente_id = st.session_state.get('cliente_id')
+    rol = st.session_state.get('rol')
+    sucursal = st.session_state.get('SUCURSAL_ACTUAL', 'Todas')
+
+    # 2. VALIDACIÓN DE SEGURIDAD
+    if not db_actual or db_actual == 'none':
+        st.warning("⚠️ Por favor, seleccione un Cliente/Empresa en el panel lateral.")
+        st.stop()
+
+    empresa_data = obtener_datos_agente_db(db_actual)
+    
+    if not empresa_data:
+        st.error("⚠️ No se pudieron cargar los datos de la empresa.")
+        st.stop()
+
+    # Bloqueo de acceso por rol
+    if rol != 'admin' and empresa_data.get('id') != cliente_id:
+        st.error("⚠️ Acceso denegado: No tienes permisos para esta empresa.")
+        st.stop()
+
+    # 3. INTERFAZ DEL REPORTE
+    st.subheader(f"📈 Estado de Resultados: {EMPRESA}")
+    
+    col_f1, col_f2 = st.columns(2)
+    f_er_desde = col_f1.date_input("Desde", f_inicio_global, key="er_desde")
+    f_er_hasta = col_f2.date_input("Hasta", f_fin_global, key="er_hasta")
+    
+    # 4. CONEXIÓN Y PROCESAMIENTO
+    conn_er = conectar_db(db_actual)
+    
+    if conn_er:
+        try:
+            conn_er.ping(reconnect=True)
+            df_datos = generar_balance_profesional(conn_er, f_er_desde, f_er_hasta, sucursal)
+            
+            if not df_datos.empty:
+                # 1. Filtramos cuentas de resultados (4 al 8)
+                df_er = df_datos[df_datos['codigo'].astype(str).str.startswith(('4', '5', '6', '7', '8'))].copy()
+                df_er['Cuenta'] = df_er.apply(lambda x: f"{'    ' * (int(x['nivel'])-1)}{x['nombre']}", axis=1)
+                
+                # 2. RENDERIZADO EN PANTALLA
+                st.dataframe(
+                    df_er.style.format({'Saldo Final': formato_contable}).apply(estilo_balance, axis=1),
+                    column_order=['codigo', 'Cuenta', 'Saldo Final'],
+                    use_container_width=True, 
+                    height=400, 
+                    hide_index=True
+                )
+                
+                # 3. CÁLCULO DE UTILIDAD (Usando Nivel 1)
+                df_n1 = df_er[df_er['nivel'] == 1]
+                ing = df_n1[df_n1['codigo'].astype(str).str.startswith('4')]['Saldo Final'].sum()
+                cos = df_n1[df_n1['codigo'].astype(str).str.startswith('5')]['Saldo Final'].sum()
+                gas = df_n1[df_n1['codigo'].astype(str).str.startswith('6')]['Saldo Final'].sum()
+                # Utilidad = Ingresos (abs porque suelen ser acreedores) - Costos - Gastos
+                utilidad = abs(ing) - (abs(cos) + abs(gas))
+                col1, col2, col3 = st.columns(3)
+
+                with col1:
+                    st.metric("Ingresos Totales", f"Bs. {ing:,.2f}")
+
+                with col2:
+                    st.metric("Costos Totales", f"Bs. {cos:,.2f}") # <--- AQUÍ LA NUEVA MÉTRICA
+
+                with col3:
+                    st.metric("Utilidad / Pérdida", f"Bs. {formato_contable(utilidad)}", 
+                          delta=f"{formato_contable(utilidad)}",
+                          delta_color="normal" if utilidad >= 0 else "inverse")
+
+
+                # 1. GESTIÓN DE TASA BCV
+                # 1. GESTIÓN DE TASA BCV
+                if 'tasa_bcv' not in st.session_state:
+                    tasa, _ = obtener_tasa_bcv_hoy(conn)
+                    st.session_state.tasa_bcv = tasa
+
+                if st.button("🔄 Actualizar Tasa BCV"):
+                    tasa, _ = obtener_tasa_bcv_hoy(conn)
+                    st.session_state.tasa_bcv = tasa
+                    st.rerun()
+
+                tasa = st.session_state.tasa_bcv if st.session_state.tasa_bcv > 0 else 1.0
+
+                # 2. CÁLCULO UNIFICADO (Usando df_er, la misma fuente que tu tabla)
+                # Asegúrate de que df_er sea la variable que contiene tu reporte completo
+                if 'df_er' in locals() and not df_er.empty:
+                    df_n1 = df_er[df_er['nivel'] == 1]
+                    
+                    # Cálculos en Bolívares
+                    ing = df_n1[df_n1['codigo'].astype(str).str.startswith('4')]['Saldo Final'].sum()
+                    cos = df_n1[df_n1['codigo'].astype(str).str.startswith('5')]['Saldo Final'].sum()
+                    gas = df_n1[df_n1['codigo'].astype(str).str.startswith('6')]['Saldo Final'].sum()
+                    utilidad = abs(ing) - (abs(cos) + abs(gas))
+                    
+                    # Cálculos en USD
+                    ing_usd, cos_usd, gas_usd, util_usd = [x / tasa for x in [abs(ing), abs(cos), abs(gas), utilidad]]
+                    costos_gastos_usd = cos_usd + gas_usd
+                else:
+                    # Si df_er no existe aquí, significa que el cálculo debe ir DENTRO del bloque que genera el reporte
+                    st.warning("El reporte principal aún no se ha generado.")
+                    ing, cos, gas, utilidad, ing_usd, costos_gastos_usd, util_usd = [0.0]*7
+
+                # 3. VISUALIZACIÓN
+                c1, c2, c3 = st.columns(3)
+
+                with c1:
+                    st.metric("Ingresos (USD)", f"$ {formato_contable(ing_usd)}")
+
+                with c2:
+                    st.metric("Costos/Gastos (USD)", f"$ {formato_contable(costos_gastos_usd)}")
+
+                with c3:
+                    st.metric("Utilidad (USD)", f"$ {formato_contable(util_usd)}", 
+                              delta=f"{formato_contable(util_usd)} USD",
+                              delta_color="normal" if utilidad >= 0 else "inverse")
+
+                # Contenedor estético para la Tasa BCV
+                with st.container():
+                    st.markdown(
+                        f"""
+                        <div style="
+                            background-color: #f0f2f6; 
+                            padding: 10px; 
+                            border-radius: 10px; 
+                            border-left: 5px solid #0081C9;
+                            max-width: 300px;  /* <--- ESTA ES LA CLAVE */ 
+                            display: flex; 
+                            justify-content: space-between; 
+                            align-items: center;
+                        ">
+                            <span style="color: #31333F; font-weight: bold; font-size: 14px;">
+                                🔄 Tasa de Referencia BCV
+                            </span>
+                            <span style="color: #0081C9; font-weight: 900; font-size: 16px;">
+                                {tasa:,.2f} <span style="font-size: 12px; color: #808495;">Bs/USD</span>
+                            </span>
+                        </div>
+                        """,
+                        unsafe_allow_html=True
+                    )
+                
+                st.divider()
+
+                # 4. ÁREA DE EXPORTACIÓN
+                st.write("### 📥 Exportar Reporte")
+                col_ex, col_pdf = st.columns(2)
+
+                # --- EXCEL ---
+                output_er = io.BytesIO()
+                with pd.ExcelWriter(output_er, engine='xlsxwriter') as writer:
+                    df_er.to_excel(writer, index=False, sheet_name='Estado_Resultados')
+                
+                col_ex.download_button(
+                    label="📥 Descargar Excel",
+                    data=output_er.getvalue(),
+                    file_name=f"Estado_Resultados_{EMPRESA}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True
+                )
+
+                # --- PDF ---
+                if col_pdf.button("📄 Generar PDF Profesional", use_container_width=True, type="primary"):
+                    try:
+                        from fpdf import FPDF
+                        from datetime import datetime
+
+                        class PDF(FPDF):
+                            def header(self):
+                                self.set_font('Arial', 'B', 10)
+                                self.cell(100, 5, f"{EMPRESA}", ln=0)
+                                self.set_font('Arial', '', 8)
+                                self.cell(0, 5, f"Fecha: {datetime.now().strftime('%d/%m/%Y')}", ln=1, align='R')
+                                self.ln(10)
+                                self.set_font('Arial', 'B', 12)
+                                self.cell(0, 5, "ESTADO DE RESULTADOS", ln=1, align='C')
+                                self.set_font('Arial', '', 9)
+                                self.cell(0, 5, f"Periodo: {f_er_desde.strftime('%d/%m/%Y')} al {f_er_hasta.strftime('%d/%m/%Y')}", ln=1, align='C')
+                                self.ln(5)
+                                self.set_fill_color(230, 230, 230)
+                                self.set_font('Arial', 'B', 9)
+                                self.cell(30, 8, " Código", 1, 0, 'L', True)
+                                self.cell(110, 8, " Cuenta / Descripción", 1, 0, 'L', True)
+                                self.cell(50, 8, "Monto (Bs.)", 1, 1, 'C', True)
+
+                        pdf = PDF()
+                        pdf.add_page()
+                        for _, row in df_er.iterrows():
+                            pdf.set_font("Arial", 'B' if row['nivel'] <= 2 else '', 8)
+                            indent = "  " * (int(row['nivel']) - 1)
+                            pdf.cell(30, 7, str(row['codigo']), 1)
+                            pdf.cell(110, 7, f"{indent}{row['nombre']}"[:60], 1)
+                            pdf.cell(50, 7, f"{abs(row['Saldo Final']):,.2f}", 1, 1, 'R')
+
+                        # TOTALES EN PDF
+                        pdf.set_fill_color(0, 0, 0)
+                        pdf.set_text_color(255, 255, 255)
+                        pdf.set_font("Arial", 'B', 10)
+                        texto_res = "UTILIDAD NETA DEL EJERCICIO" if utilidad >= 0 else "PÉRDIDA NETA DEL EJERCICIO"
+                        pdf.cell(140, 10, texto_res, 1, 0, 'R', True)
+                        pdf.cell(50, 10, f"{utilidad:,.2f}", 1, 1, 'R', True)
+
+                        pdf_bytes = pdf.output(dest='S').encode('latin-1')
+                        st.download_button(
+                            label="⬇️ Descargar PDF Ahora",
+                            data=pdf_bytes,
+                            file_name=f"Estado_Resultados_{EMPRESA}.pdf",
+                            mime="application/pdf",
+                            use_container_width=True
+                        )
+                    except Exception as e_pdf:
+                        st.error(f"Error PDF: {e_pdf}")
+
+            else:
+                st.info("No se encontraron movimientos de resultados en este periodo.")
+
+        
+        except Exception as e:
+            st.error(f"Error en Estado de Resultados: {e}")
+        finally:
+            if conn_er.is_connected():
+                conn_er.close()
+    else:
+        st.error("Error al conectar con la base de datos.")
+
