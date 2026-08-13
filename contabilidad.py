@@ -729,7 +729,7 @@ def obtener_datos_barras(db, fecha_inicio, fecha_fin):
             conn.close()
 
 
-@@st.cache_data(ttl=300)
+@st.cache_data(ttl=300)
 def obtener_historico_utilidad(db, f_inicio=None, f_fin=None):
     conn = conectar_db(db)
     df_default = pd.DataFrame(columns=['anio', 'mes', 'mes_nombre', 'utilidad_mensual'])
