@@ -252,15 +252,16 @@ def mostrar_plantilla_bienvenida():
         st.session_state['bienvenida_completada'] = True
         st.rerun()
 
+def play_success_sound():
+    audio_url = "https://www.myinstants.com/media/sounds/ding-sound-effect_1.mp3"
+    st.audio(audio_url, format="audio/mp3", autoplay=True)
+
+
 def login_screen():
     # --- ESTILOS CSS PROFESIONALES ---
     st.markdown("""
         <style>
-        /* Contenedor principal */
-        .stApp {
-            background-color: #f8fafc;
-        }
-        /* Tarjeta de Login */
+        .stApp { background-color: #f8fafc; }
         .login-box {
             background-color: white;
             padding: 2rem;
@@ -269,7 +270,6 @@ def login_screen():
             border: 1px solid #e2e8f0;
             margin-bottom: 20px;
         }
-        /* Botón estilo corporativo */
         .stButton > button {
             width: 100%;
             background: linear-gradient(90deg, #0f172a 0%, #334155 100%);
@@ -284,23 +284,12 @@ def login_screen():
             background: linear-gradient(90deg, #334155 0%, #0f172a 100%);
             transform: translateY(-2px);
         }
-        /* Ajuste de etiquetas de inputs */
         label {
             font-weight: 500 !important;
             color: #475569 !important;
         }
         </style>
     """, unsafe_allow_html=True)
-
-    def play_success_sound():
-        audio_url = "https://www.myinstants.com/media/sounds/ding-sound-effect_1.mp3"
-        sound_html = f"""
-            <iframe src="{audio_url}" allow="autoplay" style="display:none"></iframe>
-            <audio autoplay>
-                <source src="{audio_url}" type="audio/mpeg">
-            </audio>
-        """
-        st.markdown(sound_html, unsafe_allow_html=True)
 
     # --- DISEÑO DEL FRAME ---
     _, col_center, _ = st.columns([1, 1.5, 1])
@@ -312,15 +301,11 @@ def login_screen():
         with st.container():
             st.markdown('<div class="login-box">', unsafe_allow_html=True)
             
-            # --- MENSAJE DE BIENVEVIDA FIJO EN EL FRAME DE LOGIN ---
             st.info("☁️ **¡Bienvenido a Gylfi Software en la Nube!**")
-            
-            # Encabezado con Marketing
             st.image("https://cdn-icons-png.flaticon.com/512/5164/5164023.png", width=60)
             st.subheader("Auditoría Inteligente")
             st.caption("Bienvenido al ecosistema contable de Carlos Rodriguez")
             
-            # Inputs limpios
             user = st.text_input("Usuario", placeholder="ej: admin_kd", key="user_input")
             password = st.text_input("Contraseña", type="password", placeholder="••••••••", key="pass_input")
             
@@ -329,20 +314,17 @@ def login_screen():
                 res = verificar_usuario(conexion_activa, user, password)
                 
                 if res:
+                    # Se ejecuta la función global al pulsar el botón correctamente
                     play_success_sound()
                     st.toast("¡Acceso Concedido!", icon="🔒")
                     
-                    # --- GUARDAMOS EL ESTADO CORRECTAMENTE ---
                     st.session_state['logueado'] = True
                     st.session_state['usuario'] = user
                     st.session_state['rol'] = res['rol']
                     st.session_state['user_id'] = res['id']         
                     st.session_state['cliente_id'] = res.get('cliente_id') 
-                    
-                    # Reiniciamos la bandera de bienvenida para que la plantilla gigante se muestre
                     st.session_state['bienvenida_completada'] = False
                     
-                    # Recargamos al instante; la plantilla de bienvenida se encargará de la pausa visual
                     st.rerun()
                 else:
                     st.error("❌ Credenciales incorrectas")
