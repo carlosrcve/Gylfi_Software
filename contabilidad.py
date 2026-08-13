@@ -729,7 +729,7 @@ def obtener_datos_barras(db, fecha_inicio, fecha_fin):
             conn.close()
 
 
-@st.cache_data(ttl=300)
+@@st.cache_data(ttl=300)
 def obtener_historico_utilidad(db, f_inicio=None, f_fin=None):
     conn = conectar_db(db)
     df_default = pd.DataFrame(columns=['anio', 'mes', 'mes_nombre', 'utilidad_mensual'])
@@ -4600,8 +4600,17 @@ if "🏠 Inicio" in opcion_menu:
 
     u_v = 0
     if not df_utilidad.empty and 'utilidad_mensual' in df_utilidad.columns:
-        # CAMBIO: Usamos .sum() para sumar todos los meses del período filtrado en lugar de tomar solo iloc[0] (enero)
-        u_v = df_utilidad['utilidad_mensual'].sum()
+        # Si f_fin_global está definido, filtramos el DataFrame hasta ese mes exacto antes de sumar
+        if 'f_fin_global' in st.session_state and st.session_state['f_fin_global']:
+            mes_limite = st.session_state['f_fin_global'].month
+            anio_limite = st.session_state['f_fin_global'].year
+            
+            # Filtramos solo los meses desde enero hasta el mes seleccionado en la UI
+            df_filtrado = df_utilidad[(df_utilidad['anio'] == anio_limite) & (df_utilidad['mes'] <= mes_limite)]
+            u_v = df_filtrado['utilidad_mensual'].sum()
+        else:
+            # Fallback por si acaso
+            u_v = df_utilidad['utilidad_mensual'].sum()
 
     col1, col2, col3, col4 = st.columns(4)
     with col1:
