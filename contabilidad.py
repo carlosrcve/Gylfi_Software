@@ -9775,6 +9775,15 @@ elif opcion_menu == "📚 Libros Fiscales":
 elif "Proveedores" in opcion_menu:
     st.title("👤 Gestión de Directorio de Proveedores")
     
+    st.title("👤 Gestión de Directorio de Proveedores")
+    
+    # 0. ASEGURAR QUE db_actual ESTÉ DEFINIDA
+    db_actual = st.session_state.get('DB_ACTUAL')
+    
+    if not db_actual or db_actual == 'none':
+        st.warning("⚠️ Por favor, seleccione un Cliente/Empresa en el panel lateral.")
+        st.stop()
+
     # 1. Obtenemos la conexión
     conn_empresa = conectar_db(db_actual)
     
