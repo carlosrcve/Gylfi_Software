@@ -4606,7 +4606,8 @@ if "🏠 Inicio" in opcion_menu:
 
     u_v = 0
     if not df_utilidad.empty and 'utilidad_mensual' in df_utilidad.columns:
-        u_v = df_utilidad['utilidad_mensual'].iloc[0]
+        # CAMBIO: Usamos .sum() para sumar todos los meses del período filtrado en lugar de tomar solo iloc[0] (enero)
+        u_v = df_utilidad['utilidad_mensual'].sum()
 
     col1, col2, col3, col4 = st.columns(4)
     with col1:
