@@ -4772,10 +4772,6 @@ else:
     # 3. Si ya pasó la bienvenida, carga el menú lateral y la aplicación normal
     menu_lateral = gestionar_sidebar()
 
-# ==========================================
-# EJECUCIÓN PRINCIPAL EN EL SCRIPT
-# ==========================================
-menu_lateral = gestionar_sidebar()
 
 if menu_lateral == "⚙️ Gestión de Usuarios":    
     try:
