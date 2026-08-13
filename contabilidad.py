@@ -444,54 +444,56 @@ def registrar_log_automatico(conn, accion, detalles):
         if cursor:
             cursor.close()
 
+
 @st.cache_data(ttl=300)
 def obtener_historico_utilidad(db, f_inicio=None, f_fin=None):
     conn = conectar_db(db)
-    # Estructura por defecto requerida para los gráficos históricos
     df_default = pd.DataFrame(columns=['anio', 'mes', 'mes_nombre', 'utilidad_mensual'])
     
     if not conn:
         return df_default
     
-    if f_inicio is not None and f_fin is None:
-        f_fin = f_inicio
-        f_inicio = None
-
+    # Si no se pasan fechas por parámetro, las tomamos directo del session_state de tus filtros
+    if f_inicio is None:
+        f_inicio = st.session_state.get("f_inicio_global")
     if f_fin is None:
-        import datetime
-        f_fin = datetime.date.today()
-    
-    fecha_fin_str = f_fin.strftime('%Y-%m-%d') if hasattr(f_fin, 'strftime') else str(f_fin).split()[0]
+        f_fin = st.session_state.get("f_fin_global")
 
-    if f_inicio is not None:
-        fecha_inicio_str = f_inicio.strftime('%Y-%m-%d') if hasattr(f_inicio, 'strftime') else str(f_inicio).split()[0]
-    else:
-        partes = fecha_fin_str.split('-')
-        # Tomamos desde el inicio del año para tener el histórico completo de los meses
-        fecha_inicio_str = f"{partes[0]}-01-01"
+    # Fallback por seguridad si el session_state estuviera vacío
+    if f_inicio is None or f_fin is None:
+        import datetime
+        anio_actual = datetime.datetime.now().year
+        f_inicio = datetime.date(anio_actual, 1, 1)
+        f_fin = datetime.date.today()
+
+    fecha_inicio_str = f_inicio.strftime('%Y-%m-%d') if hasattr(f_inicio, 'strftime') else str(f_inicio).split()[0]
+    fecha_fin_str = f_fin.strftime('%Y-%m-%d') if hasattr(f_fin, 'strftime') else str(f_fin).split()[0]
     
-    # Consulta agrupada mes a mes basada exactamente en tu respaldo que sí lee los datos
+    anio_base = int(fecha_inicio_str.split('-')[0])
+
+    # Consulta agrupada mes a mes dentro del rango acumulado definido por tus selectores
     query = f"""
         SELECT 
-            YEAR(fecha) as anio,
-            MONTH(fecha) as mes,
-            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '4%' THEN haber ELSE 0 END) as ing_haber,
-            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '4%' THEN debe ELSE 0 END) as ing_debe,
+            YEAR(STR_TO_DATE(LEFT(fecha, 10), '%Y-%m-%d')) as anio,
+            MONTH(STR_TO_DATE(LEFT(fecha, 10), '%Y-%m-%d')) as mes,
             
-            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '5%' THEN debe ELSE 0 END) as cos_debe,
-            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '5%' THEN haber ELSE 0 END) as cos_haber,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '4%%' THEN haber ELSE 0 END) as ing_haber,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '4%%' THEN debe ELSE 0 END) as ing_debe,
             
-            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '6%' THEN debe ELSE 0 END) as gas_debe,
-            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '6%' THEN haber ELSE 0 END) as gas_haber,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '5%%' THEN debe ELSE 0 END) as cos_debe,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '5%%' THEN haber ELSE 0 END) as cos_haber,
+            
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '6%%' THEN debe ELSE 0 END) as gas_debe,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '6%%' THEN haber ELSE 0 END) as gas_haber,
 
-            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '7%' THEN haber ELSE 0 END) as oing_haber,
-            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '7%' THEN debe ELSE 0 END) as oing_debe,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '7%%' THEN haber ELSE 0 END) as oing_haber,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '7%%' THEN debe ELSE 0 END) as oing_debe,
             
-            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '8%' THEN debe ELSE 0 END) as oeg_debe,
-            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '8%' THEN haber ELSE 0 END) as oeg_haber
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '8%%' THEN debe ELSE 0 END) as oeg_debe,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '8%%' THEN haber ELSE 0 END) as oeg_haber
         FROM `{db}`.asientos_contables 
-        WHERE fecha >= %s AND fecha <= %s
-        GROUP BY YEAR(fecha), MONTH(fecha)
+        WHERE LEFT(fecha, 10) >= %s AND LEFT(fecha, 10) <= %s
+        GROUP BY YEAR(STR_TO_DATE(LEFT(fecha, 10), '%Y-%m-%d')), MONTH(STR_TO_DATE(LEFT(fecha, 10), '%Y-%m-%d'))
         ORDER BY anio ASC, mes ASC
     """
     
@@ -502,21 +504,20 @@ def obtener_historico_utilidad(db, f_inicio=None, f_fin=None):
         
         df_sql = pd.DataFrame(resultados) if resultados else pd.DataFrame(columns=['anio', 'mes'])
 
-        # Creamos la plantilla base con los 12 meses del año analizado para que ningún mes falte en las gráficas
-        anio_base = int(fecha_inicio_str.split('-')[0])
+        # Plantilla con los 12 meses del año para que la interfaz mantenga la estructura completa
         meses_skeleton = pd.DataFrame({
             'anio': [anio_base] * 12,
             'mes': list(range(1, 13))
         })
 
-        if not df_sql.empty:
+        if not df_sql.empty and 'mes' in df_sql.columns:
             df = pd.merge(meses_skeleton, df_sql, on=['anio', 'mes'], how='left')
         else:
             df = meses_skeleton
 
         df = df.fillna(0)
 
-        # Cálculo fila por fila idéntico al de tu respaldo
+        # Cálculo de la utilidad mensual
         ingresos = df['ing_haber'] - df['ing_debe']
         costos = df['cos_debe'] - df['cos_haber']
         gastos = (df['gas_debe'] - df['gas_haber']).abs()
