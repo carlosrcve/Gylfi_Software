@@ -204,6 +204,53 @@ def verificar_usuario(conn, user, password):
     else:
         return None
 
+def mostrar_plantilla_bienvenida():
+    """Pantalla gigante de bienvenida tras iniciar sesión con éxito"""
+    rol = str(st.session_state.get('rol', '')).upper()
+    nombre = (
+        st.session_state.get('nombre_usuario') or 
+        st.session_state.get('username') or 
+        st.session_state.get('usuario') or 
+        'Usuario'
+    )
+    
+    # Contenedor centrado para la plantilla de bienvenida
+    _, col_centro, _ = st.columns([1, 2.5, 1])
+    
+    with col_centro:
+        st.write("")
+        st.write("")
+        
+        if rol == 'ADMIN':
+            mensaje_rol = "👑 Administrador Principal / Dueño del Software"
+            gradient = "linear-gradient(135deg, #0f172a 0%, #1e3a8a 100%)"
+        else:
+            mensaje_rol = f"👤 Usuario Propietario: {nombre}"
+            gradient = "linear-gradient(135deg, #0f172a 0%, #334155 100%)"
+
+        st.markdown(f"""
+            <div style="background: {gradient}; padding: 3.5rem; border-radius: 20px; text-align: center; color: white; box-shadow: 0 15px 30px rgba(0,0,0,0.3); border: 1px solid #475569;">
+                <h1 style="color: #ffffff; font-size: 2.8rem; margin-bottom: 10px;">☁️ Gylfi Software en la Nube</h1>
+                <h3 style="color: #38bdf8; font-weight: 500; margin-bottom: 20px;">Ecosistema de Auditoría y Contabilidad Inteligente</h3>
+                <hr style="border-color: #475569; margin: 25px 0;">
+                <h2 style="color: #f8fafc; font-size: 1.5rem; margin-bottom: 10px;">¡Bienvenido al Sistema!</h2>
+                <p style="font-size: 1.2rem; color: #94a3b8; font-weight: 600;">{mensaje_rol}</p>
+            </div>
+        """, unsafe_allow_html=True)
+        
+        st.write("")
+        progress_text = "Cargando módulos de seguridad y bases de datos..."
+        my_bar = st.progress(0, text=progress_text)
+
+        for percent_complete in range(100):
+            time.sleep(0.015)
+            my_bar.progress(percent_complete + 1, text=progress_text)
+            
+        time.sleep(0.8)
+        
+        # Una vez vista la plantilla, cambiamos la bandera para entrar a la app normal
+        st.session_state['bienvenida_completada'] = True
+        st.rerun()
 
 def login_screen():
     # --- ESTILOS CSS PROFESIONALES ---
@@ -284,25 +331,40 @@ def login_screen():
                 if res:
                     play_success_sound()
                     st.toast("¡Acceso Concedido!", icon="🔒")
-                    st.success(f"🚀 ¡Bienvenido, {res['rol'].upper()}! Cargando sistema...")
-                   
+                    
                     # --- GUARDAMOS EL ESTADO CORRECTAMENTE ---
                     st.session_state['logueado'] = True
                     st.session_state['usuario'] = user
                     st.session_state['rol'] = res['rol']
                     st.session_state['user_id'] = res['id']         
                     st.session_state['cliente_id'] = res.get('cliente_id') 
-                    time.sleep(2.0) 
+                    
+                    # Reiniciamos la bandera de bienvenida para que la plantilla gigante se muestre
+                    st.session_state['bienvenida_completada'] = False
+                    
+                    # Recargamos al instante; la plantilla de bienvenida se encargará de la pausa visual
                     st.rerun()
                 else:
                     st.error("❌ Credenciales incorrectas")
             
             st.markdown('</div>', unsafe_allow_html=True)
 
-# Lógica de arranque
-if 'logueado' not in st.session_state:
+# ==========================================
+# LÓGICA DE ARRANQUE Y CONTROL MAESTRO
+# ==========================================
+if 'logueado' not in st.session_state or not st.session_state['logueado']:
+    # 1. Si no está logueado, muestra la pantalla de acceso
     login_screen()
-    st.stop() 
+    st.stop()
+
+elif not st.session_state.get('bienvenida_completada', False):
+    # 2. Si acaba de loguearse, muestra la plantilla grande con la barra de carga
+    mostrar_plantilla_bienvenida()
+    st.stop()
+
+else:
+    # 3. Si ya pasó la bienvenida, carga el menú lateral y la aplicación normal
+    menu_lateral = gestionar_sidebar()
 
 
 def panel_administracion(conn):
