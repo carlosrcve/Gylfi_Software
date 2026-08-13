@@ -2802,6 +2802,7 @@ if "🏠 Inicio" in opcion_menu:
         st.rerun()
 
     # 1. DEFINICIÓN DE ESTRUCTURA DE TIEMPO
+
     dic_meses = {
         "Enero": 1, "Febrero": 2, "Marzo": 3, "Abril": 4, 
         "Mayo": 5, "Junio": 6, "Julio": 7, "Agosto": 8, 
@@ -2809,21 +2810,18 @@ if "🏠 Inicio" in opcion_menu:
     }
     meses_lista = list(dic_meses.keys())
 
-    # 2. OBTENCIÓN DE VALORES (Desde sesión o fecha actual)
     anio_f = int(st.session_state.get('año_seleccionado', datetime.datetime.now().year))
     mes_nombre_f = st.session_state.get('mes_seleccionado', meses_lista[datetime.datetime.now().month - 1])
 
     m_idx = dic_meses.get(mes_nombre_f, 1)
     ultimo_dia = calendar.monthrange(anio_f, m_idx)[1]
 
-    # 3. ASIGNACIÓN A VARIABLES LOCALES Y SESSION_STATE (Persistencia Global)
     f_inicio_global = datetime.date(anio_f, 1, 1)
     f_fin_global = datetime.date(anio_f, m_idx, ultimo_dia)
 
     st.session_state["f_inicio_global"] = f_inicio_global
     st.session_state["f_fin_global"] = f_fin_global
 
-    # 4. PREPARACIÓN DE STRINGS PARA CONSULTAS SQL
     fecha_inicio_str = f_inicio_global.strftime('%Y-%m-%d')
     fecha_fin_str = f_fin_global.strftime('%Y-%m-%d')
 
