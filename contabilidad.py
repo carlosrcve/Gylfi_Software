@@ -8328,9 +8328,9 @@ elif opcion_menu == "📚 Libros Fiscales":
             with col_v3:
                 ver_todo_v = st.checkbox("📂 Ver historial completo", key="todo_ventas")
             with col_v1:
-                desde_v = st.date_input("Desde", f_inicio_global, key="f_desde_v", disabled=ver_todo_v)
+                desde_v = st.date_input("Desde", st.session_state.get('f_inicio_global', datetime.date.today()), key="f_desde_v", disabled=ver_todo_v)
             with col_v2:
-                hasta_v = st.date_input("Hasta", f_fin_global, key="f_hasta_v", disabled=ver_todo_v)
+                hasta_v = st.date_input("Hasta", st.session_state.get('f_fin_global', datetime.date.today()), key="f_hasta_v", disabled=ver_todo_v)
 
             if st.button("📊 Consultar Ventas"):
                 conn_query = conectar_db(db_actual)
