@@ -2713,6 +2713,9 @@ if "🏠 Inicio" in opcion_menu:
         fecha_inicio_str = f_inicio_global.strftime('%Y-%m-%d')
         fecha_fin_str = f_fin_global.strftime('%Y-%m-%d')
 
+        st.session_state["f_inicio_global"] = datetime.date(anio_f, 1, 1)
+        st.session_state["f_fin_global"] = datetime.date(anio_f, m_idx, ultimo_dia)
+
         st.title(f"📊 Auditoría Profesional: {db_objetivo}")
         st.markdown(f"**Período de Análisis (Acumulado):** {f_inicio_global.strftime('%d/%m/%Y')} al {f_fin_global.strftime('%d/%m/%Y')}")
         st.divider()
@@ -5476,13 +5479,13 @@ elif opcion_menu == "📖 Mayor Analítico":
     st.subheader("📖 Mayor Analítico")
 
     # 1. SEGURIDAD Y CONTEXTO
-    db_actual = st.session_state.get('DB_ACTUAL')
-    cliente_id = st.session_state.get('cliente_id')
-    rol = st.session_state.get('rol')
-    
-    # Recuperamos las fechas del session_state para evitar el NameError
-    f_inicio_global = st.session_state.get('f_inicio_global')
-    f_fin_global = st.session_state.get('f_fin_global')
+    db_actual = st.session_state.get("DB_ACTUAL")
+    cliente_id = st.session_state.get("cliente_id")
+    rol = st.session_state.get("rol")
+
+    # Recuperamos las fechas ya calculadas arriba
+    f_inicio_global = st.session_state.get("f_inicio_global")
+    f_fin_global = st.session_state.get("f_fin_global")
 
     if not db_actual:
         st.error("No se ha seleccionado una base de datos de empresa.")
@@ -5491,20 +5494,15 @@ elif opcion_menu == "📖 Mayor Analítico":
     empresa_data = obtener_datos_agente_db(db_actual)
 
     # 2. FILTRO DE ACCESO
-    if empresa_data and rol != 'admin':
-        if empresa_data['id'] != cliente_id:
+    if empresa_data and rol != "admin":
+        if empresa_data["id"] != cliente_id:
             st.error("⚠️ Acceso denegado: No tienes permisos para esta empresa.")
             st.stop()
 
     if not empresa_data:
         st.error("⚠️ No se pudieron cargar los datos de la empresa.")
-    
-    # 3. EJECUCIÓN SEGURA
-    elif not f_inicio_global or not f_fin_global:
-        st.warning("⚠️ Debes seleccionar un periodo de fechas en el menú principal antes de continuar.")
-    
     else:
-        # Se pasan las fechas recuperadas de session_state
+        # 3. EJECUCIÓN SEGURA (Ya las fechas existen garantizadas por el sidebar)
         mostrar_interfaz_mayor(f_inicio_global, f_fin_global, db_actual)
 
 
