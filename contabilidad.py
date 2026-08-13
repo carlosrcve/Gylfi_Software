@@ -397,16 +397,16 @@ def panel_administracion(conn):
 
 
 def registrar_log_automatico(conn, accion, detalles):
-    """
-    Registra automáticamente las interacciones del usuario en la tabla logs_auditoria
+    """Registra automáticamente las interacciones del usuario en la tabla logs_auditoria
+
     ubicada en la base de datos central de control.
     """
     cursor = None
     try:
-        if conn is not None and hasattr(conn, 'is_connected') and conn.is_connected():
-            usuario = st.session_state.get('usuario', 'Desconocido')
-            cliente_id = str(st.session_state.get('cliente_id', ''))
-            
+        if conn is not None and hasattr(conn, "is_connected") and conn.is_connected():
+            usuario = st.session_state.get("usuario", "Desconocido")
+            cliente_id = str(st.session_state.get("cliente_id", ""))
+
             cursor = conn.cursor()
             query = """
                 INSERT INTO control_central.logs_auditoria (usuario_id, accion, detalles, ip_address, fecha) 
@@ -416,7 +416,12 @@ def registrar_log_automatico(conn, accion, detalles):
             conn.commit()
         else:
             pass
-
+    except Exception as e:
+        # Manejo de error silencioso o impreso para depuración
+        print(f"Error registrando log: {e}")
+    finally:
+        if cursor:
+            cursor.close()
 @st.cache_data(ttl=300)
 def obtener_historico_utilidad(db, f_inicio=None, f_fin=None):
     # Nota: Como usa caché, la conexión la abrimos y cerramos de forma local y segura aquí dentro
