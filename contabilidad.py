@@ -285,24 +285,24 @@ def login_screen():
                     play_success_sound()
                     st.toast("¡Acceso Concedido!", icon="🔒")
                     st.success(f"🚀 ¡Bienvenido, {res['rol'].upper()}! Cargando sistema...")
-                    
+                   
                     # --- GUARDAMOS EL ESTADO CORRECTAMENTE ---
                     st.session_state['logueado'] = True
                     st.session_state['usuario'] = user
                     st.session_state['rol'] = res['rol']
                     st.session_state['user_id'] = res['id']         
                     st.session_state['cliente_id'] = res.get('cliente_id') 
-                    
-                    # Aumentamos ligeramente la pausa a 2 segundos para que el usuario alcance a leer el éxito
-                    # Limpiamos la pantalla del login y mostramos la plantilla grande de bienvenida
-                    st.empty()
-                    pantalla_bienvenida(res['rol'])
                     time.sleep(2.0) 
                     st.rerun()
                 else:
                     st.error("❌ Credenciales incorrectas")
             
             st.markdown('</div>', unsafe_allow_html=True)
+
+# Lógica de arranque
+if 'logueado' not in st.session_state:
+    login_screen()
+    st.stop() 
 
 
 def panel_administracion(conn):
