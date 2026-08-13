@@ -834,8 +834,9 @@ def obtener_datos_barras(db, fecha_inicio, fecha_fin):
 
 @st.cache_data(ttl=300)
 def obtener_historico_utilidad(db, f_inicio=None, f_fin=None):
+    # Nota: Como usa caché, la conexión la abrimos y cerramos de forma local y segura aquí dentro
     conn = conectar_db(db)
-    df_default = pd.DataFrame(columns=['anio', 'mes', 'mes_nombre', 'utilidad_mensual'])
+    df_default = pd.DataFrame({'utilidad_mensual': [0.0]})
     
     if not conn:
         return df_default
@@ -854,82 +855,62 @@ def obtener_historico_utilidad(db, f_inicio=None, f_fin=None):
         fecha_inicio_str = f_inicio.strftime('%Y-%m-%d') if hasattr(f_inicio, 'strftime') else str(f_inicio).split()[0]
     else:
         partes = fecha_fin_str.split('-')
-        fecha_inicio_str = f"{partes[0]}-01-01"
+        fecha_inicio_str = f"{partes[0]}-{partes[1]}-01"
     
-    # Consulta agrupada mes a mes usando exactamente la estructura segura de tu respaldo (LIKE '4%%' y TRIM)
+    # Optimizamos la consulta quitando DATE() para que use índices de fecha en MySQL
     query = f"""
         SELECT 
-            YEAR(STR_TO_DATE(fecha, '%Y-%m-%d')) as anio,
-            MONTH(STR_TO_DATE(fecha, '%Y-%m-%d')) as mes,
+            COALESCE(SUM(CASE WHEN plan_cuentas LIKE '4%' THEN haber ELSE 0 END), 0) as ing_haber,
+            COALESCE(SUM(CASE WHEN plan_cuentas LIKE '4%' THEN debe ELSE 0 END), 0) as ing_debe,
             
-            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '4%%' THEN haber ELSE 0 END) as ing_haber,
-            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '4%%' THEN debe ELSE 0 END) as ing_debe,
+            COALESCE(SUM(CASE WHEN plan_cuentas LIKE '5%' THEN debe ELSE 0 END), 0) as cos_debe,
+            COALESCE(SUM(CASE WHEN plan_cuentas LIKE '5%' THEN haber ELSE 0 END), 0) as cos_haber,
             
-            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '5%%' THEN debe ELSE 0 END) as cos_debe,
-            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '5%%' THEN haber ELSE 0 END) as cos_haber,
-            
-            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '6%%' THEN debe ELSE 0 END) as gas_debe,
-            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '6%%' THEN haber ELSE 0 END) as gas_haber,
+            COALESCE(SUM(CASE WHEN plan_cuentas LIKE '6%' THEN debe ELSE 0 END), 0) as gas_debe,
+            COALESCE(SUM(CASE WHEN plan_cuentas LIKE '6%' THEN haber ELSE 0 END), 0) as gas_haber,
 
-            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '7%%' THEN haber ELSE 0 END) as oing_haber,
-            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '7%%' THEN debe ELSE 0 END) as oing_debe,
+            COALESCE(SUM(CASE WHEN plan_cuentas LIKE '7%' THEN haber ELSE 0 END), 0) as oing_haber,
+            COALESCE(SUM(CASE WHEN plan_cuentas LIKE '7%' THEN debe ELSE 0 END), 0) as oing_debe,
             
-            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '8%%' THEN debe ELSE 0 END) as oeg_debe,
-            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '8%%' THEN haber ELSE 0 END) as oeg_haber
+            COALESCE(SUM(CASE WHEN plan_cuentas LIKE '8%' THEN debe ELSE 0 END), 0) as oeg_debe,
+            COALESCE(SUM(CASE WHEN plan_cuentas LIKE '8%' THEN haber ELSE 0 END), 0) as oeg_haber
         FROM `{db}`.asientos_contables 
-        WHERE STR_TO_DATE(fecha, '%Y-%m-%d') BETWEEN STR_TO_DATE(%s, '%Y-%m-%d') AND STR_TO_DATE(%s, '%Y-%m-%d')
-        GROUP BY YEAR(STR_TO_DATE(fecha, '%Y-%m-%d')), MONTH(STR_TO_DATE(fecha, '%Y-%m-%d'))
-        ORDER BY anio ASC, mes ASC
+        WHERE fecha >= %s AND fecha <= %s
     """
     
     cursor = conn.cursor(dictionary=True)
     try:
         cursor.execute(query, (fecha_inicio_str, fecha_fin_str))
         resultados = cursor.fetchall()
+
+        if not resultados:
+            return df_default
+            
+        df = pd.DataFrame(resultados)
         
-        df_sql = pd.DataFrame(resultados) if resultados else pd.DataFrame(columns=['anio', 'mes'])
-
-        # Plantilla con los 12 meses para garantizar que junio y los demás aparezcan correctamente
-        anio_base = int(fecha_inicio_str.split('-')[0])
-        meses_skeleton = pd.DataFrame({
-            'anio': [anio_base] * 12,
-            'mes': list(range(1, 13))
-        })
-
-        if not df_sql.empty and 'mes' in df_sql.columns:
-            df = pd.merge(meses_skeleton, df_sql, on=['anio', 'mes'], how='left')
-        else:
-            df = meses_skeleton
-
+        if df.empty or df.isnull().all().all():
+            return df_default
+            
         df = df.fillna(0)
 
-        # Cálculo de la utilidad mensual
-        ingresos = df['ing_haber'] - df['ing_debe']
-        costos = df['cos_debe'] - df['cos_haber']
-        gastos = (df['gas_debe'] - df['gas_haber']).abs()
-        otros_ingresos = df['oing_haber'] - df['oing_debe']
-        otros_egresos = (df['oeg_debe'] - df['oeg_haber']).abs()
+        ingresos = float(df['ing_haber'].iloc[0]) - float(df['ing_debe'].iloc[0])
+        costos = float(df['cos_debe'].iloc[0]) - float(df['cos_haber'].iloc[0])
+        gastos = abs(float(df['gas_debe'].iloc[0]) - float(df['gas_haber'].iloc[0]))
+        otros_ingresos = float(df['oing_haber'].iloc[0]) - float(df['oing_debe'].iloc[0])
+        otros_egresos = abs(float(df['oeg_debe'].iloc[0]) - float(df['oeg_haber'].iloc[0]))
 
-        df['utilidad_mensual'] = ingresos - costos - gastos + otros_ingresos - otros_egresos
+        utilidad_neta = ingresos - costos - gastos + otros_ingresos - otros_egresos
         
-        dic_meses_nombres = {
-            1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril", 
-            5: "Mayo", 6: "Junio", 7: "Julio", 8: "Agosto", 
-            9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre"
-        }
-        df['mes_nombre'] = df['mes'].map(dic_meses_nombres)
-        
-        return df[['anio', 'mes', 'mes_nombre', 'utilidad_mensual']]
+        df['utilidad_mensual'] = utilidad_neta
+        return df
         
     except Exception as e:
-        print(f"❌ Error al calcular el histórico mensual: {e}")
+        print(f"❌ Error al calcular la utilidad para {fecha_inicio_str} al {fecha_fin_str}: {e}")
         return df_default
         
     finally:
-        if cursor:
-            cursor.close()
-        if conn and conn.is_connected():
-            conn.close()
+        cursor.close()
+        conn.close()
 
 
 @st.cache_data(ttl=300)
