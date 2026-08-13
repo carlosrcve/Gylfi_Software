@@ -5540,8 +5540,16 @@ elif sub_opcion == "Balance de Comprobación":
     db_actual = st.session_state.get('DB_ACTUAL')
     sucursal = st.session_state.get('SUCURSAL_SELECCIONADA', 'Todas')
     
+    # RECUPERAR LAS FECHAS GLOBALES DESDE EL SESSION_STATE
+    f_inicio_global = st.session_state.get('f_inicio_global')
+    f_fin_global = st.session_state.get('f_fin_global')
+    
     if not db_actual or db_actual == 'none':
         st.warning("⚠️ Por favor, seleccione un Cliente/Empresa en el panel lateral.")
+        st.stop()
+        
+    if not f_inicio_global or not f_fin_global:
+        st.warning("⚠️ Por favor, configure el período de fechas en el panel lateral.")
         st.stop()
     
     st.subheader(f"⚖️ Balance de Comprobación: {EMPRESA}")
