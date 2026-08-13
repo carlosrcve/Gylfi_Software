@@ -205,43 +205,15 @@ def verificar_usuario(conn, user, password):
         return None
 
 
-def pantalla_bienvenida(rol_usuario):
-    """Plantilla de bienvenida a pantalla completa antes de entrar al sistema"""
-    # Contenedor centrado para la bienvenida
-    _, col_centro, _ = st.columns([1, 2, 1])
-    
-    with col_centro:
-        st.write("")
-        st.write("")
-        # Usamos una tarjeta grande llamativa
-        st.markdown("""
-            <div style="background: linear-gradient(135deg, #0f172a 0%, #334155 100%); padding: 3rem; border-radius: 20px; text-align: center; color: white; box-shadow: 0 10px 25px rgba(0,0,0,0.2);">
-                <h1 style="color: #ffffff; font-size: 2.5rem; margin-bottom: 10px;">☁️ Gylfi Software en la Nube</h1>
-                <h3 style="color: #94a3b8; font-weight: 400; margin-bottom: 20px;">Ecosistema de Auditoría y Contabilidad Inteligente</h3>
-                <hr style="border-color: #475569; margin: 20px 0;">
-                <p style="font-size: 1.2rem; color: #e2e8f0;">Cargando perfil de usuario: <b>{}</b></p>
-            </div>
-        """.format(rol_usuario.upper()), unsafe_allow_html=True)
-        
-        # Barra de progreso visual para darle un toque ultra profesional
-        progress_text = "Preparando entorno seguro y conexiones..."
-        my_bar = st.progress(0, text=progress_text)
-
-        for percent_complete in range(100):
-            time.sleep(0.01) # Simula la carga de módulos
-            my_bar.progress(percent_complete + 1, text=progress_text)
-            
-        time.sleep(0.5)
-
-
-
 def login_screen():
     # --- ESTILOS CSS PROFESIONALES ---
     st.markdown("""
         <style>
+        /* Contenedor principal */
         .stApp {
             background-color: #f8fafc;
         }
+        /* Tarjeta de Login */
         .login-box {
             background-color: white;
             padding: 2rem;
@@ -250,6 +222,7 @@ def login_screen():
             border: 1px solid #e2e8f0;
             margin-bottom: 20px;
         }
+        /* Botón estilo corporativo */
         .stButton > button {
             width: 100%;
             background: linear-gradient(90deg, #0f172a 0%, #334155 100%);
@@ -264,6 +237,7 @@ def login_screen():
             background: linear-gradient(90deg, #334155 0%, #0f172a 100%);
             transform: translateY(-2px);
         }
+        /* Ajuste de etiquetas de inputs */
         label {
             font-weight: 500 !important;
             color: #475569 !important;
@@ -291,12 +265,15 @@ def login_screen():
         with st.container():
             st.markdown('<div class="login-box">', unsafe_allow_html=True)
             
+            # --- MENSAJE DE BIENVEVIDA FIJO EN EL FRAME DE LOGIN ---
             st.info("☁️ **¡Bienvenido a Gylfi Software en la Nube!**")
             
+            # Encabezado con Marketing
             st.image("https://cdn-icons-png.flaticon.com/512/5164/5164023.png", width=60)
             st.subheader("Auditoría Inteligente")
             st.caption("Bienvenido al ecosistema contable de Carlos Rodriguez")
             
+            # Inputs limpios
             user = st.text_input("Usuario", placeholder="ej: admin_kd", key="user_input")
             password = st.text_input("Contraseña", type="password", placeholder="••••••••", key="pass_input")
             
@@ -307,6 +284,7 @@ def login_screen():
                 if res:
                     play_success_sound()
                     st.toast("¡Acceso Concedido!", icon="🔒")
+                    st.success(f"🚀 ¡Bienvenido, {res['rol'].upper()}! Cargando sistema...")
                     
                     # --- GUARDAMOS EL ESTADO CORRECTAMENTE ---
                     st.session_state['logueado'] = True
@@ -315,7 +293,11 @@ def login_screen():
                     st.session_state['user_id'] = res['id']         
                     st.session_state['cliente_id'] = res.get('cliente_id') 
                     
-                    # Recargamos limpio para que el flujo principal tome el control sin bloqueos
+                    # Aumentamos ligeramente la pausa a 2 segundos para que el usuario alcance a leer el éxito
+                    # Limpiamos la pantalla del login y mostramos la plantilla grande de bienvenida
+                    st.empty()
+                    pantalla_bienvenida(res['rol'])
+                    time.sleep(2.0) 
                     st.rerun()
                 else:
                     st.error("❌ Credenciales incorrectas")
@@ -4578,19 +4560,15 @@ def gestionar_sidebar():
 
         st.markdown("---")
         
-        # Validación inicial de sesión en el sidebar
-        if 'logueado' not in st.session_state or not st.session_state['logueado']:
-            login_screen()
-            st.stop()
-        else:
-            if not st.session_state.get('bienvenida_vista', False):
-                pantalla_bienvenida(st.session_state['rol'])
-                st.session_state['bienvenida_vista'] = True
-                st.rerun()
+        # Botón de cerrar sesión
+        if st.sidebar.button("🚪 Cerrar Sesión", key="btn_logout_unico_definitivo"):
+            for key in list(st.session_state.keys()):
+                del st.session_state[key]
+            st.rerun()
 
         # --- Navegación ---
         if user_rol == 'admin':
-            menu = st.sidebar.radio("Navegación", ["📊 Auditoría Contable", "⚙️ Gestión de Usuarios"], key="menu_nav")
+            menu = st.radio("Navegación", ["📊 Auditoría Contable", "⚙️ Gestión de Usuarios"], key="menu_nav")
         else:
             menu = "📊 Auditoría Contable"
 
@@ -4642,6 +4620,7 @@ def gestionar_sidebar():
                 if user_rol != 'admin':
                     filtrado_exitoso = False
                     
+                    # 1. Filtrar por ID de usuario o cliente en sesión
                     c_id = st.session_state.get('cliente_id') or st.session_state.get('user_id')
                     if c_id and any(col in df_sidebar.columns for col in ['id', 'cliente_id', 'usuario_id']):
                         col_encontrada = next(c for c in ['id', 'cliente_id', 'usuario_id'] if c in df_sidebar.columns)
@@ -4650,6 +4629,7 @@ def gestionar_sidebar():
                             df_sidebar = match_id
                             filtrado_exitoso = True
 
+                    # 2. Filtrar por coincidencia exacta del nombre de usuario en las columnas de la tabla
                     if not filtrado_exitoso:
                         limpiar_nombre = str(nombre_usuario_actual).strip().lower()
                         for col_u in ['nombre_usuario', 'usuario', 'username', 'user', 'login']:
@@ -4660,6 +4640,7 @@ def gestionar_sidebar():
                                     filtrado_exitoso = True
                                     break
                     
+                    # 3. Si aun así no encuentra por campos exactos, busca por coincidencia parcial del nombre (Ej. Ejan Maroc)
                     if not filtrado_exitoso:
                         limpiar_nombre = str(nombre_usuario_actual).strip().lower()
                         for col_c in df_sidebar.columns:
@@ -4671,10 +4652,12 @@ def gestionar_sidebar():
 
             df_filtrado = df_sidebar
 
+            # Si es usuario normal y no se encontró registro, se muestra advertencia clara en lugar de inventar otra empresa
             if user_rol != 'admin' and df_filtrado.empty:
                 st.error(f"❌ El usuario '{nombre_usuario_actual}' no tiene una empresa asignada en la base de datos.")
                 st.stop()
 
+            # Resguardo absoluto solo si es admin y la tabla está totalmente vacía
             if df_filtrado.empty:
                 df_filtrado = pd.DataFrame({
                     'id': [1],
@@ -4685,6 +4668,7 @@ def gestionar_sidebar():
 
             nombres_empresas = df_filtrado['nombre_empresa'].tolist()
             
+            # Aseguramos que el selectbox recuerde la opción seleccionada previamente
             index_actual = 0
             if 'cliente_seleccionado_previo' in st.session_state and st.session_state['cliente_seleccionado_previo'] in nombres_empresas:
                 index_actual = nombres_empresas.index(st.session_state['cliente_seleccionado_previo'])
@@ -4710,10 +4694,11 @@ def gestionar_sidebar():
             datos_sel = fila_seleccionada.iloc[0]
             db_seleccionada = str(datos_sel['db_nombre']).strip()
             
+            # --- VALIDACIÓN Y REINICIO DE CONEXIÓN LIMPIO ---
             if st.session_state.get('DB_ACTUAL') != db_seleccionada:
                 st.session_state['DB_ACTUAL'] = db_seleccionada
                 st.session_state['db_a_conectar'] = db_seleccionada
-                st.session_state['conn'] = None 
+                st.session_state['conn'] = None  # Limpiamos conexión vieja de forma segura
                 st.rerun()
 
             st.session_state['DB_ACTUAL'] = db_seleccionada
@@ -4722,16 +4707,7 @@ def gestionar_sidebar():
             if 'id' in datos_sel:
                 st.session_state['cliente_id_seleccionado'] = int(datos_sel['id'])
 
-        st.divider()
-
-        # --- BOTÓN DE CERRAR SESIÓN UBICADO AL FINAL DEL SIDEBAR ---
-        if st.sidebar.button("🚪 Cerrar Sesión", key="btn_logout_unico_definitivo"):
-            for key in list(st.session_state.keys()):
-                del st.session_state[key]
-            st.rerun()
-
     return menu
-
 # ==========================================
 # EJECUCIÓN PRINCIPAL EN EL SCRIPT
 # ==========================================
