@@ -349,22 +349,6 @@ def login_screen():
             
             st.markdown('</div>', unsafe_allow_html=True)
 
-# ==========================================
-# LÓGICA DE ARRANQUE Y CONTROL MAESTRO
-# ==========================================
-if 'logueado' not in st.session_state or not st.session_state['logueado']:
-    # 1. Si no está logueado, muestra la pantalla de acceso
-    login_screen()
-    st.stop()
-
-elif not st.session_state.get('bienvenida_completada', False):
-    # 2. Si acaba de loguearse, muestra la plantilla grande con la barra de carga
-    mostrar_plantilla_bienvenida()
-    st.stop()
-
-else:
-    # 3. Si ya pasó la bienvenida, carga el menú lateral y la aplicación normal
-    menu_lateral = gestionar_sidebar()
 
 
 def panel_administracion(conn):
@@ -4770,6 +4754,24 @@ def gestionar_sidebar():
                 st.session_state['cliente_id_seleccionado'] = int(datos_sel['id'])
 
     return menu
+
+# ==========================================
+# LÓGICA DE ARRANQUE Y CONTROL MAESTRO
+# ==========================================
+if 'logueado' not in st.session_state or not st.session_state['logueado']:
+    # 1. Si no está logueado, muestra la pantalla de acceso
+    login_screen()
+    st.stop()
+
+elif not st.session_state.get('bienvenida_completada', False):
+    # 2. Si acaba de loguearse, muestra la plantilla grande con la barra de carga
+    mostrar_plantilla_bienvenida()
+    st.stop()
+
+else:
+    # 3. Si ya pasó la bienvenida, carga el menú lateral y la aplicación normal
+    menu_lateral = gestionar_sidebar()
+
 # ==========================================
 # EJECUCIÓN PRINCIPAL EN EL SCRIPT
 # ==========================================
