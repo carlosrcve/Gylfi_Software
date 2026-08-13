@@ -205,6 +205,36 @@ def verificar_usuario(conn, user, password):
         return None
 
 
+def pantalla_bienvenida(rol_usuario):
+    """Plantilla de bienvenida a pantalla completa antes de entrar al sistema"""
+    # Contenedor centrado para la bienvenida
+    _, col_centro, _ = st.columns([1, 2, 1])
+    
+    with col_centro:
+        st.write("")
+        st.write("")
+        # Usamos una tarjeta grande llamativa
+        st.markdown("""
+            <div style="background: linear-gradient(135deg, #0f172a 0%, #334155 100%); padding: 3rem; border-radius: 20px; text-align: center; color: white; box-shadow: 0 10px 25px rgba(0,0,0,0.2);">
+                <h1 style="color: #ffffff; font-size: 2.5rem; margin-bottom: 10px;">☁️ Gylfi Software en la Nube</h1>
+                <h3 style="color: #94a3b8; font-weight: 400; margin-bottom: 20px;">Ecosistema de Auditoría y Contabilidad Inteligente</h3>
+                <hr style="border-color: #475569; margin: 20px 0;">
+                <p style="font-size: 1.2rem; color: #e2e8f0;">Cargando perfil de usuario: <b>{}</b></p>
+            </div>
+        """.format(rol_usuario.upper()), unsafe_allow_html=True)
+        
+        # Barra de progreso visual para darle un toque ultra profesional
+        progress_text = "Preparando entorno seguro y conexiones..."
+        my_bar = st.progress(0, text=progress_text)
+
+        for percent_complete in range(100):
+            time.sleep(0.01) # Simula la carga de módulos
+            my_bar.progress(percent_complete + 1, text=progress_text)
+            
+        time.sleep(0.5)
+
+
+
 def login_screen():
     # --- ESTILOS CSS PROFESIONALES ---
     st.markdown("""
@@ -243,14 +273,10 @@ def login_screen():
             color: #475569 !important;
         }
         </style>
-    """, unsafe_allow_html=True) # <-- CORREGIDO AQUÍ
+    """, unsafe_allow_html=True)
 
     def play_success_sound():
-        # Usamos un sonido de "Ding" corto y profesional
-        # Este link es directo a un archivo pequeño
         audio_url = "https://www.myinstants.com/media/sounds/ding-sound-effect_1.mp3"
-        
-        # El truco: Inyectamos un iframe invisible que fuerza el play
         sound_html = f"""
             <iframe src="{audio_url}" allow="autoplay" style="display:none"></iframe>
             <audio autoplay>
@@ -263,11 +289,14 @@ def login_screen():
     _, col_center, _ = st.columns([1, 1.5, 1])
 
     with col_center:
-        st.write("") # Espaciado superior
+        st.write("") 
         st.write("")
         
         with st.container():
             st.markdown('<div class="login-box">', unsafe_allow_html=True)
+            
+            # --- MENSAJE DE BIENVEVIDA FIJO EN EL FRAME DE LOGIN ---
+            st.info("☁️ **¡Bienvenido a Gylfi Software en la Nube!**")
             
             # Encabezado con Marketing
             st.image("https://cdn-icons-png.flaticon.com/512/5164/5164023.png", width=60)
@@ -279,37 +308,31 @@ def login_screen():
             password = st.text_input("Contraseña", type="password", placeholder="••••••••", key="pass_input")
             
             if st.button("Ingresar al Portal"):
-                # Llamamos a tu función de base de datos
                 conexion_activa = conectar_db()
                 res = verificar_usuario(conexion_activa, user, password)
                 
                 if res:
                     play_success_sound()
-                    # Mensaje Pro
-                    st.toast(f"¡Acceso Concedido!", icon="🔒")
-                    st.success(f"🚀 Has hecho login como **{res['rol'].upper()}**")
+                    st.toast("¡Acceso Concedido!", icon="🔒")
+                    st.success(f"🚀 ¡Bienvenido, {res['rol'].upper()}! Cargando sistema...")
                     
                     # --- GUARDAMOS EL ESTADO CORRECTAMENTE ---
                     st.session_state['logueado'] = True
                     st.session_state['usuario'] = user
                     st.session_state['rol'] = res['rol']
-                    
-                    # AQUÍ ESTÁ LA CLAVE: Guardamos el ID real de la tabla usuarios (res['id'])
-                    # y dejamos cliente_id por si lo necesitas para otra cosa
-                    st.session_state['user_id'] = res['id']          
+                    st.session_state['user_id'] = res['id']         
                     st.session_state['cliente_id'] = res.get('cliente_id') 
                     
-                    time.sleep(1.5) # Pausa para que se vea el mensaje y suene la música
+                    # Aumentamos ligeramente la pausa a 2 segundos para que el usuario alcance a leer el éxito
+                    # Limpiamos la pantalla del login y mostramos la plantilla grande de bienvenida
+                    st.empty()
+                    pantalla_bienvenida(res['rol'])
+                    time.sleep(2.0) 
                     st.rerun()
                 else:
                     st.error("❌ Credenciales incorrectas")
             
             st.markdown('</div>', unsafe_allow_html=True)
-
-# Lógica de arranque
-if 'logueado' not in st.session_state:
-    login_screen()
-    st.stop()
 
 
 def panel_administracion(conn):
