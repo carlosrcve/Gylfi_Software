@@ -9697,7 +9697,11 @@ elif opcion_menu == "📚 Libros Fiscales":
         
         if conn_valida:
             # Llamamos a la función con la seguridad de que la conexión existe
-            mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global)
+            mostrar_interfaz_retencion_iva(
+                EMPRESA, 
+                st.session_state.get('f_inicio_global', datetime.date.today()), 
+                st.session_state.get('f_fin_global', datetime.date.today())
+            )
         else:
             st.error("No se pudo restablecer la conexión para el módulo de IVA.")
 
