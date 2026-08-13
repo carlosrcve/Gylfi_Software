@@ -2956,6 +2956,24 @@ def comprobar_existencia_comprobante(n_comprobante):
                 
     return existe
 
+def obtener_facturas_pendientes(conn):
+    try:
+        query = """
+            SELECT * FROM libro_compras 
+            WHERE retencion_iva_realizada = 0 
+            OR retencion_iva_realizada IS NULL
+        """
+        df = pd.read_sql(query, conn)
+        
+        # Agrega este aviso visual
+        if df.empty:
+            st.info("ℹ️ No hay facturas pendientes de retención.")
+            
+        return df
+    except Exception as e:
+        st.error(f"Error al cargar facturas pendientes: {e}")
+        return pd.DataFrame()
+
 
 def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
     st.subheader(f"📑 Emisión de Comprobantes de Retención IVA: {EMPRESA}")
@@ -3652,9 +3670,6 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                 else:
                     # Planta Baja vacía
                     st.info("Por favor, seleccione un comprobante de la lista superior.")
-
-        
-
         with tab3:
             st.write("Cargando Eliminar Retencion...")
             
