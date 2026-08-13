@@ -5471,6 +5471,7 @@ elif opcion_menu == "📝 Asientos Contables":
 
 
 # D. MAYOR ANALÍTICO
+# D. MAYOR ANALÍTICO
 elif opcion_menu == "📖 Mayor Analítico":
     st.subheader("📖 Mayor Analítico")
 
@@ -5478,6 +5479,10 @@ elif opcion_menu == "📖 Mayor Analítico":
     db_actual = st.session_state.get('DB_ACTUAL')
     cliente_id = st.session_state.get('cliente_id')
     rol = st.session_state.get('rol')
+    
+    # Recuperamos las fechas del session_state para evitar el NameError
+    f_inicio_global = st.session_state.get('f_inicio_global')
+    f_fin_global = st.session_state.get('f_fin_global')
 
     if not db_actual:
         st.error("No se ha seleccionado una base de datos de empresa.")
@@ -5493,8 +5498,13 @@ elif opcion_menu == "📖 Mayor Analítico":
 
     if not empresa_data:
         st.error("⚠️ No se pudieron cargar los datos de la empresa.")
+    
+    # 3. EJECUCIÓN SEGURA
+    elif not f_inicio_global or not f_fin_global:
+        st.warning("⚠️ Debes seleccionar un periodo de fechas en el menú principal antes de continuar.")
+    
     else:
-        # 3. EJECUCIÓN SEGURA
+        # Se pasan las fechas recuperadas de session_state
         mostrar_interfaz_mayor(f_inicio_global, f_fin_global, db_actual)
 
 
