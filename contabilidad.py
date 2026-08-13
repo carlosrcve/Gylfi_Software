@@ -831,9 +831,12 @@ def obtener_datos_barras(db, fecha_inicio, fecha_fin):
 
 @st.cache_data(ttl=300)
 def obtener_historico_utilidad(db, f_inicio=None, f_fin=None):
+    conn = conectar_db(db)
     df_default = pd.DataFrame(columns=['anio', 'mes', 'mes_nombre', 'utilidad_mensual'])
     
-    # Manejo de fechas por defecto antes de conectar
+    if not conn:
+        return df_default
+    
     if f_inicio is not None and f_fin is None:
         f_fin = f_inicio
         f_inicio = None
@@ -853,55 +856,59 @@ def obtener_historico_utilidad(db, f_inicio=None, f_fin=None):
         else:
             fecha_inicio_str = str(f_inicio).split()[0]
     else:
+        # CORRECCIÓN: Si no hay inicio, toma el inicio de ese mes específico (igual que tu respaldo) 
+        # en vez de arrancar todo el año por defecto. Cambia a "-01-01" si prefieres ver todo el año.
         partes = fecha_fin_str.split('-')
-        fecha_inicio_str = f"{partes[0]}-01-01"
-
-    # Conectamos de forma segura y local para la función cacheada
-    conn = conectar_db(db)
-    if not conn:
-        return df_default
+        fecha_inicio_str = f"{partes[0]}-{partes[1]}-01"
     
-    # Consulta agrupada mes a mes usando YEAR y MONTH en MySQL
+    # Consulta agrupada mes a mes utilizando STR_TO_DATE y TRIM para evitar fallos de formato
     query = f"""
         SELECT 
-            YEAR(fecha) as anio,
-            MONTH(fecha) as mes,
-            COALESCE(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '4%' THEN haber ELSE 0 END), 0) as ing_haber,
-            COALESCE(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '4%' THEN debe ELSE 0 END), 0) as ing_debe,
+            YEAR(STR_TO_DATE(fecha, '%Y-%m-%d')) as anio,
+            MONTH(STR_TO_DATE(fecha, '%Y-%m-%d')) as mes,
             
-            COALESCE(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '5%' THEN debe ELSE 0 END), 0) as cos_debe,
-            COALESCE(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '5%' THEN haber ELSE 0 END), 0) as cos_haber,
+            COALESCE(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '4%%' THEN haber ELSE 0 END), 0) as ing_haber,
+            COALESCE(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '4%%' THEN debe ELSE 0 END), 0) as ing_debe,
             
-            COALESCE(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '6%' THEN debe ELSE 0 END), 0) as gas_debe,
-            COALESCE(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '6%' THEN haber ELSE 0 END), 0) as gas_haber,
+            COALESCE(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '5%%' THEN debe ELSE 0 END), 0) as cos_debe,
+            COALESCE(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '5%%' THEN haber ELSE 0 END), 0) as cos_haber,
+            
+            COALESCE(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '6%%' THEN debe ELSE 0 END), 0) as gas_debe,
+            COALESCE(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '6%%' THEN haber ELSE 0 END), 0) as gas_haber,
 
-            COALESCE(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '7%' THEN haber ELSE 0 END), 0) as oing_haber,
-            COALESCE(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '7%' THEN debe ELSE 0 END), 0) as oing_debe,
+            COALESCE(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '7%%' THEN haber ELSE 0 END), 0) as oing_haber,
+            COALESCE(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '7%%' THEN debe ELSE 0 END), 0) as oing_debe,
             
-            COALESCE(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '8%' THEN debe ELSE 0 END), 0) as oeg_debe,
-            COALESCE(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '8%' THEN haber ELSE 0 END), 0) as oeg_haber
+            COALESCE(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '8%%' THEN debe ELSE 0 END), 0) as oeg_debe,
+            COALESCE(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '8%%' THEN haber ELSE 0 END), 0) as oeg_haber
         FROM `{db}`.asientos_contables 
-        WHERE fecha >= %s AND fecha <= %s
-        GROUP BY YEAR(fecha), MONTH(fecha)
+        WHERE STR_TO_DATE(fecha, '%Y-%m-%d') BETWEEN STR_TO_DATE(%s, '%Y-%m-%d') AND STR_TO_DATE(%s, '%Y-%m-%d')
+        GROUP BY YEAR(STR_TO_DATE(fecha, '%Y-%m-%d')), MONTH(STR_TO_DATE(fecha, '%Y-%m-%d'))
         ORDER BY anio ASC, mes ASC
     """
     
+    cursor = conn.cursor(dictionary=True)
     try:
-        with conn.cursor(dictionary=True) as cursor:
-            cursor.execute(query, (fecha_inicio_str, fecha_fin_str))
-            resultados = cursor.fetchall()
-
-        if not resultados:
-            return df_default
-            
-        df = pd.DataFrame(resultados)
+        cursor.execute(query, (fecha_inicio_str, fecha_fin_str))
+        resultados = cursor.fetchall()
         
-        if df.empty or df.isnull().all().all():
-            return df_default
-            
+        df_sql = pd.DataFrame(resultados) if resultados else pd.DataFrame(columns=['anio', 'mes'])
+
+        # Creamos una base con los meses del rango para asegurar consistencia
+        anio_base = int(fecha_inicio_str.split('-')[0])
+        meses_skeleton = pd.DataFrame({
+            'anio': [anio_base] * 12,
+            'mes': list(range(1, 13))
+        })
+
+        if not df_sql.empty:
+            df = pd.merge(meses_skeleton, df_sql, on=['anio', 'mes'], how='left')
+        else:
+            df = meses_skeleton
+
         df = df.fillna(0)
 
-        # Operaciones vectorizadas fila por fila (mes a mes)
+        # Cálculo de la utilidad mensual
         ingresos = df['ing_haber'] - df['ing_debe']
         costos = df['cos_debe'] - df['cos_haber']
         gastos = (df['gas_debe'] - df['gas_haber']).abs()
@@ -910,7 +917,6 @@ def obtener_historico_utilidad(db, f_inicio=None, f_fin=None):
 
         df['utilidad_mensual'] = ingresos - costos - gastos + otros_ingresos - otros_egresos
         
-        # Mapeo de nombres de meses
         dic_meses_nombres = {
             1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril", 
             5: "Mayo", 6: "Junio", 7: "Julio", 8: "Agosto", 
@@ -923,7 +929,10 @@ def obtener_historico_utilidad(db, f_inicio=None, f_fin=None):
     except Exception as e:
         print(f"❌ Error al calcular el histórico mensual para {fecha_inicio_str} al {fecha_fin_str}: {e}")
         return df_default
+        
     finally:
+        if cursor:
+            cursor.close()
         if conn and conn.is_connected():
             conn.close()
 
