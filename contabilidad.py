@@ -827,7 +827,7 @@ def obtener_datos_barras(db, fecha_inicio, fecha_fin):
 
 @st.cache_data(ttl=300)
 def obtener_historico_utilidad(db, f_inicio=None, f_fin=None):
-    df_default = pd.DataFrame({'utilidad_mensual': [0.0]})
+    df_default = pd.DataFrame(columns=['anio', 'mes', 'mes_nombre', 'utilidad_mensual'])
     
     # Manejo de fechas por defecto antes de conectar
     if f_inicio is not None and f_fin is None:
@@ -850,16 +850,18 @@ def obtener_historico_utilidad(db, f_inicio=None, f_fin=None):
             fecha_inicio_str = str(f_inicio).split()[0]
     else:
         partes = fecha_fin_str.split('-')
-        fecha_inicio_str = f"{partes[0]}-{partes[1]}-01"
+        fecha_inicio_str = f"{partes[0]}-01-01"
 
     # Conectamos de forma segura y local para la función cacheada
     conn = conectar_db(db)
     if not conn:
         return df_default
     
-    # Consulta optimizada (Sin DATE(fecha) para aprovechar los índices de MySQL)
+    # Consulta agrupada mes a mes usando YEAR y MONTH en MySQL
     query = f"""
         SELECT 
+            YEAR(fecha) as anio,
+            MONTH(fecha) as mes,
             COALESCE(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '4%' THEN haber ELSE 0 END), 0) as ing_haber,
             COALESCE(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '4%' THEN debe ELSE 0 END), 0) as ing_debe,
             
@@ -876,6 +878,8 @@ def obtener_historico_utilidad(db, f_inicio=None, f_fin=None):
             COALESCE(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '8%' THEN haber ELSE 0 END), 0) as oeg_haber
         FROM `{db}`.asientos_contables 
         WHERE fecha >= %s AND fecha <= %s
+        GROUP BY YEAR(fecha), MONTH(fecha)
+        ORDER BY anio ASC, mes ASC
     """
     
     try:
@@ -893,337 +897,31 @@ def obtener_historico_utilidad(db, f_inicio=None, f_fin=None):
             
         df = df.fillna(0)
 
-        ingresos = float(df['ing_haber'].iloc[0]) - float(df['ing_debe'].iloc[0])
-        costos = float(df['cos_debe'].iloc[0]) - float(df['cos_haber'].iloc[0])
-        gastos = abs(float(df['gas_debe'].iloc[0]) - float(df['gas_haber'].iloc[0]))
-        otros_ingresos = float(df['oing_haber'].iloc[0]) - float(df['oing_debe'].iloc[0])
-        otros_egresos = abs(float(df['oeg_debe'].iloc[0]) - float(df['oeg_haber'].iloc[0]))
+        # Operaciones vectorizadas fila por fila (mes a mes)
+        ingresos = df['ing_haber'] - df['ing_debe']
+        costos = df['cos_debe'] - df['cos_haber']
+        gastos = (df['gas_debe'] - df['gas_haber']).abs()
+        otros_ingresos = df['oing_haber'] - df['oing_debe']
+        otros_egresos = (df['oeg_debe'] - df['oeg_haber']).abs()
 
-        utilidad_neta = ingresos - costos - gastos + otros_ingresos - otros_egresos
+        df['utilidad_mensual'] = ingresos - costos - gastos + otros_ingresos - otros_egresos
         
-        df['utilidad_mensual'] = utilidad_neta
-        return df
+        # Mapeo de nombres de meses
+        dic_meses_nombres = {
+            1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril", 
+            5: "Mayo", 6: "Junio", 7: "Julio", 8: "Agosto", 
+            9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre"
+        }
+        df['mes_nombre'] = df['mes'].map(dic_meses_nombres)
+        
+        return df[['anio', 'mes', 'mes_nombre', 'utilidad_mensual']]
         
     except Exception as e:
-        print(f"❌ Error al calcular la utilidad para {fecha_inicio_str} al {fecha_fin_str}: {e}")
+        print(f"❌ Error al calcular el histórico mensual para {fecha_inicio_str} al {fecha_fin_str}: {e}")
         return df_default
     finally:
         if conn and conn.is_connected():
             conn.close()
-
-
-@st.cache_data(ttl=300)
-def obtener_detalle_movimientos_banco(db, f_i, f_f):
-    """
-    Función para obtener el detalle de movimientos de la cuenta 1.1.1.02 de forma segura y cacheada.
-    """
-    df_vacio = pd.DataFrame(columns=['fecha', 'descripcion', 'debe', 'haber'])
-    
-    conn = conectar_db(db)
-    if not conn:
-        return df_vacio
-        
-    query = f"""
-        SELECT 
-            fecha, 
-            descripcion, 
-            debe, 
-            haber
-        FROM `{db}`.asientos_contables
-        WHERE plan_cuentas LIKE '1.1.1.02%'
-        AND fecha >= %s AND fecha <= %s
-        ORDER BY fecha ASC
-    """
-    
-    try:
-        df = pd.read_sql(query, conn, params=(f_i, f_f))
-        return df if not df.empty else df_vacio
-    except Exception as e:
-        print(f"Error en obtener_detalle_movimientos_banco para {db}: {e}")
-        return df_vacio
-    finally:
-        if conn and conn.is_connected():
-            conn.close()
-
-
-@st.cache_data(ttl=60) # ttl reducido para evitar saldos desactualizados
-def obtener_detalle_cashea(db, f_inicio, f_fin):
-    df_vacio = pd.DataFrame(columns=['fecha', 'descripcion', 'referencia', 'debe', 'haber', 'saldo'])
-    conn = conectar_db(db)
-    
-    if not conn:
-        return df_vacio
-        
-    try:
-        # A. Saldo inicial
-        query_saldo_inicial = f"SELECT SUM(haber - debe) as saldo_ant FROM `{db}`.asientos_contables WHERE plan_cuentas LIKE '2.1.3.01.001%' AND fecha < %s"
-        df_ini = pd.read_sql(query_saldo_inicial, conn, params=(f_inicio,))
-        saldo_inicial = float(df_ini['saldo_ant'].iloc[0] or 0.0)
-        
-        # B. Movimientos
-        query = f"SELECT fecha, descripcion, referencia, debe, haber FROM `{db}`.asientos_contables WHERE plan_cuentas LIKE '2.1.3.01.001%' AND fecha BETWEEN %s AND %s ORDER BY fecha ASC, id ASC"
-        df = pd.read_sql(query, conn, params=(f_inicio, f_fin))
-        
-        if df.empty:
-            return df_vacio
-            
-        # Limpieza
-        df['debe'] = pd.to_numeric(df['debe'], errors='coerce').fillna(0)
-        df['haber'] = pd.to_numeric(df['haber'], errors='coerce').fillna(0)
-        df['saldo'] = saldo_inicial + (df['haber'] - df['debe']).cumsum()
-        return df
-
-    except Exception as e:
-        st.error(f"Error técnico al cargar movimientos: {e}") # Feedback visual para el dev
-        return df_vacio
-        
-    finally:
-        # La forma más segura de cerrar, garantizada incluso si hay errores
-        if conn and conn.is_connected():
-            conn.close()
-
-def consultar_bcv_directo_sin_bd(conn=None):
-    """Realiza el scraping web directo sin bucles recursivos."""
-    tasa, fuente = _obtener_tasa_web_directa()
-    
-    # Gestionamos los logs de forma independiente si hay conexión
-    if conn and conn.is_connected():
-        try:
-            usuario = st.session_state.get('usuario', 'Desconocido')
-            registrar_log_automatico(conn, "CONSULTA_TASA_BCV", f"Usuario {usuario} consultando BCV directo. Tasa: {tasa}")
-        except Exception as log_err:
-            print(f"Error registrando log de BCV: {log_err}")
-        finally:
-            try:
-                conn.ping(reconnect=True, attempts=2, delay=1)
-            except Exception:
-                pass
-                
-    return tasa, fuente
-
-
-def obtener_tasa_bcv_hoy(conn=None):
-    """
-    Busca la tasa en la BD. Si no existe para hoy, va a la web del BCV, 
-    la guarda en la BD y la retorna.
-    """
-    # 1. VERIFICACIÓN DE SEGURIDAD: Reconexión automática
-    try:
-        if conn and not conn.is_connected():
-            conn.reconnect(attempts=3, delay=2)
-    except Exception:
-        pass 
-
-    # Si no hay conexión válida, pasamos directo a la web
-    if not conn:
-        return _obtener_tasa_web_directa()
-
-    hoy = date.today()
-    cursor = None
-    
-    try:
-        # A. Intentar abrir el cursor y verificar en BD
-        cursor = conn.cursor(buffered=True)
-        cursor.execute("SELECT tasa_valor FROM kingdirver_ca.tasas_diarias WHERE fecha = %s", (hoy,))
-        resultado = cursor.fetchone()
-        
-        if resultado:
-            cursor.close()
-            return float(resultado[0]), "Base de Datos"
-        
-        cursor.close()
-    except Exception:
-        if cursor:
-            try:
-                cursor.close()
-            except:
-                pass
-
-    # B. Si no está en la BD (o falló la consulta), consultamos la web directamente
-    tasa_float, fuente_web = _obtener_tasa_web_directa()
-    
-    if tasa_float > 0 and conn:
-        try:
-            # Registrar log
-            usuario = st.session_state.get('usuario', 'Desconocido')
-            registrar_log_automatico(conn, "CONSULTA_TASA_BCV", f"El usuario {usuario} consultó la tasa del BCV")
-        except Exception:
-            pass 
-        
-        # Guardar en BD de forma segura
-        try:
-            cursor_ins = conn.cursor(buffered=True)
-            cursor_ins.execute("""
-                INSERT INTO kingdirver_ca.tasas_diarias (fecha, tasa_valor) 
-                VALUES (%s, %s)
-                ON DUPLICATE KEY UPDATE tasa_valor = %s
-            """, (hoy, tasa_float, tasa_float))
-            conn.commit()
-            cursor_ins.close()
-        except Exception:
-            pass
-            
-    return tasa_float, fuente_web
-
-
-def _obtener_tasa_web_directa():
-    """Función de scraping puro y aislado (cero recursión)."""
-    url = "https://www.bcv.org.ve/"
-    headers = {"User-Agent": "Mozilla/5.0..."}
-    
-    try:
-        response = requests.get(url, headers=headers, verify=False, timeout=10)
-        if response.status_code == 200:
-            soup = BeautifulSoup(response.content, 'html.parser')
-            dolar_container = soup.find('div', id='dolar')
-            
-            if dolar_container:
-                tasa_texto = dolar_container.find('strong').text.strip()
-                tasa_float = float(tasa_texto.replace(',', '.'))
-                return tasa_float, "Web BCV"
-    except Exception:
-        pass
-        
-    return 0.0, "Error Web BCV"
-
-
-def generar_reporte_multimoneda(conn, mes, ano, db):
-    """
-    Consolida saldos iniciales con los asientos contables del mes seleccionado, 
-    aplicando la conversión a USD de forma segura y eficiente para cualquier empresa.
-    """
-    if not conn:
-        return pd.DataFrame()  # Retornar un DataFrame vacío por consistencia de tipos
-        
-    # Validar que se haya proporcionado el nombre de la base de datos
-    if not db:
-        raise ValueError("Se requiere especificar el nombre de la base de datos de la empresa.")
-
-    # Validar el nombre de la base de datos para prevenir Inyección SQL (permite letras, números y guiones bajos)
-    if not db.replace("_", "").isalnum():
-        raise ValueError(f"Nombre de base de datos inválido: {db}")
-
-    cursor = conn.cursor(dictionary=True)
-    
-    query = f"""
-        SELECT 
-            t_origen.fecha,
-            t_origen.plan_cuentas,      
-            t_origen.cuenta_contable,
-            t_origen.descripcion,
-            t_origen.debe,
-            t_origen.haber,
-            COALESCE(
-                (SELECT t.tasa_valor FROM `{db}`.tasas_diarias t WHERE t.fecha = t_origen.fecha LIMIT 1),
-                (SELECT t2.tasa_valor FROM `{db}`.tasas_diarias t2 WHERE t2.fecha <= t_origen.fecha ORDER BY t2.fecha DESC LIMIT 1),
-                (SELECT t3.tasa_valor FROM `{db}`.tasas_diarias t3 ORDER BY t3.fecha ASC LIMIT 1),
-                1.0000
-            ) AS tasa_bcv
-        FROM (
-            -- PARTE 1: Saldos Iniciales
-            SELECT fecha, plan_cuentas, cuenta_contable, descripcion, debe, haber
-            FROM `{db}`.saldos_iniciales
-            WHERE YEAR(fecha) = %s
-            
-            UNION ALL
-            
-            -- PARTE 2: Asientos Contables 
-            SELECT fecha, cuenta_contable AS plan_cuentas, cuenta_contable, descripcion, debe, haber
-            FROM `{db}`.asientos_contables
-            WHERE MONTH(fecha) = %s AND YEAR(fecha) = %s
-        ) AS t_origen
-        ORDER BY t_origen.fecha ASC
-    """
-    
-    try:
-        cursor.execute(query, (ano, mes, ano))
-        datos = cursor.fetchall()
-    except Exception as e:
-        print(f"Error en consulta contable para la empresa {db}: {e}")
-        datos = []
-    finally:
-        try:
-            cursor.close()
-        except Exception:
-            pass
-            
-    # Procesamiento con Pandas
-    if not datos:
-        return pd.DataFrame()
-        
-    df = pd.DataFrame(datos)
-    
-    # Aseguramos que los tipos de datos sean numéricos puros
-    df['debe'] = pd.to_numeric(df['debe'], errors='coerce').fillna(0.0)
-    df['haber'] = pd.to_numeric(df['haber'], errors='coerce').fillna(0.0)
-    df['tasa_bcv'] = pd.to_numeric(df['tasa_bcv'], errors='coerce').fillna(1.0)
-    
-    # 🔥 Operación matemática en memoria de Python
-    df['debe_usd'] = df['debe'] / df['tasa_bcv']
-    df['haber_usd'] = df['haber'] / df['tasa_bcv']
-    
-    return df
-
-
-import pandas as pd
-import streamlit as st
-
-@st.cache_data(ttl=300)
-def obtener_analisis_gastos_clase5(db, f_i, f_f):
-    """
-    Obtiene el análisis de gastos de Clase 5 de forma segura y cacheada.
-    Nota: El caché durará 5 minutos; si necesitas datos en tiempo real estricto, 
-    considera quitar el decorador @st.cache_data.
-    """
-    # 1. Validar nombre de la base de datos para prevenir Inyección SQL
-    if not db or not db.replace("_", "").isalnum():
-        raise ValueError(f"Nombre de base de datos inválido: {db}")
-
-    # 2. Validar que conectar_db exista realmente
-    if 'conectar_db' not in globals() and 'conectar_db' not in locals():
-        print("❌ Error: La función 'conectar_db' no está definida.")
-        return pd.DataFrame()
-
-    conn = conectar_db(db)
-    if conn is None:
-        print("❌ Error: 'conectar_db' devolvió None (revisa tus credenciales o conexión a TiDB Cloud).")
-        return pd.DataFrame()
-    
-    # Asegurar rango de hora completo para evitar perder registros del último día
-    f_i_str = str(f_i).split()[0] + " 00:00:00"
-    f_f_str = str(f_f).split()[0] + " 23:59:59"
-
-    query = f"""
-        SELECT 
-            plan_cuentas, 
-            CASE 
-                WHEN plan_cuentas = '5.1.1.01.001' THEN 'Costos de Reparaciones de vehiculos'
-                WHEN plan_cuentas = '5.1.1.01.002' THEN 'Iva Credito Fiscal (Ingresos Exentos)'
-                ELSE 'Otros'
-            END as descripcion, 
-            (SUM(debe) - SUM(haber)) as total_gasto
-        FROM `{db}`.asientos_contables 
-        WHERE plan_cuentas IN ('5.1.1.01.001', '5.1.1.01.002')
-        AND fecha >= %s AND fecha <= %s
-        GROUP BY plan_cuentas
-        HAVING total_gasto != 0
-        ORDER BY total_gasto DESC
-    """
-    
-    try:
-        df = pd.read_sql(query, conn, params=(f_i_str, f_f_str))
-    except Exception as e:
-        print(f"❌ Error en Clase 5: {e}")
-        df = pd.DataFrame()
-    finally:
-        try:
-            conn.close()
-        except Exception:
-            pass
-        
-    return df
-
-
 
 
 @st.cache_data(ttl=300)
