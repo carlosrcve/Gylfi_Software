@@ -8572,9 +8572,9 @@ elif opcion_menu == "📚 Libros Fiscales":
             with col_c3:
                 ver_todo = st.checkbox("📂 Ver todo", key="todo_compras")
             with col_c1:
-                desde_c = st.date_input("Desde", f_inicio_global, key="desde_c", disabled=ver_todo)
+                desde_c = st.date_input("Desde", st.session_state.get('f_inicio_global', datetime.date.today()), key="desde_c", disabled=ver_todo)
             with col_c2:
-                hasta_c = st.date_input("Hasta", f_fin_global, key="hasta_c", disabled=ver_todo)
+                hasta_c = st.date_input("Hasta", st.session_state.get('f_fin_global', datetime.date.today()), key="hasta_c", disabled=ver_todo)
 
             st.error("⚠️ **Atención:** Las acciones aquí solo afectan al Libro de Compras.")
 
