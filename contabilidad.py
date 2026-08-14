@@ -2208,18 +2208,18 @@ def preparar_excel_descarga(df, conn):
 
 
 
-def cargar_libro_compras_db(df):
-    # Obtenemos dinámicamente la base de datos del cliente logueado desde la sesión actual
-    nombre_db_cliente = st.session_state.get("db_cliente")
+def cargar_libro_compras_db(df, nombre_db=None):
+    # Si no pasan el nombre_db como argumento, lo buscamos en la sesión
+    if not nombre_db:
+        nombre_db = st.session_state.get("db_cliente")
     
-    if not nombre_db_cliente:
-        st.error("❌ No hay un cliente activo o seleccionado en la sesión actual.")
+    if not nombre_db:
+        st.error("❌ No hay un cliente activo o base de datos seleccionada en la sesión actual.")
         return
 
-    # Nos conectamos a la base de datos específica de ESE cliente
-    conn = conectar_db(nombre_db_cliente) 
+    conn = conectar_db(nombre_db) 
     if not conn:
-        st.error(f"No se pudo establecer conexión con la base de datos del cliente: {nombre_db_cliente}")
+        st.error(f"No se pudo establecer conexión con la base de datos del cliente: {nombre_db}")
         return
 
     def clean_n(v):
@@ -2242,7 +2242,7 @@ def cargar_libro_compras_db(df):
         cursor = conn.cursor()
         
         # Forzamos el uso de la BD del cliente y verificamos
-        cursor.execute(f"USE `{nombre_db_cliente}`;")
+        cursor.execute(f"USE `{nombre_db}`;")
         cursor.execute("SELECT DATABASE();")
         db_conectada = cursor.fetchone()
         db_nombre_actual = db_conectada['DATABASE()'] if isinstance(db_conectada, dict) else db_conectada[0]
@@ -2295,7 +2295,7 @@ def cargar_libro_compras_db(df):
         if registros_a_insertar:
             cursor.executemany(sql, registros_a_insertar)
             conn.commit()
-            st.success(f"🔥 ¡Proceso exitoso! Se guardaron {len(registros_a_insertar)} registros en el libro de compras de **{nombre_db_cliente}**.")
+            st.success(f"🔥 ¡Proceso exitoso! Se guardaron {len(registros_a_insertar)} registros en el libro de compras de **{nombre_db}**.")
         else:
             st.warning("⚠️ No se encontraron registros válidos para insertar.")
             
