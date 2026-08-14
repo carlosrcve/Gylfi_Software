@@ -2204,7 +2204,6 @@ def cargar_libro_compras_db(df, nombre_db):
         st.error("No se pudo establecer conexión con la base de datos.")
         return
 
-    # Usamos nombre_db (que contiene el RIF de la empresa) para identificarla
     rif_empresa_actual = str(nombre_db).strip()
 
     def clean_n(v):
@@ -2226,9 +2225,9 @@ def cargar_libro_compras_db(df, nombre_db):
         cursor = conn.cursor()
         registros_a_insertar = []
         
-        # SQL ajustado: incluimos 'rif' (identificador de empresa) como la primera columna
+        # CAMBIA 'empresa_rif' por el nombre real de la columna de la empresa si es distinto en tu BD
         sql = """INSERT INTO libro_compras 
-               (rif, fecha_operacion, tipo_documento, n_factura, n_control, proveedor, rif_proveedor, 
+               (empresa_rif, fecha_operacion, tipo_documento, n_factura, n_control, proveedor, rif, 
                 total_compras, importe_exento, base_imponible, iva_porcentaje, iva_monto) 
                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                ON DUPLICATE KEY UPDATE 
@@ -2252,13 +2251,13 @@ def cargar_libro_compras_db(df, nombre_db):
                     return s
 
                 valores = (
-                    rif_empresa_actual, # <--- Tu columna RIF (NOT NULL) que identifica a la empresa
+                    rif_empresa_actual, # 1. RIF de la empresa
                     convertir_fecha(row[cols[0]]), 
                     limpiar_texto(row[cols[1]]).zfill(2),
                     limpiar_texto(row[cols[2]]),
                     limpiar_texto(row[cols[3]]),
                     limpiar_texto(row[cols[4]]).upper(),
-                    limpiar_texto(row[cols[5]]).replace('-', '').replace('.', ''), # RIF del proveedor
+                    limpiar_texto(row[cols[5]]).replace('-', '').replace('.', ''), # 2. RIF del proveedor (va a la columna 'rif')
                     clean_n(row[cols[6]]),
                     clean_n(row[cols[7]]),
                     clean_n(row[cols[8]]),
