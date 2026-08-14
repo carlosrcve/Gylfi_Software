@@ -2199,75 +2199,53 @@ def preparar_excel_descarga(df, conn):
 
 
 def cargar_libro_compras_db(df, nombre_db):
-    # 1. Conexión
     conn = conectar_db(nombre_db) 
     if not conn:
         st.error("No se pudo establecer conexión con la base de datos.")
         return
 
-    # --- FUNCIÓN DE FECHA ROBUSTA ---
+    # Función de limpieza (Mantenida igual)
+    def clean_n(v):
+        if isinstance(v, (int, float)): return round(float(v), 2)
+        s = str(v).strip().replace('.', '').replace(',', '.')
+        if s in ['nan', 'None', '']: return 0.0
+        try: return round(float(s), 2)
+        except: return 0.0
+
+    # Función de fecha (Mantenida igual)
     def convertir_fecha(v):
         try:
-            # Intento formato Excel (número serial)
+            # Si ya es un objeto date/timestamp, convertir directo
+            if hasattr(v, 'strftime'): return v.strftime('%Y-%m-%d')
+            # Si es número serial de Excel
             num_excel = int(float(v))
             return (pd.to_datetime('1899-12-30') + pd.to_timedelta(num_excel, 'D')).strftime('%Y-%m-%d')
         except:
-            try:
-                # Intento formato Texto estándar
-                return pd.to_datetime(v).strftime('%Y-%m-%d')
-            except:
-                # Valor por defecto si todo falla
-                return "2026-06-06"
+            return "2026-06-06"
 
     try:
         cursor = conn.cursor()
         registros_a_insertar = []
         
-        # 2. SQL de inserción
+        # SQL corregido (ASEGÚRATE DE QUE LOS NOMBRES DE COLUMNA EN DB SEAN EXACTAMENTE ESTOS)
         sql = """INSERT INTO libro_compras 
-           (fecha_operacion, tipo_documento, n_factura, n_control, proveedor, rif, 
-            total_compras, importe_exento, base_imponible, iva_porcentaje, iva_monto) 
-           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-           ON DUPLICATE KEY UPDATE 
-           fecha_operacion = VALUES(fecha_operacion),
-           tipo_documento = VALUES(tipo_documento),
-           proveedor = VALUES(proveedor),
-           total_compras = VALUES(total_compras),
-           importe_exento = VALUES(importe_exento),
-           base_imponible = VALUES(base_imponible),
-           iva_porcentaje = VALUES(iva_porcentaje),
-           iva_monto = VALUES(iva_monto)"""
+               (fecha_operacion, tipo_documento, n_factura, n_control, proveedor, rif, 
+                total_compras, importe_exento, base_imponible, iva_porcentaje, iva_monto) 
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+               ON DUPLICATE KEY UPDATE 
+               fecha_operacion = VALUES(fecha_operacion),
+               tipo_documento = VALUES(tipo_documento),
+               proveedor = VALUES(proveedor),
+               total_compras = VALUES(total_compras),
+               importe_exento = VALUES(importe_exento),
+               base_imponible = VALUES(base_imponible),
+               iva_porcentaje = VALUES(iva_porcentaje),
+               iva_monto = VALUES(iva_monto)"""
 
-        # 3. Función de limpieza
-
-        def clean_n(v):
-            # Si es numérico, lo convertimos a float y redondeamos
-            if isinstance(v, (int, float)):
-                return round(float(v), 2)
-            
-            # Si viene como string, limpiamos
-            s = str(v).strip()
-            
-            # Si es un string vacío o 'None', retornamos 0.0
-            if s in ['nan', 'None', '']: 
-                return 0.0
-            
-            # Limpieza: quitamos puntos de miles y cambiamos coma por punto
-            # Ejemplo: "5.798,38" -> "5798.38"
-            s = s.replace('.', '').replace(',', '.')
-            
-            try:
-                return round(float(s), 2)
-            except:
-                return 0.0
-
-        # 4. Único ciclo de procesamiento
+        # Procesamiento
         for i, row in df.iterrows():
             try:
-                # Usamos la función robusta que ya probaste
-                f_str = convertir_fecha(row[0])
-                
-                # B. Creación de tupla
+                # Usamos los nombres exactos que definiste en la limpieza del Excel
                 valores = (
                     convertir_fecha(row['fecha_de_operación']), 
                     str(row['tipo_documento']),
@@ -2276,28 +2254,31 @@ def cargar_libro_compras_db(df, nombre_db):
                     str(row['proveedor']).upper(),
                     str(row['rif']).replace('-', ''),
                     clean_n(row['total_compras']),
-                    clean_n(row['compras_exentas']), # Asegúrate que coincida con tu columna de importe_exento
+                    clean_n(row['compras_exentas']),
                     clean_n(row['base_imponible']),
                     clean_n(row['iva_porcentaje']),
-                    clean_n(row['credito_fiscales']) # Asegúrate que coincida con tu columna de iva_monto
+                    clean_n(row['credito_fiscales'])
                 )
                 registros_a_insertar.append(valores)
+            except KeyError as e:
+                st.error(f"Error: La columna {e} no existe en el DataFrame. Revisa los nombres.")
+                return
             except Exception as e:
-                print(f"Error en fila {i}: {e}")
+                print(f"Error fila {i}: {e}")
 
-        # 5. Inserción masiva
         if registros_a_insertar:
             cursor.executemany(sql, registros_a_insertar)
             conn.commit()
             st.success(f"🔥 Procesados {len(registros_a_insertar)} registros.")
+        else:
+            st.warning("No se encontraron registros para insertar.")
         
     except Exception as e:
         if conn: conn.rollback()
-        st.error(f"Error crítico: {e}")
+        st.error(f"Error crítico en DB: {e}")
     finally:
         if cursor: cursor.close()
         if conn: conn.close()
-
 
 def obtener_lista_proveedores_mapeo():
     conn = conectar_db(db_actual)
