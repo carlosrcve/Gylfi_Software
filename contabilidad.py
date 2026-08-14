@@ -2203,6 +2203,12 @@ def cargar_libro_compras_db(df, nombre_db):
     if not conn:
         st.error("No se pudo establecer conexión con la base de datos.")
         return
+    # --- AGREGADO: VERIFICACIÓN DE DÓNDE ESTAMOS ---
+    cursor_check = conn.cursor()
+    cursor_check.execute("SELECT DATABASE();")
+    db_actual = cursor_check.fetchone()[0]
+    print(f"DEBUG: Estamos conectados a la base de datos: {db_actual}")
+    cursor_check.close()
 
     def clean_n(v):
         if isinstance(v, (int, float)): return round(float(v), 2)
@@ -2238,7 +2244,6 @@ def cargar_libro_compras_db(df, nombre_db):
                iva_monto = VALUES(iva_monto)"""
 
         cols = list(df.columns)
-        print(f"Total de filas leídas del DataFrame: {len(df)}")
 
         for i, row in df.iterrows():
             try:
@@ -2280,21 +2285,17 @@ def cargar_libro_compras_db(df, nombre_db):
                 print(f"Error procesando la fila {i}: {e}")
 
         if registros_a_insertar:
-            print(f"Intentando insertar/actualizar {len(registros_a_insertar)} registros en TiDB...")
             cursor.executemany(sql, registros_a_insertar)
             conn.commit()
-            print("¡Commit ejecutado exitosamente en TiDB!")
             st.success(f"🔥 ¡Procesados y guardados con éxito {len(registros_a_insertar)} registros en TiDB!")
         else:
             st.warning("No se encontraron registros válidos para insertar.")
         
     except Exception as e:
         if conn: conn.rollback()
-        print(f"Error crítico en DB: {e}")
         st.error(f"Error crítico en DB: {e}")
     finally:
         if cursor: cursor.close()
-        if conn: conn.close()
 
 def obtener_lista_proveedores_mapeo():
     conn = conectar_db(db_actual)
