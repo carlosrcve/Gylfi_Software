@@ -2293,8 +2293,14 @@ def cargar_libro_compras_db(df, nombre_db=None):
             registros_a_insertar.append(valores)
 
         if registros_a_insertar:
+            # Forzamos habilitar el autocommit para asegurar que se guarde de inmediato en la nube
+            conn.autocommit = True
+            
             cursor.executemany(sql, registros_a_insertar)
+            
+            # Doble confirmación de guardado
             conn.commit()
+            
             st.success(f"🔥 ¡Proceso exitoso! Se guardaron {len(registros_a_insertar)} registros en el libro de compras de **{nombre_db}**.")
         else:
             st.warning("⚠️ No se encontraron registros válidos para insertar.")
