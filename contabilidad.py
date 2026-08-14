@@ -2198,22 +2198,12 @@ def preparar_excel_descarga(df, conn):
     return output.getvalue()
 
 
+
 def cargar_libro_compras_db(df, nombre_db):
+    # 1. Nos conectamos directamente a la base de datos del cliente seleccionado
     conn = conectar_db(nombre_db) 
     if not conn:
-        st.error("No se pudo establecer conexión con la base de datos.")
-        return
-
-    # --- VERIFICACIÓN DE CONEXIÓN A LA BD DE LA EMPRESA ---
-    try:
-        cursor_check = conn.cursor()
-        cursor_check.execute(f"USE `{nombre_db}`;")
-        cursor_check.execute("SELECT DATABASE();")
-        db_conectada = cursor_check.fetchone()[0]
-        print(f"DEBUG: Trabajando sobre la base de datos: {db_conectada}")
-        cursor_check.close()
-    except Exception as e:
-        st.error(f"Error al seleccionar la base de datos {nombre_db}: {e}")
+        st.error(f"No se pudo establecer conexión con la base de datos: {nombre_db}")
         return
 
     def clean_n(v):
@@ -2231,11 +2221,19 @@ def cargar_libro_compras_db(df, nombre_db):
         except:
             return "2026-06-06"
 
+    cursor = None
     try:
         cursor = conn.cursor()
+        
+        # Verificamos la base de datos activa de forma segura mediante SQL directo
+        cursor.execute("SELECT DATABASE();")
+        db_conectada = cursor.fetchone()
+        db_nombre_actual = db_conectada['DATABASE()'] if isinstance(db_conectada, dict) else db_conectada[0]
+        print(f"DEBUG: Trabajando de forma segura sobre la base de datos: {db_nombre_actual}")
+
         registros_a_insertar = []
         
-        # SQL exacto según tu estructura de tabla (la columna rif es la del proveedor)
+        # SQL exacto con la cláusula ON DUPLICATE KEY UPDATE
         sql = """INSERT INTO libro_compras 
                (fecha_operacion, tipo_documento, n_factura, n_control, proveedor, rif, 
                 total_compras, importe_exento, base_imponible, iva_porcentaje, iva_monto) 
@@ -2280,15 +2278,16 @@ def cargar_libro_compras_db(df, nombre_db):
         if registros_a_insertar:
             cursor.executemany(sql, registros_a_insertar)
             conn.commit()
-            st.success(f"🔥 ¡Procesados y guardados con éxito {len(registros_a_insertar)} registros en la base de datos de la empresa ({nombre_db})!")
+            st.success(f"🔥 ¡Procesados y guardados con éxito {len(registros_a_insertar)} registros en la base de datos del cliente ({nombre_db})!")
         else:
             st.warning("No se encontraron registros válidos para insertar.")
         
     except Exception as e:
         if conn: conn.rollback()
-        st.error(f"Error crítico de escritura en TiDB: {e}")
+        st.error(f"Error crítico de escritura en TiDB Cloud: {e}")
     finally:
         if cursor: cursor.close()
+        if conn: conn.close()
 
 def obtener_lista_proveedores_mapeo():
     conn = conectar_db(db_actual)
