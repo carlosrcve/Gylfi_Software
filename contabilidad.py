@@ -2208,8 +2208,6 @@ def preparar_excel_descarga(df, conn):
 
 
 
-import pandas as pd
-import streamlit as st
 
 def cargar_libro_compras_db(df, nombre_db=None):
     if not nombre_db:
@@ -2238,6 +2236,12 @@ def cargar_libro_compras_db(df, nombre_db=None):
             return (pd.to_datetime('1899-12-30') + pd.to_timedelta(num_excel, 'D')).strftime('%Y-%m-%d')
         except:
             return "2026-06-06"
+
+    def limpiar_texto(val):
+        if pd.isna(val): return ""
+        s = str(val).strip()
+        if s.endswith('.0'): s = s[:-2]
+        return s
 
     cursor = None
     try:
@@ -2275,33 +2279,27 @@ def cargar_libro_compras_db(df, nombre_db=None):
                iva_monto = VALUES(iva_monto)"""
 
         for i, row in df.iterrows():
-            def limpiar_texto(val):
-                if pd.isna(val): return ""
-                s = str(val).strip()
-                if s.endswith('.0'): s = s[:-2]
-                return s
-
             # Validamos que el número de factura (columna 2) exista
             n_fact = limpiar_texto(row[cols[2]])
             if not n_fact: 
                 continue
 
             valores = (
-                convertir_fecha(row[cols[0]]),                         # 0: Fecha de Operación
-                limpiar_texto(row[cols[1]]).zfill(2),                  # 1: Tipo de Documento
-                n_fact,                                                # 2: Número de Factura
-                limpiar_texto(row[cols[3]]),                           # 3: Número de Control
-                limpiar_texto(row[cols[4]]).upper(),                   # 4: Nombre o Razón Social (Proveedor)
+                convertir_fecha(row[cols[0]]),                    # 0: Fecha de Operación
+                limpiar_texto(row[cols[1]]).zfill(2),             # 1: Tipo de Documento
+                n_fact,                                           # 2: Número de Factura
+                limpiar_texto(row[cols[3]]),                      # 3: Número de Control
+                limpiar_texto(row[cols[4]]).upper(),              # 4: Nombre o Razón Social (Proveedor)
                 limpiar_texto(row[cols[5]]).replace('-', '').replace('.', ''), # 5: R.I.F.
-                clean_n(row[cols[6]]),                                 # 6: Total Compra
-                clean_n(row[cols[7]]),                                 # 7: Compras Exentas
-                clean_n(row[cols[8]]),                                 # 8: Base Imponible
-                clean_n(row[cols[9]]),                                 # 9: Alícuota (%)
-                clean_n(row[cols[10]]),                                # 10: Crédito Fiscal (IVA Monto)
-                0.00,                                                  # retencion_realizada
-                0.00,                                                  # retencion_iva_realizada
-                "C",                                                   # tipo_transaccion (ajustado a CHAR(1))
-                current_cliente_id                                     # cliente_id
+                clean_n(row[cols[6]]),                            # 6: Total Compra
+                clean_n(row[cols[7]]),                            # 7: Compras Exentas
+                clean_n(row[cols[8]]),                            # 8: Base Imponible
+                clean_n(row[cols[9]]),                            # 9: Alícuota (%)
+                clean_n(row[cols[10]]),                           # 10: Crédito Fiscal (IVA Monto)
+                0.00,                                             # retencion_realizada
+                0.00,                                             # retencion_iva_realizada
+                "C",                                              # tipo_transaccion (ajustado a CHAR(1))
+                current_cliente_id                                # cliente_id
             )
             registros_a_insertar.append(valores)
 
