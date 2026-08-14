@@ -2204,18 +2204,8 @@ def cargar_libro_compras_db(df, nombre_db):
         st.error("No se pudo establecer conexión con la base de datos.")
         return
 
-    # --- BLINDAJE: FORZAR CONEXIÓN AL ESQUEMA CORRECTO ---
-    try:
-        cursor_check = conn.cursor()
-        # Forzamos el uso del esquema específico del cliente
-        cursor_check.execute(f"USE `{nombre_db}`;")
-        cursor_check.execute("SELECT DATABASE();")
-        db_conectada = cursor_check.fetchone()[0]
-        print(f"DEBUG: Trabajando sobre la base de datos: {db_conectada}")
-        cursor_check.close()
-    except Exception as e:
-        st.error(f"Error al seleccionar la base de datos {nombre_db}: {e}")
-        return
+    # Usamos nombre_db (que contiene el RIF de la empresa) para identificarla
+    rif_empresa_actual = str(nombre_db).strip()
 
     def clean_n(v):
         if isinstance(v, (int, float)): return round(float(v), 2)
@@ -2236,10 +2226,11 @@ def cargar_libro_compras_db(df, nombre_db):
         cursor = conn.cursor()
         registros_a_insertar = []
         
+        # SQL ajustado: incluimos 'rif' (identificador de empresa) como la primera columna
         sql = """INSERT INTO libro_compras 
-               (fecha_operacion, tipo_documento, n_factura, n_control, proveedor, rif, 
+               (rif, fecha_operacion, tipo_documento, n_factura, n_control, proveedor, rif_proveedor, 
                 total_compras, importe_exento, base_imponible, iva_porcentaje, iva_monto) 
-               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                ON DUPLICATE KEY UPDATE 
                fecha_operacion = VALUES(fecha_operacion),
                tipo_documento = VALUES(tipo_documento),
@@ -2261,12 +2252,13 @@ def cargar_libro_compras_db(df, nombre_db):
                     return s
 
                 valores = (
+                    rif_empresa_actual, # <--- Tu columna RIF (NOT NULL) que identifica a la empresa
                     convertir_fecha(row[cols[0]]), 
                     limpiar_texto(row[cols[1]]).zfill(2),
                     limpiar_texto(row[cols[2]]),
                     limpiar_texto(row[cols[3]]),
                     limpiar_texto(row[cols[4]]).upper(),
-                    limpiar_texto(row[cols[5]]).replace('-', '').replace('.', ''),
+                    limpiar_texto(row[cols[5]]).replace('-', '').replace('.', ''), # RIF del proveedor
                     clean_n(row[cols[6]]),
                     clean_n(row[cols[7]]),
                     clean_n(row[cols[8]]),
@@ -2280,15 +2272,14 @@ def cargar_libro_compras_db(df, nombre_db):
         if registros_a_insertar:
             cursor.executemany(sql, registros_a_insertar)
             conn.commit()
-            st.success(f"🔥 ¡Procesados y guardados con éxito {len(registros_a_insertar)} registros en {nombre_db}!")
+            st.success(f"🔥 ¡Procesados y guardados {len(registros_a_insertar)} registros para el RIF {rif_empresa_actual}!")
         else:
             st.warning("No se encontraron registros válidos para insertar.")
         
     except Exception as e:
-        conn.rollback()
+        if conn: conn.rollback()
         st.error(f"Error crítico de escritura en TiDB: {e}")
     finally:
-        # IMPORTANTE: Cerramos solo el cursor, NUNCA la conexión conn
         if cursor: cursor.close()
 
 def obtener_lista_proveedores_mapeo():
