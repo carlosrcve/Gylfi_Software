@@ -16,3 +16,4 @@ bcrypt>=4.0.0
 starlette==0.27.0
 uvicorn==0.22.0
 openpyxl>=3.1.0
+XlsxWriter==3.1.9
