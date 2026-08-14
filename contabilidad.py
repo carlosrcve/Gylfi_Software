@@ -2234,7 +2234,7 @@ def cargar_libro_compras_db(df, nombre_db=None):
             if hasattr(v, 'strftime'): return v.strftime('%Y-%m-%d')
             num_excel = int(float(v))
             return (pd.to_datetime('1899-12-30') + pd.to_timedelta(num_excel, 'D')).strftime('%Y-%m-%d')
-        except:
+        except: 
             return "2026-06-06"
 
     def limpiar_texto(val):
