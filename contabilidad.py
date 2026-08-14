@@ -8694,9 +8694,13 @@ elif opcion_menu == "📚 Libros Fiscales":
                 df_excel = pd.read_excel(archivo_ex)
                 df_excel.columns = df_excel.columns.str.strip().str.lower().str.replace(" ", "_")
                 
-                if 'fecha_de_operación' in df_excel.columns:
-                    # AQUÍ ESTÁ EL TRUCO: convertimos a objeto date de Python, no a string
-                    df_excel['fecha_de_operación'] = pd.to_datetime(df_excel['fecha_de_operación']).dt.date
+                # --- BLINDAJE ANTI-ERROR DE PYARROW ---
+                # Forzamos a que TODAS las columnas de texto/identificadores sean string puro
+                for col in df_excel.columns:
+                    # Si la columna contiene números de control, facturas, RIF, etc., los pasamos a texto
+                    if any(k in col for k in ['control', 'factura', 'rif', 'documento', 'proveedor']):
+                        df_excel[col] = df_excel[col].astype(str).replace({'nan': '', 'None': ''})
+            # -------------------------------------
                         
                 st.session_state.df_carga_excel = df_excel
 
