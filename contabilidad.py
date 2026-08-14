@@ -124,6 +124,7 @@ def conectar_db(nombre_db=None):
         return None
 
 
+
 def verificar_usuario(conn, user, password):
     if conn is None:
         try:
@@ -140,7 +141,7 @@ def verificar_usuario(conn, user, password):
                 conn = conectar_db()
                 
             cursor = conn.cursor(dictionary=True)
-            # Buscamos al usuario en la base de datos
+            # Buscamos al usuario en la base de datos de forma segura
             cursor.execute("SELECT * FROM usuarios WHERE usuario = %s", (user,))
             user_data = cursor.fetchone()
             break 
@@ -168,16 +169,18 @@ def verificar_usuario(conn, user, password):
     
     if clave_en_bd:
         password_bytes = password.encode('utf-8')
-        # Verificamos si es un hash de bcrypt
-        if str(clave_en_bd).startswith('$2b$'):
+        clave_str = str(clave_en_bd)
+        
+        # Verificamos si es un hash de bcrypt (soportando variantes 2a, 2b, 2y)
+        if clave_str.startswith(('$2a$', '$2b$', '$2y$')):
             try:
-                if bcrypt.checkpw(password_bytes, str(clave_en_bd).encode('utf-8')):
+                if bcrypt.checkpw(password_bytes, clave_str.encode('utf-8')):
                     login_exitoso = True
             except Exception as ex:
                 st.error(f"Error al validar hash: {ex}")
         else:
             # Si está en texto plano
-            if password == str(clave_en_bd):
+            if password == clave_str:
                 login_exitoso = True
                 # Intentamos actualizar a hash de forma silenciosa para mejorar seguridad
                 try:
@@ -188,6 +191,7 @@ def verificar_usuario(conn, user, password):
                 except:
                     pass
     
+    # Cierre seguro del cursor
     try:
         if cursor:
             cursor.close()
@@ -195,7 +199,7 @@ def verificar_usuario(conn, user, password):
         pass
     
     if login_exitoso:
-        # Aseguramos llaves por defecto para que la sesión no explote
+        # Aseguramos llaves por defecto para que la sesión no falle
         if 'rol' not in user_data or not user_data['rol']:
             user_data['rol'] = 'admin'
         if 'cliente_id' not in user_data:
@@ -322,7 +326,12 @@ def login_screen():
                     st.session_state['usuario'] = user
                     st.session_state['rol'] = res['rol']
                     st.session_state['user_id'] = res['id']         
-                    st.session_state['cliente_id'] = res.get('cliente_id') 
+                    st.session_state['cliente_id'] = res.get('cliente_id')  
+                    
+                    # 🔑 AQUÍ ESTABA EL DETALLE: Guardamos la base de datos del cliente en la sesión
+                    # (Asegúrate de que 'nombre_base_de_datos' coincida con la columna que retorna tu función verificar_usuario)
+                    st.session_state['db_cliente'] = res.get('nombre_base_de_datos') 
+                    
                     st.session_state['bienvenida_completada'] = False
                     
                     st.rerun()
@@ -2199,13 +2208,18 @@ def preparar_excel_descarga(df, conn):
 
 
 
-import pandas as pd
-import streamlit as st
+def cargar_libro_compras_db(df):
+    # Obtenemos dinámicamente la base de datos del cliente logueado desde la sesión actual
+    nombre_db_cliente = st.session_state.get("db_cliente")
+    
+    if not nombre_db_cliente:
+        st.error("❌ No hay un cliente activo o seleccionado en la sesión actual.")
+        return
 
-def cargar_libro_compras_db(df, nombre_db):
-    conn = conectar_db(nombre_db) 
+    # Nos conectamos a la base de datos específica de ESE cliente
+    conn = conectar_db(nombre_db_cliente) 
     if not conn:
-        st.error(f"No se pudo establecer conexión con la base de datos: {nombre_db}")
+        st.error(f"No se pudo establecer conexión con la base de datos del cliente: {nombre_db_cliente}")
         return
 
     def clean_n(v):
@@ -2227,11 +2241,12 @@ def cargar_libro_compras_db(df, nombre_db):
     try:
         cursor = conn.cursor()
         
-        # Verificamos la base de datos activa
+        # Forzamos el uso de la BD del cliente y verificamos
+        cursor.execute(f"USE `{nombre_db_cliente}`;")
         cursor.execute("SELECT DATABASE();")
         db_conectada = cursor.fetchone()
         db_nombre_actual = db_conectada['DATABASE()'] if isinstance(db_conectada, dict) else db_conectada[0]
-        st.info(f"🔍 Conectado y operando en la BD: **{db_nombre_actual}**")
+        st.info(f"🔍 Guardando datos en el esquema del cliente: **{db_nombre_actual}**")
 
         registros_a_insertar = []
         
@@ -2258,7 +2273,6 @@ def cargar_libro_compras_db(df, nombre_db):
                 if s.endswith('.0'): s = s[:-2]
                 return s
 
-            # Validamos que al menos la factura o el RIF no estén vacíos
             n_fact = limpiar_texto(row[cols[2]])
             if not n_fact: 
                 continue
@@ -2281,18 +2295,18 @@ def cargar_libro_compras_db(df, nombre_db):
         if registros_a_insertar:
             cursor.executemany(sql, registros_a_insertar)
             conn.commit()
-            st.success(f"🔥 ¡Guardados con éxito {len(registros_a_insertar)} registros en {nombre_db}!")
+            st.success(f"🔥 ¡Proceso exitoso! Se guardaron {len(registros_a_insertar)} registros en el libro de compras de **{nombre_db_cliente}**.")
         else:
-            st.warning("⚠️ No se agregaron registros porque las filas del Excel parecen estar vacías o sin número de factura válido.")
+            st.warning("⚠️ No se encontraron registros válidos para insertar.")
             
     except Exception as e:
         if conn: conn.rollback()
-        st.error(f"❌ Error crítico al guardar en la base de datos: {e}")
+        st.error(f"❌ Error crítico de escritura en la BD del cliente: {e}")
     finally:
         if cursor: cursor.close()
         if conn: conn.close()
 
-        
+
 def obtener_lista_proveedores_mapeo():
     conn = conectar_db(db_actual)
     cursor = conn.cursor()
