@@ -2128,15 +2128,14 @@ def cargar_libro_ventas_db(df, conn):
               (fecha_factura, nombre_razon_social, rif, n_factura, n_control, 
                total_ventas_con_iva, ventas_exentas, base_imponible, porcentaje_alicuota, debito_fiscal) 
               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-              AS new
               ON DUPLICATE KEY UPDATE 
-              fecha_factura = new.fecha_factura, 
-              nombre_razon_social = new.nombre_razon_social,
-              n_control = new.n_control,
-              total_ventas_con_iva = new.total_ventas_con_iva,
-              ventas_exentas = new.ventas_exentas,
-              base_imponible = new.base_imponible,
-              debito_fiscal = new.debito_fiscal"""
+              fecha_factura = VALUES(fecha_factura), 
+              nombre_razon_social = VALUES(nombre_razon_social),
+              n_control = VALUES(n_control),
+              total_ventas_con_iva = VALUES(total_ventas_con_iva),
+              ventas_exentas = VALUES(ventas_exentas),
+              base_imponible = VALUES(base_imponible),
+              debito_fiscal = VALUES(debito_fiscal)"""
     
     # Iteramos sobre los valores del DataFrame
     data = df.astype(str).replace('nan', '').values
