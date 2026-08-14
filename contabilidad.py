@@ -2263,20 +2263,11 @@ def cargar_libro_compras_db(df, nombre_db=None):
 
         current_cliente_id = st.session_state.get('cliente_id', 1)
 
-        sql = """INSERT INTO libro_compras 
-               (fecha_operacion, tipo_documento, n_factura, n_control, proveedor, rif, 
-                total_compras, importe_exento, base_imponible, iva_porcentaje, iva_monto,
-                retencion_realizada, retencion_iva_realizada, tipo_transaccion, cliente_id) 
-               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-               ON DUPLICATE KEY UPDATE 
-               fecha_operacion = VALUES(fecha_operacion),
-               tipo_documento = VALUES(tipo_documento),
-               proveedor = VALUES(proveedor),
-               total_compras = VALUES(total_compras),
-               importe_exento = VALUES(importe_exento),
-               base_imponible = VALUES(base_imponible),
-               iva_porcentaje = VALUES(iva_porcentaje),
-               iva_monto = VALUES(iva_monto)"""
+        sql = """REPLACE INTO libro_compras 
+                (fecha_operacion, tipo_documento, n_factura, n_control, proveedor, rif, 
+                 total_compras, importe_exento, base_imponible, iva_porcentaje, iva_monto,
+                 retencion_realizada, retencion_iva_realizada, tipo_transaccion, cliente_id) 
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"""
 
         for i, row in df.iterrows():
             # Validamos que el número de factura (columna 2) exista
