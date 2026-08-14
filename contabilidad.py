@@ -2220,65 +2220,69 @@ def cargar_libro_compras_db(df, nombre_db):
         except:
             return "2026-06-06"
 
-    cursor = conn.cursor()
-    
-    # 1. Verificamos en qué base de datos estamos parados exactamente
-    cursor.execute("SELECT DATABASE();")
-    db_conectada = cursor.fetchone()
-    db_nombre_actual = db_conectada['DATABASE()'] if isinstance(db_conectada, dict) else db_conectada[0]
-    st.info(f"🔍 Conectado y operando en la BD: **{db_nombre_actual}**")
+    cursor = None
+    try:
+        cursor = conn.cursor()
+        
+        # Verificamos la base de datos activa
+        cursor.execute("SELECT DATABASE();")
+        db_conectada = cursor.fetchone()
+        db_nombre_actual = db_conectada['DATABASE()'] if isinstance(db_conectada, dict) else db_conectada[0]
+        st.info(f"🔍 Conectado y operando en la BD: **{db_nombre_actual}**")
 
-    registros_a_insertar = []
-    
-    sql = """INSERT INTO libro_compras 
-           (fecha_operacion, tipo_documento, n_factura, n_control, proveedor, rif, 
-            total_compras, importe_exento, base_imponible, iva_porcentaje, iva_monto) 
-           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-           ON DUPLICATE KEY UPDATE 
-           fecha_operacion = VALUES(fecha_operacion),
-           tipo_documento = VALUES(tipo_documento),
-           proveedor = VALUES(proveedor),
-           total_compras = VALUES(total_compras),
-           importe_exento = VALUES(importe_exento),
-           base_imponible = VALUES(base_imponible),
-           iva_porcentaje = VALUES(iva_porcentaje),
-           iva_monto = VALUES(iva_monto)"""
+        registros_a_insertar = []
+        
+        sql = """INSERT INTO libro_compras 
+               (fecha_operacion, tipo_documento, n_factura, n_control, proveedor, rif, 
+                total_compras, importe_exento, base_imponible, iva_porcentaje, iva_monto) 
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+               ON DUPLICATE KEY UPDATE 
+               fecha_operacion = VALUES(fecha_operacion),
+               tipo_documento = VALUES(tipo_documento),
+               proveedor = VALUES(proveedor),
+               total_compras = VALUES(total_compras),
+               importe_exento = VALUES(importe_exento),
+               base_imponible = VALUES(base_imponible),
+               iva_porcentaje = VALUES(iva_porcentaje),
+               iva_monto = VALUES(iva_monto)"""
 
-    cols = list(df.columns)
+        cols = list(df.columns)
 
-    for i, row in df.iterrows():
-        def limpiar_texto(val):
-            if pd.isna(val): return ""
-            s = str(val).strip()
-            if s.endswith('.0'): s = s[:-2]
-            return s
+        for i, row in df.iterrows():
+            def limpiar_texto(val):
+                if pd.isna(val): return ""
+                s = str(val).strip()
+                if s.endswith('.0'): s = s[:-2]
+                return s
 
-        valores = (
-            convertir_fecha(row[cols[0]]), 
-            limpiar_texto(row[cols[1]]).zfill(2),
-            limpiar_texto(row[cols[2]]),
-            limpiar_texto(row[cols[3]]),
-            limpiar_texto(row[cols[4]]).upper(),
-            limpiar_texto(row[cols[5]]).replace('-', '').replace('.', ''),
-            clean_n(row[cols[6]]),
-            clean_n(row[cols[7]]),
-            clean_n(row[cols[8]]),
-            clean_n(row[cols[9]]),
-            clean_n(row[cols[10]])
-        )
-        registros_a_insertar.append(valores)
+            valores = (
+                convertir_fecha(row[cols[0]]), 
+                limpiar_texto(row[cols[1]]).zfill(2),
+                limpiar_texto(row[cols[2]]),
+                limpiar_texto(row[cols[3]]),
+                limpiar_texto(row[cols[4]]).upper(),
+                limpiar_texto(row[cols[5]]).replace('-', '').replace('.', ''),
+                clean_n(row[cols[6]]),
+                clean_n(row[cols[7]]),
+                clean_n(row[cols[8]]),
+                clean_n(row[cols[9]]),
+                clean_n(row[cols[10]])
+            )
+            registros_a_insertar.append(valores)
 
-    if registros_a_insertar:
-        # QUITAMOS EL TRY/EXCEPT DE AQUÍ PARA VER EL ERROR REAL SI FALLA
-        cursor.executemany(sql, registros_a_insertar)
-        conn.commit()
-        st.success(f"🔥 ¡Guardados con éxito {len(registros_a_insertar)} registros!")
-    else:
-        st.warning("No hay registros válidos.")
-    
-    cursor.close()
-    conn.close()
-
+        if registros_a_insertar:
+            cursor.executemany(sql, registros_a_insertar)
+            conn.commit()
+            st.success(f"🔥 ¡Guardados con éxito {len(registros_a_insertar)} registros en {nombre_db}!")
+        else:
+            st.warning("No hay registros válidos para insertar.")
+            
+    except Exception as e:
+        if conn: conn.rollback()
+        st.error(f"❌ Error crítico al guardar en la base de datos: {e}")
+    finally:
+        if cursor: cursor.close()
+        if conn: conn.close()
 def obtener_lista_proveedores_mapeo():
     conn = conectar_db(db_actual)
     cursor = conn.cursor()
