@@ -8358,16 +8358,19 @@ elif opcion_menu == "📚 Libros Fiscales":
                 params = None if ver_todo else (desde_c, hasta_c)
                 
                 df_recuperado = pd.read_sql(query, conn, params=params)
-                conn.close()
-
-                if not df_recuperado.empty:
-                    st.session_state.df_compras_editor = df_recuperado
-                else:
-                    st.warning("No se encontraron registros en el rango seleccionado.")
-                    if "df_compras_editor" in st.session_state:
-                        del st.session_state.df_compras_editor
             except Exception as e:
                 st.error(f"❌ Error al consultar la base de datos: {e}")
+                df_recuperado = pd.DataFrame()
+            finally:
+                if 'conn' in locals() and conn:
+                    conn.close() # Cierre garantizado para evitar fugas de memoria
+
+            if not df_recuperado.empty:
+                st.session_state.df_compras_editor = df_recuperado
+            else:
+                st.warning("No se encontraron registros en el rango seleccionado.")
+                if "df_compras_editor" in st.session_state:
+                    del st.session_state.df_compras_editor
 
             def formato_ve(n):
                 try:
@@ -8477,6 +8480,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                             finally:
                                 cursor.close()
                                 conn.close()
+                                
         with tab2: # Escaneo Inteligente
             st.subheader("📸 Escaneo Inteligente (OCR)")
             archivo = st.file_uploader("Sube factura", type=['jpg', 'png', 'jpeg'], key="uploader_factura")
