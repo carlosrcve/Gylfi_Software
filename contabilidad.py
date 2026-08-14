@@ -3576,41 +3576,53 @@ def cargar_asientos_contables_db(df, conn=None):
     
     if not conn: return False
     
+    cursor = None
     try:
         df_limpio = df.copy()
-        # Normalizar nombres de columnas a minúsculas por seguridad
         df_limpio.columns = df_limpio.columns.astype(str).str.strip().str.lower()
         
-        # 1. Convertir fecha y eliminar nulos
+        # 1. Limpieza de fecha
         df_limpio['fecha'] = pd.to_datetime(df_limpio['fecha'], errors='coerce')
         df_limpio = df_limpio.dropna(subset=['fecha']) 
         
-        # 2. Asegurar formato numérico para Debe y Haber (reemplazando nulos o guiones '-')
-        df_limpio['debe'] = pd.to_numeric(df_limpio['debe'].astype(str).str.replace(',', '.').replace('-', '0'), errors='fillna').fillna(0.0).round(2)
-        df_limpio['haber'] = pd.to_numeric(df_limpio['haber'].astype(str).str.replace(',', '.').replace('-', '0'), errors='fillna').fillna(0.0).round(2)
+        # 2. Limpieza robusta para Debe y Haber (remplaza guiones y comas)
+        for col in ['debe', 'haber']:
+            if col in df_limpio.columns:
+                df_limpio[col] = (
+                    df_limpio[col]
+                    .astype(str)
+                    .str.replace(' ', '')
+                    .str.replace(',', '.')
+                    .replace(['-', 'nan', 'None', ''], '0.0')
+                )
+                df_limpio[col] = pd.to_numeric(df_limpio[col], errors='coerce').fillna(0.0).round(2)
+            else:
+                df_limpio[col] = 0.0
 
         valores = []
         for index, row in df_limpio.iterrows():
             try:
-                tupla = (
-                    str(row.get('n_comprobante', '')), 
-                    str(row.get('descripcion', '')), 
-                    row['fecha'].strftime('%Y-%m-%d'), 
-                    str(row.get('plan_de_cuentas', row.get('plan_cuentas', ''))), 
-                    str(row.get('cuenta_contable', '')), 
-                    str(row.get('ref', row.get('referencia', ''))), 
-                    float(row['debe']), 
-                    float(row['haber'])
-                )
+                # Forzar conversión estricta a tipos nativos de Python para evitar errores de MySQL
+                n_comp = str(row.get('n_comprobante', ''))
+                desc = str(row.get('descripcion', ''))
+                fec = row['fecha'].strftime('%Y-%m-%d')
+                plan = str(row.get('plan_de_cuentas', row.get('plan_cuentas', '')))
+                cta = str(row.get('cuenta_contable', ''))
+                ref = str(row.get('ref', row.get('referencia', '')))
+                debe_val = float(row['debe'])
+                haber_val = float(row['haber'])
+
+                tupla = (n_comp, desc, fec, plan, cta, ref, debe_val, haber_val)
                 valores.append(tupla)
-            except Exception as e:
-                st.error(f"Error en la fila {index + 1}: {e}")
+            except Exception as row_err:
+                st.warning(f"⚠️ Saltando fila {index + 1} por formato inválido: {row_err}")
                 continue
         
         if not valores:
-            st.warning("⚠️ No se encontraron datos válidos para insertar.")
+            st.warning("⚠️ No se encontraron datos válidos para insertar después de la limpieza.")
             return False
 
+        # 3. Inserción masiva limpia
         cursor = conn.cursor()
         query = """
             INSERT INTO asientos_contables 
@@ -3620,8 +3632,8 @@ def cargar_asientos_contables_db(df, conn=None):
         
         cursor.executemany(query, valores)
         conn.commit()
-        cursor.close()
         
+        st.success(f"✅ ¡Éxito! {len(valores)} asientos cargados correctamente.")
         return True
 
     except Exception as e:
@@ -3629,10 +3641,12 @@ def cargar_asientos_contables_db(df, conn=None):
         st.error(f"❌ Error masivo al insertar en la base de datos: {e}")
         return False
     finally:
-        if 'cursor' in locals() and cursor:
+        if cursor:
             cursor.close()
         if conn:
             conn.ping(reconnect=True)
+
+            
 def consultar_tabla_db(conn, nombre_tabla):
     """
     Consulta registros usando la conexión activa pasada como parámetro.
