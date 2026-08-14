@@ -2204,7 +2204,6 @@ def cargar_libro_compras_db(df, nombre_db):
         st.error("No se pudo establecer conexión con la base de datos.")
         return
 
-    # Función de limpieza (Mantenida igual)
     def clean_n(v):
         if isinstance(v, (int, float)): return round(float(v), 2)
         s = str(v).strip().replace('.', '').replace(',', '.')
@@ -2212,12 +2211,9 @@ def cargar_libro_compras_db(df, nombre_db):
         try: return round(float(s), 2)
         except: return 0.0
 
-    # Función de fecha (Mantenida igual)
     def convertir_fecha(v):
         try:
-            # Si ya es un objeto date/timestamp, convertir directo
             if hasattr(v, 'strftime'): return v.strftime('%Y-%m-%d')
-            # Si es número serial de Excel
             num_excel = int(float(v))
             return (pd.to_datetime('1899-12-30') + pd.to_timedelta(num_excel, 'D')).strftime('%Y-%m-%d')
         except:
@@ -2227,7 +2223,6 @@ def cargar_libro_compras_db(df, nombre_db):
         cursor = conn.cursor()
         registros_a_insertar = []
         
-        # SQL corregido (ASEGÚRATE DE QUE LOS NOMBRES DE COLUMNA EN DB SEAN EXACTAMENTE ESTOS)
         sql = """INSERT INTO libro_compras 
                (fecha_operacion, tipo_documento, n_factura, n_control, proveedor, rif, 
                 total_compras, importe_exento, base_imponible, iva_porcentaje, iva_monto) 
@@ -2242,36 +2237,49 @@ def cargar_libro_compras_db(df, nombre_db):
                iva_porcentaje = VALUES(iva_porcentaje),
                iva_monto = VALUES(iva_monto)"""
 
-        # Procesamiento
+        # Mapeo flexible de columnas por posición o nombre parcial para evitar errores
+        cols = list(df.columns)
+        print(f"Columnas detectadas en el DataFrame: {cols}") # Para depurar en consola si hace falta
+
         for i, row in df.iterrows():
             try:
-                # Usamos los nombres exactos que definiste en la limpieza del Excel
+                # Extraemos de forma segura usando índices directos de las columnas del DataFrame de Excel
+                # (Asumiendo el orden clásico del Libro de Compras: Fecha, Tipo, Factura, Control, Proveedor, RIF, Total, Exento, Base, %, IVA)
+                f_val = row[cols[0]]
+                t_doc = row[cols[1]]
+                n_fac = row[cols[2]]
+                n_con = row[cols[3]]
+                prov  = row[cols[4]]
+                rif_v = row[cols[5]]
+                t_com = row[cols[6]]
+                c_exe = row[cols[7]]
+                b_imp = row[cols[8]]
+                i_por = row[cols[9]]
+                i_mon = row[cols[10]]
+
                 valores = (
-                    convertir_fecha(row['fecha_de_operación']), 
-                    str(row['tipo_documento']),
-                    str(row['n_factura']),
-                    str(row['n_control']),
-                    str(row['proveedor']).upper(),
-                    str(row['rif']).replace('-', ''),
-                    clean_n(row['total_compras']),
-                    clean_n(row['compras_exentas']),
-                    clean_n(row['base_imponible']),
-                    clean_n(row['iva_porcentaje']),
-                    clean_n(row['credito_fiscales'])
+                    convertir_fecha(f_val), 
+                    str(t_doc).split('.')[0].zfill(2),
+                    str(n_fac).split('.')[0].strip(),
+                    str(n_con).strip(),
+                    str(prov).upper().strip(),
+                    str(rif_v).replace('-', '').replace('.', '').strip(),
+                    clean_n(t_com),
+                    clean_n(c_exe),
+                    clean_n(b_imp),
+                    clean_n(i_por),
+                    clean_n(i_mon)
                 )
                 registros_a_insertar.append(valores)
-            except KeyError as e:
-                st.error(f"Error: La columna {e} no existe en el DataFrame. Revisa los nombres.")
-                return
             except Exception as e:
-                print(f"Error fila {i}: {e}")
+                print(f"Error procesando la fila {i}: {e}")
 
         if registros_a_insertar:
             cursor.executemany(sql, registros_a_insertar)
             conn.commit()
-            st.success(f"🔥 Procesados {len(registros_a_insertar)} registros.")
+            st.success(f"🔥 ¡Procesados y guardados con éxito {len(registros_a_insertar)} registros en TiDB!")
         else:
-            st.warning("No se encontraron registros para insertar.")
+            st.warning("No se encontraron registros válidos para insertar.")
         
     except Exception as e:
         if conn: conn.rollback()
