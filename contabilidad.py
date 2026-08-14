@@ -9417,20 +9417,19 @@ elif opcion_menu == "📚 Libros Fiscales":
                             st.warning("💡 Debes ingresar el número de factura.")
 
             # --- TAB 6: XML SENIAT ---
+            # --- TAB 6: XML SENIAT ---
             with tab6:
                 # --- SECCIÓN C: GENERAR ARCHIVO XML SENIAT ---
                 st.divider()
                 st.markdown("### 📡 Generar Archivo XML para Declaración SENIAT")
-                # Inserta esto ANTES de la línea que te da el error
-
                 
                 with st.container(border=True):
                     col_xml1, col_xml2 = st.columns(2)
                     f_xml_desde = col_xml1.date_input("Desde", value=datetime.datetime(2026, 4, 1), key="xml_desde")
                     f_xml_hasta = col_xml2.date_input("Hasta", value=datetime.datetime(2026, 4, 30), key="xml_hasta")
                     
-                    # Botón de procesamiento
-                    if st.button("🚀 Procesar Datos XML", use_container_width=False):
+                    # Botón de procesamiento (usando width='content' en lugar de use_container_width=False)
+                    if st.button("🚀 Procesar Datos XML", width='content'):
                         db_actual = st.session_state.get('DB_ACTUAL') 
                         conn = conectar_db(db_actual) # Pasa explícitamente el nombre de la DB
                         if conn:
@@ -9471,7 +9470,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                             data=st.session_state['xml_data'],
                             file_name=st.session_state['xml_filename'],
                             mime="application/xml",
-                            use_container_width=False
+                            width='content' # Actualizado de use_container_width=False
                         )
 
 
