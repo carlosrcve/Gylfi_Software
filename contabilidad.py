@@ -8469,6 +8469,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                                 conn.commit()
                                 st.balloons()
                                 st.success("✅ ¡Cambios sincronizados correctamente con MySQL!")
+                                st.rerun() # <--- Añade esto para refrescar los datos recién guardados
                                 
                             except Exception as e:
                                 if conn: conn.rollback()
