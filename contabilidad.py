@@ -6698,24 +6698,24 @@ elif opcion_menu == "📝 Asientos Contables":
                 
                 if archivo_excel:
                     try:
-                        # 1. Lectura normal asumiendo que la primera fila son los encabezados del Excel
+                        # 1. Lectura
                         df_subido = pd.read_excel(archivo_excel, dtype=object)
-                        
-                        # Limpiamos espacios en blanco en los nombres de las columnas del Excel por si acaso
                         df_subido.columns = df_subido.columns.astype(str).str.strip().str.lower()
                         
-                        # Mapeo exacto a las columnas que espera tu tabla 'asientos_contables'
-                        # Asegúrate de que los nombres en tu Excel coincidan con estas claves (puedes ajustarlas)
-                        columnas_requeridas = ['n_comprobante', 'descripcion', 'fecha', 'plan_de_cuentas', 'cuenta_contable', 'ref', 'debe', 'haber']
-                        
-                        # Validamos que existan o Renombramos por posición si vienen sin cabecera
-                        if len(df_subido.columns) >= 8 and not all(col in df_subido.columns for col in ['n_comprobante', 'descripcion', 'fecha']):
-                            # Si el excel no tiene cabeceras de texto, las asignamos por orden posicional:
-                            df_subido = pd.read_excel(archivo_excel, header=None, dtype=object)
-                            df_subido = df_subido.iloc[:, :8] # Tomamos las primeras 8 columnas
-                            df_subido.columns = ['n_comprobante', 'descripcion', 'fecha', 'plan_de_cuentas', 'cuenta_contable', 'ref', 'debe', 'haber']
+                        # --- AGREGAR ESTO PARA EVITAR EL CRASH DE ARROW ---
+                        for col in df_subido.columns:
+                            df_subido[col] = df_subido[col].astype(str).replace('nan', '')
+                        # ----------------------------------------------------
 
-                        # Limpieza de fechas
+                        if len(df_subido.columns) >= 8 and not all(col in df_subido.columns for col in ['n_comprobante', 'descripcion', 'fecha']):
+                            df_subido = pd.read_excel(archivo_excel, header=None, dtype=object)
+                            df_subido = df_subido.iloc[:, :8]
+                            df_subido.columns = ['n_comprobante', 'descripcion', 'fecha', 'plan_de_cuentas', 'cuenta_contable', 'ref', 'debe', 'haber']
+                            # Vuelve a aplicar la conversión a string por si acaso
+                            for col in df_subido.columns:
+                                df_subido[col] = df_subido[col].astype(str).replace('nan', '')
+
+                        # Limpieza de fechas (esto sigue funcionando bien)
                         df_subido['fecha'] = pd.to_datetime(df_subido['fecha'], errors='coerce').dt.date
 
                         st.write("### ✅ Vista previa de la carga:")
