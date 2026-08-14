@@ -3568,6 +3568,71 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                             conn.close()
 
 
+
+def cargar_asientos_contables_db(df, conn=None):
+    if not conn:
+        db_actual = st.session_state.get('DB_ACTUAL', 'kingdirver_ca')
+        conn = conectar_db(db_actual)
+    
+    if not conn: return False
+    
+    try:
+        df_limpio = df.copy()
+        # Normalizar nombres de columnas a minúsculas por seguridad
+        df_limpio.columns = df_limpio.columns.astype(str).str.strip().str.lower()
+        
+        # 1. Convertir fecha y eliminar nulos
+        df_limpio['fecha'] = pd.to_datetime(df_limpio['fecha'], errors='coerce')
+        df_limpio = df_limpio.dropna(subset=['fecha']) 
+        
+        # 2. Asegurar formato numérico para Debe y Haber (reemplazando nulos o guiones '-')
+        df_limpio['debe'] = pd.to_numeric(df_limpio['debe'].astype(str).str.replace(',', '.').replace('-', '0'), errors='fillna').fillna(0.0).round(2)
+        df_limpio['haber'] = pd.to_numeric(df_limpio['haber'].astype(str).str.replace(',', '.').replace('-', '0'), errors='fillna').fillna(0.0).round(2)
+
+        valores = []
+        for index, row in df_limpio.iterrows():
+            try:
+                tupla = (
+                    str(row.get('n_comprobante', '')), 
+                    str(row.get('descripcion', '')), 
+                    row['fecha'].strftime('%Y-%m-%d'), 
+                    str(row.get('plan_de_cuentas', row.get('plan_cuentas', ''))), 
+                    str(row.get('cuenta_contable', '')), 
+                    str(row.get('ref', row.get('referencia', ''))), 
+                    float(row['debe']), 
+                    float(row['haber'])
+                )
+                valores.append(tupla)
+            except Exception as e:
+                st.error(f"Error en la fila {index + 1}: {e}")
+                continue
+        
+        if not valores:
+            st.warning("⚠️ No se encontraron datos válidos para insertar.")
+            return False
+
+        cursor = conn.cursor()
+        query = """
+            INSERT INTO asientos_contables 
+            (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber) 
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        """
+        
+        cursor.executemany(query, valores)
+        conn.commit()
+        cursor.close()
+        
+        return True
+
+    except Exception as e:
+        if conn: conn.rollback()
+        st.error(f"❌ Error masivo al insertar en la base de datos: {e}")
+        return False
+    finally:
+        if 'cursor' in locals() and cursor:
+            cursor.close()
+        if conn:
+            conn.ping(reconnect=True)
 def consultar_tabla_db(conn, nombre_tabla):
     """
     Consulta registros usando la conexión activa pasada como parámetro.
@@ -6619,30 +6684,31 @@ elif opcion_menu == "📝 Asientos Contables":
                 
                 if archivo_excel:
                     try:
-                        # 1. Lectura segura
-                        df_subido = pd.read_excel(archivo_excel, header=None, skiprows=1, dtype=object)
+                        # 1. Lectura normal asumiendo que la primera fila son los encabezados del Excel
+                        df_subido = pd.read_excel(archivo_excel, dtype=object)
                         
-                        # Si el Excel trae más de 9 columnas, recortamos o ajustamos para evitar el error de tamaño
-                        columnas_esperadas = ['id_ex', 'N_comprobante', 'Descripcion', 'Fecha', 'plan_de_cuentas', 'cuenta_contable', 'Ref', 'Debe', 'Haber']
+                        # Limpiamos espacios en blanco en los nombres de las columnas del Excel por si acaso
+                        df_subido.columns = df_subido.columns.astype(str).str.strip().str.lower()
                         
-                        if len(df_subido.columns) > len(columnas_esperadas):
-                            # Si sobra una columna (ej. la primera es un índice de Excel), nos quedamos con las necesarias desde la 0 o desde la 1
-                            # Aquí asumimos que tomamos las columnas que coinciden con el total esperado
-                            df_subido = df_subido.iloc[:, :len(columnas_esperadas)]
+                        # Mapeo exacto a las columnas que espera tu tabla 'asientos_contables'
+                        # Asegúrate de que los nombres en tu Excel coincidan con estas claves (puedes ajustarlas)
+                        columnas_requeridas = ['n_comprobante', 'descripcion', 'fecha', 'plan_de_cuentas', 'cuenta_contable', 'ref', 'debe', 'haber']
                         
-                        df_subido.columns = columnas_esperadas
-                        df_subido = df_subido.drop(columns=['id_ex'])
-                        
-                        # Limpieza
-                        if str(df_subido.iloc[0, 1]).lower() in ['n_comprobante', 'nan']:
-                            df_subido = df_subido.iloc[1:].reset_index(drop=True)
-                        df_subido['Fecha'] = pd.to_datetime(df_subido['Fecha'], errors='coerce').dt.date
+                        # Validamos que existan o Renombramos por posición si vienen sin cabecera
+                        if len(df_subido.columns) >= 8 and not all(col in df_subido.columns for col in ['n_comprobante', 'descripcion', 'fecha']):
+                            # Si el excel no tiene cabeceras de texto, las asignamos por orden posicional:
+                            df_subido = pd.read_excel(archivo_excel, header=None, dtype=object)
+                            df_subido = df_subido.iloc[:, :8] # Tomamos las primeras 8 columnas
+                            df_subido.columns = ['n_comprobante', 'descripcion', 'fecha', 'plan_de_cuentas', 'cuenta_contable', 'ref', 'debe', 'haber']
+
+                        # Limpieza de fechas
+                        df_subido['fecha'] = pd.to_datetime(df_subido['fecha'], errors='coerce').dt.date
 
                         st.write("### ✅ Vista previa de la carga:")
-                        st.dataframe(df_subido, hide_index=True, use_container_width=True)
+                        st.dataframe(df_subido, hide_index=True, width='stretch')
 
                         # 2. Importación segura
-                        if st.button("🚀 Confirmar e Importar al Diario"):
+                        if st.button("🚀 Confirmar e Importar al Diario", width='stretch'):
                             conn = conectar_db(db_actual) 
                             
                             if conn and conn.is_connected():
