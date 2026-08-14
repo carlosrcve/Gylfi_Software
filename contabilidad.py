@@ -8738,27 +8738,34 @@ elif opcion_menu == "📚 Libros Fiscales":
                 # D. Totales
                 st.markdown("---")
                 def f_bs(v): return f"Bs. {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-                
-                renombres = {
-                    'importe_exento': 'compras_exentas',
-                    'iva_monto': 'credito_fiscales',
-                    'total_exento': 'compras_exentas'
-                }
-                cambios_df_excel = cambios_df_excel.rename(columns=renombres)
 
-                # Asegurar que las columnas existan numéricamente para evitar fallos si alguna viene vacía
-                for col in ['total_compras', 'compras_exentas', 'base_imponible', 'credito_fiscales']:
-                    if col not in cambios_df_excel.columns:
-                        cambios_df_excel[col] = 0.0
-                    else:
-                        cambios_df_excel[col] = pd.to_numeric(cambios_df_excel[col], errors='coerce').fillna(0.0)
+                # USAMOS st.session_state.df_carga_excel (que es donde realmente tienes los datos)
+                if "df_carga_excel" in st.session_state:
+                    # Creamos una copia para trabajar en los cálculos sin alterar la original
+                    df_calc = st.session_state.df_carga_excel.copy()
+                    
+                    # Renombramos columnas para los cálculos (usando el diccionario que definiste)
+                    renombres = {
+                        'importe_exento': 'compras_exentas',
+                        'iva_monto': 'credito_fiscales',
+                        'total_exento': 'compras_exentas'
+                    }
+                    df_calc = df_calc.rename(columns=renombres)
 
-                # --- TUS MÉTRICAS ORIGINALES ---
-                m1, m2, m3, m4 = st.columns(4)
-                m1.metric("TOTAL COMPRAS", f_bs(cambios_df_excel['total_compras'].sum()))
-                m2.metric("TOTAL EXENTO", f_bs(cambios_df_excel['compras_exentas'].sum()))
-                m3.metric("TOTAL BASE", f_bs(cambios_df_excel['base_imponible'].sum()))
-                m4.metric("TOTAL IVA", f_bs(cambios_df_excel['credito_fiscales'].sum()))
+                    # Asegurar que las columnas existan numéricamente
+                    for col in ['total_compras', 'compras_exentas', 'base_imponible', 'credito_fiscales']:
+                        if col not in df_calc.columns:
+                            df_calc[col] = 0.0
+                        else:
+                            # Forzamos conversión a número, limpiando errores
+                            df_calc[col] = pd.to_numeric(df_calc[col], errors='coerce').fillna(0.0)
+
+                    # --- MÉTRICAS ---
+                    m1, m2, m3, m4 = st.columns(4)
+                    m1.metric("TOTAL COMPRAS", f_bs(df_calc['total_compras'].sum()))
+                    m2.metric("TOTAL EXENTO", f_bs(df_calc['compras_exentas'].sum()))
+                    m3.metric("TOTAL BASE", f_bs(df_calc['base_imponible'].sum()))
+                    m4.metric("TOTAL IVA", f_bs(df_calc['credito_fiscales'].sum()))
 
             # E. BOTÓN DE GUARDADO FINAL (Llamando a tu función con los datos ya limpios)
             if st.button("🚀 Guardar carga masiva en DB", type="primary"):
