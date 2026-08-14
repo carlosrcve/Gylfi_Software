@@ -2209,7 +2209,6 @@ def preparar_excel_descarga(df, conn):
 
 
 def cargar_libro_compras_db(df, nombre_db=None):
-    # Si no pasan el nombre_db como argumento, lo buscamos en la sesión
     if not nombre_db:
         nombre_db = st.session_state.get("db_cliente")
     
@@ -2239,21 +2238,31 @@ def cargar_libro_compras_db(df, nombre_db=None):
 
     cursor = None
     try:
+        conn.autocommit = True
         cursor = conn.cursor()
         
-        # Forzamos el uso de la BD del cliente y verificamos
         cursor.execute(f"USE `{nombre_db}`;")
         cursor.execute("SELECT DATABASE();")
         db_conectada = cursor.fetchone()
         db_nombre_actual = db_conectada['DATABASE()'] if isinstance(db_conectada, dict) else db_conectada[0]
-        st.info(f"🔍 Guardando datos en el esquema del cliente: **{db_nombre_actual}**")
+        st.info(f"🔍 Conectado y usando el esquema: **{db_nombre_actual}**")
 
         registros_a_insertar = []
+        cols = list(df.columns)
         
+        if len(cols) < 11:
+            st.error(f"❌ El archivo cargado tiene {len(cols)} columnas, pero el sistema espera al menos 11 columnas.")
+            return
+
+        # Obtenemos el cliente_id actual de la sesión para asegurarnos de llenarlo
+        current_cliente_id = st.session_state.get('cliente_id', 1)
+
+        # SQL actualizado con absolutamente todas las columnas de tu imagen
         sql = """INSERT INTO libro_compras 
                (fecha_operacion, tipo_documento, n_factura, n_control, proveedor, rif, 
-                total_compras, importe_exento, base_imponible, iva_porcentaje, iva_monto) 
-               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                total_compras, importe_exento, base_imponible, iva_porcentaje, iva_monto,
+                retencion_realizada, retencion_iva_realizada, tipo_transaccion, cliente_id) 
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                ON DUPLICATE KEY UPDATE 
                fecha_operacion = VALUES(fecha_operacion),
                tipo_documento = VALUES(tipo_documento),
@@ -2263,8 +2272,6 @@ def cargar_libro_compras_db(df, nombre_db=None):
                base_imponible = VALUES(base_imponible),
                iva_porcentaje = VALUES(iva_porcentaje),
                iva_monto = VALUES(iva_monto)"""
-
-        cols = list(df.columns)
 
         for i, row in df.iterrows():
             def limpiar_texto(val):
@@ -2277,6 +2284,7 @@ def cargar_libro_compras_db(df, nombre_db=None):
             if not n_fact: 
                 continue
 
+            # Mapeamos los 11 datos del Excel + 4 valores por defecto para completar la estructura exacta de la tabla
             valores = (
                 convertir_fecha(row[cols[0]]), 
                 limpiar_texto(row[cols[1]]).zfill(2),
@@ -2288,22 +2296,20 @@ def cargar_libro_compras_db(df, nombre_db=None):
                 clean_n(row[cols[7]]),
                 clean_n(row[cols[8]]),
                 clean_n(row[cols[9]]),
-                clean_n(row[cols[10]])
+                clean_n(row[cols[10]]),
+                0.00, # retencion_realizada por defecto
+                0.00, # retencion_iva_realizada por defecto
+                "COMPRA", # tipo_transaccion por defecto
+                current_cliente_id # cliente_id de la sesión
             )
             registros_a_insertar.append(valores)
 
         if registros_a_insertar:
-            # Forzamos habilitar el autocommit para asegurar que se guarde de inmediato en la nube
-            conn.autocommit = True
-            
             cursor.executemany(sql, registros_a_insertar)
-            
-            # Doble confirmación de guardado
-            conn.commit()
-            
-            st.success(f"🔥 ¡Proceso exitoso! Se guardaron {len(registros_a_insertar)} registros en el libro de compras de **{nombre_db}**.")
+            filas_afectadas = cursor.rowcount
+            st.success(f"🔥 ¡Proceso exitoso! Se guardaron {len(registros_a_insertar)} registros en la base de datos (Filas afectadas: {filas_afectadas}).")
         else:
-            st.warning("⚠️ No se encontraron registros válidos para insertar.")
+            st.warning("⚠️ No se encontraron registros válidos con número de factura para insertar.")
             
     except Exception as e:
         if conn: conn.rollback()
