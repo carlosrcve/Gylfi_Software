@@ -8206,60 +8206,65 @@ elif opcion_menu == "📚 Libros Fiscales":
 
                 with col_btn2:
                     if st.button("💾 Guardar Cambios en Ventas", type="primary", use_container_width=True):
-                        cambios = st.session_state["editor_ventas_key"]
-                        conn_save = conectar_db(db_actual)
-                        
-                        if conn_save:
-                            cursor = conn_save.cursor()
-                            try:
-                                # A. Eliminar filas
-                                for row_idx in cambios.get("deleted_rows", []):
-                                    id_del = int(df_mostrar.iloc[row_idx]["id"])
-                                    cursor.execute("DELETE FROM libro_ventas WHERE id = %s", (id_del,))
+                        # Usamos la variable key_editor correctamente
+                        if key_editor in st.session_state:
+                            cambios = st.session_state[key_editor]
+                            conn_save = conectar_db(db_actual)
+                            
+                            if conn_save:
+                                cursor = conn_save.cursor()
+                                try:
+                                    # A. Eliminar filas
+                                    for row_idx in cambios.get("deleted_rows", []):
+                                        id_del = int(df_mostrar.iloc[row_idx]["id"])
+                                        cursor.execute("DELETE FROM libro_ventas WHERE id = %s", (id_del,))
 
-                                # B. Editar filas
-                                for row_idx, dict_cambios in cambios.get("edited_rows", {}).items():
-                                    id_edit = int(df_mostrar.iloc[int(row_idx)]["id"])
-                                    if "n_factura" in dict_cambios: dict_cambios["n_factura"] = str(dict_cambios["n_factura"]).zfill(5)
-                                    if "n_control" in dict_cambios: dict_cambios["n_control"] = str(dict_cambios["n_control"]).zfill(5)
-                                    if "fecha_factura" in dict_cambios and dict_cambios["fecha_factura"]:
-                                        f = dict_cambios["fecha_factura"]
-                                        dict_cambios["fecha_factura"] = f.strftime('%Y-%m-%d') if hasattr(f, 'strftime') else str(f)
-                                    
-                                    if dict_cambios:
-                                        sql_upd = ", ".join([f"{k} = %s" for k in dict_cambios.keys()])
-                                        cursor.execute(f"UPDATE libro_ventas SET {sql_upd} WHERE id = %s", list(dict_cambios.values()) + [id_edit])
+                                    # B. Editar filas
+                                    for row_idx, dict_cambios in cambios.get("edited_rows", {}).items():
+                                        id_edit = int(df_mostrar.iloc[int(row_idx)]["id"])
+                                        if "n_factura" in dict_cambios: dict_cambios["n_factura"] = str(dict_cambios["n_factura"]).zfill(5)
+                                        if "n_control" in dict_cambios: dict_cambios["n_control"] = str(dict_cambios["n_control"]).zfill(5)
+                                        if "fecha_factura" in dict_cambios and dict_cambios["fecha_factura"]:
+                                            f = dict_cambios["fecha_factura"]
+                                            dict_cambios["fecha_factura"] = f.strftime('%Y-%m-%d') if hasattr(f, 'strftime') else str(f)
+                                        
+                                        if dict_cambios:
+                                            sql_upd = ", ".join([f"{k} = %s" for k in dict_cambios.keys()])
+                                            cursor.execute(f"UPDATE libro_ventas SET {sql_upd} WHERE id = %s", list(dict_cambios.values()) + [id_edit])
 
-                                # C. Agregar nuevas filas
-                                for row_dict in cambios.get("added_rows", []):
-                                    if not row_dict or not any(row_dict.values()): continue
-                                    f_raw = row_dict.get("fecha_factura") or desde_v
-                                    fecha_final = f_raw.strftime('%Y-%m-%d') if hasattr(f_raw, 'strftime') else str(f_raw)
+                                    # C. Agregar nuevas filas
+                                    for row_dict in cambios.get("added_rows", []):
+                                        if not row_dict or not any(row_dict.values()): continue
+                                        f_raw = row_dict.get("fecha_factura") or desde_v
+                                        fecha_final = f_raw.strftime('%Y-%m-%d') if hasattr(f_raw, 'strftime') else str(f_raw)
 
-                                    datos_finales = {
-                                        "fecha_factura": fecha_final,
-                                        "nombre_razon_social": row_dict.get("nombre_razon_social", "VARIOS"),
-                                        "rif": row_dict.get("rif", "V000000000"),
-                                        "n_factura": str(row_dict.get("n_factura", "0")).zfill(5),
-                                        "n_control": str(row_dict.get("n_control", "0")).zfill(5),
-                                        "total_ventas_con_iva": row_dict.get("total_ventas_con_iva", 0.00),
-                                        "ventas_exentas": row_dict.get("ventas_exentas", 0.00),
-                                        "base_imponible": row_dict.get("base_imponible", 0.00),
-                                        "porcentaje_alicuota": row_dict.get("porcentaje_alicuota", 16.00),
-                                        "debito_fiscal": row_dict.get("debito_fiscal", 0.00)
-                                    }
-                                    columnas = ", ".join(datos_finales.keys())
-                                    placeholders = ", ".join(["%s"] * len(datos_finales))
-                                    cursor.execute(f"INSERT INTO libro_ventas ({columnas}) VALUES ({placeholders})", list(datos_finales.values()))
+                                        datos_finales = {
+                                            "fecha_factura": fecha_final,
+                                            "nombre_razon_social": row_dict.get("nombre_razon_social", "VARIOS"),
+                                            "rif": row_dict.get("rif", "V000000000"),
+                                            "n_factura": str(row_dict.get("n_factura", "0")).zfill(5),
+                                            "n_control": str(row_dict.get("n_control", "0")).zfill(5),
+                                            "total_ventas_con_iva": row_dict.get("total_ventas_con_iva", 0.00),
+                                            "ventas_exentas": row_dict.get("ventas_exentas", 0.00),
+                                            "base_imponible": row_dict.get("base_imponible", 0.00),
+                                            "porcentaje_alicuota": row_dict.get("porcentaje_alicuota", 16.00),
+                                            "debito_fiscal": row_dict.get("debito_fiscal", 0.00)
+                                        }
+                                        columnas = ", ".join(datos_finales.keys())
+                                        placeholders = ", ".join(["%s"] * len(datos_finales))
+                                        cursor.execute(f"INSERT INTO libro_ventas ({columnas}) VALUES ({placeholders})", list(datos_finales.values()))
 
-                                conn_save.commit()
-                                st.success("✅ ¡Libro de Ventas actualizado con éxito!")
-                                st.rerun()
-                            except Exception as e:
-                                conn_save.rollback()
-                                st.error(f"❌ Error: {e}")
-                            finally:
-                                conn_save.close()
+                                    conn_save.commit()
+                                    st.success("✅ ¡Libro de Ventas actualizado con éxito!")
+                                    st.rerun()
+                                except Exception as e:
+                                    conn_save.rollback()
+                                    st.error(f"❌ Error: {e}")
+                                finally:
+                                    cursor.close()  # Recomendado cerrar cursor también
+                                    conn_save.close()
+                        else:
+                            st.warning("⚠️ No hay registro de cambios activos en la sesión.")
 
         # --- PESTAÑA 3: VACIADO DE RANGO ---
         with tab3:
