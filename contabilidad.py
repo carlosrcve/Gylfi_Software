@@ -2208,6 +2208,9 @@ def preparar_excel_descarga(df, conn):
 
 
 
+import pandas as pd
+import streamlit as st
+
 def cargar_libro_compras_db(df, nombre_db=None):
     if not nombre_db:
         nombre_db = st.session_state.get("db_cliente")
@@ -2224,7 +2227,7 @@ def cargar_libro_compras_db(df, nombre_db=None):
     def clean_n(v):
         if isinstance(v, (int, float)): return round(float(v), 2)
         s = str(v).strip().replace('.', '').replace(',', '.')
-        if s in ['nan', 'None', '']: return 0.0
+        if s in ['nan', 'None', '', '-']: return 0.0
         try: return round(float(s), 2)
         except: return 0.0
 
@@ -2251,13 +2254,11 @@ def cargar_libro_compras_db(df, nombre_db=None):
         cols = list(df.columns)
         
         if len(cols) < 11:
-            st.error(f"❌ El archivo cargado tiene {len(cols)} columnas, pero el sistema espera al menos 11 columnas.")
+            st.error(f"❌ El archivo cargado tiene {len(cols)} columnas, se esperan al menos 11.")
             return
 
-        # Obtenemos el cliente_id actual de la sesión para asegurarnos de llenarlo
         current_cliente_id = st.session_state.get('cliente_id', 1)
 
-        # SQL actualizado con absolutamente todas las columnas de tu imagen
         sql = """INSERT INTO libro_compras 
                (fecha_operacion, tipo_documento, n_factura, n_control, proveedor, rif, 
                 total_compras, importe_exento, base_imponible, iva_porcentaje, iva_monto,
@@ -2280,34 +2281,34 @@ def cargar_libro_compras_db(df, nombre_db=None):
                 if s.endswith('.0'): s = s[:-2]
                 return s
 
+            # Validamos que el número de factura (columna 2) exista
             n_fact = limpiar_texto(row[cols[2]])
             if not n_fact: 
                 continue
 
-            # Mapeamos los 11 datos del Excel + 4 valores por defecto para completar la estructura exacta de la tabla
             valores = (
-                convertir_fecha(row[cols[0]]), 
-                limpiar_texto(row[cols[1]]).zfill(2),
-                n_fact,
-                limpiar_texto(row[cols[3]]),
-                limpiar_texto(row[cols[4]]).upper(),
-                limpiar_texto(row[cols[5]]).replace('-', '').replace('.', ''),
-                clean_n(row[cols[6]]),
-                clean_n(row[cols[7]]),
-                clean_n(row[cols[8]]),
-                clean_n(row[cols[9]]),
-                clean_n(row[cols[10]]),
-                0.00, # retencion_realizada por defecto
-                0.00, # retencion_iva_realizada por defecto
-                "COMPRA", # tipo_transaccion por defecto
-                current_cliente_id # cliente_id de la sesión
+                convertir_fecha(row[cols[0]]),                         # 0: Fecha de Operación
+                limpiar_texto(row[cols[1]]).zfill(2),                  # 1: Tipo de Documento
+                n_fact,                                                # 2: Número de Factura
+                limpiar_texto(row[cols[3]]),                           # 3: Número de Control
+                limpiar_texto(row[cols[4]]).upper(),                   # 4: Nombre o Razón Social (Proveedor)
+                limpiar_texto(row[cols[5]]).replace('-', '').replace('.', ''), # 5: R.I.F.
+                clean_n(row[cols[6]]),                                 # 6: Total Compra
+                clean_n(row[cols[7]]),                                 # 7: Compras Exentas
+                clean_n(row[cols[8]]),                                 # 8: Base Imponible
+                clean_n(row[cols[9]]),                                 # 9: Alícuota (%)
+                clean_n(row[cols[10]]),                                # 10: Crédito Fiscal (IVA Monto)
+                0.00,                                                  # retencion_realizada
+                0.00,                                                  # retencion_iva_realizada
+                "C",                                                   # tipo_transaccion (ajustado a CHAR(1))
+                current_cliente_id                                     # cliente_id
             )
             registros_a_insertar.append(valores)
 
         if registros_a_insertar:
             cursor.executemany(sql, registros_a_insertar)
             filas_afectadas = cursor.rowcount
-            st.success(f"🔥 ¡Proceso exitoso! Se guardaron {len(registros_a_insertar)} registros en la base de datos (Filas afectadas: {filas_afectadas}).")
+            st.success(f"🔥 ¡Proceso exitoso! Se guardaron {len(registros_a_insertar)} registros correctamente (Filas afectadas: {filas_afectadas}).")
         else:
             st.warning("⚠️ No se encontraron registros válidos con número de factura para insertar.")
             
