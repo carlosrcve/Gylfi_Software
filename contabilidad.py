@@ -2269,17 +2269,17 @@ def cargar_libro_compras_db(df, nombre_db):
                 
                 # B. Creación de tupla
                 valores = (
-                    f_str, 
-                    str(row[1]).split('.')[0].zfill(2),
-                    str(row[2]).split('.')[0].strip(),
-                    str(row[3]).strip(),
-                    str(row[4]).upper().strip(),
-                    str(row[5]).replace('-', '').replace('.', '').strip(),
-                    clean_n(row[6]),  # total_compras
-                    clean_n(row[7]),  # importe_exento
-                    clean_n(row[8]),  # base_imponible
-                    clean_n(row[9]),  # iva_porcentaje
-                    clean_n(row[10])  # iva_monto
+                    convertir_fecha(row['fecha_de_operación']), 
+                    str(row['tipo_documento']),
+                    str(row['n_factura']),
+                    str(row['n_control']),
+                    str(row['proveedor']).upper(),
+                    str(row['rif']).replace('-', ''),
+                    clean_n(row['total_compras']),
+                    clean_n(row['compras_exentas']), # Asegúrate que coincida con tu columna de importe_exento
+                    clean_n(row['base_imponible']),
+                    clean_n(row['iva_porcentaje']),
+                    clean_n(row['credito_fiscales']) # Asegúrate que coincida con tu columna de iva_monto
                 )
                 registros_a_insertar.append(valores)
             except Exception as e:
