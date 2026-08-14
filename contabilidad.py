@@ -2238,6 +2238,7 @@ def cargar_libro_compras_db(df, nombre_db):
                iva_monto = VALUES(iva_monto)"""
 
         cols = list(df.columns)
+        print(f"Total de filas leídas del DataFrame: {len(df)}")
 
         for i, row in df.iterrows():
             try:
@@ -2279,14 +2280,17 @@ def cargar_libro_compras_db(df, nombre_db):
                 print(f"Error procesando la fila {i}: {e}")
 
         if registros_a_insertar:
+            print(f"Intentando insertar/actualizar {len(registros_a_insertar)} registros en TiDB...")
             cursor.executemany(sql, registros_a_insertar)
             conn.commit()
+            print("¡Commit ejecutado exitosamente en TiDB!")
             st.success(f"🔥 ¡Procesados y guardados con éxito {len(registros_a_insertar)} registros en TiDB!")
         else:
             st.warning("No se encontraron registros válidos para insertar.")
         
     except Exception as e:
         if conn: conn.rollback()
+        print(f"Error crítico en DB: {e}")
         st.error(f"Error crítico en DB: {e}")
     finally:
         if cursor: cursor.close()
