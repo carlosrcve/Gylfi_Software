@@ -8739,6 +8739,21 @@ elif opcion_menu == "📚 Libros Fiscales":
                 st.markdown("---")
                 def f_bs(v): return f"Bs. {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
                 
+                renombres = {
+                    'importe_exento': 'compras_exentas',
+                    'iva_monto': 'credito_fiscales',
+                    'total_exento': 'compras_exentas'
+                }
+                cambios_df_excel = cambios_df_excel.rename(columns=renombres)
+
+                # Asegurar que las columnas existan numéricamente para evitar fallos si alguna viene vacía
+                for col in ['total_compras', 'compras_exentas', 'base_imponible', 'credito_fiscales']:
+                    if col not in cambios_df_excel.columns:
+                        cambios_df_excel[col] = 0.0
+                    else:
+                        cambios_df_excel[col] = pd.to_numeric(cambios_df_excel[col], errors='coerce').fillna(0.0)
+
+                # --- TUS MÉTRICAS ORIGINALES ---
                 m1, m2, m3, m4 = st.columns(4)
                 m1.metric("TOTAL COMPRAS", f_bs(cambios_df_excel['total_compras'].sum()))
                 m2.metric("TOTAL EXENTO", f_bs(cambios_df_excel['compras_exentas'].sum()))
