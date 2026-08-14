@@ -2199,6 +2199,9 @@ def preparar_excel_descarga(df, conn):
 
 
 
+import pandas as pd
+import streamlit as st
+
 def cargar_libro_compras_db(df, nombre_db):
     conn = conectar_db(nombre_db) 
     if not conn:
@@ -2255,10 +2258,15 @@ def cargar_libro_compras_db(df, nombre_db):
                 if s.endswith('.0'): s = s[:-2]
                 return s
 
+            # Validamos que al menos la factura o el RIF no estén vacíos
+            n_fact = limpiar_texto(row[cols[2]])
+            if not n_fact: 
+                continue
+
             valores = (
                 convertir_fecha(row[cols[0]]), 
                 limpiar_texto(row[cols[1]]).zfill(2),
-                limpiar_texto(row[cols[2]]),
+                n_fact,
                 limpiar_texto(row[cols[3]]),
                 limpiar_texto(row[cols[4]]).upper(),
                 limpiar_texto(row[cols[5]]).replace('-', '').replace('.', ''),
@@ -2275,7 +2283,7 @@ def cargar_libro_compras_db(df, nombre_db):
             conn.commit()
             st.success(f"🔥 ¡Guardados con éxito {len(registros_a_insertar)} registros en {nombre_db}!")
         else:
-            st.warning("No hay registros válidos para insertar.")
+            st.warning("⚠️ No se agregaron registros porque las filas del Excel parecen estar vacías o sin número de factura válido.")
             
     except Exception as e:
         if conn: conn.rollback()
@@ -2283,6 +2291,8 @@ def cargar_libro_compras_db(df, nombre_db):
     finally:
         if cursor: cursor.close()
         if conn: conn.close()
+
+        
 def obtener_lista_proveedores_mapeo():
     conn = conectar_db(db_actual)
     cursor = conn.cursor()
