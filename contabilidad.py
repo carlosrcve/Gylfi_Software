@@ -2231,11 +2231,15 @@ def cargar_libro_compras_db(df, nombre_db=None):
 
     def convertir_fecha(v):
         try:
-            if hasattr(v, 'strftime'): return v.strftime('%Y-%m-%d')
-            num_excel = int(float(v))
-            return (pd.to_datetime('1899-12-30') + pd.to_timedelta(num_excel, 'D')).strftime('%Y-%m-%d')
-        except: 
-            return "2026-06-06"
+            # Si es un objeto Timestamp de pandas (muy común al leer Excel)
+            if hasattr(v, 'strftime'): 
+                return v.strftime('%Y-%m-%d')
+            # Si es un string con formato "YYYY-MM-DD" o "DD/MM/YYYY"
+            return pd.to_datetime(v).strftime('%Y-%m-%d')
+        except Exception as e:
+            # ESTO ES LO QUE TE DIRÁ POR QUÉ JULIO FALLA
+            st.error(f"Error convirtiendo fecha '{v}': {e}")
+            return "2026-06-06" # Tu fecha de respaldo
 
     def limpiar_texto(val):
         if pd.isna(val): return ""
@@ -2270,10 +2274,11 @@ def cargar_libro_compras_db(df, nombre_db=None):
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"""
 
         for i, row in df.iterrows():
-            # Validamos que el número de factura (columna 2) exista
             n_fact = limpiar_texto(row[cols[2]])
-            if not n_fact: 
-                continue
+            if not n_fact: continue
+
+            # --- DEBUG AÑADIDO ---
+            fecha_procesada = convertir_fecha(row[cols[0]])
 
             valores = (
                 convertir_fecha(row[cols[0]]),                    # 0: Fecha de Operación
