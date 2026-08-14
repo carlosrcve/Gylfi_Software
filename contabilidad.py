@@ -6698,30 +6698,28 @@ elif opcion_menu == "📝 Asientos Contables":
                 
                 if archivo_excel:
                     try:
-                        # 1. Lectura
+                        # 1. Lectura inicial
                         df_subido = pd.read_excel(archivo_excel, dtype=object)
                         df_subido.columns = df_subido.columns.astype(str).str.strip().str.lower()
-                        
-                        # --- AGREGAR ESTO PARA EVITAR EL CRASH DE ARROW ---
-                        for col in df_subido.columns:
-                            df_subido[col] = df_subido[col].astype(str).replace('nan', '')
-                        # ----------------------------------------------------
 
                         if len(df_subido.columns) >= 8 and not all(col in df_subido.columns for col in ['n_comprobante', 'descripcion', 'fecha']):
                             df_subido = pd.read_excel(archivo_excel, header=None, dtype=object)
                             df_subido = df_subido.iloc[:, :8]
                             df_subido.columns = ['n_comprobante', 'descripcion', 'fecha', 'plan_de_cuentas', 'cuenta_contable', 'ref', 'debe', 'haber']
-                            # Vuelve a aplicar la conversión a string por si acaso
-                            for col in df_subido.columns:
-                                df_subido[col] = df_subido[col].astype(str).replace('nan', '')
 
-                        # Limpieza de fechas (esto sigue funcionando bien)
-                        df_subido['fecha'] = pd.to_datetime(df_subido['fecha'], errors='coerce').dt.date
+                        # 2. Procesar fecha PRIMERO (mientras conserva su formato original de Excel)
+                        if 'fecha' in df_subido.columns:
+                            df_subido['fecha'] = pd.to_datetime(df_subido['fecha'], errors='coerce').dt.date
+
+                        # 3. Convertir el resto de columnas a texto para evitar el crash de Arrow en la UI
+                        for col in df_subido.columns:
+                            if col != 'fecha':  # Dejamos la fecha intacta para el manejo interno
+                                df_subido[col] = df_subido[col].astype(str).replace(['nan', 'None', ''], '')
 
                         st.write("### ✅ Vista previa de la carga:")
                         st.dataframe(df_subido, hide_index=True, width='stretch')
 
-                        # 2. Importación segura
+                        # 4. Importación segura
                         if st.button("🚀 Confirmar e Importar al Diario", width='stretch'):
                             conn = conectar_db(db_actual) 
                             
