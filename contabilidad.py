@@ -2237,14 +2237,10 @@ def cargar_libro_compras_db(df, nombre_db):
                iva_porcentaje = VALUES(iva_porcentaje),
                iva_monto = VALUES(iva_monto)"""
 
-        # Mapeo flexible de columnas por posición o nombre parcial para evitar errores
         cols = list(df.columns)
-        print(f"Columnas detectadas en el DataFrame: {cols}") # Para depurar en consola si hace falta
 
         for i, row in df.iterrows():
             try:
-                # Extraemos de forma segura usando índices directos de las columnas del DataFrame de Excel
-                # (Asumiendo el orden clásico del Libro de Compras: Fecha, Tipo, Factura, Control, Proveedor, RIF, Total, Exento, Base, %, IVA)
                 f_val = row[cols[0]]
                 t_doc = row[cols[1]]
                 n_fac = row[cols[2]]
@@ -2257,13 +2253,21 @@ def cargar_libro_compras_db(df, nombre_db):
                 i_por = row[cols[9]]
                 i_mon = row[cols[10]]
 
+                # BLINDAJE ANTI-ERROR DE TIPO: Forzamos todo a string limpio quitando decimales raros si vienen de números
+                def limpiar_texto(val):
+                    if pd.isna(val): return ""
+                    s = str(val).strip()
+                    if s.endswith('.0'):
+                        s = s[:-2]
+                    return s
+
                 valores = (
                     convertir_fecha(f_val), 
-                    str(t_doc).split('.')[0].zfill(2),
-                    str(n_fac).split('.')[0].strip(),
-                    str(n_con).strip(),
-                    str(prov).upper().strip(),
-                    str(rif_v).replace('-', '').replace('.', '').strip(),
+                    limpiar_texto(t_doc).zfill(2),
+                    limpiar_texto(n_fac),
+                    limpiar_texto(n_con),
+                    limpiar_texto(prov).upper(),
+                    limpiar_texto(rif_v).replace('-', '').replace('.', ''),
                     clean_n(t_com),
                     clean_n(c_exe),
                     clean_n(b_imp),
