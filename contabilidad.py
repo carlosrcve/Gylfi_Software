@@ -2225,20 +2225,18 @@ def cargar_libro_compras_db(df, nombre_db):
         
         # 2. SQL de inserción
         sql = """INSERT INTO libro_compras 
-             (fecha_operacion, tipo_documento, n_factura, n_control, proveedor, rif, 
-              total_compras, importe_exento, base_imponible, iva_porcentaje, iva_monto) 
-             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-             AS nueva_fila
-             ON DUPLICATE KEY UPDATE 
-             fecha_operacion = nueva_fila.fecha_operacion,
-             tipo_documento = nueva_fila.tipo_documento,
-             n_control = nueva_fila.n_control,
-             proveedor = nueva_fila.proveedor,
-             total_compras = nueva_fila.total_compras,
-             importe_exento = nueva_fila.importe_exento,
-             base_imponible = nueva_fila.base_imponible,
-             iva_porcentaje = nueva_fila.iva_porcentaje,
-             iva_monto = nueva_fila.iva_monto"""
+           (fecha_operacion, tipo_documento, n_factura, n_control, proveedor, rif, 
+            total_compras, importe_exento, base_imponible, iva_porcentaje, iva_monto) 
+           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+           ON DUPLICATE KEY UPDATE 
+           fecha_operacion = VALUES(fecha_operacion),
+           tipo_documento = VALUES(tipo_documento),
+           proveedor = VALUES(proveedor),
+           total_compras = VALUES(total_compras),
+           importe_exento = VALUES(importe_exento),
+           base_imponible = VALUES(base_imponible),
+           iva_porcentaje = VALUES(iva_porcentaje),
+           iva_monto = VALUES(iva_monto)"""
 
         # 3. Función de limpieza
 
