@@ -2203,12 +2203,19 @@ def cargar_libro_compras_db(df, nombre_db):
     if not conn:
         st.error("No se pudo establecer conexión con la base de datos.")
         return
-    # --- AGREGADO: VERIFICACIÓN DE DÓNDE ESTAMOS ---
-    cursor_check = conn.cursor()
-    cursor_check.execute("SELECT DATABASE();")
-    db_actual = cursor_check.fetchone()[0]
-    print(f"DEBUG: Estamos conectados a la base de datos: {db_actual}")
-    cursor_check.close()
+
+    # --- BLINDAJE: FORZAR CONEXIÓN AL ESQUEMA CORRECTO ---
+    try:
+        cursor_check = conn.cursor()
+        # Forzamos el uso del esquema específico del cliente
+        cursor_check.execute(f"USE `{nombre_db}`;")
+        cursor_check.execute("SELECT DATABASE();")
+        db_conectada = cursor_check.fetchone()[0]
+        print(f"DEBUG: Trabajando sobre la base de datos: {db_conectada}")
+        cursor_check.close()
+    except Exception as e:
+        st.error(f"Error al seleccionar la base de datos {nombre_db}: {e}")
+        return
 
     def clean_n(v):
         if isinstance(v, (int, float)): return round(float(v), 2)
@@ -2247,38 +2254,24 @@ def cargar_libro_compras_db(df, nombre_db):
 
         for i, row in df.iterrows():
             try:
-                f_val = row[cols[0]]
-                t_doc = row[cols[1]]
-                n_fac = row[cols[2]]
-                n_con = row[cols[3]]
-                prov  = row[cols[4]]
-                rif_v = row[cols[5]]
-                t_com = row[cols[6]]
-                c_exe = row[cols[7]]
-                b_imp = row[cols[8]]
-                i_por = row[cols[9]]
-                i_mon = row[cols[10]]
-
-                # BLINDAJE ANTI-ERROR DE TIPO: Forzamos todo a string limpio quitando decimales raros si vienen de números
                 def limpiar_texto(val):
                     if pd.isna(val): return ""
                     s = str(val).strip()
-                    if s.endswith('.0'):
-                        s = s[:-2]
+                    if s.endswith('.0'): s = s[:-2]
                     return s
 
                 valores = (
-                    convertir_fecha(f_val), 
-                    limpiar_texto(t_doc).zfill(2),
-                    limpiar_texto(n_fac),
-                    limpiar_texto(n_con),
-                    limpiar_texto(prov).upper(),
-                    limpiar_texto(rif_v).replace('-', '').replace('.', ''),
-                    clean_n(t_com),
-                    clean_n(c_exe),
-                    clean_n(b_imp),
-                    clean_n(i_por),
-                    clean_n(i_mon)
+                    convertir_fecha(row[cols[0]]), 
+                    limpiar_texto(row[cols[1]]).zfill(2),
+                    limpiar_texto(row[cols[2]]),
+                    limpiar_texto(row[cols[3]]),
+                    limpiar_texto(row[cols[4]]).upper(),
+                    limpiar_texto(row[cols[5]]).replace('-', '').replace('.', ''),
+                    clean_n(row[cols[6]]),
+                    clean_n(row[cols[7]]),
+                    clean_n(row[cols[8]]),
+                    clean_n(row[cols[9]]),
+                    clean_n(row[cols[10]])
                 )
                 registros_a_insertar.append(valores)
             except Exception as e:
@@ -2287,14 +2280,15 @@ def cargar_libro_compras_db(df, nombre_db):
         if registros_a_insertar:
             cursor.executemany(sql, registros_a_insertar)
             conn.commit()
-            st.success(f"🔥 ¡Procesados y guardados con éxito {len(registros_a_insertar)} registros en TiDB!")
+            st.success(f"🔥 ¡Procesados y guardados con éxito {len(registros_a_insertar)} registros en {nombre_db}!")
         else:
             st.warning("No se encontraron registros válidos para insertar.")
         
     except Exception as e:
-        if conn: conn.rollback()
-        st.error(f"Error crítico en DB: {e}")
+        conn.rollback()
+        st.error(f"Error crítico de escritura en TiDB: {e}")
     finally:
+        # IMPORTANTE: Cerramos solo el cursor, NUNCA la conexión conn
         if cursor: cursor.close()
 
 def obtener_lista_proveedores_mapeo():
@@ -8740,16 +8734,6 @@ elif opcion_menu == "📚 Libros Fiscales":
                 st.subheader("👁️ Vista de los datos cargados")
                 st.dataframe(df_visual, use_container_width=True, hide_index=True)
 
-                # C. Editor funcional
-                with st.expander("✏️ Editar Registros"):
-                    cambios_df_excel = st.data_editor(
-                        st.session_state.df_carga_excel,
-                        key="editor_carga_excel",
-                        num_rows="dynamic",
-                        use_container_width=True,
-                        hide_index=True
-                    )
-                    st.session_state.df_carga_excel = cambios_df_excel
 
                 # D. Totales
                 st.markdown("---")
