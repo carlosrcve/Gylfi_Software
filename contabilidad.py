@@ -4433,7 +4433,145 @@ def obtener_detalle_cashea(db, f_inicio, f_fin):
             except Exception:
                 pass
         return df_vacio
+
+
+def obtener_tasa_bcv_hoy(conn):
+    """
+    Busca la tasa en la BD. Si no existe para hoy, la consulta en la web 
+    del BCV, la guarda en la BD y la retorna. Incluye autoreconexión.
+    """
+    # 1. VERIFICACIÓN DE SEGURIDAD: Reconexión automática
+    try:
+        if conn and not conn.is_connected():
+            conn.reconnect(attempts=3, delay=2)
+    except Exception:
+        pass 
+
+    # 2. Intentamos abrir el cursor
+    try:
+        cursor = conn.cursor(buffered=True)
+    except Exception:
+        return consultar_bcv_directo_sin_bd()
+
+    hoy = date.today()
+    
+    try:
+        # A. Verificar en BD
+        cursor.execute("SELECT tasa_valor FROM kingdirver_ca.tasas_diarias WHERE fecha = %s", (hoy,))
+        resultado = cursor.fetchone()
         
+        if resultado:
+            cursor.close()
+            return float(resultado[0]), "Base de Datos"
+        
+        # B. Si no está en BD, consultamos la Web
+        url = "https://www.bcv.org.ve/"
+        headers = {"User-Agent": "Mozilla/5.0..."}
+        
+        response = requests.get(url, headers=headers, verify=False, timeout=10)
+        if response.status_code == 200:
+            soup = BeautifulSoup(response.content, 'html.parser')
+            dolar_container = soup.find('div', id='dolar')
+            
+            if dolar_container:
+                tasa_texto = dolar_container.find('strong').text.strip()
+                tasa_float = float(tasa_texto.replace(',', '.'))
+                
+                # --- AQUÍ ESTÁ EL LOG QUE QUERÍAS ---
+                try:
+                    # Ubica donde obtienes la tasa (cuando la traes de la web o de la BD)
+                    # Y justo ahí, añade esta llamada:
+
+                    registrar_log_automatico(conn, "CONSULTA_TASA_BCV", f"El usuario {st.session_state.usuario} consultó la tasa del BCV")
+                except Exception:
+                    pass # Si el log falla, no pasa nada, la app sigue viva
+                
+                # Guardar en BD
+                cursor.execute("""
+                    INSERT INTO kingdirver_ca.tasas_diarias (fecha, tasa_valor) 
+                    VALUES (%s, %s)
+                    ON DUPLICATE KEY UPDATE tasa_valor = %s
+                """, (hoy, tasa_float, tasa_float))
+                conn.commit()
+                
+                cursor.close()
+                return tasa_float, "Web BCV"
+        
+        cursor.close()
+        return consultar_bcv_directo_sin_bd()
+        
+    except Exception:
+        return consultar_bcv_directo_sin_bd()
+
+
+def generar_reporte_multimoneda(conn, mes, ano, db="kingdirver_ca"):
+    """
+    Consolida saldos iniciales con los asientos contables del mes seleccionado, 
+    aplicando la conversión a USD al vuelo de forma segura.
+    """
+    if not conn:
+        return []
+        
+    cursor = conn.cursor(dictionary=True)
+    
+    query = f"""
+        SELECT 
+            t_origen.fecha,
+            t_origen.plan_cuentas,      
+            t_origen.cuenta_contable,
+            t_origen.descripcion,
+            t_origen.debe,
+            t_origen.haber,
+            COALESCE(
+                (SELECT t.tasa_valor FROM `{db}`.tasas_diarias t WHERE t.fecha = t_origen.fecha LIMIT 1),
+                (SELECT t2.tasa_valor FROM `{db}`.tasas_diarias t2 WHERE t2.fecha <= t_origen.fecha ORDER BY t2.fecha DESC LIMIT 1),
+                (SELECT t3.tasa_valor FROM `{db}`.tasas_diarias t3 ORDER BY t3.fecha ASC LIMIT 1),
+                1.0000
+            ) AS tasa_bcv
+        FROM (
+            -- PARTE 1: Saldos Iniciales
+            SELECT fecha, plan_cuentas, cuenta_contable, descripcion, debe, haber
+            FROM `{db}`.saldos_iniciales
+            WHERE YEAR(fecha) = %s
+            
+            UNION ALL
+            
+            -- PARTE 2: Asientos Contables 
+            SELECT fecha, cuenta_contable AS plan_cuentas, cuenta_contable, descripcion, debe, haber
+            FROM `{db}`.asientos_contables
+            WHERE MONTH(fecha) = %s AND YEAR(fecha) = %s
+        ) AS t_origen
+        ORDER BY t_origen.fecha ASC
+    """
+    
+    try:
+        cursor.execute(query, (ano, mes, ano))
+        datos = cursor.fetchall()
+        cursor.close()
+        return datos
+    except Exception as e:
+        print(f"Error en consulta contable para {db}: {e}")
+        try:
+            cursor.close()
+        except Exception:
+            pass
+        return []
+    
+    df = pd.DataFrame(datos)
+    
+    if not df.empty:
+        # Aseguramos que los tipos de datos sean numéricos puros para evitar fallos en la división
+        df['debe'] = pd.to_numeric(df['debe'], errors='coerce').fillna(0.0)
+        df['haber'] = pd.to_numeric(df['haber'], errors='coerce').fillna(0.0)
+        df['tasa_bcv'] = pd.to_numeric(df['tasa_bcv'], errors='coerce').fillna(1.0)
+        
+        # 🔥 Operación matemática en memoria de Python
+        df['debe_usd'] = df['debe'] / df['tasa_bcv']
+        df['haber_usd'] = df['haber'] / df['tasa_bcv']
+    
+    return df
+
+
 def gestionar_sidebar():
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
     user_id = st.session_state.get('user_id', st.session_state.get('cliente_id', 'N/A'))
