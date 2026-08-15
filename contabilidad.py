@@ -4311,9 +4311,11 @@ def obtener_patrimonio_acumulado(db, fecha_corte):
         conn.close()
 
 
-def mostrar_analisis_rendimiento(u_v, patrimonio_total):
+def mostrar_analisis_rendimiento(u_v, patrimonio_total, capital_social=600000.0):
     """
-    Calcula y muestra el dashboard de rendimiento para los socios con validación de tipos y key única.
+    Muestra el dashboard comparativo para los socios con dos barras independientes:
+    1. Capital Social (ej. 600,000 Bs.)
+    2. Utilidad Acumulada
     """
     try:
         patrimonio_total = float(patrimonio_total) if patrimonio_total is not None else 0.0
@@ -4325,29 +4327,40 @@ def mostrar_analisis_rendimiento(u_v, patrimonio_total):
     except (ValueError, TypeError):
         u_v = 0.0
 
-    capital_aportado = patrimonio_total - u_v 
+    # Si prefieres que el capital social se calcule restando del patrimonio total, 
+    # o si prefieres usar el valor fijo del capital aportado por los socios:
+    # capital_aportado = capital_social 
+    # (Si el patrimonio total incluye ambos, el capital aportado es la base inicial)
+    capital_aportado = float(capital_social)
+
+    # Porcentaje de rendimiento (ROE basado en el capital social real)
     rendimiento_pct = (u_v / capital_aportado * 100) if capital_aportado != 0 else 0
 
     st.subheader("📊 Composición de Capital y Rendimiento")
 
+    # Métricas limpias para los socios
     c1, c2 = st.columns(2)
-    c1.metric("Capital Aportado", f"Bs. {capital_aportado:,.2f}")
+    c1.metric("Capital Social", f"Bs. {capital_aportado:,.2f}")
     c2.metric("Utilidad Acumulada", f"Bs. {u_v:,.2f}", f"{rendimiento_pct:.1f}% ROE")
 
+    # Gráfico con DOS BARRAS SEPARADAS (Comparativo)
     import plotly.graph_objects as go
     fig = go.Figure()
     
-    fig.add_trace(go.Bar(x=['Composición del Patrimonio'], y=[capital_aportado], name='Capital Aportado', marker_color='#2c3e50'))
-    fig.add_trace(go.Bar(x=['Composición del Patrimonio'], y=[u_v], name='Utilidades Acumuladas', marker_color='#27ae60'))
+    fig.add_trace(go.Bar(
+        x=['Capital Social', 'Utilidades Acumuladas'], 
+        y=[capital_aportado, u_v], 
+        name='Composición', 
+        marker_color=['#2c3e50', '#27ae60']
+    ))
 
     fig.update_layout(
-        barmode='stack', height=300, 
+        barmode='group', height=350, 
         margin=dict(l=20, r=20, t=30, b=20),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+        showlegend=False
     )
     
-    # Se le añade el parámetro key para evitar el conflicto de IDs duplicados en Streamlit
-    st.plotly_chart(fig, use_container_width=True, key="grafico_composicion_patrimonio")
+    st.plotly_chart(fig, use_container_width=True, key="grafico_comparativo_capital_utilidad")
 
 
 def gestionar_sidebar():
