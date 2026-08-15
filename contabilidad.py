@@ -4313,9 +4313,8 @@ def obtener_patrimonio_acumulado(db, fecha_corte):
 
 def mostrar_analisis_rendimiento(u_v, patrimonio_total):
     """
-    Calcula y muestra el dashboard de rendimiento para los socios con validación de tipos.
+    Calcula y muestra el dashboard de rendimiento para los socios con validación de tipos y key única.
     """
-    # Blindaje: Forzamos a que ambos sean números (0.0 si vienen vacíos o None)
     try:
         patrimonio_total = float(patrimonio_total) if patrimonio_total is not None else 0.0
     except (ValueError, TypeError):
@@ -4326,18 +4325,15 @@ def mostrar_analisis_rendimiento(u_v, patrimonio_total):
     except (ValueError, TypeError):
         u_v = 0.0
 
-    # Lógica de cálculo segura
     capital_aportado = patrimonio_total - u_v 
     rendimiento_pct = (u_v / capital_aportado * 100) if capital_aportado != 0 else 0
 
     st.subheader("📊 Composición de Capital y Rendimiento")
 
-    # Métricas
     c1, c2 = st.columns(2)
     c1.metric("Capital Aportado", f"Bs. {capital_aportado:,.2f}")
     c2.metric("Utilidad Acumulada", f"Bs. {u_v:,.2f}", f"{rendimiento_pct:.1f}% ROE")
 
-    # Gráfico
     import plotly.graph_objects as go
     fig = go.Figure()
     
@@ -4349,7 +4345,9 @@ def mostrar_analisis_rendimiento(u_v, patrimonio_total):
         margin=dict(l=20, r=20, t=30, b=20),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
     )
-    st.plotly_chart(fig, use_container_width=True)
+    
+    # Se le añade el parámetro key para evitar el conflicto de IDs duplicados en Streamlit
+    st.plotly_chart(fig, use_container_width=True, key="grafico_composicion_patrimonio")
 
 
 def gestionar_sidebar():
@@ -4889,59 +4887,9 @@ if "🏠 Inicio" in opcion_menu:
 
    # 4. ROE Rentabilidad del Patrimonio
     patrimonio_total = obtener_patrimonio_acumulado(db_objetivo, f_fin_global)
-
-    # Aquí llamamos a la función que formatea y muestra el gráfico para los socios
-    mostrar_analisis_rendimiento(u_v, patrimonio_total)
-    patrimonio_total = kpis.get('patrimonio', 0)
     
-    # Capital aportado = lo que queda si quitamos la utilidad acumulada del patrimonio
-    capital_aportado = patrimonio_total - u_v 
-
-    # Porcentaje de rendimiento
-    porcentaje_rendimiento = (u_v / capital_aportado * 100) if capital_aportado != 0 else 0
-
-    # --- VISUALIZACIÓN ---
-    st.subheader("📊 Composición de Capital y Rendimiento")
-
-    # Métricas rápidas
-    c1, c2 = st.columns(2)
-    c1.metric("Capital Aportado", f"Bs. {capital_aportado:,.2f}")
-    c2.metric("Rendimiento (Utilidades)", f"Bs. {u_v:,.2f}", f"{porcentaje_rendimiento:.1f}% ROE")
-
-    # Gráfico para los socios
-    import plotly.graph_objects as go
-
-    fig = go.Figure()
-    fig.add_trace(go.Bar(
-        x=['Composición del Patrimonio'], y=[capital_aportado],
-        name='Capital Aportado', marker_color='#2c3e50'
-    ))
-    fig.add_trace(go.Bar(
-        x=['Composición del Patrimonio'], y=[u_v],
-        name='Utilidades Acumuladas', marker_color='#27ae60'
-    ))
-
-    fig.update_layout(
-        barmode='stack',
-        height=300,
-        margin=dict(l=20, r=20, t=30, b=20),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-    )
-
-    st.plotly_chart(fig, width='stretch')
-
-    fig.update_layout(
-        barmode='stack',
-        height=300,
-        margin=dict(l=20, r=20, t=30, b=20),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-    )
-
-    st.plotly_chart(fig, width='stretch')
-
-
-
-
+    # Esto se encarga de todo (métricas, cálculos y gráfico seguro)
+    mostrar_analisis_rendimiento(u_v, patrimonio_total)
 
 
     # --- FILA 4: ANÁLISIS VISUAL ---
