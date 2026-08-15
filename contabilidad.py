@@ -5966,9 +5966,10 @@ if "🏠 Inicio" in opcion_menu:
         db = st.session_state.get('DB_ACTUAL')
         if db and db != "{db}" and db != "None" and str(db).strip() != "":
             try:
-                # Pasamos los objetos date unificados a tus funciones
+                # 🛠️ CORRECCIÓN: Pasamos los objetos date (f_i_date y f_f_date) en lugar de strings 
+                # para evitar que falle si la función interna intenta usar .year o métodos de fecha.
                 df_acc = obtener_analisis_accionista_detallado(db, f_i_date, f_f_date)
-                utilidad = obtener_historico_utilidad(db, f_inicio=f_i_str, f_fin=f_f_str)
+                utilidad = obtener_historico_utilidad(db, f_inicio=f_i_date, f_fin=f_f_date)
             except Exception as err:
                 st.error(f"Error interno en la función de datos: {err}")
                 st.stop()
