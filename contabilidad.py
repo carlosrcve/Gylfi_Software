@@ -4282,25 +4282,17 @@ def verificar_inactividad():
 
 @st.cache_data(ttl=300)
 def obtener_patrimonio_acumulado(db, fecha_corte):
-    """
-    Calcula el patrimonio total acumulado (Cuenta 3) 
-    sumando saldos iniciales + movimientos del periodo.
-    """
     conn = conectar_db(db)
     if not conn:
         return 0.0
-    
     query = """
         SELECT SUM(saldo) as total_patrimonio FROM (
-            -- Saldos iniciales
             SELECT (haber - debe) as saldo FROM saldos_iniciales WHERE plan_cuentas LIKE '3%'
             UNION ALL
-            -- Movimientos del diario
             SELECT (haber - debe) as saldo FROM asientos_contables 
             WHERE plan_cuentas LIKE '3%' AND fecha <= %s
         ) as subconsulta
     """
-    
     cursor = conn.cursor(dictionary=True)
     try:
         cursor.execute(query, (fecha_corte,))
@@ -4310,13 +4302,49 @@ def obtener_patrimonio_acumulado(db, fecha_corte):
         cursor.close()
         conn.close()
 
+@st.cache_data(ttl=300)
+def obtener_utilidad_acumulada_historica(db, fecha_corte):
+    conn = conectar_db(db)
+    df_default = 0.0
+    if not conn:
+        return df_default
+    
+    fecha_fin_str = fecha_corte.strftime('%Y-%m-%d') if hasattr(fecha_corte, 'strftime') else str(fecha_corte).split()[0]
+
+    query = f"""
+        SELECT 
+            COALESCE(SUM(CASE WHEN plan_cuentas LIKE '4%' THEN haber ELSE 0 END), 0) as ing_haber,
+            COALESCE(SUM(CASE WHEN plan_cuentas LIKE '4%' THEN debe ELSE 0 END), 0) as ing_debe,
+            COALESCE(SUM(CASE WHEN plan_cuentas LIKE '5%' THEN debe ELSE 0 END), 0) as cos_debe,
+            COALESCE(SUM(CASE WHEN plan_cuentas LIKE '5%' THEN haber ELSE 0 END), 0) as cos_haber,
+            COALESCE(SUM(CASE WHEN plan_cuentas LIKE '6%' THEN debe ELSE 0 END), 0) as gas_debe,
+            COALESCE(SUM(CASE WHEN plan_cuentas LIKE '6%' THEN haber ELSE 0 END), 0) as gas_haber,
+            COALESCE(SUM(CASE WHEN plan_cuentas LIKE '7%' THEN haber ELSE 0 END), 0) as oing_haber,
+            COALESCE(SUM(CASE WHEN plan_cuentas LIKE '7%' THEN debe ELSE 0 END), 0) as oing_debe,
+            COALESCE(SUM(CASE WHEN plan_cuentas LIKE '8%' THEN debe ELSE 0 END), 0) as oeg_debe,
+            COALESCE(SUM(CASE WHEN plan_cuentas LIKE '8%' THEN haber ELSE 0 END), 0) as oeg_haber
+        FROM `{db}`.asientos_contables 
+        WHERE fecha <= %s
+    """
+    cursor = conn.cursor(dictionary=True)
+    try:
+        cursor.execute(query, (fecha_fin_str,))
+        res = cursor.fetchone()
+        if not res:
+            return 0.0
+
+        ingresos = float(res['ing_haber'] or 0) - float(res['ing_debe'] or 0)
+        costos = float(res['cos_debe'] or 0) - float(res['cos_haber'] or 0)
+        gastos = abs(float(res['gas_debe'] or 0) - float(res['gas_haber'] or 0))
+        otros_ingresos = float(res['oing_haber'] or 0) - float(res['oing_debe'] or 0)
+        otros_egresos = abs(float(res['oeg_debe'] or 0) - float(res['oeg_haber'] or 0))
+
+        return float(ingresos - costos - gastos + otros_ingresos - otros_egresos)
+    finally:
+        cursor.close()
+        conn.close()
 
 def mostrar_analisis_rendimiento(u_v, patrimonio_total, capital_social=600000.0):
-    """
-    Muestra el dashboard comparativo para los socios con dos barras independientes:
-    1. Capital Social (ej. 600,000 Bs.)
-    2. Utilidad Acumulada
-    """
     try:
         patrimonio_total = float(patrimonio_total) if patrimonio_total is not None else 0.0
     except (ValueError, TypeError):
@@ -4327,23 +4355,15 @@ def mostrar_analisis_rendimiento(u_v, patrimonio_total, capital_social=600000.0)
     except (ValueError, TypeError):
         u_v = 0.0
 
-    # Si prefieres que el capital social se calcule restando del patrimonio total, 
-    # o si prefieres usar el valor fijo del capital aportado por los socios:
-    # capital_aportado = capital_social 
-    # (Si el patrimonio total incluye ambos, el capital aportado es la base inicial)
     capital_aportado = float(capital_social)
-
-    # Porcentaje de rendimiento (ROE basado en el capital social real)
     rendimiento_pct = (u_v / capital_aportado * 100) if capital_aportado != 0 else 0
 
     st.subheader("📊 Composición de Capital y Rendimiento")
 
-    # Métricas limpias para los socios
     c1, c2 = st.columns(2)
     c1.metric("Capital Social", f"Bs. {capital_aportado:,.2f}")
     c2.metric("Utilidad Acumulada", f"Bs. {u_v:,.2f}", f"{rendimiento_pct:.1f}% ROE")
 
-    # Gráfico con DOS BARRAS SEPARADAS (Comparativo)
     import plotly.graph_objects as go
     fig = go.Figure()
     
@@ -4899,10 +4919,8 @@ if "🏠 Inicio" in opcion_menu:
     r3.metric("capital de trabajo", f"Bs. {capital_trabajo:,.2f}", "capital_trabajo")
 
    # 4. ROE Rentabilidad del Patrimonio
-    patrimonio_total = obtener_patrimonio_acumulado(db_objetivo, f_fin_global)
-    
-    # Esto se encarga de todo (métricas, cálculos y gráfico seguro)
-    mostrar_analisis_rendimiento(u_v, patrimonio_total)
+    utilidad_acumulada_historica = obtener_utilidad_acumulada_historica(db_objetivo, f_fin_global)
+    mostrar_analisis_rendimiento(u_v=utilidad_acumulada_historica, patrimonio_total=0)
 
 
     # --- FILA 4: ANÁLISIS VISUAL ---
