@@ -5842,11 +5842,13 @@ if "🏠 Inicio" in opcion_menu:
     except Exception:
         pass
 
-    # Usamos la base de datos activa que corresponda (reemplaza 'db_actual' por la variable de tu empresa)
     query_completa = f"SELECT * FROM `{db_actual}`.asientos_contables"
     
     try:
         df_diario = pd.read_sql(query_completa, conn) 
+        # 🛡️ BLINDAJE CRUCIAL: Forzamos la conversión de la fecha para evitar errores de tipo string (.year)
+        if 'fecha' in df_diario.columns:
+            df_diario['fecha'] = pd.to_datetime(df_diario['fecha'], errors='coerce')
     except Exception as db_err:
         st.error(f"Error de conexión con la base de datos: {db_err}")
         df_diario = pd.DataFrame()
@@ -5862,90 +5864,74 @@ if "🏠 Inicio" in opcion_menu:
         if st.button("🚀 Ejecutar Escáner Antifraude", use_container_width=True):
             st.info("Procesando algoritmos estadísticos sobre el Libro Diario...")
             
-            # 1. Preparación de datos
-            # Limpieza de columnas numéricas
-            df_diario['debe'] = pd.to_numeric(df_diario['debe'], errors='coerce').fillna(0)
-            df_diario['haber'] = pd.to_numeric(df_diario['haber'], errors='coerce').fillna(0)
-            
-            # Cálculo de monto auditable (ajustado por moneda)
-            if moneda_vista == "Dólares (USD)":
-                # Asegúrate que las columnas debe_usd/haber_usd existan en tu tabla
-                df_diario['monto_auditable'] = df_diario['debe_usd'] + df_diario['haber_usd']
+            if df_diario.empty:
+                st.warning("⚠️ El DataFrame del diario está vacío.")
             else:
-                df_diario['monto_auditable'] = df_diario['debe'] + df_diario['haber']
-            
-            # 2. Filtrado: Excluir saldos iniciales y montos cero
-            df_asientos = df_diario[
-                (~df_diario['descripcion'].str.contains("SALDOS INICIALES", case=False, na=False)) & 
-                (df_diario['monto_auditable'] != 0)
-            ].copy()
-            
-            # --- BLOQUE DE DEPURACIÓN (AUTOPSIA DE DATOS) ---
-            if df_asientos.empty:
-                st.warning("⚠️ El escáner no encontró movimientos. Ejecutando diagnóstico de integridad:")
-                st.write(f"Total registros en diario: {len(df_diario)}")
-                # --- DEPURACIÓN PREVIA ---
-                st.write("Registros disponibles en el objeto df_diario:", len(df_diario))
-                st.write(df_diario.head(5)) # Esto te confirmará si los gastos de mayo están presentes
-                                        
-                # Ver qué descartó el filtro
-                ejemplo_descartados = df_diario[df_diario['descripcion'].str.contains("SALDO", case=False, na=False)].head(3)
-                if not ejemplo_descartados.empty:
-                    st.write("Registros descartados por coincidir con 'SALDO':")
-                    st.dataframe(ejemplo_descartados[['fecha', 'descripcion', 'monto_auditable']])
+                # 1. Preparación de datos
+                df_diario['debe'] = pd.to_numeric(df_diario['debe'], errors='coerce').fillna(0)
+                df_diario['haber'] = pd.to_numeric(df_diario['haber'], errors='coerce').fillna(0)
                 
-                st.error("📊 Ninguna fila superó los filtros. Revisa si tus gastos reales contienen la palabra 'SALDO' o si el monto es 0.")
-                
-            else:
-                # -----------------------------------------------------------------
-                # ALGORITMO 1: DETECCIÓN DE DUPLICADOS
-                # -----------------------------------------------------------------
-                anomalies_found = False
-                alertas_duplicados = []
-                alertas_montos = []
-                
-                duplicados = df_asientos[df_asientos.duplicated(subset=['fecha', 'cuenta_contable', col_analisis], keep=False)]
-                if not duplicados.empty:
-                    anomalies_found = True
-                    for cuenta, gp in duplicados.groupby('cuenta_contable'):
-                        monto_dup = gp[col_analisis].iloc[0]
-                        alertas_duplicados.append(f"🚩 **Sospecha de Duplicidad:** Se encontraron {len(gp)} registros idénticos el mismo día en la cuenta **{cuenta}** por {simb} {monto_dup:,.2f}.")
-                # -----------------------------------------------------------------
-                # ALGORITMO 2: Z-SCORE (DESVIACIÓN) - SEGURO CONTRA Nulos
-                # -----------------------------------------------------------------
-                # Calculamos la media y la desviación estándar de forma segura
-                stats = df_asientos.groupby('cuenta_contable')[col_analisis].agg(['mean', 'std']).reset_index()
-                
-                # Si hay un solo registro por cuenta, la std es NaN. La rellenamos con 0.
-                stats['std'] = stats['std'].fillna(0.0)
-                
-                df_audit = df_asientos.merge(stats, on='cuenta_contable', how='left')
-                
-                # Si la desviación estándar es 0 (porque la cuenta solo tiene 1 registro o todos valen igual), 
-                # asignamos un valor artificial seguro para evitar divisiones por cero, pero marcando que no hay dispersión real.
-                df_audit['std_safe'] = df_audit['std'].replace(0.0, 1.0)
-                
-                df_audit['z_score'] = (df_audit[col_analisis] - df_audit['mean']) / df_audit['std_safe']
-                
-                # Solo evaluamos Z-score en cuentas donde realmente hubo variación (std > 0)
-                anomalas_std = df_audit[(df_audit['std'] > 0) & (df_audit['z_score'] > 2.0) & (df_audit[col_analisis] > df_audit['mean'] * 1.5)]
-                
-                if not anomalas_std.empty:
-                    for idx, row in anomalas_std.iterrows():
-                        porcentaje_desvio = ((row[col_analisis] - row['mean']) / row['mean']) * 100 if row['mean'] > 0 else 100
-                        if porcentaje_desvio > 15:
-                            anomalies_found = True
-                            alertas_montos.append(f"🚨 **Monto Atípico:** Cuenta **{row['cuenta_contable']}**, registro *'{row['descripcion']}'* ({simb} {row[col_analisis]:,.2f}). ¡{porcentaje_desvio:.0f}% por encima del promedio!")
-
-                # -----------------------------------------------------------------
-                # RENDERIZADO
-                # -----------------------------------------------------------------
-                if anomalies_found:
-                    st.error("❌ ¡Alerta del Sistema! Se detectaron inconsistencias.")
-                    for a in alertas_montos: st.warning(a)
-                    for a in alertas_duplicados: st.info(a)
+                # Cálculo de monto auditable
+                if 'debe_usd' in df_diario.columns and 'haber_usd' in df_diario.columns and moneda_vista == "Dólares (USD)":
+                    df_diario['debe_usd'] = pd.to_numeric(df_diario['debe_usd'], errors='coerce').fillna(0)
+                    df_diario['haber_usd'] = pd.to_numeric(df_diario['haber_usd'], errors='coerce').fillna(0)
+                    df_diario['monto_auditable'] = df_diario['debe_usd'] + df_diario['haber_usd']
                 else:
-                    st.success("✨ ¡Análisis Completo! Data limpia y alineada.")
+                    df_diario['monto_auditable'] = df_diario['debe'] + df_diario['haber']
+                
+                # 2. Filtrado: Excluir saldos iniciales y montos cero
+                # Nos aseguramos de manejar de forma segura si la descripción es nula o texto
+                mask_saldo = df_diario['descripcion'].fillna('').astype(str).str.contains("SALDOS INICIALES", case=False, na=False)
+                df_asientos = df_diario[
+                    (~mask_saldo) & 
+                    (df_diario['monto_auditable'] != 0)
+                ].copy()
+                
+                if df_asientos.empty:
+                    st.warning("⚠️ El escáner no encontró movimientos válidos tras aplicar los filtros.")
+                else:
+                    # -----------------------------------------------------------------
+                    # ALGORITMO 1: DETECCIÓN DE DUPLICADOS
+                    # -----------------------------------------------------------------
+                    anomalies_found = False
+                    alertas_duplicados = []
+                    alertas_montos = []
+                    
+                    duplicados = df_asientos[df_asientos.duplicated(subset=['fecha', 'cuenta_contable', col_analisis], keep=False)]
+                    if not duplicados.empty:
+                        anomalies_found = True
+                        for cuenta, gp in duplicados.groupby('cuenta_contable'):
+                            monto_dup = gp[col_analisis].iloc[0]
+                            alertas_duplicados.append(f"🚩 **Sospecha de Duplicidad:** Se encontraron {len(gp)} registros idénticos el mismo día en la cuenta **{cuenta}** por {simb} {monto_dup:,.2f}.")
+                    
+                    # -----------------------------------------------------------------
+                    # ALGORITMO 2: Z-SCORE (DESVIACIÓN)
+                    # -----------------------------------------------------------------
+                    stats = df_asientos.groupby('cuenta_contable')[col_analisis].agg(['mean', 'std']).reset_index()
+                    stats['std'] = stats['std'].fillna(0.0)
+                    
+                    df_audit = df_asientos.merge(stats, on='cuenta_contable', how='left')
+                    df_audit['std_safe'] = df_audit['std'].replace(0.0, 1.0)
+                    df_audit['z_score'] = (df_audit[col_analisis] - df_audit['mean']) / df_audit['std_safe']
+                    
+                    anomalas_std = df_audit[(df_audit['std'] > 0) & (df_audit['z_score'] > 2.0) & (df_audit[col_analisis] > df_audit['mean'] * 1.5)]
+                    
+                    if not anomalas_std.empty:
+                        for idx, row in anomalas_std.iterrows():
+                            porcentaje_desvio = ((row[col_analisis] - row['mean']) / row['mean']) * 100 if row['mean'] > 0 else 100
+                            if porcentaje_desvio > 15:
+                                anomalies_found = True
+                                alertas_montos.append(f"🚨 **Monto Atípico:** Cuenta **{row['cuenta_contable']}**, registro *'{row['descripcion']}'* ({simb} {row[col_analisis]:,.2f}). ¡{porcentaje_desvio:.0f}% por encima del promedio!")
+
+                    # -----------------------------------------------------------------
+                    # RENDERIZADO
+                    # -----------------------------------------------------------------
+                    if anomalies_found:
+                        st.error("❌ ¡Alerta del Sistema! Se detectaron inconsistencias.")
+                        for a in alertas_montos: st.warning(a)
+                        for a in alertas_duplicados: st.info(a)
+                    else:
+                        st.success("✨ ¡Análisis Completo! Data limpia y alineada.")
 
 
     # --- FILA 10: REPORTE DE CONTABLE ---
