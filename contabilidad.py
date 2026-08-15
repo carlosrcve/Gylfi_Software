@@ -534,21 +534,35 @@ def obtener_saldos_acumulados(conexion, fecha_corte, nombre_db):
     try:
         cur.execute(f"USE `{db_segura}`")
         
-        # Query limpio y directo tal como lo tenías funcionando
-        cur.execute(f"""
+        # Unimos mediante una consulta UNION ALL los saldos iniciales y los asientos contables
+        # Esto acumulará todo de forma unificada hasta la fecha de corte seleccionada.
+        query = """
             SELECT 
                 COALESCE(SUM(CASE WHEN plan_cuentas LIKE '1%' THEN (debe - haber) ELSE 0 END), 0) as activo,
                 COALESCE(SUM(CASE WHEN plan_cuentas LIKE '2%' THEN (haber - debe) ELSE 0 END), 0) as pasivo,
                 COALESCE(SUM(CASE WHEN plan_cuentas LIKE '3%' THEN (haber - debe) ELSE 0 END), 0) as patrimonio
-            FROM asientos_contables 
-            WHERE fecha <= %s
-        """, (fecha_corte,))
+            FROM (
+                -- 1. Tomamos los asientos contables regulares hasta la fecha de corte
+                SELECT plan_cuentas, debe, haber 
+                FROM asientos_contables 
+                WHERE fecha <= %s
+                
+                UNION ALL
+                
+                -- 2. Sumamos los saldos iniciales (asegúrate de que tu tabla se llame 'saldos_iniciales' 
+                -- o ajusta el nombre si tiene otro, ej: 'saldos_anuales')
+                SELECT plan_cuentas, debe, haber 
+                FROM saldos_iniciales
+            ) as todo_acumulado
+        """
         
+        cur.execute(query, (fecha_corte,))
         resultado = cur.fetchone()
+        
         return resultado if resultado else {"activo": 0, "pasivo": 0, "patrimonio": 0}
 
     except Exception as e:
-        print(f"Error: {e}")
+        print(f"Error al obtener saldos acumulados con iniciales: {e}")
         return {"activo": 0, "pasivo": 0, "patrimonio": 0}
     finally:
         cur.close()
