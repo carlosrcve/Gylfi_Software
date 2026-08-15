@@ -4313,9 +4313,20 @@ def obtener_patrimonio_acumulado(db, fecha_corte):
 
 def mostrar_analisis_rendimiento(u_v, patrimonio_total):
     """
-    Calcula y muestra el dashboard de rendimiento para los socios.
+    Calcula y muestra el dashboard de rendimiento para los socios con validación de tipos.
     """
-    # Lógica de cálculo
+    # Blindaje: Forzamos a que ambos sean números (0.0 si vienen vacíos o None)
+    try:
+        patrimonio_total = float(patrimonio_total) if patrimonio_total is not None else 0.0
+    except (ValueError, TypeError):
+        patrimonio_total = 0.0
+
+    try:
+        u_v = float(u_v) if u_v is not None else 0.0
+    except (ValueError, TypeError):
+        u_v = 0.0
+
+    # Lógica de cálculo segura
     capital_aportado = patrimonio_total - u_v 
     rendimiento_pct = (u_v / capital_aportado * 100) if capital_aportado != 0 else 0
 
@@ -4330,8 +4341,8 @@ def mostrar_analisis_rendimiento(u_v, patrimonio_total):
     import plotly.graph_objects as go
     fig = go.Figure()
     
-    fig.add_trace(go.Bar(x=['Patrimonio'], y=[capital_aportado], name='Capital Aportado', marker_color='#2c3e50'))
-    fig.add_trace(go.Bar(x=['Patrimonio'], y=[u_v], name='Utilidades Acumuladas', marker_color='#27ae60'))
+    fig.add_trace(go.Bar(x=['Composición del Patrimonio'], y=[capital_aportado], name='Capital Aportado', marker_color='#2c3e50'))
+    fig.add_trace(go.Bar(x=['Composición del Patrimonio'], y=[u_v], name='Utilidades Acumuladas', marker_color='#27ae60'))
 
     fig.update_layout(
         barmode='stack', height=300, 
