@@ -4383,6 +4383,57 @@ def mostrar_analisis_rendimiento(u_v, patrimonio_total, capital_social=600000.0)
     st.plotly_chart(fig, use_container_width=True, key="grafico_comparativo_capital_utilidad")
 
 
+
+@st.cache_data(ttl=300)
+def obtener_detalle_cashea(db, f_inicio, f_fin):
+    df_vacio = pd.DataFrame(columns=['fecha', 'descripcion', 'referencia', 'debe', 'haber', 'saldo'])
+    
+    conn = conectar_db(db)
+    if not conn:
+        return df_vacio
+        
+    try:
+        # A. Calcular saldo inicial (antes de f_inicio) usando LIKE por seguridad
+        query_saldo_inicial = f"""
+            SELECT SUM(haber - debe) as saldo_ant
+            FROM `{db}`.asientos_contables
+            WHERE plan_cuentas LIKE '2.1.3.01.001%' AND fecha < %s
+        """
+        df_ini = pd.read_sql(query_saldo_inicial, conn, params=(f_inicio,))
+        saldo_inicial = float(df_ini['saldo_ant'].iloc[0] or 0.0)
+        
+        # B. Obtener movimientos del periodo usando LIKE por seguridad
+        query = f"""
+            SELECT fecha, descripcion, referencia, debe, haber
+            FROM `{db}`.asientos_contables
+            WHERE plan_cuentas LIKE '2.1.3.01.001%' 
+            AND fecha BETWEEN %s AND %s
+            ORDER BY fecha ASC, id ASC
+        """
+        df = pd.read_sql(query, conn, params=(f_inicio, f_fin))
+        conn.close()
+        
+        if not df.empty:
+            # Asegurar que debe y haber sean numéricos para evitar errores en cumsum
+            df['debe'] = pd.to_numeric(df['debe'], errors='coerce').fillna(0)
+            df['haber'] = pd.to_numeric(df['haber'], errors='coerce').fillna(0)
+            
+            # C. Cálculo del saldo: saldo_inicial + movimientos acumulados
+            df['saldo'] = saldo_inicial + (df['haber'] - df['debe']).cumsum()
+        else:
+            df = df_vacio
+            
+        return df
+
+    except Exception as e:
+        # Si la tabla no existe o ocurre cualquier error en MySQL, cerramos conexión y devolvemos vacío
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+        return df_vacio
+        
 def gestionar_sidebar():
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
     user_id = st.session_state.get('user_id', st.session_state.get('cliente_id', 'N/A'))
