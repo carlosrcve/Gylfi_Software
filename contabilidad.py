@@ -4278,6 +4278,69 @@ def verificar_inactividad():
             # Actualizamos el cronómetro normalmente con la acción actual
             st.session_state['ultimo_tiempo_activo'] = tiempo_actual
 
+
+
+@st.cache_data(ttl=300)
+def obtener_patrimonio_acumulado(db, fecha_corte):
+    """
+    Calcula el patrimonio total acumulado (Cuenta 3) 
+    sumando saldos iniciales + movimientos del periodo.
+    """
+    conn = conectar_db(db)
+    if not conn:
+        return 0.0
+    
+    query = """
+        SELECT SUM(saldo) as total_patrimonio FROM (
+            -- Saldos iniciales
+            SELECT (haber - debe) as saldo FROM saldos_iniciales WHERE plan_cuentas LIKE '3%'
+            UNION ALL
+            -- Movimientos del diario
+            SELECT (haber - debe) as saldo FROM asientos_contables 
+            WHERE plan_cuentas LIKE '3%' AND fecha <= %s
+        ) as subconsulta
+    """
+    
+    cursor = conn.cursor(dictionary=True)
+    try:
+        cursor.execute(query, (fecha_corte,))
+        res = cursor.fetchone()
+        return float(res['total_patrimonio'] or 0.0)
+    finally:
+        cursor.close()
+        conn.close()
+
+
+def mostrar_analisis_rendimiento(u_v, patrimonio_total):
+    """
+    Calcula y muestra el dashboard de rendimiento para los socios.
+    """
+    # Lógica de cálculo
+    capital_aportado = patrimonio_total - u_v 
+    rendimiento_pct = (u_v / capital_aportado * 100) if capital_aportado != 0 else 0
+
+    st.subheader("📊 Composición de Capital y Rendimiento")
+
+    # Métricas
+    c1, c2 = st.columns(2)
+    c1.metric("Capital Aportado", f"Bs. {capital_aportado:,.2f}")
+    c2.metric("Utilidad Acumulada", f"Bs. {u_v:,.2f}", f"{rendimiento_pct:.1f}% ROE")
+
+    # Gráfico
+    import plotly.graph_objects as go
+    fig = go.Figure()
+    
+    fig.add_trace(go.Bar(x=['Patrimonio'], y=[capital_aportado], name='Capital Aportado', marker_color='#2c3e50'))
+    fig.add_trace(go.Bar(x=['Patrimonio'], y=[u_v], name='Utilidades Acumuladas', marker_color='#27ae60'))
+
+    fig.update_layout(
+        barmode='stack', height=300, 
+        margin=dict(l=20, r=20, t=30, b=20),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+
 def gestionar_sidebar():
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
     user_id = st.session_state.get('user_id', st.session_state.get('cliente_id', 'N/A'))
@@ -4812,6 +4875,62 @@ if "🏠 Inicio" in opcion_menu:
     # 3. Capital Propio (Patrimonio Neto real)
     capital_trabajo = kpis.get('capital_trabajo', 0)
     r3.metric("capital de trabajo", f"Bs. {capital_trabajo:,.2f}", "capital_trabajo")
+
+   # 4. ROE Rentabilidad del Patrimonio
+    patrimonio_total = obtener_patrimonio_acumulado(db_objetivo, f_fin_global)
+
+    # Aquí llamamos a la función que formatea y muestra el gráfico para los socios
+    mostrar_analisis_rendimiento(u_v, patrimonio_total)
+    patrimonio_total = kpis.get('patrimonio', 0)
+    
+    # Capital aportado = lo que queda si quitamos la utilidad acumulada del patrimonio
+    capital_aportado = patrimonio_total - u_v 
+
+    # Porcentaje de rendimiento
+    porcentaje_rendimiento = (u_v / capital_aportado * 100) if capital_aportado != 0 else 0
+
+    # --- VISUALIZACIÓN ---
+    st.subheader("📊 Composición de Capital y Rendimiento")
+
+    # Métricas rápidas
+    c1, c2 = st.columns(2)
+    c1.metric("Capital Aportado", f"Bs. {capital_aportado:,.2f}")
+    c2.metric("Rendimiento (Utilidades)", f"Bs. {u_v:,.2f}", f"{porcentaje_rendimiento:.1f}% ROE")
+
+    # Gráfico para los socios
+    import plotly.graph_objects as go
+
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        x=['Composición del Patrimonio'], y=[capital_aportado],
+        name='Capital Aportado', marker_color='#2c3e50'
+    ))
+    fig.add_trace(go.Bar(
+        x=['Composición del Patrimonio'], y=[u_v],
+        name='Utilidades Acumuladas', marker_color='#27ae60'
+    ))
+
+    fig.update_layout(
+        barmode='stack',
+        height=300,
+        margin=dict(l=20, r=20, t=30, b=20),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+    )
+
+    st.plotly_chart(fig, width='stretch')
+
+    fig.update_layout(
+        barmode='stack',
+        height=300,
+        margin=dict(l=20, r=20, t=30, b=20),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+    )
+
+    st.plotly_chart(fig, width='stretch')
+
+
+
+
 
 
     # --- FILA 4: ANÁLISIS VISUAL ---
