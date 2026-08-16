@@ -583,16 +583,15 @@ def obtener_salud_fiscal(f_inicio, f_fin, db):
     if not conn:
         return default_res
 
-    # Normalizar formato de fecha asegurando el inicio y fin del día en texto YYYY-MM-DD
     if hasattr(f_inicio, 'strftime'):
-        f_inicio_str = f_inicio.strftime('%Y-%m-%d')
+        f_inicio_str = f_inicio.strftime('%Y-%m-%d') + " 00:00:00"
     else:
-        f_inicio_str = str(f_inicio).split()[0]
+        f_inicio_str = str(f_inicio).split()[0] + " 00:00:00"
 
     if hasattr(f_fin, 'strftime'):
-        fecha_str = f_fin.strftime('%Y-%m-%d')
+        fecha_str = f_fin.strftime('%Y-%m-%d') + " 23:59:59"
     else:
-        fecha_str = str(f_fin).split()[0]
+        fecha_str = str(f_fin).split()[0] + " 23:59:59"
 
     if db == 'kingdriver_ca':
         dpp_query = """
@@ -640,8 +639,8 @@ def obtener_salud_fiscal(f_inicio, f_fin, db):
             SUM(CASE WHEN plan_cuentas LIKE '2.1.2.01.005%' THEN haber ELSE 0 END) as retencion_islr_hab,
             SUM(CASE WHEN plan_cuentas LIKE '2.1.2.01.005%' THEN debe ELSE 0 END) as retencion_islr_deb,
             SUM(CASE WHEN plan_cuentas LIKE '2.1.2.01.006%' THEN haber ELSE 0 END) as islr_pagar
-        FROM `{db}`.asientos_contables 
-        WHERE LEFT(fecha, 10) >= %s AND LEFT(fecha, 10) <= %s
+        FROM `{db}`.asientos_contables
+        WHERE fecha >= %s AND fecha <= %s
     """
 
     try:
