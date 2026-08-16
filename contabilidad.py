@@ -583,15 +583,16 @@ def obtener_salud_fiscal(f_inicio, f_fin, db):
     if not conn:
         return default_res
 
-    # Extraer año y mes exacto del inicio para aislar el periodo mensual
-    if hasattr(f_inicio, 'year'):
-        anio = f_inicio.year
-        mes = f_inicio.month
+    # Normalizar formato de fecha asegurando el inicio y fin del día en texto YYYY-MM-DD
+    if hasattr(f_inicio, 'strftime'):
+        f_inicio_str = f_inicio.strftime('%Y-%m-%d')
     else:
-        # Fallback si viene como string
-        partes = str(f_inicio).split()[0].split('-')
-        anio = int(partes[0])
-        mes = int(partes[1])
+        f_inicio_str = str(f_inicio).split()[0]
+
+    if hasattr(f_fin, 'strftime'):
+        fecha_str = f_fin.strftime('%Y-%m-%d')
+    else:
+        fecha_str = str(f_fin).split()[0]
 
     if db == 'kingdriver_ca':
         dpp_query = """
@@ -640,13 +641,12 @@ def obtener_salud_fiscal(f_inicio, f_fin, db):
             SUM(CASE WHEN plan_cuentas LIKE '2.1.2.01.005%' THEN debe ELSE 0 END) as retencion_islr_deb,
             SUM(CASE WHEN plan_cuentas LIKE '2.1.2.01.006%' THEN haber ELSE 0 END) as islr_pagar
         FROM `{db}`.asientos_contables 
-        WHERE YEAR(STR_TO_DATE(LEFT(fecha, 10), '%Y-%m-%d')) = %s 
-          AND MONTH(STR_TO_DATE(LEFT(fecha, 10), '%Y-%m-%d')) = %s
+        WHERE LEFT(fecha, 10) >= %s AND LEFT(fecha, 10) <= %s
     """
 
     try:
         cursor = conn.cursor(dictionary=True)
-        cursor.execute(query, (anio, mes))
+        cursor.execute(query, (f_inicio_str, fecha_str))
         res = cursor.fetchone()
         cursor.close()
         conn.close()
