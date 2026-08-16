@@ -582,88 +582,73 @@ def obtener_salud_fiscal(f_inicio, f_fin, db):
     }
     
     if not conn:
-        st.error("No se pudo conectar a la base de datos.")
         return default_res
 
-    # Conversión de fechas
-    f_inicio_str = f_inicio.strftime('%Y-%m-%d') if hasattr(f_inicio, 'strftime') else str(f_inicio).split()[0]
-    f_fin_str = f_fin.strftime('%Y-%m-%d') if hasattr(f_fin, 'strftime') else str(f_fin).split()[0]
+    # Formateo de fechas para MySQL (datetime)
+    f_inicio_str = (f_inicio.strftime('%Y-%m-%d') if hasattr(f_inicio, 'strftime') else str(f_inicio).split()[0]) + " 00:00:00"
+    fecha_str = (f_fin.strftime('%Y-%m-%d') if hasattr(f_fin, 'strftime') else str(f_fin).split()[0]) + " 23:59:59"
 
-    st.write(f"--- Depuración Fiscal ---")
-    st.write(f"Base de datos: {db} | Rango: {f_inicio_str} al {f_fin_str}")
-
+    # Construcción dinámica de la query
     if db == 'kingdriver_ca':
-        dpp_expr = "plan_cuentas LIKE '6.1.1.03.020%'"
+        dpp_query = "SUM(CASE WHEN plan_cuentas LIKE '6.1.1.03.020%' THEN haber ELSE 0 END) as DPP_haber, SUM(CASE WHEN plan_cuentas LIKE '6.1.1.03.020%' THEN debe ELSE 0 END) as DPP_debe"
     else:
-        dpp_expr = """plan_cuentas LIKE '6.1.1.03%' 
-                      AND plan_cuentas NOT LIKE '6.1.1.03.013%' 
-                      AND plan_cuentas NOT LIKE '6.1.1.03.021%' 
-                      AND plan_cuentas NOT LIKE '6.1.1.03.022%'"""
+        dpp_query = """SUM(CASE WHEN plan_cuentas LIKE '6.1.1.03%' AND plan_cuentas NOT LIKE '6.1.1.03.013%' AND plan_cuentas NOT LIKE '6.1.1.03.021%' AND plan_cuentas NOT LIKE '6.1.1.03.022%' THEN haber ELSE 0 END) as DPP_haber,
+                       SUM(CASE WHEN plan_cuentas LIKE '6.1.1.03%' AND plan_cuentas NOT LIKE '6.1.1.03.013%' AND plan_cuentas NOT LIKE '6.1.1.03.021%' AND plan_cuentas NOT LIKE '6.1.1.03.022%' THEN debe ELSE 0 END) as DPP_debe"""
 
     query = f"""
         SELECT 
-            ((SELECT COALESCE(SUM(haber)-SUM(debe),0) FROM `{db}`.asientos_contables WHERE TRIM(plan_cuentas) LIKE '4.1.1.01.001%%' AND DATE(fecha) <= '{f_fin_str}') -
-             (SELECT COALESCE(SUM(haber)-SUM(debe),0) FROM `{db}`.asientos_contables WHERE TRIM(plan_cuentas) LIKE '4.1.1.01.001%%' AND DATE(fecha) < '{f_inicio_str}')) as ingresos_exentas,
-            ((SELECT COALESCE(SUM(haber)-SUM(debe),0) FROM `{db}`.asientos_contables WHERE TRIM(plan_cuentas) LIKE '4.1.1.01.002%%' AND DATE(fecha) <= '{f_fin_str}') -
-             (SELECT COALESCE(SUM(haber)-SUM(debe),0) FROM `{db}`.asientos_contables WHERE TRIM(plan_cuentas) LIKE '4.1.1.01.002%%' AND DATE(fecha) < '{f_inicio_str}')) as ingresos_gravados,
-            ((SELECT COALESCE(SUM(debe)-SUM(haber),0) FROM `{db}`.asientos_contables WHERE TRIM(plan_cuentas) LIKE '5.1.1.01.001%%' AND DATE(fecha) <= '{f_fin_str}') -
-             (SELECT COALESCE(SUM(debe)-SUM(haber),0) FROM `{db}`.asientos_contables WHERE TRIM(plan_cuentas) LIKE '5.1.1.01.001%%' AND DATE(fecha) < '{f_inicio_str}')) as compras_exentas,
-            ((SELECT COALESCE(SUM(debe)-SUM(haber),0) FROM `{db}`.asientos_contables WHERE TRIM(plan_cuentas) LIKE '5.1.1.01.002%%' AND DATE(fecha) <= '{f_fin_str}') -
-             (SELECT COALESCE(SUM(debe)-SUM(haber),0) FROM `{db}`.asientos_contables WHERE TRIM(plan_cuentas) LIKE '5.1.1.01.002%%' AND DATE(fecha) < '{f_inicio_str}')) as compras_16,
-            ((SELECT COALESCE(SUM(haber)-SUM(debe),0) FROM `{db}`.asientos_contables WHERE {dpp_expr} AND DATE(fecha) <= '{f_fin_str}') -
-             (SELECT COALESCE(SUM(haber)-SUM(debe),0) FROM `{db}`.asientos_contables WHERE {dpp_expr} AND DATE(fecha) < '{f_inicio_str}')) as DPP_neto,
-            ((SELECT COALESCE(SUM(debe)-SUM(haber),0) FROM `{db}`.asientos_contables WHERE TRIM(plan_cuentas) LIKE '6.1.1.03.013%%' AND DATE(fecha) <= '{f_fin_str}') -
-             (SELECT COALESCE(SUM(debe)-SUM(haber),0) FROM `{db}`.asientos_contables WHERE TRIM(plan_cuentas) LIKE '6.1.1.03.013%%' AND DATE(fecha) < '{f_inicio_str}')) as comisiones_bancarias_neto,
-            ((SELECT COALESCE(SUM(debe)-SUM(haber),0) FROM `{db}`.asientos_contables WHERE TRIM(plan_cuentas) LIKE '6.1.1.03.021%%' AND DATE(fecha) <= '{f_fin_str}') -
-             (SELECT COALESCE(SUM(debe)-SUM(haber),0) FROM `{db}`.asientos_contables WHERE TRIM(plan_cuentas) LIKE '6.1.1.03.021%%' AND DATE(fecha) < '{f_inicio_str}')) as refrigerios_neto,
-            ((SELECT COALESCE(SUM(debe)-SUM(haber),0) FROM `{db}`.asientos_contables WHERE TRIM(plan_cuentas) LIKE '6.1.1.03.022%%' AND DATE(fecha) <= '{f_fin_str}') -
-             (SELECT COALESCE(SUM(debe)-SUM(haber),0) FROM `{db}`.asientos_contables WHERE TRIM(plan_cuentas) LIKE '6.1.1.03.022%%' AND DATE(fecha) < '{f_inicio_str}')) as representacion_neto,
-            ((SELECT COALESCE(SUM(haber)-SUM(debe),0) FROM `{db}`.asientos_contables WHERE TRIM(plan_cuentas) LIKE '7.1.1.01%%' AND DATE(fecha) <= '{f_fin_str}') -
-             (SELECT COALESCE(SUM(haber)-SUM(debe),0) FROM `{db}`.asientos_contables WHERE TRIM(plan_cuentas) LIKE '7.1.1.01%%' AND DATE(fecha) < '{f_inicio_str}')) as otros_ingresos,
-            ((SELECT COALESCE(SUM(debe)-SUM(haber),0) FROM `{db}`.asientos_contables WHERE TRIM(plan_cuentas) LIKE '8.1.1.01%%' AND DATE(fecha) <= '{f_fin_str}') -
-             (SELECT COALESCE(SUM(debe)-SUM(haber),0) FROM `{db}`.asientos_contables WHERE TRIM(plan_cuentas) LIKE '8.1.1.01%%' AND DATE(fecha) < '{f_inicio_str}')) as otros_egresos,
-            ((SELECT COALESCE(SUM(haber)-SUM(debe),0) FROM `{db}`.asientos_contables WHERE TRIM(plan_cuentas) LIKE '2.1.2.01.001%%' AND DATE(fecha) <= '{f_fin_str}') -
-             (SELECT COALESCE(SUM(haber)-SUM(debe),0) FROM `{db}`.asientos_contables WHERE TRIM(plan_cuentas) LIKE '2.1.2.01.001%%' AND DATE(fecha) < '{f_inicio_str}')) as iva_debito_fiscal,
-            ((SELECT COALESCE(SUM(haber)-SUM(debe),0) FROM `{db}`.asientos_contables WHERE TRIM(plan_cuentas) LIKE '2.1.2.01.002%%' AND DATE(fecha) <= '{f_fin_str}') -
-             (SELECT COALESCE(SUM(haber)-SUM(debe),0) FROM `{db}`.asientos_contables WHERE TRIM(plan_cuentas) LIKE '2.1.2.01.002%%' AND DATE(fecha) < '{f_inicio_str}')) as iva_por_pagar,
-            ((SELECT COALESCE(SUM(haber)-SUM(debe),0) FROM `{db}`.asientos_contables WHERE TRIM(plan_cuentas) LIKE '2.1.2.01.003%%' AND DATE(fecha) <= '{f_fin_str}') -
-             (SELECT COALESCE(SUM(haber)-SUM(debe),0) FROM `{db}`.asientos_contables WHERE TRIM(plan_cuentas) LIKE '2.1.2.01.003%%' AND DATE(fecha) < '{f_inicio_str}')) as retencion_iva_compras,
-            ((SELECT COALESCE(SUM(haber)-SUM(debe),0) FROM `{db}`.asientos_contables WHERE TRIM(plan_cuentas) LIKE '2.1.2.01.004%%' AND DATE(fecha) <= '{f_fin_str}') -
-             (SELECT COALESCE(SUM(haber)-SUM(debe),0) FROM `{db}`.asientos_contables WHERE TRIM(plan_cuentas) LIKE '2.1.2.01.004%%' AND DATE(fecha) < '{f_inicio_str}')) as pagos_anticipados_islr,
-            ((SELECT COALESCE(SUM(haber)-SUM(debe),0) FROM `{db}`.asientos_contables WHERE TRIM(plan_cuentas) LIKE '2.1.2.01.005%%' AND DATE(fecha) <= '{f_fin_str}') -
-             (SELECT COALESCE(SUM(haber)-SUM(debe),0) FROM `{db}`.asientos_contables WHERE TRIM(plan_cuentas) LIKE '2.1.2.01.005%%' AND DATE(fecha) < '{f_inicio_str}')) as retencion_islr_proveedores,
-            ((SELECT COALESCE(SUM(haber)-SUM(debe),0) FROM `{db}`.asientos_contables WHERE TRIM(plan_cuentas) LIKE '2.1.2.01.006%%' AND DATE(fecha) <= '{f_fin_str}') -
-             (SELECT COALESCE(SUM(haber)-SUM(debe),0) FROM `{db}`.asientos_contables WHERE TRIM(plan_cuentas) LIKE '2.1.2.01.006%%' AND DATE(fecha) < '{f_inicio_str}')) as islr_pagar
+            COUNT(*) as total_registros_rango,
+            SUM(CASE WHEN plan_cuentas LIKE '4.1.1.01.001%%' THEN haber ELSE 0 END) as ex_haber,
+            SUM(CASE WHEN plan_cuentas LIKE '4.1.1.01.001%%' THEN debe ELSE 0 END) as ex_debe,
+            SUM(CASE WHEN plan_cuentas LIKE '4.1.1.01.002%%' THEN haber ELSE 0 END) as gr_haber,
+            SUM(CASE WHEN plan_cuentas LIKE '4.1.1.01.002%%' THEN debe ELSE 0 END) as gr_debe,
+            SUM(CASE WHEN plan_cuentas LIKE '5.1.1.01.001%%' THEN debe ELSE 0 END) as compras_exentas,
+            SUM(CASE WHEN plan_cuentas LIKE '5.1.1.01.002%%' THEN debe ELSE 0 END) as compras_16,
+            {dpp_query},
+            SUM(CASE WHEN plan_cuentas LIKE '6.1.1.03.013%%' THEN haber ELSE 0 END) as comisiones_bancarias_haber,
+            SUM(CASE WHEN plan_cuentas LIKE '6.1.1.03.013%%' THEN debe ELSE 0 END) as comisiones_bancarias_debe,
+            SUM(CASE WHEN plan_cuentas LIKE '6.1.1.03.021%%' THEN haber ELSE 0 END) as refrigerios_haber,
+            SUM(CASE WHEN plan_cuentas LIKE '6.1.1.03.021%%' THEN debe ELSE 0 END) as refrigerios_debe,
+            SUM(CASE WHEN plan_cuentas LIKE '6.1.1.03.022%%' THEN haber ELSE 0 END) as representacion_haber,
+            SUM(CASE WHEN plan_cuentas LIKE '6.1.1.03.022%%' THEN debe ELSE 0 END) as representacion_debe,
+            SUM(CASE WHEN plan_cuentas LIKE '7.1.1.01%%' THEN haber ELSE 0 END) as otros_ingresos_haber,
+            SUM(CASE WHEN plan_cuentas LIKE '7.1.1.07%%' THEN debe ELSE 0 END) as otros_ingresos_debe,
+            SUM(CASE WHEN plan_cuentas LIKE '8.1.1.01%%' THEN haber ELSE 0 END) as otros_egresos_haber,
+            SUM(CASE WHEN plan_cuentas LIKE '8.1.1.01%%' THEN debe ELSE 0 END) as otros_egresos_debe,
+            SUM(CASE WHEN plan_cuentas LIKE '2.1.2.01.001%%' THEN haber ELSE 0 END) as iva_debito_fiscal,
+            SUM(CASE WHEN plan_cuentas LIKE '2.1.2.01.002%%' THEN haber ELSE 0 END) as iva_por_pagar,
+            SUM(CASE WHEN plan_cuentas LIKE '2.1.2.01.003%%' THEN haber ELSE 0 END) as retencion_iva_compras,
+            SUM(CASE WHEN plan_cuentas LIKE '2.1.2.01.004%%' THEN haber ELSE 0 END) as pagos_anticipados_islr,
+            SUM(CASE WHEN plan_cuentas LIKE '2.1.2.01.005%%' THEN haber ELSE 0 END) as retencion_islr_hab,
+            SUM(CASE WHEN plan_cuentas LIKE '2.1.2.01.005%%' THEN debe ELSE 0 END) as retencion_islr_deb,
+            SUM(CASE WHEN plan_cuentas LIKE '2.1.2.01.006%%' THEN haber ELSE 0 END) as islr_pagar
+        FROM `{db}`.asientos_contables
+        WHERE fecha >= %s AND fecha <= %s
     """
-
-    st.code(query, language="sql") # Ver la query exacta
 
     try:
         cursor = conn.cursor(dictionary=True)
-        cursor.execute(query)
+        cursor.execute(query, (f_inicio_str, fecha_str))
         res = cursor.fetchone()
         cursor.close()
         conn.close()
         
-        if res:
-            st.write("Resultado obtenido de la base de datos:", res)
-            gastos_personales = abs(float(res['refrigerios_neto'] or 0)) + abs(float(res['representacion_neto'] or 0))
-            
+        if res and res.get('total_registros_rango', 0) > 0:
             return {
-                "ingresos_exentas": float(res['ingresos_exentas'] or 0),
-                "ingresos_gravados": float(res['ingresos_gravados'] or 0),
+                "ingresos_exentas": float(res['ex_haber'] or 0) - float(res['ex_debe'] or 0),
+                "ingresos_gravados": float(res['gr_haber'] or 0) - float(res['gr_debe'] or 0),
                 "compras_exentas": float(res['compras_exentas'] or 0),
                 "compras_16": float(res['compras_16'] or 0),
-                "DPP1": abs(float(res['DPP_neto'] or 0)), 
-                "comisiones_bancarias1": abs(float(res['comisiones_bancarias_neto'] or 0)), 
-                "gastos_personales1": gastos_personales,
-                "otros_ingresos": float(res['otros_ingresos'] or 0), 
-                "otros_egresos": float(res['otros_egresos'] or 0),
+                "DPP1": abs(float(res['DPP_haber'] or 0) - float(res['DPP_debe'] or 0)), 
+                "comisiones_bancarias1": abs(float(res['comisiones_bancarias_haber'] or 0) - float(res['comisiones_bancarias_debe'] or 0)), 
+                "gastos_personales1": abs(float(res['refrigerios_haber'] or 0) - float(res['refrigerios_debe'] or 0)) + abs(float(res['representacion_haber'] or 0) - float(res['representacion_debe'] or 0)),
+                "otros_ingresos": float(res['otros_ingresos_haber'] or 0) - float(res['otros_ingresos_debe'] or 0), 
+                "otros_egresos": float(res['otros_egresos_haber'] or 0) - float(res['otros_egresos_debe'] or 0),
                 "iva_debito_fiscal": float(res['iva_debito_fiscal'] or 0),
                 "iva_por_pagar": float(res['iva_por_pagar'] or 0),
                 "retencion_iva_compras": float(res['retencion_iva_compras'] or 0),
                 "pagos_anticipados_islr": float(res['pagos_anticipados_islr'] or 0),
-                "retencion_islr_proveedores": float(res['retencion_islr_proveedores'] or 0),
+                "retencion_islr_proveedores": float(res['retencion_islr_hab'] or 0) - float(res['retencion_islr_deb'] or 0),
                 "islr_pagar": float(res['islr_pagar'] or 0)
             }
             
