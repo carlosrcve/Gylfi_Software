@@ -593,7 +593,7 @@ def obtener_salud_fiscal(f_inicio, f_fin, db):
     else:
         fecha_str = str(f_fin).split()[0] + " 23:59:59"
 
-    if db == 'kingdirver_ca':
+    if db == 'kingdriver_ca':
         dpp_query = """
             SUM(CASE WHEN plan_cuentas LIKE '6.1.1.03.020%' THEN haber ELSE 0 END) as DPP_haber,
             SUM(CASE WHEN plan_cuentas LIKE '6.1.1.03.020%' THEN debe ELSE 0 END) as DPP_debe
@@ -632,20 +632,13 @@ def obtener_salud_fiscal(f_inicio, f_fin, db):
             SUM(CASE WHEN plan_cuentas LIKE '7.1.1.07%' THEN debe ELSE 0 END) as otros_ingresos_debe,
             SUM(CASE WHEN plan_cuentas LIKE '8.1.1.01%' THEN haber ELSE 0 END) as otros_egresos_haber,
             SUM(CASE WHEN plan_cuentas LIKE '8.1.1.01%' THEN debe ELSE 0 END) as otros_egresos_debe,
-            
-            -- Variación neta del periodo (Haber - Debe del rango)
-            SUM(CASE WHEN plan_cuentas LIKE '2.1.2.01.001%' THEN haber ELSE 0 END) as iva_deb_haber,
-            SUM(CASE WHEN plan_cuentas LIKE '2.1.2.01.001%' THEN debe ELSE 0 END) as iva_deb_debe,
-            SUM(CASE WHEN plan_cuentas LIKE '2.1.2.01.002%' THEN haber ELSE 0 END) as iva_pag_haber,
-            SUM(CASE WHEN plan_cuentas LIKE '2.1.2.01.002%' THEN debe ELSE 0 END) as iva_pag_debe,
-            SUM(CASE WHEN plan_cuentas LIKE '2.1.2.01.003%' THEN haber ELSE 0 END) as ret_iva_haber,
-            SUM(CASE WHEN plan_cuentas LIKE '2.1.2.01.003%' THEN debe ELSE 0 END) as ret_iva_debe,
-            SUM(CASE WHEN plan_cuentas LIKE '2.1.2.01.004%' THEN haber ELSE 0 END) as pag_ant_islr_haber,
-            SUM(CASE WHEN plan_cuentas LIKE '2.1.2.01.004%' THEN debe ELSE 0 END) as pag_ant_islr_debe,
-            SUM(CASE WHEN plan_cuentas LIKE '2.1.2.01.005%' THEN haber ELSE 0 END) as ret_islr_haber,
-            SUM(CASE WHEN plan_cuentas LIKE '2.1.2.01.005%' THEN debe ELSE 0 END) as ret_islr_debe,
-            SUM(CASE WHEN plan_cuentas LIKE '2.1.2.01.006%' THEN haber ELSE 0 END) as islr_pag_haber,
-            SUM(CASE WHEN plan_cuentas LIKE '2.1.2.01.006%' THEN debe ELSE 0 END) as islr_pag_debe
+            SUM(CASE WHEN plan_cuentas LIKE '2.1.2.01.001%' THEN haber ELSE 0 END) as iva_debito_fiscal,
+            SUM(CASE WHEN plan_cuentas LIKE '2.1.2.01.002%' THEN haber ELSE 0 END) as iva_por_pagar,
+            SUM(CASE WHEN plan_cuentas LIKE '2.1.2.01.003%' THEN haber ELSE 0 END) as retencion_iva_compras,
+            SUM(CASE WHEN plan_cuentas LIKE '2.1.2.01.004%' THEN haber ELSE 0 END) as pagos_anticipados_islr,
+            SUM(CASE WHEN plan_cuentas LIKE '2.1.2.01.005%' THEN haber ELSE 0 END) as retencion_islr_hab,
+            SUM(CASE WHEN plan_cuentas LIKE '2.1.2.01.005%' THEN debe ELSE 0 END) as retencion_islr_deb,
+            SUM(CASE WHEN plan_cuentas LIKE '2.1.2.01.006%' THEN haber ELSE 0 END) as islr_pagar
         FROM `{db}`.asientos_contables 
         WHERE STR_TO_DATE(LEFT(fecha, 10), '%Y-%m-%d') >= STR_TO_DATE(LEFT(%s, 10), '%Y-%m-%d') 
           AND STR_TO_DATE(LEFT(fecha, 10), '%Y-%m-%d') <= STR_TO_DATE(LEFT(%s, 10), '%Y-%m-%d')
@@ -666,17 +659,10 @@ def obtener_salud_fiscal(f_inicio, f_fin, db):
             gastos_personales = refrigerios_neto + representacion_neto
             otros_ingresos_neto = float(res['otros_ingresos_haber'] or 0) - float(res['otros_ingresos_debe'] or 0)
             otros_egresos_neto = float(res['otros_egresos_haber'] or 0) - float(res['otros_egresos_debe'] or 0)
-            retencion_islr_proveedores = float(res['ret_islr_haber'] or 0) - float(res['ret_islr_debe'] or 0)
-            
-            # Cálculo de movimiento neto estricto del periodo (Evita arrastres de saldos anteriores)
-            iva_debito_fiscal = float(res['iva_deb_haber'] or 0) - float(res['iva_deb_debe'] or 0)
-            iva_por_pagar = float(res['iva_pag_haber'] or 0) - float(res['iva_pag_debe'] or 0)
-            retencion_iva_compras = float(res['ret_iva_haber'] or 0) - float(res['ret_iva_debe'] or 0)
-            pagos_anticipados_islr = float(res['pag_ant_islr_haber'] or 0) - float(res['pag_ant_islr_debe'] or 0)
-            islr_pagar = float(res['islr_pag_haber'] or 0) - float(res['islr_pag_debe'] or 0)
+            retencion_islr_proveedores = float(res['retencion_islr_hab'] or 0) - float(res['retencion_islr_deb'] or 0)
             
             return {
-                "ingresos_exentas": float(res['ex_haber'] or 0) - float(res['ex_debe'] or 0),
+                "ingresos_exentas": float(res['ex_haber'] if res['ex_haber'] is not None else 0) - float(res['ex_debe'] if res['ex_debe'] is not None else 0),
                 "ingresos_gravados": float(res['gr_haber'] or 0) - float(res['gr_debe'] or 0),
                 "compras_exentas": float(res['compras_exentas'] or 0),
                 "compras_16": float(res['compras_16'] or 0),
@@ -685,12 +671,12 @@ def obtener_salud_fiscal(f_inicio, f_fin, db):
                 "gastos_personales1": gastos_personales,
                 "otros_ingresos": otros_ingresos_neto, 
                 "otros_egresos": otros_egresos_neto,
-                "iva_debito_fiscal": iva_debito_fiscal,
-                "iva_por_pagar": iva_por_pagar,
-                "retencion_iva_compras": retencion_iva_compras,
-                "pagos_anticipados_islr": pagos_anticipados_islr,
+                "iva_debito_fiscal": float(res['iva_debito_fiscal'] or 0),
+                "iva_por_pagar": float(res['iva_por_pagar'] or 0),
+                "retencion_iva_compras": float(res['retencion_iva_compras'] or 0),
+                "pagos_anticipados_islr": float(res['pagos_anticipados_islr'] or 0),
                 "retencion_islr_proveedores": retencion_islr_proveedores,
-                "islr_pagar": islr_pagar
+                "islr_pagar": float(res['islr_pagar'] or 0)
             }
             
     except Exception as e:
