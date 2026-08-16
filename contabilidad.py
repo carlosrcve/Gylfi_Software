@@ -569,6 +569,7 @@ def obtener_saldos_acumulados(conexion, fecha_corte, nombre_db):
 
 
 @st.cache_data(ttl=300)
+@st.cache_data(ttl=300)
 def obtener_salud_fiscal(f_inicio, f_fin, db):
     conn = conectar_db(db)
     
@@ -633,7 +634,7 @@ def obtener_salud_fiscal(f_inicio, f_fin, db):
             SUM(CASE WHEN plan_cuentas LIKE '8.1.1.01%' THEN haber ELSE 0 END) as otros_egresos_haber,
             SUM(CASE WHEN plan_cuentas LIKE '8.1.1.01%' THEN debe ELSE 0 END) as otros_egresos_debe,
             
-            -- Movimientos separados para calcular el flujo neto estricto del mes
+            -- Movimientos separados para garantizar el flujo neto del periodo actual
             SUM(CASE WHEN plan_cuentas LIKE '2.1.2.01.001%' THEN haber ELSE 0 END) as iva_deb_haber,
             SUM(CASE WHEN plan_cuentas LIKE '2.1.2.01.001%' THEN debe ELSE 0 END) as iva_deb_debe,
             SUM(CASE WHEN plan_cuentas LIKE '2.1.2.01.002%' THEN haber ELSE 0 END) as iva_pag_haber,
@@ -667,7 +668,7 @@ def obtener_salud_fiscal(f_inicio, f_fin, db):
             otros_egresos_neto = float(res['otros_egresos_haber'] or 0) - float(res['otros_egresos_debe'] or 0)
             retencion_islr_proveedores = float(res['ret_islr_haber'] or 0) - float(res['ret_islr_debe'] or 0)
             
-            # Cálculo de los movimientos mensuales netos para cuentas de pasivo/tributos
+            # Flujo neto estricto del periodo para cuentas de pasivo y tributos
             iva_debito_fiscal = float(res['iva_deb_haber'] or 0) - float(res['iva_deb_debe'] or 0)
             iva_por_pagar = float(res['iva_pag_haber'] or 0) - float(res['iva_pag_debe'] or 0)
             retencion_iva_compras = float(res['ret_iva_haber'] or 0) - float(res['ret_iva_debe'] or 0)
