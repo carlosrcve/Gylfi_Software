@@ -2806,8 +2806,6 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
         "🗒️ Archivo TXT SENIAT"
     ])
 
-
-
     # --- 2. VALIDACIÓN DE CONEXIÓN Y CARGA ---
     with tab1:
         st.write("Cargando Generar Nueva...")
@@ -2832,17 +2830,19 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
 
         # --- 3. LÓGICA DE PROCESAMIENTO ---es
         # --- 3. LÓGICA DE PROCESAMIENTO ---
+        # --- 3. LÓGICA DE PROCESAMIENTO ---
         df_facturas = obtener_facturas_pendientes(conn)
 
-        if not df_facturas.empty:
+        if df_facturas is not None and not df_facturas.empty:
+            # LIMPIEZA CRÍTICA: Forzamos la columna a texto plano o float homogéneo para evitar el choque con PyArrow
             if "Sustraendo Bs." in df_facturas.columns:
-                df_facturas["Sustraendo Bs."] = pd.to_numeric(df_facturas["Sustraendo Bs."], errors="coerce").fillna(0.0)
+                df_facturas["Sustraendo Bs."] = df_facturas["Sustraendo Bs."].astype(str).str.replace('nan', '0.0').str.replace('None', '0.0')
 
-            # Asegurar columna de selección en el session_state o dataframe inicial
+            # 2. Agregamos una columna de checkbox para seleccionar
             if 'Seleccionar' not in df_facturas.columns:
                 df_facturas.insert(0, "Seleccionar", False)
 
-            # Mostrar el editor de datos interactivo
+            # 3. Muestra el editor de datos interactivo
             df_editado = st.data_editor(
                 df_facturas,
                 column_config={"Seleccionar": st.column_config.CheckboxColumn(required=True)},
@@ -2857,11 +2857,13 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
             # Filtrar estrictamente las marcadas por el usuario en tiempo real
             seleccion = df_editado[df_editado["Seleccionar"] == True]
             
-            # Guardamos la selección actual en session_state de forma inmediata
             if not seleccion.empty:
                 st.session_state['facturas_seleccionadas'] = seleccion.copy()
             else:
                 st.session_state['facturas_seleccionadas'] = None
+        else:
+            st.info("ℹ️ No hay facturas pendientes por retención de IVA en el rango seleccionado.")
+            st.session_state['facturas_seleccionadas'] = None
 
         # Recuperar siempre desde session_state de manera sincronizada
         facturas_seleccionadas = st.session_state.get('facturas_seleccionadas')
@@ -2944,46 +2946,43 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
 
                     enivado = st.form_submit_button("💾 Guardar y Generar Documentos")
 
-
-                if enviado:
+                if 'enivado' in locals() and enivado:
                     # 1. Recuperación y validación inicial
-                    empresa_data = st.session_state.get('id_empresa_seleccionada') or st.session_state.get('id_empresa_actual')
+                    empresa_data_val = st.session_state.get('id_empresa_seleccionada') or st.session_state.get('id_empresa_actual')
                     db_nombre = st.session_state.get('DB_ACTUAL')
                     
-                    if not empresa_data or not db_nombre:
+                    if not empresa_data_val or not db_nombre:
                         st.error("❌ Faltan datos de empresa o base de datos.")
                         st.stop()
 
-                    conn = conectar_db(db_nombre)
-                    if not conn or not conn.is_connected():
+                    conn_proc = conectar_db(db_nombre)
+                    if not conn_proc or not conn_proc.is_connected():
                         st.warning("⚠️ Reconectando...")
-                        conn = conectar_db(db_nombre)
+                        conn_proc = conectar_db(db_nombre)
 
                     # 2. Extracción de datos empresa
-                    id_final = empresa_data.get('id') if isinstance(empresa_data, dict) else empresa_data
-                    empresa_nombre = empresa_data.get('nombre_empresa') or empresa_data.get('razon_social') or "EMPRESA"
-                    empresa_rif = empresa_data.get('rif') or "000000000"
-                    domicilio_fiscal = empresa_data.get('domicilio_fiscal') or empresa_data.get('direccion') or "DIRECCIÓN NO REGISTRADA"
+                    id_final = empresa_data_val.get('id') if isinstance(empresa_data_val, dict) else empresa_data_val
+                    empresa_nombre = empresa_data_val.get('nombre_empresa') or empresa_data_val.get('razon_social') or "EMPRESA"
+                    empresa_rif = empresa_data_val.get('rif') or "000000000"
+                    domicilio_fiscal = empresa_data_val.get('domicilio_fiscal') or empresa_data_val.get('direccion') or "DIRECCIÓN NO REGISTRADA"
 
                     try:
-                        cursor = conn.cursor()
+                        cursor = conn_proc.cursor()
                         
                         # 3. Iteración sobre las facturas seleccionadas
                         for _, fila in facturas_seleccionadas.iterrows():
-                            # Cálculos
                             base = float(fila.get('base_imponible', 0) or 0)
                             impuesto = float(fila.get('iva_monto', 0) or 0)
                             ratio = round(impuesto / base, 2) if base > 0 else 0
                             es_8 = ratio <= 0.08
-                            iva_retenido = (impuesto * porcentaje_ret) / 100
+                            iva_retenido_fila = (impuesto * porcentaje_ret) / 100
                             
-                            b16, i16, r16 = (base, impuesto, iva_retenido) if not es_8 else (0.0, 0.0, 0.0)
-                            b8, i8, r8 = (base, impuesto, iva_retenido) if es_8 else (0.0, 0.0, 0.0)
+                            b16, i16, r16 = (base, impuesto, iva_retenido_fila) if not es_8 else (0.0, 0.0, 0.0)
+                            b8, i8, r8 = (base, impuesto, iva_retenido_fila) if es_8 else (0.0, 0.0, 0.0)
                             
                             fecha_corta = str(fila['fecha_operacion']).split(" ")[0]
                             ano_f, mes_f = fecha_corta.split("-")[0], fecha_corta.split("-")[1]
 
-                            # Inserción en retenciones_iva
                             query_ins = """
                                 INSERT INTO retenciones_iva (
                                     Razon_Social_del_Agente_de_Retencion, RIF_Agente_Retencion, id_empresa, 
@@ -2998,28 +2997,28 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                                 empresa_nombre, empresa_rif, id_final, domicilio_fiscal,
                                 fecha_corta, fecha_corta, razon_social_ret, rif_ret, ano_f, mes_f,
                                 nro_comp, fecha_corta, str(fila['n_factura']), str(fila['n_control']),
-                                round(float(fila.get('total_compras', 0)), 2), # Asegúrate que tu DataFrame tenga esta columna
+                                round(float(fila.get('total_compras', 0)), 2),
                                 round(float(fila.get('importe_exento', 0)), 2),
-                                round(b16, 2), round(i16, 2), round(iva_retenido, 2),
+                                round(b16, 2), round(i16, 2), round(iva_retenido_fila, 2),
                                 round(b8, 2), round(i8, 2), round(r8, 2),
                                 "16%", "75%", None
                             )
                             cursor.execute(query_ins, params)
                             cursor.execute("UPDATE libro_compras SET retencion_iva_realizada = 1 WHERE id = %s", (int(fila['id']),))
 
-                        # Confirmación final
-                        conn.commit()
+                        conn_proc.commit()
                         st.session_state['last_iva'] = {'nro_comp': nro_comp}
                         st.session_state['mostrar_exito'] = True
                         st.rerun()
 
                     except Exception as e:
-                        if conn: conn.rollback()
+                        if conn_proc: conn_proc.rollback()
                         st.error(f"❌ Error al procesar: {e}")
                     finally:
-                        if cursor: cursor.close()
-                        if conn: conn.close()
-
+                        if 'cursor' in locals() and cursor: cursor.close()
+                        if conn_proc: conn_proc.close()
+        else:
+            st.warning("⚠️ Por favor, selecciona al menos una factura en la tabla superior para generar el comprobante.")
                 
         with tab2:
             st.write("Cargando PDF...")
