@@ -2830,11 +2830,14 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
         f_hasta = col_b2.date_input("Hasta", f_fin_global, key="ret_iva_hasta")
 
         # --- 3. LÓGICA DE PROCESAMIENTO ---
-        # En lugar de hacer una carga directa de toda la tabla, haces esto:
-        # 1. Obtenemos las pendientes
         df_facturas = obtener_facturas_pendientes(conn)
 
         if not df_facturas.empty:
+            # --- LIMPIEZA CRÍTICA PARA EVITAR EL ERROR DE ARROW ---
+            if "Sustraendo Bs." in df_facturas.columns:
+                df_facturas["Sustraendo Bs."] = df_facturas["Sustraendo Bs."].astype(str).str.replace('nan', '0.0').str.replace('None', '0.0')
+            # -----------------------------------------------------
+
             # 2. Agregamos una columna de checkbox para seleccionar
             if 'Seleccionar' not in df_facturas.columns:
                 df_facturas.insert(0, "Seleccionar", False)
