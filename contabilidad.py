@@ -2643,9 +2643,16 @@ def generar_comprobante_pdf(datos, conn):
     pdf.cell(110, 5, "Firma y Sello del Proveedor", 0, 1, 'C')
 
     try:
-        return pdf.output(dest='S').encode('latin-1', errors='ignore')
+        # Generación segura del PDF en bytes
+        pdf_output = pdf.output()
+        if isinstance(pdf_output, str):
+            return pdf_output.encode('latin-1', errors='ignore')
+        elif isinstance(pdf_output, bytearray):
+            return bytes(pdf_output)
+        return pdf_output
+    
     finally:
-        # Validación segura para reconexión de base de datos si aplica
+        # Aseguramos el cierre o verificación si el objeto de conexión lo soporta
         try:
             if conn and hasattr(conn, 'is_connected') and conn.is_connected():
                 conn.ping(reconnect=True)
