@@ -2808,6 +2808,7 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
 
     # --- 2. VALIDACIÓN DE CONEXIÓN Y CARGA ---
     with tab1:
+        # --- 2. VALIDACIÓN DE CONEXIÓN Y CARGA ---
         st.write("Cargando Generar Nueva...")
         st.subheader("📝 Generar Nueva Retención")
         db_actual = st.session_state.get("DB_ACTUAL")
@@ -2828,8 +2829,6 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
         f_desde = col_b1.date_input("Desde", f_inicio_global, key="ret_iva_desde")
         f_hasta = col_b2.date_input("Hasta", f_fin_global, key="ret_iva_hasta")
 
-        # --- 3. LÓGICA DE PROCESAMIENTO ---es
-        # --- 3. LÓGICA DE PROCESAMIENTO ---
         # --- 3. LÓGICA DE PROCESAMIENTO ---
         df_facturas = obtener_facturas_pendientes(conn)
 
@@ -2865,7 +2864,6 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
             st.info("ℹ️ No hay facturas pendientes por retención de IVA en el rango seleccionado.")
             st.session_state['facturas_seleccionadas'] = None
 
-        # Recuperar siempre desde session_state de manera sincronizada
         # Recuperar siempre desde session_state de manera sincronizada
         facturas_seleccionadas = st.session_state.get('facturas_seleccionadas')
 
