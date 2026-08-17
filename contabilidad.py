@@ -2874,7 +2874,6 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
 
             st.write("### 📝 Datos del Comprobante (Grupo)")
 
-            
             # Caso Éxito
             if st.session_state.get('mostrar_exito'):
                 st.success(f"### ✅ Comprobante `{st.session_state.get('last_iva', {}).get('nro_comp')}` generado.")
@@ -2935,8 +2934,6 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                     iva_retenido = (float(iva_i) * porcentaje_ret) / 100
                     c11.metric("IVA a Retener Total", f"Bs. {iva_retenido:,.2f}")
 
-                    # Justo antes de la llamada a la función:
-
                     # 1. Obtenemos los datos de la empresa basada en la base de datos actual
                     db_actual = st.session_state.get('DB_ACTUAL')
                     empresa_data = obtener_datos_agente_db(db_actual)
@@ -2944,8 +2941,7 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                     if not empresa_data:
                         st.error("⚠️ No se pudieron cargar los datos de la empresa.")
                     else:
-                        # 2. AQUÍ VA EL SELECTBOX QUE ME PREGUNTAS
-                        # Al pasarle [empresa_data] como lista, el selectbox solo tendrá una opción
+                        # 2. SELECTBOX DE EMPRESA
                         empresa_seleccionada = st.selectbox(
                             "Empresa", 
                             options=[empresa_data], 
@@ -2955,8 +2951,8 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                         # Guardamos la empresa seleccionada en sesión
                         st.session_state['id_empresa_seleccionada'] = empresa_seleccionada
 
-                    # 3. EL BOTÓN VA AQUÍ (Asegúrate de que no haya st.stop() antes de esta línea)
-                    enviado = st.form_submit_button("💾 Guardar y Generar Documentos")
+                    # 3. EL BOTÓN VA AQUÍ
+                    enivado = st.form_submit_button("💾 Guardar y Generar Documentos")
 
 
                 if enviado:
@@ -9575,19 +9571,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                         valor_dir = dir_bd if proveedor_encontrado else "Escriba la dirección aquí..."
                         valor_rif = f_data.get('rif_retenido', '')
 
-                        # 2. SELECCIÓN DEL DIRECTORIO (Si aplica)
-                        if "df_prov_fiscal" in st.session_state and not st.session_state.df_prov_fiscal.empty:
-                            df_dir = st.session_state.df_prov_fiscal
-                            lista_nombres = ["-- Seleccione un proveedor --"] + df_dir['razon_social'].dropna().tolist()
-                            
-                            prov_seleccionado = st.selectbox("Seleccionar proveedor del Directorio General", lista_nombres, key=f"sel_dir_{id_actual}")
-                            
-                            if prov_seleccionado != "-- Seleccione un proveedor --":
-                                row_p = df_dir[df_dir['razon_social'] == prov_seleccionado].iloc[0]
-                                valor_razon = str(row_p.get('razon_social', valor_razon))
-                                valor_dir = str(row_p.get('direccion_fiscal', valor_dir))
-                                valor_rif = str(row_p.get('rif', valor_rif))
-                                st.success(f"✅ Proveedor vinculado: RIF {valor_rif}")
+                   
                         else:
                             st.info("💡 Consejo: Haga clic en '🏢 Cargar Directorio de Proveedores' para autocompletar.")
 
