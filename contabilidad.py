@@ -2514,8 +2514,11 @@ def generar_comprobante_pdf(datos, conn):
     limpieza de etiquetas, RIF con guiones, número de comprobante legal 
     y centrado de celdas.
     """
-
-    registrar_log_automatico(conn, "GENERACION_PDF_RETENCION", f"Usuario {st.session_state.usuario} generó PDF de retención para {st.session_state.cliente_id}")
+    # Se obtienen de forma segura las variables de sesión para evitar NameError
+    usuario_actual = st.session_state.get('usuario', 'Sistema')
+    cliente_actual = st.session_state.get('cliente_id', 'General')
+    
+    registrar_log_automatico(conn, "GENERACION_PDF_RETENCION", f"Usuario {usuario_actual} generó PDF de retención para {cliente_actual}")
 
     pdf = FPDF(orientation='P', unit='mm', format='A4')
     pdf.add_page()
@@ -2539,16 +2542,12 @@ def generar_comprobante_pdf(datos, conn):
     
     # --- 1. ENCABEZADO CORPORATIVO ---
     pdf.set_font("helvetica", "B", 10)
-    # Nombre de la empresa a la izquierda
     pdf.cell(100, 5, datos['agente']['nombre'].upper(), 0, 0, 'L')
     
-    # NÚMERO DE COMPROBANTE LEGAL (Derecha, resaltado)
     pdf.set_font("helvetica", "B", 11) 
     num_comprobante = datos.get('n_comprobante', "SIN NÚMERO")
-    #p.drawRightString(width - 50, height - 50, f"COMPROBANTE N°: {num_comprobante}")
     pdf.cell(90, 5, f"COMPROBANTE N°: {num_comprobante}", 0, 1, 'R') 
     
-    # Subtítulo y Fecha de Emisión
     pdf.set_font("helvetica", "", 8)
     pdf.cell(100, 4, "Comprobante de Retención del Impuesto Sobre la Renta ISLR", 0, 0, 'L')
     fecha_emision = datos.get('fecha_emision', datetime.now().strftime('%d/%m/%Y'))
@@ -2645,13 +2644,13 @@ def generar_comprobante_pdf(datos, conn):
 
     try:
         return pdf.output(dest='S').encode('latin-1', errors='ignore')
-    
     finally:
-        # Aseguramos el ping a la conexión para mantener la sesión activa
-        # tras completar la generación del archivo.
-        if conn and conn.is_connected():
-            conn.ping(reconnect=True)
-
+        # Validación segura para reconexión de base de datos si aplica
+        try:
+            if conn and hasattr(conn, 'is_connected') and conn.is_connected():
+                conn.ping(reconnect=True)
+        except Exception:
+            pass
 
 def comprobar_existencia_comprobante(n_comprobante):
     """Verifica si el número de comprobante ya existe en la DB"""
