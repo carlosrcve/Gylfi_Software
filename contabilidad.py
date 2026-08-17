@@ -9549,7 +9549,6 @@ elif opcion_menu == "📚 Libros Fiscales":
                     f_data = st.session_state.df_retencion.iloc[sel_f.selection.rows[0]]
                     
                     # El key dinámico fuerza al formulario a refrescarse al cambiar de factura
-                    # El key dinámico fuerza al formulario a refrescarse al cambiar de factura
                     with st.form(key=f"form_final_islr_{f_data['id']}"): 
 
                         st.markdown("#### 🛠️ Datos del Comprobante")
@@ -9560,11 +9559,8 @@ elif opcion_menu == "📚 Libros Fiscales":
                         val_sugerido = f_data['fecha_operacion'].strftime("%Y%m") + str(id_seguro).zfill(8)
                         n_comprob_manual = c2.text_input("N° Comprobante (Manual)", value=val_sugerido)
                         
-                        # --- LÓGICA DE DIRECCIÓN Y DIRECTORIO MEJORADA ---
-                        dir_bd = f_data.get('proveedor_direccion', '') 
-                        dir_bd = str(dir_bd) if dir_bd is not None else ""
-
-                        # Verificamos si el proveedor vino con datos reales o por defecto de la BD
+                        # --- LÓGICA DE DIRECCIÓN Y DIRECTORIO ---
+                        dir_bd = str(f_data.get('proveedor_direccion') or "")
                         proveedor_encontrado = (
                             dir_bd.strip() != "" 
                             and dir_bd.upper() != "NONE" 
@@ -9572,44 +9568,39 @@ elif opcion_menu == "📚 Libros Fiscales":
                             and f_data.get('proveedor_nombre', '').upper() != "PROVEEDOR NO ENCONTRADO"
                         )
 
-                        # Declaración única de los campos con keys dinámicos seguros
                         id_actual = f_data.get('id', 'gen')
-                        razon_r = st.text_input("Razón Social", value=f_data['proveedor_nombre'], key=f"razon_{id_actual}")
-                        
-                        if proveedor_encontrado:
-                            dir_r = st.text_input("Dirección", value=dir_bd, key=f"dir_{id_actual}")
-                        else:
-                            dir_r = st.text_input("Dirección", value="", key=f"dir_{id_actual}")
-                            
-                            # Intentamos usar el directorio cargado previamente en session_state
-                            if "df_prov_fiscal" in st.session_state and not st.session_state.df_prov_fiscal.empty:
-                                df_dir = st.session_state.df_prov_fiscal
-                                lista_nombres = df_dir['razon_social'].dropna().tolist()
-                                
-                                prov_seleccionado = st.selectbox(
-                                    "Seleccionar proveedor del Directorio General", 
-                                    ["-- Seleccione un proveedor --"] + lista_nombres, 
-                                    key=f"sel_dir_{f_data.get('id', 'gen')}"
-                                )
-                                
-                                if prov_seleccionado != "-- Seleccione un proveedor --":
-                                    row_p = df_dir[df_dir['razon_social'] == prov_seleccionado].iloc[0]
-                                    rif_r = str(row_p.get('rif', rif_r))
-                                    razon_r = st.text_input("Razón Social", value=str(row_p.get('razon_social', '')), key=f"razon_sel_{f_data.get('id', 'gen')}")
-                                    dir_r = st.text_input("Dirección", value=str(row_p.get('direccion_fiscal', '')), key=f"dir_sel_{f_data.get('id', 'gen')}")
-                                    st.success(f"✅ Proveedor vinculado: RIF {rif_r}")
-                                else:
-                                    razon_r = st.text_input("Razón Social", value=f_data.get('proveedor_nombre', ''), key=f"razon_manual_{f_data.get('id', 'gen')}")
-                                    dir_r = st.text_input("Dirección", value="Escriba la dirección aquí...", key=f"dir_manual_{f_data.get('id', 'gen')}")
-                            else:
-                                st.info("💡 Consejo: Haga clic primero en **'🏢 Cargar Directorio de Proveedores'** arriba.")
-                                razon_r = st.text_input("Razón Social", value=f_data.get('proveedor_nombre', ''), key=f"razon_manual_2_{f_data.get('id', 'gen')}")
-                                dir_r = st.text_input("Dirección", value="Escriba la dirección aquí...", key=f"dir_manual_2_{f_data.get('id', 'gen')}")
 
+                        # 1. VALORES POR DEFECTO O DEL DIRECTORIO
+                        valor_razon = f_data.get('proveedor_nombre', '')
+                        valor_dir = dir_bd if proveedor_encontrado else "Escriba la dirección aquí..."
+                        valor_rif = f_data.get('rif_retenido', '')
+
+                        # 2. SELECCIÓN DEL DIRECTORIO (Si aplica)
+                        if "df_prov_fiscal" in st.session_state and not st.session_state.df_prov_fiscal.empty:
+                            df_dir = st.session_state.df_prov_fiscal
+                            lista_nombres = ["-- Seleccione un proveedor --"] + df_dir['razon_social'].dropna().tolist()
+                            
+                            prov_seleccionado = st.selectbox("Seleccionar proveedor del Directorio General", lista_nombres, key=f"sel_dir_{id_actual}")
+                            
+                            if prov_seleccionado != "-- Seleccione un proveedor --":
+                                row_p = df_dir[df_dir['razon_social'] == prov_seleccionado].iloc[0]
+                                valor_razon = str(row_p.get('razon_social', valor_razon))
+                                valor_dir = str(row_p.get('direccion_fiscal', valor_dir))
+                                valor_rif = str(row_p.get('rif', valor_rif))
+                                st.success(f"✅ Proveedor vinculado: RIF {valor_rif}")
+                        else:
+                            st.info("💡 Consejo: Haga clic en '🏢 Cargar Directorio de Proveedores' para autocompletar.")
+
+                        # 3. DECLARACIÓN ÚNICA (NO REPETIR ESTOS CAMPOS MÁS ABAJO)
+                        razon_r = st.text_input("Razón Social", value=valor_razon, key=f"razon_final_{id_actual}")
+                        dir_r = st.text_input("Dirección", value=valor_dir, key=f"dir_final_{id_actual}")
+                        rif_r = st.text_input("RIF", value=valor_rif, key=f"rif_final_{id_actual}") # Nota: moví el RIF aquí para tenerlo junto
+
+                        # --- RESTO DEL FORMULARIO ---
                         c7, c8, c9 = st.columns(3)
-                        base_r = c7.number_input("Base Imponible", value=float(f_data['monto_operacion']))
+                        base_r = c7.number_input("Base Imponible", value=float(f_data.get('monto_operacion', 0)))
                         porc_r = c8.number_input("% Retención", value=3.0)
-                        codigo_r = c9.text_input("Código Concepto", value="001", help="Ingresa el código del SENIAT (ej. 001, 002)")
+                        codigo_r = c9.text_input("Código Concepto", value="001")
                         
                         # Asegúrate de que el resultado sea siempre un float válido antes de pasarlo al input
                         # --- Lógica de cálculo blindada ---
