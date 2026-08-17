@@ -568,13 +568,6 @@ def obtener_saldos_acumulados(conexion, fecha_corte, nombre_db):
         cur.close()
 
 
-
-import streamlit as st
-# Asegúrate de importar tu decorador: from tu_modulo import log_ejecucion
-
-
-
-
 @st.cache_data(ttl=300)
 def obtener_datos_pie(db, fecha_inicio, fecha_fin):
     df_vacio = pd.DataFrame(columns=['nombre', 'Saldo Final'])
