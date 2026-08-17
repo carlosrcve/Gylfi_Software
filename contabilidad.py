@@ -749,8 +749,8 @@ def obtener_salud_fiscal(db, f_inicio=None, f_fin=None):
         db = str(db) if db else "control_central"
 
     conn = conectar_db(db)
-    df_default = pd.DataFrame(columns=['anio', 'mes', 'mes_nombre', 'ingresos_exentos', 'ingresos_gravados'])
-    kpis_default = {'ingresos_exentos': 0.0, 'ingresos_gravados': 0.0}
+    df_default = pd.DataFrame(columns=['anio', 'mes', 'mes_nombre', 'ingresos_exentos', 'ingresos_gravados', 'compras_exentas', 'compras_16'])
+    kpis_default = {'ingresos_exentos': 0.0, 'ingresos_gravados': 0.0, 'compras_exentas': 0.0, 'compras_16': 0.0}
     
     if not conn:
         return df_default, kpis_default
@@ -769,8 +769,6 @@ def obtener_salud_fiscal(db, f_inicio=None, f_fin=None):
         'mes': list(range(1, 13))
     })
 
-    # TRUCO CLAVE: Consultamos todo el año completo (desde el 1 de enero) 
-    # para que el acumulado y el .diff() no se rompan por culpa del filtro de fechas.
     f_inicio_anual = datetime.date(anio_base, 1, 1)
     f_fin_anual = datetime.date(anio_base, 12, 31)
 
@@ -780,7 +778,9 @@ def obtener_salud_fiscal(db, f_inicio=None, f_fin=None):
             MONTH(CAST(fecha AS DATE)) as mes,
             
             SUM(CASE WHEN plan_cuentas LIKE '4.1.1.01.001%%' THEN haber - debe ELSE 0 END) as exentos_acum,
-            SUM(CASE WHEN plan_cuentas LIKE '4.1.1.01.002%%' THEN haber - debe ELSE 0 END) as gravados_acum
+            SUM(CASE WHEN plan_cuentas LIKE '4.1.1.01.002%%' THEN haber - debe ELSE 0 END) as gravados_acum,
+            SUM(CASE WHEN plan_cuentas LIKE '5.1.1.01.001%%' THEN debe ELSE 0 END) as compras_exentas_acum,
+            SUM(CASE WHEN plan_cuentas LIKE '5.1.1.01.002%%' THEN debe ELSE 0 END) as compras_16_acum
             
         FROM `{db}`.asientos_contables 
         WHERE CAST(fecha AS DATE) BETWEEN %s AND %s
@@ -791,7 +791,6 @@ def obtener_salud_fiscal(db, f_inicio=None, f_fin=None):
     cursor = None
     try:
         cursor = conn.cursor(dictionary=True)
-        # Traemos la data de todo el año para asegurar el cálculo matemático correcto
         cursor.execute(query, (str(f_inicio_anual), str(f_fin_anual)))
         resultados = cursor.fetchall()
         
@@ -804,13 +803,17 @@ def obtener_salud_fiscal(db, f_inicio=None, f_fin=None):
 
         df = df.fillna(0)
 
-        # 1. Des-acumulamos mes a mes correctamente usando todo el año base
+        # Des-acumulación mes a mes para cada concepto
         df['ingresos_exentos'] = df['exentos_acum'].diff().fillna(df['exentos_acum'])
         df['ingresos_gravados'] = df['gravados_acum'].diff().fillna(df['gravados_acum'])
+        df['compras_exentas'] = df['compras_exentas_acum'].diff().fillna(df['compras_exentas_acum'])
+        df['compras_16'] = df['compras_16_acum'].diff().fillna(df['compras_16_acum'])
         
         if len(df) > 0 and df.loc[0, 'mes'] == 1:
             df.loc[0, 'ingresos_exentos'] = df.loc[0, 'exentos_acum']
             df.loc[0, 'ingresos_gravados'] = df.loc[0, 'gravados_acum']
+            df.loc[0, 'compras_exentas'] = df.loc[0, 'compras_exentas_acum']
+            df.loc[0, 'compras_16'] = df.loc[0, 'compras_16_acum']
 
         dic_meses_nombres = {
             1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril", 
@@ -819,30 +822,33 @@ def obtener_salud_fiscal(db, f_inicio=None, f_fin=None):
         }
         df['mes_nombre'] = df['mes'].map(dic_meses_nombres)
 
-        # 2. Convertimos el mes a objeto fecha para poder filtrar visualmente el periodo exacto que pidió el usuario
         import calendar
         df['primer_dia_mes'] = df.apply(lambda row: datetime.date(int(row['anio']), int(row['mes']), 1), axis=1)
 
-        # 3. Filtramos el DataFrame final con el rango real que el usuario seleccionó en la interfaz
         df_filtrado = df[(df['primer_dia_mes'] >= datetime.date(f_inicio.year, f_inicio.month, 1)) & 
                          (df['primer_dia_mes'] <= datetime.date(f_fin.year, f_fin.month, 1))].copy()
 
         if df_filtrado.empty:
-            df_filtrado = df.copy() # Fallback por seguridad
+            df_filtrado = df.copy()
 
-        # 4. Los KPIs suman exactamente los meses que caen dentro del rango consultado
+        # Acumulado de KPIs para el periodo consultado
         total_exentos = df_filtrado['ingresos_exentos'].sum()
         total_gravados = df_filtrado['ingresos_gravados'].sum()
+        total_compras_exentas = df_filtrado['compras_exentas'].sum()
+        total_compras_16 = df_filtrado['compras_16'].sum()
 
         kpis_fiscales = {
             'ingresos_exentos': total_exentos,
-            'ingresos_gravados': total_gravados
+            'ingresos_gravados': total_gravados,
+            'compras_exentas': total_compras_exentas,
+            'compras_16': total_compras_16
         }
         
-        return df_filtrado[['anio', 'mes', 'mes_nombre', 'ingresos_exentos', 'ingresos_gravados']], kpis_fiscales
+        cols_retorno = ['anio', 'mes', 'mes_nombre', 'ingresos_exentos', 'ingresos_gravados', 'compras_exentas', 'compras_16']
+        return df_filtrado[cols_retorno], kpis_fiscales
         
     except Exception as e:
-        print(f"❌ Error al calcular ingresos mensuales: {e}")
+        print(f"❌ Error al calcular salud fiscal: {e}")
         return df_default, kpis_default
         
     finally:
@@ -5065,8 +5071,6 @@ if "🏠 Inicio" in opcion_menu:
     # 3. Dibujar Ingresos
     st.subheader("Ingresos")
     i1, i2, i3 = st.columns(3)
-    
-    # Asegúrate de usar 'ingresos_exentos' en ambos lados
     mini_kpi(i1, "Ingresos Exentos", kpis_fiscales.get('ingresos_exentos', 0), "#1f77b4")
     mini_kpi(i2, "Ingresos Gravados", kpis_fiscales.get('ingresos_gravados', 0), "#2ca02c")
 
