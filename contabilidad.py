@@ -795,8 +795,17 @@ def obtener_salud_fiscal(db, f_inicio=None, f_fin=None):
     cursor = None
     try:
         cursor = conn.cursor(dictionary=True)
+        
+        # --- DEBUG: Verifica qué año se está buscando y si trae filas crudas ---
+        print(f"DEBUG SQL: Buscando año {anio_base} en la BD `{db}`")
+        cursor.execute(f"SELECT fecha, plan_cuentas, debe, haber FROM `{db}`.asientos_contables LIMIT 5")
+        primeras_filas = cursor.fetchall()
+        print(f"DEBUG SQL - Primeras 5 filas crudas de la tabla: {primeras_filas}")
+        # ---------------------------------------------------------------------
+
         cursor.execute(query, (int(anio_base),))
         resultados = cursor.fetchall()
+        print(f"DEBUG SQL - Resultados agrupados por mes: {resultados}")
         
         df_sql = pd.DataFrame(resultados) if resultados else pd.DataFrame(columns=['anio', 'mes'])
 
@@ -811,13 +820,12 @@ def obtener_salud_fiscal(db, f_inicio=None, f_fin=None):
         df['ingresos_exentos'] = df['ex_haber'] - df['ex_debe']
         df['ingresos_gravados'] = df['gr_haber'] - df['gr_debe']
         
-       # Filtrar solo el mes actual (o el último mes con datos)
+        # Filtrar solo el mes actual (o el último mes con datos)
         mes_actual = datetime.date.today().month
         df_mes = df[df['mes'] == mes_actual]
         
-        # Si no hay datos en el mes actual, usar 0 o el último mes registrado
         if df_mes.empty:
-            df_mes = df.iloc[[-1]] # Toma la última fila disponible
+            df_mes = df.iloc[[-1]]
 
         kpis_fiscales = {
             'ingresos_exentos': df_mes['ingresos_exentos'].iloc[0],
@@ -830,7 +838,7 @@ def obtener_salud_fiscal(db, f_inicio=None, f_fin=None):
             9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre"
         }
         df['mes_nombre'] = df['mes'].map(dic_meses_nombres)
-        print(f"DEBUG: Suma Exentos: {df['ingresos_exentos'].sum()}, Suma Gravados: {df['ingresos_gravados'].sum()}")
+        
         return df[['anio', 'mes', 'mes_nombre', 'ingresos_exentos', 'ingresos_gravados']], kpis_fiscales
         
     except Exception as e:
