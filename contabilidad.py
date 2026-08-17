@@ -4644,6 +4644,74 @@ def generar_reporte_multimoneda(conn, mes, ano, db="kingdirver_ca"):
     return df
 
 
+def registrar_retencion_islr_db(id_sec, rif, razon_social, direccion, factura, control, fecha, codigo, base, porc, sust, periodo, m_retenido, n_comprobante):
+    db_actual = st.session_state.get('DB_ACTUAL')
+    conn = conectar_db(db_actual)
+    if not conn: return False, 0
+    
+    try:
+        cursor = conn.cursor()
+        
+        # 1. Registrar proveedor
+        sql_prov = """
+            INSERT INTO proveedores (rif, razon_social, direccion_fiscal) 
+            VALUES (%s, %s, %s) 
+            AS nuevo_prov
+            ON DUPLICATE KEY UPDATE 
+                direccion_fiscal = nuevo_prov.direccion_fiscal,
+                razon_social = nuevo_prov.razon_social
+        """
+        cursor.execute(sql_prov, (rif, razon_social, direccion))
+        
+        # 2. Insertar retención
+        query_insert = """
+            INSERT INTO retenciones_islr (
+                id_sec, rif_retenido, numero_factura, numero_control, 
+                fecha_operacion, codigo_concepto, monto_operacion, 
+                porcentaje_retencion, monto_retenido, periodo_retenido,
+                sustraendo, n_comprob_islr, proveedor_nombre, proveedor_direccion
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """
+        # 2. Definición exacta de los 15 valores en el orden de las columnas
+        valores = (
+            int(id_sec),           # 1. id_sec
+            str(rif),              # 2. rif_retenido
+            str(factura),          # 3. numero_factura
+            str(control),          # 4. numero_control
+            fecha,                 # 5. fecha_operacion
+            str(codigo_r),         # 6. codigo_concepto <--- ¡AQUÍ ESTÁ!
+            float(base),           # 7. monto_operacion
+            float(porc),           # 8. porcentaje_retencion
+            float(m_retenido),     # 9. monto_retenido
+            str(periodo),          # 10. periodo_retenido
+            float(sust),           # 11. sustraendo
+            str(n_comprobante),    # 12. n_comprob_islr
+            str(razon_social),     # 13. proveedor_nombre
+            str(direccion)         # 14. proveedor_direccion
+        )
+        
+        cursor.execute(query_insert, valores)
+        
+        # 3. BLOQUEO ÚNICO Y CORREGIDO
+        # Usamos las variables que entran a la función (factura y rif)
+        sql_bloqueo = """
+            UPDATE libro_compras 
+            SET retencion_realizada = 1 
+            WHERE n_factura = %s AND rif = %s
+        """
+        cursor.execute(sql_bloqueo, (factura, rif))
+        
+        conn.commit()
+        return True, m_retenido
+        
+    except Exception as e:
+        st.error(f"⚠️ Error al guardar: {e}")
+        conn.rollback()
+        return False, 0
+    finally:
+        if 'cursor' in locals() and cursor: cursor.close()
+        if 'conn' in locals() and conn: conn.close()
+
 def gestionar_sidebar():
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
     user_id = st.session_state.get('user_id', st.session_state.get('cliente_id', 'N/A'))
