@@ -784,7 +784,7 @@ def obtener_salud_fiscal(db, f_inicio=None, f_fin=None):
             SUM(CASE WHEN plan_cuentas LIKE '4.1.1.01.001%%' THEN haber ELSE 0 END) as ex_haber,
             SUM(CASE WHEN plan_cuentas LIKE '4.1.1.01.001%%' THEN debe ELSE 0 END) as ex_debe,
             SUM(CASE WHEN plan_cuentas LIKE '4.1.1.01.002%%' THEN haber ELSE 0 END) as gr_haber,
-            SUM(CASE WHEN plan_cuentas LIKE '4.1.1.01.002%%' THEN debe ELSE 0 END) as gr_debe,
+            SUM(CASE WHEN plan_cuentas LIKE '4.1.1.01.002%%' THEN debe ELSE 0 END) as gr_debe
             
         FROM `{db}`.asientos_contables 
         WHERE YEAR(STR_TO_DATE(LEFT(fecha, 10), '%Y-%m-%d')) = %s
@@ -811,8 +811,7 @@ def obtener_salud_fiscal(db, f_inicio=None, f_fin=None):
         df['ingresos_exentos'] = df['ex_haber'] - df['ex_debe']
         df['ingresos_gravados'] = df['gr_haber'] - df['gr_debe']
         
-
-        # Totales para KPIs (Mantener siempre la misma clave 'ingresos_exentos')
+        # Totales para KPIs
         kpis_fiscales = {
             'ingresos_exentos': df['ingresos_exentos'].sum(),
             'ingresos_gravados': df['ingresos_gravados'].sum()
