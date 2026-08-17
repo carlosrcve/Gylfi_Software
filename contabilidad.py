@@ -769,6 +769,11 @@ def obtener_salud_fiscal(db, f_inicio=None, f_fin=None):
         'mes': list(range(1, 13))
     })
 
+    # TRUCO CLAVE: Consultamos todo el año completo (desde el 1 de enero) 
+    # para que el acumulado y el .diff() no se rompan por culpa del filtro de fechas.
+    f_inicio_anual = datetime.date(anio_base, 1, 1)
+    f_fin_anual = datetime.date(anio_base, 12, 31)
+
     query = f"""
         SELECT 
             YEAR(CAST(fecha AS DATE)) as anio,
@@ -786,7 +791,8 @@ def obtener_salud_fiscal(db, f_inicio=None, f_fin=None):
     cursor = None
     try:
         cursor = conn.cursor(dictionary=True)
-        cursor.execute(query, (str(f_inicio), str(f_fin)))
+        # Traemos la data de todo el año para asegurar el cálculo matemático correcto
+        cursor.execute(query, (str(f_inicio_anual), str(f_fin_anual)))
         resultados = cursor.fetchall()
         
         df_sql = pd.DataFrame(resultados) if resultados else pd.DataFrame(columns=['anio', 'mes'])
@@ -798,13 +804,10 @@ def obtener_salud_fiscal(db, f_inicio=None, f_fin=None):
 
         df = df.fillna(0)
 
-        # 🔄 DES-ACUMULACIÓN POR MES (CORRECTA)
-        # .diff() resta el acumulado actual con el del mes anterior para aislar el movimiento del mes
+        # 1. Des-acumulamos mes a mes correctamente usando todo el año base
         df['ingresos_exentos'] = df['exentos_acum'].diff().fillna(df['exentos_acum'])
         df['ingresos_gravados'] = df['gravados_acum'].diff().fillna(df['gravados_acum'])
         
-        # Si por alguna razón el primer mes del esqueleto viene con un salto raro o negativo por acumulación anterior:
-        # Forzamos que el primer mes tome directamente su valor acumulado si no hay mes previo en cero.
         if len(df) > 0 and df.loc[0, 'mes'] == 1:
             df.loc[0, 'ingresos_exentos'] = df.loc[0, 'exentos_acum']
             df.loc[0, 'ingresos_gravados'] = df.loc[0, 'gravados_acum']
@@ -816,17 +819,27 @@ def obtener_salud_fiscal(db, f_inicio=None, f_fin=None):
         }
         df['mes_nombre'] = df['mes'].map(dic_meses_nombres)
 
-        # Para los KPIs del periodo consultado, sumamos los meses que caen dentro del rango de fechas
-        # O si prefieres el mes actual exacto, puedes filtrarlo. Aquí sumamos el rango activo:
-        total_exentos = df['ingresos_exentos'].sum()
-        total_gravados = df['ingresos_gravados'].sum()
+        # 2. Convertimos el mes a objeto fecha para poder filtrar visualmente el periodo exacto que pidió el usuario
+        import calendar
+        df['primer_dia_mes'] = df.apply(lambda row: datetime.date(int(row['anio']), int(row['mes']), 1), axis=1)
+
+        # 3. Filtramos el DataFrame final con el rango real que el usuario seleccionó en la interfaz
+        df_filtrado = df[(df['primer_dia_mes'] >= datetime.date(f_inicio.year, f_inicio.month, 1)) & 
+                         (df['primer_dia_mes'] <= datetime.date(f_fin.year, f_fin.month, 1))].copy()
+
+        if df_filtrado.empty:
+            df_filtrado = df.copy() # Fallback por seguridad
+
+        # 4. Los KPIs suman exactamente los meses que caen dentro del rango consultado
+        total_exentos = df_filtrado['ingresos_exentos'].sum()
+        total_gravados = df_filtrado['ingresos_gravados'].sum()
 
         kpis_fiscales = {
             'ingresos_exentos': total_exentos,
             'ingresos_gravados': total_gravados
         }
         
-        return df[['anio', 'mes', 'mes_nombre', 'ingresos_exentos', 'ingresos_gravados']], kpis_fiscales
+        return df_filtrado[['anio', 'mes', 'mes_nombre', 'ingresos_exentos', 'ingresos_gravados']], kpis_fiscales
         
     except Exception as e:
         print(f"❌ Error al calcular ingresos mensuales: {e}")
