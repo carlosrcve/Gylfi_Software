@@ -9612,52 +9612,29 @@ elif opcion_menu == "📚 Libros Fiscales":
                         valor_razon = nombre_raw if nombre_raw != 'PROVEEDOR NO ENCONTRADO' else ""
                         valor_dir = dir_bd if dir_bd not in ["DIRECCIÓN NO REGISTRADA", "NONE", ""] else ""
 
-                        # Validar directorio de proveedores en session_state
-                        # ... (dentro de tu bloque if sel_f.selection.rows:)
 
-                        # 1. Fuerza una carga si el session_state está vacío o desactualizado
-                        if "df_prov_fiscal" not in st.session_state or st.session_state.df_prov_fiscal.empty:
-                            with st.spinner("Cargando directorio de proveedores..."):
-                                conn = conectar_db(db_actual)
-                                if conn:
-                                    st.session_state.df_prov_fiscal = pd.read_sql("SELECT rif, razon_social, direccion_fiscal FROM proveedores", conn)
-                                    conn.close()
+                        # 1. Recuperamos los valores iniciales de la factura (asegúrate de que existan antes)
+                        valor_razon = str(f_data.get('proveedor_nombre', ''))
+                        valor_dir = str(f_data.get('proveedor_direccion', ''))
 
-                        # 2. Directorio en memoria
-                        df_dir = st.session_state.get("df_prov_fiscal", pd.DataFrame())
+                        # 2. Si no se encontró en la BD, limpiamos para que los inputs queden listos para escribir
+                        if valor_razon == 'PROVEEDOR NO ENCONTRADO':
+                            st.warning("⚠️ Proveedor no encontrado en el directorio. Por favor ingrese los datos manualmente:")
+                            valor_razon = ""
+                            valor_dir = ""
 
-                        if not df_dir.empty:
-                            lista_nombres = ["-- Mantener datos de la factura --"] + df_dir['razon_social'].dropna().unique().tolist()
-                            
-                            prov_seleccionado = st.selectbox(
-                                "Vincular con Directorio General (Opcional)", 
-                                options=lista_nombres, 
-                                key=f"sel_dir_{id_seguro}"
-                            )
-                            
-                            # Si el usuario selecciona un proveedor del directorio, sobreescribimos los valores predeterminados
-                            if prov_seleccionado != "-- Mantener datos de la factura --":
-                                row_p = df_dir[df_dir['razon_social'] == prov_seleccionado].iloc[0]
-                                valor_razon = str(row_p['razon_social'])
-                                valor_dir = str(row_p['direccion_fiscal'])
-                                rif_r = str(row_p['rif'])
-                                st.success("✅ Datos vinculados desde el directorio.")
-                            else:
-                                # Si dice PROVEEDOR NO ENCONTRADO, limpiamos para obligar a buscar o escribir
-                                if valor_razon == 'PROVEEDOR NO ENCONTRADO':
-                                    valor_razon = ""
-                                    valor_dir = ""
-                        else:
-                            st.warning("⚠️ No hay proveedores en el directorio.")
+                        if valor_dir in ["DIRECCIÓN NO REGISTRADA", "NONE", ""]:
+                            valor_dir = ""
 
+                        # 3. Campos de texto directos
                         razon_r = st.text_input("Razón Social", value=valor_razon, key=f"razon_{id_seguro}")
                         
-                        if valor_dir.strip() != "" and valor_dir != "DIRECCIÓN NO REGISTRADA":
+                        if valor_dir.strip() != "":
                             dir_r = st.text_input("Dirección", value=valor_dir, key=f"dir_{id_seguro}")
                         else:
-                            st.warning("⚠️ PROVEEDOR NO REGISTRADO EN DIRECTORIO O SIN DIRECCIÓN")
+                            st.warning("⚠️ PROVEEDOR SIN DIRECCIÓN REGISTRADA")
                             dir_r = st.text_input("Dirección", value="", placeholder="Escriba la dirección fiscal aquí...", key=f"dir_{id_seguro}")
-                            
+
                         c7, c8, c9 = st.columns(3)
                         base_r = c7.number_input("Base Imponible", value=float(f_data['monto_operacion']))
                         porc_r = c8.number_input("% Retención", value=3.0)
