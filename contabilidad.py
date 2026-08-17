@@ -756,14 +756,21 @@ def obtener_salud_fiscal(db, f_inicio=None, f_fin=None):
         return df_default, kpis_default
     
     import datetime
-    anio_base = datetime.datetime.now().year
+    
+    # 1. Asegurar fechas válidas utilizando el session_state o valores por defecto
+    if f_inicio is None: 
+        f_inicio = st.session_state.get("f_inicio_global", datetime.date(datetime.datetime.now().year, 1, 1))
+    if f_fin is None: 
+        f_fin = st.session_state.get("f_fin_global", datetime.date.today())
+
+    anio_base = f_inicio.year if hasattr(f_inicio, 'year') else datetime.datetime.now().year
 
     meses_skeleton = pd.DataFrame({
         'anio': [anio_base] * 12,
         'mes': list(range(1, 13))
     })
 
-    # Consulta de diagnóstico: Sin filtros, solo trae todo lo que hay
+    # Consulta de diagnóstico: Sin filtros, solo trae una muestra de lo que hay
     query_diag = f"""
         SELECT 
             plan_cuentas, debe, haber
@@ -771,19 +778,18 @@ def obtener_salud_fiscal(db, f_inicio=None, f_fin=None):
         LIMIT 100
     """
 
+    # 2. Consulta adaptada al rango exacto de fechas (BETWEEN)
     query = f"""
         SELECT 
             YEAR(STR_TO_DATE(LEFT(fecha, 10), '%Y-%m-%d')) as anio,
             MONTH(STR_TO_DATE(LEFT(fecha, 10), '%Y-%m-%d')) as mes,
             
-            SUM(CASE WHEN plan_cuentas LIKE '4.1.1.01.001%%' THEN haber ELSE 0 END) as ex_haber,
-            SUM(CASE WHEN plan_cuentas LIKE '4.1.1.01.001%%' THEN debe ELSE 0 END) as ex_debe,
-            SUM(CASE WHEN plan_cuentas LIKE '4.1.1.01.002%%' THEN haber ELSE 0 END) as gr_haber,
-            SUM(CASE WHEN plan_cuentas LIKE '4.1.1.01.002%%' THEN debe ELSE 0 END) as gr_debe
+            SUM(CASE WHEN plan_cuentas LIKE '4.1.1.01.001%%' THEN haber - debe ELSE 0 END) as exentos,
+            SUM(CASE WHEN plan_cuentas LIKE '4.1.1.01.002%%' THEN haber - debe ELSE 0 END) as gravados
             
         FROM `{db}`.asientos_contables 
-        WHERE YEAR(STR_TO_DATE(LEFT(fecha, 10), '%Y-%m-%d')) = %s
-        GROUP BY YEAR(STR_TO_DATE(LEFT(fecha, 10), '%Y-%m-%d')), MONTH(STR_TO_DATE(LEFT(fecha, 10), '%Y-%m-%d'))
+        WHERE STR_TO_DATE(LEFT(fecha, 10), '%Y-%m-%d') BETWEEN %s AND %s
+        GROUP BY anio, mes
         ORDER BY anio ASC, mes ASC
     """
     
@@ -804,7 +810,8 @@ def obtener_salud_fiscal(db, f_inicio=None, f_fin=None):
             print("⚠️ ATENCIÓN: La tabla de asientos contables devolvió 0 registros o está vacía.")
         # -----------------------------------------------
 
-        cursor.execute(query, (int(anio_base),))
+        # Ejecución de la consulta principal con el rango de fechas
+        cursor.execute(query, (f_inicio, f_fin))
         resultados = cursor.fetchall()
         
         df_sql = pd.DataFrame(resultados) if resultados else pd.DataFrame(columns=['anio', 'mes'])
@@ -816,9 +823,10 @@ def obtener_salud_fiscal(db, f_inicio=None, f_fin=None):
 
         df = df.fillna(0)
 
-        # Cálculo directo de ingresos
-        df['ingresos_exentos'] = df['ex_haber'] - df['ex_debe']
-        df['ingresos_gravados'] = df['gr_haber'] - df['gr_debe']
+        # 3. Aplicar des-acumulación si la BD guarda saldos acumulados (igual que tu histórico de utilidad)
+        # Si cada asiento es independiente y no acumulativo, puedes cambiar esto por una simple asignación directa.
+        df['ingresos_exentos'] = df['exentos'].diff().fillna(df['exentos'])
+        df['ingresos_gravados'] = df['gravados'].diff().fillna(df['gravados'])
         
         dic_meses_nombres = {
             1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril", 
@@ -827,20 +835,13 @@ def obtener_salud_fiscal(db, f_inicio=None, f_fin=None):
         }
         df['mes_nombre'] = df['mes'].map(dic_meses_nombres)
 
-        # Tomar estrictamente el mes actual para los KPIs (o 0 si no hay registros en el mes)
-        mes_actual = datetime.datetime.now().month
-        df_mes_actual = df[df['mes'] == mes_actual]
-        
-        if not df_mes_actual.empty:
-            val_exentos = df_mes_actual['ingresos_exentos'].values[0]
-            val_gravados = df_mes_actual['ingresos_gravados'].values[0]
-        else:
-            val_exentos = 0.0
-            val_gravados = 0.0
+        # 4. Cálculo de KPIs basado en la suma total del periodo consultado
+        total_exentos = df['ingresos_exentos'].sum()
+        total_gravados = df['ingresos_gravados'].sum()
 
         kpis_fiscales = {
-            'ingresos_exentos': val_exentos,
-            'ingresos_gravados': val_gravados
+            'ingresos_exentos': total_exentos,
+            'ingresos_gravados': total_gravados
         }
         
         return df[['anio', 'mes', 'mes_nombre', 'ingresos_exentos', 'ingresos_gravados']], kpis_fiscales
