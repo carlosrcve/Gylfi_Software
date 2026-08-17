@@ -763,6 +763,14 @@ def obtener_salud_fiscal(db, f_inicio=None, f_fin=None):
         'mes': list(range(1, 13))
     })
 
+    # Consulta de diagnóstico: Sin filtros, solo trae todo lo que hay
+    query_diag = f"""
+        SELECT 
+            plan_cuentas, debe, haber
+        FROM `{db}`.asientos_contables
+        LIMIT 100
+    """
+
     query = f"""
         SELECT 
             YEAR(STR_TO_DATE(LEFT(fecha, 10), '%Y-%m-%d')) as anio,
@@ -782,6 +790,20 @@ def obtener_salud_fiscal(db, f_inicio=None, f_fin=None):
     cursor = None
     try:
         cursor = conn.cursor(dictionary=True)
+        
+        # --- DIAGNÓSTICO EJECUTADO ANTES DEL CÁLCULO ---
+        cursor.execute(query_diag)
+        resultados_diag = cursor.fetchall()
+        
+        print(f"DEBUG TOTAL: Se encontraron {len(resultados_diag)} filas en la tabla.")
+        if resultados_diag:
+            print(f"DEBUG MUESTRA: {resultados_diag[0]}")
+            coincidencias = [r for r in resultados_diag if r.get('plan_cuentas') and '4.1.1.01' in str(r['plan_cuentas'])]
+            print(f"DEBUG: Filas que contienen '4.1.1.01': {len(coincidencias)}")
+        else:
+            print("⚠️ ATENCIÓN: La tabla de asientos contables devolvió 0 registros o está vacía.")
+        # -----------------------------------------------
+
         cursor.execute(query, (int(anio_base),))
         resultados = cursor.fetchall()
         
