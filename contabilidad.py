@@ -9686,16 +9686,25 @@ elif opcion_menu == "📚 Libros Fiscales":
             if st.session_state.pdf_listo and st.session_state.datos_pdf:
                 st.write("---")
                 st.info("💡 El comprobante está listo para descargar.")
-                pdf_bytes = generar_comprobante_pdf(st.session_state.datos_pdf, conn)
-                st.download_button(
-                    label="📥 DESCARGAR COMPROBANTE PDF AHORA",
-                    data=pdf_bytes,
-                    file_name=f"Retencion_{st.session_state.datos_pdf['n_comprobante']}.pdf",
-                    mime="application/pdf",
-                    use_container_width=True,
-                    key="btn_download_final"
-                )
                 
+                # Obtenemos la base de datos activa y abrimos la conexión de forma segura
+                db_actual = st.session_state.get('DB_ACTUAL')
+                conn_pdf = conectar_db(db_actual)
+                
+                try:
+                    pdf_bytes = generar_comprobante_pdf(st.session_state.datos_pdf, conn_pdf)
+                    st.download_button(
+                        label="📥 DESCARGAR COMPROBANTE PDF AHORA",
+                        data=pdf_bytes,
+                        file_name=f"Retencion_{st.session_state.datos_pdf['n_comprobante']}.pdf",
+                        mime="application/pdf",
+                        use_container_width=True,
+                        key="btn_download_final"
+                    )
+                finally:
+                    if conn_pdf:
+                        conn_pdf.close()
+                        
                 if st.button("➕ Registrar otra retención"):
                     st.session_state.pdf_listo = False
                     st.session_state.datos_pdf = None
