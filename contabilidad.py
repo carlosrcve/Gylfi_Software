@@ -10125,22 +10125,23 @@ elif "Proveedores" in opcion_menu:
                     st.balloons()
 
         # 4. Lógica de Pestaña 2
-        # 4. Lógica de Pestaña 2
         with tab2:
             st.markdown("### 📋 Directorio Actual")
             
-            # Aseguramos que la consulta devuelva un DataFrame válido
-            df_prov = consultar_tabla_db(conn_empresa, "proveedores")
-            
-            if df_prov is None or not isinstance(df_prov, pd.DataFrame) or df_prov.empty:
-                df_prov = pd.DataFrame(columns=["rif", "tipo_persona", "razon_social", "direccion_fiscal"])
-            
-            # Limpiamos tipos de datos para evitar conflictos en el editor
-            for col in df_prov.columns:
-                df_prov[col] = df_prov[col].astype(str).replace('None', '')
+            # 1. Inicializamos los datos en session_state solo si no existen
+            if "df_proveedores_cache" not in st.session_state:
+                df_temp = consultar_tabla_db(conn_empresa, "proveedores")
+                if df_temp is None or not isinstance(df_temp, pd.DataFrame) or df_temp.empty:
+                    df_temp = pd.DataFrame(columns=["rif", "tipo_persona", "razon_social", "direccion_fiscal"])
+                
+                for col in df_temp.columns:
+                    df_temp[col] = df_temp[col].astype(str).replace(['None', 'nan', 'NAT'], '')
+                
+                st.session_state.df_proveedores_cache = df_temp
 
+            # 2. El data_editor ahora lee y escribe directamente sobre el session_state
             df_editado = st.data_editor(
-                df_prov, 
+                st.session_state.df_proveedores_cache, 
                 key="editor_proveedores_dinamico", 
                 num_rows="dynamic",
                 use_container_width=True,
@@ -10153,21 +10154,37 @@ elif "Proveedores" in opcion_menu:
                 }
             )
             
-            if st.button("💾 Guardar Todo", key="btn_guardar_proveedores"):
-                try:
-                    actualizar_tabla_completa_db(conn_empresa, "proveedores", df_editado)
-                    st.success("¡Directorio actualizado con éxito!")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"❌ Error al guardar los cambios en la base de datos: {e}")
+            # 3. Actualizamos el caché local con lo que el usuario modificó/agregó visualmente
+            st.session_state.df_proveedores_cache = df_editado
 
-        # 5. Zona de respaldo
+            col_b1, col_b2 = st.columns(2)
+            
+            with col_b1:
+                if st.button("💾 Guardar Todo en BD", key="btn_guardar_proveedores", use_container_width=True):
+                    try:
+                        # Enviamos a la base de datos lo que está en el editor
+                        actualizar_tabla_completa_db(conn_empresa, "proveedores", df_editado)
+                        st.success("¡Directorio actualizado con éxito!")
+                        # Forzamos una recarga limpia desde la BD para sincronizar
+                        del st.session_state.df_proveedores_cache
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"❌ Error al guardar los cambios en la base de datos: {e}")
+
+            with col_b2:
+                if st.button("🔄 Recargar desde BD", key="btn_recargar_proveedores", use_container_width=True):
+                    if "df_proveedores_cache" in st.session_state:
+                        del st.session_state.df_proveedores_cache
+                    st.rerun()
+
+        # 4. Zona de respaldo usando el caché actual
         st.markdown("---") 
-        if 'df_prov' in locals() and isinstance(df_prov, pd.DataFrame) and not df_prov.empty:
+        df_para_respaldo = st.session_state.get("df_proveedores_cache", pd.DataFrame())
+        if not df_para_respaldo.empty:
             import io
             output = io.BytesIO()
             with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                df_prov.to_excel(writer, index=False, sheet_name='Proveedores')
+                df_para_respaldo.to_excel(writer, index=False, sheet_name='Proveedores')
             st.download_button(
                 "📥 Descargar Respaldo de Proveedores", 
                 data=output.getvalue(), 
