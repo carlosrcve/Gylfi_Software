@@ -811,7 +811,8 @@ def obtener_salud_fiscal(db, f_inicio=None, f_fin=None):
         df['ingresos_exentos'] = df['ex_haber'] - df['ex_debe']
         df['ingresos_gravados'] = df['gr_haber'] - df['gr_debe']
         
-        # Totales para KPIs (Claves unificadas con 'os')
+
+        # Totales para KPIs (Mantener siempre la misma clave 'ingresos_exentos')
         kpis_fiscales = {
             'ingresos_exentos': df['ingresos_exentos'].sum(),
             'ingresos_gravados': df['ingresos_gravados'].sum()
@@ -823,7 +824,7 @@ def obtener_salud_fiscal(db, f_inicio=None, f_fin=None):
             9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre"
         }
         df['mes_nombre'] = df['mes'].map(dic_meses_nombres)
-        
+        print(f"DEBUG: Suma Exentos: {df['ingresos_exentos'].sum()}, Suma Gravados: {df['ingresos_gravados'].sum()}")
         return df[['anio', 'mes', 'mes_nombre', 'ingresos_exentos', 'ingresos_gravados']], kpis_fiscales
         
     except Exception as e:
@@ -5050,7 +5051,9 @@ if "🏠 Inicio" in opcion_menu:
     # 3. Dibujar Ingresos
     st.subheader("Ingresos")
     i1, i2, i3 = st.columns(3)
-    mini_kpi(i1, "Ingresos Exentos", kpis_fiscales.get('ingresos_exentas', 0), "#1f77b4")
+    
+    # Asegúrate de usar 'ingresos_exentos' en ambos lados
+    mini_kpi(i1, "Ingresos Exentos", kpis_fiscales.get('ingresos_exentos', 0), "#1f77b4")
     mini_kpi(i2, "Ingresos Gravados", kpis_fiscales.get('ingresos_gravados', 0), "#2ca02c")
 
     # 4. Compras y Gastos
