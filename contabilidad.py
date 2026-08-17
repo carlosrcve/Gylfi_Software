@@ -12446,13 +12446,20 @@ elif "Proveedores" in opcion_menu:
                     st.balloons()
 
         # 4. Lógica de Pestaña 2
+        # 4. Lógica de Pestaña 2
         with tab2:
             st.markdown("### 📋 Directorio Actual")
+            
+            # Aseguramos que la consulta devuelva un DataFrame válido
             df_prov = consultar_tabla_db(conn_empresa, "proveedores")
             
-            if df_prov is None or df_prov.empty:
+            if df_prov is None or not isinstance(df_prov, pd.DataFrame) or df_prov.empty:
                 df_prov = pd.DataFrame(columns=["rif", "tipo_persona", "razon_social", "direccion_fiscal"])
             
+            # Limpiamos tipos de datos para evitar conflictos en el editor
+            for col in df_prov.columns:
+                df_prov[col] = df_prov[col].astype(str).replace('None', '')
+
             df_editado = st.data_editor(
                 df_prov, 
                 key="editor_proveedores_dinamico", 
@@ -12467,19 +12474,27 @@ elif "Proveedores" in opcion_menu:
                 }
             )
             
-            if st.button("💾 Guardar Todo"):
-                actualizar_tabla_completa_db(conn_empresa, "proveedores", df_editado)
-                st.success("¡Directorio actualizado con éxito, Papi!")
-                st.rerun()
+            if st.button("💾 Guardar Todo", key="btn_guardar_proveedores"):
+                try:
+                    actualizar_tabla_completa_db(conn_empresa, "proveedores", df_editado)
+                    st.success("¡Directorio actualizado con éxito!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"❌ Error al guardar los cambios en la base de datos: {e}")
 
-        # 5. Zona de respaldo (fuera de las tabs pero dentro del try)
+        # 5. Zona de respaldo
         st.markdown("---") 
-        if 'df_prov' in locals() and not df_prov.empty:
+        if 'df_prov' in locals() and isinstance(df_prov, pd.DataFrame) and not df_prov.empty:
             import io
             output = io.BytesIO()
             with pd.ExcelWriter(output, engine='openpyxl') as writer:
                 df_prov.to_excel(writer, index=False, sheet_name='Proveedores')
-            st.download_button("📥 Descargar Respaldo", data=output.getvalue(), file_name="Respaldo_Proveedores.xlsx")
+            st.download_button(
+                "📥 Descargar Respaldo de Proveedores", 
+                data=output.getvalue(), 
+                file_name="Respaldo_Proveedores.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
             
     finally:
         # 6. Cierre de conexión garantizado
