@@ -11841,7 +11841,7 @@ elif opcion_menu == "📚 Libros Fiscales":
 
 
         with tab2:
-            st.markdown("### 🆕 Generar Nueva Retención")
+            st.markdown("### 🆕 Generar Nueva Retención de ISLR")
 
             col_fecha1, col_fecha2 = st.columns(2)
             f_xml_desde_n = col_fecha1.date_input("Desde", value=datetime.datetime(2026, 10, 1), key="nueva_desde")
@@ -11850,54 +11850,60 @@ elif opcion_menu == "📚 Libros Fiscales":
             col_c1, col_c2 = st.columns(2)
 
             with col_c1:
-                if st.button("🔍 Consultar Facturas Pendientes", use_container_width=True):
+                if st.button("🔍 Consultar Facturas y Proveedores", use_container_width=True):
                     conn = conectar_db(db_actual)
                     if conn:
-                        # Consulta optimizada que une libro_compras con proveedores
-                        query = """
-                        SELECT 
-                            lc.id AS id, 
-                            lc.fecha_operacion AS fecha_operacion,
-                            NULL AS id_sec, 
-                            lc.rif AS rif_retenido, 
-                            COALESCE(p.razon_social, 'PROVEEDOR NO ENCONTRADO') AS proveedor_nombre, 
-                            COALESCE(p.direccion_fiscal, 'DIRECCIÓN NO REGISTRADA') AS proveedor_direccion,
-                            lc.n_factura AS numero_factura, 
-                            lc.n_control AS numero_control, 
-                            NULL AS codigo_concepto, 
-                            lc.base_imponible AS monto_operacion, 
-                            0.00 AS porcentaje_retencion, 
-                            0.00 AS monto_retenido, 
-                            NULL AS periodo_retenido, 
-                            0.00 AS sustraendo, 
-                            NULL AS n_comprob_islr
-                        FROM libro_compras lc
-                        LEFT JOIN proveedores p ON 
-                            TRIM(REGEXP_REPLACE(lc.rif, '[^a-zA-Z0-9]', '')) = TRIM(REGEXP_REPLACE(p.rif, '[^a-zA-Z0-9]', ''))
-                        WHERE (lc.retencion_realizada = 0 OR lc.retencion_realizada IS NULL)
-                        AND lc.fecha_operacion BETWEEN %s AND %s
-                        ORDER BY lc.fecha_operacion ASC
-                        """
-
                         try:
-                            # Carga de datos segura con Pandas y parámetros de MySQL
+                            # 1. Cargamos el directorio fiscal en session_state de una vez
+                            st.session_state.df_prov_fiscal = pd.read_sql(
+                                "SELECT rif, razon_social, direccion_fiscal FROM proveedores", conn
+                            )
+
+                            # 2. Consulta optimizada de facturas pendientes
+                            query = """
+                            SELECT 
+                                lc.id AS id, 
+                                lc.fecha_operacion AS fecha_operacion,
+                                NULL AS id_sec, 
+                                lc.rif AS rif_retenido, 
+                                COALESCE(p.razon_social, 'PROVEEDOR NO ENCONTRADO') AS proveedor_nombre, 
+                                COALESCE(p.direccion_fiscal, 'DIRECCIÓN NO REGISTRADA') AS proveedor_direccion,
+                                lc.n_factura AS numero_factura, 
+                                lc.n_control AS numero_control, 
+                                NULL AS codigo_concepto, 
+                                lc.base_imponible AS monto_operacion, 
+                                0.00 AS porcentaje_retencion, 
+                                0.00 AS monto_retenido, 
+                                NULL AS periodo_retenido, 
+                                0.00 AS sustraendo, 
+                                NULL AS n_comprob_islr
+                            FROM libro_compras lc
+                            LEFT JOIN proveedores p ON 
+                                TRIM(REGEXP_REPLACE(lc.rif, '[^a-zA-Z0-9]', '')) = TRIM(REGEXP_REPLACE(p.rif, '[^a-zA-Z0-9]', ''))
+                            WHERE (lc.retencion_realizada = 0 OR lc.retencion_realizada IS NULL)
+                            AND lc.fecha_operacion BETWEEN %s AND %s
+                            ORDER BY lc.fecha_operacion ASC
+                            """
+
                             st.session_state.df_retencion = pd.read_sql(
                                 query, 
                                 conn, 
                                 params=(f_xml_desde_n, f_xml_hasta_n)
                             )
-                            st.success("✅ Facturas y Datos Fiscales cargados con éxito.")
+                            st.success("✅ Facturas y Directorio de Proveedores cargados con éxito.")
                         except Exception as e:
                             st.error(f"❌ Error al consultar la base de datos: {e}")
                         finally:
                             conn.close()
+
             with col_c2:
-                if st.button("🏢 Cargar Directorio de Proveedores", use_container_width=True):
-                    conn = conectar_db()
+                # Botón de respaldo manual por si desean refrescarlo por separado
+                if st.button("🔄 Refrescar Directorio Manualmente", use_container_width=True):
+                    conn = conectar_db(db_actual)
                     if conn:
                         st.session_state.df_prov_fiscal = pd.read_sql("SELECT rif, razon_social, direccion_fiscal FROM proveedores", conn)
                         conn.close()
-                        st.info("📂 Directorio actualizado.")
+                        st.info("📂 Directorio actualizado manualmente.")
 
             # Inicialización de estados
             if "pdf_listo" not in st.session_state:
@@ -11905,15 +11911,14 @@ elif opcion_menu == "📚 Libros Fiscales":
             if "datos_pdf" not in st.session_state:
                 st.session_state.datos_pdf = None
 
-            if "df_retencion" in st.session_state:
-                # Definimos solo las columnas que queremos que el usuario vea
+            if "df_retencion" in st.session_state and not st.session_state.df_retencion.empty:
                 columnas_a_mostrar = [
                     "fecha_operacion", "rif_retenido", "proveedor_nombre", 
                     "numero_factura", "numero_control", "monto_operacion"
                 ]
                 
                 sel_f = st.dataframe(
-                    st.session_state.df_retencion[columnas_a_mostrar],  # <--- Filtramos aquí
+                    st.session_state.df_retencion[columnas_a_mostrar], 
                     on_select="rerun", 
                     selection_mode="single-row", 
                     hide_index=True, 
@@ -11921,28 +11926,25 @@ elif opcion_menu == "📚 Libros Fiscales":
                 )
                 
                 if sel_f.selection.rows:
-                    # Extraemos los datos de la fila seleccionada
                     f_data = st.session_state.df_retencion.iloc[sel_f.selection.rows[0]]
                     
-                    # El key dinámico fuerza al formulario a refrescarse al cambiar de factura
                     with st.form(key=f"form_final_islr_{f_data['id']}"): 
 
                         st.markdown("#### 🛠️ Datos del Comprobante")
                         c1, c2, c3 = st.columns([3, 4, 5])
                         
-                        rif_r = c1.text_input("RIF", value=f_data['rif_retenido'])
+                        rif_r = c1.text_input("RIF", value=str(f_data['rif_retenido']))
                         id_seguro = f_data.get('id') or 0
                         val_sugerido = f_data['fecha_operacion'].strftime("%Y%m") + str(id_seguro).zfill(8)
                         n_comprob_manual = c2.text_input("N° Comprobante (Manual)", value=val_sugerido)
                         
-                        # --- LÓGICA DE DIRECTORIO Y TEXTOS ---
-                        dir_bd = f_data.get('proveedor_direccion', '') 
-                        dir_bd = str(dir_bd) if dir_bd is not None else ""
-
-                        nombre_raw = f_data.get('proveedor_nombre', '')
+                        dir_bd = str(f_data.get('proveedor_direccion') or "")
+                        nombre_raw = str(f_data.get('proveedor_nombre') or "")
+                        
                         valor_razon = nombre_raw if nombre_raw != 'PROVEEDOR NO ENCONTRADO' else ""
                         valor_dir = dir_bd if dir_bd not in ["DIRECCIÓN NO REGISTRADA", "NONE", ""] else ""
 
+                        # Validar directorio de proveedores en session_state
                         if "df_prov_fiscal" in st.session_state and not st.session_state.df_prov_fiscal.empty:
                             df_dir = st.session_state.df_prov_fiscal
                             lista_nombres = ["-- Mantener datos de la factura --"] + df_dir['razon_social'].dropna().tolist()
@@ -11965,7 +11967,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                         if valor_dir.strip() != "":
                             dir_r = st.text_input("Dirección", value=valor_dir, key=f"dir_{id_seguro}")
                         else:
-                            st.warning("⚠️ PROVEEDOR NO REGISTRADO EN DIRECTORIO")
+                            st.warning("⚠️ PROVEEDOR NO REGISTRADO EN DIRECTORIO O SIN DIRECCIÓN")
                             dir_r = st.text_input("Dirección", value="Escriba la dirección aquí...", key=f"dir_{id_seguro}")
                         
                         c7, c8, c9 = st.columns(3)
@@ -11973,13 +11975,11 @@ elif opcion_menu == "📚 Libros Fiscales":
                         porc_r = c8.number_input("% Retención", value=3.0)
                         codigo_r = c9.text_input("Código Concepto", value="001", help="Ingresa el código del SENIAT (ej. 001, 002)")
                         
-                        # --- Lógica de cálculo blindada ---
                         try:
                             porc_actual = float(porc_r) if porc_r is not None else 0.0
                         except ValueError:
                             porc_actual = 0.0
 
-                        # Lógica del sustraendo
                         if rif_r.upper().startswith(('V', 'E')) and porc_actual > 0:
                             val_sust = calcular_sustraendo(porc_actual)
                         else:
@@ -12001,23 +12001,12 @@ elif opcion_menu == "📚 Libros Fiscales":
                             if comprobar_existencia_comprobante(n_comprob_manual):
                                 st.error(f"⚠️ El comprobante **{n_comprob_manual}** ya existe.")
                             else:
-                                st.write(f"DEBUG: Enviando monto_retenido: {m_final}")
-
                                 exito, valor = registrar_retencion_islr_db(
-                                    int(id_seguro), 
-                                    rif_r, 
-                                    razon_r, 
-                                    dir_r, 
-                                    str(f_data['numero_factura']), 
-                                    str(f_data['numero_control']), 
-                                    f_data['fecha_operacion'], 
-                                    codigo_r, 
-                                    base_r, 
-                                    porc_r, 
-                                    sust_r, 
-                                    f_data['fecha_operacion'].strftime("%Y%m"), 
-                                    m_final, 
-                                    n_comprob_manual
+                                    int(id_seguro), rif_r, razon_r, dir_r, 
+                                    str(f_data['numero_factura']), str(f_data['numero_control']), 
+                                    f_data['fecha_operacion'], codigo_r, base_r, porc_r, 
+                                    sust_r, f_data['fecha_operacion'].strftime("%Y%m"), 
+                                    m_final, n_comprob_manual
                                 )
                                 
                                 if exito:
@@ -12042,7 +12031,11 @@ elif opcion_menu == "📚 Libros Fiscales":
             if st.session_state.pdf_listo and st.session_state.datos_pdf:
                 st.write("---")
                 st.info("💡 El comprobante está listo para descargar.")
-                pdf_bytes = generar_comprobante_pdf(st.session_state.datos_pdf, conn)
+                conn_pdf = conectar_db(st.session_state.get('DB_ACTUAL'))
+                pdf_bytes = generar_comprobante_pdf(st.session_state.datos_pdf, conn_pdf)
+                if conn_pdf:
+                    conn_pdf.close()
+                    
                 st.download_button(
                     label="📥 DESCARGAR COMPROBANTE PDF AHORA",
                     data=pdf_bytes,
