@@ -9545,117 +9545,130 @@ elif opcion_menu == "📚 Libros Fiscales":
                     f_data = st.session_state.df_retencion.iloc[sel_f.selection.rows[0]]
                     
                     # El key dinámico fuerza al formulario a refrescarse al cambiar de factura
-                    with st.form(key=f"form_final_islr_{f_data['id']}"): 
+                    # El key dinámico fuerza al formulario a refrescarse al cambiar de factura
+                with st.form(key=f"form_final_islr_{f_data['id']}"): 
 
-                        st.markdown("#### 🛠️ Datos del Comprobante")
-                        c1, c2, c3 = st.columns([3, 4, 5])
+                    st.markdown("#### 🛠️ Datos del Comprobante")
+                    c1, c2, c3 = st.columns([3, 4, 5])
+                    
+                    # RIF inicial y N° Comprobante manual
+                    val_rif_inicial = f_data.get('rif_retenido', '')
+                    id_seguro = f_data.get('id') or 0
+                    val_sugerido = f_data['fecha_operacion'].strftime("%Y%m") + str(id_seguro).zfill(8)
+                    
+                    n_comprob_manual = c2.text_input("N° Comprobante (Manual)", value=val_sugerido)
+                    
+                    # --- LÓGICA DE DIRECCIÓN Y DIRECTORIO ---
+                    dir_bd = str(f_data.get('proveedor_direccion') or "")
+                    proveedor_encontrado = (
+                        dir_bd.strip() != "" 
+                        and dir_bd.upper() != "NONE" 
+                        and dir_bd.upper() != "DIRECCIÓN NO REGISTRADA"
+                        and f_data.get('proveedor_nombre', '').upper() != "PROVEEDOR NO ENCONTRADO"
+                    )
+
+                    id_actual = f_data.get('id', 'gen')
+
+                    # 1. VALORES POR DEFECTO O DEL DIRECTORIO
+                    valor_razon = f_data.get('proveedor_nombre', '')
+                    valor_dir = dir_bd if proveedor_encontrado else "Escriba la dirección aquí..."
+                    valor_rif = val_rif_inicial
+
+                    # 2. SELECTBOX DEL DIRECTORIO (Corregido y metido dentro del flujo visual)
+                    if "df_prov_fiscal" in st.session_state and not st.session_state.df_prov_fiscal.empty:
+                        df_dir = st.session_state.df_prov_fiscal
+                        lista_nombres = ["-- Mantener datos de la factura --"] + df_dir['razon_social'].dropna().tolist()
                         
-                        rif_r = c1.text_input("RIF", value=f_data['rif_retenido'])
-                        id_seguro = f_data.get('id') or 0
-                        val_sugerido = f_data['fecha_operacion'].strftime("%Y%m") + str(id_seguro).zfill(8)
-                        n_comprob_manual = c2.text_input("N° Comprobante (Manual)", value=val_sugerido)
-                        
-                        # --- LÓGICA DE DIRECCIÓN Y DIRECTORIO ---
-                        dir_bd = str(f_data.get('proveedor_direccion') or "")
-                        proveedor_encontrado = (
-                            dir_bd.strip() != "" 
-                            and dir_bd.upper() != "NONE" 
-                            and dir_bd.upper() != "DIRECCIÓN NO REGISTRADA"
-                            and f_data.get('proveedor_nombre', '').upper() != "PROVEEDOR NO ENCONTRADO"
-                        )
-
-                        id_actual = f_data.get('id', 'gen')
-
-                        # 1. VALORES POR DEFECTO O DEL DIRECTORIO
-                        valor_razon = f_data.get('proveedor_nombre', '')
-                        valor_dir = dir_bd if proveedor_encontrado else "Escriba la dirección aquí..."
-                        valor_rif = f_data.get('rif_retenido', '')
-
-                   
-                        else:
-                            st.info("💡 Consejo: Haga clic en '🏢 Cargar Directorio de Proveedores' para autocompletar.")
-
-                        # 3. DECLARACIÓN ÚNICA (NO REPETIR ESTOS CAMPOS MÁS ABAJO)
-                        razon_r = st.text_input("Razón Social", value=valor_razon, key=f"razon_final_{id_actual}")
-                        dir_r = st.text_input("Dirección", value=valor_dir, key=f"dir_final_{id_actual}")
-                        rif_r = st.text_input("RIF", value=valor_rif, key=f"rif_final_{id_actual}") # Nota: moví el RIF aquí para tenerlo junto
-
-                        # --- RESTO DEL FORMULARIO ---
-                        c7, c8, c9 = st.columns(3)
-                        base_r = c7.number_input("Base Imponible", value=float(f_data.get('monto_operacion', 0)))
-                        porc_r = c8.number_input("% Retención", value=3.0)
-                        codigo_r = c9.text_input("Código Concepto", value="001")
-                        
-                        # Asegúrate de que el resultado sea siempre un float válido antes de pasarlo al input
-                        # --- Lógica de cálculo blindada ---
-                        # Aseguramos que 'porc_r' sea un número válido
-                        try:
-                            porc_actual = float(porc_r) if porc_r is not None else 0.0
-                        except ValueError:
-                            porc_actual = 0.0
-
-                        # Lógica del sustraendo
-                        if rif_r.upper().startswith(('V', 'E')) and porc_actual > 0:
-                            val_sust = calcular_sustraendo(porc_actual)
-                        else:
-                            val_sust = 0.00 
-
-                        # Campo de entrada vinculado (usamos 'key' para evitar conflictos de estado)
-                        sust_r = c9.number_input(
-                            "Sustraendo", 
-                            value=float(val_sust), 
-                            format="%.2f", 
-                            key=f"sust_{f_data['id']}" # Esto permite que se refresque al cambiar de factura
+                        prov_seleccionado = st.selectbox(
+                            "Vincular con Directorio General (Opcional)", 
+                            options=lista_nombres, 
+                            key=f"sel_dir_{id_actual}"
                         )
                         
-                        btn_procesar = st.form_submit_button("🚀 Procesar y Guardar")
+                        if prov_seleccionado != "-- Mantener datos de la factura --":
+                            row_p = df_dir[df_dir['razon_social'] == prov_seleccionado].iloc[0]
+                            valor_razon = str(row_p.get('razon_social', valor_razon))
+                            valor_dir = str(row_p.get('direccion_fiscal', valor_dir))
+                            valor_rif = str(row_p.get('rif', valor_rif))
+                            st.success("✅ Datos actualizados desde el directorio.")
+                    else:
+                        st.info("💡 Consejo: Haga clic en '🏢 Cargar Directorio de Proveedores' arriba para autocompletar.")
+
+                    # 3. DECLARACIÓN ÚNICA DE CAMPOS FINALES (Sin duplicar RIF)
+                    rif_r = c1.text_input("RIF", value=valor_rif, key=f"rif_final_{id_actual}")
+                    razon_r = st.text_input("Razón Social", value=valor_razon, key=f"razon_final_{id_actual}")
+                    dir_r = st.text_input("Dirección", value=valor_dir, key=f"dir_final_{id_actual}")
+
+                    # --- RESTO DEL FORMULARIO ---
+                    c7, c8, c9 = st.columns(3)
+                    base_r = c7.number_input("Base Imponible", value=float(f_data.get('monto_operacion', 0)))
+                    porc_r = c8.number_input("% Retención", value=3.0)
+                    codigo_r = c9.text_input("Código Concepto", value="001")
+                    
+                    # --- Lógica de cálculo blindada ---
+                    try:
+                        porc_actual = float(porc_r) if porc_r is not None else 0.0
+                    except ValueError:
+                        porc_actual = 0.0
+
+                    # Lógica del sustraendo
+                    if rif_r.upper().startswith(('V', 'E')) and porc_actual > 0:
+                        val_sust = calcular_sustraendo(porc_actual)
+                    else:
+                        val_sust = 0.00 
+
+                    sust_r = c9.number_input(
+                        "Sustraendo", 
+                        value=float(val_sust), 
+                        format="%.2f", 
+                        key=f"sust_{f_data['id']}"
+                    )
+                    
+                    btn_procesar = st.form_submit_button("🚀 Procesar y Guardar")
+                    
+                    if btn_procesar:
+                        conn = conectar_db(st.session_state.get('DB_ACTUAL'))
+                        m_final = round(float((float(base_r) * (float(porc_r) / 100)) - float(sust_r)), 2)
                         
-                        if btn_procesar:
-                            # 1. Calculamos m_final aquí mismo para asegurarnos de que exista
-                            conn = conectar_db(st.session_state.get('DB_ACTUAL'))
-                            m_final = round(float((float(base_r) * (float(porc_r) / 100)) - float(sust_r)), 2)
+                        if comprobar_existencia_comprobante(n_comprob_manual):
+                            st.error(f"⚠️ El comprobante **{n_comprob_manual}** ya existe.")
+                        else:
+                            st.write(f"DEBUG: Enviando monto_retenido: {m_final}")
+
+                            exito, valor = registrar_retencion_islr_db(
+                                int(f_data.get('id') or 0), 
+                                rif_r, 
+                                razon_r, 
+                                dir_r, 
+                                str(f_data['numero_factura']), 
+                                str(f_data['numero_control']), 
+                                f_data['fecha_operacion'], 
+                                "001", 
+                                base_r, 
+                                porc_r, 
+                                sust_r, 
+                                f_data['fecha_operacion'].strftime("%Y%m"), 
+                                m_final, 
+                                n_comprob_manual
+                            )
                             
-                            if comprobar_existencia_comprobante(n_comprob_manual):
-                                st.error(f"⚠️ El comprobante **{n_comprob_manual}** ya existe.")
-                            else:
-                                # 2. Ahora m_final ya está definida y lista para usarse
-                                # Verifica el valor antes de enviarlo (esto ayuda a depurar)
-                                st.write(f"DEBUG: Enviando monto_retenido: {m_final}")
-
-                                exito, valor = registrar_retencion_islr_db(
-                                    int(f_data.get('id') or 0),  # <--- Esto convierte None en 0 de forma segura
-                                    rif_r, 
-                                    razon_r, 
-                                    dir_r, 
-                                    str(f_data['numero_factura']), 
-                                    str(f_data['numero_control']), 
-                                    f_data['fecha_operacion'], 
-                                    "001", 
-                                    base_r, 
-                                    porc_r, 
-                                    sust_r, 
-                                    f_data['fecha_operacion'].strftime("%Y%m"), 
-                                    m_final,  # <--- Este es el valor limpio
-                                    n_comprob_manual
-                                )
-                                
-                                if exito:
-                                    st.session_state.datos_pdf = {
-                                        "agente": DATOS_EMPRESA,
-                                        "sujeto": {"rif": rif_r, "nombre": razon_r, "direccion": dir_r},
-                                        "factura": str(f_data['numero_factura']),
-                                        "control": str(f_data['numero_control']),
-                                        "base": base_r,
-                                        "porcentaje": porc_r,
-                                        "sustraendo": sust_r,
-                                        "total_retenido": m_final,
-                                        "fecha_emision": f_data['fecha_operacion'].strftime("%d/%m/%Y"),
-                                        "fecha_operacion": f_data['fecha_operacion'],
-                                        "n_comprobante": n_comprob_manual
-                                    }
-                                    st.session_state.pdf_listo = True
-                                    st.success(f"✅ Comprobante N° {n_comprob_manual} registrado.")
-                                    st.rerun()
+                            if exito:
+                                st.session_state.datos_pdf = {
+                                    "agente": DATOS_EMPRESA,
+                                    "sujeto": {"rif": rif_r, "nombre": razon_r, "direccion": dir_r},
+                                    "factura": str(f_data['numero_factura']),
+                                    "control": str(f_data['numero_control']),
+                                    "base": base_r,
+                                    "porcentaje": porc_r,
+                                    "sustraendo": sust_r,
+                                    "total_retenido": m_final,
+                                    "fecha_emision": f_data['fecha_operacion'].strftime("%d/%m/%Y"),
+                                    "fecha_operacion": f_data['fecha_operacion'],
+                                    "n_comprobante": n_comprob_manual
+                                }
+                                st.session_state.pdf_listo = True
+                                st.success(f"✅ Comprobante N° {n_comprob_manual} registrado.")
+                                st.rerun()
 
             # Bloque de descarga
             if st.session_state.pdf_listo and st.session_state.datos_pdf:
