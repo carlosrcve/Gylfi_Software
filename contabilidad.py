@@ -9479,29 +9479,48 @@ elif opcion_menu == "📚 Libros Fiscales":
                         n_comprob_manual = c2.text_input("N° Comprobante (Manual)", value=val_sugerido)
                         razon_r = st.text_input("Razón Social", value=f_data['proveedor_nombre'])
                         
-                        # --- LÓGICA DE DIRECCIÓN MEJORADA ---
+                        # --- LÓGICA DE DIRECCIÓN Y DIRECTORIO MEJORADA ---
                         dir_bd = f_data.get('proveedor_direccion', '') 
                         dir_bd = str(dir_bd) if dir_bd is not None else ""
 
-                        if dir_bd.strip() != "" and dir_bd.upper() != "NONE" and dir_bd.upper() != "DIRECCIÓN NO REGISTRADA":
-                            dir_r = st.text_input("Dirección", value=dir_bd, key=f"dir_{f_data['id']}")
+                        # Verificamos si el proveedor vino con datos reales o por defecto de la BD
+                        proveedor_encontrado = (
+                            dir_bd.strip() != "" 
+                            and dir_bd.upper() != "NONE" 
+                            and dir_bd.upper() != "DIRECCIÓN NO REGISTRADA"
+                            and f_data.get('proveedor_nombre', '').upper() != "PROVEEDOR NO ENCONTRADO"
+                        )
+
+                        if proveedor_encontrado:
+                            razon_r = st.text_input("Razón Social", value=f_data['proveedor_nombre'], key=f"razon_{f_data.get('id', 'gen')}")
+                            dir_r = st.text_input("Dirección", value=dir_bd, key=f"dir_{f_data.get('id', 'gen')}")
                         else:
                             st.warning("⚠️ PROVEEDOR NO VINCULADO EN ESTA LISTA. Verifique el directorio general.")
                             
-                            # Si cargaste el directorio con el botón de al lado, podemos dar la opción de autocompletar
+                            # Intentamos usar el directorio cargado previamente en session_state
                             if "df_prov_fiscal" in st.session_state and not st.session_state.df_prov_fiscal.empty:
-                                lista_profs = st.session_state.df_prov_fiscal['razon_social'].tolist()
-                                prov_seleccionado = st.selectbox("Seleccionar del Directorio Cargado", ["-- Seleccione --"] + lista_profs, key=f"sel_dir_{f_data['id']}")
+                                df_dir = st.session_state.df_prov_fiscal
+                                lista_nombres = df_dir['razon_social'].dropna().tolist()
                                 
-                                if prov_seleccionado != "-- Seleccione --":
-                                    datos_p_sel = st.session_state.df_prov_fiscal[st.session_state.df_prov_fiscal['razon_social'] == prov_seleccionado].iloc[0]
-                                    rif_r = datos_p_sel['rif']
-                                    razon_r = datos_p_sel['razon_social']
-                                    dir_r = datos_p_sel['direccion_fiscal']
+                                prov_seleccionado = st.selectbox(
+                                    "Seleccionar proveedor del Directorio General", 
+                                    ["-- Seleccione un proveedor --"] + lista_nombres, 
+                                    key=f"sel_dir_{f_data.get('id', 'gen')}"
+                                )
+                                
+                                if prov_seleccionado != "-- Seleccione un proveedor --":
+                                    row_p = df_dir[df_dir['razon_social'] == prov_seleccionado].iloc[0]
+                                    rif_r = str(row_p.get('rif', rif_r))
+                                    razon_r = st.text_input("Razón Social", value=str(row_p.get('razon_social', '')), key=f"razon_sel_{f_data.get('id', 'gen')}")
+                                    dir_r = st.text_input("Dirección", value=str(row_p.get('direccion_fiscal', '')), key=f"dir_sel_{f_data.get('id', 'gen')}")
+                                    st.success(f"✅ Proveedor vinculado: RIF {rif_r}")
                                 else:
-                                    dir_r = st.text_input("Dirección", value="Escriba la dirección aquí...", key=f"dir_{f_data['id']}")
+                                    razon_r = st.text_input("Razón Social", value=f_data.get('proveedor_nombre', ''), key=f"razon_manual_{f_data.get('id', 'gen')}")
+                                    dir_r = st.text_input("Dirección", value="Escriba la dirección aquí...", key=f"dir_manual_{f_data.get('id', 'gen')}")
                             else:
-                                dir_r = st.text_input("Dirección", value="Escriba la dirección aquí...", key=f"dir_{f_data['id']}")
+                                st.info("💡 Consejo: Haga clic primero en **'🏢 Cargar Directorio de Proveedores'** arriba para habilitar la selección automática.")
+                                razon_r = st.text_input("Razón Social", value=f_data.get('proveedor_nombre', ''), key=f"razon_manual_2_{f_data.get('id', 'gen')}")
+                                dir_r = st.text_input("Dirección", value="Escriba la dirección aquí...", key=f"dir_manual_2_{f_data.get('id', 'gen')}")
                         
                         c7, c8, c9 = st.columns(3)
                         base_r = c7.number_input("Base Imponible", value=float(f_data['monto_operacion']))
