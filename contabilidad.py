@@ -745,24 +745,24 @@ def obtener_historico_utilidad(db, f_inicio=None, f_fin=None):
 
 @st.cache_data(ttl=300)
 def obtener_salud_fiscal(db, f_inicio=None, f_fin=None):
-    # BLINDAJE: Asegurar que 'db' sea siempre un string (nombre de la base de datos)
+    # BLINDAJE: Asegurar que 'db' sea siempre un string
     if not isinstance(db, str):
         db = str(db) if db else "control_central"
 
     conn = conectar_db(db)
-    df_default = pd.DataFrame(columns=['anio', 'mes', 'mes_nombre', 'utilidad_mensual'])
+    # DataFrame limpio sin columnas de utilidad
+    df_default = pd.DataFrame(columns=['anio', 'mes', 'mes_nombre', 'ingresos_exentos', 'ingresos_gravados'])
+    kpis_default = {'ingresos_exentas': 0.0, 'ingresos_gravados': 0.0}
     
     if not conn:
-        return df_default
+        return df_default, kpis_default
     
-    # Obtener de session_state si son None, asegurando extraer solo el valor si es un date
     if f_inicio is None:
         f_inicio = st.session_state.get("f_inicio_global")
     if f_fin is None:
         f_fin = st.session_state.get("f_fin_global")
 
     import datetime
-    # Si por error session_state guardó otra cosa o sigue siendo None, inicializamos correctamente
     if not isinstance(f_inicio, (datetime.date, datetime.datetime)):
         anio_actual = datetime.datetime.now().year
         f_inicio = datetime.date(anio_actual, 1, 1)
@@ -770,11 +770,7 @@ def obtener_salud_fiscal(db, f_inicio=None, f_fin=None):
     if not isinstance(f_fin, (datetime.date, datetime.datetime)):
         f_fin = datetime.date.today()
 
-    # Extraer el año de forma segura (manejando tanto si es objeto date como si fuera string)
-    if hasattr(f_inicio, 'year'):
-        anio_base = f_inicio.year
-    else:
-        anio_base = datetime.datetime.now().year
+    anio_base = f_inicio.year if hasattr(f_inicio, 'year') else datetime.datetime.now().year
 
     meses_skeleton = pd.DataFrame({
         'anio': [anio_base] * 12,
@@ -812,10 +808,15 @@ def obtener_salud_fiscal(db, f_inicio=None, f_fin=None):
 
         df = df.fillna(0)
 
-        ingresos = df['ing_haber'] - df['ing_debe']
+        # Cálculo directo de ingresos (Sin utilidad)
+        df['ingresos_exentos'] = df['ex_haber'] - df['ex_debe']
+        df['ingresos_gravados'] = df['gr_haber'] - df['gr_debe']
         
-        df['utilidad_acumulada'] = ingresos 
-        df['utilidad_mensual'] = df['utilidad_acumulada'].diff().fillna(df['utilidad_acumulada'])
+        # Totales para KPIs
+        kpis_fiscales = {
+            'ingresos_exentas': df['ingresos_exentos'].sum(),
+            'ingresos_gravados': df['ingresos_gravados'].sum()
+        }
         
         dic_meses_nombres = {
             1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril", 
@@ -824,11 +825,12 @@ def obtener_salud_fiscal(db, f_inicio=None, f_fin=None):
         }
         df['mes_nombre'] = df['mes'].map(dic_meses_nombres)
         
-        return df[['anio', 'mes', 'mes_nombre', 'utilidad_mensual', 'utilidad_acumulada']]
+        # Devolvemos solo lo solicitado
+        return df[['anio', 'mes', 'mes_nombre', 'ingresos_exentos', 'ingresos_gravados']], kpis_fiscales
         
     except Exception as e:
-        print(f"❌ Error al calcular la utilidad mensual: {e}")
-        return df_default
+        print(f"❌ Error al calcular ingresos: {e}")
+        return df_default, kpis_default
         
     finally:
         if cursor:
@@ -836,7 +838,7 @@ def obtener_salud_fiscal(db, f_inicio=None, f_fin=None):
         if conn and conn.is_connected():
             conn.close()
 
-            
+
 @st.cache_data(ttl=300)
 def obtener_analisis_gastos_clase6(db, f_i, f_f):
     """
