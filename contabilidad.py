@@ -2832,32 +2832,37 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
 
         # --- 3. LÓGICA DE PROCESAMIENTO ---es
         # --- 3. LÓGICA DE PROCESAMIENTO ---
+        # 1. Obtenemos las pendientes
         df_facturas = obtener_facturas_pendientes(conn)
 
         if not df_facturas.empty:
+            # Limpieza exhaustiva de la columna problemática para evitar conflictos con PyArrow
             if "Sustraendo Bs." in df_facturas.columns:
-                df_facturas["Sustraendo Bs."] = pd.to_numeric(df_facturas["Sustraendo Bs."], errors="coerce").fillna(0.0)
+                df_facturas["Sustraendo Bs."] = pd.to_numeric(
+                    df_facturas["Sustraendo Bs."], errors="coerce"
+                ).fillna(0.0)
 
-            # Asegurar columna de selección en el session_state o dataframe inicial
+            # 2. Agregamos una columna de checkbox para seleccionar
             if 'Seleccionar' not in df_facturas.columns:
                 df_facturas.insert(0, "Seleccionar", False)
 
-            # Mostrar el editor de datos interactivo
+            # 3. Muestra el editor de datos interactivo (actualizado sin usar use_container_width)
             df_editado = st.data_editor(
                 df_facturas,
                 column_config={"Seleccionar": st.column_config.CheckboxColumn(required=True)},
                 hide_index=True,
-                use_container_width=True,
+                width='stretch',
                 key="editor_facturas_pendientes"
             )
 
+            # Re-asegurar el tipo numérico tras la edición
             if "Sustraendo Bs." in df_editado.columns:
-                df_editado["Sustraendo Bs."] = pd.to_numeric(df_editado["Sustraendo Bs."], errors="coerce").fillna(0.0)
+                df_editado["Sustraendo Bs."] = pd.to_numeric(
+                    df_editado["Sustraendo Bs."], errors="coerce"
+                ).fillna(0.0)
 
-            # Filtrar estrictamente las marcadas por el usuario en tiempo real
             seleccion = df_editado[df_editado["Seleccionar"] == True]
             
-            # Guardamos la selección actual en session_state de forma inmediata
             if not seleccion.empty:
                 st.session_state['facturas_seleccionadas'] = seleccion.copy()
             else:
