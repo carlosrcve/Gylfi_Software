@@ -757,7 +757,7 @@ def obtener_salud_fiscal(db, f_inicio=None, f_fin=None):
     
     import datetime
     
-    # 1. Asegurar fechas válidas utilizando el session_state o valores por defecto
+    # 1. Asegurar fechas válidas
     if f_inicio is None: 
         f_inicio = st.session_state.get("f_inicio_global", datetime.date(datetime.datetime.now().year, 1, 1))
     if f_fin is None: 
@@ -770,25 +770,17 @@ def obtener_salud_fiscal(db, f_inicio=None, f_fin=None):
         'mes': list(range(1, 13))
     })
 
-    # Consulta de diagnóstico: Sin filtros, solo trae una muestra de lo que hay
-    query_diag = f"""
-        SELECT 
-            plan_cuentas, debe, haber
-        FROM `{db}`.asientos_contables
-        LIMIT 100
-    """
-
-    # 2. Consulta adaptada al rango exacto de fechas (BETWEEN)
+    # 2. Consulta robusta usando CAST o LIKE para evitar que el formato de fecha rompa el filtro
     query = f"""
         SELECT 
-            YEAR(STR_TO_DATE(LEFT(fecha, 10), '%Y-%m-%d')) as anio,
-            MONTH(STR_TO_DATE(LEFT(fecha, 10), '%Y-%m-%d')) as mes,
+            YEAR(CAST(fecha AS DATE)) as anio,
+            MONTH(CAST(fecha AS DATE)) as mes,
             
             SUM(CASE WHEN plan_cuentas LIKE '4.1.1.01.001%%' THEN haber - debe ELSE 0 END) as exentos,
             SUM(CASE WHEN plan_cuentas LIKE '4.1.1.01.002%%' THEN haber - debe ELSE 0 END) as gravados
             
         FROM `{db}`.asientos_contables 
-        WHERE STR_TO_DATE(LEFT(fecha, 10), '%Y-%m-%d') BETWEEN %s AND %s
+        WHERE CAST(fecha AS DATE) BETWEEN %s AND %s
         GROUP BY anio, mes
         ORDER BY anio ASC, mes ASC
     """
@@ -796,22 +788,7 @@ def obtener_salud_fiscal(db, f_inicio=None, f_fin=None):
     cursor = None
     try:
         cursor = conn.cursor(dictionary=True)
-        
-        # --- DIAGNÓSTICO EJECUTADO ANTES DEL CÁLCULO ---
-        cursor.execute(query_diag)
-        resultados_diag = cursor.fetchall()
-        
-        print(f"DEBUG TOTAL: Se encontraron {len(resultados_diag)} filas en la tabla.")
-        if resultados_diag:
-            print(f"DEBUG MUESTRA: {resultados_diag[0]}")
-            coincidencias = [r for r in resultados_diag if r.get('plan_cuentas') and '4.1.1.01' in str(r['plan_cuentas'])]
-            print(f"DEBUG: Filas que contienen '4.1.1.01': {len(coincidencias)}")
-        else:
-            print("⚠️ ATENCIÓN: La tabla de asientos contables devolvió 0 registros o está vacía.")
-        # -----------------------------------------------
-
-        # Ejecución de la consulta principal con el rango de fechas
-        cursor.execute(query, (f_inicio, f_fin))
+        cursor.execute(query, (str(f_inicio), str(f_fin)))
         resultados = cursor.fetchall()
         
         df_sql = pd.DataFrame(resultados) if resultados else pd.DataFrame(columns=['anio', 'mes'])
@@ -823,10 +800,9 @@ def obtener_salud_fiscal(db, f_inicio=None, f_fin=None):
 
         df = df.fillna(0)
 
-        # 3. Aplicar des-acumulación si la BD guarda saldos acumulados (igual que tu histórico de utilidad)
-        # Si cada asiento es independiente y no acumulativo, puedes cambiar esto por una simple asignación directa.
-        df['ingresos_exentos'] = df['exentos'].diff().fillna(df['exentos'])
-        df['ingresos_gravados'] = df['gravados'].diff().fillna(df['gravados'])
+        # Asignación directa de los valores agrupados por mes en el periodo
+        df['ingresos_exentos'] = df['exentos']
+        df['ingresos_gravados'] = df['gravados']
         
         dic_meses_nombres = {
             1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril", 
@@ -835,7 +811,7 @@ def obtener_salud_fiscal(db, f_inicio=None, f_fin=None):
         }
         df['mes_nombre'] = df['mes'].map(dic_meses_nombres)
 
-        # 4. Cálculo de KPIs basado en la suma total del periodo consultado
+        # 3. Suma total exacta de los KPIs en función del rango de fechas filtrado
         total_exentos = df['ingresos_exentos'].sum()
         total_gravados = df['ingresos_gravados'].sum()
 
