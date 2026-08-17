@@ -403,7 +403,7 @@ def panel_administracion(conn):
             LEFT JOIN control_central.clientes c ON u.cliente_id = c.id
         """
         df_usuarios = pd.read_sql(query_view, conn)
-        st.dataframe(df_usuarios, use_container_width=True)
+        st.dataframe(df_usuarios, width='stretch')
     except Exception:
         st.info("No hay usuarios registrados todavía.")
 
@@ -419,7 +419,7 @@ def panel_administracion(conn):
         df_logs = pd.read_sql(query_logs, conn)
         
         if not df_logs.empty:
-            st.dataframe(df_logs, use_container_width=True)
+            st.dataframe(df_logs, width='stretch')
         else:
             st.info("No se han detectado interacciones todavía.")
     except Exception as e:
@@ -1766,7 +1766,7 @@ def disenar_reporte_asiento_contable(numero_comprobante):
             'Debe (Bs.)': formato_contable,
             'Haber (Bs.)': formato_contable
         }), 
-        use_container_width=True, 
+        width='stretch', 
         hide_index=True
     )
 
@@ -1900,7 +1900,7 @@ def mostrar_interfaz_mayor(f_ini_g, f_fin_g, db_nombre):
                         fmt = {'debe': '{:,.2f}', 'haber': '{:,.2f}', 'Saldo': '{:,.2f}'}
                         st.dataframe(
                             reporte.style.format(fmt), 
-                            use_container_width=True, 
+                            width='stretch', 
                             hide_index=True
                         )
                         
@@ -2832,21 +2832,17 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
 
         # --- 3. LÓGICA DE PROCESAMIENTO ---es
         # --- 3. LÓGICA DE PROCESAMIENTO ---
-        # 1. Obtenemos las pendientes
         df_facturas = obtener_facturas_pendientes(conn)
 
         if not df_facturas.empty:
-            # Limpieza exhaustiva de la columna problemática para evitar conflictos con PyArrow
             if "Sustraendo Bs." in df_facturas.columns:
-                df_facturas["Sustraendo Bs."] = pd.to_numeric(
-                    df_facturas["Sustraendo Bs."], errors="coerce"
-                ).fillna(0.0)
+                df_facturas["Sustraendo Bs."] = pd.to_numeric(df_facturas["Sustraendo Bs."], errors="coerce").fillna(0.0)
 
-            # 2. Agregamos una columna de checkbox para seleccionar
+            # Asegurar columna de selección en el session_state o dataframe inicial
             if 'Seleccionar' not in df_facturas.columns:
                 df_facturas.insert(0, "Seleccionar", False)
 
-            # 3. Muestra el editor de datos interactivo (actualizado sin usar use_container_width)
+            # Mostrar el editor de datos interactivo
             df_editado = st.data_editor(
                 df_facturas,
                 column_config={"Seleccionar": st.column_config.CheckboxColumn(required=True)},
@@ -2855,14 +2851,13 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                 key="editor_facturas_pendientes"
             )
 
-            # Re-asegurar el tipo numérico tras la edición
             if "Sustraendo Bs." in df_editado.columns:
-                df_editado["Sustraendo Bs."] = pd.to_numeric(
-                    df_editado["Sustraendo Bs."], errors="coerce"
-                ).fillna(0.0)
+                df_editado["Sustraendo Bs."] = pd.to_numeric(df_editado["Sustraendo Bs."], errors="coerce").fillna(0.0)
 
+            # Filtrar estrictamente las marcadas por el usuario en tiempo real
             seleccion = df_editado[df_editado["Seleccionar"] == True]
             
+            # Guardamos la selección actual en session_state de forma inmediata
             if not seleccion.empty:
                 st.session_state['facturas_seleccionadas'] = seleccion.copy()
             else:
@@ -3440,7 +3435,7 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                     st.divider()
                     st.write("📋 Resumen del período seleccionado:")
                     if not df_historial.empty:
-                        st.dataframe(df_historial, use_container_width=True, hide_index=True)
+                        st.dataframe(df_historial, width='stretch', hide_index=True)
                     else:
                         st.info("No se encontraron registros en el historial para este rango de fechas.")
 
@@ -3481,7 +3476,7 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                             "id": st.column_config.NumberColumn(disabled=True), # El ID nunca debe ser editable
                             "nro_comp": st.column_config.TextColumn(disabled=True) # Si no quieres que cambien el número de comprobante
                         },
-                        use_container_width=True,
+                        width='stretch',
                         hide_index=True,
                         key="editor_retenciones" # Clave única para evitar conflictos de estado
                     )
@@ -3923,7 +3918,7 @@ def modulo_inventario_pedacito_cielo(conn):
             
             st.dataframe(
                 df_visual[['sku', 'descripcion', 'tipo', 'stock', 'unidad', 'Costo Activo (USD)', 'Valor Total (USD)', 'Valor Total (VES)']], 
-                use_container_width=True, hide_index=True
+                width='stretch', hide_index=True
             )
 
             total_inventario_usd = (df_filtrado['stock'] * df_filtrado['costo_usd']).sum()
@@ -3971,7 +3966,7 @@ def modulo_inventario_pedacito_cielo(conn):
                                 "Referencia": m[5],
                                 "Operador": m[6]
                             })
-                        st.dataframe(pd.DataFrame(data_kardex), use_container_width=True, hide_index=True)
+                        st.dataframe(pd.DataFrame(data_kardex), width='stretch', hide_index=True)
                     else:
                         st.info("💡 El producto está limpio. Sin movimientos en Kardex.")
                 except Exception as err_kardex:
@@ -4009,7 +4004,7 @@ def modulo_inventario_pedacito_cielo(conn):
             df_receta_v = df_receta.copy()
             df_receta_v['Costo Unitario USD'] = df_receta_v['Costo Unitario USD'].map(lambda x: f"$ {x:,.2f}")
             df_receta_v['Subtotal USD'] = df_receta_v['Subtotal USD'].map(lambda x: f"$ {x:,.4f}")
-            st.dataframe(df_receta_v, use_container_width=True, hide_index=True)
+            st.dataframe(df_receta_v, width='stretch', hide_index=True)
             
             costo_materia_prima = df_receta['Subtotal USD'].sum()
             col_rec1, col_rec2 = st.columns(2)
@@ -4209,7 +4204,7 @@ def modulo_inventario_pedacito_cielo(conn):
             
             st.dataframe(
                 df_semaforo_v[['Estado', 'sku', 'descripcion', 'stock', 'stock_minimo', 'Diferencia vs Mínimo', 'unidad']],
-                use_container_width=True, hide_index=True
+                width='stretch', hide_index=True
             )
 
             # Tarjetas de resumen rápidas
@@ -4291,7 +4286,7 @@ def modulo_inventario_pedacito_cielo(conn):
                     
                     st.dataframe(
                         df_abc_v[['Clase ABC', 'sku', 'descripcion', 'Valor Inversión Movilizada (USD)', '% Participación', 'Último Movimiento de Salida']],
-                        use_container_width=True, hide_index=True
+                        width='stretch', hide_index=True
                     )
                     
                     # --- RECOMENDACIONES PREDICTIVAS DE LA IA ---
@@ -4443,7 +4438,7 @@ def mostrar_analisis_rendimiento(u_v, patrimonio_total, capital_social=600000.0)
         showlegend=False
     )
     
-    st.plotly_chart(fig, use_container_width=True, key="grafico_comparativo_capital_utilidad")
+    st.plotly_chart(fig, width='stretch', key="grafico_comparativo_capital_utilidad")
 
 
 
@@ -5109,7 +5104,7 @@ if "🏠 Inicio" in opcion_menu:
         st.subheader("Indicadores Financieros en Tiempo Real")
 
     with col_btn:
-        if st.button("🔄 Actualizar Datos", use_container_width=True):
+        if st.button("🔄 Actualizar Datos", width='stretch'):
             st.cache_data.clear()
             st.rerun()
 
@@ -5391,7 +5386,7 @@ if "🏠 Inicio" in opcion_menu:
                     yaxis_title="",
                     font=dict(family="Arial, sans-serif", size=12, color="#333333")
                 )
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width='stretch')
             st.markdown('</div>', unsafe_allow_html=True)
 
     # --- COLUMNA DERECHA ---
@@ -5438,7 +5433,7 @@ if "🏠 Inicio" in opcion_menu:
                         font=dict(family="Arial, sans-serif", size=12, color="#333333")
                     )
                     
-                    st.plotly_chart(fig_pie, use_container_width=True)
+                    st.plotly_chart(fig_pie, width='stretch')
                 else:
                     st.warning("No hay gastos.")
             st.markdown('</div>', unsafe_allow_html=True)
@@ -5615,7 +5610,7 @@ if "🏠 Inicio" in opcion_menu:
                 df_flujo = None
 
             if df_flujo is not None and not df_flujo.empty:
-                st.dataframe(df_flujo, use_container_width=True, hide_index=True, column_config={
+                st.dataframe(df_flujo, width='stretch', hide_index=True, column_config={
                     "fecha": st.column_config.DateColumn("Fecha"),
                     "descripcion": "Concepto",
                     "debe": st.column_config.NumberColumn("Entradas", format="Bs. %.2f"),
@@ -5656,7 +5651,7 @@ if "🏠 Inicio" in opcion_menu:
             # Tabla limpia, expandida a todo el ancho y con formato profesional
             st.dataframe(
                 df_cashea, 
-                use_container_width=True,  # Ocupa todo el ancho de la pantalla correctamente
+                width='stretch',  # Ocupa todo el ancho de la pantalla correctamente
                 height=350,                # Altura controlada con scroll vertical si hay muchos registros
                 column_config={
                     "fecha": st.column_config.DateColumn("Fecha"),
@@ -5858,11 +5853,11 @@ if "🏠 Inicio" in opcion_menu:
                     data=buffer,
                     file_name=nombre_archivo,
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    use_container_width=True
+                    width='stretch'
                 )
 
             # 2. Renderizar la tabla principal en la app abajo de los filtros
-            st.dataframe(df_visual, use_container_width=True, hide_index=True)
+            st.dataframe(df_visual, width='stretch', hide_index=True)
             
             # 3. Totales de Control al pie de página (Acumulados)
             tot_debe = df_diario['debe_usd'].sum() if moneda_vista == "Dólares (USD)" else df_diario['debe'].sum()
@@ -5883,7 +5878,7 @@ if "🏠 Inicio" in opcion_menu:
                 st.markdown(f"### 📋 Balance de Comprobación — Período Seleccionado ({moneda_vista})")
                 st.write("Consolidación analítica de saldos: Apertura, Movimientos mensuales y Saldos de Cierre.")
                 
-                if st.button("🧮 Generar Balance de Comprobación", use_container_width=True):
+                if st.button("🧮 Generar Balance de Comprobación", width='stretch'):
                     
                     if df_diario is None or df_diario.empty:
                         st.warning("⚠️ El registro del diario está vacío o no se pudo cargar para este período.")
@@ -5939,7 +5934,7 @@ if "🏠 Inicio" in opcion_menu:
                                 'Saldo Final': df_balance['Saldo Final Num'].apply(f_monto)
                             })
                             
-                            st.dataframe(df_balance_visual, use_container_width=True, hide_index=True)
+                            st.dataframe(df_balance_visual, width='stretch', hide_index=True)
                             
                             tot_inicial = df_balance['Saldo Inicial Num'].sum()
                             tot_debe = df_balance['Debe Num'].sum()
@@ -5994,7 +5989,7 @@ if "🏠 Inicio" in opcion_menu:
         st.markdown("### 🔍 Análisis de Patrones y Detección Automatizada de Anomalías")
         st.write("La IA analiza los asientos del mes buscando importes atípicos, desviaciones estadísticas y registros duplicados.")
         
-        if st.button("🚀 Ejecutar Escáner Antifraude", use_container_width=True):
+        if st.button("🚀 Ejecutar Escáner Antifraude", width='stretch'):
             st.info("Procesando algoritmos estadísticos sobre el Libro Diario...")
             
             if df_diario.empty:
@@ -6228,7 +6223,7 @@ if "🏠 Inicio" in opcion_menu:
                 )
                 
                 # IMPORTANTE: st.plotly_chart debe estar identado dentro del 'with tab1:'
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width='stretch')
             else:
                 st.warning("No hay datos disponibles para mostrar en el gráfico.")
 
@@ -6277,7 +6272,7 @@ if "🏠 Inicio" in opcion_menu:
                 )
                 fig5.update_traces(texttemplate='%{text:,.2f}', textposition='outside')
                 fig5.update_layout(height=300, margin=dict(l=20, r=40, t=40, b=20), xaxis=dict(title="Monto (Bs.)"), yaxis=dict(title=""))
-                st.plotly_chart(fig5, use_container_width=True)
+                st.plotly_chart(fig5, width='stretch')
             else:
                 st.info(f"No hay movimientos en cuentas de Clase 5 para el período del {f_i_str} al {f_f_str}.")
 
@@ -6319,7 +6314,7 @@ if "🏠 Inicio" in opcion_menu:
                 )
                 fig6.update_traces(texttemplate='%{text:,.2f}', textposition='outside')
                 fig6.update_layout(height=350, margin=dict(l=20, r=40, t=40, b=20), xaxis=dict(title="Monto (Bs.)"), yaxis=dict(title=""))
-                st.plotly_chart(fig6, use_container_width=True)
+                st.plotly_chart(fig6, width='stretch')
             else:
                 st.info(f"No hay movimientos en cuentas de Clase 6 para el período del {f_i_str} al {f_f_str}.")
 
@@ -6371,7 +6366,7 @@ if "🏠 Inicio" in opcion_menu:
                 )
                 
                 fig.update_layout(plot_bgcolor='rgba(0,0,0,0)', showlegend=False)
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width='stretch')
             else:
                 st.info("No hay datos disponibles o error al recuperar el histórico para el periodo seleccionado.")
 
@@ -6465,7 +6460,7 @@ if "🏠 Inicio" in opcion_menu:
                         
                         st.dataframe(
                             df_mostrar,
-                            use_container_width=True,
+                            width='stretch',
                             height=350,
                             column_config={
                                 "id": st.column_config.NumberColumn("id", format="%d"),
@@ -6591,7 +6586,7 @@ if "🏠 Inicio" in opcion_menu:
                             
                             st.dataframe(
                                 df_mostrar,
-                                use_container_width=True,
+                                width='stretch',
                                 height=350,
                                 column_config={
                                     "id": st.column_config.NumberColumn("id", format="%d"),
@@ -6922,7 +6917,7 @@ elif opcion_menu == "📂 Plan de Cuentas":
                 df_plan = df_plan.rename(columns={'nombre de la cuenta': 'nombre'})
                 
                 st.write("Vista previa:")
-                st.dataframe(df_plan.head(20), use_container_width=True, height=500)
+                st.dataframe(df_plan.head(20), width='stretch', height=500)
                 
                 if st.button("🚀 Iniciar Importación a Base de Datos", type="primary"):
                     columnas_sql = ['id', 'codigo', 'nombre', 'nivel', 'tipo', 'padre']
@@ -6952,7 +6947,7 @@ elif opcion_menu == "📂 Plan de Cuentas":
                 df_actual, 
                 key="editor_plan_cuentas", 
                 num_rows="dynamic", 
-                use_container_width=True,
+                width='stretch',
                 column_config={
                     "id": st.column_config.NumberColumn("ID", disabled=True), # ID inalterable
                     "codigo": st.column_config.TextColumn("Código Contable", required=True),
@@ -7069,7 +7064,7 @@ elif opcion_menu == "📝 Asientos Contables":
                     # El editor devuelve el dataframe actualizado.
                     df_editado = st.data_editor(
                         df_diario, 
-                        use_container_width=True, 
+                        width='stretch', 
                         hide_index=True,
                         key="editor_diario"
                     )
@@ -7295,7 +7290,7 @@ elif opcion_menu == "📝 Asientos Contables":
 
                         df_view['saldo_inicial'] = df_view['saldo_inicial'].apply(formatear_moneda)
                         df_view['saldo_final'] = df_view['saldo_final'].apply(formatear_moneda)
-                        st.dataframe(df_view, use_container_width=True)
+                        st.dataframe(df_view, width='stretch')
                     else:
                         st.info(f"No hay saldos registrados para {empresa_data['nombre_empresa']}.")
                         
@@ -7461,7 +7456,7 @@ elif opcion_menu == "📝 Asientos Contables":
                     
                     # Mostrar resultados
                     if not df_cuenta.empty:
-                        st.dataframe(df_cuenta, use_container_width=True)
+                        st.dataframe(df_cuenta, width='stretch')
                         st.write(f"**Total movimientos encontrados:** {len(df_cuenta)}")
                     else:
                         st.info(f"No hay movimientos para {empresa_data['nombre_empresa']} en {mes_sel} {ano_sel}.")
@@ -7625,7 +7620,7 @@ elif opcion_menu == "📝 Asientos Contables":
             if not df_listado.empty:
                 with st.expander("📋 Listado de Comprobantes", expanded=True):
                     event = st.dataframe(
-                        df_listado, use_container_width=True, hide_index=True,
+                        df_listado, width='stretch', hide_index=True,
                         on_select="rerun", selection_mode="single-row"
                     )
                     if len(event.selection.rows) > 0:
@@ -7635,7 +7630,7 @@ elif opcion_menu == "📝 Asientos Contables":
             # --- PARTE 3: GENERAR REPORTE ---
             with st.expander("🔍 Generar Reporte", expanded=True):
                 n_comp = st.text_input("Nº de Comprobante", value=n_comp_seleccionado, key="busc_comp")
-                btn_comp = st.button("🔎 Generar Reporte", type="primary", use_container_width=True)
+                btn_comp = st.button("🔎 Generar Reporte", type="primary", width='stretch')
 
             if (btn_comp or n_comp_seleccionado) and n_comp:
                 # Reporte visual
@@ -7656,7 +7651,7 @@ elif opcion_menu == "📝 Asientos Contables":
                                 data=pdf_bytes,
                                 file_name=f"Comprobante_{n_comp}.pdf",
                                 mime="application/pdf",
-                                use_container_width=True
+                                width='stretch'
                             )
                     finally:
                         conn_pdf.close()
@@ -7696,7 +7691,7 @@ elif opcion_menu == "📝 Asientos Contables":
                     df_apertura.columns = [c.lower() for c in df_apertura.columns]
                     
                     fmt = {'debe': formato_contable, 'haber': formato_contable}
-                    st.dataframe(df_apertura.style.format(fmt), use_container_width=True, hide_index=True)
+                    st.dataframe(df_apertura.style.format(fmt), width='stretch', hide_index=True)
                     
                     t_debe = df_apertura['debe'].astype(float).sum()
                     t_haber = df_apertura['haber'].astype(float).sum()
@@ -7762,7 +7757,7 @@ elif opcion_menu == "📝 Asientos Contables":
                                     'Debe': lambda x: formato_contable(limpiar_monto_contable(x)),
                                     'Haber': lambda x: formato_contable(limpiar_monto_contable(x))
                                 }), 
-                                hide_index=True, use_container_width=True
+                                hide_index=True, width='stretch'
                             )
 
                             # Validación por cada comprobante individual
@@ -7833,7 +7828,7 @@ elif opcion_menu == "📝 Asientos Contables":
                         confirmar_borrado = st.checkbox("He leído la advertencia y estoy de acuerdo en borrar toda la información de esta empresa.")
 
                         if confirmar_borrado:
-                            if st.button("🧨 VACIAR TABLA DE SALDOS", type="primary", use_container_width=True):
+                            if st.button("🧨 VACIAR TABLA DE SALDOS", type="primary", width='stretch'):
                                 # Usamos la conexión dinámica
                                 conn = conectar_db(db_actual)
                                 if conn:
@@ -7947,7 +7942,7 @@ elif sub_opcion == "Balance de Comprobación":
                         'Saldo Final': formato_contable
                     }).apply(estilo_balance, axis=1),
                     column_order=['codigo', 'Cuenta', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final'],
-                    use_container_width=True, height=500, hide_index=True
+                    width='stretch', height=500, hide_index=True
                 )
 
                 # --- OBTENER TOTALES DIRECTO DE LA FILA Σ ---
@@ -8010,11 +8005,11 @@ elif sub_opcion == "Balance de Comprobación":
                     data=output_ex.getvalue(),
                     file_name=f"Balance_{EMPRESA}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    use_container_width=True
+                    width='stretch'
                 )
 
                 # 2. PDF PROFESIONAL
-                if col_btn2.button("📄 Generar PDF Profesional", use_container_width=True, type="primary"):
+                if col_btn2.button("📄 Generar PDF Profesional", width='stretch', type="primary"):
                     try:
                         from fpdf import FPDF
                         
@@ -8068,7 +8063,7 @@ elif sub_opcion == "Balance de Comprobación":
                             data=pdf_bytes, 
                             file_name=nombre_archivo_pdf, 
                             mime="application/pdf", 
-                            use_container_width=True
+                            width='stretch'
                         )
                     except Exception as e_pdf:
                         st.error(f"Error generando PDF: {e_pdf}")
@@ -8156,7 +8151,7 @@ elif sub_opcion == "Balance General":
                 st.dataframe(
                     df_bg.style.format({'Saldo Final': formato_contable}).apply(estilo_balance, axis=1),
                     column_order=['codigo', 'Cuenta', 'Saldo Final'],
-                    use_container_width=True, height=500, hide_index=True
+                    width='stretch', height=500, hide_index=True
                 )
                 
                 # 5. Obtención de utilidad y cierre de balance
@@ -8200,11 +8195,11 @@ elif sub_opcion == "Balance General":
                     data=output_bg.getvalue(),
                     file_name=f"Balance_General_{EMPRESA}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    use_container_width=True
+                    width='stretch'
                 )
 
                 # --- PDF ---
-                if col_pdf.button("📄 Generar PDF Profesional", use_container_width=True, type="primary"):
+                if col_pdf.button("📄 Generar PDF Profesional", width='stretch', type="primary"):
                     try:
                         from fpdf import FPDF
                         from datetime import datetime
@@ -8250,7 +8245,7 @@ elif sub_opcion == "Balance General":
                             data=pdf_bytes,
                             file_name=f"Balance_General_{EMPRESA}.pdf",
                             mime="application/pdf",
-                            use_container_width=True
+                            width='stretch'
                         )
                     except Exception as e_pdf:
                         st.error(f"Error al generar el PDF: {e_pdf}")
@@ -8321,7 +8316,7 @@ elif sub_opcion == "Estado de Resultados":
                 st.dataframe(
                     df_er.style.format({'Saldo Final': formato_contable}).apply(estilo_balance, axis=1),
                     column_order=['codigo', 'Cuenta', 'Saldo Final'],
-                    use_container_width=True, 
+                    width='stretch', 
                     height=400, 
                     hide_index=True
                 )
@@ -8434,11 +8429,11 @@ elif sub_opcion == "Estado de Resultados":
                     data=output_er.getvalue(),
                     file_name=f"Estado_Resultados_{EMPRESA}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    use_container_width=True
+                    width='stretch'
                 )
 
                 # --- PDF ---
-                if col_pdf.button("📄 Generar PDF Profesional", use_container_width=True, type="primary"):
+                if col_pdf.button("📄 Generar PDF Profesional", width='stretch', type="primary"):
                     try:
                         from fpdf import FPDF
                         from datetime import datetime
@@ -8484,7 +8479,7 @@ elif sub_opcion == "Estado de Resultados":
                             data=pdf_bytes,
                             file_name=f"Estado_Resultados_{EMPRESA}.pdf",
                             mime="application/pdf",
-                            use_container_width=True
+                            width='stretch'
                         )
                     except Exception as e_pdf:
                         st.error(f"Error PDF: {e_pdf}")
@@ -8563,7 +8558,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                         "fecha_factura": st.column_config.TextColumn("fecha_factura")
                     }
                     # 5. UNICO EDITOR
-                    resultado = st.data_editor(df_preview, key=f"editor_{archivo_v.name}", use_container_width=True,column_config=column_config)
+                    resultado = st.data_editor(df_preview, key=f"editor_{archivo_v.name}", width='stretch',column_config=column_config)
                     
                     st.markdown("### 📊 Totales")
                     def f_bs(v): return f"Bs. {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
@@ -8639,7 +8634,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                     )
                 
                 st.subheader("👁️ Vista de Consulta")
-                st.dataframe(df_visual, use_container_width=True, hide_index=True)
+                st.dataframe(df_visual, width='stretch', hide_index=True)
 
                 # --- 2. EDITOR DE REGISTROS (Edición funcional) ---
                 with st.expander("✏️ Editar Registros (Edición de datos)"):
@@ -8653,7 +8648,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                         df_mostrar,
                         key=key_editor,
                         num_rows="dynamic",
-                        use_container_width=True,
+                        width='stretch',
                         hide_index=True,
                         column_config={
                             "id": st.column_config.NumberColumn("ID", disabled=True),
@@ -8708,14 +8703,14 @@ elif opcion_menu == "📚 Libros Fiscales":
                                 data=datos_excel,
                                 file_name=f"Libro_Ventas_{desde_v}_al_{hasta_v}.xlsx",
                                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                                use_container_width=True
+                                width='stretch'
                             )
                         finally:
                             # Cerramos la conexión temp inmediatamente después de generar los datos
                             conn_temp.close()
 
                 with col_btn2:
-                    if st.button("💾 Guardar Cambios en Ventas", type="primary", use_container_width=True):
+                    if st.button("💾 Guardar Cambios en Ventas", type="primary", width='stretch'):
                         # Usamos la variable key_editor correctamente
                         if key_editor in st.session_state:
                             cambios = st.session_state[key_editor]
@@ -8792,7 +8787,7 @@ elif opcion_menu == "📚 Libros Fiscales":
             st.error("⚠️ **Atención:** El borrado masivo es irreversible.")
             
             # 2. Popover de confirmación
-            with st.popover("🚨 VACIAR VENTAS (RANGO SELECCIONADO)", use_container_width=True):
+            with st.popover("🚨 VACIAR VENTAS (RANGO SELECCIONADO)", width='stretch'):
                 st.subheader("Confirmar Borrado de Ventas")
                 st.info(f"Se borrará el rango: {fecha_inicio} hasta {fecha_fin}")
                 
@@ -8906,7 +8901,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                     st.session_state.df_compras_editor,
                     key="editor_consulta_final", 
                     num_rows="dynamic",
-                    use_container_width=True,
+                    width='stretch',
                     hide_index=False,
                     column_config={
                         "id": st.column_config.NumberColumn("ID", disabled=True),
@@ -9089,7 +9084,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                 },
                 key="editor_buffer_ocr",
                 num_rows="dynamic",
-                use_container_width=True
+                width='stretch'
             )
             
             # Actualizamos el estado con lo que el usuario editó
@@ -9125,7 +9120,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                         data=output.getvalue(),
                         file_name=f"Backup_OCR_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        use_container_width=True
+                        width='stretch'
                     )
 
                 with col_b2:
@@ -9205,7 +9200,7 @@ elif opcion_menu == "📚 Libros Fiscales":
         with tab3: # Vaciado de Rango
             st.subheader("🚨 Vaciado de Compras")
             
-            with st.popover("🚨 VACIAR COMPRAS (RANGO SELECCIONADO)", use_container_width=True):
+            with st.popover("🚨 VACIAR COMPRAS (RANGO SELECCIONADO)", width='stretch'):
                 st.subheader("Seleccionar Rango a Borrar")
                 
                 # 1. Selectores de fecha dentro del popover
@@ -9278,7 +9273,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                         )
                         
                 st.subheader("👁️ Vista de los datos cargados")
-                st.dataframe(df_visual, use_container_width=True, hide_index=True)
+                st.dataframe(df_visual, width='stretch', hide_index=True)
 
 
                 # D. Totales
@@ -9420,7 +9415,7 @@ elif opcion_menu == "📚 Libros Fiscales":
             # 2. Configuración de la tabla profesional
             st.dataframe(
                 df_referencia,
-                use_container_width=True,
+                width='stretch',
                 hide_index=True,
                 column_config={
                     "Cod": st.column_config.TextColumn("Código", width="small"),
@@ -9458,7 +9453,7 @@ elif opcion_menu == "📚 Libros Fiscales":
             col_c1, col_c2 = st.columns(2)
 
             with col_c1:
-                if st.button("🔍 Consultar Facturas Pendientes", use_container_width=True):
+                if st.button("🔍 Consultar Facturas Pendientes", width='stretch'):
                     conn = conectar_db(db_actual)
                     if conn:
                         # Consulta optimizada que une libro_compras con proveedores
@@ -9501,7 +9496,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                         finally:
                             conn.close()
             with col_c2:
-                if st.button("🏢 Cargar Directorio de Proveedores", use_container_width=True):
+                if st.button("🏢 Cargar Directorio de Proveedores", width='stretch'):
                     # CORREGIDO: Se pasa `db_actual` para conectar a la misma BD del cliente activo
                     conn = conectar_db(db_actual)
                     if conn:
@@ -9533,7 +9528,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                     on_select="rerun", 
                     selection_mode="single-row", 
                     hide_index=True, 
-                    use_container_width=True
+                    width='stretch'
                 )
                 
                 if sel_f.selection.rows:
@@ -9690,7 +9685,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                         data=pdf_bytes,
                         file_name=f"Retencion_{st.session_state.datos_pdf['n_comprobante']}.pdf",
                         mime="application/pdf",
-                        use_container_width=True,
+                        width='stretch',
                         key="btn_download_final"
                     )
                 finally:
@@ -9714,7 +9709,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                     f_inicio_h = col_f1.date_input("Desde", datetime.datetime(2026, 8, 1), key="h_desde_editor")
                     f_fin_h = col_f2.date_input("Hasta", datetime.datetime(2026, 8, 31), key="h_hasta_editor")
                     st.write("") 
-                    btn_cargar = st.button("📂 Cargar Historial para Editar", use_container_width=True, type="primary")
+                    btn_cargar = st.button("📂 Cargar Historial para Editar", width='stretch', type="primary")
 
                 # --- 1. Lógica de carga (DENTRO DEL TAB) ---
                 if btn_cargar:
@@ -9769,7 +9764,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                     )
 
                     # --- 3. Sincronización ---
-                    if st.button("💾 Sincronizar Historial con DB", type="primary", use_container_width=True):
+                    if st.button("💾 Sincronizar Historial con DB", type="primary", width='stretch'):
                         estado = st.session_state.get("editor_tabla_retenciones", None)
                         db_actual = st.session_state.get('DB_ACTUAL')
                         conn = conectar_db()
@@ -9843,7 +9838,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                 # 1. Botón para cargar historial
                 # Bloque de carga corregido dentro de tab4
                 # 1. Botón para cargar historial
-                if st.button("📂 Cargar/Actualizar Historial", use_container_width=True):
+                if st.button("📂 Cargar/Actualizar Historial", width='stretch'):
                     db_actual = st.session_state.get('DB_ACTUAL')
                     conn = conectar_db()
                     
@@ -9883,7 +9878,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                         on_select="rerun", 
                         selection_mode="single-row", 
                         hide_index=True, 
-                        use_container_width=True
+                        width='stretch'
                     )
 
                     seleccion = st.session_state.tabla_historial.selection.rows
@@ -9936,7 +9931,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                                         # Aquí hacemos el cambio para usar el número de comprobante directamente
                                         file_name=f"Retencion_{h['n_comprob_islr']}.pdf", 
                                         mime="application/pdf", 
-                                        use_container_width=True,
+                                        width='stretch',
                                         key=f"btn_reimp_{h['id']}"
                                     )
                             except Exception as e:
@@ -9958,7 +9953,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                         if db_actual:
                             conn = conectar_db(db_actual)
                             df = pd.read_sql("SELECT rif_retenido, numero_factura FROM retenciones_islr", conn)
-                            st.dataframe(df, use_container_width=True)
+                            st.dataframe(df, width='stretch')
                             conn.close()
                         else:
                             st.error("No se detectó una base de datos activa en la sesión.")
@@ -9997,7 +9992,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                     f_xml_desde = col_xml1.date_input("Desde", value=datetime.datetime(2026, 4, 1), key="xml_desde")
                     f_xml_hasta = col_xml2.date_input("Hasta", value=datetime.datetime(2026, 4, 30), key="xml_hasta")
                     
-                    # Botón de procesamiento (usando width='content' en lugar de use_container_width=False)
+                    # Botón de procesamiento (usando width='content' en lugar de width='content')
                     if st.button("🚀 Procesar Datos XML", width='content'):
                         db_actual = st.session_state.get('DB_ACTUAL') 
                         conn = conectar_db(db_actual) # Pasa explícitamente el nombre de la DB
@@ -10039,7 +10034,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                             data=st.session_state['xml_data'],
                             file_name=st.session_state['xml_filename'],
                             mime="application/xml",
-                            width='content' # Actualizado de use_container_width=False
+                            width='content' # Actualizado de width='content'
                         )
 
 
@@ -10106,7 +10101,7 @@ elif "Proveedores" in opcion_menu:
                 df_prov, 
                 key="editor_proveedores_dinamico", 
                 num_rows="dynamic",
-                use_container_width=True,
+                width='stretch',
                 hide_index=True,
                 column_config={
                     "rif": st.column_config.TextColumn("RIF (Llave Primaria)", required=True),
