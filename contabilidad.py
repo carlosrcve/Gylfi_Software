@@ -2822,6 +2822,7 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
             st.stop()
 
         conn.ping(reconnect=True, attempts=3, delay=1)
+        st.write(f"Conectado a: **{db_actual}**")
 
         # Filtros
         col_b1, col_b2 = st.columns(2)
