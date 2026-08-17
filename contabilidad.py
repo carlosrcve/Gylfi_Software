@@ -2866,6 +2866,7 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
             st.session_state['facturas_seleccionadas'] = None
 
         # Recuperar siempre desde session_state de manera sincronizada
+        # Recuperar siempre desde session_state de manera sincronizada
         facturas_seleccionadas = st.session_state.get('facturas_seleccionadas')
 
         if facturas_seleccionadas is not None and not facturas_seleccionadas.empty:
@@ -2877,6 +2878,20 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
             
             factura_principal = facturas_seleccionadas.iloc[0]
             val_sugerido = str(factura_principal['fecha_operacion']).replace("-", "")[:6] + str(factura_principal['id']).zfill(8)
+
+            # --- EXTRACCIÓN SEGURA DE DATOS FISCALES DEL PROVEEDOR ---
+            proveedor_val = (
+                factura_principal.get('proveedor') or 
+                factura_principal.get('razon_social') or 
+                factura_principal.get('nombre_proveedor') or 
+                "PROVEEDOR NO ESPECIFICADO"
+            )
+            rif_val = (
+                factura_principal.get('rif') or 
+                factura_principal.get('rif_proveedor') or 
+                "J-00000000-0"
+            )
+            # ---------------------------------------------------------
 
             st.write("### 📝 Datos del Comprobante (Grupo)")
 
@@ -2909,12 +2924,12 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                     st.rerun()
             else:
                 # Formulario dinámico sincronizado con las facturas tildeadas
-                st.info(f"Agrupando {len(facturas_seleccionadas)} facturas de **{factura_principal['proveedor']}**")
+                st.info(f"Agrupando {len(facturas_seleccionadas)} facturas de **{proveedor_val}**")
                 
                 with st.form("form_retencion_iva"):
                     c1, c2, c3 = st.columns(3)
-                    razon_social_ret = c1.text_input("Sujeto Retenido", value=str(factura_principal['proveedor']))
-                    rif_ret = c2.text_input("RIF Retenido", value=str(factura_principal['rif']))
+                    razon_social_ret = c1.text_input("Sujeto Retenido", value=str(proveedor_val))
+                    rif_ret = c2.text_input("RIF Retenido", value=str(rif_val))
                     nro_comp = c3.text_input("N° Comprobante (14 dígitos)", value=val_sugerido, key=f"nro_{val_sugerido}")
                     
                     st.write("*(Los montos abajo representan la suma de todas las facturas seleccionadas)*")
