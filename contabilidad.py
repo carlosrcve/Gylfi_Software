@@ -11945,9 +11945,20 @@ elif opcion_menu == "📚 Libros Fiscales":
                         valor_dir = dir_bd if dir_bd not in ["DIRECCIÓN NO REGISTRADA", "NONE", ""] else ""
 
                         # Validar directorio de proveedores en session_state
-                        if "df_prov_fiscal" in st.session_state and not st.session_state.df_prov_fiscal.empty:
-                            df_dir = st.session_state.df_prov_fiscal
-                            lista_nombres = ["-- Mantener datos de la factura --"] + df_dir['razon_social'].dropna().tolist()
+
+                        # 1. Fuerza una carga si el session_state está vacío, incluso si no presionaron el botón
+                        if "df_prov_fiscal" not in st.session_state or st.session_state.df_prov_fiscal.empty:
+                            with st.spinner("Cargando directorio de proveedores..."):
+                                conn = conectar_db(db_actual)
+                                if conn:
+                                    st.session_state.df_prov_fiscal = pd.read_sql("SELECT rif, razon_social, direccion_fiscal FROM proveedores", conn)
+                                    conn.close()
+
+                        # 2. Ahora sí, valida el contenido
+                        df_dir = st.session_state.get("df_prov_fiscal", pd.DataFrame())
+
+                        if not df_dir.empty:
+                            lista_nombres = ["-- Mantener datos de la factura --"] + df_dir['razon_social'].dropna().unique().tolist()
                             
                             prov_seleccionado = st.selectbox(
                                 "Vincular con Directorio General (Opcional)", 
@@ -11956,11 +11967,14 @@ elif opcion_menu == "📚 Libros Fiscales":
                             )
                             
                             if prov_seleccionado != "-- Mantener datos de la factura --":
+                                # Filtramos correctamente
                                 row_p = df_dir[df_dir['razon_social'] == prov_seleccionado].iloc[0]
-                                valor_razon = str(row_p.get('razon_social', valor_razon))
-                                valor_dir = str(row_p.get('direccion_fiscal', valor_dir))
-                                rif_r = str(row_p.get('rif', rif_r))
-                                st.success("✅ Datos actualizados desde el directorio.")
+                                valor_razon = str(row_p['razon_social'])
+                                valor_dir = str(row_p['direccion_fiscal'])
+                                rif_r = str(row_p['rif'])
+                                st.success("✅ Datos vinculados desde el directorio.")
+                        else:
+                            st.warning("⚠️ No hay proveedores en el directorio.")
 
                         razon_r = st.text_input("Razón Social", value=valor_razon, key=f"razon_{id_seguro}")
                         
