@@ -2802,7 +2802,7 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
 
 
 
-# --- 2. VALIDACIÓN DE CONEXIÓN Y CARGA ---
+    # --- 2. VALIDACIÓN DE CONEXIÓN Y CARGA ---
     with tab1:
         st.write("Cargando Generar Nueva...")
         st.subheader("📝 Generar Nueva Retención")
@@ -2830,6 +2830,10 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
         df_facturas = obtener_facturas_pendientes(conn)
 
         if not df_facturas.empty:
+            # Asegurar que las columnas problemáticas sean puramente numéricas (los errores se vuelven NaN)
+            if "Sustraendo Bs." in df_facturas.columns:
+                df_facturas["Sustraendo Bs."] = pd.to_numeric(df_facturas["Sustraendo Bs."], errors="coerce").fillna(0.0)
+
             # 2. Agregamos una columna de checkbox para seleccionar
             if 'Seleccionar' not in df_facturas.columns:
                 df_facturas.insert(0, "Seleccionar", False)
@@ -2841,6 +2845,10 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                 hide_index=True,
                 use_container_width=True
             )
+
+            # Asegurar también el DataFrame editado por si se modificó
+            if "Sustraendo Bs." in df_editado.columns:
+                df_editado["Sustraendo Bs."] = pd.to_numeric(df_editado["Sustraendo Bs."], errors="coerce").fillna(0.0)
 
             # 4. Filtramos solo las marcadas
             seleccion = df_editado[df_editado["Seleccionar"] == True]
@@ -2948,7 +2956,7 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                         st.session_state['id_empresa_seleccionada'] = empresa_seleccionada
 
                     # 3. EL BOTÓN VA AQUÍ (Asegúrate de que no haya st.stop() antes de esta línea)
-                    enviado = st.form_submit_button("💾 Guardar y Generar Documentos")
+                    enivado = st.form_submit_button("💾 Guardar y Generar Documentos")
 
 
                 if enviado:
@@ -9528,7 +9536,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                                 st.info("💡 Consejo: Haga clic primero en **'🏢 Cargar Directorio de Proveedores'** arriba.")
                                 razon_r = st.text_input("Razón Social", value=f_data.get('proveedor_nombre', ''), key=f"razon_manual_2_{f_data.get('id', 'gen')}")
                                 dir_r = st.text_input("Dirección", value="Escriba la dirección aquí...", key=f"dir_manual_2_{f_data.get('id', 'gen')}")
-                                
+
                         c7, c8, c9 = st.columns(3)
                         base_r = c7.number_input("Base Imponible", value=float(f_data['monto_operacion']))
                         porc_r = c8.number_input("% Retención", value=3.0)
