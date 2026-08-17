@@ -4652,14 +4652,13 @@ def registrar_retencion_islr_db(id_sec, rif, razon_social, direccion, factura, c
     try:
         cursor = conn.cursor()
         
-        # 1. Registrar proveedor
+        # 1. Registrar proveedor con sintaxis compatible con TiDB/MySQL
         sql_prov = """
             INSERT INTO proveedores (rif, razon_social, direccion_fiscal) 
             VALUES (%s, %s, %s) 
-            AS nuevo_prov
             ON DUPLICATE KEY UPDATE 
-                direccion_fiscal = nuevo_prov.direccion_fiscal,
-                razon_social = nuevo_prov.razon_social
+                direccion_fiscal = VALUES(direccion_fiscal),
+                razon_social = VALUES(razon_social)
         """
         cursor.execute(sql_prov, (rif, razon_social, direccion))
         
@@ -4672,14 +4671,15 @@ def registrar_retencion_islr_db(id_sec, rif, razon_social, direccion, factura, c
                 sustraendo, n_comprob_islr, proveedor_nombre, proveedor_direccion
             ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """
-        # 2. Definición exacta de los 15 valores en el orden de las columnas
+        
+        # Usamos `codigo` (el nombre correcto del parámetro) en lugar de `codigo_r`
         valores = (
             int(id_sec),           # 1. id_sec
             str(rif),              # 2. rif_retenido
             str(factura),          # 3. numero_factura
             str(control),          # 4. numero_control
             fecha,                 # 5. fecha_operacion
-            str(codigo_r),         # 6. codigo_concepto <--- ¡AQUÍ ESTÁ!
+            str(codigo),           # 6. codigo_concepto (Corregido)
             float(base),           # 7. monto_operacion
             float(porc),           # 8. porcentaje_retencion
             float(m_retenido),     # 9. monto_retenido
@@ -4692,8 +4692,7 @@ def registrar_retencion_islr_db(id_sec, rif, razon_social, direccion, factura, c
         
         cursor.execute(query_insert, valores)
         
-        # 3. BLOQUEO ÚNICO Y CORREGIDO
-        # Usamos las variables que entran a la función (factura y rif)
+        # 3. Bloqueo en libro de compras
         sql_bloqueo = """
             UPDATE libro_compras 
             SET retencion_realizada = 1 
