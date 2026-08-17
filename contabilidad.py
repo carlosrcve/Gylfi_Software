@@ -2806,7 +2806,9 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
         "🗒️ Archivo TXT SENIAT"
     ])
 
-    # --- 2. VALIDACIÓN DE CONEXIÓN Y CARGA ---
+
+
+# --- 2. VALIDACIÓN DE CONEXIÓN Y CARGA ---
     with tab1:
         st.write("Cargando Generar Nueva...")
         st.subheader("📝 Generar Nueva Retención")
@@ -2830,14 +2832,11 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
         f_hasta = col_b2.date_input("Hasta", f_fin_global, key="ret_iva_hasta")
 
         # --- 3. LÓGICA DE PROCESAMIENTO ---
+        # En lugar de hacer una carga directa de toda la tabla, haces esto:
+        # 1. Obtenemos las pendientes
         df_facturas = obtener_facturas_pendientes(conn)
 
         if not df_facturas.empty:
-            # --- LIMPIEZA CRÍTICA PARA EVITAR EL ERROR DE ARROW ---
-            if "Sustraendo Bs." in df_facturas.columns:
-                df_facturas["Sustraendo Bs."] = df_facturas["Sustraendo Bs."].astype(str).str.replace('nan', '0.0').str.replace('None', '0.0')
-            # -----------------------------------------------------
-
             # 2. Agregamos una columna de checkbox para seleccionar
             if 'Seleccionar' not in df_facturas.columns:
                 df_facturas.insert(0, "Seleccionar", False)
@@ -2874,6 +2873,7 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
 
             st.write("### 📝 Datos del Comprobante (Grupo)")
 
+            
             # Caso Éxito
             if st.session_state.get('mostrar_exito'):
                 st.success(f"### ✅ Comprobante `{st.session_state.get('last_iva', {}).get('nro_comp')}` generado.")
@@ -2934,6 +2934,8 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                     iva_retenido = (float(iva_i) * porcentaje_ret) / 100
                     c11.metric("IVA a Retener Total", f"Bs. {iva_retenido:,.2f}")
 
+                    # Justo antes de la llamada a la función:
+
                     # 1. Obtenemos los datos de la empresa basada en la base de datos actual
                     db_actual = st.session_state.get('DB_ACTUAL')
                     empresa_data = obtener_datos_agente_db(db_actual)
@@ -2941,7 +2943,8 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                     if not empresa_data:
                         st.error("⚠️ No se pudieron cargar los datos de la empresa.")
                     else:
-                        # 2. SELECTBOX DE EMPRESA
+                        # 2. AQUÍ VA EL SELECTBOX QUE ME PREGUNTAS
+                        # Al pasarle [empresa_data] como lista, el selectbox solo tendrá una opción
                         empresa_seleccionada = st.selectbox(
                             "Empresa", 
                             options=[empresa_data], 
@@ -2951,8 +2954,8 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                         # Guardamos la empresa seleccionada en sesión
                         st.session_state['id_empresa_seleccionada'] = empresa_seleccionada
 
-                    # 3. EL BOTÓN VA AQUÍ
-                    enivado = st.form_submit_button("💾 Guardar y Generar Documentos")
+                    # 3. EL BOTÓN VA AQUÍ (Asegúrate de que no haya st.stop() antes de esta línea)
+                    enviado = st.form_submit_button("💾 Guardar y Generar Documentos")
 
 
                 if enviado:
@@ -3029,6 +3032,7 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                     finally:
                         if cursor: cursor.close()
                         if conn: conn.close()
+
                 
         with tab2:
             st.write("Cargando PDF...")
@@ -3444,13 +3448,16 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                     st.divider()
                     st.write("📋 Resumen del período seleccionado:")
                     if not df_historial.empty:
-                        st.dataframe(df_historial, width='stretch', hide_index=True)
+                        st.dataframe(df_historial, use_container_width=True, hide_index=True)
                     else:
                         st.info("No se encontraron registros en el historial para este rango de fechas.")
 
                 else:
                     # Planta Baja vacía
                     st.info("Por favor, seleccione un comprobante de la lista superior.")
+
+        
+
         with tab3:
             st.write("Cargando Eliminar Retencion...")
             
@@ -3485,7 +3492,7 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                             "id": st.column_config.NumberColumn(disabled=True), # El ID nunca debe ser editable
                             "nro_comp": st.column_config.TextColumn(disabled=True) # Si no quieres que cambien el número de comprobante
                         },
-                        width='stretch',
+                        use_container_width=True,
                         hide_index=True,
                         key="editor_retenciones" # Clave única para evitar conflictos de estado
                     )
@@ -3647,6 +3654,62 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                     finally:
                         if conn.is_connected():
                             conn.close()
+
+@log_ejecucion
+def generar_excel_formateado(conn, df, titulo, subtitulo):
+    # Registro de actividad
+    registrar_log_automatico(conn, "GENERAR_EXCEL_FORMATEADO", f"Usuario {st.session_state.usuario} descargó excel para {st.session_state.cliente_id}")
+    
+    cursor = None
+    output = io.BytesIO()
+    
+    try:
+        # Aseguramos el cursor para el bloque finally
+        cursor = conn.cursor()
+        
+        # Usamos xlsxwriter como motor para manejar estilos fácilmente
+        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+            df.to_excel(writer, index=False, sheet_name='Balance', startrow=4)
+            
+            workbook  = writer.book
+            worksheet = writer.sheets['Balance']
+
+            # 1. Definir Formatos
+            formato_titulo = workbook.add_format({
+                'bold': True, 'size': 16, 'font_color': '#1f2937', 'align': 'left'
+            })
+            formato_subtitulo = workbook.add_format({
+                'bold': True, 'size': 12, 'font_color': '#4b5563', 'align': 'left'
+            })
+            formato_encabezado = workbook.add_format({
+                'bold': True, 'text_wrap': True, 'valign': 'vcenter',
+                'fg_color': '#1e3a8a', 'font_color': 'white', 'border': 1
+            })
+
+            # 2. Escribir Título y Subtítulo
+            worksheet.write('A1', titulo, formato_titulo)
+            worksheet.write('A2', subtitulo, formato_subtitulo)
+
+            # 3. Aplicar color a los encabezados de la tabla
+            for col_num, value in enumerate(df.columns.values):
+                worksheet.write(4, col_num, value, formato_encabezado)
+                worksheet.set_column(col_num, col_num, 20)
+
+        return output.getvalue()
+
+    except Exception as e:
+        st.error(f"Error generando el Excel: {e}")
+        return None
+
+    finally:
+        # AQUÍ ESTÁ EL SECRETO:
+        if cursor:
+            cursor.close()
+        
+        # NO cierres conn. 
+        # En su lugar, haz un 'ping' para decirle a MySQL que sigues ahí:
+        if conn and conn.is_connected():
+            conn.ping(reconnect=True)
 
 
 
@@ -9468,21 +9531,14 @@ elif opcion_menu == "📚 Libros Fiscales":
                         # Consulta optimizada que une libro_compras con proveedores
                         query = """
                         SELECT 
+                            lc.id AS id, 
                             lc.fecha_operacion AS fecha_operacion,
-                            NULL AS id, 
-                            NULL AS id_sec, 
                             lc.rif AS rif_retenido, 
                             COALESCE(p.razon_social, 'PROVEEDOR NO ENCONTRADO') AS proveedor_nombre, 
-                            COALESCE(p.direccion_fiscal, 'DIRECCIÓN NO REGISTRADA') AS proveedor_direccion,
+                            COALESCE(p.direccion_fiscal, '') AS proveedor_direccion,
                             lc.n_factura AS numero_factura, 
                             lc.n_control AS numero_control, 
-                            NULL AS codigo_concepto, 
-                            lc.base_imponible AS monto_operacion, 
-                            0.00 AS porcentaje_retencion, 
-                            0.00 AS monto_retenido, 
-                            NULL AS periodo_retenido, 
-                            0.00 AS sustraendo, 
-                            NULL AS n_comprob_islr
+                            lc.base_imponible AS monto_operacion
                         FROM libro_compras lc
                         LEFT JOIN proveedores p ON 
                             REPLACE(REPLACE(REPLACE(UPPER(TRIM(lc.rif)), '-', ''), '.', ''), ' ', '') = 
@@ -9541,60 +9597,47 @@ elif opcion_menu == "📚 Libros Fiscales":
                 )
                 
                 if sel_f.selection.rows:
-                    # Extraemos los datos de la fila seleccionada
                     f_data = st.session_state.df_retencion.iloc[sel_f.selection.rows[0]]
+                    # Usamos el ID real de la base de datos
+                    id_actual = int(f_data['id']) 
                     
-                    # El key dinámico fuerza al formulario a refrescarse al cambiar de factura
-                    # El key dinámico fuerza al formulario a refrescarse al cambiar de factura
-                with st.form(key=f"form_final_islr_{f_data['id']}"): 
+                    with st.form(key=f"form_final_islr_{id_actual}"): 
+                        st.markdown("#### 🛠️ Datos del Comprobante")
+                        c1, c2, c3 = st.columns([3, 4, 5])
 
-                    st.markdown("#### 🛠️ Datos del Comprobante")
-                    c1, c2, c3 = st.columns([3, 4, 5])
-                    
-                    # RIF inicial y N° Comprobante manual
-                    val_rif_inicial = f_data.get('rif_retenido', '')
-                    id_seguro = f_data.get('id') or 0
-                    val_sugerido = f_data['fecha_operacion'].strftime("%Y%m") + str(id_seguro).zfill(8)
-                    
-                    n_comprob_manual = c2.text_input("N° Comprobante (Manual)", value=val_sugerido)
-                    
-                    # --- LÓGICA DE DIRECCIÓN Y DIRECTORIO ---
-                    dir_bd = str(f_data.get('proveedor_direccion') or "")
-                    proveedor_encontrado = (
-                        dir_bd.strip() != "" 
-                        and dir_bd.upper() != "NONE" 
-                        and dir_bd.upper() != "DIRECCIÓN NO REGISTRADA"
-                        and f_data.get('proveedor_nombre', '').upper() != "PROVEEDOR NO ENCONTRADO"
-                    )
+                        # RIF y Comprobante
+                        val_rif_inicial = f_data.get('rif_retenido', '')
+                        val_sugerido = f_data['fecha_operacion'].strftime("%Y%m") + str(id_actual).zfill(8)
+                        n_comprob_manual = c2.text_input("N° Comprobante (Manual)", value=val_sugerido)
 
-                    id_actual = f_data.get('id', 'gen')
-
-                    # 1. VALORES POR DEFECTO O DEL DIRECTORIO
-                    valor_razon = f_data.get('proveedor_nombre', '')
-                    valor_dir = dir_bd if proveedor_encontrado else "Escriba la dirección aquí..."
-                    valor_rif = val_rif_inicial
-
-                    # 2. SELECTBOX DEL DIRECTORIO (Corregido y metido dentro del flujo visual)
-                    if "df_prov_fiscal" in st.session_state and not st.session_state.df_prov_fiscal.empty:
-                        df_dir = st.session_state.df_prov_fiscal
-                        lista_nombres = ["-- Mantener datos de la factura --"] + df_dir['razon_social'].dropna().tolist()
+                        # Lógica de limpieza de valores para los campos de texto
+                        nombre_raw = f_data.get('proveedor_nombre', '')
+                        dir_raw = f_data.get('proveedor_direccion', '')
                         
-                        prov_seleccionado = st.selectbox(
-                            "Vincular con Directorio General (Opcional)", 
-                            options=lista_nombres, 
-                            key=f"sel_dir_{id_actual}"
-                        )
-                        
-                        if prov_seleccionado != "-- Mantener datos de la factura --":
-                            row_p = df_dir[df_dir['razon_social'] == prov_seleccionado].iloc[0]
-                            valor_razon = str(row_p.get('razon_social', valor_razon))
-                            valor_dir = str(row_p.get('direccion_fiscal', valor_dir))
-                            valor_rif = str(row_p.get('rif', valor_rif))
-                            st.success("✅ Datos actualizados desde el directorio.")
-                    else:
-                        st.info("💡 Consejo: Haga clic en '🏢 Cargar Directorio de Proveedores' arriba para autocompletar.")
+                        valor_razon = nombre_raw if nombre_raw != 'PROVEEDOR NO ENCONTRADO' else ""
+                        valor_dir = dir_raw if dir_raw != 'DIRECCIÓN NO REGISTRADA' else ""
 
-                    # 3. DECLARACIÓN ÚNICA DE CAMPOS FINALES (Sin duplicar RIF)
+                        # Selección de directorio
+                        if "df_prov_fiscal" in st.session_state and not st.session_state.df_prov_fiscal.empty:
+                            df_dir = st.session_state.df_prov_fiscal
+                            lista_nombres = ["-- Mantener datos de la factura --"] + df_dir['razon_social'].dropna().tolist()
+                            
+                            prov_seleccionado = st.selectbox(
+                                "Vincular con Directorio General (Opcional)", 
+                                options=lista_nombres, 
+                                key=f"sel_dir_{id_actual}"
+                            )
+                            
+                            if prov_seleccionado != "-- Mantener datos de la factura --":
+                                row_p = df_dir[df_dir['razon_social'] == prov_seleccionado].iloc[0]
+                                valor_razon = str(row_p.get('razon_social', valor_razon))
+                                valor_dir = str(row_p.get('direccion_fiscal', valor_dir))
+                                valor_rif = str(row_p.get('rif', val_rif_inicial))
+                                st.success("✅ Datos actualizados desde el directorio.")
+                            else:
+                                valor_rif = val_rif_inicial
+
+                    # Campos finales
                     rif_r = c1.text_input("RIF", value=valor_rif, key=f"rif_final_{id_actual}")
                     razon_r = st.text_input("Razón Social", value=valor_razon, key=f"razon_final_{id_actual}")
                     dir_r = st.text_input("Dirección", value=valor_dir, key=f"dir_final_{id_actual}")
@@ -9624,51 +9667,64 @@ elif opcion_menu == "📚 Libros Fiscales":
                         key=f"sust_{f_data['id']}"
                     )
                     
-                    btn_procesar = st.form_submit_button("🚀 Procesar y Guardar")
-                    
                     if btn_procesar:
-                        conn = conectar_db(st.session_state.get('DB_ACTUAL'))
-                        m_final = round(float((float(base_r) * (float(porc_r) / 100)) - float(sust_r)), 2)
+                        # 1. Aseguramos que id_factura sea el valor real de la base de datos
+                        # Si f_data['id'] sigue llegando como None, asegúrate de que tu query SQL
+                        # tenga "lc.id AS id" y no "NULL AS id"
+                        id_factura = f_data.get('id')
                         
-                        if comprobar_existencia_comprobante(n_comprob_manual):
-                            st.error(f"⚠️ El comprobante **{n_comprob_manual}** ya existe.")
+                        if id_factura is None:
+                            st.error("❌ Error: No se pudo identificar el ID de la factura. Por favor, recargue la consulta.")
                         else:
-                            st.write(f"DEBUG: Enviando monto_retenido: {m_final}")
-
-                            exito, valor = registrar_retencion_islr_db(
-                                int(f_data.get('id') or 0), 
-                                rif_r, 
-                                razon_r, 
-                                dir_r, 
-                                str(f_data['numero_factura']), 
-                                str(f_data['numero_control']), 
-                                f_data['fecha_operacion'], 
-                                "001", 
-                                base_r, 
-                                porc_r, 
-                                sust_r, 
-                                f_data['fecha_operacion'].strftime("%Y%m"), 
-                                m_final, 
-                                n_comprob_manual
-                            )
+                            conn = conectar_db(st.session_state.get('DB_ACTUAL'))
                             
-                            if exito:
-                                st.session_state.datos_pdf = {
-                                    "agente": DATOS_EMPRESA,
-                                    "sujeto": {"rif": rif_r, "nombre": razon_r, "direccion": dir_r},
-                                    "factura": str(f_data['numero_factura']),
-                                    "control": str(f_data['numero_control']),
-                                    "base": base_r,
-                                    "porcentaje": porc_r,
-                                    "sustraendo": sust_r,
-                                    "total_retenido": m_final,
-                                    "fecha_emision": f_data['fecha_operacion'].strftime("%d/%m/%Y"),
-                                    "fecha_operacion": f_data['fecha_operacion'],
-                                    "n_comprobante": n_comprob_manual
-                                }
-                                st.session_state.pdf_listo = True
-                                st.success(f"✅ Comprobante N° {n_comprob_manual} registrado.")
-                                st.rerun()
+                            # 2. Cálculo preciso asegurando tipos float
+                            base_val = float(base_r)
+                            porc_val = float(porc_r)
+                            sust_val = float(sust_r)
+                            m_final = round((base_val * (porc_val / 100)) - sust_val, 2)
+                            
+                            if comprobar_existencia_comprobante(n_comprob_manual):
+                                st.error(f"⚠️ El comprobante **{n_comprob_manual}** ya existe.")
+                            else:
+                                # 3. Llamada robusta a la función de registro
+                                exito, valor = registrar_retencion_islr_db(
+                                    int(id_factura), 
+                                    str(rif_r), 
+                                    str(razon_r), 
+                                    str(dir_r), 
+                                    str(f_data['numero_factura']), 
+                                    str(f_data['numero_control']), 
+                                    f_data['fecha_operacion'], 
+                                    str(codigo_r), 
+                                    base_val, 
+                                    porc_val, 
+                                    sust_val, 
+                                    f_data['fecha_operacion'].strftime("%Y%m"), 
+                                    m_final, 
+                                    str(n_comprob_manual)
+                                )
+                                
+                                if exito:
+                                    # 4. Actualizamos estado del PDF con los valores calculados
+                                    st.session_state.datos_pdf = {
+                                        "agente": DATOS_EMPRESA,
+                                        "sujeto": {"rif": rif_r, "nombre": razon_r, "direccion": dir_r},
+                                        "factura": str(f_data['numero_factura']),
+                                        "control": str(f_data['numero_control']),
+                                        "base": base_val,
+                                        "porcentaje": porc_val,
+                                        "sustraendo": sust_val,
+                                        "total_retenido": m_final,
+                                        "fecha_emision": f_data['fecha_operacion'].strftime("%d/%m/%Y"),
+                                        "fecha_operacion": f_data['fecha_operacion'],
+                                        "n_comprobante": n_comprob_manual
+                                    }
+                                    st.session_state.pdf_listo = True
+                                    st.success(f"✅ Comprobante N° {n_comprob_manual} registrado exitosamente.")
+                                    st.rerun()
+                                else:
+                                    st.error("❌ Ocurrió un error al guardar en la base de datos.")
 
             # Bloque de descarga
             if st.session_state.pdf_listo and st.session_state.datos_pdf:
