@@ -9483,6 +9483,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                     f_data = st.session_state.df_retencion.iloc[sel_f.selection.rows[0]]
                     
                     # El key dinámico fuerza al formulario a refrescarse al cambiar de factura
+                    # El key dinámico fuerza al formulario a refrescarse al cambiar de factura
                     with st.form(key=f"form_final_islr_{f_data['id']}"): 
 
                         st.markdown("#### 🛠️ Datos del Comprobante")
@@ -9492,7 +9493,6 @@ elif opcion_menu == "📚 Libros Fiscales":
                         id_seguro = f_data.get('id') or 0
                         val_sugerido = f_data['fecha_operacion'].strftime("%Y%m") + str(id_seguro).zfill(8)
                         n_comprob_manual = c2.text_input("N° Comprobante (Manual)", value=val_sugerido)
-                        razon_r = st.text_input("Razón Social", value=f_data['proveedor_nombre'])
                         
                         # --- LÓGICA DE DIRECCIÓN Y DIRECTORIO MEJORADA ---
                         dir_bd = f_data.get('proveedor_direccion', '') 
@@ -9506,11 +9506,14 @@ elif opcion_menu == "📚 Libros Fiscales":
                             and f_data.get('proveedor_nombre', '').upper() != "PROVEEDOR NO ENCONTRADO"
                         )
 
+                        # Declaración única de los campos con keys dinámicos seguros
+                        id_actual = f_data.get('id', 'gen')
+                        razon_r = st.text_input("Razón Social", value=f_data['proveedor_nombre'], key=f"razon_{id_actual}")
+                        
                         if proveedor_encontrado:
-                            razon_r = st.text_input("Razón Social", value=f_data['proveedor_nombre'], key=f"razon_{f_data.get('id', 'gen')}")
-                            dir_r = st.text_input("Dirección", value=dir_bd, key=f"dir_{f_data.get('id', 'gen')}")
+                            dir_r = st.text_input("Dirección", value=dir_bd, key=f"dir_{id_actual}")
                         else:
-                            st.warning("⚠️ PROVEEDOR NO VINCULADO EN ESTA LISTA. Verifique el directorio general.")
+                            dir_r = st.text_input("Dirección", value="", key=f"dir_{id_actual}")
                             
                             # Intentamos usar el directorio cargado previamente en session_state
                             if "df_prov_fiscal" in st.session_state and not st.session_state.df_prov_fiscal.empty:
