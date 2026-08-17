@@ -811,10 +811,17 @@ def obtener_salud_fiscal(db, f_inicio=None, f_fin=None):
         df['ingresos_exentos'] = df['ex_haber'] - df['ex_debe']
         df['ingresos_gravados'] = df['gr_haber'] - df['gr_debe']
         
-        # Totales para KPIs
+       # Filtrar solo el mes actual (o el último mes con datos)
+        mes_actual = datetime.date.today().month
+        df_mes = df[df['mes'] == mes_actual]
+        
+        # Si no hay datos en el mes actual, usar 0 o el último mes registrado
+        if df_mes.empty:
+            df_mes = df.iloc[[-1]] # Toma la última fila disponible
+
         kpis_fiscales = {
-            'ingresos_exentos': df['ingresos_exentos'].sum(),
-            'ingresos_gravados': df['ingresos_gravados'].sum()
+            'ingresos_exentos': df_mes['ingresos_exentos'].iloc[0],
+            'ingresos_gravados': df_mes['ingresos_gravados'].iloc[0]
         }
         
         dic_meses_nombres = {
