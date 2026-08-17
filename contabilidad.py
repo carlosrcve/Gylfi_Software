@@ -745,7 +745,6 @@ def obtener_historico_utilidad(db, f_inicio=None, f_fin=None):
 
 @st.cache_data(ttl=300)
 def obtener_salud_fiscal(db, f_inicio=None, f_fin=None):
-    # BLINDAJE: Asegurar que 'db' sea siempre un string
     if not isinstance(db, str):
         db = str(db) if db else "control_central"
 
@@ -756,20 +755,8 @@ def obtener_salud_fiscal(db, f_inicio=None, f_fin=None):
     if not conn:
         return df_default, kpis_default
     
-    if f_inicio is None:
-        f_inicio = st.session_state.get("f_inicio_global")
-    if f_fin is None:
-        f_fin = st.session_state.get("f_fin_global")
-
     import datetime
-    if not isinstance(f_inicio, (datetime.date, datetime.datetime)):
-        anio_actual = datetime.datetime.now().year
-        f_inicio = datetime.date(anio_actual, 1, 1)
-        
-    if not isinstance(f_fin, (datetime.date, datetime.datetime)):
-        f_fin = datetime.date.today()
-
-    anio_base = f_inicio.year if hasattr(f_inicio, 'year') else datetime.datetime.now().year
+    anio_base = datetime.datetime.now().year
 
     meses_skeleton = pd.DataFrame({
         'anio': [anio_base] * 12,
@@ -795,17 +782,8 @@ def obtener_salud_fiscal(db, f_inicio=None, f_fin=None):
     cursor = None
     try:
         cursor = conn.cursor(dictionary=True)
-        
-        # --- DEBUG: Verifica qué año se está buscando y si trae filas crudas ---
-        print(f"DEBUG SQL: Buscando año {anio_base} en la BD `{db}`")
-        cursor.execute(f"SELECT fecha, plan_cuentas, debe, haber FROM `{db}`.asientos_contables LIMIT 5")
-        primeras_filas = cursor.fetchall()
-        print(f"DEBUG SQL - Primeras 5 filas crudas de la tabla: {primeras_filas}")
-        # ---------------------------------------------------------------------
-
         cursor.execute(query, (int(anio_base),))
         resultados = cursor.fetchall()
-        print(f"DEBUG SQL - Resultados agrupados por mes: {resultados}")
         
         df_sql = pd.DataFrame(resultados) if resultados else pd.DataFrame(columns=['anio', 'mes'])
 
@@ -820,24 +798,28 @@ def obtener_salud_fiscal(db, f_inicio=None, f_fin=None):
         df['ingresos_exentos'] = df['ex_haber'] - df['ex_debe']
         df['ingresos_gravados'] = df['gr_haber'] - df['gr_debe']
         
-        # Filtrar solo el mes actual (o el último mes con datos)
-        mes_actual = datetime.date.today().month
-        df_mes = df[df['mes'] == mes_actual]
-        
-        if df_mes.empty:
-            df_mes = df.iloc[[-1]]
-
-        kpis_fiscales = {
-            'ingresos_exentos': df_mes['ingresos_exentos'].iloc[0],
-            'ingresos_gravados': df_mes['ingresos_gravados'].iloc[0]
-        }
-        
         dic_meses_nombres = {
             1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril", 
             5: "Mayo", 6: "Junio", 7: "Julio", 8: "Agosto", 
             9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre"
         }
         df['mes_nombre'] = df['mes'].map(dic_meses_nombres)
+
+        # Tomar estrictamente el mes actual para los KPIs (o 0 si no hay registros en el mes)
+        mes_actual = datetime.datetime.now().month
+        df_mes_actual = df[df['mes'] == mes_actual]
+        
+        if not df_mes_actual.empty:
+            val_exentos = df_mes_actual['ingresos_exentos'].values[0]
+            val_gravados = df_mes_actual['ingresos_gravados'].values[0]
+        else:
+            val_exentos = 0.0
+            val_gravados = 0.0
+
+        kpis_fiscales = {
+            'ingresos_exentos': val_exentos,
+            'ingresos_gravados': val_gravados
+        }
         
         return df[['anio', 'mes', 'mes_nombre', 'ingresos_exentos', 'ingresos_gravados']], kpis_fiscales
         
