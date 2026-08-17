@@ -786,8 +786,10 @@ def obtener_salud_fiscal(db, f_inicio=None, f_fin=None):
             YEAR(STR_TO_DATE(LEFT(fecha, 10), '%Y-%m-%d')) as anio,
             MONTH(STR_TO_DATE(LEFT(fecha, 10), '%Y-%m-%d')) as mes,
             
-            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '4%%' THEN haber ELSE 0 END) as ing_haber,
-            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '4%%' THEN debe ELSE 0 END) as ing_debe,
+            SUM(CASE WHEN plan_cuentas LIKE '4.1.1.01.001%%' THEN haber ELSE 0 END) as ex_haber,
+            SUM(CASE WHEN plan_cuentas LIKE '4.1.1.01.001%%' THEN debe ELSE 0 END) as ex_debe,
+            SUM(CASE WHEN plan_cuentas LIKE '4.1.1.01.002%%' THEN haber ELSE 0 END) as gr_haber,
+            SUM(CASE WHEN plan_cuentas LIKE '4.1.1.01.002%%' THEN debe ELSE 0 END) as gr_debe,
             
         FROM `{db}`.asientos_contables 
         WHERE YEAR(STR_TO_DATE(LEFT(fecha, 10), '%Y-%m-%d')) = %s
