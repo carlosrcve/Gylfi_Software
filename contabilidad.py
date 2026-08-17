@@ -569,93 +569,10 @@ def obtener_saldos_acumulados(conexion, fecha_corte, nombre_db):
 
 
 
-@st.cache_data(ttl=300)
-def obtener_salud_fiscal(f_inicio, f_fin, db):
-    conn = conectar_db(db)
-    
-    default_res = {
-        "ingresos_exentas": 0, "ingresos_gravados": 0, "compras_exentas": 0,
-        "compras_16": 0, "DPP1": 0, "comisiones_bancarias1": 0, "gastos_personales1": 0,
-        "otros_ingresos": 0, "otros_egresos": 0,
-        "iva_debito_fiscal": 0, "iva_por_pagar": 0, "retencion_iva_compras": 0, 
-        "pagos_anticipados_islr": 0, "retencion_islr_proveedores": 0, "islr_pagar": 0
-    }
-    
-    if not conn:
-        return default_res
+import streamlit as st
+# Asegúrate de importar tu decorador: from tu_modulo import log_ejecucion
 
-    # Formateo de fechas para MySQL (datetime)
-    f_inicio_str = (f_inicio.strftime('%Y-%m-%d') if hasattr(f_inicio, 'strftime') else str(f_inicio).split()[0]) + " 00:00:00"
-    fecha_str = (f_fin.strftime('%Y-%m-%d') if hasattr(f_fin, 'strftime') else str(f_fin).split()[0]) + " 23:59:59"
 
-    # Construcción dinámica de la query
-    if db == 'kingdriver_ca':
-        dpp_query = "SUM(CASE WHEN plan_cuentas LIKE '6.1.1.03.020%' THEN haber ELSE 0 END) as DPP_haber, SUM(CASE WHEN plan_cuentas LIKE '6.1.1.03.020%' THEN debe ELSE 0 END) as DPP_debe"
-    else:
-        dpp_query = """SUM(CASE WHEN plan_cuentas LIKE '6.1.1.03%' AND plan_cuentas NOT LIKE '6.1.1.03.013%' AND plan_cuentas NOT LIKE '6.1.1.03.021%' AND plan_cuentas NOT LIKE '6.1.1.03.022%' THEN haber ELSE 0 END) as DPP_haber,
-                       SUM(CASE WHEN plan_cuentas LIKE '6.1.1.03%' AND plan_cuentas NOT LIKE '6.1.1.03.013%' AND plan_cuentas NOT LIKE '6.1.1.03.021%' AND plan_cuentas NOT LIKE '6.1.1.03.022%' THEN debe ELSE 0 END) as DPP_debe"""
-
-    query = f"""
-        SELECT 
-            COUNT(*) as total_registros_rango,
-            SUM(CASE WHEN plan_cuentas LIKE '4.1.1.01.001%%' THEN haber ELSE 0 END) as ex_haber,
-            SUM(CASE WHEN plan_cuentas LIKE '4.1.1.01.001%%' THEN debe ELSE 0 END) as ex_debe,
-            SUM(CASE WHEN plan_cuentas LIKE '4.1.1.01.002%%' THEN haber ELSE 0 END) as gr_haber,
-            SUM(CASE WHEN plan_cuentas LIKE '4.1.1.01.002%%' THEN debe ELSE 0 END) as gr_debe,
-            SUM(CASE WHEN plan_cuentas LIKE '5.1.1.01.001%%' THEN debe ELSE 0 END) as compras_exentas,
-            SUM(CASE WHEN plan_cuentas LIKE '5.1.1.01.002%%' THEN debe ELSE 0 END) as compras_16,
-            {dpp_query},
-            SUM(CASE WHEN plan_cuentas LIKE '6.1.1.03.013%%' THEN haber ELSE 0 END) as comisiones_bancarias_haber,
-            SUM(CASE WHEN plan_cuentas LIKE '6.1.1.03.013%%' THEN debe ELSE 0 END) as comisiones_bancarias_debe,
-            SUM(CASE WHEN plan_cuentas LIKE '6.1.1.03.021%%' THEN haber ELSE 0 END) as refrigerios_haber,
-            SUM(CASE WHEN plan_cuentas LIKE '6.1.1.03.021%%' THEN debe ELSE 0 END) as refrigerios_debe,
-            SUM(CASE WHEN plan_cuentas LIKE '6.1.1.03.022%%' THEN haber ELSE 0 END) as representacion_haber,
-            SUM(CASE WHEN plan_cuentas LIKE '6.1.1.03.022%%' THEN debe ELSE 0 END) as representacion_debe,
-            SUM(CASE WHEN plan_cuentas LIKE '7.1.1.01%%' THEN haber ELSE 0 END) as otros_ingresos_haber,
-            SUM(CASE WHEN plan_cuentas LIKE '7.1.1.07%%' THEN debe ELSE 0 END) as otros_ingresos_debe,
-            SUM(CASE WHEN plan_cuentas LIKE '8.1.1.01%%' THEN haber ELSE 0 END) as otros_egresos_haber,
-            SUM(CASE WHEN plan_cuentas LIKE '8.1.1.01%%' THEN debe ELSE 0 END) as otros_egresos_debe,
-            SUM(CASE WHEN plan_cuentas LIKE '2.1.2.01.001%%' THEN haber ELSE 0 END) as iva_debito_fiscal,
-            SUM(CASE WHEN plan_cuentas LIKE '2.1.2.01.002%%' THEN haber ELSE 0 END) as iva_por_pagar,
-            SUM(CASE WHEN plan_cuentas LIKE '2.1.2.01.003%%' THEN haber ELSE 0 END) as retencion_iva_compras,
-            SUM(CASE WHEN plan_cuentas LIKE '2.1.2.01.004%%' THEN haber ELSE 0 END) as pagos_anticipados_islr,
-            SUM(CASE WHEN plan_cuentas LIKE '2.1.2.01.005%%' THEN haber ELSE 0 END) as retencion_islr_hab,
-            SUM(CASE WHEN plan_cuentas LIKE '2.1.2.01.005%%' THEN debe ELSE 0 END) as retencion_islr_deb,
-            SUM(CASE WHEN plan_cuentas LIKE '2.1.2.01.006%%' THEN haber ELSE 0 END) as islr_pagar
-        FROM `{db}`.asientos_contables
-        WHERE fecha >= %s AND fecha <= %s
-    """
-
-    try:
-        cursor = conn.cursor(dictionary=True)
-        cursor.execute(query, (f_inicio_str, fecha_str))
-        res = cursor.fetchone()
-        cursor.close()
-        conn.close()
-        
-        if res and res.get('total_registros_rango', 0) > 0:
-            return {
-                "ingresos_exentas": float(res['ex_haber'] or 0) - float(res['ex_debe'] or 0),
-                "ingresos_gravados": float(res['gr_haber'] or 0) - float(res['gr_debe'] or 0),
-                "compras_exentas": float(res['compras_exentas'] or 0),
-                "compras_16": float(res['compras_16'] or 0),
-                "DPP1": abs(float(res['DPP_haber'] or 0) - float(res['DPP_debe'] or 0)), 
-                "comisiones_bancarias1": abs(float(res['comisiones_bancarias_haber'] or 0) - float(res['comisiones_bancarias_debe'] or 0)), 
-                "gastos_personales1": abs(float(res['refrigerios_haber'] or 0) - float(res['refrigerios_debe'] or 0)) + abs(float(res['representacion_haber'] or 0) - float(res['representacion_debe'] or 0)),
-                "otros_ingresos": float(res['otros_ingresos_haber'] or 0) - float(res['otros_ingresos_debe'] or 0), 
-                "otros_egresos": float(res['otros_egresos_haber'] or 0) - float(res['otros_egresos_debe'] or 0),
-                "iva_debito_fiscal": float(res['iva_debito_fiscal'] or 0),
-                "iva_por_pagar": float(res['iva_por_pagar'] or 0),
-                "retencion_iva_compras": float(res['retencion_iva_compras'] or 0),
-                "pagos_anticipados_islr": float(res['pagos_anticipados_islr'] or 0),
-                "retencion_islr_proveedores": float(res['retencion_islr_hab'] or 0) - float(res['retencion_islr_deb'] or 0),
-                "islr_pagar": float(res['islr_pagar'] or 0)
-            }
-            
-    except Exception as e:
-        st.error(f"Error en SQL: {e}")
-    
-    return default_res
 
 
 @st.cache_data(ttl=300)
@@ -824,6 +741,93 @@ def obtener_historico_utilidad(db, f_inicio=None, f_fin=None):
             conn.close()
 
 
+
+
+@st.cache_data(ttl=300)
+def obtener_salud_fiscal(db, f_inicio=None, f_fin=None):
+    conn = conectar_db(db)
+    df_default = pd.DataFrame(columns=['anio', 'mes', 'mes_nombre', 'utilidad_mensual'])
+    
+    if not conn:
+        return df_default
+    
+    if f_inicio is None:
+        f_inicio = st.session_state.get("f_inicio_global")
+    if f_fin is None:
+        f_fin = st.session_state.get("f_fin_global")
+
+    if f_inicio is None or f_fin is None:
+        import datetime
+        anio_actual = datetime.datetime.now().year
+        f_inicio = datetime.date(anio_actual, 1, 1)
+        f_fin = datetime.date.today()
+
+    anio_base = f_inicio.year
+    
+    meses_skeleton = pd.DataFrame({
+        'anio': [anio_base] * 12,
+        'mes': list(range(1, 13))
+    })
+
+    query = f"""
+        SELECT 
+            YEAR(STR_TO_DATE(LEFT(fecha, 10), '%Y-%m-%d')) as anio,
+            MONTH(STR_TO_DATE(LEFT(fecha, 10), '%Y-%m-%d')) as mes,
+            
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '4%%' THEN haber ELSE 0 END) as ing_haber,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '4%%' THEN debe ELSE 0 END) as ing_debe,
+            
+        FROM `{db}`.asientos_contables 
+        WHERE YEAR(STR_TO_DATE(LEFT(fecha, 10), '%Y-%m-%d')) = %s
+        GROUP BY YEAR(STR_TO_DATE(LEFT(fecha, 10), '%Y-%m-%d')), MONTH(STR_TO_DATE(LEFT(fecha, 10), '%Y-%m-%d'))
+        ORDER BY anio ASC, mes ASC
+    """
+    
+    cursor = conn.cursor(dictionary=True)
+    try:
+        cursor.execute(query, (anio_base,))
+        resultados = cursor.fetchall()
+        
+        df_sql = pd.DataFrame(resultados) if resultados else pd.DataFrame(columns=['anio', 'mes'])
+
+        if not df_sql.empty and 'mes' in df_sql.columns:
+            df = pd.merge(meses_skeleton, df_sql, on=['anio', 'mes'], how='left')
+        else:
+            df = meses_skeleton
+
+        df = df.fillna(0)
+
+        ingresos = df['ing_haber'] - df['ing_debe']
+        
+
+        # AQUÍ ESTÁ EL CÁLCULO DE LA BD ACUMULADA:
+        # Se calcula la utilidad bruta que viene acumulada
+        df['utilidad_acumulada'] = ingresos 
+        
+        # AQUÍ DES-ACUMULAMOS: Restamos la fila actual con la anterior
+        df['utilidad_mensual'] = df['utilidad_acumulada'].diff().fillna(df['utilidad_acumulada'])
+        
+        dic_meses_nombres = {
+            1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril", 
+            5: "Mayo", 6: "Junio", 7: "Julio", 8: "Agosto", 
+            9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre"
+        }
+        df['mes_nombre'] = df['mes'].map(dic_meses_nombres)
+        
+        # Devolvemos ambas: la mensual para el gráfico y la acumulada por si acaso
+        return df[['anio', 'mes', 'mes_nombre', 'utilidad_mensual', 'utilidad_acumulada']]
+        
+    except Exception as e:
+        print(f"❌ Error al calcular la utilidad mensual: {e}")
+        return df_default
+        
+    finally:
+        if cursor:
+            cursor.close()
+        if conn and conn.is_connected():
+            conn.close()
+
+            
 @st.cache_data(ttl=300)
 def obtener_analisis_gastos_clase6(db, f_i, f_f):
     """
