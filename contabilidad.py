@@ -3655,7 +3655,7 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                         if conn.is_connected():
                             conn.close()
 
-@log_ejecucion
+
 def generar_excel_formateado(conn, df, titulo, subtitulo):
     # Registro de actividad
     registrar_log_automatico(conn, "GENERAR_EXCEL_FORMATEADO", f"Usuario {st.session_state.usuario} descargó excel para {st.session_state.cliente_id}")
