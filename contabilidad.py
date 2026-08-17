@@ -5017,7 +5017,11 @@ if "🏠 Inicio" in opcion_menu:
         )
     
     # --- FILA 2: SALUD FISCAL (SENIAT) ---
-    kpis_fiscales = obtener_salud_fiscal(f_inicio_global, f_fin_global, db_objetivo)
+    df_fiscal, kpis_fiscales = obtener_salud_fiscal(
+        db=db_objetivo, 
+        f_inicio=f_inicio_global, 
+        f_fin=f_fin_global
+    )
 
     # Función actualizada con diseño de frame horizontal expandido
     def mini_kpi(col, titulo, valor, color="#555555"):
