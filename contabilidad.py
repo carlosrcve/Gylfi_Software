@@ -750,9 +750,8 @@ def obtener_salud_fiscal(db, f_inicio=None, f_fin=None):
         db = str(db) if db else "control_central"
 
     conn = conectar_db(db)
-    # DataFrame limpio sin columnas de utilidad
     df_default = pd.DataFrame(columns=['anio', 'mes', 'mes_nombre', 'ingresos_exentos', 'ingresos_gravados'])
-    kpis_default = {'ingresos_exentas': 0.0, 'ingresos_gravados': 0.0}
+    kpis_default = {'ingresos_exentos': 0.0, 'ingresos_gravados': 0.0}
     
     if not conn:
         return df_default, kpis_default
@@ -808,13 +807,13 @@ def obtener_salud_fiscal(db, f_inicio=None, f_fin=None):
 
         df = df.fillna(0)
 
-        # Cálculo directo de ingresos (Sin utilidad)
+        # Cálculo directo de ingresos
         df['ingresos_exentos'] = df['ex_haber'] - df['ex_debe']
         df['ingresos_gravados'] = df['gr_haber'] - df['gr_debe']
         
-        # Totales para KPIs
+        # Totales para KPIs (Claves unificadas con 'os')
         kpis_fiscales = {
-            'ingresos_exentas': df['ingresos_exentos'].sum(),
+            'ingresos_exentos': df['ingresos_exentos'].sum(),
             'ingresos_gravados': df['ingresos_gravados'].sum()
         }
         
@@ -825,7 +824,6 @@ def obtener_salud_fiscal(db, f_inicio=None, f_fin=None):
         }
         df['mes_nombre'] = df['mes'].map(dic_meses_nombres)
         
-        # Devolvemos solo lo solicitado
         return df[['anio', 'mes', 'mes_nombre', 'ingresos_exentos', 'ingresos_gravados']], kpis_fiscales
         
     except Exception as e:
@@ -837,7 +835,6 @@ def obtener_salud_fiscal(db, f_inicio=None, f_fin=None):
             cursor.close()
         if conn and conn.is_connected():
             conn.close()
-
 
 @st.cache_data(ttl=300)
 def obtener_analisis_gastos_clase6(db, f_i, f_f):
