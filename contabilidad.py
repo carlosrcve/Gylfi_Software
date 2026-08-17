@@ -9415,7 +9415,8 @@ elif opcion_menu == "📚 Libros Fiscales":
                             NULL AS n_comprob_islr
                         FROM libro_compras lc
                         LEFT JOIN proveedores p ON 
-                        TRIM(REGEXP_REPLACE(lc.rif, '[^a-zA-Z0-9]', '')) = TRIM(REGEXP_REPLACE(p.rif, '[^a-zA-Z0-9]', ''))
+                            REPLACE(REPLACE(REPLACE(UPPER(TRIM(lc.rif)), '-', ''), '.', ''), ' ', '') = 
+                            REPLACE(REPLACE(REPLACE(UPPER(TRIM(p.rif)), '-', ''), '.', ''), ' ', '')
                         WHERE (lc.retencion_realizada = 0 OR lc.retencion_realizada IS NULL)
                         AND lc.fecha_operacion BETWEEN %s AND %s
                         ORDER BY lc.fecha_operacion ASC
@@ -9480,16 +9481,27 @@ elif opcion_menu == "📚 Libros Fiscales":
                         
                         # --- LÓGICA DE DIRECCIÓN MEJORADA ---
                         dir_bd = f_data.get('proveedor_direccion', '') 
-
-                        # 2. Convertimos a string para evitar errores si llega un None
                         dir_bd = str(dir_bd) if dir_bd is not None else ""
 
-                        # 3. Ahora sí, hacemos la validación
-                        if dir_bd.strip() != "" and dir_bd.upper() != "NONE":
+                        if dir_bd.strip() != "" and dir_bd.upper() != "NONE" and dir_bd.upper() != "DIRECCIÓN NO REGISTRADA":
                             dir_r = st.text_input("Dirección", value=dir_bd, key=f"dir_{f_data['id']}")
                         else:
-                            st.warning("⚠️ PROVEEDOR NO REGISTRADO EN DIRECTORIO")
-                            dir_r = st.text_input("Dirección", value="Escriba la dirección aquí...", key=f"dir_{f_data['id']}")
+                            st.warning("⚠️ PROVEEDOR NO VINCULADO EN ESTA LISTA. Verifique el directorio general.")
+                            
+                            # Si cargaste el directorio con el botón de al lado, podemos dar la opción de autocompletar
+                            if "df_prov_fiscal" in st.session_state and not st.session_state.df_prov_fiscal.empty:
+                                lista_profs = st.session_state.df_prov_fiscal['razon_social'].tolist()
+                                prov_seleccionado = st.selectbox("Seleccionar del Directorio Cargado", ["-- Seleccione --"] + lista_profs, key=f"sel_dir_{f_data['id']}")
+                                
+                                if prov_seleccionado != "-- Seleccione --":
+                                    datos_p_sel = st.session_state.df_prov_fiscal[st.session_state.df_prov_fiscal['razon_social'] == prov_seleccionado].iloc[0]
+                                    rif_r = datos_p_sel['rif']
+                                    razon_r = datos_p_sel['razon_social']
+                                    dir_r = datos_p_sel['direccion_fiscal']
+                                else:
+                                    dir_r = st.text_input("Dirección", value="Escriba la dirección aquí...", key=f"dir_{f_data['id']}")
+                            else:
+                                dir_r = st.text_input("Dirección", value="Escriba la dirección aquí...", key=f"dir_{f_data['id']}")
                         
                         c7, c8, c9 = st.columns(3)
                         base_r = c7.number_input("Base Imponible", value=float(f_data['monto_operacion']))
