@@ -745,25 +745,37 @@ def obtener_historico_utilidad(db, f_inicio=None, f_fin=None):
 
 @st.cache_data(ttl=300)
 def obtener_salud_fiscal(db, f_inicio=None, f_fin=None):
+    # BLINDAJE: Asegurar que 'db' sea siempre un string (nombre de la base de datos)
+    if not isinstance(db, str):
+        db = str(db) if db else "control_central"
+
     conn = conectar_db(db)
     df_default = pd.DataFrame(columns=['anio', 'mes', 'mes_nombre', 'utilidad_mensual'])
     
     if not conn:
         return df_default
     
+    # Obtener de session_state si son None, asegurando extraer solo el valor si es un date
     if f_inicio is None:
         f_inicio = st.session_state.get("f_inicio_global")
     if f_fin is None:
         f_fin = st.session_state.get("f_fin_global")
 
-    if f_inicio is None or f_fin is None:
-        import datetime
+    import datetime
+    # Si por error session_state guardó otra cosa o sigue siendo None, inicializamos correctamente
+    if not isinstance(f_inicio, (datetime.date, datetime.datetime)):
         anio_actual = datetime.datetime.now().year
         f_inicio = datetime.date(anio_actual, 1, 1)
+        
+    if not isinstance(f_fin, (datetime.date, datetime.datetime)):
         f_fin = datetime.date.today()
 
-    anio_base = f_inicio.year
-    
+    # Extraer el año de forma segura (manejando tanto si es objeto date como si fuera string)
+    if hasattr(f_inicio, 'year'):
+        anio_base = f_inicio.year
+    else:
+        anio_base = datetime.datetime.now().year
+
     meses_skeleton = pd.DataFrame({
         'anio': [anio_base] * 12,
         'mes': list(range(1, 13))
@@ -783,9 +795,10 @@ def obtener_salud_fiscal(db, f_inicio=None, f_fin=None):
         ORDER BY anio ASC, mes ASC
     """
     
-    cursor = conn.cursor(dictionary=True)
+    cursor = None
     try:
-        cursor.execute(query, (anio_base,))
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute(query, (int(anio_base),))
         resultados = cursor.fetchall()
         
         df_sql = pd.DataFrame(resultados) if resultados else pd.DataFrame(columns=['anio', 'mes'])
@@ -799,12 +812,7 @@ def obtener_salud_fiscal(db, f_inicio=None, f_fin=None):
 
         ingresos = df['ing_haber'] - df['ing_debe']
         
-
-        # AQUÍ ESTÁ EL CÁLCULO DE LA BD ACUMULADA:
-        # Se calcula la utilidad bruta que viene acumulada
         df['utilidad_acumulada'] = ingresos 
-        
-        # AQUÍ DES-ACUMULAMOS: Restamos la fila actual con la anterior
         df['utilidad_mensual'] = df['utilidad_acumulada'].diff().fillna(df['utilidad_acumulada'])
         
         dic_meses_nombres = {
@@ -814,7 +822,6 @@ def obtener_salud_fiscal(db, f_inicio=None, f_fin=None):
         }
         df['mes_nombre'] = df['mes'].map(dic_meses_nombres)
         
-        # Devolvemos ambas: la mensual para el gráfico y la acumulada por si acaso
         return df[['anio', 'mes', 'mes_nombre', 'utilidad_mensual', 'utilidad_acumulada']]
         
     except Exception as e:
