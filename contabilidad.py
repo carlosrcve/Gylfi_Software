@@ -9436,11 +9436,18 @@ elif opcion_menu == "📚 Libros Fiscales":
                             conn.close()
             with col_c2:
                 if st.button("🏢 Cargar Directorio de Proveedores", use_container_width=True):
-                    conn = conectar_db()
+                    # CORREGIDO: Se pasa `db_actual` para conectar a la misma BD del cliente activo
+                    conn = conectar_db(db_actual)
                     if conn:
-                        st.session_state.df_prov_fiscal = pd.read_sql("SELECT rif, razon_social, direccion_fiscal FROM proveedores", conn)
-                        conn.close()
-                        st.info("📂 Directorio actualizado.")
+                        try:
+                            st.session_state.df_prov_fiscal = pd.read_sql("SELECT rif, razon_social, direccion_fiscal FROM proveedores", conn)
+                            st.success(f"📂 Directorio actualizado ({len(st.session_state.df_prov_fiscal)} proveedores cargados).")
+                        except Exception as e:
+                            st.error(f"❌ Error al cargar proveedores: {e}")
+                        finally:
+                            conn.close()
+                    else:
+                        st.error("❌ No se pudo establecer conexión con la base de datos.")
 
             # Inicialización de estados
             if "pdf_listo" not in st.session_state:
@@ -9518,10 +9525,10 @@ elif opcion_menu == "📚 Libros Fiscales":
                                     razon_r = st.text_input("Razón Social", value=f_data.get('proveedor_nombre', ''), key=f"razon_manual_{f_data.get('id', 'gen')}")
                                     dir_r = st.text_input("Dirección", value="Escriba la dirección aquí...", key=f"dir_manual_{f_data.get('id', 'gen')}")
                             else:
-                                st.info("💡 Consejo: Haga clic primero en **'🏢 Cargar Directorio de Proveedores'** arriba para habilitar la selección automática.")
+                                st.info("💡 Consejo: Haga clic primero en **'🏢 Cargar Directorio de Proveedores'** arriba.")
                                 razon_r = st.text_input("Razón Social", value=f_data.get('proveedor_nombre', ''), key=f"razon_manual_2_{f_data.get('id', 'gen')}")
                                 dir_r = st.text_input("Dirección", value="Escriba la dirección aquí...", key=f"dir_manual_2_{f_data.get('id', 'gen')}")
-                        
+                                
                         c7, c8, c9 = st.columns(3)
                         base_r = c7.number_input("Base Imponible", value=float(f_data['monto_operacion']))
                         porc_r = c8.number_input("% Retención", value=3.0)
@@ -9578,7 +9585,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                                     f_data['fecha_operacion'].strftime("%Y%m"), 
                                     m_final,  # <--- Este es el valor limpio
                                     n_comprob_manual
-)
+                                )
                                 
                                 if exito:
                                     st.session_state.datos_pdf = {
