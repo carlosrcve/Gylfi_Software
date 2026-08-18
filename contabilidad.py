@@ -5013,14 +5013,14 @@ def gestionar_sidebar():
                         pass 
                     cursor_tmp.close()
 
-                    # Consulta inteligente según el rol del usuario
+                    # Consulta inteligente según el rol del usuario asegurando el esquema central
                     if user_rol == 'admin':
                         queries_a_probar = [
                             "SELECT * FROM control_central.clientes",
                             "SELECT * FROM clientes"
                         ]
                     else:
-                        # Si es cliente, unimos la tabla usuarios con clientes usando el ID o nombre de usuario
+                        # Si es cliente, cruzamos explícitamente con las tablas de control_central
                         c_id = st.session_state.get('cliente_id') or st.session_state.get('user_id')
                         queries_a_probar = [
                             f"""
@@ -5029,9 +5029,13 @@ def gestionar_sidebar():
                             WHERE u.id = '{c_id}' OR u.usuario = '{nombre_usuario_actual}'
                             """,
                             f"""
-                            SELECT c.* FROM clientes c 
-                            JOIN usuarios u ON (c.id = u.cliente_id OR c.db_nombre = u.db_nombre) 
-                            WHERE u.id = '{c_id}' OR u.usuario = '{nombre_usuario_actual}'
+                            SELECT c.* FROM control_central.clientes c 
+                            JOIN control_central.usuarios u ON (c.db_nombre = u.db_nombre) 
+                            WHERE u.usuario = '{nombre_usuario_actual}'
+                            """,
+                            f"""
+                            SELECT * FROM control_central.clientes 
+                            WHERE db_nombre = (SELECT db_nombre FROM control_central.usuarios WHERE usuario = '{nombre_usuario_actual}' LIMIT 1)
                             """
                         ]
                     
