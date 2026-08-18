@@ -6696,9 +6696,10 @@ if "🏠 Inicio" in opcion_menu:
                 import datetime
                 import calendar
 
-                # Lectura robusta corregida para evitar el error de atributo
+                # Lectura robusta corregida para evitar el error de datetime
                 anio_actual = datetime.date.today().year
                 anio_sel = int(st.session_state.get('año_seleccionado') or st.session_state.get('anio', anio_actual))
+                mes_sel = st.session_state.get('mes_seleccionado') or st.session_state.get('mes') or st.session_state.get('Mes') or "Mayo"
                 
                 dic_meses = {
                     "Enero": 1, "Febrero": 2, "Marzo": 3, "Abril": 4, 
@@ -6815,7 +6816,8 @@ if "🏠 Inicio" in opcion_menu:
 
     except Exception as e:
         st.error(f"Error procesando el reporte contable: {e}")
-        st.code(traceback.format_exc())  # Es
+        import traceback
+        st.code(traceback.format_exc())
     
 
     # --- FILA 11: CALENDARIO ESPECIAL PEDACITO DE CIELO ---
