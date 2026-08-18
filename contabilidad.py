@@ -24,6 +24,7 @@ from sqlalchemy import create_engine
 import warnings
 import bcrypt
 import time
+import ssl
 
 st.set_page_config(
     page_title="Mi App Contable",
@@ -51,6 +52,11 @@ def conectar_db(nombre_db=None):
 
     db_a_usar = nombre_db if nombre_db else db_cfg.get("database", "control_central")
     
+    # Contexto SSL obligatorio para TiDB Cloud / AWS (evita el error de credenciales/handshake)
+    ssl_context = ssl.create_default_context()
+    ssl_context.check_hostname = False
+    ssl_context.verify_mode = ssl.CERT_NONE
+
     try:
         # Validación y creación automática de la base de datos si no existe
         if db_a_usar != "control_central":
@@ -61,7 +67,8 @@ def conectar_db(nombre_db=None):
                     user=db_cfg["user"],
                     password=db_cfg["password"],
                     database="control_central",
-                    connect_timeout=15
+                    connect_timeout=15,
+                    ssl=ssl_context
                 )
                 with conn_temp.cursor() as cursor_temp:
                     cursor_temp.execute(f"CREATE DATABASE IF NOT EXISTS `{db_a_usar}`;")
@@ -69,7 +76,7 @@ def conectar_db(nombre_db=None):
             except Exception as ex:
                 print(f"Aviso al asegurar BD de cliente: {ex}")
 
-        # Conexión principal utilizando PyMySQL (robusto, nativo de Python y sin lios de C o SSL en la nube)
+        # Conexión principal con PyMySQL + SSL habilitado para la nube
         conn = pymysql.connect(
             host=db_cfg["host"],
             port=int(db_cfg.get("port", 4000)),
@@ -77,7 +84,8 @@ def conectar_db(nombre_db=None):
             password=db_cfg["password"],
             database=db_a_usar,
             connect_timeout=15,
-            charset='utf8mb4'
+            charset='utf8mb4',
+            ssl=ssl_context
         )
         return conn
     except Error as e:
