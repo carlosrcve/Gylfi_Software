@@ -541,7 +541,9 @@ def obtener_saldos_acumulados(conexion, fecha_corte, nombre_db):
         return {"activo": 0, "pasivo": 0, "patrimonio": 0}
     
     db_segura = str(nombre_db).strip()
-    cur = conexion.cursor(dictionary=True)
+    
+    # CORREGIDO: Usamos pymysql.cursors.DictCursor en lugar de dictionary=True
+    cur = conexion.cursor(pymysql.cursors.DictCursor)
     
     try:
         cur.execute(f"USE `{db_segura}`")
@@ -561,8 +563,7 @@ def obtener_saldos_acumulados(conexion, fecha_corte, nombre_db):
                 
                 UNION ALL
                 
-                -- 2. Sumamos los saldos iniciales (asegúrate de que tu tabla se llame 'saldos_iniciales' 
-                -- o ajusta el nombre si tiene otro, ej: 'saldos_anuales')
+                -- 2. Sumamos los saldos iniciales
                 SELECT plan_cuentas, debe, haber 
                 FROM saldos_iniciales
             ) as todo_acumulado
