@@ -26,6 +26,7 @@ import bcrypt
 import time
 import ssl
 
+
 st.set_page_config(
     page_title="Mi App Contable",
     layout="wide",
@@ -5259,7 +5260,7 @@ if "🏠 Inicio" in opcion_menu:
     
     # Asignamos la conexión lista para usar en el resto de tu módulo de inicio
     conn = st.session_state.conn
-    
+
     # 1. DEFINICIÓN DE ESTRUCTURA DE TIEMPO
 
     dic_meses = {
@@ -5269,7 +5270,7 @@ if "🏠 Inicio" in opcion_menu:
     }
     meses_lista = list(dic_meses.keys())
 
-    anio_f = int(st.session_state.get('año_seleccionado', datetime.datetime.now().year))
+    anio_f = int(st.session_state.get('año_seleccionado', datetime.now().year))
     mes_nombre_f = st.session_state.get('mes_seleccionado', meses_lista[datetime.datetime.now().month - 1])
 
     m_idx = dic_meses.get(mes_nombre_f, 1)
