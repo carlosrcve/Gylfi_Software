@@ -43,25 +43,23 @@ try:
     HAS_TESSERACT = True
 except ImportError:
     HAS_TESSERACT = False
-
-import ssl
+    
 
 def conectar_db(nombre_db=None):
-    # 1. Validación de secretos para evitar sorpresas
     if "mysql" not in st.secrets:
-        st.error("⚠️ Falta la configuración [mysql] en los secretos de Streamlit.")
+        st.error("⚠️ Falta la configuración [mysql] en los secretos.")
         return None
     db_cfg = st.secrets["mysql"]
 
     db_a_usar = nombre_db if nombre_db else db_cfg.get("database", "control_central")
     
-    # Contexto SSL obligatorio para TiDB Cloud / AWS en PyMySQL
+    # Contexto TLS obligatorio que exige TiDB Cloud para conexiones públicas
     ssl_context = ssl.create_default_context()
     ssl_context.check_hostname = False
     ssl_context.verify_mode = ssl.CERT_NONE
 
     try:
-        # 2. VERIFICAR Y CREAR LA BASE DE DATOS SI NO EXISTE (Multicliente Cloud)
+        # 1. Asegurar base de datos multicliente si no es la central
         if db_a_usar != "control_central":
             try:
                 conn_temp = pymysql.connect(
@@ -70,7 +68,7 @@ def conectar_db(nombre_db=None):
                     user=db_cfg["user"],
                     password=db_cfg["password"],
                     database="control_central",
-                    connect_timeout=10,
+                    connect_timeout=15,
                     ssl=ssl_context
                 )
                 with conn_temp.cursor() as cursor_temp:
@@ -79,49 +77,44 @@ def conectar_db(nombre_db=None):
             except Exception as ex:
                 print(f"Aviso al asegurar BD de cliente: {ex}")
 
-        # 3. VALIDAR CONEXIÓN EXISTENTE EN SESSION_STATE
+        # 2. Validar conexión existente en session_state
         if "conn" in st.session_state and st.session_state.conn is not None:
             try:
-                # En PyMySQL se usa ping(reconnect=True) para verificar salud
                 st.session_state.conn.ping(reconnect=True)
-                
                 with st.session_state.conn.cursor() as cursor_test:
                     cursor_test.execute("SELECT DATABASE()")
                     res = cursor_test.fetchone()
-                    db_actual_en_servidor = res[0] if res else None
+                    db_actual = res[0] if res else None
                 
-                # Si la base de datos es la misma, reutilizamos sin miedo
-                if db_actual_en_servidor == db_a_usar:
+                if db_actual == db_a_usar:
                     return st.session_state.conn
                 else:
                     st.session_state.conn.close()
                     st.session_state.conn = None
             except Exception:
                 st.session_state.conn = None
-        
-        # Limpieza por seguridad antes de la nueva asignación
+
         st.session_state.conn = None
 
-        # 4. CONEXIÓN OFICIAL A LA BASE DE DATOS REQUERIDA (PyMySQL + SSL)
+        # 3. Conexión oficial definitiva con TLS habilitado
         st.session_state.conn = pymysql.connect(
             host=db_cfg["host"],
             port=int(db_cfg.get("port", 4000)),
             user=db_cfg["user"],
             password=db_cfg["password"],
             database=db_a_usar,
-            connect_timeout=10,
+            connect_timeout=15,
             charset='utf8mb4',
             ssl=ssl_context
         )
         return st.session_state.conn
         
     except Error as e:
-        st.error(f"❌ Error al conectar a la base de datos '{db_a_usar}': {e}")
-        print(f"ERROR REAL DE CONEXIÓN: {e}")
+        st.error(f"❌ Error de conexión TLS con TiDB Cloud ('{db_a_usar}'): {e}")
         st.session_state.conn = None
         return None
     except Exception as ex:
-        st.error(f"❌ Error crítico inesperado: {ex}")
+        st.error(f"❌ Error crítico: {ex}")
         st.session_state.conn = None
         return None
 
