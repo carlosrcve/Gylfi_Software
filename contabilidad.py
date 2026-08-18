@@ -72,7 +72,7 @@ def conectar_db(nombre_db=None):
             except Exception as ex:
                 print(f"Aviso al asegurar BD de cliente: {ex}")
 
-        # 2. Validar conexión existente en session_state
+        # 2. Validar conexión existente y asegurar que apunte EXACTAMENTE a db_a_usar
         if "conn" in st.session_state and st.session_state.conn is not None:
             try:
                 st.session_state.conn.ping(reconnect=True)
@@ -81,9 +81,11 @@ def conectar_db(nombre_db=None):
                     res = cursor_test.fetchone()
                     db_actual = res[0] if res else None
                 
+                # Si la conexión activa ya está en la BD correcta, la reutilizamos
                 if db_actual == db_a_usar:
                     return st.session_state.conn
                 else:
+                    # Si estaba en otra BD (ej. control_central), la cerramos para forzar la nueva
                     st.session_state.conn.close()
                     st.session_state.conn = None
             except Exception:
@@ -91,7 +93,7 @@ def conectar_db(nombre_db=None):
 
         st.session_state.conn = None
 
-        # 3. Conexión oficial definitiva con el protocolo TLS explícito
+        # 3. Conexión oficial definitiva apuntando directamente a la BD requerida
         st.session_state.conn = pymysql.connect(
             host="gateway01.us-east-1.prod.aws.tidbcloud.com",
             port=4000,
@@ -104,12 +106,8 @@ def conectar_db(nombre_db=None):
         )
         return st.session_state.conn
         
-    except Error as e:
-        st.error(f"❌ Error de autenticación o TLS en TiDB Cloud ('{db_a_usar}'): {e}")
-        st.session_state.conn = None
-        return None
     except Exception as ex:
-        st.error(f"❌ Error crítico: {ex}")
+        st.error(f"❌ Error crítico de conexión a TiDB Cloud ('{db_a_usar}'): {ex}")
         st.session_state.conn = None
         return None
 
