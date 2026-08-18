@@ -603,8 +603,8 @@ def obtener_datos_pie(db, fecha_inicio, fecha_fin):
     """
     
     try:
-        with conn.cursor() as cursor:
-            df = pd.read_sql(query, conn, params=(fecha_inicio, fecha_fin))
+        # USAMOS NUESTRA FUNCIÓN SEGURA EN LUGAR DE pd.read_sql
+        df = ejecutar_consulta(query, conn, params=(fecha_inicio, fecha_fin))
         return df if not df.empty else df_vacio
     except Exception as e:
         print(f"Error en obtener_datos_pie: {e}")
