@@ -5013,8 +5013,7 @@ def gestionar_sidebar():
                         pass 
                     cursor_tmp.close()
 
-                    # Consulta inteligente según el rol del usuario asegurando el esquema central
-                    # Consulta directa y limpia basada en el db_nombre del usuario logueado
+                    # Consultas adaptadas a la estructura real (relación por cliente_id y fallback por db_nombre)
                     if user_rol == 'admin':
                         queries_a_probar = [
                             "SELECT * FROM control_central.clientes",
@@ -5024,17 +5023,18 @@ def gestionar_sidebar():
                         queries_a_probar = [
                             f"""
                             SELECT c.* FROM control_central.clientes c
-                            JOIN control_central.usuarios u ON c.db_nombre = u.db_nombre
+                            JOIN control_central.usuarios u ON c.id = u.cliente_id
                             WHERE u.usuario = '{nombre_usuario_actual}'
                             """,
                             f"""
                             SELECT c.* FROM clientes c
-                            JOIN usuarios u ON c.db_nombre = u.db_nombre
+                            JOIN usuarios u ON c.id = u.cliente_id
                             WHERE u.usuario = '{nombre_usuario_actual}'
                             """,
                             f"""
-                            SELECT * FROM control_central.clientes 
-                            WHERE db_nombre = '{st.session_state.get('db_a_conectar', '')}'
+                            SELECT c.* FROM control_central.clientes c
+                            JOIN control_central.usuarios u ON c.db_nombre = u.db_nombre
+                            WHERE u.usuario = '{nombre_usuario_actual}'
                             """
                         ]
                     
@@ -5064,7 +5064,7 @@ def gestionar_sidebar():
             if user_rol != 'admin' and df_filtrado.empty:
                 st.error(f"❌ El usuario '{nombre_usuario_actual}' no tiene una empresa asignada en la base de datos.")
                 st.stop()
-
+                
             # Resguardo absoluto solo si es admin y la tabla está totalmente vacía
             if df_filtrado.empty:
                 df_filtrado = pd.DataFrame({
