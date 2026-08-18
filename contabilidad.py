@@ -1,32 +1,30 @@
 # contabilidad.py
 import os
-import streamlit as st
-
-# --- ADAPTADOR MAGICO PARA MANTENER TU CODIGO EXACTO ---
+import sys
+from types import ModuleType
 import pymysql
 
+# --- PARCHE DE COMPATIBILIDAD (DEBE IR ANTES DE CUALQUIER IMPORTACIÓN) ---
 class MockConnectorModule:
     Error = pymysql.MySQLError
     def connect(self, *args, **kwargs):
         kwargs.pop('use_pure', None)
         kwargs.pop('ssl_verify_cert', None)
         conn = pymysql.connect(*args, **kwargs)
-        # Añadir métodos faltantes de mysql.connector para compatibilidad con session_state
         if not hasattr(conn, 'is_connected'):
             conn.is_connected = lambda: True
         if not hasattr(conn, 'ping'):
             conn.ping = lambda reconnect=True, **kwargs: conn.ping(reconnect=reconnect)
         return conn
 
-import sys
-from types import ModuleType
 mysql_mock = ModuleType('mysql.connector')
 mysql_mock.connect = MockConnectorModule().connect
 mysql_mock.Error = pymysql.MySQLError
 sys.modules['mysql.connector'] = mysql_mock
-import mysql.connector
-# -----------------------------------------------------
+# -----------------------------------------------------------------------
 
+import streamlit as st
+import mysql.connector  # Ahora esto funcionará gracias al parche
 import requests
 from bs4 import BeautifulSoup
 import pandas as pd
@@ -48,7 +46,6 @@ from sqlalchemy import create_engine
 import warnings
 import bcrypt
 import time
-import datetime
 
 # 1. ESTO VA AQUÍ, AL PURO PRINCIPIO
 st.set_page_config(
@@ -153,7 +150,6 @@ def conectar_db(nombre_db=None):
         st.error(f"❌ Error al conectar a la base de datos '{db_a_usar}': {e}")
         st.session_state.conn = None
         return None
-
 
 
 def verificar_usuario(conn, user, password):
