@@ -6267,8 +6267,8 @@ if "🏠 Inicio" in opcion_menu:
     # --- FILA 10: REPORTE DE CONTABLE ---
     st.divider()
     try:
-        # Usamos las llaves exactas definidas en el sidebar de contabilidad
-        año = int(st.session_state.get('año_seleccionado_contabilidad', datetime.date.today().year))
+        # Usamos un respaldo numérico directo (2026) para evitar cualquier conflicto de importación con datetime.date
+        año = int(st.session_state.get('año_seleccionado_contabilidad') or st.session_state.get('año_seleccionado') or 2026)
         mes_elegido_str = str(st.session_state.get('mes_seleccionado_contabilidad', 'Junio')).strip().capitalize()
 
         # Mapeo robusto de meses
@@ -6280,6 +6280,7 @@ if "🏠 Inicio" in opcion_menu:
         num_mes = meses_map.get(mes_elegido_str, 6)
 
         # Construcción de fechas usando calendar para evitar errores en días máximos
+        import calendar
         ultimo_dia = int(calendar.monthrange(año, num_mes)[1])
         
         # Creamos tanto los strings como los objetos date de forma limpia
@@ -6291,7 +6292,6 @@ if "🏠 Inicio" in opcion_menu:
 
         # Cuadro informativo de depuración en tiempo real reflejando el período activo
         st.info(f"📅 Período Activo: **{mes_elegido_str} {año}** | Rango SQL: **{f_i_str} al {f_f_str}**")
-
         # Validar Base de Datos activa
         db = st.session_state.get('DB_ACTUAL')
         if db and db != "{db}" and db != "None" and str(db).strip() != "":
