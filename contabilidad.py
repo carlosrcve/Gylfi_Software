@@ -2,15 +2,28 @@
 import os
 import streamlit as st
 
+# Inicializamos la variable por seguridad
+HAS_TESSERACT = False
+pytesseract = None
+
+# Intentamos importar pytesseract de forma segura
+try:
+    import pytesseract
+    if os.name == 'nt':
+        pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+    else:
+        pytesseract.pytesseract.tesseract_cmd = '/usr/bin/tesseract'
+    HAS_TESSERACT = True
+except ImportError:
+    pass
+
+# Ahora la línea 5 funcionará sin problemas porque la variable ya existe
 if HAS_TESSERACT:
-    try:
-        # Asegúrate de redimensionar o validar la imagen antes de esto
-        texto = pytesseract.image_to_string(tu_imagen, lang='spa')
-    except Exception as e:
-        st.error(f"Error procesando la imagen con OCR: {e}")
-        texto = ""
+    # Tu código si Tesseract está disponible
+    pass
 else:
-    st.warning("El motor Tesseract no está disponible en el sistema.")
+    # Tu código alternativo si no está disponible
+    pass
 
 import streamlit as st
 import requests
