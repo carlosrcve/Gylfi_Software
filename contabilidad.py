@@ -2836,7 +2836,7 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                 df_facturas,
                 column_config={"Seleccionar": st.column_config.CheckboxColumn(required=True)},
                 hide_index=True,
-                use_container_width=True
+                width="stretch"  # <-- Actualizado de use_container_width=True
             )
 
             # Filtramos solo las marcadas
