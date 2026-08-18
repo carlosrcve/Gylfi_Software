@@ -6696,9 +6696,9 @@ if "🏠 Inicio" in opcion_menu:
                 import datetime
                 import calendar
 
-                # Lectura robusta compatible con ambas nomenclaturas de sesión
-                anio_sel = int(st.session_state.get('año_seleccionado') or st.session_state.get('anio', datetime.datetime.now().year))
-                mes_sel = st.session_state.get('mes_seleccionado') or st.session_state.get('mes') or st.session_state.get('Mes') or "Mayo"
+                # Lectura robusta corregida para evitar el error de atributo
+                anio_actual = datetime.date.today().year
+                anio_sel = int(st.session_state.get('año_seleccionado') or st.session_state.get('anio', anio_actual))
                 
                 dic_meses = {
                     "Enero": 1, "Febrero": 2, "Marzo": 3, "Abril": 4, 
