@@ -101,7 +101,7 @@ def conectar_db(nombre_db=None):
             except Exception:
                 st.session_state.conn = None
     
-        # 3. CONEXIÓN OFICIAL
+        # 3. CONEXIÓN OFICIAL (Sin write_timeout para evitar errores)
         st.session_state.conn = mysql.connector.connect(
             host=db_cfg["host"],
             port=4000,
@@ -110,7 +110,6 @@ def conectar_db(nombre_db=None):
             database=db_a_usar,
             use_pure=True,
             connect_timeout=30,
-            write_timeout=60,
             ssl_verify_cert=False,
             ssl_disabled=False
         )
