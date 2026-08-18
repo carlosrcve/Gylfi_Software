@@ -4996,6 +4996,7 @@ def gestionar_sidebar():
         st.divider()
 
         # --- Selección de Empresa ---
+        # --- Selección de Empresa ---
         if menu == "📊 Auditoría Contable":
             conn_sidebar = conectar_db()
             df_sidebar = pd.DataFrame()
@@ -5012,10 +5013,27 @@ def gestionar_sidebar():
                         pass 
                     cursor_tmp.close()
 
-                    queries_a_probar = [
-                        "SELECT * FROM control_central.clientes",
-                        "SELECT * FROM clientes"
-                    ]
+                    # Consulta inteligente según el rol del usuario
+                    if user_rol == 'admin':
+                        queries_a_probar = [
+                            "SELECT * FROM control_central.clientes",
+                            "SELECT * FROM clientes"
+                        ]
+                    else:
+                        # Si es cliente, unimos la tabla usuarios con clientes usando el ID o nombre de usuario
+                        c_id = st.session_state.get('cliente_id') or st.session_state.get('user_id')
+                        queries_a_probar = [
+                            f"""
+                            SELECT c.* FROM control_central.clientes c 
+                            JOIN control_central.usuarios u ON (c.id = u.cliente_id OR c.db_nombre = u.db_nombre) 
+                            WHERE u.id = '{c_id}' OR u.usuario = '{nombre_usuario_actual}'
+                            """,
+                            f"""
+                            SELECT c.* FROM clientes c 
+                            JOIN usuarios u ON (c.id = u.cliente_id OR c.db_nombre = u.db_nombre) 
+                            WHERE u.id = '{c_id}' OR u.usuario = '{nombre_usuario_actual}'
+                            """
+                        ]
                     
                     for q in queries_a_probar:
                         try:
@@ -5037,43 +5055,9 @@ def gestionar_sidebar():
             if not df_sidebar.empty:
                 df_sidebar = df_sidebar.fillna("")
 
-                # 🛠️ FILTRADO ESTRICTO POR USUARIO LOGUEADO (SI NO ES ADMIN)
-                if user_rol != 'admin':
-                    filtrado_exitoso = False
-                    
-                    # 1. Filtrar por ID de usuario o cliente en sesión
-                    c_id = st.session_state.get('cliente_id') or st.session_state.get('user_id')
-                    if c_id and any(col in df_sidebar.columns for col in ['id', 'cliente_id', 'usuario_id']):
-                        col_encontrada = next(c for c in ['id', 'cliente_id', 'usuario_id'] if c in df_sidebar.columns)
-                        match_id = df_sidebar[df_sidebar[col_encontrada].astype(str) == str(c_id)]
-                        if not match_id.empty:
-                            df_sidebar = match_id
-                            filtrado_exitoso = True
-
-                    # 2. Filtrar por coincidencia exacta del nombre de usuario en las columnas de la tabla
-                    if not filtrado_exitoso:
-                        limpiar_nombre = str(nombre_usuario_actual).strip().lower()
-                        for col_u in ['nombre_usuario', 'usuario', 'username', 'user', 'login']:
-                            if col_u in df_sidebar.columns:
-                                match_user = df_sidebar[df_sidebar[col_u].astype(str).str.strip().str.lower() == limpiar_nombre]
-                                if not match_user.empty:
-                                    df_sidebar = match_user
-                                    filtrado_exitoso = True
-                                    break
-                    
-                    # 3. Si aun así no encuentra por campos exactos, busca por coincidencia parcial del nombre (Ej. Ejan Maroc)
-                    if not filtrado_exitoso:
-                        limpiar_nombre = str(nombre_usuario_actual).strip().lower()
-                        for col_c in df_sidebar.columns:
-                            match_parcial = df_sidebar[df_sidebar[col_c].astype(str).str.lower().str.contains(limpiar_nombre, na=False)]
-                            if not match_parcial.empty:
-                                df_sidebar = match_parcial
-                                filtrado_exitoso = True
-                                break
-
             df_filtrado = df_sidebar
 
-            # Si es usuario normal y no se encontró registro, se muestra advertencia clara en lugar de inventar otra empresa
+            # Si es usuario normal y no se encontró registro, se muestra advertencia clara
             if user_rol != 'admin' and df_filtrado.empty:
                 st.error(f"❌ El usuario '{nombre_usuario_actual}' no tiene una empresa asignada en la base de datos.")
                 st.stop()
