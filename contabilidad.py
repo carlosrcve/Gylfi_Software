@@ -5,17 +5,6 @@ import streamlit as st
 # --- ADAPTADOR MAGICO PARA MANTENER TU CODIGO EXACTO ---
 import pymysql
 
-class PyMySQLAsConnector:
-    """Simula la interfaz de mysql.connector usando pymysql por debajo"""
-    Error = pymysql.MySQLError
-    
-    @staticmethod
-    déf_connect(*args, **kwargs):
-        # Mapeo de parámetros si es necesario
-        kwargs.pop('use_pure', None)
-        kwargs.pop('ssl_verify_cert', None)
-        return pymysql.connect(*args, **kwargs)
-
 class MockConnectorModule:
     Error = pymysql.MySQLError
     def connect(self, *args, **kwargs):
@@ -164,7 +153,6 @@ def conectar_db(nombre_db=None):
         st.error(f"❌ Error al conectar a la base de datos '{db_a_usar}': {e}")
         st.session_state.conn = None
         return None
-
 
 
 
