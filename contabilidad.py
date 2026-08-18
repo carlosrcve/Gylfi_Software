@@ -5457,60 +5457,39 @@ if "🏠 Inicio" in opcion_menu:
     st.divider()
     col_izq, col_der = st.columns(2)
 
-    # 1. Recuperamos y blindamos los valores usando las keys oficiales del sidebar
-    año_val = st.session_state.get('año_seleccionado_contabilidad', 2026)
-    mes_val = st.session_state.get('mes_seleccionado_contabilidad', 'Mayo')
+    # 1. Recuperación segura de año y mes desde session_state o valores por defecto
+    año_val = st.session_state.get('año_seleccionado_contabilidad') or st.session_state.get('anio') or 2026
+    mes_val = st.session_state.get('mes_seleccionado_contabilidad') or st.session_state.get('mes_seleccionado') or st.session_state.get('mes') or 'Mayo'
 
-    try:
-        año = int(str(año_val).strip())
-    except:
-        año = 2026
-
+    # 2. Diccionario de traducción de texto a número
     meses_map = {
         'Enero': 1, 'Febrero': 2, 'Marzo': 3, 'Abril': 4, 
         'Mayo': 5, 'Junio': 6, 'Julio': 7, 'Agosto': 8, 
         'Septiembre': 9, 'Octubre': 10, 'Noviembre': 11, 'Diciembre': 12
     }
 
-    if isinstance(mes_val, str):
-        mes = meses_map.get(mes_val.strip(), 5)
-    else:
-        try:
-            mes = int(mes_val)
-        except:
-# 1. Obtención segura del mes y año desde session_state
-    mes_crudo = st.session_state.get('mes_seleccionado') or st.session_state.get('mes') or 1
-    
-    # Intentar obtener el año de la sesión o usar el actual (Corregido a datetime.now())
-    año_crudo = st.session_state.get('anio_seleccionado') or st.session_state.get('anio') or datetime.now().year
-
-    # 2. Diccionario de traducción de texto a número
-    dic_meses = {
-        "Enero": 1, "Febrero": 2, "Marzo": 3, "Abril": 4, 
-        "Mayo": 5, "Junio": 6, "Julio": 7, "Agosto": 8, 
-        "Septiembre": 9, "Octubre": 10, "Noviembre": 11, "Diciembre": 12
-    }
-
-    # 3. Conversión blindada de año
+    # 3. Conversión blindada del año
     try:
-        año_int = int(año_crudo)
+        año_int = int(str(año_val).strip())
     except (ValueError, TypeError):
-        año_int = datetime.now().year
+        año_int = datetime.now().year if 'datetime' in globals() else 2026
 
-    # 4. Conversión blindada de mes (soporta texto o número)
-    if str(mes_crudo).isdigit():
-        mes_int = int(mes_crudo)
+    # 4. Conversión blindada del mes (soporta texto o número)
+    if str(mes_val).isdigit():
+        mes_int = int(mes_val)
+    elif isinstance(mes_val, str):
+        mes_int = meses_map.get(mes_val.strip().capitalize(), 5)
     else:
-        mes_int = dic_meses.get(str(mes_crudo).capitalize(), datetime.now().month)
+        mes_int = 5
 
     # Validar que el mes esté en el rango correcto (1-12)
     if not (1 <= mes_int <= 12):
-        mes_int = datetime.now().month
+        mes_int = 5
 
     # 5. Calcular el último día del mes de forma segura
     _, ultimo_dia = calendar.monthrange(año_int, mes_int)
 
-    # 6. Generar los strings y variables de tipo date de forma blindada (usando 'date' directo)
+    # 6. Generar strings y variables tipo date
     f_i = f"{año_int:04d}-{mes_int:02d}-01"
     f_f = f"{año_int:04d}-{mes_int:02d}-{ultimo_dia:02d}"
 
@@ -5518,7 +5497,7 @@ if "🏠 Inicio" in opcion_menu:
     f_fin_global = date(año_int, mes_int, ultimo_dia)
 
     # 7. DEBUG VISUAL
-    st.sidebar.info(f"📅 Rango activo ({mes_crudo}): {f_i} al {f_f}")  
+    st.sidebar.info(f"📅 Rango activo ({mes_val}): {f_i} al {f_f}")  
 
     db = st.session_state.get('DB_ACTUAL', 'control_central')
 
