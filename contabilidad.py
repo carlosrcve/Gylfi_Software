@@ -1,29 +1,6 @@
 #contabilidad.py
 import os
 import streamlit as st
-
-# Inicialización segura de variables globales
-HAS_TESSERACT = False
-pytesseract = None
-
-try:
-    import pytesseract
-    if os.name == 'nt':
-        pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
-    else:
-        pytesseract.pytesseract.tesseract_cmd = '/usr/bin/tesseract'
-    HAS_TESSERACT = True
-except ImportError:
-    HAS_TESSERACT = False
-
-if HAS_TESSERACT:
-    # Código que usa Tesseract
-    pass
-else:
-    # Código alternativo
-    pass
-
-
 import mysql.connector  # <--- ESTO ES LO QUE FALTA
 import streamlit as st
 import requests
@@ -63,23 +40,27 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+# Inicialización segura de variables globales
+HAS_TESSERACT = False
+pytesseract = None
 
+try:
+    import pytesseract
+    if os.name == 'nt':
+        pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+    else:
+        pytesseract.pytesseract.tesseract_cmd = '/usr/bin/tesseract'
+    HAS_TESSERACT = True
+except ImportError:
+    HAS_TESSERACT = False
 
-def conectar_db_sqlal():
-    try:
-        if "mysql" not in st.secrets:
-            st.error("⚠️ No se encontró la sección [mysql] en los secretos.")
-            return None
-            
-        cfg = st.secrets["mysql"]
-        # Construcción segura de la cadena para PyMySQL
-        cadena_conexion = f"mysql+pymysql://{cfg['user']}:{cfg['password']}@{cfg['host']}:{cfg.get('port', 4000)}/{cfg.get('database', 'control_central')}?ssl_disabled=false"
-        
-        engine = create_engine(cadena_conexion, pool_recycle=3600)
-        return engine
-    except Exception as e:
-        st.error(f"❌ Error al crear el engine de base de datos: {e}")
-        return None
+if HAS_TESSERACT:
+    # Código que usa Tesseract
+    pass
+else:
+    # Código alternativo
+    pass
+
 
 def conectar_db(nombre_db=None):
     # 1. Validación segura de secretos para evitar el KeyError
