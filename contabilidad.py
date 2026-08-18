@@ -4494,8 +4494,11 @@ def obtener_utilidad_acumulada_historica(db, fecha_corte):
         FROM `{db}`.asientos_contables 
         WHERE fecha <= %s
     """
-    cursor = conn.cursor(dictionary=True)
+    
+    cursor = None
     try:
+        # CORREGIDO: Uso de DictCursor compatible con PyMySQL
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
         cursor.execute(query, (fecha_fin_str,))
         res = cursor.fetchone()
         if not res:
@@ -4508,48 +4511,16 @@ def obtener_utilidad_acumulada_historica(db, fecha_corte):
         otros_egresos = abs(float(res['oeg_debe'] or 0) - float(res['oeg_haber'] or 0))
 
         return float(ingresos - costos - gastos + otros_ingresos - otros_egresos)
+        
+    except Exception as e:
+        print(f"❌ Error al calcular utilidad acumulada histórica: {e}")
+        return 0.0
+        
     finally:
-        cursor.close()
-        conn.close()
-
-def mostrar_analisis_rendimiento(u_v, patrimonio_total, capital_social=600000.0):
-    try:
-        patrimonio_total = float(patrimonio_total) if patrimonio_total is not None else 0.0
-    except (ValueError, TypeError):
-        patrimonio_total = 0.0
-
-    try:
-        u_v = float(u_v) if u_v is not None else 0.0
-    except (ValueError, TypeError):
-        u_v = 0.0
-
-    capital_aportado = float(capital_social)
-    rendimiento_pct = (u_v / capital_aportado * 100) if capital_aportado != 0 else 0
-
-    st.subheader("📊 Composición de Capital y Rendimiento")
-
-    c1, c2 = st.columns(2)
-    c1.metric("Capital Social", f"Bs. {capital_aportado:,.2f}")
-    c2.metric("Utilidad Acumulada", f"Bs. {u_v:,.2f}", f"{rendimiento_pct:.1f}% ROE")
-
-    import plotly.graph_objects as go
-    fig = go.Figure()
-    
-    fig.add_trace(go.Bar(
-        x=['Capital Social', 'Utilidades Acumuladas'], 
-        y=[capital_aportado, u_v], 
-        name='Composición', 
-        marker_color=['#2c3e50', '#27ae60']
-    ))
-
-    fig.update_layout(
-        barmode='group', height=350, 
-        margin=dict(l=20, r=20, t=30, b=20),
-        showlegend=False
-    )
-    
-    st.plotly_chart(fig, width='stretch', key="grafico_comparativo_capital_utilidad")
-
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
 
 
 @st.cache_data(ttl=300)
