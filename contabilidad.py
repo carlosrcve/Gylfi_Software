@@ -5276,7 +5276,7 @@ if "🏠 Inicio" in opcion_menu:
     m_idx = dic_meses.get(mes_nombre_f, 1)
     ultimo_dia = calendar.monthrange(anio_f, m_idx)[1]
 
-    f_inicio_global = datetime.date(anio_f, 1, 1)
+    f_inicio_global = datetime.date(anio_f, 1, 1) # (Pero asegúrate de que al inicio del archivo tengas 'import datetime' suelto)
     f_fin_global = datetime.date(anio_f, m_idx, ultimo_dia)
 
     st.session_state["f_inicio_global"] = f_inicio_global
