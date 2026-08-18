@@ -4885,7 +4885,43 @@ def cargar_saldos_iniciales_db(df, nombre_db):
         conn.ping(reconnect=True) # Mantenemos la conexión viva
 
 
+def mostrar_analisis_rendimiento(u_v, patrimonio_total, capital_social=600000.0):
+    try:
+        patrimonio_total = float(patrimonio_total) if patrimonio_total is not None else 0.0
+    except (ValueError, TypeError):
+        patrimonio_total = 0.0
 
+    try:
+        u_v = float(u_v) if u_v is not None else 0.0
+    except (ValueError, TypeError):
+        u_v = 0.0
+
+    capital_aportado = float(capital_social)
+    rendimiento_pct = (u_v / capital_aportado * 100) if capital_aportado != 0 else 0
+
+    st.subheader("📊 Composición de Capital y Rendimiento")
+
+    c1, c2 = st.columns(2)
+    c1.metric("Capital Social", f"Bs. {capital_aportado:,.2f}")
+    c2.metric("Utilidad Acumulada", f"Bs. {u_v:,.2f}", f"{rendimiento_pct:.1f}% ROE")
+
+    import plotly.graph_objects as go
+    fig = go.Figure()
+    
+    fig.add_trace(go.Bar(
+        x=['Capital Social', 'Utilidades Acumuladas'], 
+        y=[capital_aportado, u_v], 
+        name='Composición', 
+        marker_color=['#2c3e50', '#27ae60']
+    ))
+
+    fig.update_layout(
+        barmode='group', height=350, 
+        margin=dict(l=20, r=20, t=30, b=20),
+        showlegend=False
+    )
+    
+    st.plotly_chart(fig, width='stretch', key="grafico_comparativo_capital_utilidad")
 
 def gestionar_sidebar():
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
