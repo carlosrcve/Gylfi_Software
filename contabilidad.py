@@ -100,8 +100,11 @@ def conectar_db(nombre_db=None):
                         st.session_state.conn = None
             except Exception:
                 st.session_state.conn = None
-    
-        # 3. CONEXIÓN OFICIAL (Sin write_timeout para evitar errores)
+        
+        # Limpieza de seguridad antes de la nueva asignación
+        st.session_state.conn = None
+
+        # 3. CONEXIÓN OFICIAL
         st.session_state.conn = mysql.connector.connect(
             host=db_cfg["host"],
             port=4000,
@@ -109,7 +112,7 @@ def conectar_db(nombre_db=None):
             password=db_cfg["password"],
             database=db_a_usar,
             use_pure=True,
-            connect_timeout=30,
+            connect_timeout=10,
             ssl_verify_cert=False,
             ssl_disabled=False
         )
