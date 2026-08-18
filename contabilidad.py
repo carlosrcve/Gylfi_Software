@@ -2763,6 +2763,67 @@ def cargar_datos_reimpresion(f_desde, f_hasta):
         if conn and conn.is_connected():
             conn.ping(reconnect=True)
 
+
+def obtener_detalle_comprobante(id_registro):
+    db_actual = st.session_state.get('DB_ACTUAL')
+    conn = conectar_db(db_actual)
+    cursor = None
+    
+    if not conn:
+        return pd.DataFrame()
+
+    try:
+        registrar_log_automatico(conn, "CONSULTA_DETALLE_COMPROBANTE", f"Usuario {st.session_state.usuario} consultó {id_registro}")
+        
+        cursor = conn.cursor()
+        
+        # CONSULTA EXPLÍCITA: Escribimos los nombres exactos de tu tabla
+        # CONSULTA AGRUPADA: Sumamos las bases y los impuestos
+        # CONSULTA CORREGIDA: Sin agrupamiento para ver todas las facturas
+        query = """
+        SELECT 
+            id, 
+            Razon_Social_del_Agente_de_Retencion, 
+            RIF_Agente_Retencion, 
+            E_Emision, 
+            F_Entrega, 
+            Razon_Social_Sujeto_Retenido, 
+            RIF_Sujeto_Retenido, 
+            Ano, 
+            Mes, 
+            N_Comprobante1, 
+            Fecha_Factura, 
+            Numero_Factura, 
+            Numero_Contro, 
+            Total_Comrpas, 
+            Compras_Excentas, 
+            Base_Imponible, 
+            Base_Imponible_8, 
+            Impuesto_Iva, 
+            IVA_Retenido, 
+            IVA_8, 
+            RET_IVA_8
+        FROM retenciones_iva 
+        WHERE N_Comprobante1 = (SELECT N_Comprobante1 FROM retenciones_iva WHERE id = %s)
+        """
+        
+        df = pd.read_sql(query, conn, params=(id_registro,))
+        return df
+        
+        df = pd.read_sql(query, conn, params=(id_registro,))
+        return df
+
+    except Exception as e:
+        st.error(f"Error al obtener detalle: {e}")
+        return pd.DataFrame()
+
+    finally:
+        if cursor:
+            cursor.close()
+        if conn and conn.is_connected():
+            conn.ping(reconnect=True)
+
+
 def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
     st.subheader(f"📑 Emisión de Comprobantes de Retención IVA: {EMPRESA}")
 
