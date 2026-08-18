@@ -13,7 +13,7 @@ try:
 except ImportError:
     HAS_TESSERACT = False
     pytesseract = None
-    
+
 import streamlit as st
 import requests
 from bs4 import BeautifulSoup
@@ -35,8 +35,6 @@ import base64
 import plotly.express as px
 from datetime import date # IMPORTA LA CLASE DATE DIRECTAMENTE
 from PIL import Image, ImageEnhance
-import pytesseract
-pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
 import json
 import base64
 from openai import OpenAI
