@@ -1019,11 +1019,11 @@ def obtener_analisis_gastos_clase5(db, f_i, f_f):
 
 
 @st.cache_data(ttl=300)
-def obtener_historico_utilidad_acumulada(db, año, mes_limite):
+def obtener_historico_utilidad_acumulada(db, año=2026, mes_limite=6):
     df_default = pd.DataFrame({'mes': [], 'utilidad_mensual': []})
     
     # 1. Validación de Seguridad Estricta para el nombre de la BD
-    if not db or not db.replace("_", "").isalnum():
+    if not db or not str(db).replace("_", "").isalnum():
         raise ValueError(f"Nombre de base de datos inválido: {db}")
 
     # 2. Blindaje de Conexión
@@ -1064,7 +1064,6 @@ def obtener_historico_utilidad_acumulada(db, año, mes_limite):
     """
     
     try:
-        # Pasamos año y mes como parámetros seguros
         df = ejecutar_consulta(query, conn, params=(año, mes_limite))
         if df.empty:
             return df_default
