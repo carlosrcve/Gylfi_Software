@@ -1,13 +1,15 @@
 #contabilidad.py
 import os
+import streamlit as st
 import pytesseract
 
-# --- CONFIGURACIÓN DE TESSERACT PARA MULTI-PLATAFORMA ---
+# --- CONFIGURACIÓN DE TESSERACT DINÁMICA ---
+# Si estamos en Streamlit Cloud (Linux), la ruta suele ser /usr/bin/tesseract
+# Si estamos en Windows, usará la ruta local.
 if os.name == 'nt':
-    # Ruta en tu Windows local
     pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
 else:
-    # Ruta en los servidores de la nube (Linux)
+    # Esta es la ruta estándar en entornos Linux
     pytesseract.pytesseract.tesseract_cmd = '/usr/bin/tesseract'
 
 import streamlit as st
