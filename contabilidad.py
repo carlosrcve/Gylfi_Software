@@ -5307,8 +5307,17 @@ if "🏠 Inicio" in opcion_menu:
             st.cache_data.clear()
             st.rerun()
 
+    # Validación de conexión compatible con PyMySQL
+    conexion_valida = False
+    if conn:
+        try:
+            conn.ping(reconnect=True)
+            conexion_valida = True
+        except Exception:
+            conexion_valida = False
+
     with st.spinner(f'Comunicando con MySQL para {db_objetivo}...'):
-        if conn and conn.is_connected():
+        if conn and conexion_valida:
             kpis = obtener_saldos_acumulados(conn, f_fin_global, db_objetivo)
         else:
             kpis = None
