@@ -1293,6 +1293,20 @@ def obtener_datos_agente_db(valor_busqueda):
     return _obtener_datos_agente_db_real(valor_busqueda)
 
 
+def ejecutar_consulta(query, conn, params=None):
+    cursor = None
+    try:
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute(query, params or ())
+        resultados = cursor.fetchall()
+        return pd.DataFrame(resultados) if resultados else pd.DataFrame()
+    except Exception as e:
+        # st.error(f"Error en consulta: {e}") # Descomenta si quieres que el error salga en la UI
+        return pd.DataFrame()
+    finally:
+        if cursor:
+            cursor.close()
+
 
 def consultar_libro_diario_db(conn_activa=None, fecha_inicio=None, fecha_fin=None):
     # 1. Seguridad y Contexto
@@ -1330,7 +1344,7 @@ def consultar_libro_diario_db(conn_activa=None, fecha_inicio=None, fecha_fin=Non
             params = None
         
         # 5. Ejecución con pandas
-        df = pd.read_sql(query, conn, params=params)
+        df = ejecutar_consulta(query, conn, params=params)
         
         # 6. Normalización Universal
         if not df.empty:
@@ -4836,19 +4850,7 @@ def cargar_saldos_iniciales_db(df, nombre_db):
         conn.ping(reconnect=True) # Mantenemos la conexión viva
 
 
-def ejecutar_consulta(query, conn, params=None):
-    cursor = None
-    try:
-        cursor = conn.cursor(dictionary=True)
-        cursor.execute(query, params or ())
-        resultados = cursor.fetchall()
-        return pd.DataFrame(resultados) if resultados else pd.DataFrame()
-    except Exception as e:
-        # st.error(f"Error en consulta: {e}") # Descomenta si quieres que el error salga en la UI
-        return pd.DataFrame()
-    finally:
-        if cursor:
-            cursor.close()
+
 
 def gestionar_sidebar():
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
