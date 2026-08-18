@@ -2807,29 +2807,28 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
 
 # --- 2. VALIDACIÓN DE CONEXIÓN Y CARGA ---
     with tab1:
-        st.write("Cargando Generar Nueva...")
-        st.subheader("📝 Generar Nueva Retención")
-        db_actual = st.session_state.get("DB_ACTUAL")
+    st.write("Cargando Generar Nueva...")
+    st.subheader("📝 Generar Nueva Retención")
+    db_actual = st.session_state.get("DB_ACTUAL")
 
-        if not db_actual:
-            st.error("⚠️ Debes seleccionar una empresa primero.")
-            st.stop()
+    if not db_actual:
+        st.error("⚠️ Debes seleccionar una empresa primero.")
+        st.stop()
 
-        conn = conectar_db(db_actual)
-        if not conn:
-            st.error("❌ No se pudo establecer conexión.")
-            st.stop()
+    conn = conectar_db(db_actual)
+    if not conn:
+        st.error("❌ No se pudo establecer conexión.")
+        st.stop()
 
-        conn.ping(reconnect=True, attempts=3, delay=1)
-        st.write(f"Conectado a: **{db_actual}**")
+    conn.ping(reconnect=True, attempts=3, delay=1)
+    st.write(f"Conectado a: **{db_actual}**")
 
-        # Filtros
-        col_b1, col_b2 = st.columns(2)
-    f_desde = col_b1.date_input("Desde", f_inicio_global, key="ret_iva_desde")
-    f_hasta = col_b2.date_input("Hasta", f_fin_global, key="ret_iva_hasta")
+    # Filtros (Corregida la indentación y las keys independientes)
+    col_b1, col_b2 = st.columns(2)
+    f_desde = col_b1.date_input("Desde", st.session_state.get('f_inicio_global', dt.date.today()), key="ret_iva_desde")
+    f_hasta = col_b2.date_input("Hasta", st.session_state.get('f_fin_global', dt.date.today()), key="ret_iva_hasta")
 
     # --- 3. LÓGICA DE PROCESAMIENTO ---
-    # Pasamos las fechas correctamente a la función
     df_facturas = obtener_facturas_pendientes(conn, f_desde, f_hasta)
 
     if not df_facturas.empty:
@@ -2921,8 +2920,8 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                 iva_retenido = (float(iva_i) * porcentaje_ret) / 100
                 c11.metric("IVA a Retener Total", f"Bs. {iva_retenido:,.2f}")
 
-                db_actual = st.session_state.get('DB_ACTUAL')
-                empresa_data = obtener_datos_agente_db(db_actual)
+                db_actual_form = st.session_state.get('DB_ACTUAL')
+                empresa_data = obtener_datos_agente_db(db_actual_form)
 
                 if not empresa_data:
                     st.error("⚠️ No se pudieron cargar los datos de la empresa.")
@@ -2937,26 +2936,25 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                 enviado = st.form_submit_button("💾 Guardar y Generar Documentos")
 
             if enviado:
-                empresa_data = st.session_state.get('id_empresa_seleccionada') or st.session_state.get('id_empresa_actual')
+                empresa_data_env = st.session_state.get('id_empresa_seleccionada') or st.session_state.get('id_empresa_actual')
                 db_nombre = st.session_state.get('DB_ACTUAL')
                 
-                if not empresa_data or not db_nombre:
+                if not empresa_data_env or not db_nombre:
                     st.error("❌ Faltan datos de empresa o base de datos.")
                     st.stop()
 
-                conn = conectar_db(db_nombre)
-                if not conn or not conn.is_connected():
-                    st.warning("⚠️ Reconectando...")
-                    conn = conectar_db(db_nombre)
+                conn_env = conectar_db(db_nombre)
+                if not conn_env or not conn_env.is_connected():
+                    conn_env = conectar_db(db_nombre)
 
-                id_final = empresa_data.get('id') if isinstance(empresa_data, dict) else empresa_data
-                empresa_nombre = empresa_data.get('nombre_empresa') or empresa_data.get('razon_social') or "EMPRESA"
-                empresa_rif = empresa_data.get('rif') or "000000000"
-                domicilio_fiscal = empresa_data.get('domicilio_fiscal') or empresa_data.get('direccion') or "DIRECCIÓN NO REGISTRADA"
+                id_final = empresa_data_env.get('id') if isinstance(empresa_data_env, dict) else empresa_data_env
+                empresa_nombre = empresa_data_env.get('nombre_empresa') or empresa_data_env.get('razon_social') or "EMPRESA"
+                empresa_rif = empresa_data_env.get('rif') or "000000000"
+                domicilio_fiscal = empresa_data_env.get('domicilio_fiscal') or empresa_data_env.get('direccion') or "DIRECCIÓN NO REGISTRADA"
 
                 cursor = None
                 try:
-                    cursor = conn.cursor()
+                    cursor = conn_env.cursor()
                     
                     for _, fila in facturas_seleccionadas.iterrows():
                         base = float(fila.get('base_imponible', 0) or 0)
@@ -2993,24 +2991,20 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                         )
                         cursor.execute(query_ins, params)
                         
-                        # Nota: Si decides mantener este UPDATE, asegúrate de que la columna exista en tu BD.
-                        # Si aún no la has creado, comenta o elimina la siguiente línea para evitar errores de SQL:
-                        # cursor.execute("UPDATE libro_compras SET retencion_iva_realizada = 1 WHERE id = %s", (int(fila['id']),))
-
-                    conn.commit()
+                    conn_env.commit()
                     st.session_state['last_iva'] = {'nro_comp': nro_comp}
                     st.session_state['mostrar_exito'] = True
                     st.rerun()
 
                 except Exception as e:
-                    if conn: 
-                        conn.rollback()
+                    if conn_env: 
+                        conn_env.rollback()
                     st.error(f"❌ Error al procesar: {e}")
                 finally:
                     if cursor: 
                         cursor.close()
-                    if conn: 
-                        conn.close()
+                    if conn_env: 
+                        conn_env.close()
 
                 
         with tab2:
