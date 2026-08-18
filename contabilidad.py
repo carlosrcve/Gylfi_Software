@@ -5074,7 +5074,7 @@ def gestionar_sidebar():
             st.info(f"{str(nombre_seleccionado).upper()}")
 
             st.session_state['cliente_seleccionado_previo'] = nombre_seleccionado
-            
+
             fila_seleccionada = df_filtrado[df_filtrado['nombre_empresa'] == nombre_seleccionado]
             if fila_seleccionada.empty:
                 fila_seleccionada = df_filtrado.iloc[[0]]
@@ -5219,7 +5219,6 @@ if "🏠 Inicio" in opcion_menu:
                 conn_ctrl.close()
 
     # Aseguramos que la sesión mantenga la DB activa
-    # Aseguramos que la sesión mantenga la DB activa
     if db_objetivo:
         st.session_state['DB_ACTUAL'] = db_objetivo
         st.session_state['db_a_conectar'] = db_objetivo
@@ -5228,14 +5227,14 @@ if "🏠 Inicio" in opcion_menu:
         st.error("❌ No se pudo determinar la base de datos de trabajo.")
         st.stop()
 
-    # --- LÓGICA DE CONEXIÓN ROBUSTA ---
+    # --- LÓGICA DE CONEXIÓN ROBUSTA (Única y definitiva) ---
     necesita_reconexion = False
 
     if 'conn' not in st.session_state or st.session_state.get('ultima_db_conectada') != db_objetivo or st.session_state.conn is None:
         necesita_reconexion = True
     else:
-        # Verificamos la conexión existente de forma segura sin argumentos inválidos para pymysql
         try:
+            # Verificación limpia compatible con pymysql
             st.session_state.conn.ping(reconnect=True)
             if db_objetivo and db_objetivo != "control_central":
                 with st.session_state.conn.cursor() as cursor:
@@ -5258,17 +5257,9 @@ if "🏠 Inicio" in opcion_menu:
             st.session_state.conn = None
             st.stop()
     
+    # Asignamos la conexión lista para usar en el resto de tu módulo de inicio
     conn = st.session_state.conn
-    try:
-        conn.ping(reconnect=True, attempts=3, delay=1)
-        if db_objetivo and db_objetivo != "control_central":
-            with conn.cursor() as cursor:
-                cursor.execute(f"USE `{db_objetivo}`")
-    except Exception as e:
-        st.warning(f"La conexión se perdió o la BD {db_objetivo} no es accesible. Reconectando...")
-        st.session_state.conn = None 
-        st.rerun()
-
+    
     # 1. DEFINICIÓN DE ESTRUCTURA DE TIEMPO
 
     dic_meses = {
