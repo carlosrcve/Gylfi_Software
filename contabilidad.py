@@ -57,22 +57,22 @@ st.set_page_config(
 def conectar_db(nombre_db=None):
     db_a_usar = nombre_db if nombre_db else "control_central"
     
+    # Obtenemos configuración de los secretos
+    db_cfg = st.secrets["mysql"]
+    
     try:
-        # 1. VERIFICAR Y CREAR LA BASE DE DATOS SI NO EXISTE (Multicliente Cloud)
+        # 1. VERIFICAR Y CREAR LA BASE DE DATOS SI NO EXISTE
         if db_a_usar != "control_central":
             try:
                 conn_temp = mysql.connector.connect(
-                    host="gateway01.us-east-1.prod.aws.tidbcloud.com",
+                    host=db_cfg["host"],
                     port=4000,
-                    user="4K4VAw4t4ZPFUTF.root",
-                    password="OhAcM2lizBMDXDgD",
+                    user=db_cfg["user"],
+                    password=db_cfg["password"],
                     database="control_central",
                     use_pure=True,
-                    connect_timeout=30,  # Aumentado para evitar timeouts de red inicial
-                    read_timeout=60,     # Límite de lectura extendido
-                    write_timeout=60,
-                    ssl_verify_cert=False,
-                    ssl_disabled=False
+                    connect_timeout=30,
+                    ssl_verify_cert=False
                 )
                 cursor_temp = conn_temp.cursor()
                 cursor_temp.execute(f"CREATE DATABASE IF NOT EXISTS `{db_a_usar}`;")
@@ -84,18 +84,16 @@ def conectar_db(nombre_db=None):
         # 2. VALIDAR CONEXIÓN EXISTENTE EN SESSION_STATE
         if "conn" in st.session_state and st.session_state.conn is not None:
             try:
-                # Forzar verificación de salud con ping y auto-reconexión si expiró
                 st.session_state.conn.ping(reconnect=True, attempts=3, delay=1)
                 
                 if st.session_state.conn.is_connected():
                     cursor_test = st.session_state.conn.cursor()
                     cursor_test.execute("SELECT DATABASE()")
                     res = cursor_test.fetchone()
-                    db_actual_en_servidor = res[0] if res else None
+                    db_actual = res[0] if res else None
                     cursor_test.close()
                     
-                    # Si la base de datos es la misma, la reutilizamos con seguridad
-                    if db_actual_en_servidor == db_a_usar:
+                    if db_actual == db_a_usar:
                         return st.session_state.conn
                     else:
                         st.session_state.conn.close()
@@ -103,17 +101,16 @@ def conectar_db(nombre_db=None):
             except Exception:
                 st.session_state.conn = None
     
-        # 3. CONEXIÓN OFICIAL CON PARÁMETROS ANTITIMEOUT AMPLIADOS
+        # 3. CONEXIÓN OFICIAL
         st.session_state.conn = mysql.connector.connect(
-            host="gateway01.us-east-1.prod.aws.tidbcloud.com",
+            host=db_cfg["host"],
             port=4000,
-            user="4K4VAw4t4ZPFUTF.root",
-            password="OhAcM2lizBMDXDgD",
+            user=db_cfg["user"],
+            password=db_cfg["password"],
             database=db_a_usar,
             use_pure=True,
-            connect_timeout=30,  # Tiempo de espera ampliado para conexiones lentas
-            read_timeout=60,     # Evita el error 3024 en consultas largas
-            write_timeout=60,    # Evita cortes en escrituras masivas
+            connect_timeout=30,
+            write_timeout=60,
             ssl_verify_cert=False,
             ssl_disabled=False
         )
@@ -121,7 +118,6 @@ def conectar_db(nombre_db=None):
         
     except Exception as e:
         st.error(f"❌ Error al conectar a la base de datos '{db_a_usar}': {e}")
-        print(f"ERROR REAL DE CONEXIÓN: {e}")
         st.session_state.conn = None
         return None
 
