@@ -1086,18 +1086,14 @@ def obtener_asiento_por_comprobante(db, n_comprobante):
 
 @st.cache_data(ttl=300)
 def obtener_analisis_accionista_detallado(db, f_i, f_f):
-    # 1. Validación estricta de seguridad para el esquema
     if not db or not str(db).strip().replace("_", "").isalnum():
         return pd.DataFrame()
 
     db_clean = str(db).strip().lower()
-
-    # Validación de existencia de función conectar_db
-    if 'conectar_db' not in globals() and 'conectar_db' not in locals():
-        return pd.DataFrame()
-
     conn = conectar_db(db)
-    if not conn or not conn.is_connected():
+    
+    # Eliminamos el .is_connected() aquí
+    if not conn:
         return pd.DataFrame()
 
     s_fi = str(f_i).split()[0]
@@ -1107,7 +1103,6 @@ def obtener_analisis_accionista_detallado(db, f_i, f_f):
     try:
         cursor = conn.cursor()
         
-        # Validación segura mediante information_schema parametrizado
         cursor.execute("""
             SELECT COUNT(*) 
             FROM information_schema.tables 
@@ -1124,7 +1119,6 @@ def obtener_analisis_accionista_detallado(db, f_i, f_f):
         cursor.close()
 
         if existe_asientos > 0 and existe_accionistas > 0:
-            # Query blindada con parámetros seguros
             query = f"""
                 SELECT 
                     a.plan_cuentas, 
@@ -1147,14 +1141,14 @@ def obtener_analisis_accionista_detallado(db, f_i, f_f):
         st.error(f"Error en la consulta de accionistas: {e}")
         df = pd.DataFrame()
     finally:
-        if conn and conn.is_connected():
+        # Eliminamos el .is_connected() aquí y cerramos directamente
+        if conn:
             try:
                 conn.close()
             except:
                 pass
                 
     return df
-
 
 @st.cache_data(ttl=300)
 def obtener_comprobantes_ingresos(db, f_inicio, f_fin):
