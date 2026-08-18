@@ -57,13 +57,14 @@ def conectar_db(nombre_db=None):
         # 1. Asegurar base de datos multicliente si no es la central
         if db_a_usar != "control_central":
             try:
-                conn_temp = pymysql.connect(
+                conn = pymysql.connect(
                     host="gateway01.us-east-1.prod.aws.tidbcloud.com",
                     port=4000,
                     user="4K4VAw4t4ZPFUTF.root",
                     password="OhAcM2lizBMDXDgD",
-                    database="control_central",
-                    connect_timeout=15,
+                    database=db_a_usar,
+                    connect_timeout=20,
+                    charset='utf8mb4',
                     ssl=ssl_context
                 )
                 with conn_temp.cursor() as cursor_temp:
