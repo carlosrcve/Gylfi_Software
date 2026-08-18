@@ -924,7 +924,7 @@ def obtener_analisis_gastos_clase6(db, f_i, f_f):
     Obtiene gastos de Clase 6 con validación de seguridad para multi-empresa.
     """
     # 1. Validación de Seguridad (CRÍTICA)
-    if not db or not db.replace("_", "").isalnum():
+    if not db or not str(db).strip().replace("_", "").isalnum():
         raise ValueError(f"Nombre de base de datos no seguro: {db}")
 
     conn = conectar_db(db)
@@ -935,7 +935,6 @@ def obtener_analisis_gastos_clase6(db, f_i, f_f):
     f_i_str = str(f_i).split()[0] + " 00:00:00"
     f_f_str = str(f_f).split()[0] + " 23:59:59"
 
-    # La estructura de la query es segura gracias a los parámetros %s
     query = f"""
         SELECT 
             plan_cuentas, 
@@ -956,7 +955,64 @@ def obtener_analisis_gastos_clase6(db, f_i, f_f):
         df = pd.DataFrame()
     finally:
         if conn:
-            conn.close()
+            try:
+                conn.close()
+            except:
+                pass
+        
+    return df
+
+
+@st.cache_data(ttl=300)
+def obtener_analisis_gastos_clase5(db, f_i, f_f):
+    """
+    Obtiene costos de Clase 5 con validación de seguridad y parámetros seguros.
+    """
+    # 1. Validación de Seguridad (CRÍTICA)
+    if not db or not str(db).strip().replace("_", "").isalnum():
+        raise ValueError(f"Nombre de base de datos no seguro: {db}")
+
+    if 'conectar_db' not in globals() and 'conectar_db' not in locals():
+        print("❌ Error: La función 'conectar_db' no está definida.")
+        return pd.DataFrame()
+
+    conn = conectar_db(db)
+    if conn is None:
+        print("❌ Error: 'conectar_db' devolvió None (revisa tus credenciales o conexión a TiDB Cloud).")
+        return pd.DataFrame()
+    
+    # Asegurar rango de hora completo para evitar perder registros del último día
+    f_i_str = str(f_i).split()[0] + " 00:00:00"
+    f_f_str = str(f_f).split()[0] + " 23:59:59"
+
+    query = f"""
+        SELECT 
+            plan_cuentas, 
+            CASE 
+                WHEN plan_cuentas = '5.1.1.01.001' THEN 'Costos de Reparaciones de vehiculos'
+                WHEN plan_cuentas = '5.1.1.01.002' THEN 'Iva Credito Fiscal (Ingresos Exentos)'
+                ELSE 'Otros'
+            END as descripcion, 
+            (SUM(debe) - SUM(haber)) as total_gasto
+        FROM `{db}`.asientos_contables 
+        WHERE plan_cuentas IN ('5.1.1.01.001', '5.1.1.01.002')
+          AND fecha >= %s AND fecha <= %s
+        GROUP BY plan_cuentas
+        HAVING total_gasto != 0
+        ORDER BY total_gasto DESC
+    """
+    try:
+        # CORREGIDO: Usamos ejecutar_consulta en lugar de pd.read_sql para soportar PyMySQL y parámetros correctamente
+        df = ejecutar_consulta(query, conn, params=(f_i_str, f_f_str))
+    except Exception as e:
+        print(f"❌ Error en Clase 5: {e}")
+        df = pd.DataFrame()
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except:
+                pass
         
     return df
 
