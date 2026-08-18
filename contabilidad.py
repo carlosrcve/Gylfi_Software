@@ -2687,7 +2687,7 @@ def obtener_facturas_pendientes(conn, f_desde, f_hasta):
     try:
         query = """
             SELECT * FROM libro_compras 
-            WHERE (retencion_iva_realizada = 0 OR retencion_iva_realizada IS NULL)
+            WHERE (retencion_realizada = 0 OR retencion_realizada IS NULL OR retencion_realizada = '' OR retencion_realizada = FALSE)
             AND fecha_operacion BETWEEN %s AND %s
         """
         df = ejecutar_consulta(query, conn, params=(f_desde, f_hasta))
@@ -2700,7 +2700,7 @@ def obtener_facturas_pendientes(conn, f_desde, f_hasta):
         st.error(f"Error al cargar facturas pendientes: {e}")
         return pd.DataFrame()
 
-
+        
 def cargar_datos_reimpresion(f_desde, f_hasta):
     db_actual = st.session_state.get('DB_ACTUAL')
     conn = conectar_db(db_actual)
