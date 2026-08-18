@@ -64,24 +64,32 @@ st.set_page_config(
 
 
 def conectar_db(nombre_db=None):
-    db_a_usar = nombre_db if nombre_db else "control_central"
-    
-    # Obtenemos configuración de los secretos
-    db_cfg = st.secrets["mysql"]
+    # 1. Validación segura de secretos para evitar el KeyError
+    try:
+        if "mysql" not in st.secrets:
+            st.error("⚠️ No se encontró la sección [mysql] en los secretos de la aplicación.")
+            return None
+        db_cfg = st.secrets["mysql"]
+    except Exception as e:
+        st.error(f"❌ Error crítico accediendo a los secretos: {e}")
+        return None
+
+    db_a_usar = nombre_db if nombre_db else db_cfg.get("database", "control_central")
     
     try:
-        # 1. VERIFICAR Y CREAR LA BASE DE DATOS SI NO EXISTE
+        # 2. VERIFICAR Y CREAR LA BASE DE DATOS SI NO EXISTE
         if db_a_usar != "control_central":
             try:
                 conn_temp = mysql.connector.connect(
                     host=db_cfg["host"],
-                    port=4000,
+                    port=int(db_cfg.get("port", 4000)),
                     user=db_cfg["user"],
                     password=db_cfg["password"],
                     database="control_central",
                     use_pure=True,
                     connect_timeout=30,
-                    ssl_verify_cert=False
+                    ssl_verify_cert=False,
+                    ssl_disabled=False
                 )
                 cursor_temp = conn_temp.cursor()
                 cursor_temp.execute(f"CREATE DATABASE IF NOT EXISTS `{db_a_usar}`;")
@@ -90,7 +98,7 @@ def conectar_db(nombre_db=None):
             except Exception as ex:
                 print(f"Aviso al asegurar BD de cliente: {ex}")
 
-        # 2. VALIDAR CONEXIÓN EXISTENTE EN SESSION_STATE
+        # 3. VALIDAR CONEXIÓN EXISTENTE EN SESSION_STATE
         if "conn" in st.session_state and st.session_state.conn is not None:
             try:
                 st.session_state.conn.ping(reconnect=True, attempts=3, delay=1)
@@ -113,17 +121,17 @@ def conectar_db(nombre_db=None):
         # Limpieza de seguridad antes de la nueva asignación
         st.session_state.conn = None
 
-        # 3. CONEXIÓN OFICIAL
+        # 4. CONEXIÓN OFICIAL CON LOS PARÁMETROS ACTUALIZADOS
         st.session_state.conn = mysql.connector.connect(
             host=db_cfg["host"],
-            port=4000,
+            port=int(db_cfg.get("port", 4000)),
             user=db_cfg["user"],
             password=db_cfg["password"],
             database=db_a_usar,
-            use_pure=True,
+            use_pure=db_cfg.get("use_pure", True),
             connect_timeout=10,
-            ssl_verify_cert=False,
-            ssl_disabled=False
+            ssl_verify_cert=db_cfg.get("ssl_verify_cert", False),
+            ssl_disabled=db_cfg.get("ssl_disabled", False)
         )
         return st.session_state.conn
         
@@ -131,7 +139,6 @@ def conectar_db(nombre_db=None):
         st.error(f"❌ Error al conectar a la base de datos '{db_a_usar}': {e}")
         st.session_state.conn = None
         return None
-
 
 
 def verificar_usuario(conn, user, password):
