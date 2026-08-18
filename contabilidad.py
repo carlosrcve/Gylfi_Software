@@ -43,15 +43,13 @@ try:
     HAS_TESSERACT = True
 except ImportError:
     HAS_TESSERACT = False
-    
 
-import ssl
 
 def conectar_db(nombre_db=None):
     db_a_usar = nombre_db if nombre_db else "control_central"
     
-    # Contexto TLS obligatorio para TiDB Cloud
-    ssl_context = ssl.create_default_context()
+    # Contexto SSL específico para la capa de transporte segura de AWS/TiDB
+    ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
     ssl_context.check_hostname = False
     ssl_context.verify_mode = ssl.CERT_NONE
 
@@ -93,7 +91,7 @@ def conectar_db(nombre_db=None):
 
         st.session_state.conn = None
 
-        # 3. Conexión oficial definitiva con TLS habilitado
+        # 3. Conexión oficial definitiva con el protocolo TLS explícito
         st.session_state.conn = pymysql.connect(
             host="gateway01.us-east-1.prod.aws.tidbcloud.com",
             port=4000,
@@ -107,7 +105,7 @@ def conectar_db(nombre_db=None):
         return st.session_state.conn
         
     except Error as e:
-        st.error(f"❌ Error de conexión TLS con TiDB Cloud ('{db_a_usar}'): {e}")
+        st.error(f"❌ Error de autenticación o TLS en TiDB Cloud ('{db_a_usar}'): {e}")
         st.session_state.conn = None
         return None
     except Exception as ex:
@@ -127,18 +125,21 @@ def verificar_usuario(conn, user, password):
 
     for intento in range(2):
         try:
-            if not conn.is_connected():
+            # Validación de conexión abierta en PyMySQL
+            if not conn or not getattr(conn, 'open', False):
                 conn = conectar_db()
+                if not conn:
+                    return None
                 
-            cursor = conn.cursor(dictionary=True)
-            # Buscamos al usuario en la base de datos de forma segura
+            # Cursor con diccionario nativo de PyMySQL
+            cursor = conn.cursor(pymysql.cursors.DictCursor)
             cursor.execute("SELECT * FROM usuarios WHERE usuario = %s", (user,))
             user_data = cursor.fetchone()
             break 
         except Exception as e:
             if intento == 0:
                 try:
-                    conn.reconnect(attempts=3, delay=2)
+                    conn.ping(reconnect=True)
                     continue
                 except:
                     return None
