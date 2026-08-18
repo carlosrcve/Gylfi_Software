@@ -459,7 +459,8 @@ def _obtener_datos_sidebar_cache():
     try:
         conn_debug = conectar_db()
         if conn_debug:
-            df_sidebar = pd.read_sql(
+            # CAMBIAMOS pd.read_sql POR ejecutar_consulta
+            df_sidebar = ejecutar_consulta(
                 "SELECT nombre_empresa, db_nombre FROM clientes WHERE estado = 'Activo' OR estado IS NULL", 
                 conn_debug
             )
@@ -484,7 +485,7 @@ def obtener_todas_las_empresas(user_rol, user_id):
         # 1. Si es admin, mostramos todas las activas
         if rol_limpio == 'admin':
             query = "SELECT db_nombre FROM clientes WHERE estado = 'Activo' OR estado IS NULL"
-            df = pd.read_sql(query, conn)
+            df = ejecutar_consulta(query, conn) # <-- REEMPLAZADO AQUÍ
             if df.empty or 'db_nombre' not in df.columns:
                 return []
             return df['db_nombre'].dropna().astype(str).tolist()
@@ -495,7 +496,7 @@ def obtener_todas_las_empresas(user_rol, user_id):
                 SELECT db_nombre FROM usuarios 
                 WHERE id = %s OR cliente_id = %s
             """
-            df = pd.read_sql(query, conn, params=(user_id, user_id))
+            df = ejecutar_consulta(query, conn, params=(user_id, user_id)) # <-- REEMPLAZADO AQUÍ
             
             # Si viene vacío, intentamos buscar por el nombre de usuario de la sesión
             if df.empty or 'db_nombre' not in df.columns or pd.isna(df['db_nombre'].iloc[0]):
@@ -503,7 +504,7 @@ def obtener_todas_las_empresas(user_rol, user_id):
                 if usuario_actual:
                     conn_res = conectar_db()
                     if conn_res:
-                        df = pd.read_sql("SELECT db_nombre FROM usuarios WHERE usuario = %s", conn_res, params=(usuario_actual,))
+                        df = ejecutar_consulta("SELECT db_nombre FROM usuarios WHERE usuario = %s", conn_res, params=(usuario_actual,)) # <-- REEMPLAZADO AQUÍ
             
             if df.empty or 'db_nombre' not in df.columns or pd.isna(df['db_nombre'].iloc[0]):
                 return []
@@ -516,7 +517,6 @@ def obtener_todas_las_empresas(user_rol, user_id):
         return []
         
     finally:
-        # Garantizamos que ambas conexiones se cierren siempre, evitando fugas de memoria
         if conn and conn.is_connected():
             conn.close()
         if conn_res and conn_res.is_connected():
