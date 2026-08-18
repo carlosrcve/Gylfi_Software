@@ -6267,7 +6267,10 @@ if "🏠 Inicio" in opcion_menu:
     # --- FILA 10: REPORTE DE CONTABLE ---
     st.divider()
     try:
-        # Usamos un respaldo numérico directo (2026) para evitar cualquier conflicto de importación con datetime.date
+        import datetime as dt
+        import calendar
+
+        # Usamos un respaldo numérico directo (2026) para el año
         año = int(st.session_state.get('año_seleccionado_contabilidad') or st.session_state.get('año_seleccionado') or 2026)
         mes_elegido_str = str(st.session_state.get('mes_seleccionado_contabilidad', 'Junio')).strip().capitalize()
 
@@ -6280,18 +6283,18 @@ if "🏠 Inicio" in opcion_menu:
         num_mes = meses_map.get(mes_elegido_str, 6)
 
         # Construcción de fechas usando calendar para evitar errores en días máximos
-        import calendar
         ultimo_dia = int(calendar.monthrange(año, num_mes)[1])
         
-        # Creamos tanto los strings como los objetos date de forma limpia
+        # Creamos tanto los strings como los objetos date de forma limpia usando el alias dt
         f_i_str = f"{año}-{num_mes:02d}-01"
         f_f_str = f"{año}-{num_mes:02d}-{ultimo_dia:02d}"
 
-        f_i_date = datetime.date(año, num_mes, 1)
-        f_f_date = datetime.date(año, num_mes, ultimo_dia)
+        f_i_date = dt.date(año, num_mes, 1)
+        f_f_date = dt.date(año, num_mes, ultimo_dia)
 
         # Cuadro informativo de depuración en tiempo real reflejando el período activo
         st.info(f"📅 Período Activo: **{mes_elegido_str} {año}** | Rango SQL: **{f_i_str} al {f_f_str}**")
+
         # Validar Base de Datos activa
         db = st.session_state.get('DB_ACTUAL')
         if db and db != "{db}" and db != "None" and str(db).strip() != "":
