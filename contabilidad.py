@@ -6340,7 +6340,7 @@ if "🏠 Inicio" in opcion_menu:
             # Abrimos una conexión local para este bloque
             conn_tab = conectar_db(db) 
 
-            if conn_tab is None or not conn_tab.is_connected():
+            if conn_tab is None:
                 st.error("❌ Error: No se pudo establecer conexión con la base de datos para los accionistas.")
             else:
                 try:
@@ -6367,9 +6367,12 @@ if "🏠 Inicio" in opcion_menu:
                     df_config_accionistas = pd.DataFrame()
                     
                 finally:
-                    # CERRAMOS la conexión aquí mismo para evitar que se quede 'colgada'
-                    if conn_tab and conn_tab.is_connected():
-                        conn_tab.close()
+                    # CERRAMOS la conexión de forma directa sin usar .is_connected()
+                    if conn_tab:
+                        try:
+                            conn_tab.close()
+                        except:
+                            pass
 
 
             nombres_grafico = []
@@ -6421,7 +6424,6 @@ if "🏠 Inicio" in opcion_menu:
                     margin=dict(l=20, r=100, t=50, b=20)
                 )
                 
-                # IMPORTANTE: st.plotly_chart debe estar identado dentro del 'with tab1:'
                 st.plotly_chart(fig, width='stretch')
             else:
                 st.warning("No hay datos disponibles para mostrar en el gráfico.")
