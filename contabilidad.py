@@ -9513,9 +9513,22 @@ elif opcion_menu == "📚 Libros Fiscales":
                 if "df_carga_excel" in st.session_state and not st.session_state.df_carga_excel.empty:
                     with st.spinner("⏳ Guardando registros..."):
                         try:
-                            # PASAMOS EL DATAFRAME A TU FUNCIÓN
-                            cargar_libro_compras_db(st.session_state.df_carga_excel, db_actual)
+                            # Copiamos para no alterar la sesión visual
+                            df_to_save = st.session_state.df_carga_excel.copy()
+                            
+                            # BLINDAJE: Si la columna 'retencion_iva_realizada' no viene en el Excel, 
+                            # la creamos en 0.0 para que MySQL no lance el error de columna desconocida.
+                            if 'retencion_iva_realizada' not in df_to_save.columns:
+                                df_to_save['retencion_iva_realizada'] = 0.0
+                            else:
+                                df_to_save['retencion_iva_realizada'] = pd.to_numeric(
+                                    df_to_save['retencion_iva_realizada'], errors='coerce'
+                                ).fillna(0.0)
+
+                            # PASAMOS EL DATAFRAME BLINDADO A TU FUNCIÓN
+                            cargar_libro_compras_db(df_to_save, db_actual)
                             st.success("✅ ¡Proceso finalizado correctamente!")
+                            
                         except Exception as e:
                             st.error(f"❌ Error al guardar en DB: {e}")
                 else:
