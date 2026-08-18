@@ -5074,7 +5074,7 @@ def gestionar_sidebar():
             st.info(f"{str(nombre_seleccionado).upper()}")
 
             st.session_state['cliente_seleccionado_previo'] = nombre_seleccionado
-
+            
             fila_seleccionada = df_filtrado[df_filtrado['nombre_empresa'] == nombre_seleccionado]
             if fila_seleccionada.empty:
                 fila_seleccionada = df_filtrado.iloc[[0]]
@@ -5082,6 +5082,7 @@ def gestionar_sidebar():
             datos_sel = fila_seleccionada.iloc[0]
             db_seleccionada = str(datos_sel['db_nombre']).strip()
             
+            # Estas son las variables que el panel principal está buscando:
             st.session_state['DB_ACTUAL'] = db_seleccionada
             st.session_state['db_a_conectar'] = db_seleccionada
             st.session_state['CLIENTE_NOMBRE'] = nombre_seleccionado
