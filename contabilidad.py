@@ -964,7 +964,7 @@ def obtener_analisis_gastos_clase6(db, f_i, f_f):
     return df
 
 
-    
+
 @st.cache_data(ttl=300)
 def obtener_historico_utilidad_acumulada(db, año, mes_limite):
     df_default = pd.DataFrame({'mes': [], 'utilidad_mensual': []})
@@ -4568,6 +4568,39 @@ def obtener_detalle_cashea(db, f_inicio, f_fin):
             except Exception:
                 pass
         return df_vacio
+
+
+def consultar_bcv_directo_sin_bd(conn=None): # <--- Ponle =None
+    try:
+        # Registro de actividad solo si conn es válido
+        if conn and conn.is_connected():
+            registrar_log_automatico(conn, "CONSULTA_TASA_BCV", f"Usuario {st.session_state.get('usuario', 'Desconocido')} consultando BCV")
+        
+        url = "https://www.bcv.org.ve/"
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
+        
+        response = requests.get(url, headers=headers, verify=False, timeout=8) # Timeout un poco más corto
+        
+        if response.status_code == 200:
+            soup = BeautifulSoup(response.content, 'html.parser')
+            dolar_container = soup.find('div', id='dolar')
+            if dolar_container:
+                tasa_texto = dolar_container.find('strong').text.strip()
+                return float(tasa_texto.replace(',', '.')), "Web BCV (Sin BD)"
+                
+    except Exception as e:
+        # En lugar de pass, guarda el error en el log para saber por qué falla
+        print(f"Error técnico consultando BCV: {e}")
+        
+    finally:
+        # Mantenemos el ping pero aseguramos la conexión
+        if conn and conn.is_connected():
+            try:
+                conn.ping(reconnect=True, attempts=2, delay=1)
+            except:
+                pass
+            
+    return 1.0000, "Por defecto (Error Total)"
 
 
 def obtener_tasa_bcv_hoy(conn):
