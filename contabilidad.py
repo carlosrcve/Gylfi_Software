@@ -28,7 +28,7 @@ import requests
 from bs4 import BeautifulSoup
 import pandas as pd
 from fpdf import FPDF
-import mysql.connector
+import pymysql
 from mysql.connector import Error
 from datetime import datetime, date, timedelta # Limpiamos los imports de fecha
 import xml.etree.ElementTree as ET
@@ -3059,6 +3059,14 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                             )
                             cursor.execute(query_ins, params)
                             
+                            # --- NUEVO: MARCAR LA FACTURA COMO RETENIDA EN EL LIBRO DE COMPRAS ---
+                            query_update = """
+                                UPDATE libro_compras 
+                                SET retencion_realizada = 1 
+                                WHERE id = %s
+                            """
+                            cursor.execute(query_update, (fila['id'],))
+
                         conn_env.commit()
                         st.session_state['last_iva'] = {'nro_comp': nro_comp}
                         st.session_state['mostrar_exito'] = True
