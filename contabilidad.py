@@ -1779,7 +1779,7 @@ def disenar_reporte_asiento_contable(numero_comprobante):
         st.error(f"❌ Descuadre Detectado: Bs. {formato_contable(dif)}")
 
 
-@st.cache_data(ttl=60)
+
 def consultar_saldos_iniciales_db(db_nombre):
     """
     Consulta los saldos iniciales de la empresa activa de forma rápida y directa.
