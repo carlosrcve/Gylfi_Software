@@ -2,17 +2,15 @@
 import os
 import streamlit as st
 
-# Intentamos importar pytesseract de forma segura
-try:
-    import pytesseract
-    if os.name == 'nt':
-        pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
-    else:
-        pytesseract.pytesseract.tesseract_cmd = '/usr/bin/tesseract'
-    HAS_TESSERACT = True
-except ImportError:
-    HAS_TESSERACT = False
-    pytesseract = None
+if HAS_TESSERACT:
+    try:
+        # Asegúrate de redimensionar o validar la imagen antes de esto
+        texto = pytesseract.image_to_string(tu_imagen, lang='spa')
+    except Exception as e:
+        st.error(f"Error procesando la imagen con OCR: {e}")
+        texto = ""
+else:
+    st.warning("El motor Tesseract no está disponible en el sistema.")
 
 import streamlit as st
 import requests
