@@ -4792,6 +4792,52 @@ def limpiar_monto_contable(valor):
         return 0.0
 
 
+def cargar_saldos_iniciales_db(df, nombre_db):
+    conn = conectar_db(nombre_db)
+    
+    if not conn: return False
+    
+    try:
+        cursor = conn.cursor()
+        cursor.execute("TRUNCATE TABLE saldos_iniciales")
+        
+        # Preparamos los datos en una lista de tuplas (esto es mucho más rápido)
+        lista_datos = []
+        for _, row in df.iterrows():
+            datos = (
+                str(row.get('N_comprobante', 'SI00001')),
+                str(row.get('Descripcion', 'SALDOS INICIALES')),
+                # Convertimos fecha de forma segura
+                pd.to_datetime(row.get('Fecha')).strftime('%Y-%m-%d') if pd.notnull(row.get('Fecha')) else None,
+                str(row.get('plan_de_cuentas', '')),
+                str(row.get('cuenta_contable', '')),
+                str(row.get('Ref', '-')),
+                limpiar_monto_contable(row.get('Debe', 0)),
+                limpiar_monto_contable(row.get('Haber', 0))
+            )
+            lista_datos.append(datos)
+            
+        # Inserción masiva (Patrón Pro)
+        query = """INSERT INTO saldos_iniciales 
+                   (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber) 
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s)"""
+        
+        cursor.executemany(query, lista_datos)
+        conn.commit()
+        
+        st.success("✅ Saldos iniciales procesados correctamente.")
+        return True
+        
+    except Exception as e:
+        st.error(f"❌ Error crítico en carga: {e}")
+        return False
+    finally:
+        cursor.close()
+        conn.ping(reconnect=True) # Mantenemos la conexión viva
+
+
+
+
 def gestionar_sidebar():
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
     user_id = st.session_state.get('user_id', st.session_state.get('cliente_id', 'N/A'))
