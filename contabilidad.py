@@ -3470,7 +3470,7 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                             pdf.multi_cell(65, 5, f"{nombre_empresa}\nRIF: {rif_empresa}", 0, 'C')
 
                             # Finalizar
-                            pdf_output = pdf.output(dest='S').encode('latin-1')
+                            pdf_output = pdf.output()
                             
                             st.download_button(
                                 label="📥 Exportar este Comprobante a PDF",
@@ -3479,6 +3479,7 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                                 mime="application/pdf",
                                 type="primary"
                             )
+                            
                         except Exception as e:
                             st.error(f"Error al generar PDF: {e}")
 
