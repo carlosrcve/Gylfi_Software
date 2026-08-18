@@ -699,7 +699,8 @@ def obtener_historico_utilidad(db, f_inicio=None, f_fin=None):
         ORDER BY anio ASC, mes ASC
     """
     
-    cursor = conn.cursor(dictionary=True)
+    # CORREGIDO: Uso de DictCursor compatible con PyMySQL
+    cursor = conn.cursor(pymysql.cursors.DictCursor)
     try:
         cursor.execute(query, (anio_base,))
         resultados = cursor.fetchall()
@@ -719,11 +720,7 @@ def obtener_historico_utilidad(db, f_inicio=None, f_fin=None):
         otros_ingresos = df['oing_haber'] - df['oing_debe']
         otros_egresos = (df['oeg_debe'] - df['oeg_haber']).abs()
 
-        # AQUÍ ESTÁ EL CÁLCULO DE LA BD ACUMULADA:
-        # Se calcula la utilidad bruta que viene acumulada
         df['utilidad_acumulada'] = ingresos - costos - gastos + otros_ingresos - otros_egresos
-        
-        # AQUÍ DES-ACUMULAMOS: Restamos la fila actual con la anterior
         df['utilidad_mensual'] = df['utilidad_acumulada'].diff().fillna(df['utilidad_acumulada'])
         
         dic_meses_nombres = {
@@ -733,7 +730,6 @@ def obtener_historico_utilidad(db, f_inicio=None, f_fin=None):
         }
         df['mes_nombre'] = df['mes'].map(dic_meses_nombres)
         
-        # Devolvemos ambas: la mensual para el gráfico y la acumulada por si acaso
         return df[['anio', 'mes', 'mes_nombre', 'utilidad_mensual', 'utilidad_acumulada']]
         
     except Exception as e:
@@ -743,7 +739,7 @@ def obtener_historico_utilidad(db, f_inicio=None, f_fin=None):
     finally:
         if cursor:
             cursor.close()
-        if conn and conn.is_connected():
+        if conn:
             conn.close()
 
 
