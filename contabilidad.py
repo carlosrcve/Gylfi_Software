@@ -5996,19 +5996,22 @@ if "🏠 Inicio" in opcion_menu:
         moneda_vista = "Dólares (USD)" if st.toggle("🇺🇸 Ver reporte en USD", value=False, key="toggle_moneda_multimoneda") else "Bolívares (VES)"
     # --- BLOQUE LÓGICO DE DATOS (Debe ejecutarse antes para poder descargar) ---
     try:
-        # 1. Abrimos una conexión fresca y exclusiva para este reporte
+        # 1. Abrimos una conexión
         conn_local = conectar_db(db_actual)
         
-        if not conn_local or not conn_local.is_connected():
-            st.error("⚠️ No se pudo establecer una conexión activa con la base de datos para generar el reporte.")
+        # ELIMINAMOS la verificación .is_connected() porque causa el error
+        if not conn_local:
+            st.error("⚠️ No se pudo establecer una conexión activa con la base de datos.")
             st.stop()
 
-        # 2. Ejecutamos la función asegurándonos de que devuelva un DataFrame
+        # 2. Ejecutamos la función
         resultado_bruto = generar_reporte_multimoneda(conn_local, mes_seleccionado, ano_seleccionado, db_actual)
         
-        # 3. Cerramos la conexión local de forma limpia
-        if conn_local.is_connected():
+        # 3. Cerramos la conexión de forma segura
+        try:
             conn_local.close()
+        except:
+            pass
          
         # 🛡️ Blindaje crítico: Convertimos a DataFrame si viene como lista o None
         if isinstance(resultado_bruto, list):
