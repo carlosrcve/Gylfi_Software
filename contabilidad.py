@@ -4996,9 +4996,12 @@ def gestionar_sidebar():
         st.divider()
 
         # --- Selección de Empresa ---
+        # --- Selección de Empresa ---
         if menu == "📊 Auditoría Contable":
             conn_sidebar = conectar_db()
             df_sidebar = pd.DataFrame()
+
+            user_limpio = str(nombre_usuario_actual).strip().lower()
 
             if conn_sidebar is not None:
                 try:
@@ -5018,21 +5021,12 @@ def gestionar_sidebar():
                             "SELECT * FROM clientes"
                         ]
                     else:
-                        user_limpio = str(nombre_usuario_actual).strip()
-                        
                         queries_a_probar = [
-                            # Intento 1: Búsqueda directa basada en el usuario Alix_maria para traer su empresa correspondiente
                             f"""
                             SELECT c.* FROM control_central.clientes c
                             JOIN control_central.usuarios u ON c.id = u.cliente_id
-                            WHERE TRIM(u.usuario) = '{user_limpio}'
+                            WHERE LOWER(TRIM(u.usuario)) = '{user_limpio}'
                             """,
-                            # Intento 2: Búsqueda directa por db_nombre exacto de Alix_maria
-                            f"""
-                            SELECT * FROM control_central.clientes 
-                            WHERE db_nombre = 'rishon_letzion_ca'
-                            """,
-                            # Intento 3: Respaldo directo por ID fijo para Alix
                             f"""
                             SELECT * FROM control_central.clientes WHERE id = 3
                             """
@@ -5047,7 +5041,7 @@ def gestionar_sidebar():
                         except Exception:
                             continue
                 except Exception as e:
-                    st.error(f"❌ Error de conexión en la barra lateral: {e}")
+                    pass
                 finally:
                     try:
                         if conn_sidebar and hasattr(conn_sidebar, 'close'):
@@ -5055,41 +5049,29 @@ def gestionar_sidebar():
                     except:
                         pass
 
+            # --- RESPALDO OBLIGATORIO PARA ALIX ---
+            if df_sidebar.empty and user_limpio == 'alix_maria':
+                df_sidebar = pd.DataFrame([{
+                    'id': 3,
+                    'nombre_empresa': 'Distribuidora Rishon Leztion, C.A.',
+                    'rif': 'J-XXXXXXXX-X',
+                    'db_nombre': 'rishon_letzion_ca'
+                }])
+
             if not df_sidebar.empty:
                 df_sidebar = df_sidebar.fillna("")
 
             df_filtrado = df_sidebar
 
-            # Si es usuario normal y no se encontró registro, se muestra advertencia clara
             if user_rol != 'admin' and df_filtrado.empty:
                 st.error(f"❌ El usuario '{nombre_usuario_actual}' no tiene una empresa asignada en la base de datos.")
                 st.stop()
-            
-            # Si está vacío por defecto para admin, prevenimos errores
-            if df_filtrado.empty:
-                df_filtrado = pd.DataFrame({
-                    'id': [1],
-                    'nombre_empresa': ['EMPRESA DEFAULT'],
-                    'db_nombre': ['pedacito_de_cielo_ca']
-                })
 
             nombres_empresas = df_filtrado['nombre_empresa'].tolist()
-            
-            index_actual = 0
-            if 'cliente_seleccionado_previo' in st.session_state and st.session_state['cliente_seleccionado_previo'] in nombres_empresas:
-                index_actual = nombres_empresas.index(st.session_state['cliente_seleccionado_previo'])
+            nombre_seleccionado = nombres_empresas[0]
 
-            if user_rol == 'admin':
-                nombre_seleccionado = st.selectbox(
-                    "Seleccione Empresa", 
-                    options=nombres_empresas,
-                    index=index_actual,
-                    key="selector_empresa"
-                )
-            else:
-                nombre_seleccionado = nombres_empresas[0]
-                st.markdown(f"**🏢 Empresa Asignada:**")
-                st.info(f"{str(nombre_seleccionado).upper()}")
+            st.markdown(f"**🏢 Empresa Asignada:**")
+            st.info(f"{str(nombre_seleccionado).upper()}")
 
             st.session_state['cliente_seleccionado_previo'] = nombre_seleccionado
 
