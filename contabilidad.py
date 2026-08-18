@@ -2,11 +2,10 @@
 import os
 import streamlit as st
 
-# Inicializamos la variable por seguridad
+# Inicialización segura de variables globales
 HAS_TESSERACT = False
 pytesseract = None
 
-# Intentamos importar pytesseract de forma segura
 try:
     import pytesseract
     if os.name == 'nt':
@@ -15,14 +14,13 @@ try:
         pytesseract.pytesseract.tesseract_cmd = '/usr/bin/tesseract'
     HAS_TESSERACT = True
 except ImportError:
-    pass
+    HAS_TESSERACT = False
 
-# Ahora la línea 5 funcionará sin problemas porque la variable ya existe
 if HAS_TESSERACT:
-    # Tu código si Tesseract está disponible
+    # Código que usa Tesseract
     pass
 else:
-    # Tu código alternativo si no está disponible
+    # Código alternativo
     pass
 
 import streamlit as st
