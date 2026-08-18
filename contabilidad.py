@@ -826,7 +826,8 @@ def obtener_salud_fiscal(db, f_inicio=None, f_fin=None):
     
     cursor = None
     try:
-        cursor = conn.cursor(dictionary=True)
+        # CORREGIDO: Uso de DictCursor compatible con PyMySQL
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
         cursor.execute(query, (str(f_inicio_anual), str(f_fin_anual)))
         resultados = cursor.fetchall()
         
@@ -914,7 +915,7 @@ def obtener_salud_fiscal(db, f_inicio=None, f_fin=None):
     finally:
         if cursor:
             cursor.close()
-        if conn and conn.is_connected():
+        if conn:
             conn.close()
 
 @st.cache_data(ttl=300)
