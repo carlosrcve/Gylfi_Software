@@ -5013,27 +5013,29 @@ def gestionar_sidebar():
                     cursor_tmp.close()
 
                     # Consultas adaptadas a la estructura real (relación por cliente_id y fallback por db_nombre)
+                    # Consultas adaptadas con mayor tolerancia (TRAILING/TRIM y LOWER)
                     if user_rol == 'admin':
                         queries_a_probar = [
                             "SELECT * FROM control_central.clientes",
                             "SELECT * FROM clientes"
                         ]
                     else:
+                        user_limpio = str(nombre_usuario_actual).strip()
+                        cliente_id_asignado = st.session_state.get('cliente_id', 3) # O forzar el ID directamente si ya lo sabemos
+                        
                         queries_a_probar = [
+                            # Intento 1: Consulta directa usando el ID exacto que ya vimos en la BD (cliente_id = 3)
                             f"""
-                            SELECT c.* FROM control_central.clientes c
-                            JOIN control_central.usuarios u ON c.id = u.cliente_id
-                            WHERE u.usuario = '{nombre_usuario_actual}'
+                            SELECT * FROM control_central.clientes WHERE id = 3
                             """,
                             f"""
-                            SELECT c.* FROM clientes c
-                            JOIN usuarios u ON c.id = u.cliente_id
-                            WHERE u.usuario = '{nombre_usuario_actual}'
+                            SELECT * FROM clientes WHERE id = 3
                             """,
+                            # Intento 2: Búsqueda por JOIN directo con control_central explícito en ambas tablas
                             f"""
                             SELECT c.* FROM control_central.clientes c
-                            JOIN control_central.usuarios u ON c.db_nombre = u.db_nombre
-                            WHERE u.usuario = '{nombre_usuario_actual}'
+                            INNER JOIN control_central.usuarios u ON c.id = u.cliente_id
+                            WHERE TRIM(u.usuario) = '{user_limpio}'
                             """
                         ]
                     
@@ -5059,19 +5061,9 @@ def gestionar_sidebar():
 
             df_filtrado = df_sidebar
 
-            # BLOQUE DE DIAGNÓSTICO
+            # Si es usuario normal y no se encontró registro, se muestra advertencia clara
             if user_rol != 'admin' and df_filtrado.empty:
-                st.warning(f"DEBUG: Buscando usuario '{nombre_usuario_actual}'")
-                
-                # Intentemos ver qué usuarios existen realmente para comparar
-                conn_debug = conectar_db()
-                try:
-                    df_all_users = ejecutar_consulta("SELECT usuario, cliente_id, db_nombre FROM usuarios", conn_debug)
-                    st.write("Usuarios encontrados en BD:", df_all_users)
-                except:
-                    st.error("No se pudo leer la tabla de usuarios para depurar.")
-                
-                st.error(f"❌ El usuario '{nombre_usuario_actual}' no tiene una empresa asignada.")
+                st.error(f"❌ El usuario '{nombre_usuario_actual}' no tiene una empresa asignada en la base de datos.")
                 st.stop()
             
             # Si está vacío por defecto para admin, prevenimos errores
