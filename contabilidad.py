@@ -2313,15 +2313,12 @@ def cargar_libro_compras_db(df, nombre_db=None):
 
     def convertir_fecha(v):
         try:
-            # Si es un objeto Timestamp de pandas (muy común al leer Excel)
             if hasattr(v, 'strftime'): 
                 return v.strftime('%Y-%m-%d')
-            # Si es un string con formato "YYYY-MM-DD" o "DD/MM/YYYY"
             return pd.to_datetime(v).strftime('%Y-%m-%d')
         except Exception as e:
-            # ESTO ES LO QUE TE DIRÁ POR QUÉ JULIO FALLA
             st.error(f"Error convirtiendo fecha '{v}': {e}")
-            return "2026-06-06" # Tu fecha de respaldo
+            return "2026-06-06"
 
     def limpiar_texto(val):
         if pd.isna(val): return ""
@@ -2349,35 +2346,32 @@ def cargar_libro_compras_db(df, nombre_db=None):
 
         current_cliente_id = st.session_state.get('cliente_id', 1)
 
+        # SQL CORREGIDA: Sin la columna 'retencion_iva_realizada' (ahora son 14 campos)
         sql = """REPLACE INTO libro_compras 
                 (fecha_operacion, tipo_documento, n_factura, n_control, proveedor, rif, 
                  total_compras, importe_exento, base_imponible, iva_porcentaje, iva_monto,
-                 retencion_realizada, retencion_iva_realizada, tipo_transaccion, cliente_id) 
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"""
+                 retencion_realizada, tipo_transaccion, cliente_id) 
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"""
 
         for i, row in df.iterrows():
             n_fact = limpiar_texto(row[cols[2]])
             if not n_fact: continue
-
-            # --- DEBUG AÑADIDO ---
-            fecha_procesada = convertir_fecha(row[cols[0]])
 
             valores = (
                 convertir_fecha(row[cols[0]]),                    # 0: Fecha de Operación
                 limpiar_texto(row[cols[1]]).zfill(2),             # 1: Tipo de Documento
                 n_fact,                                           # 2: Número de Factura
                 limpiar_texto(row[cols[3]]),                      # 3: Número de Control
-                limpiar_texto(row[cols[4]]).upper(),              # 4: Nombre o Razón Social (Proveedor)
+                limpiar_texto(row[cols[4]]).upper(),              # 4: Proveedor
                 limpiar_texto(row[cols[5]]).replace('-', '').replace('.', ''), # 5: R.I.F.
                 clean_n(row[cols[6]]),                            # 6: Total Compra
                 clean_n(row[cols[7]]),                            # 7: Compras Exentas
                 clean_n(row[cols[8]]),                            # 8: Base Imponible
                 clean_n(row[cols[9]]),                            # 9: Alícuota (%)
                 clean_n(row[cols[10]]),                           # 10: Crédito Fiscal (IVA Monto)
-                0.00,                                             # retencion_realizada
-                0.00,                                             # retencion_iva_realizada
-                "C",                                              # tipo_transaccion (ajustado a CHAR(1))
-                current_cliente_id                                # cliente_id
+                0.00,                                             # 11: retencion_realizada
+                "C",                                              # 12: tipo_transaccion
+                current_cliente_id                                # 13: cliente_id
             )
             registros_a_insertar.append(valores)
 
