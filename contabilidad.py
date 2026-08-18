@@ -522,6 +522,19 @@ def obtener_todas_las_empresas(user_rol, user_id):
         if conn_res and conn_res.is_connected():
             conn_res.close()
 
+def ejecutar_consulta(query, conn, params=None):
+    cursor = None
+    try:
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute(query, params or ())
+        resultados = cursor.fetchall()
+        return pd.DataFrame(resultados) if resultados else pd.DataFrame()
+    except Exception as e:
+        # st.error(f"Error en consulta: {e}") # Descomenta si quieres que el error salga en la UI
+        return pd.DataFrame()
+    finally:
+        if cursor:
+            cursor.close()
 
 
 def obtener_saldos_acumulados(conexion, fecha_corte, nombre_db):
@@ -624,7 +637,7 @@ def obtener_datos_barras(db, fecha_inicio, fecha_fin):
     
     try:
         # Ejecutamos la lectura asegurando parámetros seguros
-        df = pd.read_sql(query, conn, params=(fecha_inicio, fecha_fin))
+        df = ejecutar_consulta(query, conn, params=(fecha_inicio, fecha_fin))
         return df if not df.empty else df_vacio
     except Exception as e:
         print(f"Error en obtener_datos_barras: {e}")
@@ -1291,22 +1304,7 @@ def _obtener_datos_agente_db_real(valor_busqueda):
 @st.cache_data(ttl=3600)
 def obtener_datos_agente_db(valor_busqueda):
     return _obtener_datos_agente_db_real(valor_busqueda)
-
-
-def ejecutar_consulta(query, conn, params=None):
-    cursor = None
-    try:
-        cursor = conn.cursor(dictionary=True)
-        cursor.execute(query, params or ())
-        resultados = cursor.fetchall()
-        return pd.DataFrame(resultados) if resultados else pd.DataFrame()
-    except Exception as e:
-        # st.error(f"Error en consulta: {e}") # Descomenta si quieres que el error salga en la UI
-        return pd.DataFrame()
-    finally:
-        if cursor:
-            cursor.close()
-
+    
 
 def consultar_libro_diario_db(conn_activa=None, fecha_inicio=None, fecha_fin=None):
     # 1. Seguridad y Contexto
@@ -4954,7 +4952,7 @@ def gestionar_sidebar():
                     
                     for q in queries_a_probar:
                         try:
-                            df_temp = pd.read_sql(q, conn_sidebar)
+                            df_temp = ejecutar_consulta(q, conn_sidebar)
                             if not df_temp.empty:
                                 df_sidebar = df_temp
                                 break
@@ -5172,7 +5170,7 @@ if "🏠 Inicio" in opcion_menu:
                 # --- BÚSQUEDA DIRECTA Y SEGURA ---
                 # Buscamos directamente en la tabla usuarios usando el nombre de usuario
                 query = f"SELECT db_nombre FROM usuarios WHERE LOWER(TRIM(usuario)) = '{nombre_usuario_actual}'"
-                df_temp = pd.read_sql(query, conn_ctrl)
+                df_temp = ejecutar_consulta(query, conn_ctrl)
                 
                 if not df_temp.empty and df_temp['db_nombre'].iloc[0]:
                     db_objetivo = str(df_temp['db_nombre'].iloc[0]).strip()
