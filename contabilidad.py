@@ -2690,13 +2690,11 @@ def comprobar_existencia_comprobante(n_comprobante):
 
 def obtener_facturas_pendientes(conn, f_desde, f_hasta):
     try:
-        # Convertimos las fechas a string para el SQL
         query = """
             SELECT * FROM libro_compras 
             WHERE (retencion_iva_realizada = 0 OR retencion_iva_realizada IS NULL)
             AND fecha_operacion BETWEEN %s AND %s
         """
-        # Ejecutamos pasando los parámetros de fecha
         df = ejecutar_consulta(query, conn, params=(f_desde, f_hasta))
         
         if df.empty:
