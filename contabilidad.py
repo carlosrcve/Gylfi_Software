@@ -643,8 +643,8 @@ def obtener_datos_barras(db, fecha_inicio, fecha_fin):
         print(f"Error en obtener_datos_barras: {e}")
         return df_vacio
     finally:
-        # Garantía absoluta de cierre de conexión para proteger el rendimiento de MySQL
-        if conn and conn.is_connected():
+        # CORREGIDO: Cierre directo y seguro compatible con PyMySQL (sin .is_connected())
+        if conn:
             conn.close()
 
 
