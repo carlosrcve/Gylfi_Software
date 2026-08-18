@@ -5059,9 +5059,19 @@ def gestionar_sidebar():
 
             df_filtrado = df_sidebar
 
-            # Si es usuario normal y no se encontró registro, se muestra advertencia clara
+            # BLOQUE DE DIAGNÓSTICO
             if user_rol != 'admin' and df_filtrado.empty:
-                st.error(f"❌ El usuario '{nombre_usuario_actual}' no tiene una empresa asignada en la base de datos.")
+                st.warning(f"DEBUG: Buscando usuario '{nombre_usuario_actual}'")
+                
+                # Intentemos ver qué usuarios existen realmente para comparar
+                conn_debug = conectar_db()
+                try:
+                    df_all_users = ejecutar_consulta("SELECT usuario, cliente_id, db_nombre FROM usuarios", conn_debug)
+                    st.write("Usuarios encontrados en BD:", df_all_users)
+                except:
+                    st.error("No se pudo leer la tabla de usuarios para depurar.")
+                
+                st.error(f"❌ El usuario '{nombre_usuario_actual}' no tiene una empresa asignada.")
                 st.stop()
             
             # Si está vacío por defecto para admin, prevenimos errores
