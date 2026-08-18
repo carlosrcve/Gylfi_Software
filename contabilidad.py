@@ -5647,8 +5647,8 @@ if "🏠 Inicio" in opcion_menu:
     if db and db != "{db}" and db != "None":
         try:
             conn = conectar_db(db)
-            # Cambiar a cursor estándar o con dictionary=True según lo que acepte tu conector actual
-            cursor = conn.cursor(dictionary=True)
+            # CORRECCIÓN: Se crea el cursor estándar sin argumentos conflictivos
+            cursor = conn.cursor()
             
             # A. Saldo Inicial Fijo
             debe_s_ini, haber_s_ini = 0.0, 0.0
@@ -5656,8 +5656,9 @@ if "🏠 Inicio" in opcion_menu:
                 cursor.execute(f"SELECT COALESCE(SUM(debe), 0) as d, COALESCE(SUM(haber), 0) as h FROM `{db}`.saldos_iniciales WHERE plan_cuentas LIKE '1.1.1.02%'")
                 res_s_ini = cursor.fetchone()
                 if res_s_ini:
-                    debe_s_ini = float(res_s_ini['d'] or 0.0)
-                    haber_s_ini = float(res_s_ini['h'] or 0.0)
+                    # Compatible tanto si devuelve tupla por índice como si devuelve diccionario
+                    debe_s_ini = float(res_s_ini['d'] if isinstance(res_s_ini, dict) else res_s_ini[0] or 0.0)
+                    haber_s_ini = float(res_s_ini['h'] if isinstance(res_s_ini, dict) else res_s_ini[1] or 0.0)
             except Exception:
                 pass
 
@@ -5668,8 +5669,8 @@ if "🏠 Inicio" in opcion_menu:
                 cursor.execute(query_hist, (f_i,))
                 res_hist = cursor.fetchone()
                 if res_hist:
-                    debe_hist = float(res_hist['d'] or 0.0)
-                    haber_hist = float(res_hist['h'] or 0.0)
+                    debe_hist = float(res_hist['d'] if isinstance(res_hist, dict) else res_hist[0] or 0.0)
+                    haber_hist = float(res_hist['h'] if isinstance(res_hist, dict) else res_hist[1] or 0.0)
             except Exception:
                 pass
 
@@ -5686,8 +5687,8 @@ if "🏠 Inicio" in opcion_menu:
                 cursor.execute(query_mes, (f_i, f_f))
                 res_mes = cursor.fetchone()
                 if res_mes:
-                    entradas_mes = float(res_mes['ent'] or 0.0)
-                    salidas_mes = float(res_mes['sal'] or 0.0)
+                    entradas_mes = float(res_mes['ent'] if isinstance(res_mes, dict) else res_mes[0] or 0.0)
+                    salidas_mes = float(res_mes['sal'] if isinstance(res_mes, dict) else res_mes[1] or 0.0)
             except Exception:
                 pass
 
@@ -5698,15 +5699,14 @@ if "🏠 Inicio" in opcion_menu:
             try:
                 cursor.execute(f"SELECT COALESCE(SUM(debe - haber), 0) as cxc FROM `{db}`.asientos_contables WHERE plan_cuentas LIKE '1.1.2%'")
                 res_cxc = cursor.fetchone()
-                if res_cxc and res_cxc['cxc']:
-                    cxc_db = float(res_cxc['cxc'])
+                val_cxc = res_cxc['cxc'] if isinstance(res_cxc, dict) else (res_cxc[0] if res_cxc else 0.0)
+                if val_cxc:
+                    cxc_db = float(val_cxc)
             except Exception:
                 cxc_db = 0.0
 
             cursor.close()
             conn.close()
-
-            # --- (El resto de tu código de métricas y visualización se mantiene igual) ---
 
             # 2. MÉTRICAS PRINCIPALES DEL PERIODO
             c1, c2, c3 = st.columns(3)
