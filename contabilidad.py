@@ -476,7 +476,7 @@ def obtener_todas_las_empresas(user_rol, user_id):
         # 1. Si es admin, mostramos todas las activas
         if rol_limpio == 'admin':
             query = "SELECT db_nombre FROM clientes WHERE estado = 'Activo' OR estado IS NULL"
-            df = ejecutar_consulta(query, conn) # <-- REEMPLAZADO AQUÍ
+            df = ejecutar_consulta(query, conn)
             if df.empty or 'db_nombre' not in df.columns:
                 return []
             return df['db_nombre'].dropna().astype(str).tolist()
@@ -487,7 +487,7 @@ def obtener_todas_las_empresas(user_rol, user_id):
                 SELECT db_nombre FROM usuarios 
                 WHERE id = %s OR cliente_id = %s
             """
-            df = ejecutar_consulta(query, conn, params=(user_id, user_id)) # <-- REEMPLAZADO AQUÍ
+            df = ejecutar_consulta(query, conn, params=(user_id, user_id))
             
             # Si viene vacío, intentamos buscar por el nombre de usuario de la sesión
             if df.empty or 'db_nombre' not in df.columns or pd.isna(df['db_nombre'].iloc[0]):
@@ -495,7 +495,7 @@ def obtener_todas_las_empresas(user_rol, user_id):
                 if usuario_actual:
                     conn_res = conectar_db()
                     if conn_res:
-                        df = ejecutar_consulta("SELECT db_nombre FROM usuarios WHERE usuario = %s", conn_res, params=(usuario_actual,)) # <-- REEMPLAZADO AQUÍ
+                        df = ejecutar_consulta("SELECT db_nombre FROM usuarios WHERE usuario = %s", conn_res, params=(usuario_actual,))
             
             if df.empty or 'db_nombre' not in df.columns or pd.isna(df['db_nombre'].iloc[0]):
                 return []
@@ -508,10 +508,17 @@ def obtener_todas_las_empresas(user_rol, user_id):
         return []
         
     finally:
-        if conn and conn.is_connected():
-            conn.close()
-        if conn_res and conn_res.is_connected():
-            conn_res.close()
+        # Cierre seguro compatible con PyMySQL (usando .open en lugar de .is_connected)
+        try:
+            if conn and getattr(conn, 'open', False):
+                conn.close()
+        except:
+            pass
+        try:
+            if conn_res and getattr(conn_res, 'open', False):
+                conn_res.close()
+        except:
+            pass
 
 def ejecutar_consulta(query, conn, params=None):
     cursor = None
