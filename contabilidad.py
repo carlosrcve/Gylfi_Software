@@ -7868,32 +7868,46 @@ elif opcion_menu == "📝 Asientos Contables":
             # --- MENÚ DE PESTAÑAS (Solo se muestra si la seguridad pasa) ---
             tab1, tab2, tab3 = st.tabs(["📖 Ver Comprobante", "📥 Importar Excel", "🗑️ Gestionar Data"])
 
-            with tab1:
-                st.markdown(f"### Comprobante de Saldos Iniciales: **{empresa_data.get('nombre_empresa', db_actual)}**")
-                
-                df_apertura = consultar_saldos_iniciales_db(db_actual)
-                
-                if not df_apertura.empty:
-                    df_apertura.columns = [c.lower() for c in df_apertura.columns]
-                    
-                    fmt = {'debe': formato_contable, 'haber': formato_contable}
-                    st.dataframe(df_apertura.style.format(fmt), use_container_width=True, hide_index=True)
-                    
-                    t_debe = df_apertura['debe'].astype(float).sum()
-                    t_haber = df_apertura['haber'].astype(float).sum()
-                    
-                    c1, c2 = st.columns(2)
-                    c1.metric("TOTAL DEBE", formato_contable(t_debe))
-                    c2.metric("TOTAL HABER", formato_contable(t_haber))
-                    
-                    if abs(t_debe - t_haber) < 0.01:
-                        st.success("✅ La apertura está cuadrada correctamente.")
-                    else:
-                        st.error(f"❌ Descuadre detectado: {formato_contable(t_debe - t_haber)}")
-                else:
-                    st.warning(f"⚠️ No cargo por completo el archivo de saldos iniciales o la tabla está vacía para {empresa_data.get('nombre_empresa', db_actual)}. Ve a la pestaña 'Importar Excel'.")
+            # ==========================================
+    # PESTAÑA 1: VER COMPROBANTE
+    # ==========================================
+        with tab1:
+            st.markdown(f"### Comprobante de Saldos Iniciales: **{empresa_data.get('nombre_empresa', db_actual)}**")
             
-            # Aquí iría el resto de la lógica para tab2 y tab3...
+            df_apertura = consultar_saldos_iniciales_db(db_actual)
+            
+            if not df_apertura.empty:
+                # Normalizamos nombres de columnas a minúsculas
+                df_apertura.columns = [str(c).lower().strip() for c in df_apertura.columns]
+                
+                # BLINDAJE DE TIPOS DE DATOS (Evita el error de PyArrow en Streamlit moderno)
+                if 'descripcion' in df_apertura.columns:
+                    df_apertura['descripcion'] = df_apertura['descripcion'].astype(str)
+                if 'codigo' in df_apertura.columns:
+                    df_apertura['codigo'] = df_apertura['codigo'].astype(str)
+                
+                for col_num in ['debe', 'haber']:
+                    if col_num in df_apertura.columns:
+                        df_apertura[col_num] = pd.to_numeric(df_apertura[col_num], errors='coerce').fillna(0.0)
+
+                # Renderizamos con la nueva sintaxis width='stretch'
+                fmt = {'debe': formato_contable, 'haber': formato_contable}
+                st.dataframe(df_apertura.style.format(fmt), width='stretch', hide_index=True)
+                
+                t_debe = df_apertura['debe'].astype(float).sum()
+                t_haber = df_apertura['haber'].astype(float).sum()
+                
+                c1, c2 = st.columns(2)
+                c1.metric("TOTAL DEBE", formato_contable(t_debe))
+                c2.metric("TOTAL HABER", formato_contable(t_haber))
+                
+                if abs(t_debe - t_haber) < 0.01:
+                    st.success("✅ La apertura está cuadrada correctamente.")
+                else:
+                    st.error(f"❌ Descuadre detectado: {formato_contable(t_debe - t_haber)}")
+            else:
+                st.warning(f"⚠️ No cargo por completo el archivo de saldos iniciales o la tabla está vacía para {empresa_data.get('nombre_empresa', db_actual)}. Ve a la pestaña 'Importar Excel'.")
+                # Aquí iría el resto de la lógica para tab2 y tab3...
 
             with tab2:
                 st.markdown("### 📤 Cargar nuevo Comprobante de Apertura")
