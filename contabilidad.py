@@ -65,6 +65,22 @@ st.set_page_config(
 )
 
 
+def conectar_db_sqlal():
+    try:
+        if "mysql" not in st.secrets:
+            st.error("⚠️ No se encontró la sección [mysql] en los secretos.")
+            return None
+            
+        cfg = st.secrets["mysql"]
+        # Construcción segura de la cadena para PyMySQL
+        cadena_conexion = f"mysql+pymysql://{cfg['user']}:{cfg['password']}@{cfg['host']}:{cfg.get('port', 4000)}/{cfg.get('database', 'control_central')}?ssl_disabled=false"
+        
+        engine = create_engine(cadena_conexion, pool_recycle=3600)
+        return engine
+    except Exception as e:
+        st.error(f"❌ Error al crear el engine de base de datos: {e}")
+        return None
+
 def conectar_db(nombre_db=None):
     # 1. Validación segura de secretos para evitar el KeyError
     try:
@@ -143,21 +159,7 @@ def conectar_db(nombre_db=None):
         return None
 
 
-def conectar_db_sqlal():
-    try:
-        if "mysql" not in st.secrets:
-            st.error("⚠️ No se encontró la sección [mysql] en los secretos.")
-            return None
-            
-        cfg = st.secrets["mysql"]
-        # Construcción segura de la cadena para PyMySQL
-        cadena_conexion = f"mysql+pymysql://{cfg['user']}:{cfg['password']}@{cfg['host']}:{cfg.get('port', 4000)}/{cfg.get('database', 'control_central')}?ssl_disabled=false"
-        
-        engine = create_engine(cadena_conexion, pool_recycle=3600)
-        return engine
-    except Exception as e:
-        st.error(f"❌ Error al crear el engine de base de datos: {e}")
-        return None
+
 
 def verificar_usuario(conn, user, password):
     if conn is None:
