@@ -2700,7 +2700,7 @@ def obtener_facturas_pendientes(conn, f_desde, f_hasta):
         st.error(f"Error al cargar facturas pendientes: {e}")
         return pd.DataFrame()
 
-        
+
 def cargar_datos_reimpresion(f_desde, f_hasta):
     db_actual = st.session_state.get('DB_ACTUAL')
     conn = conectar_db(db_actual)
@@ -2966,16 +2966,16 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
 
                             query_ins = """
                                 INSERT INTO retenciones_iva (
-                                    Razon_Social_del_Agente_de_Retencion, RIF_Agente_Retencion, id_empresa, 
+                                    Razon_Social_del_Agente_de_Retencion, RIF_Agente_Retencion,  
                                     Direccion_FiscalAgente_Retencion, E_Emision, F_Entrega, Razon_Social_Sujeto_Retenido, 
                                     RIF_Sujeto_Retenido, Ano, Mes, N_Comprobante1, Fecha_Factura, Numero_Factura, 
                                     Numero_Contro, Total_Comrpas, Compras_Excentas, Base_Imponible, Impuesto_Iva, 
                                     IVA_Retenido, Base_Imponible_8, IVA_8, RET_IVA_8, Alicuota, Alicuota_75, N_Nota_Debito
-                                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                             """
 
                             params = (
-                                empresa_nombre, empresa_rif, id_final, domicilio_fiscal,
+                                empresa_nombre, empresa_rif, domicilio_fiscal,
                                 fecha_corta, fecha_corta, razon_social_ret, rif_ret, ano_f, mes_f,
                                 nro_comp, fecha_corta, str(fila['n_factura']), str(fila['n_control']),
                                 round(float(fila.get('total_compras', 0)), 2),
