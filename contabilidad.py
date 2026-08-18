@@ -360,7 +360,7 @@ def panel_administracion(conn):
                 # Buscamos las empresas disponibles para asociar
                 try:
                     query_cli = "SELECT id, nombre_empresa FROM control_central.clientes"
-                    df_cli = pd.read_sql(query_cli, conn)
+                    df_cli = ejecutar_consulta(query_cli, conn)
                     opciones_clientes = {row['nombre_empresa']: row['id'] for _, row in df_cli.iterrows()}
                     
                     nombre_sel = st.selectbox("Asociar a Empresa (Solo para rol cliente)", 
@@ -402,7 +402,7 @@ def panel_administracion(conn):
             FROM control_central.usuarios u
             LEFT JOIN control_central.clientes c ON u.cliente_id = c.id
         """
-        df_usuarios = pd.read_sql(query_view, conn)
+        df_usuarios = ejecutar_consulta(query_view, conn)
         st.dataframe(df_usuarios, width='stretch')
     except Exception:
         st.info("No hay usuarios registrados todavía.")
@@ -416,7 +416,7 @@ def panel_administracion(conn):
         
     try:
         query_logs = "SELECT * FROM logs_auditoria ORDER BY fecha DESC LIMIT 100"
-        df_logs = pd.read_sql(query_logs, conn)
+        df_logs = ejecutar_consulta(query_logs, conn)
         
         if not df_logs.empty:
             st.dataframe(df_logs, width='stretch')
@@ -459,7 +459,7 @@ def _obtener_datos_sidebar_cache():
     try:
         conn_debug = conectar_db()
         if conn_debug:
-            # CAMBIAMOS pd.read_sql POR ejecutar_consulta
+            # CAMBIAMOS ejecutar_consulta POR ejecutar_consulta
             df_sidebar = ejecutar_consulta(
                 "SELECT nombre_empresa, db_nombre FROM clientes WHERE estado = 'Activo' OR estado IS NULL", 
                 conn_debug
@@ -603,7 +603,7 @@ def obtener_datos_pie(db, fecha_inicio, fecha_fin):
     """
     
     try:
-        # USAMOS NUESTRA FUNCIÓN SEGURA EN LUGAR DE pd.read_sql
+        # USAMOS NUESTRA FUNCIÓN SEGURA EN LUGAR DE ejecutar_consulta
         df = ejecutar_consulta(query, conn, params=(fecha_inicio, fecha_fin))
         return df if not df.empty else df_vacio
     except Exception as e:
@@ -953,7 +953,7 @@ def obtener_analisis_gastos_clase6(db, f_i, f_f):
     """
     
     try:
-        df = pd.read_sql(query, conn, params=(f_i_str, f_f_str))
+        df = ejecutar_consulta(query, conn, params=(f_i_str, f_f_str))
     except Exception as e:
         print(f"❌ Error en Clase 6 para {db}: {e}")
         df = pd.DataFrame()
@@ -964,7 +964,7 @@ def obtener_analisis_gastos_clase6(db, f_i, f_f):
     return df
 
 
-
+    
 @st.cache_data(ttl=300)
 def obtener_historico_utilidad_acumulada(db, año, mes_limite):
     df_default = pd.DataFrame({'mes': [], 'utilidad_mensual': []})
@@ -1012,7 +1012,7 @@ def obtener_historico_utilidad_acumulada(db, año, mes_limite):
     
     try:
         # Pasamos año y mes como parámetros seguros
-        df = pd.read_sql(query, conn, params=(año, mes_limite))
+        df = ejecutar_consulta(query, conn, params=(año, mes_limite))
         if df.empty:
             return df_default
             
@@ -1068,7 +1068,7 @@ def obtener_asiento_por_comprobante(db, n_comprobante):
             ORDER BY id ASC
         """
         # Parámetro seguro para evitar inyección SQL
-        df = pd.read_sql(query, conn, params=(str(n_comprobante),))
+        df = ejecutar_consulta(query, conn, params=(str(n_comprobante),))
         
         if not df.empty:
             df['debe'] = pd.to_numeric(df['debe'], errors='coerce').fillna(0.0)
@@ -1142,7 +1142,7 @@ def obtener_analisis_accionista_detallado(db, f_i, f_f):
                 WHERE DATE(a.fecha) BETWEEN %s AND %s
                 ORDER BY a.fecha DESC
             """
-            df = pd.read_sql(query, conn, params=(s_fi, s_ff))
+            df = ejecutar_consulta(query, conn, params=(s_fi, s_ff))
         else:
             st.warning(f"⚠️ Verificación fallida: tablas no encontradas en '{db}'.")
             
@@ -1173,7 +1173,7 @@ def obtener_comprobantes_ingresos(db, f_inicio, f_fin):
             AND fecha BETWEEN %s AND %s
             ORDER BY fecha DESC, n_comprobante DESC
         """
-        df = pd.read_sql(query, conn, params=(f_inicio, f_fin))
+        df = ejecutar_consulta(query, conn, params=(f_inicio, f_fin))
         conn.close()
         return df
     except Exception as e:
@@ -1260,7 +1260,7 @@ def consultar_tabla_db(conn, nombre_tabla, limite=None):
         if limite and isinstance(limite, int):
             query += f" LIMIT {limite}"
             
-        df = pd.read_sql(query, conn)
+        df = ejecutar_consulta(query, conn)
         
     except Exception as e:
         st.error(f"Error al consultar la tabla {nombre_tabla}: {e}")
@@ -1304,7 +1304,7 @@ def _obtener_datos_agente_db_real(valor_busqueda):
 @st.cache_data(ttl=3600)
 def obtener_datos_agente_db(valor_busqueda):
     return _obtener_datos_agente_db_real(valor_busqueda)
-    
+
 
 def consultar_libro_diario_db(conn_activa=None, fecha_inicio=None, fecha_fin=None):
     # 1. Seguridad y Contexto
@@ -1597,10 +1597,10 @@ def mostrar_tablero_conciliacion(conn, mes_sel, ano_sel):
 
         # C. Movimientos de Banco (Pendientes y Conciliados) usando consultas seguras con parámetros
         query_mov_pendientes = f"SELECT * FROM `{db}`.banco_movimientos WHERE estado_conciliacion = 'Pendiente' AND fecha_movimiento BETWEEN %s AND %s"
-        df_banco = pd.read_sql(query_mov_pendientes, conn, params=(fecha_inicio, fecha_fin))
+        df_banco = ejecutar_consulta(query_mov_pendientes, conn, params=(fecha_inicio, fecha_fin))
 
         query_mov_conciliados = f"SELECT * FROM `{db}`.banco_movimientos WHERE estado_conciliacion = 'Conciliado' AND fecha_movimiento BETWEEN %s AND %s"
-        df_conciliado = pd.read_sql(query_mov_conciliados, conn, params=(fecha_inicio, fecha_fin))
+        df_conciliado = ejecutar_consulta(query_mov_conciliados, conn, params=(fecha_inicio, fecha_fin))
 
     except Exception as e:
         st.error(f"Error en la consulta para {db}: {e}")
@@ -1724,7 +1724,7 @@ def _obtener_datos_asiento(db_nombre, numero_comprobante):
             FROM asientos_contables 
             WHERE n_comprobante = '{numero_comprobante}'
         """
-        return pd.read_sql(query, conn)
+        return ejecutar_consulta(query, conn)
     except Exception as e:
         print(f"Error en consulta: {e}")
         return None
@@ -1856,7 +1856,7 @@ def mostrar_interfaz_mayor(f_ini_g, f_fin_g, db_nombre):
             registrar_log_automatico(conn, "CONSULTA_LIBRO_MAYOR", f"Usuario {usuario} consultó mayor en {db_nombre}")
             
             query_cuentas = "SELECT DISTINCT cuenta_contable FROM asientos_contables ORDER BY cuenta_contable"
-            df_cuentas = pd.read_sql(query_cuentas, conn)
+            df_cuentas = ejecutar_consulta(query_cuentas, conn)
             
             if not df_cuentas.empty:
                 lista_opciones = df_cuentas['cuenta_contable'].tolist()
@@ -1995,7 +1995,7 @@ def generar_balance_profesional(conn, f_i, f_f, sucursal):
         # 1. Obtener datos
         df_saldos = generar_balance_comprobacion(conn, f_i, f_f, sucursal)
         query_plan = f"SELECT codigo, nombre, nivel, padre FROM `{db}`.plan_cuentas ORDER BY codigo"
-        df_plan = pd.read_sql(query_plan, conn)
+        df_plan = ejecutar_consulta(query_plan, conn)
         
         # --- AQUÍ ESTÁ LA SOLUCIÓN ---
         # Eliminamos cualquier columna que no sea la llave o la necesaria para evitar colisiones
@@ -2112,10 +2112,10 @@ def generar_balance_comprobacion(conn, f_i, f_f, sucursal):
         sql_mo_h = f"SELECT plan_cuentas, SUM(haber) as val FROM `{db}`.asientos_contables WHERE fecha BETWEEN %s AND %s GROUP BY plan_cuentas"
 
         # 2. Ejecución y nombres de columnas únicos desde el inicio
-        df_si = pd.read_sql(sql_si, conn).rename(columns={'val': 'si'})
-        df_ac = pd.read_sql(sql_ac, conn, params=(f_i,)).rename(columns={'val': 'ac'})
-        df_md = pd.read_sql(sql_mo_d, conn, params=(f_i, f_f)).rename(columns={'val': 'debe'})
-        df_mh = pd.read_sql(sql_mo_h, conn, params=(f_i, f_f)).rename(columns={'val': 'haber'})
+        df_si = ejecutar_consulta(sql_si, conn).rename(columns={'val': 'si'})
+        df_ac = ejecutar_consulta(sql_ac, conn, params=(f_i,)).rename(columns={'val': 'ac'})
+        df_md = ejecutar_consulta(sql_mo_d, conn, params=(f_i, f_f)).rename(columns={'val': 'debe'})
+        df_mh = ejecutar_consulta(sql_mo_h, conn, params=(f_i, f_f)).rename(columns={'val': 'haber'})
 
         # 3. Join mediante indexación (la forma más segura de evitar duplicados)
         for df in [df_si, df_ac, df_md, df_mh]:
@@ -2702,7 +2702,7 @@ def obtener_facturas_pendientes(conn):
             WHERE retencion_iva_realizada = 0 
             OR retencion_iva_realizada IS NULL
         """
-        df = pd.read_sql(query, conn)
+        df = ejecutar_consulta(query, conn)
         
         # Agrega este aviso visual
         if df.empty:
@@ -2735,7 +2735,7 @@ def cargar_datos_reimpresion(f_desde, f_hasta):
             FROM retenciones_iva 
             WHERE Fecha_Factura BETWEEN %s AND %s
         """
-        df = pd.read_sql(query, conn, params=(f_desde, f_hasta))
+        df = ejecutar_consulta(query, conn, params=(f_desde, f_hasta))
         
         # Renombramos para que el resto de tu código no sufra
         df = df.rename(columns={
@@ -3552,7 +3552,7 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                 conn = conectar_db(db_actual)
 
 
-            facturas_bloqueadas = pd.read_sql("SELECT n_factura as numero_factura, proveedor FROM libro_compras WHERE retencion_iva_realizada = 1", conn)
+            facturas_bloqueadas = ejecutar_consulta("SELECT n_factura as numero_factura, proveedor FROM libro_compras WHERE retencion_iva_realizada = 1", conn)
 
             if not facturas_bloqueadas.empty:
                 opciones = facturas_bloqueadas['numero_factura'] + " - " + facturas_bloqueadas['proveedor']
@@ -3813,7 +3813,7 @@ def consultar_tabla_db(conn, nombre_tabla):
             cursor = conn.cursor()
             # Usamos nombre_tabla (el argumento) en lugar de una variable fija
             query = f"SELECT * FROM {nombre_tabla}"
-            df = pd.read_sql(query, conn)
+            df = ejecutar_consulta(query, conn)
         except Exception as e:
             st.error(f"Error al consultar la tabla {nombre_tabla}: {e}")
         finally:
@@ -4534,7 +4534,7 @@ def obtener_detalle_cashea(db, f_inicio, f_fin):
             FROM `{db}`.asientos_contables
             WHERE plan_cuentas LIKE '2.1.3.01.001%' AND fecha < %s
         """
-        df_ini = pd.read_sql(query_saldo_inicial, conn, params=(f_inicio,))
+        df_ini = ejecutar_consulta(query_saldo_inicial, conn, params=(f_inicio,))
         saldo_inicial = float(df_ini['saldo_ant'].iloc[0] or 0.0)
         
         # B. Obtener movimientos del periodo usando LIKE por seguridad
@@ -4545,7 +4545,7 @@ def obtener_detalle_cashea(db, f_inicio, f_fin):
             AND fecha BETWEEN %s AND %s
             ORDER BY fecha ASC, id ASC
         """
-        df = pd.read_sql(query, conn, params=(f_inicio, f_fin))
+        df = ejecutar_consulta(query, conn, params=(f_inicio, f_fin))
         conn.close()
         
         if not df.empty:
@@ -5164,7 +5164,7 @@ if "🏠 Inicio" in opcion_menu:
                 db_objetivo = st.session_state.get('DB_ACTUAL')
                 if not db_objetivo or db_objetivo == 'No seleccionada':
                     # Admin por defecto toma la primera del sistema
-                    df_temp = pd.read_sql("SELECT db_nombre FROM clientes LIMIT 1", conn_ctrl)
+                    df_temp = ejecutar_consulta("SELECT db_nombre FROM clientes LIMIT 1", conn_ctrl)
                     if not df_temp.empty: db_objetivo = str(df_temp['db_nombre'].iloc[0])
             else:
                 # --- BÚSQUEDA DIRECTA Y SEGURA ---
@@ -6126,7 +6126,7 @@ if "🏠 Inicio" in opcion_menu:
     query_completa = f"SELECT * FROM `{db_actual}`.asientos_contables"
     
     try:
-        df_diario = pd.read_sql(query_completa, conn) 
+        df_diario = ejecutar_consulta(query_completa, conn) 
         # 🛡️ BLINDAJE CRUCIAL: Forzamos la conversión de la fecha para evitar errores de tipo string (.year)
         if 'fecha' in df_diario.columns:
             df_diario['fecha'] = pd.to_datetime(df_diario['fecha'], errors='coerce')
@@ -6313,7 +6313,7 @@ if "🏠 Inicio" in opcion_menu:
                     """)
                     
                     # Lectura directa
-                    df_config_accionistas = pd.read_sql(f"SELECT * FROM `{db}`.accionistas", conn_tab)
+                    df_config_accionistas = ejecutar_consulta(f"SELECT * FROM `{db}`.accionistas", conn_tab)
                     cursor.close()
                     
                 except Exception as e:
@@ -6569,7 +6569,7 @@ if "🏠 Inicio" in opcion_menu:
                             AND fecha BETWEEN %s AND %s
                             ORDER BY fecha DESC, n_comprobante DESC
                         """
-                        df_comps = pd.read_sql(query_comps, conn_tmp, params=(f_i, f_f))
+                        df_comps = ejecutar_consulta(query_comps, conn_tmp, params=(f_i, f_f))
                         
                     except Exception as e:
                         st.error(f"❌ Error al consultar: {e}")
@@ -6695,7 +6695,7 @@ if "🏠 Inicio" in opcion_menu:
                                     FROM `{db_actual}`.asientos_contables 
                                     WHERE n_comprobante IN ({placeholders})
                                 """
-                                df_t = pd.read_sql(query_totales, conn_totales, params=lista_n_comps)
+                                df_t = ejecutar_consulta(query_totales, conn_totales, params=lista_n_comps)
                                 if not df_t.empty:
                                     total_debe_periodo = float(df_t['total_debe'].iloc[0] or 0.0)
                                     total_haber_periodo = float(df_t['total_haber'].iloc[0] or 0.0)
@@ -7434,7 +7434,7 @@ elif opcion_menu == "📝 Asientos Contables":
                         ORDER BY ano DESC, id DESC
                     """
                     
-                    df_saldos = pd.read_sql(query_saldos, conn)
+                    df_saldos = ejecutar_consulta(query_saldos, conn)
                     
                     if not df_saldos.empty:
                         df_view = df_saldos.copy()
@@ -7589,7 +7589,7 @@ elif opcion_menu == "📝 Asientos Contables":
 
                     # Consulta de prueba para ver si la tabla tiene algo
                     query_check = f"SELECT COUNT(*) as total FROM `{db_actual}`.banco_movimientos"
-                    res_check = pd.read_sql(query_check, conn)
+                    res_check = ejecutar_consulta(query_check, conn)
                     st.write(f"Total de registros totales en la tabla: {res_check['total'][0]}")
 
                     # Consulta real por rango
@@ -7605,7 +7605,7 @@ elif opcion_menu == "📝 Asientos Contables":
                         WHERE fecha_movimiento >= %s AND fecha_movimiento <= %s
                         ORDER BY fecha_movimiento DESC
                     """
-                    df_cuenta = pd.read_sql(query, conn, params=(fecha_inicio, fecha_fin))
+                    df_cuenta = ejecutar_consulta(query, conn, params=(fecha_inicio, fecha_fin))
                     
                     # Mostrar resultados
                     if not df_cuenta.empty:
@@ -7764,7 +7764,7 @@ elif opcion_menu == "📝 Asientos Contables":
                         FROM `{db_actual}`.asientos_contables 
                         GROUP BY n_comprobante ORDER BY fecha DESC
                     """
-                    df_listado = pd.read_sql(query_listado, conn_list)
+                    df_listado = ejecutar_consulta(query_listado, conn_list)
                 finally:
                     conn_list.close()
 
@@ -7794,7 +7794,7 @@ elif opcion_menu == "📝 Asientos Contables":
                 if conn_pdf:
                     try:
                         query_pdf = f"SELECT * FROM `{db_actual}`.asientos_contables WHERE n_comprobante = %s"
-                        df_asiento_pdf = pd.read_sql(query_pdf, conn_pdf, params=(n_comp,))
+                        df_asiento_pdf = ejecutar_consulta(query_pdf, conn_pdf, params=(n_comp,))
                         
                         if not df_asiento_pdf.empty:
                             st.divider()
@@ -8769,7 +8769,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                             query = "SELECT * FROM libro_ventas ORDER BY fecha_factura DESC"
                         else:
                             query = f"SELECT * FROM libro_ventas WHERE fecha_factura BETWEEN '{desde_v}' AND '{hasta_v}' ORDER BY fecha_factura ASC"
-                        st.session_state.df_ventas_editor = pd.read_sql(query, conn_query)
+                        st.session_state.df_ventas_editor = ejecutar_consulta(query, conn_query)
                     finally:
                         conn_query.close()
 
@@ -9019,7 +9019,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                         "SELECT * FROM libro_compras WHERE fecha_operacion BETWEEN %s AND %s"
                 params = None if ver_todo else (desde_c, hasta_c)
                 
-                df_recuperado = pd.read_sql(query, conn, params=params)
+                df_recuperado = ejecutar_consulta(query, conn, params=params)
             except Exception as e:
                 st.error(f"❌ Error al consultar la base de datos: {e}")
                 df_recuperado = pd.DataFrame()
@@ -9611,7 +9611,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                     if conn:
                         try:
                             # 1. Cargamos el directorio fiscal en session_state de una vez
-                            st.session_state.df_prov_fiscal = pd.read_sql(
+                            st.session_state.df_prov_fiscal = ejecutar_consulta(
                                 "SELECT rif, razon_social, direccion_fiscal FROM proveedores", conn
                             )
 
@@ -9641,7 +9641,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                             ORDER BY lc.fecha_operacion ASC
                             """
 
-                            st.session_state.df_retencion = pd.read_sql(
+                            st.session_state.df_retencion = ejecutar_consulta(
                                 query, 
                                 conn, 
                                 params=(f_xml_desde_n, f_xml_hasta_n)
@@ -9657,7 +9657,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                 if st.button("🔄 Refrescar Directorio Manualmente", use_container_width=True):
                     conn = conectar_db(db_actual)
                     if conn:
-                        st.session_state.df_prov_fiscal = pd.read_sql("SELECT rif, razon_social, direccion_fiscal FROM proveedores", conn)
+                        st.session_state.df_prov_fiscal = ejecutar_consulta("SELECT rif, razon_social, direccion_fiscal FROM proveedores", conn)
                         conn.close()
                         st.info("📂 Directorio actualizado manualmente.")
 
@@ -9839,7 +9839,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                             parametros = (f_inicio_h.strftime('%Y-%m-%d'), f_fin_h.strftime('%Y-%m-%d'))
                             
                             # Ejecutamos pasando los parámetros por separado
-                            st.session_state.df_retenciones_editor = pd.read_sql(query, conn, params=parametros)
+                            st.session_state.df_retenciones_editor = ejecutar_consulta(query, conn, params=parametros)
                             
                             st.success(f"✅ Registros cargados: {len(st.session_state.df_retenciones_editor)}")
                             
@@ -9962,7 +9962,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                                 ORDER BY r.id DESC
                             """
                             # Cargar datos al session_state
-                            st.session_state.df_historial_islr = pd.read_sql(query_historial, conn)
+                            st.session_state.df_historial_islr = ejecutar_consulta(query_historial, conn)
                             
                         except Exception as e:
                             st.error(f"Error al cargar historial: {e}")
@@ -10057,7 +10057,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                         db_actual = st.session_state.get('DB_ACTUAL')
                         if db_actual:
                             conn = conectar_db(db_actual)
-                            df = pd.read_sql("SELECT rif_retenido, numero_factura FROM retenciones_islr", conn)
+                            df = ejecutar_consulta("SELECT rif_retenido, numero_factura FROM retenciones_islr", conn)
                             st.dataframe(df, width='stretch')
                             conn.close()
                         else:
@@ -10119,7 +10119,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                                 FROM retenciones_islr 
                                 WHERE fecha_operacion BETWEEN %s AND %s
                             """
-                            df_xml = pd.read_sql(query_xml, conn, params=(f_xml_desde, f_xml_hasta))
+                            df_xml = ejecutar_consulta(query_xml, conn, params=(f_xml_desde, f_xml_hasta))
                             conn.close()
                             
                             if not df_xml.empty:
