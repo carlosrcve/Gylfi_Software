@@ -5132,6 +5132,7 @@ def gestionar_sidebar():
 
     return menu
 
+
 # 0. Primero validamos si la sesión expiró por tiempo
 verificar_inactividad()
 
