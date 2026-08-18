@@ -4836,7 +4836,19 @@ def cargar_saldos_iniciales_db(df, nombre_db):
         conn.ping(reconnect=True) # Mantenemos la conexión viva
 
 
-
+def ejecutar_consulta(query, conn, params=None):
+    cursor = None
+    try:
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute(query, params or ())
+        resultados = cursor.fetchall()
+        return pd.DataFrame(resultados) if resultados else pd.DataFrame()
+    except Exception as e:
+        # st.error(f"Error en consulta: {e}") # Descomenta si quieres que el error salga en la UI
+        return pd.DataFrame()
+    finally:
+        if cursor:
+            cursor.close()
 
 def gestionar_sidebar():
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
