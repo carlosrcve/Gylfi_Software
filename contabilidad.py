@@ -25,7 +25,7 @@ import warnings
 import bcrypt
 import time
 import ssl
-
+import pymysql.cursors
 
 st.set_page_config(
     page_title="Mi App Contable",
@@ -5634,7 +5634,6 @@ if "🏠 Inicio" in opcion_menu:
             st.markdown('</div>', unsafe_allow_html=True)
 
     # --- FILA 5: FLUJO DE EFECTIVO ---
-    # --- FILA 5: FLUJO DE EFECTIVO ---
     st.divider()
     st.subheader("💸 Movimiento de Caja (Efectivo Real)")
 
@@ -5648,8 +5647,8 @@ if "🏠 Inicio" in opcion_menu:
     if db and db != "{db}" and db != "None":
         try:
             conn = conectar_db(db)
-            # CORRECCIÓN: Usar pymysql.cursors.DictCursor en lugar de dictionary=True
-            cursor = conn.cursor(pymysql.cursors.DictCursor)
+            # Cambiar a cursor estándar o con dictionary=True según lo que acepte tu conector actual
+            cursor = conn.cursor(dictionary=True)
             
             # A. Saldo Inicial Fijo
             debe_s_ini, haber_s_ini = 0.0, 0.0
