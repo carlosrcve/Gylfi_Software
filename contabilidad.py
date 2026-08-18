@@ -610,9 +610,9 @@ def obtener_datos_pie(db, fecha_inicio, fecha_fin):
         print(f"Error en obtener_datos_pie: {e}")
         return df_vacio
     finally:
-        if conn and conn.is_connected():
+        # CORREGIDO: Cierre directo y seguro compatible con PyMySQL (sin .is_connected())
+        if conn:
             conn.close()
-
 
 @st.cache_data(ttl=300)
 def obtener_datos_barras(db, fecha_inicio, fecha_fin):
