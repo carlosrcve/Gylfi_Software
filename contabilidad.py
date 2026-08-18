@@ -12,7 +12,7 @@ import xml.etree.ElementTree as ET
 from xml.dom import minidom
 import io
 import numpy as np
-import re 
+import re
 import plotly.graph_objects as go
 import plotly.express as px
 import calendar
@@ -52,7 +52,7 @@ def conectar_db(nombre_db=None):
 
     db_a_usar = nombre_db if nombre_db else db_cfg.get("database", "control_central")
     
-    # Contexto SSL obligatorio para TiDB Cloud / AWS (evita el error de credenciales/handshake)
+    # Contexto SSL obligatorio para TiDB Cloud / AWS
     ssl_context = ssl.create_default_context()
     ssl_context.check_hostname = False
     ssl_context.verify_mode = ssl.CERT_NONE
@@ -94,7 +94,6 @@ def conectar_db(nombre_db=None):
     except Exception as ex:
         st.error(f"❌ Error crítico inesperado: {ex}")
         return None
-
 
 def verificar_usuario(conn, user, password):
     if conn is None:
