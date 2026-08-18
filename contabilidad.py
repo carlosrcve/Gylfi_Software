@@ -23,6 +23,8 @@ else:
     # Código alternativo
     pass
 
+
+import mysql.connector  # <--- ESTO ES LO QUE FALTA
 import streamlit as st
 import requests
 from bs4 import BeautifulSoup
