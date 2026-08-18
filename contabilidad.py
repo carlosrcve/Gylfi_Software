@@ -5634,6 +5634,7 @@ if "🏠 Inicio" in opcion_menu:
             st.markdown('</div>', unsafe_allow_html=True)
 
     # --- FILA 5: FLUJO DE EFECTIVO ---
+    # --- FILA 5: FLUJO DE EFECTIVO ---
     st.divider()
     st.subheader("💸 Movimiento de Caja (Efectivo Real)")
 
@@ -5647,9 +5648,10 @@ if "🏠 Inicio" in opcion_menu:
     if db and db != "{db}" and db != "None":
         try:
             conn = conectar_db(db)
-            cursor = conn.cursor(dictionary=True)
+            # CORRECCIÓN: Usar pymysql.cursors.DictCursor en lugar de dictionary=True
+            cursor = conn.cursor(pymysql.cursors.DictCursor)
             
-            # A. Saldo Inicial Fijo (Protegido por si la tabla no existe)
+            # A. Saldo Inicial Fijo
             debe_s_ini, haber_s_ini = 0.0, 0.0
             try:
                 cursor.execute(f"SELECT COALESCE(SUM(debe), 0) as d, COALESCE(SUM(haber), 0) as h FROM `{db}`.saldos_iniciales WHERE plan_cuentas LIKE '1.1.1.02%'")
@@ -5658,13 +5660,13 @@ if "🏠 Inicio" in opcion_menu:
                     debe_s_ini = float(res_s_ini['d'] or 0.0)
                     haber_s_ini = float(res_s_ini['h'] or 0.0)
             except Exception:
-                # Si la tabla saldos_iniciales no existe, continúa sin interrumpir
                 pass
 
             # B. Movimientos históricos anteriores a f_i
             debe_hist, haber_hist = 0.0, 0.0
             try:
-                cursor.execute(f"SELECT COALESCE(SUM(debe), 0) as d, COALESCE(SUM(haber), 0) as h FROM `{db}`.asientos_contables WHERE plan_cuentas LIKE '1.1.1.02%' AND fecha < %s", (f_i,))
+                query_hist = f"SELECT COALESCE(SUM(debe), 0) as d, COALESCE(SUM(haber), 0) as h FROM `{db}`.asientos_contables WHERE plan_cuentas LIKE '1.1.1.02%' AND fecha < %s"
+                cursor.execute(query_hist, (f_i,))
                 res_hist = cursor.fetchone()
                 if res_hist:
                     debe_hist = float(res_hist['d'] or 0.0)
@@ -5692,7 +5694,7 @@ if "🏠 Inicio" in opcion_menu:
 
             saldo_real = saldo_inicial_neto + entradas_mes - salidas_mes
 
-            # D. INTENTO AUTOMÁTICO DE CUENTAS POR COBRAR DESDE LA DB
+            # D. INTENTO AUTOMÁTICO DE CUENTAS POR COBRAR
             cxc_db = 0.0
             try:
                 cursor.execute(f"SELECT COALESCE(SUM(debe - haber), 0) as cxc FROM `{db}`.asientos_contables WHERE plan_cuentas LIKE '1.1.2%'")
@@ -5702,7 +5704,10 @@ if "🏠 Inicio" in opcion_menu:
             except Exception:
                 cxc_db = 0.0
 
+            cursor.close()
             conn.close()
+
+            # --- (El resto de tu código de métricas y visualización se mantiene igual) ---
 
             # 2. MÉTRICAS PRINCIPALES DEL PERIODO
             c1, c2, c3 = st.columns(3)
