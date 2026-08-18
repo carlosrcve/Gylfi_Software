@@ -4762,6 +4762,36 @@ def registrar_retencion_islr_db(id_sec, rif, razon_social, direccion, factura, c
         if 'cursor' in locals() and cursor: cursor.close()
         if 'conn' in locals() and conn: conn.close()
 
+
+def limpiar_monto_contable(valor):
+    if valor is None:
+        return 0.0
+    
+    # Si ya es un número (int o float), devuélvelo directamente
+    if isinstance(valor, (int, float)):
+        return float(valor)
+        
+    v = str(valor).strip()
+    
+    if v in ['-', '', 'nan', 'None', '0', '0.0']: 
+        return 0.0
+    
+    try:
+        # Si tiene tanto punto como coma (ej: "212.802.215,00")
+        if '.' in v and ',' in v:
+            v = v.replace('.', '')    # Quita los puntos de miles
+            v = v.replace(',', '.')   # Cambia la coma decimal por punto
+        elif ',' in v and '.' not in v:
+            # Si solo tiene coma (ej: "4820243,00")
+            v = v.replace(',', '.')
+        # Si solo tiene punto, asumimos que es el separador decimal estándar de Python (ej: "4820243.00")
+        # y no hacemos replace de puntos para no alterar los miles por error.
+        
+        return float(v)
+    except:
+        return 0.0
+
+
 def gestionar_sidebar():
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
     user_id = st.session_state.get('user_id', st.session_state.get('cliente_id', 'N/A'))
