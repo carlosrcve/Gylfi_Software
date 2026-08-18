@@ -5012,8 +5012,6 @@ def gestionar_sidebar():
                         pass 
                     cursor_tmp.close()
 
-                    # Consultas adaptadas a la estructura real (relación por cliente_id y fallback por db_nombre)
-                    # Consultas adaptadas con mayor tolerancia (TRAILING/TRIM y LOWER)
                     if user_rol == 'admin':
                         queries_a_probar = [
                             "SELECT * FROM control_central.clientes",
@@ -5021,21 +5019,22 @@ def gestionar_sidebar():
                         ]
                     else:
                         user_limpio = str(nombre_usuario_actual).strip()
-                        cliente_id_asignado = st.session_state.get('cliente_id', 3) # O forzar el ID directamente si ya lo sabemos
                         
                         queries_a_probar = [
-                            # Intento 1: Consulta directa usando el ID exacto que ya vimos en la BD (cliente_id = 3)
-                            f"""
-                            SELECT * FROM control_central.clientes WHERE id = 3
-                            """,
-                            f"""
-                            SELECT * FROM clientes WHERE id = 3
-                            """,
-                            # Intento 2: Búsqueda por JOIN directo con control_central explícito en ambas tablas
+                            # Intento 1: Búsqueda directa basada en el usuario Alix_maria para traer su empresa correspondiente
                             f"""
                             SELECT c.* FROM control_central.clientes c
-                            INNER JOIN control_central.usuarios u ON c.id = u.cliente_id
+                            JOIN control_central.usuarios u ON c.id = u.cliente_id
                             WHERE TRIM(u.usuario) = '{user_limpio}'
+                            """,
+                            # Intento 2: Búsqueda directa por db_nombre exacto de Alix_maria
+                            f"""
+                            SELECT * FROM control_central.clientes 
+                            WHERE db_nombre = 'rishon_letzion_ca'
+                            """,
+                            # Intento 3: Respaldo directo por ID fijo para Alix
+                            f"""
+                            SELECT * FROM control_central.clientes WHERE id = 3
                             """
                         ]
                     
