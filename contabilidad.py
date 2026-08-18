@@ -2344,14 +2344,12 @@ def cargar_libro_compras_db(df, nombre_db=None):
             st.error(f"❌ El archivo cargado tiene {len(cols)} columnas, se esperan al menos 11.")
             return
 
-        current_cliente_id = st.session_state.get('cliente_id', 1)
-
-        # SQL CORREGIDA: Sin la columna 'retencion_iva_realizada' (ahora son 14 campos)
+        # SQL DEFINITIVA: Excluye retencion_iva_realizada y cliente_id (12 campos exactos)
         sql = """REPLACE INTO libro_compras 
                 (fecha_operacion, tipo_documento, n_factura, n_control, proveedor, rif, 
                  total_compras, importe_exento, base_imponible, iva_porcentaje, iva_monto,
-                 retencion_realizada, tipo_transaccion, cliente_id) 
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"""
+                 retencion_realizada, tipo_transaccion) 
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"""
 
         for i, row in df.iterrows():
             n_fact = limpiar_texto(row[cols[2]])
@@ -2370,8 +2368,7 @@ def cargar_libro_compras_db(df, nombre_db=None):
                 clean_n(row[cols[9]]),                            # 9: Alícuota (%)
                 clean_n(row[cols[10]]),                           # 10: Crédito Fiscal (IVA Monto)
                 0.00,                                             # 11: retencion_realizada
-                "C",                                              # 12: tipo_transaccion
-                current_cliente_id                                # 13: cliente_id
+                "C"                                               # 12: tipo_transaccion
             )
             registros_a_insertar.append(valores)
 
