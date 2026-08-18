@@ -4684,7 +4684,7 @@ def generar_reporte_multimoneda(conn, mes, ano, db="kingdirver_ca"):
     if not conn:
         return []
         
-    cursor = conn.cursor(dictionary=True)
+    cursor = conn.cursor()
     
     query = f"""
         SELECT 
