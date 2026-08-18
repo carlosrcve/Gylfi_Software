@@ -5271,7 +5271,7 @@ if "🏠 Inicio" in opcion_menu:
     meses_lista = list(dic_meses.keys())
 
     anio_f = int(st.session_state.get('año_seleccionado', datetime.now().year))
-    mes_nombre_f = st.session_state.get('mes_seleccionado', meses_lista[datetime.datetime.now().month - 1])
+    mes_nombre_f = st.session_state.get('mes_seleccionado', meses_lista[datetime.now().month - 1])
 
     m_idx = dic_meses.get(mes_nombre_f, 1)
     ultimo_dia = calendar.monthrange(anio_f, m_idx)[1]
