@@ -2688,18 +2688,19 @@ def comprobar_existencia_comprobante(n_comprobante):
                 
     return existe
 
-def obtener_facturas_pendientes(conn):
+def obtener_facturas_pendientes(conn, f_desde, f_hasta):
     try:
+        # Convertimos las fechas a string para el SQL
         query = """
             SELECT * FROM libro_compras 
-            WHERE retencion_iva_realizada = 0 
-            OR retencion_iva_realizada IS NULL
+            WHERE (retencion_iva_realizada = 0 OR retencion_iva_realizada IS NULL)
+            AND fecha_operacion BETWEEN %s AND %s
         """
-        df = ejecutar_consulta(query, conn)
+        # Ejecutamos pasando los parámetros de fecha
+        df = ejecutar_consulta(query, conn, params=(f_desde, f_hasta))
         
-        # Agrega este aviso visual
         if df.empty:
-            st.info("ℹ️ No hay facturas pendientes de retención.")
+            st.info(f"ℹ️ No hay facturas pendientes de retención entre {f_desde} y {f_hasta}.")
             
         return df
     except Exception as e:
@@ -10179,7 +10180,7 @@ elif opcion_menu == "📚 Libros Fiscales":
 
 
     elif sub_opcion == "Comprobante de Retención IVA":
-        # 1. Aseguramos que el módulo datetime esté disponible sin conflictos
+        # 1. Aseguramos que el módulo datetime esté disponible con su alias correcto
         import datetime as dt 
         
         # 2. Validamos la conexión antes de entrar a la interfaz pesada
@@ -10187,15 +10188,14 @@ elif opcion_menu == "📚 Libros Fiscales":
         conn_valida = conectar_db(db_actual)
         
         if conn_valida:
-            # Llamamos a la función con la seguridad de que la conexión existe
+            # Usamos 'dt' coherente con el import de arriba
             mostrar_interfaz_retencion_iva(
                 EMPRESA, 
-                st.session_state.get('f_inicio_global', datetime.date.today()), 
-                st.session_state.get('f_fin_global', datetime.date.today())
+                st.session_state.get('f_inicio_global', dt.date.today()), 
+                st.session_state.get('f_fin_global', dt.date.today())
             )
         else:
             st.error("No se pudo restablecer la conexión para el módulo de IVA.")
-
 
 # --- USAMOS "IN" PARA QUE NO IMPORTE EL EMOJI QUE PONGAS EN EL SIDEBAR ---
 elif "Proveedores" in opcion_menu:
