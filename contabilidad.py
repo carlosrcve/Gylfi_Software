@@ -5192,25 +5192,36 @@ if "🏠 Inicio" in opcion_menu:
             if user_rol == 'admin':
                 db_objetivo = st.session_state.get('DB_ACTUAL')
                 if not db_objetivo or db_objetivo == 'No seleccionada':
-                    # Admin por defecto toma la primera del sistema
                     df_temp = ejecutar_consulta("SELECT db_nombre FROM clientes LIMIT 1", conn_ctrl)
                     if not df_temp.empty: db_objetivo = str(df_temp['db_nombre'].iloc[0])
             else:
                 # --- BÚSQUEDA DIRECTA Y SEGURA ---
-                # Buscamos directamente en la tabla usuarios usando el nombre de usuario
                 query = f"SELECT db_nombre FROM usuarios WHERE LOWER(TRIM(usuario)) = '{nombre_usuario_actual}'"
                 df_temp = ejecutar_consulta(query, conn_ctrl)
                 
                 if not df_temp.empty and df_temp['db_nombre'].iloc[0]:
                     db_objetivo = str(df_temp['db_nombre'].iloc[0]).strip()
+                elif nombre_usuario_actual in ['alix_maria', 'alix']:
+                    # --- RESPALDO DE EMERGENCIA PARA ALIX ---
+                    db_objetivo = 'rishon_letzion_ca'
                 else:
                     st.error(f"❌ Acceso denegado: El usuario '{nombre_usuario_actual}' no tiene una empresa (DB) asociada.")
                     st.stop()
         except Exception as e:
-            st.error(f"❌ Error al resolver la base de datos: {e}")
-            st.stop()
+            # Si ocurre un error de conexión, aplicamos respaldo si es Alix
+            if nombre_usuario_actual in ['alix_maria', 'alix']:
+                db_objetivo = 'rishon_letzion_ca'
+            else:
+                st.error(f"❌ Error al resolver la base de datos: {e}")
+                st.stop()
         finally:
-            conn_ctrl.close()
+            if conn_ctrl and hasattr(conn_ctrl, 'close'):
+                conn_ctrl.close()
+
+    # Aseguramos que la sesión mantenga la DB activa
+    if db_objetivo:
+        st.session_state['DB_ACTUAL'] = db_objetivo
+        st.session_state['db_a_conectar'] = db_objetivo
 
     if not db_objetivo:
         st.error("❌ No se pudo determinar la base de datos de trabajo.")
