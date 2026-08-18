@@ -5478,12 +5478,11 @@ if "🏠 Inicio" in opcion_menu:
         try:
             mes = int(mes_val)
         except:
-            mes = 5
 # 1. Obtención segura del mes y año desde session_state
     mes_crudo = st.session_state.get('mes_seleccionado') or st.session_state.get('mes') or 1
     
-    # Intentar obtener el año de la sesión o usar el actual
-    año_crudo = st.session_state.get('anio_seleccionado') or st.session_state.get('anio') or datetime.datetime.now().year
+    # Intentar obtener el año de la sesión o usar el actual (Corregido a datetime.now())
+    año_crudo = st.session_state.get('anio_seleccionado') or st.session_state.get('anio') or datetime.now().year
 
     # 2. Diccionario de traducción de texto a número
     dic_meses = {
@@ -5496,27 +5495,27 @@ if "🏠 Inicio" in opcion_menu:
     try:
         año_int = int(año_crudo)
     except (ValueError, TypeError):
-        año_int = datetime.datetime.now().year
+        año_int = datetime.now().year
 
     # 4. Conversión blindada de mes (soporta texto o número)
     if str(mes_crudo).isdigit():
         mes_int = int(mes_crudo)
     else:
-        mes_int = dic_meses.get(str(mes_crudo).capitalize(), datetime.datetime.now().month)
+        mes_int = dic_meses.get(str(mes_crudo).capitalize(), datetime.now().month)
 
     # Validar que el mes esté en el rango correcto (1-12)
     if not (1 <= mes_int <= 12):
-        mes_int = datetime.datetime.now().month
+        mes_int = datetime.now().month
 
     # 5. Calcular el último día del mes de forma segura
     _, ultimo_dia = calendar.monthrange(año_int, mes_int)
 
-    # 6. Generar los strings y variables de tipo date de forma blindada
+    # 6. Generar los strings y variables de tipo date de forma blindada (usando 'date' directo)
     f_i = f"{año_int:04d}-{mes_int:02d}-01"
     f_f = f"{año_int:04d}-{mes_int:02d}-{ultimo_dia:02d}"
 
-    f_inicio_global = datetime.date(año_int, mes_int, 1)
-    f_fin_global = datetime.date(año_int, mes_int, ultimo_dia)
+    f_inicio_global = date(año_int, mes_int, 1)
+    f_fin_global = date(año_int, mes_int, ultimo_dia)
 
     # 7. DEBUG VISUAL
     st.sidebar.info(f"📅 Rango activo ({mes_crudo}): {f_i} al {f_f}")  
