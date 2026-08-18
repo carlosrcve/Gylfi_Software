@@ -1,30 +1,8 @@
 # contabilidad.py
 import os
-import sys
-from types import ModuleType
-import pymysql
-
-# --- PARCHE DE COMPATIBILIDAD (DEBE IR ANTES DE CUALQUIER IMPORTACIÓN) ---
-class MockConnectorModule:
-    Error = pymysql.MySQLError
-    def connect(self, *args, **kwargs):
-        kwargs.pop('use_pure', None)
-        kwargs.pop('ssl_verify_cert', None)
-        conn = pymysql.connect(*args, **kwargs)
-        if not hasattr(conn, 'is_connected'):
-            conn.is_connected = lambda: True
-        if not hasattr(conn, 'ping'):
-            conn.ping = lambda reconnect=True, **kwargs: conn.ping(reconnect=reconnect)
-        return conn
-
-mysql_mock = ModuleType('mysql.connector')
-mysql_mock.connect = MockConnectorModule().connect
-mysql_mock.Error = pymysql.MySQLError
-sys.modules['mysql.connector'] = mysql_mock
-# -----------------------------------------------------------------------
-
 import streamlit as st
-import mysql.connector  # Ahora esto funcionará gracias al parche
+import pymysql
+from pymysql import Error
 import requests
 from bs4 import BeautifulSoup
 import pandas as pd
@@ -47,17 +25,14 @@ import warnings
 import bcrypt
 import time
 
-# 1. ESTO VA AQUÍ, AL PURO PRINCIPIO
 st.set_page_config(
     page_title="Mi App Contable",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# Inicialización segura de variables globales
+# Inicialización segura
 HAS_TESSERACT = False
-pytesseract = None
-
 try:
     import pytesseract
     if os.name == 'nt':
@@ -68,87 +43,48 @@ try:
 except ImportError:
     HAS_TESSERACT = False
 
-if HAS_TESSERACT:
-    pass
-else:
-    pass
-
-
 def conectar_db(nombre_db=None):
-    # 1. Validación segura de secretos para evitar el KeyError
-    try:
-        if "mysql" not in st.secrets:
-            st.error("⚠️ No se encontró la sección [mysql] en los secretos de la aplicación.")
-            return None
-        db_cfg = st.secrets["mysql"]
-    except Exception as e:
-        st.error(f"❌ Error crítico accediendo a los secretos: {e}")
+    if "mysql" not in st.secrets:
+        st.error("⚠️ Falta la configuración [mysql] en los secretos.")
         return None
+    db_cfg = st.secrets["mysql"]
 
     db_a_usar = nombre_db if nombre_db else db_cfg.get("database", "control_central")
     
     try:
-        # 2. VERIFICAR Y CREAR LA BASE DE DATOS SI NO EXISTE
+        # Validación y creación automática de la base de datos si no existe
         if db_a_usar != "control_central":
             try:
-                conn_temp = mysql.connector.connect(
+                conn_temp = pymysql.connect(
                     host=db_cfg["host"],
                     port=int(db_cfg.get("port", 4000)),
                     user=db_cfg["user"],
                     password=db_cfg["password"],
                     database="control_central",
-                    use_pure=True,
-                    connect_timeout=30,
-                    ssl_verify_cert=False,
-                    ssl_disabled=False
+                    connect_timeout=15
                 )
-                cursor_temp = conn_temp.cursor()
-                cursor_temp.execute(f"CREATE DATABASE IF NOT EXISTS `{db_a_usar}`;")
-                cursor_temp.close()
+                with conn_temp.cursor() as cursor_temp:
+                    cursor_temp.execute(f"CREATE DATABASE IF NOT EXISTS `{db_a_usar}`;")
                 conn_temp.close()
             except Exception as ex:
                 print(f"Aviso al asegurar BD de cliente: {ex}")
 
-        # 3. VALIDAR CONEXIÓN EXISTENTE EN SESSION_STATE
-        if "conn" in st.session_state and st.session_state.conn is not None:
-            try:
-                st.session_state.conn.ping(reconnect=True, attempts=3, delay=1)
-                
-                if st.session_state.conn.is_connected():
-                    cursor_test = st.session_state.conn.cursor()
-                    cursor_test.execute("SELECT DATABASE()")
-                    res = cursor_test.fetchone()
-                    db_actual = res[0] if res else None
-                    cursor_test.close()
-                    
-                    if db_actual == db_a_usar:
-                        return st.session_state.conn
-                    else:
-                        st.session_state.conn.close()
-                        st.session_state.conn = None
-            except Exception:
-                st.session_state.conn = None
-        
-        # Limpieza de seguridad antes de la nueva asignación
-        st.session_state.conn = None
-
-        # 4. CONEXIÓN OFICIAL CON LOS PARÁMETROS ACTUALIZADOS
-        st.session_state.conn = mysql.connector.connect(
+        # Conexión principal utilizando PyMySQL (robusto, nativo de Python y sin lios de C o SSL en la nube)
+        conn = pymysql.connect(
             host=db_cfg["host"],
             port=int(db_cfg.get("port", 4000)),
             user=db_cfg["user"],
             password=db_cfg["password"],
             database=db_a_usar,
-            use_pure=db_cfg.get("use_pure", True),
-            connect_timeout=10,
-            ssl_verify_cert=db_cfg.get("ssl_verify_cert", False),
-            ssl_disabled=db_cfg.get("ssl_disabled", False)
+            connect_timeout=15,
+            charset='utf8mb4'
         )
-        return st.session_state.conn
-        
-    except Exception as e:
-        st.error(f"❌ Error al conectar a la base de datos '{db_a_usar}': {e}")
-        st.session_state.conn = None
+        return conn
+    except Error as e:
+        st.error(f"❌ Error al conectar a TiDB Cloud ('{db_a_usar}'): {e}")
+        return None
+    except Exception as ex:
+        st.error(f"❌ Error crítico inesperado: {ex}")
         return None
 
 
