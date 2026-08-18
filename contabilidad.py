@@ -3180,8 +3180,7 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                             pdf.add_page()
                             x_mov = 10 
 
-                            # --- 1. OBTENER DATOS (ANTES DE DIBUJAR) ---
-                            # --- 1. OBTENER DATOS (ANTES DE DIBUJAR) ---
+                            # --- 1. OBTENER DATOS (ANTES DE DIBUJAR) --
                             df_detalle = obtener_detalle_comprobante(opcion_busqueda) # <--- CAMBIADO A LA VARIABLE CORRECTA
 
                             if not df_detalle.empty:
@@ -3192,16 +3191,17 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                                 return # O maneja el error como prefieras
 
                             # --- BLOQUE 1: AGENTE DE RETENCIÓN ---
-                            # 1. Recuperamos el nombre seleccionado y buscamos su ID real
-                            nombre_empresa_actual = st.session_state.get('CLIENTE_NOMBRE')
+                            # Obtenemos el ID real de forma segura desde el session_state o reutilizando la lógica superior
+                            id_real = st.session_state.get('id_empresa_seleccionada', {}).get('id', 1)
+                            if not id_real or id_real == 1:
+                                id_real = int(EMPRESA) if str(EMPRESA).isdigit() else 1
 
-                            # Buscamos en el DataFrame el registro que coincide con el nombre
-                            datos_actuales = df_sidebar[df_sidebar['nombre_empresa'] == nombre_empresa_actual].iloc[0]
-                            # Convertimos explícitamente a int de Python
-                            id_real = int(datos_actuales['id'])
-
-                            # 2. Llamamos a la función usando el ID REAL obtenido de la BD
+                            # 2. Llamamos a la función usando el ID correcto
                             datos_empresa = obtener_datos_agente_db(id_real)
+
+                            # Doble protección por si devuelve None
+                            if datos_empresa is None:
+                                datos_empresa = {"nombre_empresa": "NO ENCONTRADO", "rif": "N/A", "domicilio_fiscal": "N/A"}
 
                             # DEBUG (Opcional, para verificar)
                             st.sidebar.info(f"Generando PDF para ID: {id_real}")
