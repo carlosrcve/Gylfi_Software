@@ -4996,7 +4996,6 @@ def gestionar_sidebar():
         st.divider()
 
         # --- Selección de Empresa ---
-        # --- Selección de Empresa ---
         if menu == "📊 Auditoría Contable":
             conn_sidebar = conectar_db()
             df_sidebar = pd.DataFrame()
@@ -5064,19 +5063,17 @@ def gestionar_sidebar():
             if user_rol != 'admin' and df_filtrado.empty:
                 st.error(f"❌ El usuario '{nombre_usuario_actual}' no tiene una empresa asignada en la base de datos.")
                 st.stop()
-                
-            # Resguardo absoluto solo si es admin y la tabla está totalmente vacía
+            
+            # Si está vacío por defecto para admin, prevenimos errores
             if df_filtrado.empty:
                 df_filtrado = pd.DataFrame({
                     'id': [1],
                     'nombre_empresa': ['EMPRESA DEFAULT'],
-                    'db_nombre': ['pedacito_de_cielo_ca'],
-                    'nombre_usuario': [nombre_usuario_actual]
+                    'db_nombre': ['pedacito_de_cielo_ca']
                 })
 
             nombres_empresas = df_filtrado['nombre_empresa'].tolist()
             
-            # Aseguramos que el selectbox recuerde la opción seleccionada previamente
             index_actual = 0
             if 'cliente_seleccionado_previo' in st.session_state and st.session_state['cliente_seleccionado_previo'] in nombres_empresas:
                 index_actual = nombres_empresas.index(st.session_state['cliente_seleccionado_previo'])
@@ -5102,13 +5099,6 @@ def gestionar_sidebar():
             datos_sel = fila_seleccionada.iloc[0]
             db_seleccionada = str(datos_sel['db_nombre']).strip()
             
-            # --- VALIDACIÓN Y REINICIO DE CONEXIÓN LIMPIO ---
-            if st.session_state.get('DB_ACTUAL') != db_seleccionada:
-                st.session_state['DB_ACTUAL'] = db_seleccionada
-                st.session_state['db_a_conectar'] = db_seleccionada
-                st.session_state['conn'] = None  # Limpiamos conexión vieja de forma segura
-                st.rerun()
-
             st.session_state['DB_ACTUAL'] = db_seleccionada
             st.session_state['db_a_conectar'] = db_seleccionada
             st.session_state['CLIENTE_NOMBRE'] = nombre_seleccionado
