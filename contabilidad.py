@@ -57,19 +57,20 @@ def conectar_db(nombre_db=None):
         # 1. Asegurar base de datos multicliente si no es la central
         if db_a_usar != "control_central":
             try:
+                # CORREGIDO: Usamos 'conn' de forma consistente
                 conn = pymysql.connect(
                     host="gateway01.us-east-1.prod.aws.tidbcloud.com",
                     port=4000,
                     user="4K4VAw4t4ZPFUTF.root",
                     password="OhAcM2lizBMDXDgD",
-                    database=db_a_usar,
+                    database="control_central", # Conectamos primero a central para asegurarnos de poder crearla si falta
                     connect_timeout=20,
                     charset='utf8mb4',
                     ssl=ssl_context
                 )
-                with conn_temp.cursor() as cursor_temp:
+                with conn.cursor() as cursor_temp:
                     cursor_temp.execute(f"CREATE DATABASE IF NOT EXISTS `{db_a_usar}`;")
-                conn_temp.close()
+                conn.close()
             except Exception as ex:
                 print(f"Aviso al asegurar BD de cliente: {ex}")
 
@@ -86,7 +87,7 @@ def conectar_db(nombre_db=None):
                 if db_actual == db_a_usar:
                     return st.session_state.conn
                 else:
-                    # Si estaba en otra BD (ej. control_central), la cerramos para forzar la nueva
+                    # Si estaba en otra BD, la cerramos para forzar la nueva
                     st.session_state.conn.close()
                     st.session_state.conn = None
             except Exception:
