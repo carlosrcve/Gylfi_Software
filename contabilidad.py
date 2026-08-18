@@ -45,15 +45,12 @@ except ImportError:
     HAS_TESSERACT = False
     
 
-def conectar_db(nombre_db=None):
-    if "mysql" not in st.secrets:
-        st.error("⚠️ Falta la configuración [mysql] en los secretos.")
-        return None
-    db_cfg = st.secrets["mysql"]
+import ssl
 
-    db_a_usar = nombre_db if nombre_db else db_cfg.get("database", "control_central")
+def conectar_db(nombre_db=None):
+    db_a_usar = nombre_db if nombre_db else "control_central"
     
-    # Contexto TLS obligatorio que exige TiDB Cloud para conexiones públicas
+    # Contexto TLS obligatorio para TiDB Cloud
     ssl_context = ssl.create_default_context()
     ssl_context.check_hostname = False
     ssl_context.verify_mode = ssl.CERT_NONE
@@ -63,10 +60,10 @@ def conectar_db(nombre_db=None):
         if db_a_usar != "control_central":
             try:
                 conn_temp = pymysql.connect(
-                    host=db_cfg["host"],
-                    port=int(db_cfg.get("port", 4000)),
-                    user=db_cfg["user"],
-                    password=db_cfg["password"],
+                    host="gateway01.us-east-1.prod.aws.tidbcloud.com",
+                    port=4000,
+                    user="4K4VAw4t4ZPFUTF.root",
+                    password="OhAcM2lizBMDXDgD",
                     database="control_central",
                     connect_timeout=15,
                     ssl=ssl_context
@@ -98,10 +95,10 @@ def conectar_db(nombre_db=None):
 
         # 3. Conexión oficial definitiva con TLS habilitado
         st.session_state.conn = pymysql.connect(
-            host=db_cfg["host"],
-            port=int(db_cfg.get("port", 4000)),
-            user=db_cfg["user"],
-            password=db_cfg["password"],
+            host="gateway01.us-east-1.prod.aws.tidbcloud.com",
+            port=4000,
+            user="4K4VAw4t4ZPFUTF.root",
+            password="OhAcM2lizBMDXDgD",
             database=db_a_usar,
             connect_timeout=15,
             charset='utf8mb4',
