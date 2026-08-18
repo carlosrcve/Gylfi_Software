@@ -6268,7 +6268,7 @@ if "🏠 Inicio" in opcion_menu:
     st.divider()
     try:
         # Usamos las llaves exactas definidas en el sidebar de contabilidad
-        año = int(st.session_state.get('año_seleccionado_contabilidad', datetime.datetime.now().year))
+        año = int(st.session_state.get('año_seleccionado_contabilidad', datetime.date.today().year))
         mes_elegido_str = str(st.session_state.get('mes_seleccionado_contabilidad', 'Junio')).strip().capitalize()
 
         # Mapeo robusto de meses
