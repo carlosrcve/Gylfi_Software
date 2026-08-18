@@ -1,38 +1,65 @@
-#contabilidad.py
+# contabilidad.py
 import os
 import streamlit as st
-import mysql.connector  # <--- ESTO ES LO QUE FALTA
-import streamlit as st
+
+# --- ADAPTADOR MAGICO PARA MANTENER TU CODIGO EXACTO ---
+import pymysql
+
+class PyMySQLAsConnector:
+    """Simula la interfaz de mysql.connector usando pymysql por debajo"""
+    Error = pymysql.MySQLError
+    
+    @staticmethod
+    déf_connect(*args, **kwargs):
+        # Mapeo de parámetros si es necesario
+        kwargs.pop('use_pure', None)
+        kwargs.pop('ssl_verify_cert', None)
+        return pymysql.connect(*args, **kwargs)
+
+class MockConnectorModule:
+    Error = pymysql.MySQLError
+    def connect(self, *args, **kwargs):
+        kwargs.pop('use_pure', None)
+        kwargs.pop('ssl_verify_cert', None)
+        conn = pymysql.connect(*args, **kwargs)
+        # Añadir métodos faltantes de mysql.connector para compatibilidad con session_state
+        if not hasattr(conn, 'is_connected'):
+            conn.is_connected = lambda: True
+        if not hasattr(conn, 'ping'):
+            conn.ping = lambda reconnect=True, **kwargs: conn.ping(reconnect=reconnect)
+        return conn
+
+import sys
+from types import ModuleType
+mysql_mock = ModuleType('mysql.connector')
+mysql_mock.connect = MockConnectorModule().connect
+mysql_mock.Error = pymysql.MySQLError
+sys.modules['mysql.connector'] = mysql_mock
+import mysql.connector
+# -----------------------------------------------------
+
 import requests
 from bs4 import BeautifulSoup
 import pandas as pd
 from fpdf import FPDF
-import pymysql
-from mysql.connector import Error
-from datetime import datetime, date, timedelta # Limpiamos los imports de fecha
+from datetime import datetime, date, timedelta
 import xml.etree.ElementTree as ET
 from xml.dom import minidom
 import io
-import os
 import numpy as np
 import re 
 import plotly.graph_objects as go
 import plotly.express as px
 import calendar
 import base64
-import plotly.express as px
-from datetime import date # IMPORTA LA CLASE DATE DIRECTAMENTE
 from PIL import Image, ImageEnhance
 import json
-import base64
 from openai import OpenAI
 from sqlalchemy import create_engine
 import warnings
-import pandas as pd
 import bcrypt
 import time
 import datetime
-
 
 # 1. ESTO VA AQUÍ, AL PURO PRINCIPIO
 st.set_page_config(
@@ -40,6 +67,7 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
 # Inicialización segura de variables globales
 HAS_TESSERACT = False
 pytesseract = None
@@ -55,10 +83,8 @@ except ImportError:
     HAS_TESSERACT = False
 
 if HAS_TESSERACT:
-    # Código que usa Tesseract
     pass
 else:
-    # Código alternativo
     pass
 
 
