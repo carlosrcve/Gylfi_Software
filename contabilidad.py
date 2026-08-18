@@ -5219,6 +5219,7 @@ if "🏠 Inicio" in opcion_menu:
                 conn_ctrl.close()
 
     # Aseguramos que la sesión mantenga la DB activa
+    # Aseguramos que la sesión mantenga la DB activa
     if db_objetivo:
         st.session_state['DB_ACTUAL'] = db_objetivo
         st.session_state['db_a_conectar'] = db_objetivo
@@ -5227,11 +5228,23 @@ if "🏠 Inicio" in opcion_menu:
         st.error("❌ No se pudo determinar la base de datos de trabajo.")
         st.stop()
 
-    st.session_state['DB_ACTUAL'] = db_objetivo
-    st.session_state['db_a_conectar'] = db_objetivo
+    # --- LÓGICA DE CONEXIÓN ROBUSTA ---
+    necesita_reconexion = False
 
-    # --- LÓGICA DE CONEXIÓN ---
     if 'conn' not in st.session_state or st.session_state.get('ultima_db_conectada') != db_objetivo or st.session_state.conn is None:
+        necesita_reconexion = True
+    else:
+        # Verificamos la conexión existente de forma segura sin argumentos inválidos para pymysql
+        try:
+            st.session_state.conn.ping(reconnect=True)
+            if db_objetivo and db_objetivo != "control_central":
+                with st.session_state.conn.cursor() as cursor:
+                    cursor.execute(f"USE `{db_objetivo}`")
+        except Exception:
+            necesita_reconexion = True
+
+    # Si se requiere nueva conexión o reconectar
+    if necesita_reconexion:
         try:
             nueva_conn = conectar_db(db_objetivo)
             if nueva_conn:
