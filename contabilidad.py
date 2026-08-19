@@ -2132,12 +2132,11 @@ def generar_balance_comprobacion(conn, f_i, f_f, sucursal):
     db = st.session_state.get('DB_ACTUAL')
     
     try:
-        # Usamos 'codigo' en vez de 'plan_cuentas' basándonos en tu estructura de tablas
-        # Agregamos CAST(codigo AS CHAR) para asegurar que todos sean texto al agrupar
-        sql_si = f"SELECT codigo, SUM(debe) - SUM(haber) as val FROM `{db}`.saldos_iniciales GROUP BY codigo"
-        sql_ac = f"SELECT codigo, SUM(debe) - SUM(haber) as val FROM `{db}`.asientos_contables WHERE fecha < %s GROUP BY codigo"
-        sql_mo_d = f"SELECT codigo, SUM(debe) as val FROM `{db}`.asientos_contables WHERE fecha BETWEEN %s AND %s GROUP BY codigo"
-        sql_mo_h = f"SELECT codigo, SUM(haber) as val FROM `{db}`.asientos_contables WHERE fecha BETWEEN %s AND %s GROUP BY codigo"
+        # Volvemos a usar 'plan_cuentas' que es el nombre real de la columna en las tablas transaccionales
+        sql_si = f"SELECT plan_cuentas, SUM(debe) - SUM(haber) as val FROM `{db}`.saldos_iniciales GROUP BY plan_cuentas"
+        sql_ac = f"SELECT plan_cuentas, SUM(debe) - SUM(haber) as val FROM `{db}`.asientos_contables WHERE fecha < %s GROUP BY plan_cuentas"
+        sql_mo_d = f"SELECT plan_cuentas, SUM(debe) as val FROM `{db}`.asientos_contables WHERE fecha BETWEEN %s AND %s GROUP BY plan_cuentas"
+        sql_mo_h = f"SELECT plan_cuentas, SUM(haber) as val FROM `{db}`.asientos_contables WHERE fecha BETWEEN %s AND %s GROUP BY plan_cuentas"
 
         dfs = {
             'si': ejecutar_consulta(sql_si, conn),
@@ -2149,8 +2148,8 @@ def generar_balance_comprobacion(conn, f_i, f_f, sucursal):
         lista_frames = []
         for nombre, df in dfs.items():
             if df is not None and not df.empty:
-                # Estandarizar nombre de columna y tipo de dato a string limpio
-                col_name = [c for c in df.columns if 'codigo' in c.lower() or 'plan_cuenta' in c.lower()][0]
+                # Detectar cómo se llama la columna de cuenta y normalizarla
+                col_name = [c for c in df.columns if 'plan_cuenta' in c.lower() or 'codigo' in c.lower()][0]
                 df = df.rename(columns={col_name: 'Código', 'val': nombre})
                 df['Código'] = df['Código'].astype(str).str.strip().str.replace('.0', '', regex=False)
                 df = df.set_index('Código')
@@ -2163,7 +2162,7 @@ def generar_balance_comprobacion(conn, f_i, f_f, sucursal):
         balance = pd.concat(lista_frames, axis=1).fillna(0)
         balance.reset_index(inplace=True)
         
-        # Cálculo final (Asegurando que las columnas existan)
+        # Asegurar columnas numéricas necesarias
         for c in ['si', 'ac', 'debe', 'haber']:
             if c not in balance.columns: balance[c] = 0.0
             
@@ -2171,7 +2170,6 @@ def generar_balance_comprobacion(conn, f_i, f_f, sucursal):
         
         def calcular(row):
             si_bruto = row['si'] + row['ac']
-            # Lógica contable: 1 y 5 (Activos/Gastos) vs resto
             if row['Tipo'] in ['1', '5']:
                 s_final = si_bruto + row['debe'] - row['haber']
             else:
