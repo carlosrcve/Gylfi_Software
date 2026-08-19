@@ -4970,6 +4970,42 @@ def mostrar_analisis_rendimiento(u_v, patrimonio_total, capital_social=600000.0)
     
     st.plotly_chart(fig, width='stretch', key="grafico_comparativo_capital_utilidad")
 
+@st.cache_data(ttl=300)
+def obtener_datos_agente_db(valor_busqueda):
+    return _obtener_datos_agente_db_real(valor_busqueda)
+
+def _obtener_datos_agente_db_real(valor_busqueda):
+    # Forzamos a que use la conexión principal
+    conn_central = conectar_db() 
+    if not conn_central: 
+        st.warning("⚠️ No se pudo conectar a la base de datos central en obtener_datos_agente_db.")
+        return None
+
+    cursor = None
+    try:
+        # CORREGIDO: Usando pymysql.cursors.DictCursor de manera consistente
+        cursor = conn_central.cursor(pymysql.cursors.DictCursor)
+        
+        # Si es un string, busca por db_nombre. Si es int, busca por id.
+        if isinstance(valor_busqueda, str):
+            query = "SELECT id, nombre_empresa, rif, domicilio_fiscal FROM clientes WHERE db_nombre = %s"
+        else:
+            query = "SELECT id, nombre_empresa, rif, domicilio_fiscal FROM clientes WHERE id = %s"
+        
+        cursor.execute(query, (valor_busqueda,))
+        datos = cursor.fetchone()
+        return datos
+        
+    except Exception as e:
+        st.error(f"❌ Error en consulta DB: {e} | Valor buscado: {valor_busqueda}")
+        return None
+        
+    finally:
+        if cursor:
+            cursor.close()
+        if conn_central:
+            conn_central.close()
+
 def gestionar_sidebar():
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
     user_id = st.session_state.get('user_id', st.session_state.get('cliente_id', 'N/A'))
