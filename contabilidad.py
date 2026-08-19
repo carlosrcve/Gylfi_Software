@@ -2108,8 +2108,7 @@ def generar_balance_profesional(conn, f_i, f_f, sucursal):
             for p_cod, grupo in df[df['nivel'] == n].groupby('padre'):
                 mask = df['codigo'] == str(p_cod).strip()
                 if mask.any():
-                    df.loc[mask, cols_num] += grupo[cols_num].sum()
-
+                    df.loc[mask, cols_num] += grupo[cols_num].sum() # <--- AQUÍ SE ROMPE
         # 6. Fila Total
         fila_total = pd.DataFrame([{
             'codigo': 'Σ', 'nombre': 'RESUMEN MOVIMIENTOS', 'nivel': 0, 'padre': None,
