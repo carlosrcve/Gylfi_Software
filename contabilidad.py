@@ -5785,184 +5785,174 @@ if "🏠 Inicio" in opcion_menu:
     st.caption(f"📍 Empresa activa: `{db}` | Periodo: {f_i} al {f_f}")
 
     if db and db != "{db}" and db != "None":
+        conn = None
         try:
             conn = conectar_db(db)
-            # CORRECCIÓN: Se crea el cursor estándar sin argumentos conflictivos
-            cursor = conn.cursor()
-            
-            # A. Saldo Inicial Fijo
-            debe_s_ini, haber_s_ini = 0.0, 0.0
-            try:
-                cursor.execute(f"SELECT COALESCE(SUM(debe), 0) as d, COALESCE(SUM(haber), 0) as h FROM `{db}`.saldos_iniciales WHERE plan_cuentas LIKE '1.1.1.02%'")
-                res_s_ini = cursor.fetchone()
-                if res_s_ini:
-                    # Compatible tanto si devuelve tupla por índice como si devuelve diccionario
-                    debe_s_ini = float(res_s_ini['d'] if isinstance(res_s_ini, dict) else res_s_ini[0] or 0.0)
-                    haber_s_ini = float(res_s_ini['h'] if isinstance(res_s_ini, dict) else res_s_ini[1] or 0.0)
-            except Exception:
-                pass
+            if not conn:
+                st.error(f"❌ Error crítico: No se pudo establecer conexión con la base de datos `{db}`.")
+            else:
+                # Usamos DictCursor para asegurar lectura por nombre de columna de forma segura
+                import pymysql
+                cursor = conn.cursor(pymysql.cursors.DictCursor)
+                
+                # A. Saldo Inicial Fijo
+                debe_s_ini, haber_s_ini = 0.0, 0.0
+                try:
+                    cursor.execute(f"SELECT COALESCE(SUM(debe), 0) as d, COALESCE(SUM(haber), 0) as h FROM `{db}`.saldos_iniciales WHERE plan_cuentas LIKE '1.1.1.02%%'")
+                    res_s_ini = cursor.fetchone()
+                    if res_s_ini:
+                        debe_s_ini = float(res_s_ini.get('d', 0.0) or 0.0)
+                        haber_s_ini = float(res_s_ini.get('h', 0.0) or 0.0)
+                except Exception as e:
+                    # Mostramos advertencia sutil si la tabla de saldos iniciales no existe
+                    st.warning(f"Nota: No se pudo leer 'saldos_iniciales' (puede que no exista en esta BD): {e}")
 
-            # B. Movimientos históricos anteriores a f_i
-            debe_hist, haber_hist = 0.0, 0.0
-            try:
-                query_hist = f"SELECT COALESCE(SUM(debe), 0) as d, COALESCE(SUM(haber), 0) as h FROM `{db}`.asientos_contables WHERE plan_cuentas LIKE '1.1.1.02%' AND fecha < %s"
-                cursor.execute(query_hist, (f_i,))
-                res_hist = cursor.fetchone()
-                if res_hist:
-                    debe_hist = float(res_hist['d'] if isinstance(res_hist, dict) else res_hist[0] or 0.0)
-                    haber_hist = float(res_hist['h'] if isinstance(res_hist, dict) else res_hist[1] or 0.0)
-            except Exception:
-                pass
+                # B. Movimientos históricos anteriores a f_i
+                debe_hist, haber_hist = 0.0, 0.0
+                try:
+                    query_hist = f"SELECT COALESCE(SUM(debe), 0) as d, COALESCE(SUM(haber), 0) as h FROM `{db}`.asientos_contables WHERE plan_cuentas LIKE '1.1.1.02%%' AND fecha < %s"
+                    cursor.execute(query_hist, (f_i,))
+                    res_hist = cursor.fetchone()
+                    if res_hist:
+                        debe_hist = float(res_hist.get('d', 0.0) or 0.0)
+                        haber_hist = float(res_hist.get('h', 0.0) or 0.0)
+                except Exception as e:
+                    st.error(f"Error al calcular movimientos históricos: {e}")
 
-            saldo_inicial_neto = (debe_s_ini + debe_hist) - (haber_s_ini + haber_hist)
+                saldo_inicial_neto = (debe_s_ini + debe_hist) - (haber_s_ini + haber_hist)
 
-            # C. Movimientos del Periodo (f_i a f_f)
-            entradas_mes, salidas_mes = 0.0, 0.0
-            try:
-                query_mes = f"""
-                    SELECT COALESCE(SUM(debe), 0) as ent, COALESCE(SUM(haber), 0) as sal 
-                    FROM `{db}`.asientos_contables
-                    WHERE plan_cuentas LIKE '1.1.1.02%' AND fecha BETWEEN %s AND %s
-                """
-                cursor.execute(query_mes, (f_i, f_f))
-                res_mes = cursor.fetchone()
-                if res_mes:
-                    entradas_mes = float(res_mes['ent'] if isinstance(res_mes, dict) else res_mes[0] or 0.0)
-                    salidas_mes = float(res_mes['sal'] if isinstance(res_mes, dict) else res_mes[1] or 0.0)
-            except Exception:
-                pass
+                # C. Movimientos del Periodo (f_i a f_f)
+                entradas_mes, salidas_mes = 0.0, 0.0
+                try:
+                    query_mes = f"""
+                        SELECT COALESCE(SUM(debe), 0) as ent, COALESCE(SUM(haber), 0) as sal 
+                        FROM `{db}`.asientos_contables
+                        WHERE plan_cuentas LIKE '1.1.1.02%%' AND fecha BETWEEN %s AND %s
+                    """
+                    cursor.execute(query_mes, (f_i, f_f))
+                    res_mes = cursor.fetchone()
+                    if res_mes:
+                        entradas_mes = float(res_mes.get('ent', 0.0) or 0.0)
+                        salidas_mes = float(res_mes.get('sal', 0.0) or 0.0)
+                except Exception as e:
+                    st.error(f"Error al calcular movimientos del periodo ({f_i} al {f_f}): {e}")
 
-            saldo_real = saldo_inicial_neto + entradas_mes - salidas_mes
+                saldo_real = saldo_inicial_neto + entradas_mes - salidas_mes
 
-            # D. INTENTO AUTOMÁTICO DE CUENTAS POR COBRAR
-            cxc_db = 0.0
-            try:
-                cursor.execute(f"SELECT COALESCE(SUM(debe - haber), 0) as cxc FROM `{db}`.asientos_contables WHERE plan_cuentas LIKE '1.1.2%'")
-                res_cxc = cursor.fetchone()
-                val_cxc = res_cxc['cxc'] if isinstance(res_cxc, dict) else (res_cxc[0] if res_cxc else 0.0)
-                if val_cxc:
-                    cxc_db = float(val_cxc)
-            except Exception:
+                # D. INTENTO AUTOMÁTICO DE CUENTAS POR COBRAR
                 cxc_db = 0.0
+                try:
+                    cursor.execute(f"SELECT COALESCE(SUM(debe - haber), 0) as cxc FROM `{db}`.asientos_contables WHERE plan_cuentas LIKE '1.1.2%%'")
+                    res_cxc = cursor.fetchone()
+                    if res_cxc:
+                        cxc_db = float(res_cxc.get('cxc', 0.0) or 0.0)
+                except Exception:
+                    cxc_db = 0.0
 
-            cursor.close()
-            conn.close()
+                cursor.close()
+                conn.close()
 
-            # 2. MÉTRICAS PRINCIPALES DEL PERIODO
-            c1, c2, c3 = st.columns(3)
-            c1.metric("Entradas (Mes)", f"Bs. {entradas_mes:,.2f}")
-            c2.metric("Salidas (Mes)", f"Bs. {salidas_mes:,.2f}")
-            c3.metric("Saldo Real Total", f"Bs. {saldo_real:,.2f}")
+                # 2. MÉTRICAS PRINCIPALES DEL PERIODO
+                c1, c2, c3 = st.columns(3)
+                c1.metric("Entradas (Mes)", f"Bs. {entradas_mes:,.2f}")
+                c2.metric("Salidas (Mes)", f"Bs. {salidas_mes:,.2f}")
+                c3.metric("Saldo Real Total", f"Bs. {saldo_real:,.2f}")
 
-            # RESUMEN AUTOMÁTICO IA - MÉTRICAS
-            balance_neto_mes = entradas_mes - salidas_mes
-            tendencia_mes = "positivo" if balance_neto_mes >= 0 else "negativo"
-            st.info(f"🤖 **Resumen de Caja:** Durante este periodo, las entradas totalizaron Bs. {entradas_mes:,.2f} frente a salidas de Bs. {salidas_mes:,.2f}, arrojando un flujo neto {tendencia_mes} de Bs. {balance_neto_mes:,.2f} y cerrando con un saldo real disponible de Bs. {saldo_real:,.2f}.")
+                # RESUMEN AUTOMÁTICO IA - MÉTRICAS
+                balance_neto_mes = entradas_mes - salidas_mes
+                tendencia_mes = "positivo" if balance_neto_mes >= 0 else "negativo"
+                st.info(f"🤖 **Resumen de Caja:** Durante este periodo, las entradas totalizaron Bs. {entradas_mes:,.2f} frente a salidas de Bs. {salidas_mes:,.2f}, arrojando un flujo neto {tendencia_mes} de Bs. {balance_neto_mes:,.2f} y cerrando con un saldo real disponible de Bs. {saldo_real:,.2f}.")
 
-            # 3. CONTROLES DE SIMULACIÓN (Toma el valor detectado o permite ajustarlo)
-            st.sidebar.header("⚙️ Simulación de Escenarios (Stress Testing)")
-            
-            cuentas_por_cobrar = st.sidebar.number_input(
-                "Cuentas por Cobrar (Detectadas / Manual):", 
-                value=max(cxc_db, 0.0), 
-                step=10000.0,
-                help="Si la empresa tiene saldo en cuentas por cobrar (ej. cuenta 1.1.2), aparecerá aquí automáticamente."
-            )
+                # 3. CONTROLS DE SIMULACIÓN
+                st.sidebar.header("⚙️ Simulación de Escenarios (Stress Testing)")
+                
+                cuentas_por_cobrar = st.sidebar.number_input(
+                    "Cuentas por Cobrar (Detectadas / Manual):", 
+                    value=max(cxc_db, 0.0), 
+                    step=10000.0,
+                    help="Si la empresa tiene saldo en cuentas por cobrar (ej. cuenta 1.1.2), aparecerá aquí automáticamente."
+                )
 
-            pct_retraso = st.sidebar.slider(
-                "% de Facturas que se retrasan a 60 días:", 
-                min_value=0, 
-                max_value=100, 
-                value=0, 
-                step=5
-            )
+                pct_retraso = st.sidebar.slider(
+                    "% de Facturas que se retrasan a 60 días:", 
+                    min_value=0, max_value=100, value=0, step=5
+                )
 
-            impacto_retraso = cuentas_por_cobrar * (pct_retraso / 100.0)
+                impacto_retraso = cuentas_por_cobrar * (pct_retraso / 100.0)
 
-            # 4. PROYECCIÓN DE FLUJO DE CAJA Y ANÁLISIS DE DESVIACIONES
-            st.markdown("---")
-            st.subheader("📈 Proyección de Liquidez y Análisis de Estrés")
-            st.caption("Estimación basada en el flujo neto diario con simulación a 30, 60 y 90 días.")
+                # 4. PROYECCIÓN DE FLUJO DE CAJA
+                st.markdown("---")
+                st.subheader("📈 Proyección de Liquidez y Análisis de Estrés")
+                st.caption("Estimación basada en el flujo neto diario con simulación a 30, 60 y 90 días.")
 
-            import datetime as dt
+                import datetime as dt
 
-            if isinstance(f_i, str):
-                d1 = dt.datetime.strptime(f_i, "%Y-%m-%d")
-            else:
-                d1 = f_i
+                d1 = dt.datetime.strptime(str(f_i), "%Y-%m-%d") if isinstance(f_i, str) else f_i
+                d2 = dt.datetime.strptime(str(f_f), "%Y-%m-%d") if isinstance(f_f, str) else f_f
 
-            if isinstance(f_f, str):
-                d2 = dt.datetime.strptime(f_f, "%Y-%m-%d")
-            else:
-                d2 = f_f
+                dias_rango = max((d2 - d1).days + 1, 1)
 
-            dias_rango = max((d2 - d1).days + 1, 1)
+                flujo_neto_periodo = entradas_mes - salidas_mes
+                promedio_diario_neto = flujo_neto_periodo / dias_rango
 
-            flujo_neto_periodo = entradas_mes - salidas_mes
-            promedio_diario_neto = flujo_neto_periodo / dias_rango
+                proj_30_meta = saldo_real + (promedio_diario_neto * 30)
+                proj_60_meta = saldo_real + (promedio_diario_neto * 60)
+                proj_90_meta = saldo_real + (promedio_diario_neto * 90)
 
-            # Proyecciones Meta (30, 60 y 90 días)
-            proj_30_meta = saldo_real + (promedio_diario_neto * 30)
-            proj_60_meta = saldo_real + (promedio_diario_neto * 60)
-            proj_90_meta = saldo_real + (promedio_diario_neto * 90)
+                proj_30_ajustada = proj_30_meta - impacto_retraso
 
-            proj_30_ajustada = proj_30_meta - impacto_retraso
+                if proj_30_meta != 0:
+                    desviacion_absoluta = proj_30_ajustada - proj_30_meta
+                    desviacion_pct = (desviacion_absoluta / abs(proj_30_meta)) * 100
+                else:
+                    desviacion_absoluta, desviacion_pct = 0.0, 0.0
 
-            if proj_30_meta != 0:
-                desviacion_absoluta = proj_30_ajustada - proj_30_meta
-                desviacion_pct = (desviacion_absoluta / abs(proj_30_meta)) * 100
-            else:
-                desviacion_absoluta, desviacion_pct = 0.0, 0.0
+                m1, m2, m3 = st.columns(3)
+                m1.metric("Proyección 30 Días", f"Bs. {proj_30_meta:,.2f}", delta=f"{promedio_diario_neto * 30:,.2f} Bs est.")
+                m2.metric("Proyección 60 Días", f"Bs. {proj_60_meta:,.2f}", delta=f"{promedio_diario_neto * 60:,.2f} Bs est.")
+                m3.metric("Proyección 90 Días", f"Bs. {proj_90_meta:,.2f}", delta=f"{promedio_diario_neto * 90:,.2f} Bs est.")
 
-            # Bloque 1: Proyecciones Temporales (30, 60 y 90 Días)
-            st.write("##### 🗓️ HORIZONTE DE LIQUIDEZ PROYECTADO")
-            m1, m2, m3 = st.columns(3)
-            m1.metric("Proyección 30 Días", f"Bs. {proj_30_meta:,.2f}", delta=f"{promedio_diario_neto * 30:,.2f} Bs est.")
-            m2.metric("Proyección 60 Días", f"Bs. {proj_60_meta:,.2f}", delta=f"{promedio_diario_neto * 60:,.2f} Bs est.")
-            m3.metric("Proyección 90 Días", f"Bs. {proj_90_meta:,.2f}", delta=f"{promedio_diario_neto * 90:,.2f} Bs est.")
+                p1, p2, p3 = st.columns(3)
+                p1.metric("30 Días Ajustado", f"Bs. {proj_30_ajustada:,.2f}", delta=f"{desviacion_pct:.2f}%")
+                p2.metric("Impacto por Retraso", f"Bs. {impacto_retraso:,.2f}")
+                p3.metric("Desviación Absoluta", f"Bs. {desviacion_absoluta:,.2f}")
 
-            st.info(f"🤖 **Resumen de Proyección:** Con base en un promedio diario de Bs. {promedio_diario_neto:,.2f}, se proyecta una disponibilidad de Bs. {proj_30_meta:,.2f} a 30 días, alcanzando Bs. {proj_60_meta:,.2f} a 60 días y Bs. {proj_90_meta:,.2f} al cierre de los 90 días.")
+                # 5. SEMÁFORO DE RIESGO
+                if proj_30_ajustada < 0 or desviacion_pct <= -15.0:
+                    st.error(f"🚨 **ALERTA DE ILIQUIDEZ POTENCIAL ({desviacion_pct:.1f}%):** El escenario genera déficit crítico.")
+                elif -15.0 < desviacion_pct < 0:
+                    st.warning(f"⚠️ **Advertencia de Riesgo Leve ({desviacion_pct:.1f}%):** Desviación negativa.")
+                else:
+                    st.success("✅ **Salud de Caja Estable:** Liquidez en niveles seguros.")
 
-            # Bloque 2: Escenario de Estrés
-            st.write("##### ⚡ ESCENARIO DE SIMULACIÓN Y MORA")
-            p1, p2, p3 = st.columns(3)
-            p1.metric("30 Días Ajustado", f"Bs. {proj_30_ajustada:,.2f}", delta=f"{desviacion_pct:.2f}%")
-            p2.metric("Impacto por Retraso", f"Bs. {impacto_retraso:,.2f}")
-            p3.metric("Desviación Absoluta", f"Bs. {desviacion_absoluta:,.2f}")
+                # 6. DETALLE DE MOVIMIENTOS
+                st.markdown("---")
+                st.write("### Detalle de Movimientos")
+                try:
+                    df_flujo = obtener_detalle_movimientos_banco(db, f_i, f_f) 
+                except Exception:
+                    df_flujo = None
 
-            st.info(f"🤖 **Resumen de Stress Testing:** Con un monto bajo análisis de Bs. {cuentas_por_cobrar:,.2f} y un retraso simulado del {pct_retraso}%, el impacto en caja es de Bs. {impacto_retraso:,.2f}, dejando la liquidez proyectada en Bs. {proj_30_ajustada:,.2f}.")
-
-            # 5. SEMÁFORO DE RIESGO INTELIGENTE
-            if proj_30_ajustada < 0 or desviacion_pct <= -15.0:
-                st.error(f"🚨 **ALERTA DE ILIQUIDEZ POTENCIAL ({desviacion_pct:.1f}%):** El escenario de retraso genera un déficit crítico en la disponibilidad a 30 días.")
-            elif -15.0 < desviacion_pct < 0:
-                st.warning(f"⚠️ **Advertencia de Riesgo Leve ({desviacion_pct:.1f}%):** Existe una desviación negativa frente a la meta proyectada.")
-            else:
-                st.success("✅ **Salud de Caja Estable:** Las proyecciones se mantienen en niveles seguros de liquidez.")
-
-            # 6. DETALLE DE MOVIMIENTOS
-            st.markdown("---")
-            st.write("### Detalle de Movimientos")
-            try:
-                df_flujo = obtener_detalle_movimientos_banco(db, f_i, f_f) 
-            except Exception:
-                df_flujo = None
-
-            if df_flujo is not None and not df_flujo.empty:
-                st.dataframe(df_flujo, width='stretch', hide_index=True, column_config={
-                    "fecha": st.column_config.DateColumn("Fecha"),
-                    "descripcion": "Concepto",
-                    "debe": st.column_config.NumberColumn("Entradas", format="Bs. %.2f"),
-                    "haber": st.column_config.NumberColumn("Salidas", format="Bs. %.2f")
-                })
-            else:
-                st.info(f"No hay movimientos en este rango del {f_i} al {f_f}.")
+                if df_flujo is not None and not df_flujo.empty:
+                    st.dataframe(df_flujo, width='stretch', hide_index=True, column_config={
+                        "fecha": st.column_config.DateColumn("Fecha"),
+                        "descripcion": "Concepto",
+                        "debe": st.column_config.NumberColumn("Entradas", format="Bs. %.2f"),
+                        "haber": st.column_config.NumberColumn("Salidas", format="Bs. %.2f")
+                    })
+                else:
+                    st.info(f"No hay movimientos en este rango del {f_i} al {f_f}.")
 
         except Exception as e:
-            st.error(f"Error en consulta contable para `{db}`: {e}")
+            st.error(f"Error crítico en la consulta de flujo de caja para `{db}`: {e}")
+        finally:
+            if conn:
+                try:
+                    conn.close()
+                except:
+                    pass
     else:
         st.warning("⚠️ Selecciona una empresa para ver los movimientos de caja.")
-
     # --- FILA 6: PROVEEDORES ---
     st.divider()
     st.subheader("📦 Gestión Operativa")
