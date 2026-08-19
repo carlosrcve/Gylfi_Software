@@ -3668,15 +3668,13 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
 
             # 1. VALIDACIÓN PREVENTIVA (Antes de cargar la lista)
             try:
-                if conn:
-                    pass # Evitamos el .ping conflictivo
-                else:
+                if not conn:
                     conn = conectar_db(db_actual)
             except Exception as e:
                 conn = conectar_db(db_actual)
 
-            # ⚠️ CAMBIA 'retencion_iva_realizada' por el nombre real de tu columna en la BD (ej. 'estatus', 'retenido', etc.)
-            query_facturas = "SELECT n_factura as numero_factura, proveedor FROM libro_compras WHERE estatus = 1"
+            # Usamos el nombre real de la columna: 'retencion_realizada'
+            query_facturas = "SELECT n_factura as numero_factura, proveedor FROM libro_compras WHERE retencion_realizada = 1"
             
             facturas_bloqueadas = ejecutar_consulta(query_facturas, conn)
 
@@ -3687,8 +3685,8 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                 
                 if st.button("Habilitar Factura", key="btn_des_iva"):
                     cursor_aux = conn.cursor()
-                    # ⚠️ Asegúrate de usar el mismo nombre de columna aquí también
-                    cursor_aux.execute("UPDATE libro_compras SET estatus = 0 WHERE n_factura = %s", (nro_a_desbloquear,))
+                    # Actualizamos usando la misma columna correcta
+                    cursor_aux.execute("UPDATE libro_compras SET retencion_realizada = 0 WHERE n_factura = %s", (nro_a_desbloquear,))
                     conn.commit()
                     cursor_aux.close()
                     st.success(f"Factura {nro_a_desbloquear} habilitada.")
