@@ -2067,7 +2067,6 @@ def generar_balance_profesional(conn, f_i, f_f, sucursal):
                 df_saldos[c] = 0.0
 
         # --- LIMPIEZA Y NORMALIZACIÓN DE CÓDIGOS PARA EL MERGE ---
-        # Creamos una llave común sin puntos en ambos DataFrames (ej: '1.1.1.01' y '11101' se vuelven '11101')
         df_plan['llave_join'] = df_plan['codigo'].astype(str).str.replace(r'[^0-9]', '', regex=True)
         df_plan['llave_padre'] = df_plan['padre'].astype(str).str.replace(r'[^0-9]', '', regex=True)
         
@@ -2104,13 +2103,30 @@ def generar_balance_profesional(conn, f_i, f_f, sucursal):
         # Recalcular saldo final global de cada fila por seguridad
         df['Saldo Final'] = df['Saldo Inicial'] + df['Debe'] - df['Haber']
 
-        # 6. Fila Total Global (Sumando solo los elementos de nivel 1 principal)
+        # 6. Fila Total Global respetando la naturaleza de las cuentas de Nivel 1
+        df_nivel_1 = df[df['nivel'] == 1]
+        
+        # Cálculo neto aplicando la ecuación patrimonial (Activo - Pasivo - Patrimonio + Ingresos - Gastos...)
+        total_saldo_final_neto = 0.0
+        for _, row in df_nivel_1.iterrows():
+            digito = str(row['codigo'])[0]
+            s_final = float(row['Saldo Final'])
+            # Cuentas de naturaleza deudora suman, acreedoras restan para cerrar a cero en la balanza neta
+            if digito in ['1', '4', '5']:
+                total_saldo_final_neto += s_final
+            else:
+                total_saldo_final_neto -= s_final
+
         fila_total = pd.DataFrame([{
-            'codigo': 'Σ', 'nombre': 'TOTAL GENERAL', 'nivel': 0, 'tipo': 'Total', 'padre': None,
-            'Saldo Inicial': float(df[df['nivel'] == 1]['Saldo Inicial'].sum()), 
-            'Debe': float(df[df['nivel'] == 1]['Debe'].sum()),
-            'Haber': float(df[df['nivel'] == 1]['Haber'].sum()), 
-            'Saldo Final': float(df[df['nivel'] == 1]['Saldo Final'].sum())
+            'codigo': 'Σ', 
+            'nombre': 'TOTAL GENERAL', 
+            'nivel': 0, 
+            'tipo': 'Total', 
+            'padre': None,
+            'Saldo Inicial': float(df_nivel_1['Saldo Inicial'].sum()), 
+            'Debe': float(df_nivel_1['Debe'].sum()),
+            'Haber': float(df_nivel_1['Haber'].sum()), 
+            'Saldo Final': total_saldo_final_neto
         }])
         
         # Columnas de salida respetando la estructura que exige tu visualización
