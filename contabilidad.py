@@ -4521,29 +4521,30 @@ def obtener_utilidad_acumulada_historica(db, fecha_corte):
     conn = conectar_db(db)
     df_default = 0.0
     if not conn:
+        st.warning("⚠️ No se pudo conectar a la base de datos en obtener_utilidad_acumulada_historica.")
         return df_default
     
     fecha_fin_str = fecha_corte.strftime('%Y-%m-%d') if hasattr(fecha_corte, 'strftime') else str(fecha_corte).split()[0]
 
-    query = f"""
+    # CORREGIDO: Se usa .format() para la BD y '%%' para evitar conflictos con Python en los LIKE
+    query = """
         SELECT 
-            COALESCE(SUM(CASE WHEN plan_cuentas LIKE '4%' THEN haber ELSE 0 END), 0) as ing_haber,
-            COALESCE(SUM(CASE WHEN plan_cuentas LIKE '4%' THEN debe ELSE 0 END), 0) as ing_debe,
-            COALESCE(SUM(CASE WHEN plan_cuentas LIKE '5%' THEN debe ELSE 0 END), 0) as cos_debe,
-            COALESCE(SUM(CASE WHEN plan_cuentas LIKE '5%' THEN haber ELSE 0 END), 0) as cos_haber,
-            COALESCE(SUM(CASE WHEN plan_cuentas LIKE '6%' THEN debe ELSE 0 END), 0) as gas_debe,
-            COALESCE(SUM(CASE WHEN plan_cuentas LIKE '6%' THEN haber ELSE 0 END), 0) as gas_haber,
-            COALESCE(SUM(CASE WHEN plan_cuentas LIKE '7%' THEN haber ELSE 0 END), 0) as oing_haber,
-            COALESCE(SUM(CASE WHEN plan_cuentas LIKE '7%' THEN debe ELSE 0 END), 0) as oing_debe,
-            COALESCE(SUM(CASE WHEN plan_cuentas LIKE '8%' THEN debe ELSE 0 END), 0) as oeg_debe,
-            COALESCE(SUM(CASE WHEN plan_cuentas LIKE '8%' THEN haber ELSE 0 END), 0) as oeg_haber
-        FROM `{db}`.asientos_contables 
+            COALESCE(SUM(CASE WHEN plan_cuentas LIKE '4%%' THEN haber ELSE 0 END), 0) as ing_haber,
+            COALESCE(SUM(CASE WHEN plan_cuentas LIKE '4%%' THEN debe ELSE 0 END), 0) as ing_debe,
+            COALESCE(SUM(CASE WHEN plan_cuentas LIKE '5%%' THEN debe ELSE 0 END), 0) as cos_debe,
+            COALESCE(SUM(CASE WHEN plan_cuentas LIKE '5%%' THEN haber ELSE 0 END), 0) as cos_haber,
+            COALESCE(SUM(CASE WHEN plan_cuentas LIKE '6%%' THEN debe ELSE 0 END), 0) as gas_debe,
+            COALESCE(SUM(CASE WHEN plan_cuentas LIKE '6%%' THEN haber ELSE 0 END), 0) as gas_haber,
+            COALESCE(SUM(CASE WHEN plan_cuentas LIKE '7%%' THEN haber ELSE 0 END), 0) as oing_haber,
+            COALESCE(SUM(CASE WHEN plan_cuentas LIKE '7%%' THEN debe ELSE 0 END), 0) as oing_debe,
+            COALESCE(SUM(CASE WHEN plan_cuentas LIKE '8%%' THEN debe ELSE 0 END), 0) as oeg_debe,
+            COALESCE(SUM(CASE WHEN plan_cuentas LIKE '8%%' THEN haber ELSE 0 END), 0) as oeg_haber
+        FROM `{db_segura}`.asientos_contables 
         WHERE fecha <= %s
-    """
+    """.format(db_segura=str(db).strip())
     
     cursor = None
     try:
-        # CORREGIDO: Uso de DictCursor compatible con PyMySQL
         cursor = conn.cursor(pymysql.cursors.DictCursor)
         cursor.execute(query, (fecha_fin_str,))
         res = cursor.fetchone()
@@ -4559,7 +4560,7 @@ def obtener_utilidad_acumulada_historica(db, fecha_corte):
         return float(ingresos - costos - gastos + otros_ingresos - otros_egresos)
         
     except Exception as e:
-        print(f"❌ Error al calcular utilidad acumulada histórica: {e}")
+        st.error(f"❌ Error crítico en `obtener_utilidad_acumulada_historica`: {e}")
         return 0.0
         
     finally:
