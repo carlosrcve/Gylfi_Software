@@ -1550,32 +1550,13 @@ def cargar_estado_cuenta_bdv(uploaded_file, conn):
 def mostrar_tablero_conciliacion(conn, mes_sel, ano_sel):
     st.title("⚖️ Conciliación Bancaria")
 
-    # INICIALIZA AQUÍ
-    saldo_final_libros = 0.0
-
-    # --- 1. SELECCIÓN DE EMPRESA ---
-    cursor_menu = conn.cursor()
-    try:
-        cursor_menu.execute("SELECT db_nombre FROM control_central.clientes WHERE estado = 'Activo'")
-        empresas_db = [row[0] for row in cursor_menu.fetchall()]
-    finally:
-        cursor_menu.close()
-
-    if not empresas_db:
-        st.warning("No se encontraron empresas activas.")
-        return
-
-    empresa_seleccionada = st.sidebar.selectbox("Seleccione Empresa", empresas_db)
-    
-    if st.session_state.get('DB_ACTUAL') != empresa_seleccionada:
-        st.session_state['DB_ACTUAL'] = empresa_seleccionada
-        st.rerun()
-
+    # 1. RECUPERAR CONTEXTO GLOBAL (Sin modificar la barra lateral ni hacer loops)
     db = st.session_state.get('DB_ACTUAL')
-    if not db: 
+    if not db:
+        st.warning("⚠️ No se ha seleccionado una base de datos activa.")
         return
 
-    # --- 2. PREPARACIÓN DE FECHAS ---
+    # 2. PREPARACIÓN DE FECHAS
     meses_dict = {
         "Enero": "01", "Febrero": "02", "Marzo": "03", "Abril": "04", 
         "Mayo": "05", "Junio": "06", "Julio": "07", "Agosto": "08", 
@@ -1596,7 +1577,7 @@ def mostrar_tablero_conciliacion(conn, mes_sel, ano_sel):
         mes_anterior = meses_lista[idx_mes_actual - 1]
         ano_anterior = str(ano_sel)
 
-    # --- 3. CARGA DE BANCOS (Usando la DB seleccionada) ---
+    # 3. CARGA DE BANCOS (Usando la DB ya seleccionada)
     cursor = conn.cursor(buffered=True)
     try:
         query_bancos = f"SELECT nombre, codigo FROM `{db}`.plan_cuentas WHERE nombre LIKE '%BANCO%' AND tipo = 'Detalle'"
@@ -1607,14 +1588,14 @@ def mostrar_tablero_conciliacion(conn, mes_sel, ano_sel):
             st.warning("No se encontraron cuentas bancarias.")
             return
 
-        # Seleccion de Banco
-        nombre_banco_sel = st.sidebar.selectbox("Seleccione Banco", list(bancos_dict.keys()))
+        # Selector de Banco seguro dentro del cuerpo (evita el bucle de sidebar)
+        nombre_banco_sel = st.selectbox("Seleccione Banco", list(bancos_dict.keys()), key="select_banco_tablero_seguro")
         cuenta_codigo = bancos_dict[nombre_banco_sel]
         
         # Transformación de nombre para la BD (Alias)
         banco_db = obtener_alias_banco(nombre_banco_sel)
 
-        # --- 4. CONSULTAS PRINCIPALES ---
+        # 4. CONSULTAS PRINCIPALES
         # A. Saldo Banco
         sql_saldos = f"""SELECT saldo_inicial, saldo_final 
                         FROM `{db}`.saldos_bancarios 
@@ -1646,7 +1627,7 @@ def mostrar_tablero_conciliacion(conn, mes_sel, ano_sel):
         # Cálculo final de libros
         saldo_final_libros = saldo_mes_anterior + (float(debe_mes) - float(haber_mes))
 
-        # C. Movimientos de Banco (Pendientes y Conciliados) usando consultas seguras con parámetros
+        # C. Movimientos de Banco (Pendientes y Conciliados)
         query_mov_pendientes = f"SELECT * FROM `{db}`.banco_movimientos WHERE estado_conciliacion = 'Pendiente' AND fecha_movimiento BETWEEN %s AND %s"
         df_banco = ejecutar_consulta(query_mov_pendientes, conn, params=(fecha_inicio, fecha_fin))
 
@@ -1657,10 +1638,13 @@ def mostrar_tablero_conciliacion(conn, mes_sel, ano_sel):
         st.error(f"Error en la consulta para {db}: {e}")
         df_banco = pd.DataFrame()
         df_conciliado = pd.DataFrame()
+        saldo_final_libros = 0.0
+        saldo_inicial = 0.0
+        saldo_final_banco = 0.0
     finally:
         cursor.close()
 
-    # --- 5. VISUALIZACIÓN ---
+    # 5. VISUALIZACIÓN
     st.subheader("📊 Historial y Cuadre de Saldos")
     
     m1, m2, m3 = st.columns(3)
@@ -1677,19 +1661,20 @@ def mostrar_tablero_conciliacion(conn, mes_sel, ano_sel):
     st.subheader("📥 Pendientes por Conciliar")
     col_p1, col_p2 = st.columns(2)
     col_p1.write("📥 Ingresos Pendientes")
-    col_p1.dataframe(df_banco[df_banco['monto'] > 0] if not df_banco.empty else pd.DataFrame())
+    col_p1.dataframe(df_banco[df_banco['monto'] > 0] if not df_banco.empty else pd.DataFrame(), use_container_width=True)
     col_p2.write("📤 Egresos Pendientes")
-    col_p2.dataframe(df_banco[df_banco['monto'] < 0] if not df_banco.empty else pd.DataFrame())
+    col_p2.dataframe(df_banco[df_banco['monto'] < 0] if not df_banco.empty else pd.DataFrame(), use_container_width=True)
         
     if 'saldo_final_libros' not in st.session_state:
         st.session_state.saldo_final_libros = 0.0
 
-    if st.button("🚀 Ejecutar Conciliación"):
+    if st.button("🚀 Ejecutar Conciliación", key="btn_ejecutar_conciliacion_tablero"):
         resultado = conciliar_datos(conn, fecha_inicio, fecha_fin, db)
         st.session_state.saldo_final_libros = resultado
+        st.success("Conciliación ejecutada con éxito.")
         st.rerun()
 
-    # --- 6. LÓGICA DE PDF CENTRALIZADA ---
+    # 6. LÓGICA DE PDF CENTRALIZADA
     st.divider()
     st.subheader("📄 Reporte de Conciliación")
     
@@ -1706,15 +1691,8 @@ def mostrar_tablero_conciliacion(conn, mes_sel, ano_sel):
 
     try:
         pdf_data = crear_pdf_conciliacion(
-            conn,
-            df_conciliado, 
-            saldo_inicial, 
-            saldo_final_banco, 
-            saldo_final_libros, 
-            lista_ingresos, 
-            lista_egresos
+            conn, df_conciliado, saldo_inicial, saldo_final_banco, saldo_final_libros, lista_ingresos, lista_egresos
         )
-        
         st.download_button(
             label="📄 Descargar Conciliación PDF", 
             data=pdf_data, 
@@ -1724,14 +1702,14 @@ def mostrar_tablero_conciliacion(conn, mes_sel, ano_sel):
     except Exception as e:
         st.error(f"Error generando el PDF: {e}")
 
-    # --- 7. MOVIMIENTOS CONCILIADOS ---
+    # 7. MOVIMIENTOS CONCILIADOS
     if not df_conciliado.empty:
         st.subheader("✅ Movimientos Conciliados")
         col_d, col_h = st.columns(2)
         col_d.write("Ingresos")
-        col_d.dataframe(df_conciliado[df_conciliado['monto'] > 0])
+        col_d.dataframe(df_conciliado[df_conciliado['monto'] > 0], use_container_width=True)
         col_h.write("Egresos")
-        col_h.dataframe(df_conciliado[df_conciliado['monto'] < 0])
+        col_h.dataframe(df_conciliado[df_conciliado['monto'] < 0], use_container_width=True)
     else:
         st.info("ℹ️ No hay movimientos conciliados en este periodo.")
 
@@ -7899,41 +7877,48 @@ elif opcion_menu == "📝 Asientos Contables":
     
 
         # --- TAB 4: CONCILIACIÓN BANCARIA (TABLERO) ---
-        with tab4:
-            st.subheader("📊 Resumen del Periodo")
+        # ==========================================
+    # --- TAB 4: CONCILIACIÓN BANCARIA (TABLERO) ---
+    # ==========================================
+    with tab4:
+        st.subheader("📊 Resumen del Periodo")
 
-            db_actual = st.session_state.get('DB_ACTUAL')
-            cliente_id = st.session_state.get('cliente_id')
-            rol = st.session_state.get('rol')
+        db_actual = st.session_state.get('DB_ACTUAL')
+        cliente_id = st.session_state.get('cliente_id')
+        rol = st.session_state.get('rol')
 
-            if not db_actual:
-                st.error("No se ha seleccionado una base de datos de empresa.")
+        if not db_actual:
+            st.error("No se ha seleccionado una base de datos de empresa.")
+            st.stop()
+
+        empresa_data = obtener_datos_agente_db(db_actual)
+
+        if empresa_data and rol != 'admin':
+            if empresa_data['id'] != cliente_id:
+                st.error("⚠️ Acceso denegado: No tienes permisos para esta empresa.")
                 st.stop()
 
-            empresa_data = obtener_datos_agente_db(db_actual)
-
-            if empresa_data and rol != 'admin':
-                if empresa_data['id'] != cliente_id:
-                    st.error("⚠️ Acceso denegado: No tienes permisos para esta empresa.")
-                    st.stop()
-
-            if not empresa_data:
-                st.error("⚠️ No se pudieron cargar los datos de la empresa.")
-            else:
-                try:
-                    if conn:
-                        try:
-                            conn.ping(reconnect=True)
-                        except Exception:
-                            pass
-                    
-                    if conn:
+        if not empresa_data:
+            st.error("⚠️ No se pudieron cargar los datos de la empresa.")
+        else:
+            try:
+                # Verificación rápida de conexión sin bloquear
+                if conn:
+                    try:
+                        conn.ping(reconnect=True)
+                    except Exception:
+                        conn = conectar_db(db_actual)
+                        st.session_state['conn_conciliacion'] = conn
+                
+                if conn:
+                    # Usamos un contenedor por si el tablero es muy pesado
+                    with st.spinner("Calculando tablero de conciliación..."):
                         mostrar_tablero_conciliacion(conn, mes_sel, ano_sel)
-                    else:
-                        st.error("❌ ERROR CRÍTICO: No se pudo establecer conexión con la base de datos.")
-                        
-                except Exception as e:
-                    st.error(f"❌ Error al conectar con el tablero: {e}")
+                else:
+                    st.error("❌ ERROR CRÍTICO: No se pudo establecer conexión con la base de datos.")
+                    
+            except Exception as e:
+                st.error(f"❌ Error al conectar con el tablero: {e}")
 
 
     elif sub_opcion == "Consultar Saldos Iniciales":
