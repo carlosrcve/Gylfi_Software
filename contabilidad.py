@@ -7604,6 +7604,46 @@ elif opcion_menu == "📝 Asientos Contables":
         st.title("🏦 Conciliación Bancaria")
         st.markdown("---")
 
+        # 1. Recuperamos contexto y validamos
+        db_actual = st.session_state.get('DB_ACTUAL')
+        if not db_actual:
+            st.error("No se ha seleccionado una base de datos.")
+            st.stop()
+
+        # 2. Abrimos la conexión de forma segura
+        conn = conectar_db(db_actual)
+        
+        if not conn:
+            st.error(f"❌ Error: No se pudo conectar a la base de datos {db_actual}")
+            st.stop()
+        
+        try:
+            # 3. Selectores Globales
+            col1, col2 = st.columns([1, 1])
+            with col1:
+                mes_sel = st.selectbox(
+                    "Mes", 
+                    ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", 
+                     "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"], 
+                    index=2, 
+                    key="mes_seleccionado_conciliacion"
+                )
+            with col2:
+                ano_sel = st.selectbox("Año", [2025, 2026, 2027], index=1, key="ano_seleccionado")
+
+        except Exception as e:
+            st.error(f"Error al inicializar los selectores globales: {e}")
+            st.stop()
+
+        # Tabs: Orden Lógico de trabajo
+        tab1, tab2, tab3, tab4, tab5 = st.tabs([
+            "⚙️ Configuración Saldos", 
+            "📂 Importar Movimientos", 
+            "📜 Estado de Cuenta", 
+            "📊 Conciliación Bancaria", 
+            "🔒 Cierre de Mes"
+        ])
+
         
 
     elif sub_opcion == "Consultar Saldos Iniciales":
