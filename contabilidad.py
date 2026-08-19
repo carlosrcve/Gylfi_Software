@@ -7818,7 +7818,83 @@ elif opcion_menu == "📝 Asientos Contables":
                                 st.error(f"Error crítico procesando {banco_sel}: {e}")
     
 
-   
+        # --- TAB 3: ESTADO DE CUENTA BANCARIO ---
+        with tab3:
+            st.subheader("📂 Estado de Cuenta Bancario")
+
+            db_actual = st.session_state.get('DB_ACTUAL')
+            cliente_id = st.session_state.get('cliente_id')
+            rol = st.session_state.get('rol')
+
+            if not db_actual:
+                st.error("No se ha seleccionado una base de datos de empresa.")
+                st.stop()
+
+            empresa_data = obtener_datos_agente_db(db_actual)
+
+            if empresa_data and rol != 'admin':
+                if empresa_data['id'] != cliente_id:
+                    st.error("⚠️ Acceso denegado: No tienes permisos para esta empresa.")
+                    st.stop()
+
+            if not empresa_data:
+                st.error("⚠️ No se pudieron cargar los datos de la empresa.")
+            else:
+                mes_map = {"Enero": 1, "Febrero": 2, "Marzo": 3, "Abril": 4, "Mayo": 5, "Junio": 6,
+                           "Julio": 7, "Agosto": 8, "Septiembre": 9, "Octubre": 10, "Noviembre": 11, "Diciembre": 12}
+                mes_num = mes_map[mes_sel]
+
+                df_cuenta = pd.DataFrame()
+
+                try:
+                    if conn is None:
+                        st.warning("Reconectando a la base de datos...")
+                        conn = conectar_db(db_actual)
+                    else:
+                        try:
+                            conn.ping(reconnect=True)
+                        except Exception:
+                            conn = conectar_db(db_actual)
+                            
+                    if conn is None:
+                        st.error("No se pudo establecer conexión con la base de datos.")
+                        st.stop()
+
+                    import calendar
+                    fecha_inicio = f"{ano_sel}-{mes_num:02d}-01"
+                    ultimo_dia = calendar.monthrange(int(ano_sel), int(mes_num))[1]
+                    fecha_fin = f"{ano_sel}-{mes_num:02d}-{ultimo_dia}"
+
+                    query = f"""
+                        SELECT id, banco_nombre, cuenta_numero, fecha_movimiento, referencia, 
+                               descripcion, monto, estado_conciliacion 
+                        FROM `{db_actual}`.banco_movimientos 
+                        WHERE fecha_movimiento >= %s AND fecha_movimiento <= %s
+                        ORDER BY fecha_movimiento DESC
+                    """
+                    df_cuenta = ejecutar_consulta(query, conn, params=(fecha_inicio, fecha_fin))
+                    
+                    if not df_cuenta.empty:
+                        st.dataframe(df_cuenta, use_container_width=True)
+                        st.write(f"**Total movimientos encontrados:** {len(df_cuenta)}")
+                    else:
+                        st.info(f"No hay movimientos para {empresa_data['nombre_empresa']} en {mes_sel} {ano_sel}.")
+
+                except Exception as e:
+                    st.error(f"Error específico en la consulta: {e}")
+
+                if rol == 'admin':
+                    with st.expander("⚠️ Zona de Administración"):
+                        if st.button("🗑️ Vaciar Todo (CUIDADO)"):
+                            try:
+                                cursor = conn.cursor()
+                                cursor.execute(f"DELETE FROM `{db_actual}`.banco_movimientos WHERE empresa_id = %s", (cliente_id,))
+                                conn.commit()
+                                cursor.close()
+                                st.success("Registros de esta empresa eliminados.")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Error al vaciar registros: {e}")
 
     elif sub_opcion == "Consultar Saldos Iniciales":
         st.subheader("🏁 Comprobante de Apertura")
