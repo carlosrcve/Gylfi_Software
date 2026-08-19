@@ -7338,8 +7338,11 @@ elif opcion_menu == "📂 Plan de Cuentas":
     except Exception as e:
         st.error(f"❌ Error crítico: {e}")
     finally:
-        if conn_empresa and conn_empresa.is_connected():
-            conn_empresa.close()
+        if conn_empresa:
+            try:
+                conn_empresa.close()
+            except Exception:
+                pass
 
 
 elif opcion_menu == "📝 Asientos Contables":
