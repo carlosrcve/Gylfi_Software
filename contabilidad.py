@@ -2051,9 +2051,8 @@ def generar_balance_profesional(conn, f_i, f_f, sucursal):
         
         cols_finales = ['codigo', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final']
         if df_saldos is None or df_saldos.empty:
-            # Inicializamos con tipos explícitos para evitar conflictos
-            df_saldos = pd.DataFrame(columns=['codigo', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final'])
-            df_saldos = df_saldos.astype({'Saldo Inicial': float, 'Debe': float, 'Haber': float, 'Saldo Final': float})
+            df_saldos = pd.DataFrame(columns=cols_finales)
+            df_saldos = df_saldos.astype({'codigo': str, 'Saldo Inicial': float, 'Debe': float, 'Haber': float, 'Saldo Final': float})
         else:
             renombres = {}
             for col in df_saldos.columns:
@@ -2073,7 +2072,7 @@ def generar_balance_profesional(conn, f_i, f_f, sucursal):
                 df_init['codigo'] = df_init['codigo'].astype(str).str.strip().str.replace('.0', '', regex=False)
                 df_init = df_init.groupby('codigo', as_index=False)['saldo_inicial_neto'].sum()
                 
-                if 'codigo' in df_saldos.columns:
+                if 'codigo' in df_saldos.columns and not df_saldos.empty:
                     df_saldos['codigo'] = df_saldos['codigo'].astype(str).str.strip().str.replace('.0', '', regex=False)
                     df_saldos = pd.merge(df_saldos, df_init, on='codigo', how='outer')
                     df_saldos['Saldo Inicial'] = df_saldos['Saldo Inicial'].fillna(0.0) + df_saldos['saldo_inicial_neto'].fillna(0.0)
@@ -2096,9 +2095,9 @@ def generar_balance_profesional(conn, f_i, f_f, sucursal):
         df = pd.merge(df_plan, df_saldos[cols_finales], on='codigo', how='left')
         
         cols_num = ['Saldo Inicial', 'Debe', 'Haber', 'Saldo Final']
-        df[cols_num] = df[cols_num].fillna(0.0)
+        df[cols_num] = df[cols_num].fillna(0.0).astype(float)
 
-        # 5. Cálculo Jerárquico
+        # 5. Cálculo Jerárquico blindado (Usando .values para evitar errores de tipo numpy)
         padres_codigos = df['padre'].dropna().astype(str).str.strip().unique()
         df.loc[df['codigo'].isin(padres_codigos), cols_num] = 0.0
         df['Saldo Final'] = df['Saldo Inicial'] + df['Debe'] - df['Haber']
@@ -2108,12 +2107,17 @@ def generar_balance_profesional(conn, f_i, f_f, sucursal):
             for p_cod, grupo in df[df['nivel'] == n].groupby('padre'):
                 mask = df['codigo'] == str(p_cod).strip()
                 if mask.any():
-                    df.loc[mask, cols_num] += grupo[cols_num].sum() # <--- AQUÍ SE ROMPE
+                    # Usamos .values para sumar matrices flotantes limpias de forma segura
+                    suma_grupo = grupo[cols_num].sum().values
+                    df.loc[mask, cols_num] = df.loc[mask, cols_num].values + suma_grupo
+                    
         # 6. Fila Total
         fila_total = pd.DataFrame([{
             'codigo': 'Σ', 'nombre': 'RESUMEN MOVIMIENTOS', 'nivel': 0, 'padre': None,
-            'Saldo Inicial': df['Saldo Inicial'].sum(), 'Debe': df['Debe'].sum(),
-            'Haber': df['Haber'].sum(), 'Saldo Final': df['Saldo Final'].sum()
+            'Saldo Inicial': float(df['Saldo Inicial'].sum()), 
+            'Debe': float(df['Debe'].sum()),
+            'Haber': float(df['Haber'].sum()), 
+            'Saldo Final': float(df['Saldo Final'].sum())
         }])
         
         return pd.concat([df, fila_total], ignore_index=True)
