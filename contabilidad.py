@@ -10029,12 +10029,14 @@ elif opcion_menu == "📚 Libros Fiscales":
         with tab2:
             st.markdown("### 🆕 Generar Nueva Retención de ISLR")
 
+            # --- BLINDAJE LOCAL DE FECHAS ---
+            from datetime import date as d_tipo, datetime as dt_tipo
+
             col_fecha1, col_fecha2 = st.columns(2)
-            f_xml_desde_n = col_fecha1.date_input("Desde", value=datetime.datetime(2026, 10, 1), key="nueva_desde")
-            f_xml_hasta_n = col_fecha2.date_input("Hasta", value=datetime.datetime(2026, 10, 31), key="nueva_hasta")
+            f_xml_desde_n = col_fecha1.date_input("Desde", value=d_tipo(2026, 10, 1), key="nueva_desde")
+            f_xml_hasta_n = col_fecha2.date_input("Hasta", value=d_tipo(2026, 10, 31), key="nueva_hasta")
 
             col_c1, col_c2 = st.columns(2)
-
             with col_c1:
                 if st.button("🔍 Consultar Facturas y Proveedores", use_container_width=True):
                     conn = conectar_db(db_actual)
