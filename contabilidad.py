@@ -7334,13 +7334,19 @@ elif opcion_menu == "📂 Plan de Cuentas":
         with tab2:
             st.markdown("### 📋 Plan de Cuentas")
             
-            # 1. Cargamos datos
-            df_actual = consultar_tabla_db(conn_empresa, "plan_cuentas")
+            # 1. Cargamos datos con validación visible
+            try:
+                df_actual = consultar_tabla_db(conn_empresa, "plan_cuentas")
+            except Exception as e:
+                st.error(f"Error al invocar la consulta: {e}")
+                df_actual = None
             
-            # 2. LIMPIEZA FORZADA: Convertimos TODO a string para que no explote
+            # 2. Verificamos si realmente hay datos
             if df_actual is not None and not df_actual.empty:
+                st.success(f"Se cargaron {len(df_actual)} registros correctamente.")
                 df_mostrar = df_actual.astype(str).replace('nan', '')
             else:
+                st.warning("⚠️ La tabla 'plan_cuentas' está vacía o no devolvió resultados. Puedes agregar cuentas abajo.")
                 df_mostrar = pd.DataFrame(columns=['id', 'codigo', 'nombre', 'nivel', 'tipo', 'padre'])
 
             # 3. Editor simple
@@ -7354,24 +7360,25 @@ elif opcion_menu == "📂 Plan de Cuentas":
             # 4. Guardado
             if st.button("💾 Guardar"):
                 try:
-                    # Aquí antes de enviar, convertimos los vacíos a None para MySQL
+                    # Convertimos los vacíos a None para MySQL
                     df_final = df_editado.replace('', None)
                     actualizar_tabla_completa_db(conn_empresa, "plan_cuentas", df_final)
+                    st.success("¡Guardado exitoso!")
                     st.rerun()
                 except Exception as e:
-                    st.error(f"Error: {e}")
+                    st.error(f"Error al guardar: {e}")
 
-                with tab3:
-                    st.markdown("### ⚠️ Vaciar Plan de Cuentas")
-                    st.warning("Esta acción borrará TODA la información del plan de cuentas de esta empresa.")
-                    if st.checkbox("Estoy seguro de querer borrar todo"):
-                        if st.button("🗑️ ELIMINAR TODOS LOS DATOS", type="primary"):
-                            cursor = conn_empresa.cursor()
-                            cursor.execute("TRUNCATE TABLE plan_cuentas")
-                            conn_empresa.commit()
-                            st.success("✅ ¡Tabla vaciada exitosamente!")
-                            st.balloons()
-                            st.rerun()
+        with tab3:
+            st.markdown("### ⚠️ Vaciar Plan de Cuentas")
+            st.warning("Esta acción borrará TODA la información del plan de cuentas de esta empresa.")
+            if st.checkbox("Estoy seguro de querer borrar todo"):
+                if st.button("🗑️ ELIMINAR TODOS LOS DATOS", type="primary"):
+                    cursor = conn_empresa.cursor()
+                    cursor.execute("TRUNCATE TABLE plan_cuentas")
+                    conn_empresa.commit()
+                    st.success("✅ ¡Tabla vaciada exitosamente!")
+                    st.balloons()
+                    st.rerun()
 
         with tab4:
             st.markdown("### 📥 Descargar Respaldo")
