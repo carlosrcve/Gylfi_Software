@@ -2048,15 +2048,13 @@ def generar_balance_profesional(conn, f_i, f_f, sucursal):
         cols_plan = ['codigo', 'nombre', 'nivel', 'padre']
         df_plan = df_plan[cols_plan]
 
-        # 2. Obtener datos de saldos y movimientos
+        # 2. Obtener datos de saldos y movimientos de la función de comprobación
         df_saldos = generar_balance_comprobacion(conn, f_i, f_f, sucursal)
         cols_saldos = ['Código', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final']
         
         if df_saldos is None or df_saldos.empty:
-            st.info("ℹ️ No hay movimientos registrados para este rango o sucursal. Mostrando cuentas en ceros.")
             df_saldos = pd.DataFrame(columns=cols_saldos)
         else:
-            # Normalizar nombres de columnas
             renombres_saldos = {}
             for col in df_saldos.columns:
                 col_lower = str(col).lower()
@@ -2068,19 +2066,50 @@ def generar_balance_profesional(conn, f_i, f_f, sucursal):
             
             df_saldos = df_saldos.rename(columns=renombres_saldos)
 
-            for c in cols_saldos:
-                if c not in df_saldos.columns:
-                    df_saldos[c] = 0.0
+        for c in cols_saldos:
+            if c not in df_saldos.columns:
+                df_saldos[c] = 0.0
 
-            # Eliminar duplicados en saldos por si el reporte base viene repetido
-            df_saldos = df_saldos.drop_duplicates(subset=['Código'], keep='first')
-            df_saldos = df_saldos[cols_saldos]
-        
-        # 3. Merge limpio
+        df_saldos = df_saldos.drop_duplicates(subset=['Código'], keep='first')
+        df_saldos = df_saldos[cols_saldos]
+
+        # --- 2.1. INYECCIÓN DE LA TABLA DE SALDOS INICIALES ---
+        # Consultamos directamente la tabla de saldos iniciales de la BD para asegurar que no se omitan
+        try:
+            query_s_init = f"SELECT codigo, saldo_inicial FROM `{db}`.saldos_iniciales"
+            df_tabla_iniciales = ejecutar_consulta(query_s_init, conn)
+            
+            if df_tabla_iniciales is not None and not df_tabla_iniciales.empty:
+                # Normalizamos columnas de la tabla externa de iniciales
+                df_tabla_iniciales.columns = [str(c).lower().strip() for c in df_tabla_iniciales.columns]
+                # Asegurar nombres estándar
+                col_c_in = next((c for c in df_tabla_iniciales.columns if 'codigo' in c), None)
+                col_s_in = next((c for c in df_tabla_iniciales.columns if 'inicial' in c or 'saldo' in c), None)
+                
+                if col_c_in and col_s_in:
+                    df_tabla_iniciales = df_tabla_iniciales.rename(columns={col_c_in: 'Código', col_s_in: 'Val_Inicial'})
+                    df_tabla_iniciales['Val_Inicial'] = pd.to_numeric(df_tabla_iniciales['Val_Inicial'], errors='coerce').fillna(0.0)
+                    
+                    # Si df_saldos ya tiene registros, fusionamos o sumamos los saldos iniciales externos
+                    if not df_saldos.empty:
+                        df_saldos = pd.merge(df_saldos, df_tabla_iniciales[['Código', 'Val_Inicial']], on='Código', how='left')
+                        df_saldos['Val_Inicial'] = df_saldos['Val_Inicial'].fillna(0.0)
+                        # Sumamos el saldo inicial de la tabla externa al saldo inicial existente
+                        df_saldos['Saldo Inicial'] = df_saldos['Saldo Inicial'] + df_saldos['Val_Inicial']
+                        df_saldos = df_saldos.drop(columns=['Val_Inicial'])
+                    else:
+                        df_saldos = df_tabla_iniciales.rename(columns={'Val_Inicial': 'Saldo Inicial'})
+                        df_saldos['Debe'] = 0.0
+                        df_saldos['Haber'] = 0.0
+                        df_saldos['Saldo Final'] = df_saldos['Saldo Inicial']
+        except Exception:
+            # Si la tabla de saldos iniciales tiene otro nombre o no existe en alguna empresa, continúa sin interrumpir
+            pass
+
+        # 3. Merge limpio con el plan de cuentas
         df = pd.merge(df_plan, df_saldos, left_on='codigo', right_on='Código', how='left')
         
         # --- BLINDAJE DE ÍNDICES DUPLICADOS ---
-        # Si por alguna razón quedaron códigos repetidos, los unificamos sumando sus valores
         df = df.groupby(['codigo', 'nombre', 'nivel', 'padre'], as_index=False)[['Saldo Inicial', 'Debe', 'Haber', 'Saldo Final']].sum()
         
         # --- CONTINUACIÓN DEL CÁLCULO ---
@@ -2091,7 +2120,7 @@ def generar_balance_profesional(conn, f_i, f_f, sucursal):
         padres_codigos = df['padre'].dropna().unique()
         df.loc[df['codigo'].isin(padres_codigos), cols_numericas] = 0.0
 
-        # Calcular saldo final
+        # Calcular saldo final inicial con la nueva data integrada
         df['Saldo Final'] = df['Saldo Inicial'] + df['Debe'] - df['Haber']
         
         # Roll-up jerárquico
@@ -2141,7 +2170,6 @@ def generar_balance_profesional(conn, f_i, f_f, sucursal):
         return None
     finally:
         if cursor: cursor.close()
-
 
 def generar_balance_comprobacion(conn, f_i, f_f, sucursal):
     registrar_log_automatico(conn, "BALANCE_COMPROBACION", f"Balance para {st.session_state.cliente_id}")
