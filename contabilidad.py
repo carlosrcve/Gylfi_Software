@@ -2146,17 +2146,12 @@ def generar_balance_comprobacion(conn, f_i, f_f, sucursal):
         return pd.DataFrame(columns=['Código', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final'])
     
     db = st.session_state.get('DB_ACTUAL')
-    # Definimos la columna que contiene el ID contable
-    COLUMNA_ID = "codigo" # Porque ahora tu SQL devuelve 'codigo'
     
     try:
-        # Usamos JOIN para obtener el 'codigo' del plan de cuentas basado en el nombre que está en las tablas de movimiento
+        # Usamos JOIN para buscar directamente el 'codigo' maestro a través del nombre guardado
         sql_si = f"SELECT p.codigo, SUM(s.debe) - SUM(s.haber) as val FROM `{db}`.saldos_iniciales s JOIN `{db}`.plan_cuentas p ON s.plan_cuentas = p.nombre GROUP BY p.codigo"
-        
         sql_ac = f"SELECT p.codigo, SUM(a.debe) - SUM(a.haber) as val FROM `{db}`.asientos_contables a JOIN `{db}`.plan_cuentas p ON a.plan_cuentas = p.nombre WHERE a.fecha < %s GROUP BY p.codigo"
-        
         sql_mo_d = f"SELECT p.codigo, SUM(a.debe) as val FROM `{db}`.asientos_contables a JOIN `{db}`.plan_cuentas p ON a.plan_cuentas = p.nombre WHERE a.fecha BETWEEN %s AND %s GROUP BY p.codigo"
-        
         sql_mo_h = f"SELECT p.codigo, SUM(a.haber) as val FROM `{db}`.asientos_contables a JOIN `{db}`.plan_cuentas p ON a.plan_cuentas = p.nombre WHERE a.fecha BETWEEN %s AND %s GROUP BY p.codigo"
 
         dfs = {
@@ -2169,13 +2164,9 @@ def generar_balance_comprobacion(conn, f_i, f_f, sucursal):
         lista_frames = []
         for nombre, df in dfs.items():
             if df is not None and not df.empty:
-                # Verificar si nuestra columna ID existe en los resultados
-                if COLUMNA_ID in df.columns:
-                    # Renombramos usando la variable centralizada
-                    df = df.rename(columns={COLUMNA_ID: 'Código', 'val': nombre})
-                    
-                    # Diagnóstico visual por si los datos no son lo que esperas
-                    # st.write(f"Pre-limpieza {nombre}:", df['Código'].head().tolist())
+                # Verificamos si la columna 'codigo' viene del JOIN
+                if 'codigo' in df.columns:
+                    df = df.rename(columns={'codigo': 'Código', 'val': nombre})
                     
                     df[nombre] = pd.to_numeric(df[nombre], errors='coerce').fillna(0.0)
                     df['Código'] = df['Código'].astype(str).str.strip().str.replace('.0', '', regex=False)
