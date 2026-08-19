@@ -2074,7 +2074,6 @@ def generar_balance_profesional(conn, f_i, f_f, sucursal):
         df_saldos = df_saldos[cols_saldos]
 
         # --- 2.1. INYECCIÓN DE LA TABLA DE SALDOS INICIALES ---
-        # Consultamos directamente la tabla de saldos iniciales de la BD para asegurar que no se omitan
         try:
             # Usamos 'cuenta_contable' y calculamos el neto entre 'debe' y 'haber'
             query_s_init = f"""
