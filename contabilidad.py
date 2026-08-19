@@ -7354,34 +7354,46 @@ elif opcion_menu == "📂 Plan de Cuentas":
             
             if df_actual is None or df_actual.empty:
                 df_actual = pd.DataFrame(columns=['id', 'codigo', 'nombre', 'nivel', 'tipo', 'padre'])
-            
+            else:
+                # Asegurarnos de que las columnas de texto no tengan NaN extraños que rompan el editor
+                for col in ['codigo', 'nombre', 'tipo', 'padre']:
+                    if col in df_actual.columns:
+                        df_actual[col] = df_actual[col].fillna("").astype(str)
+                        # Si por error quedó la palabra 'None' o 'nan' como texto, la limpiamos
+                        df_actual[col] = df_actual[col].replace(['None', 'nan', 'NAT'], '')
+                
+                if 'id' in df_actual.columns:
+                    df_actual['id'] = pd.to_numeric(df_actual['id'], errors='coerce')
+                    
+                if 'nivel' in df_actual.columns:
+                    df_actual['nivel'] = pd.to_numeric(df_actual['nivel'], errors='coerce').fillna(1).astype(int)
+
             # 2. Editor interactivo
-            # num_rows="dynamic" habilita el botón de eliminar (icono de basura) y agregar fila
             df_editado = st.data_editor(
                 df_actual, 
                 key="editor_plan_cuentas", 
                 num_rows="dynamic", 
                 width='stretch',
                 column_config={
-                    "id": st.column_config.NumberColumn("ID", disabled=True), # ID inalterable
+                    "id": st.column_config.NumberColumn("ID", disabled=True),
                     "codigo": st.column_config.TextColumn("Código Contable", required=True),
                     "nombre": st.column_config.TextColumn("Nombre Cuenta", required=True),
-                    "tipo": st.column_config.SelectboxColumn("Tipo", options=["Activo", "Pasivo", "Patrimonio", "Ingreso", "Egreso"]),
+                    "nivel": st.column_config.NumberColumn("Nivel", min_value=1, max_value=5),
+                    "tipo": st.column_config.SelectboxColumn("Tipo", options=["Activo", "Pasivo", "Patrimonio", "Ingreso", "Egreso", "Grupo"]),
+                    "padre": st.column_config.TextColumn("Cuenta Padre")
                 }
             )
             
-            # 3. Guardado inteligente
-            # 3. Guardado inteligente
+            # 3. Guardado inteligente con conversión limpia para MySQL
             if st.button("💾 Guardar Cambios en Plan de Cuentas", type="primary"):
                 try:
-                    # --- LIMPIEZA PREVIA AL GUARDADO ---
-                    # Reemplazamos los NaN de pandas por None, que MySQL sí entiende como NULL
-                    df_a_guardar = df_editado.where(pd.notnull(df_editado), None)
+                    # Copiamos para no alterar la vista de sesión antes de guardar
+                    df_a_guardar = df_editado.copy()
                     
-                    # Si el 'id' es None, significa que es una fila nueva, MySQL lo manejará con el autoincrement
-                    # Asegúrate de que las columnas que deben ser vacías (como 'padre' si no tiene) sean None
+                    # Reemplazamos los strings vacíos o nulos por None real para que MySQL guarde NULL
+                    df_a_guardar = df_a_guardar.replace(r'^\s*$', None, regex=True)
+                    df_a_guardar = df_a_guardar.where(pd.notnull(df_a_guardar), None)
                     
-                    # Usamos tu función de actualización con el df limpio
                     actualizar_tabla_completa_db(conn_empresa, "plan_cuentas", df_a_guardar)
                     
                     st.success("✅ ¡Plan de cuentas actualizado correctamente!")
