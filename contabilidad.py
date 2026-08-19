@@ -7601,23 +7601,24 @@ elif opcion_menu == "📝 Asientos Contables":
 
 
     if sub_opcion == "Conciliación Bancaria":
-        st.title("🏦 Conciliación Bancaria")
-        st.markdown("---")
+    st.title("🏦 Conciliación Bancaria")
+    st.markdown("---")
 
-        # 1. Recuperamos contexto y validamos
-        db_actual = st.session_state.get('DB_ACTUAL')
-        if not db_actual:
-            st.error("No se ha seleccionado una base de datos.")
-            st.stop()
+    # 1. Recuperamos contexto y validamos
+    db_actual = st.session_state.get('DB_ACTUAL')
+    if not db_actual:
+        st.error("No se ha seleccionado una base de datos.")
+        st.stop()
 
-        # 2. Abrimos la conexión de forma segura
-        conn = conectar_db(db_actual)
-        
-        if not conn:
-            st.error(f"❌ Error: No se pudo conectar a la base de datos {db_actual}")
-            st.stop()
+    # 2. Abrimos la conexión de forma segura
+    conn = conectar_db(db_actual)
+    
+    if not conn:
+        st.error(f"❌ Error: No se pudo conectar a la base de datos {db_actual}")
+        st.stop()
 
-        # 3. Selectores Globales (Aquí nacen los keys únicos)
+    try:
+        # 3. Selectores Globales
         col1, col2 = st.columns([1, 1])
         with col1:
             mes_sel = st.selectbox(
@@ -7625,7 +7626,7 @@ elif opcion_menu == "📝 Asientos Contables":
                 ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", 
                  "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"], 
                 index=2, 
-                key="mes_seleccionado_conciliacion"  # <--- Cambia el key aquí por uno único
+                key="mes_seleccionado_conciliacion"
             )
         with col2:
             ano_sel = st.selectbox("Año", [2025, 2026, 2027], index=1, key="ano_seleccionado")
@@ -7872,7 +7873,7 @@ elif opcion_menu == "📝 Asientos Contables":
                     
                     # Mostrar resultados
                     if not df_cuenta.empty:
-                        st.dataframe(df_cuenta, width='stretch')
+                        st.dataframe(df_cuenta, use_container_width=True)
                         st.write(f"**Total movimientos encontrados:** {len(df_cuenta)}")
                     else:
                         st.info(f"No hay movimientos para {empresa_data['nombre_empresa']} en {mes_sel} {ano_sel}.")
@@ -7939,7 +7940,8 @@ elif opcion_menu == "📝 Asientos Contables":
         # --- TAB 5: CIERRE DE MES (CANDADO DE SEGURIDAD) ---
         with tab5:
             st.subheader("🔒 Cierre y Bloqueo de Mes")
-            # 1. SEGURIDAD INTEGRADA (Igual que en tus otras funciones)
+            
+            # 1. SEGURIDAD INTEGRADA
             db_actual = st.session_state.get('DB_ACTUAL')
             cliente_id = st.session_state.get('cliente_id')
             rol = st.session_state.get('rol')
@@ -7955,44 +7957,59 @@ elif opcion_menu == "📝 Asientos Contables":
                     st.error("⚠️ Acceso denegado: No tienes permisos para esta empresa.")
                     st.stop()
 
-            # 2. LÓGICA DE CIERRE (Uso dinámico de db_actual)
-            mes_map = {"Enero": 1, "Febrero": 2, "Marzo": 3, "Abril": 4, "Mayo": 5, "Junio": 6,
-                       "Julio": 7, "Agosto": 8, "Septiembre": 9, "Octubre": 10, "Noviembre": 11, "Diciembre": 12}
+            # 2. LÓGICA DE CIERRE
+            mes_map = {
+                "Enero": 1, "Febrero": 2, "Marzo": 3, "Abril": 4, "Mayo": 5, "Junio": 6,
+                "Julio": 7, "Agosto": 8, "Septiembre": 9, "Octubre": 10, "Noviembre": 11, "Diciembre": 12
+            }
             mes_num = mes_map[mes_sel]
 
-            # Asegurar conexión antes de consultar
+            # Asegurar conexión de forma segura
             try:
-                if conn:
+                if 'conn' in locals() and conn:
                     conn.ping(reconnect=True)
-            except:
-                pass 
+                else:
+                    conn = conectar_db(db_actual) # Fallback por si no viene del ámbito superior
+            except Exception as e:
+                st.error(f"Error de conexión con la base de datos: {e}")
+                st.stop()
 
-            cursor = conn.cursor(buffered=True)
-
-            # 3. CONSULTA DINÁMICA (Usamos f-string para la base de datos)
-            query_check = f"SELECT COUNT(*) FROM `{db_actual}`.banco_movimientos WHERE MONTH(fecha_movimiento) = %s AND YEAR(fecha_movimiento) = %s AND estado_conciliacion = 'Cerrado'"
-            cursor.execute(query_check, (mes_num, ano_sel))
-            es_cerrado = cursor.fetchone()[0] > 0
-            cursor.close()
+            # Validar si ya está cerrado
+            try:
+                cursor = conn.cursor(buffered=True)
+                query_check = f"SELECT COUNT(*) FROM `{db_actual}`.banco_movimientos WHERE MONTH(fecha_movimiento) = %s AND YEAR(fecha_movimiento) = %s AND estado_conciliacion = 'Cerrado'"
+                cursor.execute(query_check, (mes_num, ano_sel))
+                es_cerrado = cursor.fetchone()[0] > 0
+            except Exception as e:
+                st.error(f"Error al verificar el estado del mes: {e}")
+                es_cerrado = False
+            finally:
+                if 'cursor' in locals() and cursor:
+                    cursor.close()
 
             if es_cerrado:
-                st.error(f"🔒 El mes de {mes_sel} {ano_sel} en {empresa_data['nombre_empresa']} está CERRADO.")
+                st.error(f"🔒 El mes de {mes_sel} {ano_sel} en {empresa_data.get('nombre_empresa', db_actual)} está CERRADO.")
             else:
                 st.warning("⚠️ Acción irreversible: El cierre de mes bloquea ediciones.")
-                if st.checkbox("✅ Entiendo las consecuencias, quiero cerrar el mes"):
-                    if st.button("Confirmar Cierre de Mes"):
-                        cursor = conn.cursor()
-                        # 4. UPDATE DINÁMICO
-                        query_update = f"""
-                            UPDATE `{db_actual}`.banco_movimientos 
-                            SET estado_conciliacion = 'Cerrado' 
-                            WHERE MONTH(fecha_movimiento) = %s AND YEAR(fecha_movimiento) = %s
-                        """
-                        cursor.execute(query_update, (mes_num, ano_sel))
-                        conn.commit()
-                        cursor.close()
-                        st.success("✅ Mes cerrado con éxito.")
-                        st.rerun()
+                if st.checkbox("✅ Entiendo las consecuencias, quiero cerrar el mes", key="chk_cierre"):
+                    if st.button("Confirmar Cierre de Mes", type="primary"):
+                        try:
+                            cursor = conn.cursor()
+                            query_update = f"""
+                                UPDATE `{db_actual}`.banco_movimientos 
+                                SET estado_conciliacion = 'Cerrado' 
+                                WHERE MONTH(fecha_movimiento) = %s AND YEAR(fecha_movimiento) = %s
+                            """
+                            cursor.execute(query_update, (mes_num, ano_sel))
+                            conn.commit()
+                            st.success("✅ Mes cerrado con éxito.")
+                            st.rerun()
+                        except Exception as e:
+                            conn.rollback()
+                            st.error(f"❌ Error al ejecutar el cierre de mes: {e}")
+                        finally:
+                            if 'cursor' in locals() and cursor:
+                                cursor.close()
 
 
     elif sub_opcion == "Consultar Comprobante":
