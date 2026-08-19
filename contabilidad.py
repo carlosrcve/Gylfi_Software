@@ -7332,41 +7332,39 @@ elif opcion_menu == "📂 Plan de Cuentas":
                         st.error("❌ Faltan columnas en el archivo.")
 
         with tab2:
-            st.markdown("### 📋 Plan de Cuentas")
+            st.markdown("### 📋 Plan de Cuentas (Edición, Nuevos y Eliminación)")
             
-            # 1. Cargamos datos con validación visible
-            try:
-                df_actual = consultar_tabla_db(conn_empresa, "plan_cuentas")
-            except Exception as e:
-                st.error(f"Error al invocar la consulta: {e}")
-                df_actual = None
+            # 1. Cargamos los datos actuales
+            df_actual = consultar_tabla_db(conn_empresa, "plan_cuentas")
             
-            # 2. Verificamos si realmente hay datos
-            if df_actual is not None and not df_actual.empty:
-                st.success(f"Se cargaron {len(df_actual)} registros correctamente.")
-                df_mostrar = df_actual.astype(str).replace('nan', '')
-            else:
-                st.warning("⚠️ La tabla 'plan_cuentas' está vacía o no devolvió resultados. Puedes agregar cuentas abajo.")
-                df_mostrar = pd.DataFrame(columns=['id', 'codigo', 'nombre', 'nivel', 'tipo', 'padre'])
-
-            # 3. Editor simple
+            if df_actual is None or df_actual.empty:
+                df_actual = pd.DataFrame(columns=['id', 'codigo', 'nombre', 'nivel', 'tipo', 'padre'])
+            
+            # 2. Editor interactivo
+            # num_rows="dynamic" habilita el botón de eliminar (icono de basura) y agregar fila
             df_editado = st.data_editor(
-                df_mostrar, 
+                df_actual, 
                 key="editor_plan_cuentas", 
-                num_rows="dynamic",
-                use_container_width=True
+                num_rows="dynamic", 
+                use_container_width=True,
+                column_config={
+                    "id": st.column_config.NumberColumn("ID", disabled=True), # ID inalterable
+                    "codigo": st.column_config.TextColumn("Código Contable", required=True),
+                    "nombre": st.column_config.TextColumn("Nombre Cuenta", required=True),
+                    "tipo": st.column_config.SelectboxColumn("Tipo", options=["Activo", "Pasivo", "Patrimonio", "Ingreso", "Egreso"]),
+                }
             )
             
-            # 4. Guardado
-            if st.button("💾 Guardar"):
+            # 3. Guardado inteligente
+            if st.button("💾 Guardar Cambios en Plan de Cuentas", type="primary"):
                 try:
-                    # Convertimos los vacíos a None para MySQL
-                    df_final = df_editado.replace('', None)
-                    actualizar_tabla_completa_db(conn_empresa, "plan_cuentas", df_final)
-                    st.success("¡Guardado exitoso!")
-                    st.rerun()
+                    # Usamos tu función de actualización completa
+                    actualizar_tabla_completa_db(conn_empresa, "plan_cuentas", df_editado)
+                    st.success("✅ ¡Plan de cuentas actualizado correctamente!")
+                    st.balloons()
+                    st.rerun() # Recargamos para refrescar IDs si hubo nuevos
                 except Exception as e:
-                    st.error(f"Error al guardar: {e}")
+                    st.error(f"❌ Error al guardar: {e}")
 
         with tab3:
             st.markdown("### ⚠️ Vaciar Plan de Cuentas")
