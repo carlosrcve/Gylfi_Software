@@ -2132,7 +2132,6 @@ def generar_balance_comprobacion(conn, f_i, f_f, sucursal):
     db = st.session_state.get('DB_ACTUAL')
     
     try:
-        # Volvemos a usar 'plan_cuentas' que es el nombre real de la columna en las tablas transaccionales
         sql_si = f"SELECT plan_cuentas, SUM(debe) - SUM(haber) as val FROM `{db}`.saldos_iniciales GROUP BY plan_cuentas"
         sql_ac = f"SELECT plan_cuentas, SUM(debe) - SUM(haber) as val FROM `{db}`.asientos_contables WHERE fecha < %s GROUP BY plan_cuentas"
         sql_mo_d = f"SELECT plan_cuentas, SUM(debe) as val FROM `{db}`.asientos_contables WHERE fecha BETWEEN %s AND %s GROUP BY plan_cuentas"
@@ -2148,9 +2147,12 @@ def generar_balance_comprobacion(conn, f_i, f_f, sucursal):
         lista_frames = []
         for nombre, df in dfs.items():
             if df is not None and not df.empty:
-                # Detectar cómo se llama la columna de cuenta y normalizarla
                 col_name = [c for c in df.columns if 'plan_cuenta' in c.lower() or 'codigo' in c.lower()][0]
                 df = df.rename(columns={col_name: 'Código', 'val': nombre})
+                
+                # CORRECCIÓN DE TIPO: Forzar valor numérico a float
+                df[nombre] = pd.to_numeric(df[nombre], errors='coerce').fillna(0.0)
+                
                 df['Código'] = df['Código'].astype(str).str.strip().str.replace('.0', '', regex=False)
                 df = df.set_index('Código')
                 lista_frames.append(df)
@@ -2158,22 +2160,23 @@ def generar_balance_comprobacion(conn, f_i, f_f, sucursal):
         if not lista_frames:
             return pd.DataFrame(columns=['Código', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final'])
 
-        # Concatenación segura (join externo por índice)
-        balance = pd.concat(lista_frames, axis=1).fillna(0)
+        balance = pd.concat(lista_frames, axis=1).fillna(0.0)
         balance.reset_index(inplace=True)
         
-        # Asegurar columnas numéricas necesarias
+        # Asegurar que todas las columnas operativas sean float explícitos
         for c in ['si', 'ac', 'debe', 'haber']:
             if c not in balance.columns: balance[c] = 0.0
+            balance[c] = balance[c].astype(float)
             
         balance['Tipo'] = balance['Código'].astype(str).str[0]
         
         def calcular(row):
-            si_bruto = row['si'] + row['ac']
+            # Ahora todas las variables son float, no habrá conflicto de tipos
+            si_bruto = float(row['si']) + float(row['ac'])
             if row['Tipo'] in ['1', '5']:
-                s_final = si_bruto + row['debe'] - row['haber']
+                s_final = si_bruto + float(row['debe']) - float(row['haber'])
             else:
-                s_final = si_bruto - row['debe'] + row['haber']
+                s_final = si_bruto - float(row['debe']) + float(row['haber'])
             return pd.Series([si_bruto, s_final])
 
         balance[['Saldo Inicial', 'Saldo Final']] = balance.apply(calcular, axis=1)
