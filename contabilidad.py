@@ -7334,14 +7334,18 @@ elif opcion_menu == "📂 Plan de Cuentas":
         with tab2:
             st.markdown("### 📋 Plan de Cuentas (Edición, Nuevos y Eliminación)")
             
-            # 1. Cargamos los datos actuales
+            # 1. Cargamos los datos actuales y aseguramos formato seguro
             df_actual = consultar_tabla_db(conn_empresa, "plan_cuentas")
             
             if df_actual is None or df_actual.empty:
                 df_actual = pd.DataFrame(columns=['id', 'codigo', 'nombre', 'nivel', 'tipo', 'padre'])
+            else:
+                # Convertimos columnas de texto a string limpio para que el data_editor no colapse con NaN puros
+                for col in ['codigo', 'nombre', 'tipo', 'padre']:
+                    if col in df_actual.columns:
+                        df_actual[col] = df_actual[col].fillna("").astype(str).replace(['nan', 'None'], '')
             
             # 2. Editor interactivo
-            # num_rows="dynamic" habilita el botón de eliminar (icono de basura) y agregar fila
             df_editado = st.data_editor(
                 df_actual, 
                 key="editor_plan_cuentas", 
@@ -7351,15 +7355,23 @@ elif opcion_menu == "📂 Plan de Cuentas":
                     "id": st.column_config.NumberColumn("ID", disabled=True), # ID inalterable
                     "codigo": st.column_config.TextColumn("Código Contable", required=True),
                     "nombre": st.column_config.TextColumn("Nombre Cuenta", required=True),
-                    "tipo": st.column_config.SelectboxColumn("Tipo", options=["Activo", "Pasivo", "Patrimonio", "Ingreso", "Egreso"]),
+                    "tipo": st.column_config.SelectboxColumn("Tipo", options=["Activo", "Pasivo", "Patrimonio", "Ingreso", "Egreso", "Grupo"]),
+                    "padre": st.column_config.TextColumn("Cuenta Padre")
                 }
             )
             
-            # 3. Guardado inteligente
+            # 3. Guardado inteligente con limpieza para MySQL
             if st.button("💾 Guardar Cambios en Plan de Cuentas", type="primary"):
                 try:
+                    df_a_guardar = df_editado.copy()
+                    
+                    # Convertimos strings vacíos o espacios en blanco a None real para que MySQL guarde NULL limpio
+                    df_a_guardar = df_a_guardar.replace(r'^\s*$', None, regex=True)
+                    df_a_guardar = df_a_guardar.where(pd.notnull(df_a_guardar), None)
+                    
                     # Usamos tu función de actualización completa
-                    actualizar_tabla_completa_db(conn_empresa, "plan_cuentas", df_editado)
+                    actualizar_tabla_completa_db(conn_empresa, "plan_cuentas", df_a_guardar)
+                    
                     st.success("✅ ¡Plan de cuentas actualizado correctamente!")
                     st.balloons()
                     st.rerun() # Recargamos para refrescar IDs si hubo nuevos
