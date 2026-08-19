@@ -2035,43 +2035,48 @@ def generar_balance_profesional(conn, f_i, f_f, sucursal):
         cursor = conn.cursor()
         cursor.execute(f"USE `{db}`")
         
-        # 1. Consultar el plan de cuentas (eliminando posibles duplicados por 'codigo')
-        query_plan = f"SELECT codigo, nombre, nivel, padre FROM `{db}`.plan_cuentas ORDER BY codigo"
+        # 1. Consultar el plan de cuentas (columna estandarizada como 'codigo')
+        query_plan = f"SELECT cuenta_contable AS codigo, nombre, nivel, padre FROM `{db}`.plan_cuentas ORDER BY cuenta_contable"
         df_plan = ejecutar_consulta(query_plan, conn)
         
         if df_plan is None or df_plan.empty:
-            st.error("⚠️ El plan de cuentas está vacío o no se pudo consultar.")
+            st.error("⚠️ El plan de cuentas está vacío.")
             return None
 
-        # Limpiar duplicados en el plan de cuentas basándonos en el código de cuenta
         df_plan = df_plan.drop_duplicates(subset=['codigo'], keep='first')
-        cols_plan = ['codigo', 'nombre', 'nivel', 'padre']
-        df_plan = df_plan[cols_plan]
-
-        # 2. Obtener datos de saldos y movimientos de la función de comprobación
+        
+        # 2. Obtener datos de saldos
         df_saldos = generar_balance_comprobacion(conn, f_i, f_f, sucursal)
-        cols_saldos = ['Código', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final']
+        cols_finales = ['codigo', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final']
         
         if df_saldos is None or df_saldos.empty:
-            df_saldos = pd.DataFrame(columns=cols_saldos)
+            df_saldos = pd.DataFrame(columns=cols_finales)
         else:
-            renombres_saldos = {}
+            # Renombrar columnas a formato estándar
+            renombres = {}
             for col in df_saldos.columns:
-                col_lower = str(col).lower()
-                if 'codigo' in col_lower: renombres_saldos[col] = 'Código'
-                elif 'inicial' in col_lower: renombres_saldos[col] = 'Saldo Inicial'
-                elif 'debe' in col_lower: renombres_saldos[col] = 'Debe'
-                elif 'haber' in col_lower: renombres_saldos[col] = 'Haber'
-                elif 'final' in col_lower: renombres_saldos[col] = 'Saldo Final'
+                c_low = str(col).lower()
+                if 'codigo' in c_low or 'cuenta' in c_low: renombres[col] = 'codigo'
+                elif 'inicial' in c_low: renombres[col] = 'Saldo Inicial'
+                elif 'debe' in c_low: renombres[col] = 'Debe'
+                elif 'haber' in c_low: renombres[col] = 'Haber'
+                elif 'final' in c_low: renombres[col] = 'Saldo Final'
             
-            df_saldos = df_saldos.rename(columns=renombres_saldos)
+            df_saldos = df_saldos.rename(columns=renombres)
+            
+            # Asegurar que existan las columnas
+            for c in cols_finales:
+                if c not in df_saldos.columns:
+                    df_saldos[c] = 0.0
+            
+            df_saldos = df_saldos[cols_finales].drop_duplicates(subset=['codigo'], keep='first')
 
-        for c in cols_saldos:
-            if c not in df_saldos.columns:
-                df_saldos[c] = 0.0
-
-        df_saldos = df_saldos.drop_duplicates(subset=['Código'], keep='first')
-        df_saldos = df_saldos[cols_saldos]
+        # 3. Merge profesional unificado usando 'codigo'
+        df = pd.merge(df_plan, df_saldos, on='codigo', how='left')
+        
+        # Llenar nulos con 0 para cálculos
+        cols_num = ['Saldo Inicial', 'Debe', 'Haber', 'Saldo Final']
+        df[cols_num] = df[cols_num].fillna(0.0)
 
         # --- 2.1. INYECCIÓN DE LA TABLA DE SALDOS INICIALES ---
         try:
