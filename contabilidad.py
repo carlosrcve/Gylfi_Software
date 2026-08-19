@@ -436,12 +436,11 @@ def panel_administracion(conn):
 
 def registrar_log_automatico(conn, accion, detalles):
     """Registra automáticamente las interacciones del usuario en la tabla logs_auditoria
-
     ubicada en la base de datos central de control.
     """
     cursor = None
     try:
-        if conn is not None and hasattr(conn, "is_connected") and conn.is_connected():
+        if conn is not None:
             usuario = st.session_state.get("usuario", "Desconocido")
             cliente_id = str(st.session_state.get("cliente_id", ""))
 
@@ -452,8 +451,6 @@ def registrar_log_automatico(conn, accion, detalles):
             """
             cursor.execute(query, (usuario, accion, detalles, cliente_id))
             conn.commit()
-        else:
-            pass
     except Exception as e:
         # Manejo de error silencioso o impreso para depuración
         print(f"Error registrando log: {e}")
@@ -1289,7 +1286,7 @@ def consultar_tabla_db(conn, nombre_tabla, limite=None):
     if not re.match(r"^[a-zA-Z0-9_]+$", str(nombre_tabla)):
         raise ValueError(f"Nombre de tabla inválido o inseguro: {nombre_tabla}")
 
-    if not conn or not conn.is_connected():
+    if not conn:
         raise Exception("No hay conexión activa a la base de datos.")
 
     try:
@@ -1314,10 +1311,10 @@ def consultar_tabla_db(conn, nombre_tabla, limite=None):
     finally:
         if cursor:
             cursor.close()
-        if conn and conn.is_connected():
+        if conn:
             try:
                 conn.ping(reconnect=True)
-            except:
+            except Exception:
                 pass
                 
     return df
@@ -1545,10 +1542,11 @@ def cargar_estado_cuenta_bdv(uploaded_file, conn):
     finally:
         if cursor:
             cursor.close() 
-        if conn and conn.is_connected():
+        # Aquí eliminamos la llamada a .is_connected()
+        if conn:
             try:
                 conn.ping(reconnect=True)
-            except:
+            except Exception:
                 pass
 
 
@@ -1786,8 +1784,11 @@ def _obtener_datos_asiento(db_nombre, numero_comprobante):
         print(f"Error en consulta: {e}")
         return None
     finally:
-        if conn and conn.is_connected():
-            conn.close()
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
 # 2. Función visual (Sin caché, encargada de renderizar la UI de Streamlit)
 def disenar_reporte_asiento_contable(numero_comprobante):
@@ -1863,7 +1864,8 @@ def consultar_saldos_iniciales_db(db_nombre):
         # Conexión directa a la BD del cliente
         conn = conectar_db(db_nombre)
         
-        if conn and conn.is_connected():
+        # Validación simplificada (sin .is_connected)
+        if conn:
             cursor = conn.cursor(dictionary=True)
             query = "SELECT * FROM saldos_iniciales ORDER BY id ASC"
             cursor.execute(query)
@@ -1890,7 +1892,6 @@ def consultar_saldos_iniciales_db(db_nombre):
                 conn.close()
             except Exception:
                 pass
-
 
 def mostrar_interfaz_mayor(f_ini_g, f_fin_g, db_nombre):
     st.subheader("📖 Libro Mayor Analítico")
@@ -2705,9 +2706,9 @@ def generar_comprobante_pdf(datos, conn):
         return pdf_output
     
     finally:
-        # Aseguramos el cierre o verificación si el objeto de conexión lo soporta
+        # Aseguramos el reintento de conexión de forma segura
         try:
-            if conn and hasattr(conn, 'is_connected') and conn.is_connected():
+            if conn:
                 conn.ping(reconnect=True)
         except Exception:
             pass
@@ -2732,14 +2733,15 @@ def comprobar_existencia_comprobante(n_comprobante):
         except Exception as e:
             st.error(f"Error al verificar comprobante: {e}")
         finally:
-            # AQUÍ ESTÁ EL SECRETO:
             if cursor:
                 cursor.close() 
             
-            # NO cierres conn. 
-            # En su lugar, haz un 'ping' para decirle a MySQL que sigues ahí:
-            if conn and conn.is_connected():
-                conn.ping(reconnect=True)
+            # Verificación y ping seguros compatibles con PyMySQL
+            if conn:
+                try:
+                    conn.ping(reconnect=True)
+                except Exception:
+                    pass
                 
     return existe
 
@@ -2802,14 +2804,19 @@ def cargar_datos_reimpresion(f_desde, f_hasta):
         return pd.DataFrame()
 
     finally:
-        # AQUÍ ESTÁ EL SECRETO:
+        # Cierre seguro del cursor
         if cursor:
-            cursor.close()
+            try:
+                cursor.close()
+            except Exception:
+                pass
             
-        # NO cierres conn. 
-        # En su lugar, haz un 'ping' para decirle a MySQL que sigues ahí:
-        if conn and conn.is_connected():
-            conn.ping(reconnect=True)
+        # Mantenemos viva la conexión con un ping seguro para PyMySQL
+        if conn:
+            try:
+                conn.ping(reconnect=True)
+            except Exception:
+                pass
 
 
 def obtener_detalle_comprobante(id_registro):
@@ -2867,9 +2874,16 @@ def obtener_detalle_comprobante(id_registro):
 
     finally:
         if cursor:
-            cursor.close()
-        if conn and conn.is_connected():
-            conn.ping(reconnect=True)
+            try:
+                cursor.close()
+            except Exception:
+                pass
+                
+        if conn:
+            try:
+                conn.ping(reconnect=True)
+            except Exception:
+                pass
 
 
 def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
@@ -3060,7 +3074,7 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                         st.stop()
 
                     conn_env = conectar_db(db_nombre)
-                    if not conn_env or not conn_env.is_connected():
+                    if not conn_env:
                         conn_env = conectar_db(db_nombre)
 
                     id_final = empresa_data_env.get('id') if isinstance(empresa_data_env, dict) else empresa_data_env
@@ -3145,8 +3159,10 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
             
             # 1. VALIDACIÓN PREVENTIVA DE CONEXIÓN
             try:
-                if not conn.is_connected():
-                    conn.reconnect(attempts=3, delay=1)
+                if conn:
+                    conn.ping(reconnect=True)
+                else:
+                    conn = conectar_db(db_actual)
             except Exception:
                 conn = conectar_db(db_actual)
                     
@@ -3643,8 +3659,10 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
 
             # 1. VALIDACIÓN PREVENTIVA (Antes de cargar la lista)
             try:
-                if not conn.is_connected():
-                    conn.reconnect(attempts=3, delay=1)
+                if conn:
+                    conn.ping(reconnect=True)
+                else:
+                    conn = conectar_db(db_actual)
             except Exception as e:
                 conn = conectar_db(db_actual)
 
@@ -3754,8 +3772,11 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                     except Exception as e:
                         st.error(f"Error al generar TXT: {e}")
                     finally:
-                        if conn.is_connected():
-                            conn.close()
+                        if conn:
+                            try:
+                                conn.close()
+                            except Exception:
+                                pass
 
 
 def generar_excel_formateado(conn, df, titulo, subtitulo):
@@ -3804,14 +3825,19 @@ def generar_excel_formateado(conn, df, titulo, subtitulo):
         return None
 
     finally:
-        # AQUÍ ESTÁ EL SECRETO:
+        # Cierre seguro del cursor
         if cursor:
-            cursor.close()
+            try:
+                cursor.close()
+            except Exception:
+                pass
         
-        # NO cierres conn. 
-        # En su lugar, haz un 'ping' para decirle a MySQL que sigues ahí:
-        if conn and conn.is_connected():
-            conn.ping(reconnect=True)
+        # Mantenemos viva la conexión con ping seguro
+        if conn:
+            try:
+                conn.ping(reconnect=True)
+            except Exception:
+                pass
 
 
 
@@ -3901,7 +3927,7 @@ def consultar_tabla_db(conn, nombre_tabla):
     cursor = None
     
     # Registro de actividad (usando la conexión que ya recibiste)
-    if conn and conn.is_connected():
+    if conn:
         usuario = st.session_state.get('usuario', 'Desconocido')
         cliente = st.session_state.get('cliente_id', 'N/A')
         registrar_log_automatico(conn, "CONSULTA_TABLA", f"Usuario {usuario} consultó {nombre_tabla} para cliente {cliente}")
@@ -3915,9 +3941,15 @@ def consultar_tabla_db(conn, nombre_tabla):
             st.error(f"Error al consultar la tabla {nombre_tabla}: {e}")
         finally:
             if cursor:
-                cursor.close()
-            # Mantenemos la conexión viva para futuras operaciones
-            conn.ping(reconnect=True)
+                try:
+                    cursor.close()
+                except Exception:
+                    pass
+            # Mantenemos la conexión viva de forma segura para PyMySQL
+            try:
+                conn.ping(reconnect=True)
+            except Exception:
+                pass
             
     return df
 
@@ -3926,7 +3958,7 @@ def actualizar_tabla_completa_db(conn, nombre_tabla, df_nuevo):
     """
     Actualización genérica: hace TRUNCATE y luego inserta el DF completo.
     """
-    if not conn or not conn.is_connected():
+    if not conn:
         raise Exception("No hay conexión activa a la base de datos.")
 
     cursor = conn.cursor()
@@ -3952,9 +3984,15 @@ def actualizar_tabla_completa_db(conn, nombre_tabla, df_nuevo):
         raise e # Lanzamos el error hacia arriba para que el st.error del menú lo capture
     finally:
         if cursor:
-            cursor.close()
-        if conn and conn.is_connected():
-            conn.ping(reconnect=True)
+            try:
+                cursor.close()
+            except Exception:
+                pass
+        if conn:
+            try:
+                conn.ping(reconnect=True)
+            except Exception:
+                pass
 
 
 def modulo_inventario_pedacito_cielo(conn):
@@ -4639,10 +4677,10 @@ def obtener_detalle_cashea(db, f_inicio, f_fin):
         return df_vacio
 
 
-def consultar_bcv_directo_sin_bd(conn=None): # <--- Ponle =None
+def consultar_bcv_directo_sin_bd(conn=None):
     try:
-        # Registro de actividad solo si conn es válido
-        if conn and conn.is_connected():
+        # Registro de actividad solo si conn es válido (sin is_connected)
+        if conn:
             registrar_log_automatico(conn, "CONSULTA_TASA_BCV", f"Usuario {st.session_state.get('usuario', 'Desconocido')} consultando BCV")
         
         url = "https://www.bcv.org.ve/"
@@ -4662,11 +4700,11 @@ def consultar_bcv_directo_sin_bd(conn=None): # <--- Ponle =None
         print(f"Error técnico consultando BCV: {e}")
         
     finally:
-        # Mantenemos el ping pero aseguramos la conexión
-        if conn and conn.is_connected():
+        # Mantenemos el ping de forma segura para PyMySQL
+        if conn:
             try:
-                conn.ping(reconnect=True, attempts=2, delay=1)
-            except:
+                conn.ping(reconnect=True)
+            except Exception:
                 pass
             
     return 1.0000, "Por defecto (Error Total)"
@@ -4675,12 +4713,12 @@ def consultar_bcv_directo_sin_bd(conn=None): # <--- Ponle =None
 def obtener_tasa_bcv_hoy(conn):
     """
     Busca la tasa en la BD. Si no existe para hoy, la consulta en la web 
-    del BCV, la guarda en la BD y la retorna. Incluye autoreconexión.
+    del BCV, la guarda en la BD y la retorna. Incluye autoreconexión segura.
     """
-    # 1. VERIFICACIÓN DE SEGURIDAD: Reconexión automática
+    # 1. VERIFICACIÓN DE SEGURIDAD: Ping seguro para PyMySQL
     try:
-        if conn and not conn.is_connected():
-            conn.reconnect(attempts=3, delay=2)
+        if conn:
+            conn.ping(reconnect=True)
     except Exception:
         pass 
 
@@ -4701,7 +4739,7 @@ def obtener_tasa_bcv_hoy(conn):
             cursor.close()
             return float(resultado[0]), "Base de Datos"
         
-        # B. Si no está en BD, consultamos la Web
+        # B. Si não está en BD, consultamos la Web
         url = "https://www.bcv.org.ve/"
         headers = {"User-Agent": "Mozilla/5.0..."}
         
@@ -4714,14 +4752,11 @@ def obtener_tasa_bcv_hoy(conn):
                 tasa_texto = dolar_container.find('strong').text.strip()
                 tasa_float = float(tasa_texto.replace(',', '.'))
                 
-                # --- AQUÍ ESTÁ EL LOG QUE QUERÍAS ---
+                # --- LOG DE CONSULTA ---
                 try:
-                    # Ubica donde obtienes la tasa (cuando la traes de la web o de la BD)
-                    # Y justo ahí, añade esta llamada:
-
-                    registrar_log_automatico(conn, "CONSULTA_TASA_BCV", f"El usuario {st.session_state.usuario} consultó la tasa del BCV")
+                    registrar_log_automatico(conn, "CONSULTA_TASA_BCV", f"El usuario {st.session_state.get('usuario', 'Desconocido')} consultó la tasa del BCV")
                 except Exception:
-                    pass # Si el log falla, no pasa nada, la app sigue viva
+                    pass # Si el log falla, la app sigue viva
                 
                 # Guardar en BD
                 cursor.execute("""
@@ -5220,9 +5255,12 @@ else:
 if menu_lateral == "⚙️ Gestión de Usuarios":    
     try:
         conn = conectar_db() 
-        if conn and conn.is_connected():
+        if conn:
             panel_administracion(conn)
-            conn.close()
+            try:
+                conn.close()
+            except Exception:
+                pass
         else:
             st.error("🔌 No se pudo establecer conexión con el servidor MySQL.")
     except Exception as e:
@@ -6032,7 +6070,7 @@ if "🏠 Inicio" in opcion_menu:
                     if st.button("🔄 Forzar Sincronización BCV"):
                         from datetime import date
                         try:
-                            if conn_bcv.is_connected():
+                            if conn_bcv:
                                 # ⚠️ CORRECCIÓN: Comentamos esto para evitar bloqueos/congelamientos de Streamlit
                                 # conn_bcv.handle_unread_result()
                                 pass
@@ -6295,10 +6333,11 @@ if "🏠 Inicio" in opcion_menu:
     
     # --- VERIFICACIÓN DE CONEXIÓN VIVA ANTES DE USAR PANDAS ---
     try:
-        if conn and not conn.is_connected():
-            conn.reconnect(attempts=3, delay=2)
+        if conn:
+            conn.ping(reconnect=True)
         else:
-            conn.ping(reconnect=True, attempts=3, delay=2)
+            # Si no hay conexión o es None, puedes manejar la reconexión si tienes la función a la mano
+            pass
     except Exception:
         pass
 
@@ -7489,7 +7528,7 @@ elif opcion_menu == "📝 Asientos Contables":
                         if st.button("🚀 Confirmar e Importar al Diario", width='stretch'):
                             conn = conectar_db(db_actual) 
                             
-                            if conn and conn.is_connected():
+                            if conn:
                                 try:
                                     with st.spinner(f"Subiendo datos a la base: {db_actual}..."):
                                         if cargar_asientos_contables_db(df_subido, conn):
@@ -7498,7 +7537,10 @@ elif opcion_menu == "📝 Asientos Contables":
                                 except Exception as e:
                                     st.error(f"Error crítico en la inserción: {e}")
                                 finally:
-                                    conn.close()
+                                    try:
+                                        conn.close()
+                                    except Exception:
+                                        pass
                             else:
                                 st.error("❌ No se pudo establecer conexión con la base de datos.")
                     
@@ -7525,7 +7567,7 @@ elif opcion_menu == "📝 Asientos Contables":
                         if st.button("🧨 BORRAR RANGO SELECCIONADO", type="primary"):
                             conn = conectar_db(db_actual)
                             
-                            if conn and conn.is_connected():
+                            if conn:
                                 try:
                                     cursor = conn.cursor()
                                     # USAMOS DELETE EN LUGAR DE TRUNCATE
@@ -7540,7 +7582,8 @@ elif opcion_menu == "📝 Asientos Contables":
                                 except Exception as e:
                                     st.error(f"Error al ejecutar la limpieza: {e}")
                                 finally:
-                                    conn.close()
+                                    # Ya no cerramos la conexión aquí para mantenerla viva
+                                    pass
                             else:
                                 st.error("❌ Error de conexión.")
         else:
@@ -7560,7 +7603,7 @@ elif opcion_menu == "📝 Asientos Contables":
         # 2. Abrimos la conexión de forma segura
         conn = conectar_db(db_actual)
         
-        if not conn or not conn.is_connected():
+        if not conn:
             st.error(f"❌ Error: No se pudo conectar a la base de datos {db_actual}")
             st.stop()
 
@@ -7611,8 +7654,11 @@ elif opcion_menu == "📝 Asientos Contables":
             else:
                 # 3. CARGA DE DATOS DINÁMICA
                 try:
-                    if conn and not conn.is_connected():
-                        conn.reconnect(attempts=3, delay=1)
+                    if conn:
+                        try:
+                            conn.ping(reconnect=True)
+                        except Exception:
+                            pass
 
                     query_saldos = f"""
                         SELECT id, banco, mes, ano, saldo_inicial, saldo_final 
@@ -7702,9 +7748,12 @@ elif opcion_menu == "📝 Asientos Contables":
                     if st.button("Procesar e Importar"):
                         with st.spinner(f"Procesando archivo de {banco_sel}..."):
                             try:
-                                # 4. ASEGURAR CONEXIÓN (Protocolo anti-socket roto)
-                                if not conn.is_connected():
-                                    conn.reconnect(attempts=3, delay=1)
+                                # 4. ASEGURAR CONEXIÓN (Protocolo anti-socket roto con PyMySQL)
+                                if conn:
+                                    try:
+                                        conn.ping(reconnect=True)
+                                    except Exception:
+                                        pass
 
                                 resultado = False
                                 
@@ -7760,13 +7809,18 @@ elif opcion_menu == "📝 Asientos Contables":
                 df_cuenta = pd.DataFrame()
 
                 try:
-                    # 1. BLINDAJE DE CONEXIÓN: Verificar si está activa antes de usarla
-                    if conn is None or not conn.is_connected():
+                    # 1. BLINDAJE DE CONEXIÓN: Verificar si está activa con PyMySQL
+                    if conn is None:
                         st.warning("Reconectando a la base de datos...")
-                        conn = conectar_db(db_actual) # Asumiendo que esta función crea la conexión
-                        
+                        conn = conectar_db(db_actual)
+                    else:
+                        try:
+                            conn.ping(reconnect=True)
+                        except Exception:
+                            conn = conectar_db(db_actual)
+                            
                     # Si después de intentar reconectar sigue sin haber conexión, abortamos
-                    if conn is None or not conn.is_connected():
+                    if conn is None:
                         st.error("No se pudo establecer conexión con la base de datos.")
                         st.stop()
 
@@ -7844,11 +7898,14 @@ elif opcion_menu == "📝 Asientos Contables":
                 # 3. VERIFICACIÓN DE CONEXIÓN Y LANZAMIENTO
                 # Intentamos asegurar la conexión antes de llamar a la función del tablero
                 try:
-                    if conn and not conn.is_connected():
-                        conn.reconnect(attempts=3, delay=1)
+                    if conn:
+                        try:
+                            conn.ping(reconnect=True)
+                        except Exception:
+                            pass
                     
                     # Ahora que la seguridad y la conexión están blindadas, lanzamos el tablero
-                    if conn and conn.is_connected():
+                    if conn:
                         mostrar_tablero_conciliacion(conn, mes_sel, ano_sel)
                     else:
                         st.error("❌ ERROR CRÍTICO: No se pudo establecer conexión con la base de datos.")
@@ -7882,8 +7939,8 @@ elif opcion_menu == "📝 Asientos Contables":
 
             # Asegurar conexión antes de consultar
             try:
-                if not conn.is_connected():
-                    conn.reconnect(attempts=3, delay=1)
+                if conn:
+                    conn.ping(reconnect=True)
             except:
                 pass 
 
@@ -8426,10 +8483,13 @@ elif sub_opcion == "Balance de Comprobación":
 
         except Exception as e:
             st.error(f"Error procesando balance: {e}")
-        
+            
         finally:
-            if conn_temporal.is_connected():
-                conn_temporal.close()
+            if conn_temporal:
+                try:
+                    conn_temporal.close()
+                except Exception:
+                    pass
     else:
         st.error("No se pudo establecer la conexión para el reporte.")
 
@@ -8614,8 +8674,11 @@ elif sub_opcion == "Balance General":
         except Exception as e:
             st.error(f"Error procesando el Balance General: {e}")
         finally:
-            if conn_temporal.is_connected():
-                conn_temporal.close()
+            if conn_temporal:
+                try:
+                    conn_temporal.close()
+                except Exception:
+                    pass
     else:
         st.error("No se pudo conectar a la base de datos del cliente.")
 
@@ -8844,8 +8907,11 @@ elif sub_opcion == "Estado de Resultados":
         except Exception as e:
             st.error(f"Error en Estado de Resultados: {e}")
         finally:
-            if conn_er.is_connected():
-                conn_er.close()
+            if conn_er:
+                try:
+                    conn_er.close()
+                except Exception:
+                    pass
     else:
         st.error("Error al conectar con la base de datos.")
 
@@ -10476,8 +10542,11 @@ elif "Proveedores" in opcion_menu:
             
     finally:
         # 6. Cierre de conexión garantizado
-        if conn_empresa and conn_empresa.is_connected():
-            conn_empresa.close()
+        if conn_empresa:
+            try:
+                conn_empresa.close()
+            except Exception:
+                pass
 
 
 
