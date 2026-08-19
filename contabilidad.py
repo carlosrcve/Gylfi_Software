@@ -586,15 +586,12 @@ def obtener_datos_pie(db, fecha_inicio, fecha_fin):
         return df_vacio
         
     query = f"""
-        SELECT 
-            descripcion as nombre,
-            SUM(debe) as "Saldo Final"
-        FROM `{db}`.asientos_contables 
-        WHERE plan_cuentas LIKE '6%'
-        AND fecha >= %s AND fecha <= %s
-        GROUP BY descripcion
-        HAVING SUM(debe) > 0
-        ORDER BY 2 DESC
+        SELECT descripcion as nombre, SUM(debe) as "Saldo Final" 
+        FROM rishon_letzion_ca.asientos_contables 
+        WHERE plan_cuentas LIKE '6%' AND fecha >= %s AND fecha <= %s 
+        GROUP BY descripcion 
+        HAVING SUM(debe) > 0 
+        ORDER BY 2 DESC 
         LIMIT 10
     """
     
@@ -626,8 +623,8 @@ def obtener_datos_barras(db, fecha_inicio, fecha_fin):
                 ELSE 'Otros' 
             END as Categoría, 
             SUM(haber - debe) as Monto 
-        FROM `{db}`.asientos_contables 
-        WHERE fecha >= %s AND fecha <= %s
+        FROM rishon_letzion_ca.asientos_contables 
+        WHERE fecha >= %s AND fecha <= %s 
         GROUP BY 1
     """
     
