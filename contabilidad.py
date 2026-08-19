@@ -4631,12 +4631,11 @@ def obtener_utilidad_acumulada_historica(db, fecha_corte):
             conn.close()
 
 
-@st.cache_data(ttl=300)
 def obtener_detalle_cashea(db, fecha_inicio, fecha_fin):
-    # 1. Definir la consulta como un string estático para evitar errores de formato
-    # Usamos '2.1.3.01.001%%' para que al pasar por el ejecutor quede como '2.1.3.01.001%'
+    # Cambia 'ref' por el nombre real de la columna si es diferente
+    # Ejemplo: Si la columna se llama 'referencia', cámbiala abajo:
     query = (
-        "SELECT fecha, descripcion, ref, debe, haber, "
+        "SELECT fecha, descripcion, referencia, debe, haber, "  # <--- AJUSTA 'referencia' AQUÍ
         "SUM(haber - debe) OVER (ORDER BY fecha, id) as saldo "
         f"FROM `{str(db).strip()}`.asientos_contables "
         "WHERE plan_cuentas LIKE '2.1.3.01.001%%' "
@@ -4649,10 +4648,10 @@ def obtener_detalle_cashea(db, fecha_inicio, fecha_fin):
         return None
         
     try:
-        # 2. Pasamos los parámetros directamente al cursor
         df = ejecutar_consulta(query, conn, params=(fecha_inicio, fecha_fin))
         return df
     except Exception as e:
+        # Esto te mostrará en la app exactamente qué columnas sí reconoce tu tabla
         print(f"Error en obtener_detalle_cashea: {e}")
         return None
     finally:
