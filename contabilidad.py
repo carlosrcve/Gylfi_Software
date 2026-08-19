@@ -2046,13 +2046,14 @@ def generar_balance_profesional(conn, f_i, f_f, sucursal):
         # ASEGURAR QUE 'codigo' SEA STRING LIMPIO EN PLAN
         df_plan['codigo'] = df_plan['codigo'].astype(str).str.strip().str.replace('.0', '', regex=False)
 
-        # 2. Obtener movimientos
         df_saldos = generar_balance_comprobacion(conn, f_i, f_f, sucursal)
+        # FUERZA EL NOMBRE DE LA COLUMNA A MINÚSCULAS DESDE EL INICIO
+        if 'Código' in df_saldos.columns:
+            df_saldos = df_saldos.rename(columns={'Código': 'codigo'})
         
-        cols_finales = ['codigo', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final']
-        if df_saldos is None or df_saldos.empty:
-            df_saldos = pd.DataFrame(columns=cols_finales)
-            df_saldos = df_saldos.astype({'codigo': str, 'Saldo Inicial': float, 'Debe': float, 'Haber': float, 'Saldo Final': float})
+        # Ahora el merge con el plan será mucho más seguro
+        df_plan['codigo'] = df_plan['codigo'].astype(str).str.strip().str.replace(r'[^0-9]', '', regex=True)
+        df_saldos['codigo'] = df_saldos['codigo'].astype(str).str.strip().str.replace(r'[^0-9]', '', regex=True)
         else:
             renombres = {}
             for col in df_saldos.columns:
@@ -2140,20 +2141,22 @@ def generar_balance_profesional(conn, f_i, f_f, sucursal):
         if cursor: cursor.close()
 
 def generar_balance_comprobacion(conn, f_i, f_f, sucursal):
-    registrar_log_automatico(conn, "BALANCE_COMPROBACION", f"Balance para {st.session_state.get('cliente_id', 'Cliente')}")
+    db = st.session_state.get('DB_ACTUAL')
+    cliente_id = st.session_state.get('cliente_id')
     
-    if not sucursal or not conn:
+    if not db or not conn:
         return pd.DataFrame(columns=['Código', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final'])
     
-    db = st.session_state.get('DB_ACTUAL')
-    if not db:
-        st.error("⚠️ No hay una base de datos de cliente seleccionada en la sesión.")
-        return pd.DataFrame()
+    registrar_log_automatico(conn, "BALANCE_COMPROBACION", f"Balance para cliente ID: {cliente_id} (BD: {db})")
     
     try:
-        # Consultas apuntando a la BD activa del cliente usando el campo 'plan_cuentas' (que es el código)
+        # 1. Saldos Iniciales (La base de toda la historia contable previa)
         sql_si = f"SELECT plan_cuentas, SUM(debe) - SUM(haber) as val FROM `{db}`.saldos_iniciales GROUP BY plan_cuentas"
+        
+        # 2. Asientos anteriores a la fecha de inicio (para ajustar el saldo inicial si la fecha de corte es posterior)
         sql_ac = f"SELECT plan_cuentas, SUM(debe) - SUM(haber) as val FROM `{db}`.asientos_contables WHERE fecha < %s GROUP BY plan_cuentas"
+        
+        # 3. Movimientos del período (Debe y Haber en el rango seleccionado, ej: mayo-junio)
         sql_mo_d = f"SELECT plan_cuentas, SUM(debe) as val FROM `{db}`.asientos_contables WHERE fecha BETWEEN %s AND %s GROUP BY plan_cuentas"
         sql_mo_h = f"SELECT plan_cuentas, SUM(haber) as val FROM `{db}`.asientos_contables WHERE fecha BETWEEN %s AND %s GROUP BY plan_cuentas"
 
@@ -2187,9 +2190,10 @@ def generar_balance_comprobacion(conn, f_i, f_f, sucursal):
             
         balance['Tipo'] = balance['Código'].astype(str).str[0]
         
-        # CÁLCULO VECTORIZADO
+        # Saldo Inicial total = Lo que traía de saldos iniciales + asientos previos a la fecha de filtro
         balance['Saldo Inicial'] = balance['si'] + balance['ac']
         
+        # Naturaleza de las cuentas (Activo/Gasto aumentan por el Debe, Pasivo/Capital/Ingreso por el Haber)
         es_activo_gasto = balance['Tipo'].isin(['1', '5'])
         
         balance['Saldo Final'] = 0.0
@@ -2201,7 +2205,7 @@ def generar_balance_comprobacion(conn, f_i, f_f, sucursal):
         })
 
     except Exception as e:
-        st.error(f"❌ Error crítico en balance de comprobación: {e}")
+        st.error(f"❌ Error crítico procesando el balance para el cliente {cliente_id}: {e}")
         return pd.DataFrame()
 
 
