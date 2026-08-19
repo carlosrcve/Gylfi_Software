@@ -2170,7 +2170,7 @@ def generar_balance_profesional(conn, f_i, f_f, sucursal):
         return None
     finally:
         if cursor: cursor.close()
-
+        
 def generar_balance_comprobacion(conn, f_i, f_f, sucursal):
     registrar_log_automatico(conn, "BALANCE_COMPROBACION", f"Balance para {st.session_state.cliente_id}")
     
