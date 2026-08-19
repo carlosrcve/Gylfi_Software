@@ -3699,11 +3699,17 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
             st.subheader("🚀 Generación de Archivo TXT para el SENIAT")
             st.info("Seleccione el rango de fechas para consolidar las retenciones.")
 
+            # --- BLINDAJE LOCAL DE FECHAS ---
+            from datetime import date as d_tipo
+
+            hoy = d_tipo.today()
+            inicio_mes = hoy.replace(day=1)
+
             col1, col2 = st.columns(2)
             with col1:
-                fecha_inicio = st.date_input("Fecha Inicio", datetime.datetime.now().replace(day=1))
+                fecha_inicio = st.date_input("Fecha Inicio", inicio_mes, key="txt_f_inicio")
             with col2:
-                fecha_fin = st.date_input("Fecha Fin", datetime.datetime.now())
+                fecha_fin = st.date_input("Fecha Fin", hoy, key="txt_f_fin")
 
             if st.button("🔍 Filtrar y Generar TXT"):
                 # Aseguramos obtener la BD actual de la sesión
