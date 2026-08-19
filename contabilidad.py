@@ -2043,15 +2043,16 @@ def generar_balance_profesional(conn, f_i, f_f, sucursal):
             st.error("⚠️ El plan de cuentas está vacío.")
             return None
 
+        # ASEGURAR QUE 'codigo' SEA STRING LIMPIO EN PLAN
+        df_plan['codigo'] = df_plan['codigo'].astype(str).str.strip().str.replace('.0', '', regex=False)
+
         # 2. Obtener movimientos
         df_saldos = generar_balance_comprobacion(conn, f_i, f_f, sucursal)
         
-        # Crear estructura base si df_saldos está vacío
         cols_finales = ['codigo', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final']
         if df_saldos is None or df_saldos.empty:
             df_saldos = pd.DataFrame(columns=cols_finales)
         else:
-            # Normalizar nombres de columnas a 'codigo' y los valores numéricos
             renombres = {}
             for col in df_saldos.columns:
                 c_low = str(col).lower()
@@ -2067,32 +2068,45 @@ def generar_balance_profesional(conn, f_i, f_f, sucursal):
             query_s_init = f"SELECT cuenta_contable AS codigo, (COALESCE(debe, 0) - COALESCE(haber, 0)) AS saldo_inicial_neto FROM `{db}`.saldos_iniciales"
             df_init = ejecutar_consulta(query_s_init, conn)
             if df_init is not None and not df_init.empty:
+                df_init['codigo'] = df_init['codigo'].astype(str).str.strip().str.replace('.0', '', regex=False)
                 df_init = df_init.groupby('codigo', as_index=False)['saldo_inicial_neto'].sum()
-                df_saldos = pd.merge(df_saldos, df_init, on='codigo', how='outer')
-                df_saldos['Saldo Inicial'] = df_saldos['Saldo Inicial'].fillna(0.0) + df_saldos['saldo_inicial_neto'].fillna(0.0)
-                df_saldos = df_saldos.drop(columns=['saldo_inicial_neto'])
+                
+                if 'codigo' in df_saldos.columns:
+                    df_saldos['codigo'] = df_saldos['codigo'].astype(str).str.strip().str.replace('.0', '', regex=False)
+                    df_saldos = pd.merge(df_saldos, df_init, on='codigo', how='outer')
+                    df_saldos['Saldo Inicial'] = df_saldos['Saldo Inicial'].fillna(0.0) + df_saldos['saldo_inicial_neto'].fillna(0.0)
+                    df_saldos = df_saldos.drop(columns=['saldo_inicial_neto'])
+                else:
+                    df_saldos = df_init.rename(columns={'saldo_inicial_neto': 'Saldo Inicial'})
+                    df_saldos['Debe'] = 0.0
+                    df_saldos['Haber'] = 0.0
+                    df_saldos['Saldo Final'] = df_saldos['Saldo Inicial']
         except:
             pass
 
-        # Asegurar columnas necesarias
+        # Asegurar columnas necesarias y formato de tipo texto en saldos
         for c in cols_finales:
             if c not in df_saldos.columns: df_saldos[c] = 0.0
         
-        # 4. Merge Final
+        df_saldos['codigo'] = df_saldos['codigo'].astype(str).str.strip().str.replace('.0', '', regex=False)
+
+        # 4. Merge Final garantizando tipos iguales (string vs string)
         df = pd.merge(df_plan, df_saldos[cols_finales], on='codigo', how='left')
-        df[cols_finales[1:]] = df[cols_finales[1:]].fillna(0.0)
+        
+        cols_num = ['Saldo Inicial', 'Debe', 'Haber', 'Saldo Final']
+        df[cols_num] = df[cols_num].fillna(0.0)
 
         # 5. Cálculo Jerárquico
-        padres_codigos = df['padre'].dropna().unique()
-        df.loc[df['codigo'].isin(padres_codigos), cols_finales[1:]] = 0.0
+        padres_codigos = df['padre'].dropna().astype(str).str.strip().unique()
+        df.loc[df['codigo'].isin(padres_codigos), cols_num] = 0.0
         df['Saldo Final'] = df['Saldo Inicial'] + df['Debe'] - df['Haber']
         
         for n in sorted(df['nivel'].unique(), reverse=True):
             if n <= 1: continue
             for p_cod, grupo in df[df['nivel'] == n].groupby('padre'):
-                mask = df['codigo'] == p_cod
+                mask = df['codigo'] == str(p_cod).strip()
                 if mask.any():
-                    df.loc[mask, cols_finales[1:]] += grupo[cols_finales[1:]].sum()
+                    df.loc[mask, cols_num] += grupo[cols_num].sum()
 
         # 6. Fila Total
         fila_total = pd.DataFrame([{
@@ -2113,74 +2127,68 @@ def generar_balance_comprobacion(conn, f_i, f_f, sucursal):
     registrar_log_automatico(conn, "BALANCE_COMPROBACION", f"Balance para {st.session_state.cliente_id}")
     
     if not sucursal or not conn:
-        return pd.DataFrame(columns=['Código', 'Debe', 'Haber', 'Saldo Inicial', 'Saldo Final'])
+        return pd.DataFrame(columns=['Código', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final'])
     
     db = st.session_state.get('DB_ACTUAL')
     
     try:
-        # Volvemos a usar 'plan_cuentas' que es el nombre real de la columna en las tablas transaccionales
-        sql_si = f"SELECT plan_cuentas, SUM(debe) - SUM(haber) as val FROM `{db}`.saldos_iniciales GROUP BY plan_cuentas"
-        sql_ac = f"SELECT plan_cuentas, SUM(debe) - SUM(haber) as val FROM `{db}`.asientos_contables WHERE fecha < %s GROUP BY plan_cuentas"
-        sql_mo_d = f"SELECT plan_cuentas, SUM(debe) as val FROM `{db}`.asientos_contables WHERE fecha BETWEEN %s AND %s GROUP BY plan_cuentas"
-        sql_mo_h = f"SELECT plan_cuentas, SUM(haber) as val FROM `{db}`.asientos_contables WHERE fecha BETWEEN %s AND %s GROUP BY plan_cuentas"
+        # Usamos 'codigo' en vez de 'plan_cuentas' basándonos en tu estructura de tablas
+        # Agregamos CAST(codigo AS CHAR) para asegurar que todos sean texto al agrupar
+        sql_si = f"SELECT codigo, SUM(debe) - SUM(haber) as val FROM `{db}`.saldos_iniciales GROUP BY codigo"
+        sql_ac = f"SELECT codigo, SUM(debe) - SUM(haber) as val FROM `{db}`.asientos_contables WHERE fecha < %s GROUP BY codigo"
+        sql_mo_d = f"SELECT codigo, SUM(debe) as val FROM `{db}`.asientos_contables WHERE fecha BETWEEN %s AND %s GROUP BY codigo"
+        sql_mo_h = f"SELECT codigo, SUM(haber) as val FROM `{db}`.asientos_contables WHERE fecha BETWEEN %s AND %s GROUP BY codigo"
 
-        # Ejecución de consultas
-        df_si = ejecutar_consulta(sql_si, conn)
-        df_ac = ejecutar_consulta(sql_ac, conn, params=(f_i,))
-        df_md = ejecutar_consulta(sql_mo_d, conn, params=(f_i, f_f))
-        df_mh = ejecutar_consulta(sql_mo_h, conn, params=(f_i, f_f))
+        dfs = {
+            'si': ejecutar_consulta(sql_si, conn),
+            'ac': ejecutar_consulta(sql_ac, conn, params=(f_i,)),
+            'debe': ejecutar_consulta(sql_mo_d, conn, params=(f_i, f_f)),
+            'haber': ejecutar_consulta(sql_mo_h, conn, params=(f_i, f_f))
+        }
 
-        # Renombrar 'plan_cuentas' a 'Código' de forma unificada en cada DataFrame antes del índice
-        for df, nuevo_nombre in zip([df_si, df_ac, df_md, df_mh], ['si', 'ac', 'debe', 'haber']):
+        lista_frames = []
+        for nombre, df in dfs.items():
             if df is not None and not df.empty:
-                # Detectar cómo se llama la columna de cuenta (puede ser plan_cuentas)
-                col_encontrada = next((c for c in df.columns if 'plan_cuenta' in str(c).lower() or 'codigo' in str(c).lower()), None)
-                if col_encontrada:
-                    df.rename(columns={col_encontrada: 'Código', 'val': nuevo_nombre}, inplace=True)
-                    df.set_index('Código', inplace=True)
+                # Estandarizar nombre de columna y tipo de dato a string limpio
+                col_name = [c for c in df.columns if 'codigo' in c.lower() or 'plan_cuenta' in c.lower()][0]
+                df = df.rename(columns={col_name: 'Código', 'val': nombre})
+                df['Código'] = df['Código'].astype(str).str.strip().str.replace('.0', '', regex=False)
+                df = df.set_index('Código')
+                lista_frames.append(df)
 
-        # Filtrar DataFrames válidos que tengan índice
-        lista_a_concatenar = [d for d in [df_si, df_ac, df_md, df_mh] if d is not None and not d.empty and isinstance(d.index, pd.Index) and len(d.index) > 0]
-        
-        if not lista_a_concatenar:
+        if not lista_frames:
             return pd.DataFrame(columns=['Código', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final'])
 
-        # Concatenar horizontalmente por el código de cuenta
-        balance = pd.concat(lista_a_concatenar, axis=1).fillna(0)
-        balance.index.name = 'Código'
+        # Concatenación segura (join externo por índice)
+        balance = pd.concat(lista_frames, axis=1).fillna(0)
         balance.reset_index(inplace=True)
         
-        # Cálculo final
+        # Cálculo final (Asegurando que las columnas existan)
+        for c in ['si', 'ac', 'debe', 'haber']:
+            if c not in balance.columns: balance[c] = 0.0
+            
         balance['Tipo'] = balance['Código'].astype(str).str[0]
         
         def calcular(row):
-            si = row.get('si', 0)
-            ac = row.get('ac', 0)
-            debe = row.get('debe', 0)
-            haber = row.get('haber', 0)
-            
-            si_bruto = si + ac
+            si_bruto = row['si'] + row['ac']
+            # Lógica contable: 1 y 5 (Activos/Gastos) vs resto
             if row['Tipo'] in ['1', '5']:
-                s_final = si_bruto + debe - haber
+                s_final = si_bruto + row['debe'] - row['haber']
             else:
-                s_final = si_bruto - debe + haber
+                s_final = si_bruto - row['debe'] + row['haber']
             return pd.Series([si_bruto, s_final])
 
         balance[['Saldo Inicial', 'Saldo Final']] = balance.apply(calcular, axis=1)
         
-        if 'debe' not in balance.columns: balance['debe'] = 0.0
-        if 'haber' not in balance.columns: balance['haber'] = 0.0
-
         return balance[['Código', 'Saldo Inicial', 'debe', 'haber', 'Saldo Final']].rename(columns={
-            'debe': 'Debe', 
-            'haber': 'Haber'
+            'debe': 'Debe', 'haber': 'Haber'
         })
 
     except Exception as e:
         st.error(f"❌ Error crítico en balance de comprobación: {e}")
         return pd.DataFrame()
 
-
+        
 @st.cache_data(ttl=300)
 def formato_contable(valor):
     """Formatea los números como montos contables de Venezuela (Bs. 1.234,56)"""
