@@ -5228,20 +5228,7 @@ if menu_lateral == "📊 Auditoría Contable":
         st.selectbox("Mes", meses_lista, key="mes_seleccionado")
 
 
-# --- DEPURACIÓN DE SEGURIDAD ---
-st.sidebar.subheader("Diagnóstico de Datos")
-db_actual = st.session_state.get('DB_ACTUAL')
-if db_actual:
-    st.sidebar.write(f"Empresa: {db_actual}")
-    st.sidebar.write(f"Año: {año}, Mes: {num_mes}")
-    
-    # Prueba de conexión básica
-    conn_test = conectar_db(db_actual)
-    if conn_test:
-        st.sidebar.success("✅ Conexión OK")
-        conn_test.close()
-    else:
-        st.sidebar.error("❌ Falló la conexión a la BD")
+
 
 # Verifica si el df_acc o el df_gastos tienen filas antes de graficar
 if 'df_gastos_c6' in locals() and df_gastos_c6.empty:
@@ -5369,6 +5356,21 @@ if "🏠 Inicio" in opcion_menu:
         st.title("📊 Auditoría Profesional")
         st.markdown(f"**Período de Análisis (Acumulado):** {f_inicio_global.strftime('%d/%m/%Y')} al {f_fin_global.strftime('%d/%m/%Y')}")
         st.divider()
+
+    # --- DEPURACIÓN DE SEGURIDAD ---
+    st.sidebar.subheader("Diagnóstico de Datos")
+    db_actual = st.session_state.get('DB_ACTUAL')
+    if db_actual:
+        st.sidebar.write(f"Empresa: {db_actual}")
+        st.sidebar.write(f"Año: {año}, Mes: {num_mes}")
+        
+        # Prueba de conexión básica
+        conn_test = conectar_db(db_actual)
+        if conn_test:
+            st.sidebar.success("✅ Conexión OK")
+            conn_test.close()
+        else:
+            st.sidebar.error("❌ Falló la conexión a la BD")
         
     # --- FILA 1: INDICADORES FINANCIEROS ---
     col_titulo, col_vacia, col_btn = st.columns([0.5, 0.3, 0.2])
