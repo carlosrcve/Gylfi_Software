@@ -7919,6 +7919,77 @@ elif opcion_menu == "📝 Asientos Contables":
                     st.error(f"❌ Error al conectar con el tablero: {e}")
 
 
+        # --- TAB 5: CIERRE DE MES (CANDADO DE SEGURIDAD) ---
+        with tab5:
+            st.subheader("🔒 Cierre y Bloqueo de Mes")
+            
+            db_actual = st.session_state.get('DB_ACTUAL')
+            cliente_id = st.session_state.get('cliente_id')
+            rol = st.session_state.get('rol')
+
+            if not db_actual:
+                st.error("No se ha seleccionado una base de datos de empresa.")
+                st.stop()
+
+            empresa_data = obtener_datos_agente_db(db_actual)
+
+            if empresa_data and rol != 'admin':
+                if empresa_data['id'] != cliente_id:
+                    st.error("⚠️ Acceso denegado: No tienes permisos para esta empresa.")
+                    st.stop()
+
+            mes_map = {
+                "Enero": 1, "Febrero": 2, "Marzo": 3, "Abril": 4, "Mayo": 5, "Junio": 6,
+                "Julio": 7, "Agosto": 8, "Septiembre": 9, "Octubre": 10, "Noviembre": 11, "Diciembre": 12
+            }
+            mes_num = mes_map[mes_sel]
+
+            try:
+                if 'conn' in locals() and conn:
+                    conn.ping(reconnect=True)
+                else:
+                    conn = conectar_db(db_actual)
+            except Exception as e:
+                st.error(f"Error de conexión con la base de datos: {e}")
+                st.stop()
+
+            try:
+                cursor = conn.cursor(buffered=True)
+                query_check = f"SELECT COUNT(*) FROM `{db_actual}`.banco_movimientos WHERE MONTH(fecha_movimiento) = %s AND YEAR(fecha_movimiento) = %s AND estado_conciliacion = 'Cerrado'"
+                cursor.execute(query_check, (mes_num, ano_sel))
+                es_cerrado = cursor.fetchone()[0] > 0
+            except Exception as e:
+                st.error(f"Error al verificar el estado del mes: {e}")
+                es_cerrado = False
+            finally:
+                if 'cursor' in locals() and cursor:
+                    cursor.close()
+
+            if es_cerrado:
+                st.error(f"🔒 El mes de {mes_sel} {ano_sel} en {empresa_data.get('nombre_empresa', db_actual)} está CERRADO.")
+            else:
+                st.warning("⚠️ Acción irreversible: El cierre de mes bloquea ediciones.")
+                if st.checkbox("✅ Entiendo las consecuencias, quiero cerrar el mes", key="chk_cierre"):
+                    if st.button("Confirmar Cierre de Mes", type="primary"):
+                        try:
+                            cursor = conn.cursor()
+                            query_update = f"""
+                                UPDATE `{db_actual}`.banco_movimientos 
+                                SET estado_conciliacion = 'Cerrado' 
+                                WHERE MONTH(fecha_movimiento) = %s AND YEAR(fecha_movimiento) = %s
+                            """
+                            cursor.execute(query_update, (mes_num, ano_sel))
+                            conn.commit()
+                            st.success("✅ Mes cerrado con éxito.")
+                            st.rerun()
+                        except Exception as e:
+                            conn.rollback()
+                            st.error(f"❌ Error al ejecutar el cierre de mes: {e}")
+                        finally:
+                            if 'cursor' in locals() and cursor:
+                                cursor.close()
+
+
     elif sub_opcion == "Consultar Saldos Iniciales":
         st.subheader("🏁 Comprobante de Apertura")
         # 1. SEGURIDAD Y CONTEXTO
