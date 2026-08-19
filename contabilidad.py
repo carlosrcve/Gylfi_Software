@@ -7735,50 +7735,7 @@ elif opcion_menu == "📝 Asientos Contables":
                     except Exception as e:
                         st.error(f"Error al eliminar: {e}")
 
-    # ==========================================
-    # --- TAB 2: IMPORTACIÓN DE MOVIMIENTOS ---
-    # ==========================================
-    with tab2:
-        st.subheader("📂 Importar nuevo estado de cuenta")
-
-        if rol != 'admin' and empresa_data.get('id') != cliente_id:
-            st.error("⚠️ Acceso denegado: No tienes permisos para esta empresa.")
-        else:
-            banco_sel = st.selectbox("Seleccione el Banco", ["Banco de Venezuela (BDV)", "Banesco", "Mercantil"], key="banco_select")
-            archivo_banco = st.file_uploader("Suba el archivo Excel (.xlsx) del banco", type=["xlsx"], key="file_banco")
-
-            if archivo_banco:
-                if st.button("Procesar e Importar", key="btn_procesar_importar"):
-                    with st.spinner(f"Procesando archivo de {banco_sel}..."):
-                        try:
-                            if conn:
-                                try:
-                                    conn.ping(reconnect=True)
-                                except Exception:
-                                    conn = conectar_db(db_actual)
-                                    st.session_state['conn_conciliacion'] = conn
-                            else:
-                                conn = conectar_db(db_actual)
-                                st.session_state['conn_conciliacion'] = conn
-
-                            resultado = False
-                            
-                            if banco_sel == "Banco de Venezuela (BDV)":
-                                resultado = cargar_estado_cuenta_bdv(archivo_banco, conn)
-                            elif banco_sel == "Banesco":
-                                resultado = cargar_estado_cuenta_banesco(archivo_banco, conn)
-                            elif banco_sel == "Mercantil":
-                                resultado = cargar_estado_cuenta_mercantil(archivo_banco, conn)
-                            
-                            if resultado:
-                                st.success(f"✅ Movimientos de {banco_sel} importados con éxito.")
-                                st.balloons()
-                                st.rerun()
-                            else:
-                                st.error(f"❌ No se pudieron procesar los datos de {banco_sel}.")
-                                
-                        except Exception as e:
-                            st.error(f"Error crítico procesando {banco_sel}: {e}")
+   
 
     elif sub_opcion == "Consultar Saldos Iniciales":
         st.subheader("🏁 Comprobante de Apertura")
