@@ -7374,14 +7374,19 @@ elif opcion_menu == "📝 Asientos Contables":
                 with col2:
                     f_fin = st.date_input("Fecha Fin")
 
-                # ABRIMOS la conexión primero
-                conn_temp = conectar_db(db_actual)
+                # CORREGIDO: Usamos 'db_nombre' en lugar de 'db_actual' para evitar errores de variable no definida
+                conn_temp = conectar_db(db_nombre)
                 
-                # Pasamos la conexión (objeto), no el nombre (string)
-                df_diario = consultar_libro_diario_db(conn_activa=conn_temp, fecha_inicio=f_inicio, fecha_fin=f_fin)
-                
-                # CERRAMOS la conexión después de usarla
-                conn_temp.close()
+                try:
+                    # Pasamos la conexión (objeto), no el nombre (string)
+                    df_diario = consultar_libro_diario_db(conn_activa=conn_temp, fecha_inicio=f_inicio, fecha_fin=f_fin)
+                except Exception as e:
+                    st.error(f"❌ Error al consultar el libro diario: {e}")
+                    df_diario = None
+                finally:
+                    # CERRAMOS la conexión de forma segura en un bloque finally
+                    if conn_temp:
+                        conn_temp.close()
                 
                 # --- 3. Visualización limpia ---
                 if df_diario is not None and not df_diario.empty:
@@ -7400,7 +7405,6 @@ elif opcion_menu == "📝 Asientos Contables":
                     # 2. Botón de Guardar
                     if st.button("💾 Guardar Cambios"):
                         # Alinear tipos de datos antes de comparar
-                        # Esto asegura que estamos comparando manzanas con manzanas
                         df_editado_limpio = df_editado.astype(df_diario.dtypes)
                         
                         # Comparamos
@@ -7409,7 +7413,7 @@ elif opcion_menu == "📝 Asientos Contables":
                             cambios = df_editado_limpio[df_editado_limpio.ne(df_diario).any(axis=1)]
                             
                             try:
-                                exito = actualizar_libro_diario_en_db(db_actual, cambios)
+                                exito = actualizar_libro_diario_en_db(db_nombre, cambios)
                                 if exito:
                                     st.success(f"Se actualizaron {len(cambios)} registros.")
                                     st.rerun()
