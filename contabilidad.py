@@ -577,7 +577,7 @@ def obtener_saldos_acumulados(conexion, fecha_corte, nombre_db):
         return resultado if resultado else {"activo": 0, "pasivo": 0, "patrimonio": 0}
 
     except Exception as e:
-        print(f"Error al obtener saldos acumulados: {e}")
+        st.error(f"🔥 ERROR REAL EN SQL: {e}")  # <-- Esto saldrá directo en la pantalla del dashboard
         return {"activo": 0, "pasivo": 0, "patrimonio": 0}
     finally:
         cur.close()
