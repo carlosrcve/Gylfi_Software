@@ -7699,10 +7699,12 @@ elif opcion_menu == "📝 Asientos Contables":
                     except Exception as e:
                         st.error(f"Error al cargar la tabla de saldos: {e}")
 
-                    # 4. FORMULARIO DE REGISTRO
+                    # 4. FORMULARIO DE REGISTRO000
                     st.markdown("---")
                     st.subheader("➕ Agregar / Editar Saldo")
-                    with st.form("form_saldos_main", clear_on_submit=True):
+                    
+                    # ELIMINAMOS clear_on_submit=True de aquí para evitar el bloqueo del hilo
+                    with st.form("form_saldos_main"):
                         c1, c2 = st.columns(2)
                         m_input = c1.selectbox("Mes", ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", 
                                                      "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"])
