@@ -759,6 +759,7 @@ def obtener_salud_fiscal(db, f_inicio=None, f_fin=None):
     }
     
     if not conn:
+        st.warning("⚠️ No se pudo conectar a la base de datos en obtener_salud_fiscal.")
         return df_default, kpis_default
     
     import datetime
@@ -780,12 +781,13 @@ def obtener_salud_fiscal(db, f_inicio=None, f_fin=None):
 
     # Construcción dinámica de la query para DPP
     if db == 'kingdriver_ca':
-        dpp_query = "SUM(CASE WHEN plan_cuentas LIKE '6.1.1.03.020%' THEN haber ELSE 0 END) as DPP_haber, SUM(CASE WHEN plan_cuentas LIKE '6.1.1.03.020%' THEN debe ELSE 0 END) as DPP_debe"
+        dpp_query = "SUM(CASE WHEN plan_cuentas LIKE '6.1.1.03.020%%' THEN haber ELSE 0 END) as DPP_haber, SUM(CASE WHEN plan_cuentas LIKE '6.1.1.03.020%%' THEN debe ELSE 0 END) as DPP_debe"
     else:
-        dpp_query = """SUM(CASE WHEN plan_cuentas LIKE '6.1.1.03%' AND plan_cuentas NOT LIKE '6.1.1.03.013%' AND plan_cuentas NOT LIKE '6.1.1.03.021%' AND plan_cuentas NOT LIKE '6.1.1.03.022%' THEN haber ELSE 0 END) as DPP_haber,
-                    SUM(CASE WHEN plan_cuentas LIKE '6.1.1.03%' AND plan_cuentas NOT LIKE '6.1.1.03.013%' AND plan_cuentas NOT LIKE '6.1.1.03.021%' AND plan_cuentas NOT LIKE '6.1.1.03.022%' THEN debe ELSE 0 END) as DPP_debe"""
+        dpp_query = """SUM(CASE WHEN plan_cuentas LIKE '6.1.1.03%%' AND plan_cuentas NOT LIKE '6.1.1.03.013%%' AND plan_cuentas NOT LIKE '6.1.1.03.021%%' AND plan_cuentas NOT LIKE '6.1.1.03.022%%' THEN haber ELSE 0 END) as DPP_haber,
+                    SUM(CASE WHEN plan_cuentas LIKE '6.1.1.03%%' AND plan_cuentas NOT LIKE '6.1.1.03.013%%' AND plan_cuentas NOT LIKE '6.1.1.03.021%%' AND plan_cuentas NOT LIKE '6.1.1.03.022%%' THEN debe ELSE 0 END) as DPP_debe"""
 
-    query = f"""
+    # CORREGIDO: Se usa .format() para la BD y '%%' para evitar conflictos con Python
+    query = """
         SELECT 
             YEAR(CAST(fecha AS DATE)) as anio,
             MONTH(CAST(fecha AS DATE)) as mes,
@@ -814,15 +816,14 @@ def obtener_salud_fiscal(db, f_inicio=None, f_fin=None):
             SUM(CASE WHEN plan_cuentas LIKE '2.1.2.01.005%%' THEN debe ELSE 0 END) as retencion_islr_deb,
             SUM(CASE WHEN plan_cuentas LIKE '2.1.2.01.006%%' THEN haber ELSE 0 END) as islr_pagar
             
-        FROM `{db}`.asientos_contables 
+        FROM `{db_segura}`.asientos_contables 
         WHERE CAST(fecha AS DATE) BETWEEN %s AND %s
         GROUP BY anio, mes
         ORDER BY anio ASC, mes ASC
-    """
+    """.format(db_segura=str(db).strip(), dpp_query=dpp_query)
     
     cursor = None
     try:
-        # CORREGIDO: Uso de DictCursor compatible con PyMySQL
         cursor = conn.cursor(pymysql.cursors.DictCursor)
         cursor.execute(query, (str(f_inicio_anual), str(f_fin_anual)))
         resultados = cursor.fetchall()
@@ -905,7 +906,7 @@ def obtener_salud_fiscal(db, f_inicio=None, f_fin=None):
         return df_filtrado[cols_retorno], kpis_fiscales
         
     except Exception as e:
-        print(f"❌ Error al calcular salud fiscal: {e}")
+        st.error(f"❌ Error crítico en `obtener_salud_fiscal`: {e}")
         return df_default, kpis_default
         
     finally:
