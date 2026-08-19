@@ -779,6 +779,7 @@ def obtener_salud_fiscal(db, f_inicio=None, f_fin=None):
 
     f_inicio_anual = datetime.date(anio_base, 1, 1)
     f_fin_anual = datetime.date(anio_base, 12, 31)
+    db_segura = str(db).strip()
 
     # Construcción dinámica de la query para DPP
     if db == 'kingdriver_ca':
@@ -787,7 +788,6 @@ def obtener_salud_fiscal(db, f_inicio=None, f_fin=None):
         dpp_query = """SUM(CASE WHEN plan_cuentas LIKE '6.1.1.03%%' AND plan_cuentas NOT LIKE '6.1.1.03.013%%' AND plan_cuentas NOT LIKE '6.1.1.03.021%%' AND plan_cuentas NOT LIKE '6.1.1.03.022%%' THEN haber ELSE 0 END) as DPP_haber,
                     SUM(CASE WHEN plan_cuentas LIKE '6.1.1.03%%' AND plan_cuentas NOT LIKE '6.1.1.03.013%%' AND plan_cuentas NOT LIKE '6.1.1.03.021%%' AND plan_cuentas NOT LIKE '6.1.1.03.022%%' THEN debe ELSE 0 END) as DPP_debe"""
 
-    # CORREGIDO: Se usa .format() para la BD y '%%' para evitar conflictos con Python
     query = """
         SELECT 
             YEAR(CAST(fecha AS DATE)) as anio,
@@ -821,7 +821,7 @@ def obtener_salud_fiscal(db, f_inicio=None, f_fin=None):
         WHERE CAST(fecha AS DATE) BETWEEN %s AND %s
         GROUP BY anio, mes
         ORDER BY anio ASC, mes ASC
-    """.format(db_segura=str(db).strip(), dpp_query=dpp_query)
+    """.format(db_segura=db_segura, dpp_query=dpp_query)
     
     cursor = None
     try:
@@ -912,9 +912,15 @@ def obtener_salud_fiscal(db, f_inicio=None, f_fin=None):
         
     finally:
         if cursor:
-            cursor.close()
+            try:
+                cursor.close()
+            except Exception:
+                pass
         if conn:
-            conn.close()
+            try:
+                conn.close()
+            except Exception:
+                pass
 
 @st.cache_data(ttl=300)
 def obtener_analisis_gastos_clase6(db, f_i, f_f):
