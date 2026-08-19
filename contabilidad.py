@@ -9063,11 +9063,7 @@ elif opcion_menu == "📚 Libros Fiscales":
         # Mapeamos los índices para asegurar que la pestaña activa se mantenga
         tab1, tab2, tab3 = st.tabs(tab_titles)
 
-        # Si quieres que la lógica de la pestaña activa sea más estricta, 
-        # podrías usar st.session_state.active_tab aquí, pero con los st.tabs, 
-        # Streamlit ya gestiona la navegación de forma nativa.
 
-        # --- PESTAÑA 1: CARGA DESDE EXCEL ---
         # --- EN TU PESTAÑA 1 ---
         with tab1:
             st.subheader("📊 Cargar desde Excel")
@@ -9146,10 +9142,26 @@ elif opcion_menu == "📚 Libros Fiscales":
             col_v1, col_v2, col_v3 = st.columns([1, 1, 1])
             with col_v3:
                 ver_todo_v = st.checkbox("📂 Ver historial completo", key="todo_ventas")
+            
+            # --- BLINDAJE DE FECHAS SEGURO ---
+            from datetime import date as d_tipo, datetime as dt_tipo
+
+            def _obtener_f_segura(key_s):
+                val = st.session_state.get(key_s)
+                if val is not None:
+                    try:
+                        if hasattr(val, 'year') and hasattr(val, 'month'):
+                            return val
+                        elif isinstance(val, str):
+                            return dt_tipo.strptime(val, "%Y-%m-%d").date()
+                    except Exception:
+                        pass
+                return d_tipo.today()
+
             with col_v1:
-                desde_v = st.date_input("Desde", st.session_state.get('f_inicio_global', datetime.date.today()), key="f_desde_v", disabled=ver_todo_v)
+                desde_v = st.date_input("Desde", _obtener_f_segura('f_inicio_global'), key="f_desde_v", disabled=ver_todo_v)
             with col_v2:
-                hasta_v = st.date_input("Hasta", st.session_state.get('f_fin_global', datetime.date.today()), key="f_hasta_v", disabled=ver_todo_v)
+                hasta_v = st.date_input("Hasta", _obtener_f_segura('f_fin_global'), key="f_hasta_v", disabled=ver_todo_v)
 
             if st.button("📊 Consultar Ventas"):
                 conn_query = conectar_db(db_actual)
