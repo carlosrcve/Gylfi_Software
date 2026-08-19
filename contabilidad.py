@@ -2149,13 +2149,14 @@ def generar_balance_comprobacion(conn, f_i, f_f, sucursal):
    
     try:
         # Usamos JOIN para buscar directamente el 'codigo' maestro a través del nombre guardado
-        sql_si = f"SELECT p.codigo, SUM(s.debe) - SUM(s.haber) as val FROM `{db}`.saldos_iniciales s JOIN `{db}`.plan_cuentas p ON s.plan_cuentas = p.nombre GROUP BY p.codigo"
-        df_prueba = ejecutar_consulta(sql_si, conn)
-        st.write("Resultado crudo del SQL:", df_prueba.head())
-        sql_ac = f"SELECT p.codigo, SUM(a.debe) - SUM(a.haber) as val FROM `{db}`.asientos_contables a JOIN `{db}`.plan_cuentas p ON a.plan_cuentas = p.nombre WHERE a.fecha < %s GROUP BY p.codigo"
-        sql_mo_d = f"SELECT p.codigo, SUM(a.debe) as val FROM `{db}`.asientos_contables a JOIN `{db}`.plan_cuentas p ON a.plan_cuentas = p.nombre WHERE a.fecha BETWEEN %s AND %s GROUP BY p.codigo"
-        sql_mo_h = f"SELECT p.codigo, SUM(a.haber) as val FROM `{db}`.asientos_contables a JOIN `{db}`.plan_cuentas p ON a.plan_cuentas = p.nombre WHERE a.fecha BETWEEN %s AND %s GROUP BY p.codigo"
-
+        sql_si = f"SELECT plan_cuentas, SUM(debe) - SUM(haber) as val FROM `{db}`.saldos_iniciales GROUP BY plan_cuentas"
+        
+        sql_ac = f"SELECT plan_cuentas, SUM(debe) - SUM(haber) as val FROM `{db}`.asientos_contables WHERE fecha < %s GROUP BY plan_cuentas"
+        
+        sql_mo_d = f"SELECT plan_cuentas, SUM(debe) as val FROM `{db}`.asientos_contables WHERE fecha BETWEEN %s AND %s GROUP BY plan_cuentas"
+        
+        sql_mo_h = f"SELECT plan_cuentas, SUM(haber) as val FROM `{db}`.asientos_contables WHERE fecha BETWEEN %s AND %s GROUP BY plan_cuentas"
+        
         dfs = {
             'si': ejecutar_consulta(sql_si, conn),
             'ac': ejecutar_consulta(sql_ac, conn, params=(f_i,)),
