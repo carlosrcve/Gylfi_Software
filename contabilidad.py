@@ -1321,39 +1321,35 @@ def consultar_tabla_db(conn, nombre_tabla, limite=None):
 
 @st.cache_data(ttl=300)
 def obtener_datos_agente_db(valor_busqueda):
-    return _obtener_datos_agente_db_real(valor_busqueda)
+    # Usamos una versión 'v2' para que Streamlit detecte que es una función nueva
+    return _obtener_datos_agente_db_v2(valor_busqueda)
 
-def _obtener_datos_agente_db_real(valor_busqueda):
-    # Forzamos a que use la conexión principal
+def _obtener_datos_agente_db_v2(valor_busqueda):
     conn_central = conectar_db() 
     if not conn_central: 
-        st.warning("⚠️ No se pudo conectar a la base de datos central en obtener_datos_agente_db.")
         return None
 
     cursor = None
     try:
-        # Usamos DictCursor de PyMySQL
         cursor = conn_central.cursor(pymysql.cursors.DictCursor)
         
-        # BLINDADO: Seleccionamos * para evitar errores si falta alguna columna específica en la tabla
+        # CONSULTA LIMPIA: Solo pedimos columnas que sabemos que existen según tu captura de pantalla
         if isinstance(valor_busqueda, str):
-            query = "SELECT * FROM clientes WHERE db_nombre = %s"
+            query = "SELECT id, nombre_empresa, rif, db_nombre, estado FROM clientes WHERE db_nombre = %s"
         else:
-            query = "SELECT * FROM clientes WHERE id = %s"
+            query = "SELECT id, nombre_empresa, rif, db_nombre, estado FROM clientes WHERE id = %s"
         
         cursor.execute(query, (valor_busqueda,))
         datos = cursor.fetchone()
         return datos
         
     except Exception as e:
-        st.error(f"❌ Error en consulta DB: {e} | Valor buscado: {valor_busqueda}")
+        st.error(f"❌ Error interno de consulta: {e}")
         return None
         
     finally:
-        if cursor:
-            cursor.close()
-        if conn_central:
-            conn_central.close()
+        if cursor: cursor.close()
+        if conn_central: conn_central.close()
 
 
 def consultar_libro_diario_db(conn_activa=None, fecha_inicio=None, fecha_fin=None):
