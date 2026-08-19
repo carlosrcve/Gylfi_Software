@@ -10242,9 +10242,12 @@ elif opcion_menu == "📚 Libros Fiscales":
                 with st.expander("📅 Filtros de Consulta para Editar", expanded=True):
                     col_f1, col_f2 = st.columns(2)
                     
+                    # --- BLINDAJE LOCAL DE FECHAS (Uso de d_tipo.date) ---
+                    from datetime import date as d_tipo
+
                     # Keys únicas para evitar conflictos
-                    f_inicio_h = col_f1.date_input("Desde", datetime.datetime(2026, 8, 1), key="h_desde_editor")
-                    f_fin_h = col_f2.date_input("Hasta", datetime.datetime(2026, 8, 31), key="h_hasta_editor")
+                    f_inicio_h = col_f1.date_input("Desde", d_tipo(2026, 8, 1), key="h_desde_editor")
+                    f_fin_h = col_f2.date_input("Hasta", d_tipo(2026, 8, 31), key="h_hasta_editor")
                     st.write("") 
                     btn_cargar = st.button("📂 Cargar Historial para Editar", width='stretch', type="primary")
 
