@@ -670,11 +670,12 @@ def obtener_historico_utilidad(db, f_inicio=None, f_fin=None):
         'mes': list(range(1, 13))
     })
 
-    # Consulta optimizada con doble %% para evitar error de formato de Python
-    query = f"""
+    # CORREGIDO: Se quitó la 'f' de la f-string y se usa .format() solo para el nombre de la BD 
+    # para que los '%Y' y los '%%' de SQL queden intactos y Python no los toque.
+    query = """
         SELECT 
-            YEAR(STR_TO_DATE(LEFT(fecha, 10), '%Y-%m-%d')) as anio,
-            MONTH(STR_TO_DATE(LEFT(fecha, 10), '%Y-%m-%d')) as mes,
+            YEAR(STR_TO_DATE(LEFT(fecha, 10), '%%Y-%%m-%%d')) as anio,
+            MONTH(STR_TO_DATE(LEFT(fecha, 10), '%%Y-%%m-%%d')) as mes,
             
             SUM(CASE WHEN TRIM(plan_cuentas) LIKE '4%%' THEN haber ELSE 0 END) as ing_haber,
             SUM(CASE WHEN TRIM(plan_cuentas) LIKE '4%%' THEN debe ELSE 0 END) as ing_debe,
@@ -690,11 +691,11 @@ def obtener_historico_utilidad(db, f_inicio=None, f_fin=None):
             
             SUM(CASE WHEN TRIM(plan_cuentas) LIKE '8%%' THEN debe ELSE 0 END) as oeg_debe,
             SUM(CASE WHEN TRIM(plan_cuentas) LIKE '8%%' THEN haber ELSE 0 END) as oeg_haber
-        FROM `{db}`.asientos_contables 
-        WHERE YEAR(STR_TO_DATE(LEFT(fecha, 10), '%Y-%m-%d')) = %s
-        GROUP BY YEAR(STR_TO_DATE(LEFT(fecha, 10), '%Y-%m-%d')), MONTH(STR_TO_DATE(LEFT(fecha, 10), '%Y-%m-%d'))
+        FROM `{db_segura}`.asientos_contables 
+        WHERE YEAR(STR_TO_DATE(LEFT(fecha, 10), '%%Y-%%m-%%d')) = %s
+        GROUP BY YEAR(STR_TO_DATE(LEFT(fecha, 10), '%%Y-%%m-%%d')), MONTH(STR_TO_DATE(LEFT(fecha, 10), '%%Y-%%m-%%d'))
         ORDER BY anio ASC, mes ASC
-    """
+    """.format(db_segura=str(db).strip())
     
     cursor = None
     try:
@@ -711,7 +712,6 @@ def obtener_historico_utilidad(db, f_inicio=None, f_fin=None):
 
         df = df.fillna(0)
 
-        # Cálculos de utilidad
         ingresos = df['ing_haber'] - df['ing_debe']
         costos = df['cos_debe'] - df['cos_haber']
         gastos = (df['gas_debe'] - df['gas_haber']).abs()
@@ -731,7 +731,6 @@ def obtener_historico_utilidad(db, f_inicio=None, f_fin=None):
         return df[['anio', 'mes', 'mes_nombre', 'utilidad_mensual', 'utilidad_acumulada']]
         
     except Exception as e:
-        # AQUÍ ESTÁ EL ST.WRITE PARA QUE VEAS EL ERROR EN PANTALLA
         st.error(f"❌ Error crítico en `obtener_historico_utilidad`: {e}")
         st.write("Query ejecutada con anio_base:", anio_base)
         return df_default
