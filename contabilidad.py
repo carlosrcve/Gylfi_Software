@@ -2109,6 +2109,7 @@ def generar_balance_profesional(conn, f_i, f_f, sucursal):
         df['Saldo Final'] = df['Saldo Inicial'] + df['Debe'] - df['Haber']
 
         # 6. Fila Total Global aplicando la ecuación patrimonial exacta
+        # 6. Fila Total Global asegurando la balanza patrimonial en cero
         df_nivel_1 = df[df['nivel'] == 1]
         
         total_debe = float(df_nivel_1['Debe'].sum())
@@ -2118,13 +2119,13 @@ def generar_balance_profesional(conn, f_i, f_f, sucursal):
         total_saldo_final_neto = 0.0
 
         for _, row in df_nivel_1.iterrows():
-            digito = str(row['codigo'])[0]
+            digito = str(row['codigo']).strip()[0]
             s_ini = float(row['Saldo Inicial'])
             s_fin = float(row['Saldo Final'])
             
-            # Activos (1) y Cuentas de Ingresos (6, 7) suman (+)
-            # Pasivos (2), Patrimonio (3), Costos/Gastos (4, 5) y Otros Egresos (8) restan (-)
-            if digito in ['1', '6', '7']:
+            # Cuentas de naturaleza deudora (1, 4, 5, 8) vs Acreedora (2, 3, 6, 7)
+            # Para que la balanza neta dé cero, las acreedoras deben restar al sumarse algebraicamente con las deudoras
+            if digito in ['1', '4', '5', '8']:
                 total_saldo_inicial_neto += s_ini
                 total_saldo_final_neto += s_fin
             else:
@@ -2137,10 +2138,10 @@ def generar_balance_profesional(conn, f_i, f_f, sucursal):
             'nivel': 0, 
             'tipo': 'Total', 
             'padre': None,
-            'Saldo Inicial': total_saldo_inicial_neto, 
-            'Debe': total_debe,       # Suma real de movimientos del Debe
-            'Haber': total_haber,     # Suma real de movimientos del Haber
-            'Saldo Final': total_saldo_final_neto  # Ecuación patrimonial neta
+            'Saldo Inicial': round(total_saldo_inicial_neto, 2), # Cierra en 0.00
+            'Debe': total_debe,                               # Suma real de movimientos
+            'Haber': total_haber,                             # Suma real de movimientos
+            'Saldo Final': round(total_saldo_final_neto, 2)     # Cierra en 0.00
         }])
         
         cols_salida = ['codigo', 'nombre', 'nivel', 'tipo', 'padre', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final']
