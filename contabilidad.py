@@ -2026,6 +2026,9 @@ def mostrar_interfaz_mayor(f_ini_g, f_fin_g, db_nombre):
 
 
 
+import pandas as pd
+import streamlit as st
+
 def generar_balance_profesional(conn, f_i, f_f, sucursal):
     db = st.session_state.get('DB_ACTUAL')
     if not db:
@@ -2105,19 +2108,28 @@ def generar_balance_profesional(conn, f_i, f_f, sucursal):
         # Recalcular saldo final global de cada fila por seguridad
         df['Saldo Final'] = df['Saldo Inicial'] + df['Debe'] - df['Haber']
 
-        # 6. Fila Total Global respetando la naturaleza de las cuentas de Nivel 1
+        # 6. Fila Total Global aplicando la ecuación patrimonial exacta
         df_nivel_1 = df[df['nivel'] == 1]
         
-        # Cálculo neto aplicando la ecuación patrimonial (Activo - Pasivo - Patrimonio + Ingresos - Gastos...)
+        total_debe = float(df_nivel_1['Debe'].sum())
+        total_haber = float(df_nivel_1['Haber'].sum())
+
+        total_saldo_inicial_neto = 0.0
         total_saldo_final_neto = 0.0
+
         for _, row in df_nivel_1.iterrows():
             digito = str(row['codigo'])[0]
-            s_final = float(row['Saldo Final'])
-            # Cuentas de naturaleza deudora suman, acreedoras restan para cerrar a cero en la balanza neta
-            if digito in ['1', '4', '5']:
-                total_saldo_final_neto += s_final
+            s_ini = float(row['Saldo Inicial'])
+            s_fin = float(row['Saldo Final'])
+            
+            # Activos (1) y Cuentas de Ingresos (6, 7) suman (+)
+            # Pasivos (2), Patrimonio (3), Costos/Gastos (4, 5) y Otros Egresos (8) restan (-)
+            if digito in ['1', '6', '7']:
+                total_saldo_inicial_neto += s_ini
+                total_saldo_final_neto += s_fin
             else:
-                total_saldo_final_neto -= s_final
+                total_saldo_inicial_neto -= s_ini
+                total_saldo_final_neto -= s_fin
 
         fila_total = pd.DataFrame([{
             'codigo': 'Σ', 
@@ -2125,15 +2137,13 @@ def generar_balance_profesional(conn, f_i, f_f, sucursal):
             'nivel': 0, 
             'tipo': 'Total', 
             'padre': None,
-            'Saldo Inicial': float(df_nivel_1['Saldo Inicial'].sum()), 
-            'Debe': float(df_nivel_1['Debe'].sum()),
-            'Haber': float(df_nivel_1['Haber'].sum()), 
-            'Saldo Final': total_saldo_final_neto
+            'Saldo Inicial': total_saldo_inicial_neto, 
+            'Debe': total_debe,       # Suma real de movimientos del Debe
+            'Haber': total_haber,     # Suma real de movimientos del Haber
+            'Saldo Final': total_saldo_final_neto  # Ecuación patrimonial neta
         }])
         
-        # Columnas de salida respetando la estructura que exige tu visualización
         cols_salida = ['codigo', 'nombre', 'nivel', 'tipo', 'padre', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final']
-        
         df_final = pd.concat([df[cols_salida], fila_total[cols_salida]], ignore_index=True)
         return df_final
 
