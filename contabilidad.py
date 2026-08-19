@@ -10583,6 +10583,8 @@ elif opcion_menu == "📚 Libros Fiscales":
     elif sub_opcion == "Comprobante de Retención IVA":
         # 1. Aseguramos que el módulo datetime esté disponible con su alias correcto
         import datetime as dt 
+
+       
         
         # 2. Validamos la conexión antes de entrar a la interfaz pesada
         db_actual = st.session_state.get('DB_ACTUAL', 'railway')
@@ -10591,7 +10593,6 @@ elif opcion_menu == "📚 Libros Fiscales":
         if conn_valida:
             # Pasamos 'conn_valida' como primer parámetro
             mostrar_interfaz_retencion_iva(
-                conn_valida,
                 EMPRESA, 
                 st.session_state.get('f_inicio_global', dt.date.today()), 
                 st.session_state.get('f_fin_global', dt.date.today())
