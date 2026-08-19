@@ -2051,7 +2051,9 @@ def generar_balance_profesional(conn, f_i, f_f, sucursal):
         
         cols_finales = ['codigo', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final']
         if df_saldos is None or df_saldos.empty:
-            df_saldos = pd.DataFrame(columns=cols_finales)
+            # Inicializamos con tipos explícitos para evitar conflictos
+            df_saldos = pd.DataFrame(columns=['codigo', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final'])
+            df_saldos = df_saldos.astype({'Saldo Inicial': float, 'Debe': float, 'Haber': float, 'Saldo Final': float})
         else:
             renombres = {}
             for col in df_saldos.columns:
@@ -2167,18 +2169,17 @@ def generar_balance_comprobacion(conn, f_i, f_f, sucursal):
             
         balance['Tipo'] = balance['Código'].astype(str).str[0]
         
-        # Corrección: Retornar tupla simple de floats limpios
+        # Nueva lógica para calcular, evitando Series de pandas en la asignación
         def calcular(row):
             si_bruto = float(row['si']) + float(row['ac'])
             if row['Tipo'] in ['1', '5']:
                 s_final = si_bruto + float(row['debe']) - float(row['haber'])
             else:
                 s_final = si_bruto - float(row['debe']) + float(row['haber'])
-            return pd.Series([float(si_bruto), float(s_final)], index=['Saldo Inicial', 'Saldo Final'])
+            return si_bruto, s_final # Retornamos tupla simple
 
-        res_calculo = balance.apply(calcular, axis=1)
-        balance['Saldo Inicial'] = res_calculo['Saldo Inicial']
-        balance['Saldo Final'] = res_calculo['Saldo Final']
+        # Aplicamos la función y expandimos en las columnas
+        balance[['Saldo Inicial', 'Saldo Final']] = balance.apply(calcular, axis=1, result_type='expand')
         
         return balance[['Código', 'Saldo Inicial', 'debe', 'haber', 'Saldo Final']].rename(columns={
             'debe': 'Debe', 'haber': 'Haber'
@@ -2188,7 +2189,7 @@ def generar_balance_comprobacion(conn, f_i, f_f, sucursal):
         st.error(f"❌ Error crítico en balance de comprobación: {e}")
         return pd.DataFrame()
 
-        
+
 @st.cache_data(ttl=300)
 def formato_contable(valor):
     """Formatea los números como montos contables de Venezuela (Bs. 1.234,56)"""
