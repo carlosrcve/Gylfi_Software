@@ -1272,7 +1272,7 @@ def actualizar_tabla_completa_db(conn, nombre_tabla, df_nuevo):
 
 
 def consultar_tabla_db(conn, nombre_tabla, limite=None):
-    # 1. Validar nombre de tabla
+    # 1. Validar nombre de tabla para evitar inyección SQL
     if not re.match(r"^[a-zA-Z0-9_]+$", str(nombre_tabla)):
         st.error(f"Nombre de tabla inseguro: {nombre_tabla}")
         return None
@@ -1282,17 +1282,13 @@ def consultar_tabla_db(conn, nombre_tabla, limite=None):
         return None
 
     try:
-        # Recuperar contexto del cliente
-        cliente_id = st.session_state.get('cliente_id')
-        
-        # 2. Construcción de consulta con filtro de cliente
-        # Si tienes una columna 'cliente_id' en la tabla, debemos filtrar por ella
-        query = f"SELECT * FROM `{nombre_tabla}` WHERE cliente_id = '{cliente_id}'"
+        # 2. Construcción directa de la consulta para la tabla exacta (ej. 'plan_cuentas')
+        query = f"SELECT * FROM `{nombre_tabla}`"
         
         if limite and isinstance(limite, int):
             query += f" LIMIT {limite}"
             
-        # 3. Ejecutar
+        # 3. Ejecutar a través de tu gestor de consultas
         df = ejecutar_consulta(query, conn)
         return df
 
