@@ -2163,23 +2163,25 @@ def generar_balance_comprobacion(conn, f_i, f_f, sucursal):
         balance = pd.concat(lista_frames, axis=1).fillna(0.0)
         balance.reset_index(inplace=True)
         
+        # Asegurar columnas numéricas estándar como float de Python
         for c in ['si', 'ac', 'debe', 'haber']:
-            if c not in balance.columns: balance[c] = 0.0
+            if c not in balance.columns: 
+                balance[c] = 0.0
             balance[c] = balance[c].astype(float)
             
+        # Extracción del primer dígito para cuentas de tipo Activo/Gasto (1 y 5)
         balance['Tipo'] = balance['Código'].astype(str).str[0]
         
-        # Nueva lógica para calcular, evitando Series de pandas en la asignación
-        def calcular(row):
-            si_bruto = float(row['si']) + float(row['ac'])
-            if row['Tipo'] in ['1', '5']:
-                s_final = si_bruto + float(row['debe']) - float(row['haber'])
-            else:
-                s_final = si_bruto - float(row['debe']) + float(row['haber'])
-            return si_bruto, s_final # Retornamos tupla simple
-
-        # Aplicamos la función y expandimos en las columnas
-        balance[['Saldo Inicial', 'Saldo Final']] = balance.apply(calcular, axis=1, result_type='expand')
+        # CÁLCULO VECTORIZADO (Sin usar .apply(), evitando el error de numpy types)
+        balance['Saldo Inicial'] = balance['si'] + balance['ac']
+        
+        # Máscaras lógicas para tipos contables
+        es_activo_gasto = balance['Tipo'].isin(['1', '5'])
+        
+        # Saldo Final vectorizado según naturaleza
+        balance['Saldo Final'] = 0.0
+        balance.loc[es_activo_gasto, 'Saldo Final'] = balance['Saldo Inicial'] + balance['debe'] - balance['haber']
+        balance.loc[~es_activo_gasto, 'Saldo Final'] = balance['Saldo Inicial'] - balance['debe'] + balance['haber']
         
         return balance[['Código', 'Saldo Inicial', 'debe', 'haber', 'Saldo Final']].rename(columns={
             'debe': 'Debe', 'haber': 'Haber'
