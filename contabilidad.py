@@ -7349,51 +7349,37 @@ elif opcion_menu == "📂 Plan de Cuentas":
         with tab2:
             st.markdown("### 📋 Plan de Cuentas (Edición, Nuevos y Eliminación)")
             
-            # 1. Cargamos los datos actuales de forma segura
-            try:
-                df_actual = consultar_tabla_db(conn_empresa, "plan_cuentas")
-            except Exception as e:
-                st.error(f"Error al consultar la base de datos: {e}")
-                df_actual = pd.DataFrame()
-
+            # 1. Cargamos los datos actuales
+            df_actual = consultar_tabla_db(conn_empresa, "plan_cuentas")
+            
             if df_actual is None or df_actual.empty:
-                st.warning("⚠️ No hay cuentas registradas o la tabla está vacía. Puedes agregar una nueva fila abajo.")
                 df_actual = pd.DataFrame(columns=['id', 'codigo', 'nombre', 'nivel', 'tipo', 'padre'])
-            else:
-                # Limpieza básica para asegurar que Streamlit pueda renderizar los tipos de datos
-                for col in df_actual.columns:
-                    if col in ['codigo', 'nombre', 'tipo', 'padre']:
-                        df_actual[col] = df_actual[col].fillna("").astype(str).replace(['None', 'nan', 'NAT'], '')
-                    elif col in ['id', 'nivel']:
-                        df_actual[col] = pd.to_numeric(df_actual[col], errors='coerce').fillna(0).astype(int)
-
-            # 2. Mostramos un expander de depuración por si acaso
-            with st.expander("Ver DataFrame crudo (Depuración)"):
-                st.write(df_actual)
-
-            # 3. Editor interactivo básico sin configuraciones complejas que puedan bloquearlo
+            
+            # 2. Editor interactivo
+            # num_rows="dynamic" habilita el botón de eliminar (icono de basura) y agregar fila
             df_editado = st.data_editor(
                 df_actual, 
-                key="editor_plan_cuentas_seguro", 
+                key="editor_plan_cuentas", 
                 num_rows="dynamic", 
-                use_container_width=True
+                width='stretch',
+                column_config={
+                    "id": st.column_config.NumberColumn("ID", disabled=True), # ID inalterable
+                    "codigo": st.column_config.TextColumn("Código Contable", required=True),
+                    "nombre": st.column_config.TextColumn("Nombre Cuenta", required=True),
+                    "tipo": st.column_config.SelectboxColumn("Tipo", options=["Activo", "Pasivo", "Patrimonio", "Ingreso", "Egreso"]),
+                }
             )
             
-            # 4. Guardado inteligente
+            # 3. Guardado inteligente
             if st.button("💾 Guardar Cambios en Plan de Cuentas", type="primary"):
                 try:
-                    df_a_guardar = df_editado.copy()
-                    # Limpiar strings vacíos a None para MySQL
-                    df_a_guardar = df_a_guardar.replace(r'^\s*$', None, regex=True)
-                    df_a_guardar = df_a_guardar.where(pd.notnull(df_a_guardar), None)
-                    
-                    actualizar_tabla_completa_db(conn_empresa, "plan_cuentas", df_a_guardar)
-                    
+                    # Usamos tu función de actualización completa
+                    actualizar_tabla_completa_db(conn_empresa, "plan_cuentas", df_editado)
                     st.success("✅ ¡Plan de cuentas actualizado correctamente!")
                     st.balloons()
-                    st.rerun() 
+                    st.rerun() # Recargamos para refrescar IDs si hubo nuevos
                 except Exception as e:
-                    st.error(f"❌ Error al guardar en base de datos: {e}")
+                    st.error(f"❌ Error al guardar: {e}")
 
         with tab3:
             st.markdown("### ⚠️ Vaciar Plan de Cuentas")
