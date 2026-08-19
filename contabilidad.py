@@ -7689,7 +7689,9 @@ elif opcion_menu == "📝 Asientos Contables":
 
                             df_view['saldo_inicial'] = df_view['saldo_inicial'].apply(formatear_moneda)
                             df_view['saldo_final'] = df_view['saldo_final'].apply(formatear_moneda)
-                            st.dataframe(df_view, width='stretch')
+                            
+                            # CORREGIDO: Se usa use_container_width=True para evitar bloqueos
+                            st.dataframe(df_view, use_container_width=True)
                         else:
                             nombre_emp = empresa_data.get('nombre_empresa', 'la empresa')
                             st.info(f"No hay saldos registrados para {nombre_emp}.")
