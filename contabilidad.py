@@ -2140,23 +2140,23 @@ def generar_balance_profesional(conn, f_i, f_f, sucursal):
         if cursor: cursor.close()
 
 def generar_balance_comprobacion(conn, f_i, f_f, sucursal):
-    registrar_log_automatico(conn, "BALANCE_COMPROBACION", f"Balance para {st.session_state.cliente_id}")
+    registrar_log_automatico(conn, "BALANCE_COMPROBACION", f"Balance para {st.session_state.get('cliente_id', 'Cliente')}")
     
     if not sucursal or not conn:
         return pd.DataFrame(columns=['Código', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final'])
     
     db = st.session_state.get('DB_ACTUAL')
-   
+    if not db:
+        st.error("⚠️ No hay una base de datos de cliente seleccionada en la sesión.")
+        return pd.DataFrame()
+    
     try:
-        # Usamos JOIN para buscar directamente el 'codigo' maestro a través del nombre guardado
+        # Consultas apuntando a la BD activa del cliente usando el campo 'plan_cuentas' (que es el código)
         sql_si = f"SELECT plan_cuentas, SUM(debe) - SUM(haber) as val FROM `{db}`.saldos_iniciales GROUP BY plan_cuentas"
-        
         sql_ac = f"SELECT plan_cuentas, SUM(debe) - SUM(haber) as val FROM `{db}`.asientos_contables WHERE fecha < %s GROUP BY plan_cuentas"
-        
         sql_mo_d = f"SELECT plan_cuentas, SUM(debe) as val FROM `{db}`.asientos_contables WHERE fecha BETWEEN %s AND %s GROUP BY plan_cuentas"
-        
         sql_mo_h = f"SELECT plan_cuentas, SUM(haber) as val FROM `{db}`.asientos_contables WHERE fecha BETWEEN %s AND %s GROUP BY plan_cuentas"
-        
+
         dfs = {
             'si': ejecutar_consulta(sql_si, conn),
             'ac': ejecutar_consulta(sql_ac, conn, params=(f_i,)),
@@ -2167,10 +2167,8 @@ def generar_balance_comprobacion(conn, f_i, f_f, sucursal):
         lista_frames = []
         for nombre, df in dfs.items():
             if df is not None and not df.empty:
-                # Verificamos si la columna 'codigo' viene del JOIN
-                if 'codigo' in df.columns:
-                    df = df.rename(columns={'codigo': 'Código', 'val': nombre})
-                    
+                if 'plan_cuentas' in df.columns:
+                    df = df.rename(columns={'plan_cuentas': 'Código', 'val': nombre})
                     df[nombre] = pd.to_numeric(df[nombre], errors='coerce').fillna(0.0)
                     df['Código'] = df['Código'].astype(str).str.strip().str.replace('.0', '', regex=False)
                     df = df.set_index('Código')
@@ -8385,7 +8383,16 @@ elif opcion_menu == "📖 Mayor Analítico":
 
 # E. ESTADOS FINANCIEROS -> BALANCE COMPROBACIÓN
 elif sub_opcion == "Balance de Comprobación":
-    # 1. Obtener datos de sesión
+    
+    # 1. PRIMERO: Asegurar que la sesión tenga los datos del cliente activo (si 'row' viene de una selección previa)
+    # Nota: Asegúrate de que 'row' esté disponible en este scope (por ejemplo, si viene de un selectbox o tibbar lateral)
+    if 'row' in locals() or 'row' in globals():
+        if row and 'db_nombre' in row:
+            st.session_state['DB_ACTUAL'] = row['db_nombre']
+            st.session_state['cliente_id'] = row['cliente_id']
+            st.session_state['CLIENTE_NOMBRE'] = row.get('nombre_empresa', 'Empresa')
+
+    # 2. SEGUNDO: Obtener los datos de sesión ya actualizados
     EMPRESA = st.session_state.get('CLIENTE_NOMBRE', 'Empresa')
     db_actual = st.session_state.get('DB_ACTUAL')
     sucursal = st.session_state.get('SUCURSAL_SELECCIONADA', 'Todas')
@@ -8394,6 +8401,7 @@ elif sub_opcion == "Balance de Comprobación":
     f_inicio_global = st.session_state.get('f_inicio_global', datetime.now().date())
     f_fin_global = st.session_state.get('f_fin_global', datetime.now().date())
     
+    # 3. TERCERO: Validar si la base de datos existe ahora sí
     if not db_actual or db_actual == 'none':
         st.warning("⚠️ Por favor, seleccione un Cliente/Empresa en el panel lateral.")
         st.stop()
