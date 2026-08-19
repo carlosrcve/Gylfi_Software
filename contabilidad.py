@@ -10521,16 +10521,18 @@ elif opcion_menu == "📚 Libros Fiscales":
                             st.warning("💡 Debes ingresar el número de factura.")
 
             # --- TAB 6: XML SENIAT ---
-            # --- TAB 6: XML SENIAT ---
             with tab6:
                 # --- SECCIÓN C: GENERAR ARCHIVO XML SENIAT ---
                 st.divider()
                 st.markdown("### 📡 Generar Archivo XML para Declaración SENIAT")
                 
+                # --- BLINDAJE LOCAL DE FECHAS ---
+                from datetime import date as d_tipo
+
                 with st.container(border=True):
                     col_xml1, col_xml2 = st.columns(2)
-                    f_xml_desde = col_xml1.date_input("Desde", value=datetime.datetime(2026, 4, 1), key="xml_desde")
-                    f_xml_hasta = col_xml2.date_input("Hasta", value=datetime.datetime(2026, 4, 30), key="xml_hasta")
+                    f_xml_desde = col_xml1.date_input("Desde", value=d_tipo(2026, 4, 1), key="xml_desde")
+                    f_xml_hasta = col_xml2.date_input("Hasta", value=d_tipo(2026, 4, 30), key="xml_hasta")
                     
                     # Botón de procesamiento (usando width='content' en lugar de width='content')
                     if st.button("🚀 Procesar Datos XML", width='content'):
