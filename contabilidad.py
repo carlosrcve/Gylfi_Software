@@ -7369,7 +7369,8 @@ elif opcion_menu == "📝 Asientos Contables":
 
             def exportar_a_excel(df):
                 output = io.BytesIO()
-                with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+                # Cambiamos 'xlsxwriter' por 'openpyxl'
+                with pd.ExcelWriter(output, engine='openpyxl') as writer:
                     df.to_excel(writer, index=False, sheet_name='LibroDiario')
                 return output.getvalue()
 
