@@ -7896,6 +7896,46 @@ elif opcion_menu == "📝 Asientos Contables":
                             except Exception as e:
                                 st.error(f"Error al vaciar registros: {e}")
 
+    
+
+        # --- TAB 4: CONCILIACIÓN BANCARIA (TABLERO) ---
+        with tab4:
+            st.subheader("📊 Resumen del Periodo")
+
+            db_actual = st.session_state.get('DB_ACTUAL')
+            cliente_id = st.session_state.get('cliente_id')
+            rol = st.session_state.get('rol')
+
+            if not db_actual:
+                st.error("No se ha seleccionado una base de datos de empresa.")
+                st.stop()
+
+            empresa_data = obtener_datos_agente_db(db_actual)
+
+            if empresa_data and rol != 'admin':
+                if empresa_data['id'] != cliente_id:
+                    st.error("⚠️ Acceso denegado: No tienes permisos para esta empresa.")
+                    st.stop()
+
+            if not empresa_data:
+                st.error("⚠️ No se pudieron cargar los datos de la empresa.")
+            else:
+                try:
+                    if conn:
+                        try:
+                            conn.ping(reconnect=True)
+                        except Exception:
+                            pass
+                    
+                    if conn:
+                        mostrar_tablero_conciliacion(conn, mes_sel, ano_sel)
+                    else:
+                        st.error("❌ ERROR CRÍTICO: No se pudo establecer conexión con la base de datos.")
+                        
+                except Exception as e:
+                    st.error(f"❌ Error al conectar con el tablero: {e}")
+
+
     elif sub_opcion == "Consultar Saldos Iniciales":
         st.subheader("🏁 Comprobante de Apertura")
         # 1. SEGURIDAD Y CONTEXTO
