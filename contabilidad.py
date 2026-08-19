@@ -546,12 +546,12 @@ def obtener_saldos_acumulados(conexion, fecha_corte, nombre_db):
     try:
         cur.execute(f"USE `{db_segura}`")
         
-        # Consulta limpia sin conflictos de comillas en el SQL string
+        # IMPORTANTE: Se usa LIKE '1%%' con doble porcentaje para que Python no lo confunda con formato
         query = """
             SELECT 
-                COALESCE(SUM(CASE WHEN plan_cuentas LIKE '1%' THEN (debe - haber) ELSE 0 END), 0) as activo,
-                COALESCE(SUM(CASE WHEN plan_cuentas LIKE '2%' THEN (haber - debe) ELSE 0 END), 0) as pasivo,
-                COALESCE(SUM(CASE WHEN plan_cuentas LIKE '3%' THEN (haber - debe) ELSE 0 END), 0) as patrimonio
+                COALESCE(SUM(CASE WHEN plan_cuentas LIKE '1%%' THEN (debe - haber) ELSE 0 END), 0) as activo,
+                COALESCE(SUM(CASE WHEN plan_cuentas LIKE '2%%' THEN (haber - debe) ELSE 0 END), 0) as pasivo,
+                COALESCE(SUM(CASE WHEN plan_cuentas LIKE '3%%' THEN (haber - debe) ELSE 0 END), 0) as patrimonio
             FROM (
                 SELECT plan_cuentas, debe, haber 
                 FROM asientos_contables 
