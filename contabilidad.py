@@ -611,25 +611,24 @@ def obtener_datos_pie(db, fecha_inicio, fecha_fin):
 @st.cache_data(ttl=300)
 def obtener_datos_barras(db, fecha_inicio, fecha_fin):
     df_vacio = pd.DataFrame(columns=['Categoría', 'Monto'])
-    
     conn = conectar_db(db)
-    if not conn:
-        return df_vacio
-        
+    if not conn: return df_vacio
+    
+    # FORZAR el nombre de la base de datos de forma segura
     db_segura = str(db).strip()
     
-    query = f"""
-        SELECT 
-            CASE 
-                WHEN plan_cuentas LIKE '4%' THEN 'Ingresos' 
-                WHEN plan_cuentas LIKE '5%' THEN 'Egresos' 
-                ELSE 'Otros' 
-            END as Categoría, 
-            SUM(haber - debe) as Monto 
-        FROM `{db_segura}`.asientos_contables 
-        WHERE fecha >= %s AND fecha <= %s 
-        GROUP BY 1
-    """
+    # Usamos concatenación simple en lugar de f-string para evitar conflictos con %
+    # Y quitamos cualquier símbolo sospechoso
+    query = (
+        "SELECT CASE "
+        "WHEN plan_cuentas LIKE '4%%' THEN 'Ingresos' "
+        "WHEN plan_cuentas LIKE '5%%' THEN 'Egresos' "
+        "ELSE 'Otros' END as Categoría, "
+        "SUM(haber - debe) as Monto "
+        f"FROM `{db_segura}`.asientos_contables "
+        "WHERE fecha >= %s AND fecha <= %s "
+        "GROUP BY 1"
+    )
     
     try:
         df = ejecutar_consulta(query, conn, params=(fecha_inicio, fecha_fin))
@@ -638,11 +637,7 @@ def obtener_datos_barras(db, fecha_inicio, fecha_fin):
         print(f"Error en obtener_datos_barras: {e}")
         return df_vacio
     finally:
-        if conn:
-            try:
-                conn.close()
-            except Exception:
-                pass
+        if conn: conn.close()
 
 
 @st.cache_data(ttl=300)
