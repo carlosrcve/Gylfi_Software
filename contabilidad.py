@@ -2030,8 +2030,6 @@ def generar_balance_profesional(conn, f_i, f_f, sucursal):
         st.error("Papi, no has seleccionado ninguna base de datos.")
         return None
 
-    registrar_log_automatico(conn, "CONSULTA_BALANCE_GENERAL", f"Usuario {st.session_state.usuario} consultó balance para {st.session_state.cliente_id}")
-
     cursor = None
     try:
         cursor = conn.cursor()
@@ -2039,15 +2037,40 @@ def generar_balance_profesional(conn, f_i, f_f, sucursal):
         
         # 1. Obtener datos
         df_saldos = generar_balance_comprobacion(conn, f_i, f_f, sucursal)
+        
+        # --- VALIDACIÓN CRÍTICA DE SALDOS ---
+        if df_saldos is None or df_saldos.empty:
+            st.warning("⚠️ La función 'generar_balance_comprobacion' no devolvió datos para el rango o sucursal seleccionados.")
+            return None
+            
+        # Normalizar nombres de columnas por si vienen con minúsculas u otro formato
+        renombres_saldos = {}
+        for col in df_saldos.columns:
+            col_lower = str(col).lower()
+            if 'codigo' in col_lower: renombres_saldos[col] = 'Código'
+            elif 'inicial' in col_lower: renombres_saldos[col] = 'Saldo Inicial'
+            elif 'debe' in col_lower: renombres_saldos[col] = 'Debe'
+            elif 'haber' in col_lower: renombres_saldos[col] = 'Haber'
+            elif 'final' in col_lower: renombres_saldos[col] = 'Saldo Final'
+        
+        df_saldos = df_saldos.rename(columns=renombres_saldos)
+
+        # Verificar que las columnas requeridas ahora sí existan
+        cols_saldos = ['Código', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final']
+        faltantes_saldos = [c for c in cols_saldos if c not in df_saldos.columns]
+        if faltantes_saldos:
+            st.error(f"❌ Error: Faltan las columnas {faltantes_saldos} en el resultado de saldos. Columnas disponibles: {list(df_saldos.columns)}")
+            return None
+
         query_plan = f"SELECT codigo, nombre, nivel, padre FROM `{db}`.plan_cuentas ORDER BY codigo"
         df_plan = ejecutar_consulta(query_plan, conn)
         
-        # --- AQUÍ ESTÁ LA SOLUCIÓN ---
-        # Eliminamos cualquier columna que no sea la llave o la necesaria para evitar colisiones
-        # Nos quedamos solo con las columnas que el merge necesita
+        if df_plan is None or df_plan.empty:
+            st.error("⚠️ El plan de cuentas está vacío o no se pudo consultar.")
+            return None
+
+        # Seleccionar columnas estrictas
         cols_plan = ['codigo', 'nombre', 'nivel', 'padre']
-        cols_saldos = ['Código', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final']
-        
         df_plan = df_plan[cols_plan]
         df_saldos = df_saldos[cols_saldos]
         
@@ -2059,25 +2082,13 @@ def generar_balance_profesional(conn, f_i, f_f, sucursal):
         df[cols_numericas] = df[cols_numericas].fillna(0).astype(float)
         
         # 1. Limpieza inicial: Ponemos a cero los padres para empezar la suma desde abajo
-        padres_codigos = df['padre'].unique()
-        df.loc[df['codigo'].isin(padres_codigos), cols_numericas] = 0.0
-
-        # 1. Asegurar tipos y valores (nada de NaN)
-        df[cols_numericas] = df[cols_numericas].fillna(0.0).astype(float)
-        
-        # 2. CALCULAR SALDO FINAL PRIMERO (La base real de datos)
-        df['Saldo Final'] = df['Saldo Inicial'] + df['Debe'] - df['Haber']
-        
-        # 3. Limpiar saldos de los padres (Nivel 5 a 2) para que inicien en 0 y solo contengan la suma de hijos
-        # Esto asegura que el roll-up sea puro.
         padres_codigos = df['padre'].dropna().unique()
         df.loc[df['codigo'].isin(padres_codigos), cols_numericas] = 0.0
 
-
-        # Identifica quién está descuadrado:
-
+        # 2. CALCULAR SALDO FINAL PRIMERO (La base real de datos)
+        df['Saldo Final'] = df['Saldo Inicial'] + df['Debe'] - df['Haber']
         
-        # 4. Roll-up jerárquico
+        # 3. Roll-up jerárquico
         niveles = sorted(df['nivel'].unique(), reverse=True)
         
         for n in niveles:
@@ -2087,37 +2098,28 @@ def generar_balance_profesional(conn, f_i, f_f, sucursal):
             
             for p_codigo, fila_suma in resumen.iterrows():
                 p_codigo_str = str(p_codigo).strip()
-                # Usamos .loc para actualizar de forma segura
                 mask = df['codigo'].astype(str).str.strip() == p_codigo_str
                 
                 if mask.any():
-                    # Sumamos los valores del nivel N al nivel N-1
                     df.loc[mask, cols_numericas] += fila_suma
                 else:
                     print(f"⚠️ Alerta: El padre '{p_codigo_str}' no existe en el plan.")
-        # 1. Asegurar que df no sea nulo antes de procesar
+
+        # Validación final de DataFrame vacío
         if df is None or df.empty:
             st.error("⚠️ Error: El DataFrame está vacío o no se pudo generar.")
-            return df  # Retornamos el df vacío para que la app no colapse
-
+            return df 
 
         # --- BLOQUE SEGURO DE PROCESAMIENTO ---
-
-        # 1. Filtramos solo los registros con movimiento real
-        # Suma limpia, sin restas.
-        # Definimos la función genérica para obtener el valor de cualquier columna
-        # 1. Definimos tu función para extraer cualquier columna por código
         def get_columna(cod, col):
             fila = df[df['codigo'].astype(str) == str(cod)]
             return fila[col].sum() if not fila.empty else 0
 
-        # 2. Aplicamos la lógica específica que pediste para los totales
-        # Ajusta los signos (+ o -) según la naturaleza de tus cuentas
-        saldo_inicial = get_columna('1', 'Saldo Inicial') +get_columna('2', 'Saldo Inicial') +get_columna('3', 'Saldo Inicial')+get_columna('4', 'Saldo Inicial')+get_columna('5', 'Saldo Inicial')+get_columna('6', 'Saldo Inicial')+get_columna('7', 'Saldo Inicial')+get_columna('8', 'Saldo Inicial')
-        total_debe = get_columna('1', 'Debe') -get_columna('2', 'Debe') -get_columna('3', 'Debe')-get_columna('4', 'Debe')-get_columna('5', 'Debe')-get_columna('6', 'Debe')-get_columna('7', 'Debe')-get_columna('8', 'Debe')
-        total_haber = get_columna('1', 'Haber') - get_columna('2', 'Haber') - get_columna('4', 'Haber')- get_columna('5', 'Haber')- get_columna('6', 'Haber')- get_columna('7', 'Haber')- get_columna('8', 'Haber')
-        saldo_final_resumen = get_columna('4', 'Saldo Final')+get_columna('5', 'Saldo Final')+get_columna('6', 'Saldo Final')+get_columna('7', 'Saldo Final')+get_columna('8', 'Saldo Final')
-        # 3. Creamos la fila resumen
+        saldo_inicial = get_columna('1', 'Saldo Inicial') + get_columna('2', 'Saldo Inicial') + get_columna('3', 'Saldo Inicial') + get_columna('4', 'Saldo Inicial') + get_columna('5', 'Saldo Inicial') + get_columna('6', 'Saldo Inicial') + get_columna('7', 'Saldo Inicial') + get_columna('8', 'Saldo Inicial')
+        total_debe = get_columna('1', 'Debe') - get_columna('2', 'Debe') - get_columna('3', 'Debe') - get_columna('4', 'Debe') - get_columna('5', 'Debe') - get_columna('6', 'Debe') - get_columna('7', 'Debe') - get_columna('8', 'Debe')
+        total_haber = get_columna('1', 'Haber') - get_columna('2', 'Haber') - get_columna('4', 'Haber') - get_columna('5', 'Haber') - get_columna('6', 'Haber') - get_columna('7', 'Haber') - get_columna('8', 'Haber')
+        saldo_final_resumen = get_columna('4', 'Saldo Final') + get_columna('5', 'Saldo Final') + get_columna('6', 'Saldo Final') + get_columna('7', 'Saldo Final') + get_columna('8', 'Saldo Final')
+        
         fila_total = pd.DataFrame([{
             'codigo': 'Σ',
             'nombre': 'RESUMEN MOVIMIENTOS',
@@ -2129,7 +2131,6 @@ def generar_balance_profesional(conn, f_i, f_f, sucursal):
             'Saldo Final': saldo_final_resumen
         }])
 
-        # 4. Concatenamos
         df = pd.concat([df, fila_total], ignore_index=True)
         return df
 
