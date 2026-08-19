@@ -7604,21 +7604,43 @@ elif opcion_menu == "📝 Asientos Contables":
         st.title("🏦 Conciliación Bancaria")
         st.markdown("---")
 
-        # 1. Recuperamos contexto y validamos
+        # 1. Validación de Contexto Global
         db_actual = st.session_state.get('DB_ACTUAL')
+        cliente_id = st.session_state.get('cliente_id')
+        rol = st.session_state.get('rol')
+
         if not db_actual:
             st.error("No se ha seleccionado una base de datos.")
             st.stop()
 
-        # 2. Abrimos la conexión de forma segura
-        conn = conectar_db(db_actual)
-        
-        if not conn:
-            st.error(f"❌ Error: No se pudo conectar a la base de datos {db_actual}")
+        empresa_data = obtener_datos_agente_db(db_actual)
+        if not empresa_data:
+            st.error("⚠️ No se pudieron cargar los datos de la empresa.")
             st.stop()
-        
+
+        # 2. Conexión Maestra Segura (con reconexión automática si está caída)
+        if 'conn_conciliacion' not in st.session_state or st.session_state.get('db_conexion_actual') != db_actual:
+            st.session_state['conn_conciliacion'] = conectar_db(db_actual)
+            st.session_state['db_conexion_actual'] = db_actual
+
+        conn = st.session_state['conn_conciliacion']
+
         try:
-            # 3. Selectores Globales
+            if conn:
+                conn.ping(reconnect=True)
+            else:
+                conn = conectar_db(db_actual)
+                st.session_state['conn_conciliacion'] = conn
+        except Exception:
+            conn = conectar_db(db_actual)
+            st.session_state['conn_conciliacion'] = conn
+
+        if not conn:
+            st.error(f"❌ Error crítico: No se pudo conectar a la base de datos `{db_actual}`.")
+            st.stop()
+
+        # 3. Selectores Globales de Periodo
+        try:
             col1, col2 = st.columns([1, 1])
             with col1:
                 mes_sel = st.selectbox(
@@ -7630,12 +7652,11 @@ elif opcion_menu == "📝 Asientos Contables":
                 )
             with col2:
                 ano_sel = st.selectbox("Año", [2025, 2026, 2027], index=1, key="ano_seleccionado")
-
         except Exception as e:
             st.error(f"Error al inicializar los selectores globales: {e}")
             st.stop()
 
-        # Tabs: Orden Lógico de trabajo
+        # Pestañas del Módulo
         tab1, tab2, tab3, tab4, tab5 = st.tabs([
             "⚙️ Configuración Saldos", 
             "📂 Importar Movimientos", 
@@ -7644,111 +7665,82 @@ elif opcion_menu == "📝 Asientos Contables":
             "🔒 Cierre de Mes"
         ])
 
-        with tab1:
-            st.subheader("⚙️ Gestión de Saldos Bancarios")
+    # ==========================================
+    # --- TAB 1: CONFIGURACIÓN DE SALDOS ---
+    # ==========================================
+    with tab1:
+        st.subheader("⚙️ Gestión de Saldos Bancarios")
 
-            # 1. SEGURIDAD Y CONTEXTO
-            db_actual = st.session_state.get('DB_ACTUAL')
-            cliente_id = st.session_state.get('cliente_id')
-            rol = st.session_state.get('rol')
+        if rol != 'admin' and empresa_data.get('id') != cliente_id:
+            st.error("⚠️ Acceso denegado: No tienes permisos para esta empresa.")
+        else:
+            try:
+                query_saldos = f"""
+                    SELECT id, banco, mes, ano, saldo_inicial, saldo_final 
+                    FROM `{db_actual}`.saldos_bancarios 
+                    ORDER BY ano DESC, id DESC
+                """
+                df_saldos = ejecutar_consulta(query_saldos, conn)
+                
+                if df_saldos is not None and not df_saldos.empty:
+                    df_view = df_saldos.copy()
+                    
+                    def formatear_moneda(valor):
+                        try:
+                            if pd.isna(valor) or valor is None:
+                                return "0,00"
+                            return "{:,.2f}".format(float(valor)).replace(",", "X").replace(".", ",").replace("X", ".")
+                        except Exception:
+                            return "0,00"
 
-            if not db_actual:
-                st.error("No se ha seleccionado una base de datos de empresa.")
-                st.stop()
-
-            empresa_data = obtener_datos_agente_db(db_actual)
-
-            # 2. FILTRO DE ACCESO
-            if empresa_data and rol != 'admin':
-                if empresa_data.get('id') != cliente_id:
-                    st.error("⚠️ Acceso denegado: No tienes permisos para esta empresa.")
-                    st.stop()
-
-            if not empresa_data:
-                st.error("⚠️ No se pudieron cargar los datos de la empresa.")
-            else:
-                # 3. CARGA DE DATOS DINÁMICA CON CONEXIÓN SEGURA LOCAL
-                conn_tab1 = conectar_db(db_actual)
-                if not conn_tab1:
-                    st.error(f"❌ Error crítico: No se pudo conectar a la base de datos `{db_actual}`.")
+                    df_view['saldo_inicial'] = df_view['saldo_inicial'].apply(formatear_moneda)
+                    df_view['saldo_final'] = df_view['saldo_final'].apply(formatear_moneda)
+                    
+                    st.dataframe(df_view, use_container_width=True)
                 else:
-                    try:
-                        query_saldos = f"""
-                            SELECT id, banco, mes, ano, saldo_inicial, saldo_final 
-                            FROM `{db_actual}`.saldos_bancarios 
-                            ORDER BY ano DESC, id DESC
-                        """
-                        
-                        df_saldos = ejecutar_consulta(query_saldos, conn_tab1)
-                        
-                        if df_saldos is not None and not df_saldos.empty:
-                            df_view = df_saldos.copy()
-                            
-                            def formatear_moneda(valor):
-                                try:
-                                    if pd.isna(valor) or valor is None:
-                                        return "0,00"
-                                    return "{:,.2f}".format(float(valor)).replace(",", "X").replace(".", ",").replace("X", ".")
-                                except Exception:
-                                    return "0,00"
+                    nombre_emp = empresa_data.get('nombre_empresa', 'la empresa')
+                    st.info(f"No hay saldos registrados para {nombre_emp}.")
+                    
+            except Exception as e:
+                st.error(f"Error al cargar la tabla de saldos: {e}")
 
-                            df_view['saldo_inicial'] = df_view['saldo_inicial'].apply(formatear_moneda)
-                            df_view['saldo_final'] = df_view['saldo_final'].apply(formatear_moneda)
-                            
-                            st.dataframe(df_view, use_container_width=True)
-                        else:
-                            nombre_emp = empresa_data.get('nombre_empresa', 'la empresa')
-                            st.info(f"No hay saldos registrados para {nombre_emp}.")
-                            
+            st.markdown("---")
+            st.subheader("➕ Agregar / Editar Saldo")
+            
+            with st.form("form_saldos_main"):
+                c1, c2 = st.columns(2)
+                m_input = c1.selectbox("Mes", ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", 
+                                             "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"], key="form_mes_saldo")
+                a_input = c2.selectbox("Año", [2025, 2026, 2027], key="form_ano_saldo")
+                
+                c4, c5 = st.columns(2)
+                val_ini = c4.number_input("Saldo Inicial", value=0.00, format="%.2f", key="form_val_ini")
+                val_fin = c5.number_input("Saldo Final", value=0.00, format="%.2f", key="form_val_fin")
+                
+                if st.form_submit_button("Guardar / Actualizar Registro"):
+                    if guardar_saldo_mensual(conn, 'BDV', m_input, a_input, val_ini, val_fin, db_name=db_actual):
+                        st.success(f"✅ Registro de {m_input} guardado.")
+                        st.rerun()
+
+            with st.expander("🗑️ Eliminar un registro"):
+                id_eliminar = st.number_input("ID del registro a eliminar", min_value=1, step=1, key="input_id_eliminar_tab1")
+                if st.button("Confirmar Eliminación", key="btn_confirmar_eliminar_tab1"):
+                    try:
+                        cursor = conn.cursor()
+                        cursor.execute(f"DELETE FROM `{db_actual}`.saldos_bancarios WHERE id = %s", (id_eliminar,))
+                        conn.commit()
+                        cursor.close()
+                        st.warning("Registro eliminado.")
+                        st.rerun()
                     except Exception as e:
-                        st.error(f"Error al cargar la tabla de saldos: {e}")
+                        st.error(f"Error al eliminar: {e}")
 
-                    # 4. FORMULARIO DE REGISTRO
-                    st.markdown("---")
-                    st.subheader("➕ Agregar / Editar Saldo")
-                    
-                    with st.form("form_saldos_main"):
-                        c1, c2 = st.columns(2)
-                        m_input = c1.selectbox("Mes", ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", 
-                                                     "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"])
-                        a_input = c2.selectbox("Año", [2025, 2026, 2027])
-                        
-                        c4, c5 = st.columns(2)
-                        val_ini = c4.number_input("Saldo Inicial", value=0.00, format="%.2f")
-                        val_fin = c5.number_input("Saldo Final", value=0.00, format="%.2f")
-                        
-                        if st.form_submit_button("Guardar / Actualizar Registro"):
-                            if guardar_saldo_mensual(conn_tab1, 'BDV', m_input, a_input, val_ini, val_fin, db_name=db_actual):
-                                st.success(f"✅ Registro de {m_input} guardado.")
-                                st.rerun()
-
-                    # 5. ELIMINACIÓN SEGURA Y DINÁMICA
-                    with st.expander("🗑️ Eliminar un registro"):
-                        id_eliminar = st.number_input("ID del registro a eliminar", min_value=1, step=1, key="input_id_eliminar_tab1")
-                        if st.button("Confirmar Eliminación", key="btn_confirmar_eliminar_tab1"):
-                            try:
-                                cursor = conn_tab1.cursor()
-                                cursor.execute(f"DELETE FROM `{db_actual}`.saldos_bancarios WHERE id = %s", (id_eliminar,))
-                                conn_tab1.commit()
-                                cursor.close()
-                                st.warning("Registro eliminado.")
-                                st.rerun()
-                            except Exception as e:
-                                st.error(f"Error al eliminar: {e}")
-                    
-                    try:
-                        conn_tab1.close()
-                    except:
-                        pass
-
-    # --- TAB 2: IMPORTACIÓN DE MOVIMIENTOS ---
     # ==========================================
     # --- TAB 2: IMPORTACIÓN DE MOVIMIENTOS ---
     # ==========================================
     with tab2:
         st.subheader("📂 Importar nuevo estado de cuenta")
 
-        # Filtro de acceso por rol (reutilizando las variables globales ya validadas arriba)
         if rol != 'admin' and empresa_data.get('id') != cliente_id:
             st.error("⚠️ Acceso denegado: No tienes permisos para esta empresa.")
         else:
@@ -7759,7 +7751,6 @@ elif opcion_menu == "📝 Asientos Contables":
                 if st.button("Procesar e Importar", key="btn_procesar_importar"):
                     with st.spinner(f"Procesando archivo de {banco_sel}..."):
                         try:
-                            # Aseguramos que la conexión global esté activa antes de importar
                             if conn:
                                 try:
                                     conn.ping(reconnect=True)
@@ -7789,11 +7780,8 @@ elif opcion_menu == "📝 Asientos Contables":
                         except Exception as e:
                             st.error(f"Error crítico procesando {banco_sel}: {e}")
 
-        
-
     elif sub_opcion == "Consultar Saldos Iniciales":
         st.subheader("🏁 Comprobante de Apertura")
-
         # 1. SEGURIDAD Y CONTEXTO
         db_actual = st.session_state.get('DB_ACTUAL')
         cliente_id = st.session_state.get('cliente_id')
