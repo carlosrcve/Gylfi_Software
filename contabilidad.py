@@ -7415,26 +7415,18 @@ elif opcion_menu == "📝 Asientos Contables":
                     )
 
                     # 2. Botón de Guardar
+                    # 2. Botón de Guardar Directo
                     if st.button("💾 Guardar Cambios"):
-                        # Alinear tipos de datos antes de comparar
-                        df_editado_limpio = df_editado.astype(df_diario.dtypes)
-                        
-                        # Comparamos
-                        if not df_editado_limpio.equals(df_diario):
-                            # Filtramos las diferencias usando el df_editado limpio
-                            cambios = df_editado_limpio[df_editado_limpio.ne(df_diario).any(axis=1)]
-                            
-                            try:
-                                exito = actualizar_libro_diario_en_db(db_nombre, cambios)
-                                if exito:
-                                    st.success(f"Se actualizaron {len(cambios)} registros.")
-                                    st.rerun()
-                                else:
-                                    st.error("Error al guardar en la base de datos.")
-                            except Exception as e:
-                                st.error(f"Error técnico: {str(e)}")
-                        else:
-                            st.warning("No se detectaron cambios para guardar.")
+                        try:
+                            # Enviamos directamente el DataFrame editado completo a la base de datos
+                            exito = actualizar_libro_diario_en_db(db_nombre, df_editado)
+                            if exito:
+                                st.success("¡Registros actualizados correctamente en la base de datos!")
+                                st.rerun()
+                            else:
+                                st.error("Error al guardar en la base de datos.")
+                        except Exception as e:
+                            st.error(f"Error técnico: {str(e)}")
                     
                     # 3. Descarga y Totales (ahora siempre tienen acceso a df_editado)
                     excel_data = exportar_a_excel(df_editado)
