@@ -5399,16 +5399,12 @@ if "🏠 Inicio" in opcion_menu:
     u_v = 0
     if not df_utilidad.empty and 'utilidad_acumulada' in df_utilidad.columns:
         if 'f_fin_global' in st.session_state and st.session_state['f_fin_global']:
-            mes_limite = st.session_state['f_fin_global'].month
-            anio_limite = st.session_state['f_fin_global'].year
-            
-            # Tomamos exactamente la fila del mes que seleccionó en el filtro
+            # ... busca la fila por anio y mes ...
             fila_mes = df_utilidad[(df_utilidad['anio'] == anio_limite) & (df_utilidad['mes'] == mes_limite)]
             if not fila_mes.empty:
-                # Al ser acumulativa, el valor de ese mes ya tiene la suma total hasta esa fecha
                 u_v = fila_mes['utilidad_acumulada'].iloc[0]
-        else:
-            u_v = df_utilidad['utilidad_acumulada'].iloc[-1]
+    else:
+        u_v = df_utilidad['utilidad_acumulada'].iloc[-1] # <-- El 'else' está mal indentado
 
     col1, col2, col3, col4 = st.columns(4)
     with col1:
