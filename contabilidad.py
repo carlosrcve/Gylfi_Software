@@ -2024,6 +2024,8 @@ def mostrar_interfaz_mayor(f_ini_g, f_fin_g, db_nombre):
         st.error("❌ No se pudo establecer conexión con la base de datos.")
 
 
+
+
 def generar_balance_profesional(conn, f_i, f_f, sucursal):
     db = st.session_state.get('DB_ACTUAL')
     if not db:
