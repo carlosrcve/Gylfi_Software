@@ -114,6 +114,21 @@ def conectar_db(nombre_db=None):
         st.session_state.conn = None
         return None
 
+def ejecutar_consulta(query, conn, params=None):
+    cursor = None
+    try:
+        # CORREGIDO: Usamos pymysql.cursors.DictCursor que es el estándar que venías usando
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
+        cursor.execute(query, params or ())
+        resultados = cursor.fetchall()
+        return pd.DataFrame(resultados) if resultados else pd.DataFrame()
+    except Exception as e:
+        st.error(f"Error en consulta: {e}") # Descomentado para que veas el error exacto si ocurre
+        return pd.DataFrame()
+    finally:
+        if cursor:
+            cursor.close()
+
 def verificar_usuario(conn, user, password):
     if conn is None:
         try:
@@ -521,19 +536,7 @@ def obtener_todas_las_empresas(user_rol, user_id):
         except:
             pass
 
-def ejecutar_consulta(query, conn, params=None):
-    cursor = None
-    try:
-        cursor = conn.cursor(dictionary=True)
-        cursor.execute(query, params or ())
-        resultados = cursor.fetchall()
-        return pd.DataFrame(resultados) if resultados else pd.DataFrame()
-    except Exception as e:
-        # st.error(f"Error en consulta: {e}") # Descomenta si quieres que el error salga en la UI
-        return pd.DataFrame()
-    finally:
-        if cursor:
-            cursor.close()
+
 
 
 def obtener_saldos_acumulados(conexion, fecha_corte, nombre_db):
