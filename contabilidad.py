@@ -7607,76 +7607,85 @@ elif opcion_menu == "📝 Asientos Contables":
 
             # 2. FILTRO DE ACCESO
             if empresa_data and rol != 'admin':
-                if empresa_data['id'] != cliente_id:
+                if empresa_data.get('id') != cliente_id:
                     st.error("⚠️ Acceso denegado: No tienes permisos para esta empresa.")
                     st.stop()
 
             if not empresa_data:
                 st.error("⚠️ No se pudieron cargar los datos de la empresa.")
             else:
-                # 3. CARGA DE DATOS DINÁMICA
-                try:
-                    if conn:
-                        try:
-                            conn.ping(reconnect=True)
-                        except Exception:
-                            pass
-
-                    query_saldos = f"""
-                        SELECT id, banco, mes, ano, saldo_inicial, saldo_final 
-                        FROM `{db_actual}`.saldos_bancarios 
-                        ORDER BY ano DESC, id DESC
-                    """
-                    
-                    df_saldos = ejecutar_consulta(query_saldos, conn)
-                    
-                    if not df_saldos.empty:
-                        df_view = df_saldos.copy()
-                        def formatear_moneda(valor):
-                            return "{:,.2f}".format(valor).replace(",", "X").replace(".", ",").replace("X", ".")
-
-                        df_view['saldo_inicial'] = df_view['saldo_inicial'].apply(formatear_moneda)
-                        df_view['saldo_final'] = df_view['saldo_final'].apply(formatear_moneda)
-                        st.dataframe(df_view, width='stretch')
-                    else:
-                        st.info(f"No hay saldos registrados para {empresa_data['nombre_empresa']}.")
+                # 3. CARGA DE DATOS DINÁMICA CON CONEXIÓN SEGURA LOCAL
+                conn_tab1 = conectar_db(db_actual)
+                if not conn_tab1:
+                    st.error(f"❌ Error crítico: No se pudo conectar a la base de datos `{db_actual}`.")
+                else:
+                    try:
+                        query_saldos = f"""
+                            SELECT id, banco, mes, ano, saldo_inicial, saldo_final 
+                            FROM `{db_actual}`.saldos_bancarios 
+                            ORDER BY ano DESC, id DESC
+                        """
                         
-                except Exception as e:
-                    st.error(f"Error al cargar la tabla de saldos: {e}")
+                        df_saldos = ejecutar_consulta(query_saldos, conn_tab1)
+                        
+                        if df_saldos is not None and not df_saldos.empty:
+                            df_view = df_saldos.copy()
+                            
+                            def formatear_moneda(valor):
+                                try:
+                                    if pd.isna(valor) or valor is None:
+                                        return "0,00"
+                                    return "{:,.2f}".format(float(valor)).replace(",", "X").replace(".", ",").replace("X", ".")
+                                except Exception:
+                                    return "0,00"
 
-                # 4. FORMULARIO DE REGISTRO
-                st.markdown("---")
-                st.subheader("➕ Agregar / Editar Saldo")
-                with st.form("form_saldos_main", clear_on_submit=True):
-                    c1, c2 = st.columns(2)
-                    m_input = c1.selectbox("Mes", ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", 
-                                                   "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"])
-                    a_input = c2.selectbox("Año", [2025, 2026, 2027])
-                    
-                    c4, c5 = st.columns(2)
-                    val_ini = c4.number_input("Saldo Inicial", value=0.00, format="%.2f")
-                    val_fin = c5.number_input("Saldo Final", value=0.00, format="%.2f")
-                    
-                    if st.form_submit_button("Guardar / Actualizar Registro"):
-                        # Asegúrate que tu función guardar_saldo_mensual también use db_actual internamente
-                        if guardar_saldo_mensual(conn, 'BDV', m_input, a_input, val_ini, val_fin, db_name=db_actual):
-                            st.success(f"✅ Registro de {m_input} guardado.")
-                            st.rerun()
+                            df_view['saldo_inicial'] = df_view['saldo_inicial'].apply(formatear_moneda)
+                            df_view['saldo_final'] = df_view['saldo_final'].apply(formatear_moneda)
+                            st.dataframe(df_view, width='stretch')
+                        else:
+                            nombre_emp = empresa_data.get('nombre_empresa', 'la empresa')
+                            st.info(f"No hay saldos registrados para {nombre_emp}.")
+                            
+                    except Exception as e:
+                        st.error(f"Error al cargar la tabla de saldos: {e}")
 
-                # 5. ELIMINACIÓN SEGURA Y DINÁMICA
-                with st.expander("🗑️ Eliminar un registro"):
-                    id_eliminar = st.number_input("ID del registro a eliminar", min_value=1, step=1)
-                    if st.button("Confirmar Eliminación"):
-                        try:
-                            cursor = conn.cursor()
-                            # USAMOS db_actual PARA QUE CADA CLIENTE SOLO BORRE SUS DATOS
-                            cursor.execute(f"DELETE FROM `{db_actual}`.saldos_bancarios WHERE id = %s", (id_eliminar,))
-                            conn.commit()
-                            cursor.close()
-                            st.warning("Registro eliminado.")
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"Error al eliminar: {e}")
+                    # 4. FORMULARIO DE REGISTRO
+                    st.markdown("---")
+                    st.subheader("➕ Agregar / Editar Saldo")
+                    with st.form("form_saldos_main", clear_on_submit=True):
+                        c1, c2 = st.columns(2)
+                        m_input = c1.selectbox("Mes", ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", 
+                                                     "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"])
+                        a_input = c2.selectbox("Año", [2025, 2026, 2027])
+                        
+                        c4, c5 = st.columns(2)
+                        val_ini = c4.number_input("Saldo Inicial", value=0.00, format="%.2f")
+                        val_fin = c5.number_input("Saldo Final", value=0.00, format="%.2f")
+                        
+                        if st.form_submit_button("Guardar / Actualizar Registro"):
+                            if guardar_saldo_mensual(conn_tab1, 'BDV', m_input, a_input, val_ini, val_fin, db_name=db_actual):
+                                st.success(f"✅ Registro de {m_input} guardado.")
+                                st.rerun()
+
+                    # 5. ELIMINACIÓN SEGURA Y DINÁMICA
+                    with st.expander("🗑️ Eliminar un registro"):
+                        id_eliminar = st.number_input("ID del registro a eliminar", min_value=1, step=1, key="input_id_eliminar_tab1")
+                        if st.button("Confirmar Eliminación", key="btn_confirmar_eliminar_tab1"):
+                            try:
+                                cursor = conn_tab1.cursor()
+                                cursor.execute(f"DELETE FROM `{db_actual}`.saldos_bancarios WHERE id = %s", (id_eliminar,))
+                                conn_tab1.commit()
+                                cursor.close()
+                                st.warning("Registro eliminado.")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Error al eliminar: {e}")
+                    
+                    # Cierre seguro de la conexión local de la pestaña
+                    try:
+                        conn_tab1.close()
+                    except:
+                        pass
 
         # --- TAB 3: IMPORTACIÓN DE MOVIMIENTOS ---
         with tab2:
