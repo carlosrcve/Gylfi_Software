@@ -607,6 +607,7 @@ def obtener_datos_pie(db, fecha_inicio, fecha_fin):
         if conn:
             conn.close()
 
+
 @st.cache_data(ttl=300)
 def obtener_datos_barras(db, fecha_inicio, fecha_fin):
     df_vacio = pd.DataFrame(columns=['Categoría', 'Monto'])
@@ -631,14 +632,12 @@ def obtener_datos_barras(db, fecha_inicio, fecha_fin):
     """
     
     try:
-        # Ejecutamos la lectura asegurando parámetros seguros
         df = ejecutar_consulta(query, conn, params=(fecha_inicio, fecha_fin))
         return df if not df.empty else df_vacio
     except Exception as e:
         print(f"Error en obtener_datos_barras: {e}")
         return df_vacio
     finally:
-        # CORREGIDO: Cierre directo y seguro compatible con PyMySQL
         if conn:
             try:
                 conn.close()
