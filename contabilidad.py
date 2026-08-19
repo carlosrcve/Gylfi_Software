@@ -813,7 +813,7 @@ def obtener_salud_fiscal(db, f_inicio=None, f_fin=None):
             SUM(CASE WHEN plan_cuentas LIKE '2.1.2.01.002%%' THEN haber ELSE 0 END) as iva_por_pagar,
             SUM(CASE WHEN plan_cuentas LIKE '2.1.2.01.003%%' THEN haber ELSE 0 END) as retencion_iva_compras,
             SUM(CASE WHEN plan_cuentas LIKE '2.1.2.01.004%%' THEN haber ELSE 0 END) as pagos_anticipados_islr,
-            SUM(CASE WHEN plan_cuentas LIKE '2.1.2.01.005%%' THEN haber ELSE 0 END) as retencion_islr_hab,
+            SUM(CASE WHEN plan_cuentas LIKE '2.1.2.01.005%%' THEN haber - debe ELSE 0 END) as retencion_islr_neta,
             SUM(CASE WHEN plan_cuentas LIKE '2.1.2.01.005%%' THEN debe ELSE 0 END) as retencion_islr_deb,
             SUM(CASE WHEN plan_cuentas LIKE '2.1.2.01.006%%' THEN haber ELSE 0 END) as islr_pagar
             
@@ -883,7 +883,9 @@ def obtener_salud_fiscal(db, f_inicio=None, f_fin=None):
         total_ret_iva = df_filtrado['retencion_iva_compras'].sum()
         total_anticipo_islr = df_filtrado['pagos_anticipados_islr'].sum()
         total_ret_islr = (df_filtrado['retencion_islr_hab'] - df_filtrado['retencion_islr_deb']).sum()
+
         total_islr_pagar = df_filtrado['islr_pagar'].sum()
+
 
         kpis_fiscales = {
             'ingresos_exentos': total_exentos,
