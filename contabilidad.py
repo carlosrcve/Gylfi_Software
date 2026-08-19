@@ -8030,7 +8030,11 @@ elif opcion_menu == "📝 Asientos Contables":
         if not empresa_data:
             st.error("⚠️ No se pudieron cargar los datos de la empresa.")
         else:
-            # Asegurarnos de tener un mapeo de meses si no es global
+            # --- ASEGURAR QUE LAS VARIABLES DE FECHA EXISTEN ---
+            mes_sel = st.session_state.get('mes_sel', 'Enero')
+            ano_sel = st.session_state.get('ano_sel', pd.Timestamp.now().year)
+            # --------------------------------------------------
+
             meses_dict = {
                 "Enero": "01", "Febrero": "02", "Marzo": "03", "Abril": "04", 
                 "Mayo": "05", "Junio": "06", "Julio": "07", "Agosto": "08", 
