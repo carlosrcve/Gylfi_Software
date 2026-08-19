@@ -1197,26 +1197,30 @@ def obtener_analisis_accionista_detallado(db, f_i, f_f):
 
 @st.cache_data(ttl=300)
 def obtener_comprobantes_ingresos(db, f_inicio, f_fin):
+    # Usamos f-strings solo para la base de datos (seguro) 
+    # y dejamos los %s para los valores de la query.
+    db_segura = str(db).strip()
+    query = (
+        f"SELECT DISTINCT n_comprobante, fecha "
+        f"FROM `{db_segura}`.asientos_contables "
+        "WHERE plan_cuentas LIKE '7.1.1.01.001%%' "
+        "AND fecha BETWEEN %s AND %s "
+        "ORDER BY fecha DESC, n_comprobante DESC"
+    )
+    
     conn = conectar_db(db)
     if not conn:
         return pd.DataFrame()
-    
+        
     try:
-        query = f"""
-            SELECT DISTINCT n_comprobante, fecha 
-            FROM `{db}`.asientos_contables 
-            WHERE plan_cuentas LIKE '7.1.1.01.001%'
-            AND fecha BETWEEN %s AND %s
-            ORDER BY fecha DESC, n_comprobante DESC
-        """
+        # Pasa los parámetros en una tupla, NO formatees la string tú mismo
         df = ejecutar_consulta(query, conn, params=(f_inicio, f_fin))
-        conn.close()
-        return df
+        return df if df is not None else pd.DataFrame()
     except Exception as e:
-        print(f"Error al obtener comprobantes de ingresos: {e}")
-        if conn:
-            conn.close()
+        print(f"Error en obtener_comprobantes_ingresos: {e}")
         return pd.DataFrame()
+    finally:
+        if conn: conn.close()
 
 
 def actualizar_tabla_completa_db(conn, nombre_tabla, df_nuevo):
