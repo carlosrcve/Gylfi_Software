@@ -117,13 +117,14 @@ def conectar_db(nombre_db=None):
 def ejecutar_consulta(query, conn, params=None):
     cursor = None
     try:
-        # CORREGIDO: Usamos pymysql.cursors.DictCursor que es el estándar que venías usando
+        # Usamos DictCursor de PyMySQL
         cursor = conn.cursor(pymysql.cursors.DictCursor)
         cursor.execute(query, params or ())
         resultados = cursor.fetchall()
         return pd.DataFrame(resultados) if resultados else pd.DataFrame()
     except Exception as e:
-        st.error(f"Error en consulta: {e}") # Descomentado para que veas el error exacto si ocurre
+        # ACTIVADO: Esto te mostrará el error exacto en la app si algo falla en SQL
+        st.error(f"❌ Error crítico en ejecutar_consulta: {e} | Query: {query}")
         return pd.DataFrame()
     finally:
         if cursor:
