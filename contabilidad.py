@@ -7371,13 +7371,22 @@ elif opcion_menu == "📂 Plan de Cuentas":
             )
             
             # 3. Guardado inteligente
+            # 3. Guardado inteligente
             if st.button("💾 Guardar Cambios en Plan de Cuentas", type="primary"):
                 try:
-                    # Usamos tu función de actualización completa
-                    actualizar_tabla_completa_db(conn_empresa, "plan_cuentas", df_editado)
+                    # --- LIMPIEZA PREVIA AL GUARDADO ---
+                    # Reemplazamos los NaN de pandas por None, que MySQL sí entiende como NULL
+                    df_a_guardar = df_editado.where(pd.notnull(df_editado), None)
+                    
+                    # Si el 'id' es None, significa que es una fila nueva, MySQL lo manejará con el autoincrement
+                    # Asegúrate de que las columnas que deben ser vacías (como 'padre' si no tiene) sean None
+                    
+                    # Usamos tu función de actualización con el df limpio
+                    actualizar_tabla_completa_db(conn_empresa, "plan_cuentas", df_a_guardar)
+                    
                     st.success("✅ ¡Plan de cuentas actualizado correctamente!")
                     st.balloons()
-                    st.rerun() # Recargamos para refrescar IDs si hubo nuevos
+                    st.rerun() 
                 except Exception as e:
                     st.error(f"❌ Error al guardar: {e}")
 
