@@ -1282,13 +1282,17 @@ def consultar_tabla_db(conn, nombre_tabla, limite=None):
         return None
 
     try:
-        # 2. Construcción directa
-        query = f"SELECT * FROM `{nombre_tabla}`"
+        # Recuperar contexto del cliente
+        cliente_id = st.session_state.get('cliente_id')
+        
+        # 2. Construcción de consulta con filtro de cliente
+        # Si tienes una columna 'cliente_id' en la tabla, debemos filtrar por ella
+        query = f"SELECT * FROM `{nombre_tabla}` WHERE cliente_id = '{cliente_id}'"
+        
         if limite and isinstance(limite, int):
             query += f" LIMIT {limite}"
             
-        # 3. Llamar a la función que SÍ sabe hacer el trabajo (ejecutar_consulta)
-        # No abras cursores aquí si ejecutar_consulta ya lo hace.
+        # 3. Ejecutar
         df = ejecutar_consulta(query, conn)
         return df
 
