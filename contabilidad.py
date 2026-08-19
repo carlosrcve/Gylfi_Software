@@ -10589,12 +10589,16 @@ elif opcion_menu == "📚 Libros Fiscales":
         conn_valida = conectar_db(db_actual)
         
         if conn_valida:
-            # Usamos 'dt' coherente con el import de arriba
+            # Pasamos 'conn_valida' como primer parámetro
             mostrar_interfaz_retencion_iva(
+                conn_valida,
                 EMPRESA, 
                 st.session_state.get('f_inicio_global', dt.date.today()), 
                 st.session_state.get('f_fin_global', dt.date.today())
             )
+            
+            # Es recomendable cerrar la conexión al salir de la interfaz si ya no se usa aquí
+            conn_valida.close()
         else:
             st.error("No se pudo restablecer la conexión para el módulo de IVA.")
 
