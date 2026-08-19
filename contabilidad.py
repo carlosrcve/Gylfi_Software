@@ -1578,7 +1578,7 @@ def mostrar_tablero_conciliacion(conn, mes_sel, ano_sel):
         ano_anterior = str(ano_sel)
 
     # 3. CARGA DE BANCOS (Usando la DB ya seleccionada)
-    cursor = conn.cursor(buffered=True)
+    cursor = conn.cursor()
     try:
         query_bancos = f"SELECT nombre, codigo FROM `{db}`.plan_cuentas WHERE nombre LIKE '%BANCO%' AND tipo = 'Detalle'"
         cursor.execute(query_bancos)
