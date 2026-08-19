@@ -8619,17 +8619,19 @@ elif sub_opcion == "Balance General":
     # 3. INTERFAZ Y PROCESAMIENTO
     st.subheader(f"📊 Balance General: {empresa_data.get('nombre', EMPRESA)}")
     
-    # --- BLINDAJE DE FECHA ---
+    # --- BLINDAJE TOTAL DE FECHA (Evita TypeError por alcance de datetime) ---
+    fecha_inicial_input = datetime.date.today()
     val_global = st.session_state.get('f_fin_global')
-    if isinstance(val_global, datetime.date):
-        fecha_inicial_input = val_global
-    elif isinstance(val_global, str):
+    
+    if val_global is not None:
         try:
-            fecha_inicial_input = datetime.datetime.strptime(val_global, "%Y-%m-%d").date()
-        except:
+            # Si ya es un objeto fecha, lo usamos directamente
+            if hasattr(val_global, 'year') and hasattr(val_global, 'month'):
+                fecha_inicial_input = val_global
+            elif isinstance(val_global, str):
+                fecha_inicial_input = datetime.datetime.strptime(val_global, "%Y-%m-%d").date()
+        except Exception:
             fecha_inicial_input = datetime.date.today()
-    else:
-        fecha_inicial_input = datetime.date.today()
 
     f_corte = st.date_input("Fecha de Corte", value=fecha_inicial_input, key="bg_corte")
     
