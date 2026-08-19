@@ -12,3 +12,5 @@ openai
 sqlalchemy
 pytesseract
 numpy
+openpyxl
+
