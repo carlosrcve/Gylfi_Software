@@ -615,15 +615,17 @@ def obtener_datos_barras(db, fecha_inicio, fecha_fin):
     if not conn:
         return df_vacio
         
+    db_segura = str(db).strip()
+    
     query = f"""
         SELECT 
             CASE 
                 WHEN plan_cuentas LIKE '4%' THEN 'Ingresos' 
-                WHEN plan_consultas LIKE '5%' THEN 'Egresos' 
+                WHEN plan_cuentas LIKE '5%' THEN 'Egresos' 
                 ELSE 'Otros' 
             END as Categoría, 
             SUM(haber - debe) as Monto 
-        FROM rishon_letzion_ca.asientos_contables 
+        FROM `{db_segura}`.asientos_contables 
         WHERE fecha >= %s AND fecha <= %s 
         GROUP BY 1
     """
@@ -636,9 +638,12 @@ def obtener_datos_barras(db, fecha_inicio, fecha_fin):
         print(f"Error en obtener_datos_barras: {e}")
         return df_vacio
     finally:
-        # CORREGIDO: Cierre directo y seguro compatible con PyMySQL (sin .is_connected())
+        # CORREGIDO: Cierre directo y seguro compatible con PyMySQL
         if conn:
-            conn.close()
+            try:
+                conn.close()
+            except Exception:
+                pass
 
 
 @st.cache_data(ttl=300)
