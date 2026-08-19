@@ -1365,7 +1365,7 @@ def consultar_libro_diario_db(conn_activa=None, fecha_inicio=None, fecha_fin=Non
     if not db_a_usar:
         return pd.DataFrame()
 
-    # 2. Conexión Inteligente (Se define primero la conexión antes del log)
+    # 2. Conexión Inteligente
     es_conexion_interna = False
     if conn_activa:
         conn = conn_activa
@@ -1373,10 +1373,10 @@ def consultar_libro_diario_db(conn_activa=None, fecha_inicio=None, fecha_fin=Non
         conn = conectar_db(db_a_usar)
         es_conexion_interna = True
     
-    if not conn or not hasattr(conn, 'is_connected') or not conn.is_connected():
+    if not conn:
         return pd.DataFrame()
 
-    # 3. Registrar el log pasando la conexión real ('conn') en lugar de None
+    # 3. Registrar el log de forma segura
     try:
         registrar_log_automatico(conn, "CONSULTA_LIBRO_DIARIO", f"Usuario {usuario} consultó libro diario para {cliente}")
     except Exception as log_error:
@@ -1391,11 +1391,11 @@ def consultar_libro_diario_db(conn_activa=None, fecha_inicio=None, fecha_fin=Non
             query = "SELECT * FROM asientos_contables ORDER BY id ASC"
             params = None
         
-        # 5. Ejecución con pandas
+        # 5. Ejecución con pandas/ejecutar_consulta
         df = ejecutar_consulta(query, conn, params=params)
         
         # 6. Normalización Universal
-        if not df.empty:
+        if df is not None and not df.empty:
             df.columns = [c.lower() for c in df.columns]
             
             mapeo = {
@@ -1422,9 +1422,12 @@ def consultar_libro_diario_db(conn_activa=None, fecha_inicio=None, fecha_fin=Non
         return pd.DataFrame()
         
     finally:
-        # Solo cerramos si la creamos nosotros y la conexión sigue abierta
-        if es_conexion_interna and conn and hasattr(conn, 'is_connected') and conn.is_connected():
-            conn.close()
+        # Cierre seguro adaptado a PyMySQL / Conectores genéricos
+        if es_conexion_interna and conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
 
 def actualizar_libro_diario_en_db(db_nombre, df_cambios):
