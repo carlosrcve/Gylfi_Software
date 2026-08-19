@@ -2103,7 +2103,7 @@ def generar_balance_profesional(conn, f_i, f_f, sucursal):
         # Asegurarnos de conservar la columna 'codigo' original para mostrarla bonita en la tabla
         df['Saldo Final'] = df['Saldo Inicial'] + df['Debe'] - df['Haber']
 
-        # 6. Fila Total Global
+        # 6. Fila Total Global (asegurando todas las columnas que el sistema espera)
         fila_total = pd.DataFrame([{
             'codigo': 'Σ', 'nombre': 'TOTAL GENERAL', 'nivel': 0, 'tipo': 'Total', 'padre': None,
             'Saldo Inicial': float(df[df['nivel'] == 1]['Saldo Inicial'].sum()), 
@@ -2112,8 +2112,10 @@ def generar_balance_profesional(conn, f_i, f_f, sucursal):
             'Saldo Final': float(df[df['nivel'] == 1]['Saldo Final'].sum())
         }])
         
-        # Seleccionamos las columnas finales para la vista
-        cols_salida = ['codigo', 'nombre', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final']
+        # INCLUIMOS 'nivel', 'tipo' Y 'padre' EN LAS COLUMNAS DE SALIDA
+        cols_salida = ['codigo', 'nombre', 'nivel', 'tipo', 'padre', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final']
+        
+        # Nos aseguramos de que el DataFrame 'df' tenga explícitamente esas columnas antes de concatenar
         df_final = pd.concat([df[cols_salida], fila_total[cols_salida]], ignore_index=True)
         
         return df_final
