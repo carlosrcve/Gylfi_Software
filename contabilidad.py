@@ -2921,7 +2921,7 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
     conn = st.session_state.db_conn
 
     # 3. VALIDACIÓN DE SEGURIDAD
-    if conn is None or not conn.is_connected():
+    if conn is None or not conn:
         st.error("❌ No hay conexión activa con la base de datos.")
         return
 
