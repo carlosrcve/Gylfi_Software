@@ -2035,7 +2035,7 @@ def generar_balance_profesional(conn, f_i, f_f, sucursal):
         cursor = conn.cursor()
         cursor.execute(f"USE `{db}`")
         
-        # 1. Consultar el plan de cuentas respetando la jerarquía original de la BD
+        # 1. Consultar el plan de cuentas
         query_plan = f"SELECT codigo, nombre, nivel, tipo, padre FROM `{db}`.plan_cuentas ORDER BY codigo"
         df_plan = ejecutar_consulta(query_plan, conn)
         
@@ -2043,12 +2043,7 @@ def generar_balance_profesional(conn, f_i, f_f, sucursal):
             st.error("⚠️ El plan de cuentas está vacío.")
             return None
 
-        # Limpieza estándar de strings sin alterar los puntos
-        df_plan['codigo'] = df_plan['codigo'].astype(str).str.strip()
-        if 'padre' in df_plan.columns:
-            df_plan['padre'] = df_plan['padre'].astype(str).str.strip()
-
-        # 2. Obtener los saldos tal y como te funcionaban antes
+        # 2. Obtener los saldos del balance de comprobación
         df_saldos = generar_balance_comprobacion(conn, f_i, f_f, sucursal)
         
         cols_finales = ['codigo', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final']
@@ -2056,7 +2051,6 @@ def generar_balance_profesional(conn, f_i, f_f, sucursal):
         if df_saldos is None or df_saldos.empty:
             df_saldos = pd.DataFrame(columns=cols_finales)
         else:
-            # Estandarizar nombre de la columna de código si viene con mayúscula
             renombres = {}
             for col in df_saldos.columns:
                 c_low = str(col).lower()
@@ -2066,39 +2060,50 @@ def generar_balance_profesional(conn, f_i, f_f, sucursal):
                 elif 'haber' in c_low: renombres[col] = 'Haber'
                 elif 'final' in c_low: renombres[col] = 'Saldo Final'
             df_saldos = df_saldos.rename(columns=renombres)
-            df_saldos['codigo'] = df_saldos['codigo'].astype(str).str.strip()
 
-        # Asegurar columnas numéricas
         for c in cols_finales:
             if c not in df_saldos.columns: 
                 df_saldos[c] = 0.0
 
-        # 3. Cruzar el plan de cuentas completo con los saldos calculados
-        df = pd.merge(df_plan, df_saldos[cols_finales], on='codigo', how='left')
+        # --- UNIFICACIÓN DE FORMATO DE CÓDIGOS (ELIMINAR PUNTOS EN AMBOS) ---
+        # Esto quita los puntos (1.1.1.01 -> 11101) para que coincidan perfectamente al hacer el merge
+        df_plan['codigo_limpio'] = df_plan['codigo'].astype(str).str.replace(r'[^0-9]', '', regex=True)
+        df_plan['padre_limpio'] = df_plan['padre'].astype(str).str.replace(r'[^0-9]', '', regex=True)
+        
+        df_saldos['codigo_limpio'] = df_saldos['codigo'].astype(str).str.replace(r'[^0-9]', '', regex=True)
+
+        # 3. Hacer el merge usando los códigos limpios
+        df = pd.merge(
+            df_plan, 
+            df_saldos[['codigo_limpio', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final']], 
+            on='codigo_limpio', 
+            how='left'
+        )
         
         cols_num = ['Saldo Inicial', 'Debe', 'Haber', 'Saldo Final']
         df[cols_num] = df[cols_num].fillna(0.0).astype(float)
 
-        # 4. Limpiar los saldos iniciales y movimientos en las cuentas de "Grupo" 
-        # (para que no se dupliquen y sirvan exclusivamente como acumuladores de sus hijos)
+        # 4. Limpiar los saldos en las cuentas de "Grupo" para evitar duplicidad antes de sumar
         if 'tipo' in df.columns:
             is_grupo = df['tipo'].astype(str).str.lower() == 'grupo'
             df.loc[is_grupo, cols_num] = 0.0
 
-        # 5. Sumatoria jerárquica de abajo hacia arriba (de los niveles más hondos a los más altos)
+        # 5. SUMATORIA JERÁRQUICA DE ABAJO HACIA ARRIBA usando los códigos limpios y el padre limpio
         niveles_disponibles = sorted([n for n in df['nivel'].dropna().unique()], reverse=True)
         
         for n in niveles_disponibles:
             filas_nivel = df[df['nivel'] == n]
             for _, fila in filas_nivel.iterrows():
-                p_cod = fila['padre']
-                if pd.notna(p_cod) and p_cod != '' and p_cod != 'None':
-                    mask_padre = df['codigo'] == str(p_cod)
+                p_cod = fila['padre_limpio']
+                if pd.notna(p_cod) and p_cod != '' and p_cod != 'none' and p_cod != 'nan':
+                    mask_padre = df['codigo_limpio'] == str(p_cod)
                     if mask_padre.any():
-                        # Acumular los valores de los hijos en el padre correspondiente
                         df.loc[mask_padre, cols_num] = df.loc[mask_padre, cols_num].values + fila[cols_num].values
 
-        # 6. Fila Total Global del Balance
+        # Asegurarnos de conservar la columna 'codigo' original para mostrarla bonita en la tabla
+        df['Saldo Final'] = df['Saldo Inicial'] + df['Debe'] - df['Haber']
+
+        # 6. Fila Total Global
         fila_total = pd.DataFrame([{
             'codigo': 'Σ', 'nombre': 'TOTAL GENERAL', 'nivel': 0, 'tipo': 'Total', 'padre': None,
             'Saldo Inicial': float(df[df['nivel'] == 1]['Saldo Inicial'].sum()), 
@@ -2107,7 +2112,11 @@ def generar_balance_profesional(conn, f_i, f_f, sucursal):
             'Saldo Final': float(df[df['nivel'] == 1]['Saldo Final'].sum())
         }])
         
-        return pd.concat([df, fila_total], ignore_index=True)
+        # Seleccionamos las columnas finales para la vista
+        cols_salida = ['codigo', 'nombre', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final']
+        df_final = pd.concat([df[cols_salida], fila_total[cols_salida]], ignore_index=True)
+        
+        return df_final
 
     except Exception as e:
         st.error(f"Error procesando balance profesional: {e}")
