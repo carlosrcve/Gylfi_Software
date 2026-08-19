@@ -7875,50 +7875,48 @@ elif opcion_menu == "📝 Asientos Contables":
                                 st.error(f"Error al vaciar registros: {e}")
 
     
-
+        # ==========================================
         # --- TAB 4: CONCILIACIÓN BANCARIA (TABLERO) ---
         # ==========================================
-    # --- TAB 4: CONCILIACIÓN BANCARIA (TABLERO) ---
-    # ==========================================
-    with tab4:
-        st.subheader("📊 Resumen del Periodo")
+        with tab4:
+            st.subheader("📊 Resumen del Periodo")
 
-        db_actual = st.session_state.get('DB_ACTUAL')
-        cliente_id = st.session_state.get('cliente_id')
-        rol = st.session_state.get('rol')
+            db_actual = st.session_state.get('DB_ACTUAL')
+            cliente_id = st.session_state.get('cliente_id')
+            rol = st.session_state.get('rol')
 
-        if not db_actual:
-            st.error("No se ha seleccionado una base de datos de empresa.")
-            st.stop()
-
-        empresa_data = obtener_datos_agente_db(db_actual)
-
-        if empresa_data and rol != 'admin':
-            if empresa_data['id'] != cliente_id:
-                st.error("⚠️ Acceso denegado: No tienes permisos para esta empresa.")
+            if not db_actual:
+                st.error("No se ha seleccionado una base de datos de empresa.")
                 st.stop()
 
-        if not empresa_data:
-            st.error("⚠️ No se pudieron cargar los datos de la empresa.")
-        else:
-            try:
-                # Verificación rápida de conexión sin bloquear
-                if conn:
-                    try:
-                        conn.ping(reconnect=True)
-                    except Exception:
-                        conn = conectar_db(db_actual)
-                        st.session_state['conn_conciliacion'] = conn
-                
-                if conn:
-                    # Usamos un contenedor por si el tablero es muy pesado
-                    with st.spinner("Calculando tablero de conciliación..."):
-                        mostrar_tablero_conciliacion(conn, mes_sel, ano_sel)
-                else:
-                    st.error("❌ ERROR CRÍTICO: No se pudo establecer conexión con la base de datos.")
+            empresa_data = obtener_datos_agente_db(db_actual)
+
+            if empresa_data and rol != 'admin':
+                if empresa_data['id'] != cliente_id:
+                    st.error("⚠️ Acceso denegado: No tienes permisos para esta empresa.")
+                    st.stop()
+
+            if not empresa_data:
+                st.error("⚠️ No se pudieron cargar los datos de la empresa.")
+            else:
+                try:
+                    # Verificación rápida de conexión sin bloquear
+                    if conn:
+                        try:
+                            conn.ping(reconnect=True)
+                        except Exception:
+                            conn = conectar_db(db_actual)
+                            st.session_state['conn_conciliacion'] = conn
                     
-            except Exception as e:
-                st.error(f"❌ Error al conectar con el tablero: {e}")
+                    if conn:
+                        # Usamos un contenedor por si el tablero es muy pesado
+                        with st.spinner("Calculando tablero de conciliación..."):
+                            mostrar_tablero_conciliacion(conn, mes_sel, ano_sel)
+                    else:
+                        st.error("❌ ERROR CRÍTICO: No se pudo establecer conexión con la base de datos.")
+                        
+                except Exception as e:
+                    st.error(f"❌ Error al conectar con el tablero: {e}")
 
 
     elif sub_opcion == "Consultar Saldos Iniciales":
