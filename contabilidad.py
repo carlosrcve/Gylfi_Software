@@ -5508,21 +5508,7 @@ if "🏠 Inicio" in opcion_menu:
    # 4. ROE Rentabilidad del Patrimonio
     utilidad_acumulada_historica = obtener_utilidad_acumulada_historica(db_objetivo, f_fin_global)
     mostrar_analisis_rendimiento(u_v=utilidad_acumulada_historica, patrimonio_total=0)
-    
-    # --- DEPURACIÓN DE SEGURIDAD ---
-    st.sidebar.subheader("Diagnóstico de Datos")
-    db_actual = st.session_state.get('DB_ACTUAL')
-    if db_actual:
-        st.sidebar.write(f"Empresa: {db_actual}")
-        st.sidebar.write(f"Año: {año}, Mes: {num_mes}")
-        
-        # Prueba de conexión básica
-        conn_test = conectar_db(db_actual)
-        if conn_test:
-            st.sidebar.success("✅ Conexión OK")
-            conn_test.close()
-        else:
-            st.sidebar.error("❌ Falló la conexión a la BD")
+
 
     # --- FILA 4: ANÁLISIS VISUAL ---
     st.divider()
