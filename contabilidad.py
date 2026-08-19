@@ -8012,8 +8012,6 @@ elif opcion_menu == "📝 Asientos Contables":
                             if 'cursor' in locals() and cursor:
                                 cursor.close()
 
-    except Exception as e:
-        st.error(f"Error general en el módulo de Conciliación Bancaria: {e}")
 
 
     elif sub_opcion == "Consultar Comprobante":
