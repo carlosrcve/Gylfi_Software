@@ -3175,7 +3175,8 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
 
                     # 3. Doble protección: Si por alguna razón la función devolvió None, le ponemos valor
                     if datos_empresa is None:
-                        datos_empresa = {"nombre_empresa": "NO ENCONTRADO", "rif": "N/A", "domicilio_fiscal": "N/A"}
+                        # CORREGIDO: Usamos 'direccion' en lugar de 'domicilio_fiscal'
+                        datos_empresa = {"nombre_empresa": "NO ENCONTRADO", "rif": "N/A", "direccion": "N/A"}
 
                     # AHORA SÍ: Esto nunca fallará
                     # 2. Piso 2: El PDF y Visualización (Solo si hay datos)
@@ -3248,7 +3249,8 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
 
                             # Doble protección por si devuelve None
                             if datos_empresa is None:
-                                datos_empresa = {"nombre_empresa": "NO ENCONTRADO", "rif": "N/A", "domicilio_fiscal": "N/A"}
+                                # CORREGIDO: Usamos 'direccion' en lugar de 'domicilio_fiscal'
+                                datos_empresa = {"nombre_empresa": "NO ENCONTRADO", "rif": "N/A", "direccion": "N/A"}
 
                             # DEBUG (Opcional, para verificar)
                             st.sidebar.info(f"Generando PDF para ID: {id_real}")
@@ -3282,7 +3284,7 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                             pdf.set_xy(17, 61) 
 
                             # Obtenemos la dirección desde la base de datos (con valor por defecto si está vacío)
-                            domicilio_real = str(datos_empresa.get('domicilio_fiscal', 'NO REGISTRADO'))
+                            domicilio_real = str(datos_empresa.get('direccion', 'NO REGISTRADO'))
 
                             # multi_cell(ancho, alto, texto) - el ancho 170 es para que no toque el borde derecho
                             pdf.multi_cell(170, 3.5, domicilio_real)
