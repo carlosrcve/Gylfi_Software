@@ -2070,12 +2070,6 @@ def generar_balance_profesional(conn, f_i, f_f, sucursal):
         for c in cols_finales:
             if c not in df_saldos.columns: 
                 df_saldos[c] = 0.0
-
-        # --- DIAGNÓSTICO EN STREAMLIT ---
-        st.write("### Diagnóstico de Códigos")
-        st.write("Primeros 5 códigos del Plan:", df_plan['codigo'].head().tolist())
-        st.write("Primeros 5 códigos de los Saldos:", df_saldos['codigo'].head().tolist())
-        # --------------------------------
         
         # LIMPIEZA RADICAL: Eliminamos caracteres no numéricos para alinear los códigos (ej: '1.01' con '101')
         df_plan['codigo'] = df_plan['codigo'].astype(str).str.replace(r'[^0-9]', '', regex=True)
