@@ -7303,20 +7303,30 @@ elif opcion_menu == "📂 Plan de Cuentas":
                 df_plan = df_plan.rename(columns={'nombre de la cuenta': 'nombre'})
                 
                 st.write("Vista previa:")
-                st.dataframe(df_plan.head(20), width='stretch', height=500)
+                st.dataframe(df_plan.head(20), use_container_width=True)
                 
                 if st.button("🚀 Iniciar Importación a Base de Datos", type="primary"):
                     columnas_sql = ['id', 'codigo', 'nombre', 'nivel', 'tipo', 'padre']
-                    if all(col in df_plan.columns for col in columnas_sql):
-                        from sqlalchemy import create_engine
-                        engine = create_engine(f"mysql+mysqlconnector://{DB_CONFIG['user']}:{DB_CONFIG['password']}@{DB_CONFIG['host']}:{DB_CONFIG['port']}/{db_actual}")
-                        
-                        df_final = df_plan[columnas_sql]
-                        df_final.to_sql('plan_cuentas', con=engine, if_exists='append', index=False)
-                        st.success(f"✅ ¡Plan de cuentas sincronizado con {db_actual}!")
-                        st.balloons()
+                    
+                    # Verificamos si al menos las columnas principales existen
+                    if 'codigo' in df_plan.columns and 'nombre' in df_plan.columns:
+                        try:
+                            # Nos aseguramos de incluir las columnas necesarias (completando las faltantes con None si no vienen en el Excel)
+                            for col in columnas_sql:
+                                if col not in df_plan.columns:
+                                    df_plan[col] = None
+                                    
+                            df_final = df_plan[columnas_sql]
+                            
+                            # Usamos tu función existente de actualización en lugar de crear un motor con DB_CONFIG
+                            actualizar_tabla_completa_db(conn_empresa, 'plan_cuentas', df_final)
+                            
+                            st.success("✅ ¡Plan de cuentas sincronizado correctamente!")
+                            st.balloons()
+                        except Exception as e:
+                            st.error(f"❌ Error al importar a la base de datos: {e}")
                     else:
-                        st.error("❌ Faltan columnas en el archivo.")
+                        st.error("❌ El archivo Excel debe contener al menos las columnas 'codigo' y 'nombre'.")
 
         with tab2:
             st.markdown("### 📋 Plan de Cuentas (Edición, Nuevos y Eliminación)")
