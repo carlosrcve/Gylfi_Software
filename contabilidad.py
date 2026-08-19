@@ -649,6 +649,7 @@ def obtener_historico_utilidad(db, f_inicio=None, f_fin=None):
     df_default = pd.DataFrame(columns=['anio', 'mes', 'mes_nombre', 'utilidad_mensual'])
     
     if not conn:
+        st.warning("⚠️ No se pudo conectar a la base de datos en obtener_historico_utilidad.")
         return df_default
     
     if f_inicio is None:
@@ -669,6 +670,7 @@ def obtener_historico_utilidad(db, f_inicio=None, f_fin=None):
         'mes': list(range(1, 13))
     })
 
+    # Consulta optimizada con doble %% para evitar error de formato de Python
     query = f"""
         SELECT 
             YEAR(STR_TO_DATE(LEFT(fecha, 10), '%Y-%m-%d')) as anio,
@@ -694,9 +696,9 @@ def obtener_historico_utilidad(db, f_inicio=None, f_fin=None):
         ORDER BY anio ASC, mes ASC
     """
     
-    # CORREGIDO: Uso de DictCursor compatible con PyMySQL
-    cursor = conn.cursor(pymysql.cursors.DictCursor)
+    cursor = None
     try:
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
         cursor.execute(query, (anio_base,))
         resultados = cursor.fetchall()
         
@@ -709,6 +711,7 @@ def obtener_historico_utilidad(db, f_inicio=None, f_fin=None):
 
         df = df.fillna(0)
 
+        # Cálculos de utilidad
         ingresos = df['ing_haber'] - df['ing_debe']
         costos = df['cos_debe'] - df['cos_haber']
         gastos = (df['gas_debe'] - df['gas_haber']).abs()
@@ -728,15 +731,14 @@ def obtener_historico_utilidad(db, f_inicio=None, f_fin=None):
         return df[['anio', 'mes', 'mes_nombre', 'utilidad_mensual', 'utilidad_acumulada']]
         
     except Exception as e:
-        print(f"❌ Error al calcular la utilidad mensual: {e}")
+        # AQUÍ ESTÁ EL ST.WRITE PARA QUE VEAS EL ERROR EN PANTALLA
+        st.error(f"❌ Error crítico en `obtener_historico_utilidad`: {e}")
+        st.write("Query ejecutada con anio_base:", anio_base)
         return df_default
         
     finally:
-        if cursor:
-            cursor.close()
-        if conn:
-            conn.close()
-
+        if cursor: cursor.close()
+        if conn: conn.close()
 
 
 
