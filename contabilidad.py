@@ -1473,8 +1473,12 @@ def actualizar_libro_diario_en_db(db_nombre, df_cambios):
     finally:
         if cursor:
             cursor.close()
-        if conn and conn.is_connected():
-            conn.close()
+        # Cierre seguro compatible con PyMySQL
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
 
 
