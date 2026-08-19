@@ -2152,12 +2152,11 @@ def generar_balance_comprobacion(conn, f_i, f_f, sucursal):
     db = st.session_state.get('DB_ACTUAL')
     
     try:
-        # 1. Consultas estrictas: Solo traemos plan_cuentas y el valor calculado. Nada más.
-        # Esto elimina cualquier posibilidad de que una columna llamada 'nombre' cause conflicto.
-        sql_si = f"SELECT plan_cuentas, SUM(debe) - SUM(haber) as val FROM `{db}`.saldos_iniciales GROUP BY plan_cuentas"
-        sql_ac = f"SELECT plan_cuentas, SUM(debe) - SUM(haber) as val FROM `{db}`.asientos_contables WHERE fecha < %s GROUP BY plan_cuentas"
-        sql_mo_d = f"SELECT plan_cuentas, SUM(debe) as val FROM `{db}`.asientos_contables WHERE fecha BETWEEN %s AND %s GROUP BY plan_cuentas"
-        sql_mo_h = f"SELECT plan_cuentas, SUM(haber) as val FROM `{db}`.asientos_contables WHERE fecha BETWEEN %s AND %s GROUP BY plan_cuentas"
+        # 1. Usamos 'codigo' que es el nombre real de la columna en tu MySQL
+        sql_si = f"SELECT codigo, SUM(debe) - SUM(haber) as val FROM `{db}`.saldos_iniciales GROUP BY codigo"
+        sql_ac = f"SELECT codigo, SUM(debe) - SUM(haber) as val FROM `{db}`.asientos_contables WHERE fecha < %s GROUP BY codigo"
+        sql_mo_d = f"SELECT codigo, SUM(debe) as val FROM `{db}`.asientos_contables WHERE fecha BETWEEN %s AND %s GROUP BY codigo"
+        sql_mo_h = f"SELECT codigo, SUM(haber) as val FROM `{db}`.asientos_contables WHERE fecha BETWEEN %s AND %s GROUP BY codigo"
 
         # 2. Ejecución y nombres de columnas únicos desde el inicio
         df_si = ejecutar_consulta(sql_si, conn).rename(columns={'val': 'si'})
@@ -2165,12 +2164,22 @@ def generar_balance_comprobacion(conn, f_i, f_f, sucursal):
         df_md = ejecutar_consulta(sql_mo_d, conn, params=(f_i, f_f)).rename(columns={'val': 'debe'})
         df_mh = ejecutar_consulta(sql_mo_h, conn, params=(f_i, f_f)).rename(columns={'val': 'haber'})
 
-        # 3. Join mediante indexación (la forma más segura de evitar duplicados)
+        # 3. Validar que los DataFrames no vengan vacíos antes de poner el índice
         for df in [df_si, df_ac, df_md, df_mh]:
-            df.set_index('plan_cuentas', inplace=True)
-            
-        # Concatenamos horizontalmente
-        balance = pd.concat([df_si, df_ac, df_md, df_mh], axis=1).fillna(0)
+            if df is not None and not df.empty and 'codigo' in df.columns:
+                df.set_index('codigo', inplace=True)
+            else:
+                # Si una consulta viene vacía, creamos un índice vacío para que el concat no falle
+                pass
+                
+        # Para evitar errores si algún DataFrame quedó sin índice o vacío, filtramos los que tengan índice válido
+        lista_a_concatenar = [d for d in [df_si, df_ac, df_md, df_mh] if d is not None and not d.empty and d.index.name == 'codigo' or isinstance(d.index, pd.Index) and len(d.index) > 0]
+        
+        if not lista_a_concatenar:
+            return pd.DataFrame(columns=['Código', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final'])
+
+        # Concatenamos horizontalmente de forma segura
+        balance = pd.concat(lista_a_concatenar, axis=1).fillna(0)
         balance.index.name = 'Código'
         balance.reset_index(inplace=True)
         
@@ -2178,15 +2187,25 @@ def generar_balance_comprobacion(conn, f_i, f_f, sucursal):
         balance['Tipo'] = balance['Código'].astype(str).str[0]
         
         def calcular(row):
-            si_bruto = row['si'] + row['ac']
+            # Validamos si existen las columnas temporalmente si alguna tabla no trajo datos
+            si = row.get('si', 0)
+            ac = row.get('ac', 0)
+            debe = row.get('debe', 0)
+            haber = row.get('haber', 0)
+            
+            si_bruto = si + ac
             if row['Tipo'] in ['1', '5']:
-                s_final = si_bruto + row['debe'] - row['haber']
+                s_final = si_bruto + debe - haber
             else:
-                s_final = si_bruto - row['debe'] + row['haber']
+                s_final = si_bruto - debe + haber
             return pd.Series([si_bruto, s_final])
 
         balance[['Saldo Inicial', 'Saldo Final']] = balance.apply(calcular, axis=1)
         
+        # Asegurarnos de que existan 'debe' y 'haber' en el balance final antes de renombrar
+        if 'debe' not in balance.columns: balance['debe'] = 0.0
+        if 'haber' not in balance.columns: balance['haber'] = 0.0
+
         return balance[['Código', 'Saldo Inicial', 'debe', 'haber', 'Saldo Final']].rename(columns={
             'debe': 'Debe', 
             'haber': 'Haber'
