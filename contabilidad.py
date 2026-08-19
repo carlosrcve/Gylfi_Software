@@ -2154,7 +2154,8 @@ def generar_balance_comprobacion(conn, f_i, f_f, sucursal):
                 if 'plan_cuentas' in df.columns:
                     df = df.rename(columns={'plan_cuentas': 'Código', 'val': nombre})
                     df[nombre] = pd.to_numeric(df[nombre], errors='coerce').fillna(0.0)
-                    df['Código'] = df['Código'].astype(str).str.strip().str.replace('.0', '', regex=False)
+                    # Limpiamos todo lo que no sea número para asegurar que '1.1.1.01' y '11101' sean lo mismo
+                    df['Código'] = df['Código'].astype(str).str.replace(r'[^0-9]', '', regex=True)
                     df = df.set_index('Código')
                     lista_frames.append(df)
 
