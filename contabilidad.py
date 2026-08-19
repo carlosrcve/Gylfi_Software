@@ -1734,13 +1734,16 @@ def obtener_alias_banco(nombre_ui):
     
     return _MAPEO_BANCOS.get(nombre_limpio, nombre_limpio)
 
+# ==========================================
 # 1. Función de datos (Pura y cacheada para acelerar TiDB Cloud)
+# ==========================================
 @st.cache_data(ttl=600)  # Guarda en caché por 10 minutos
 def _obtener_datos_asiento(db_nombre, numero_comprobante):
     conn = conectar_db(db_nombre)
     if not conn:
         return None
     try:
+        # CORREGIDO: Se antepone `{db_nombre}.` para apuntar correctamente a la base de datos activa
         query = f"""
             SELECT 
                 fecha, 
@@ -1750,10 +1753,11 @@ def _obtener_datos_asiento(db_nombre, numero_comprobante):
                 plan_cuentas AS nombre, 
                 debe, 
                 haber
-            FROM asientos_contables 
-            WHERE n_comprobante = '{numero_comprobante}'
+            FROM `{db_nombre}`.asientos_contables 
+            WHERE n_comprobante = %s
         """
-        return ejecutar_consulta(query, conn)
+        # Se pasa el parámetro de forma segura a ejecutar_consulta
+        return ejecutar_consulta(query, conn, params=(numero_comprobante,))
     except Exception as e:
         print(f"Error en consulta: {e}")
         return None
@@ -1764,24 +1768,29 @@ def _obtener_datos_asiento(db_nombre, numero_comprobante):
             except Exception:
                 pass
 
+
+# ==========================================
 # 2. Función visual (Sin caché, encargada de renderizar la UI de Streamlit)
+# ==========================================
 def disenar_reporte_asiento_contable(numero_comprobante):
     db_nombre = st.session_state.get('DB_ACTUAL', 'kingdirver_ca')
     
-    # Llamamos a la función de datos cacheada
+    # Llamamos a la función de datos cacheada pasando la base de datos activa
     df_asiento = _obtener_datos_asiento(db_nombre, numero_comprobante)
 
     if df_asiento is None or df_asiento.empty:
         st.warning(f"⚠️ No se encontró data para el comprobante Nº: {numero_comprobante}")
         return
 
-    # --- TODO TU DISEÑO E INTERFAZ SE MANTIENE IGUAL AQUÍ ---
+    # --- DISEÑO E INTERFAZ ---
     st.markdown("---")
     col_logo, col_info = st.columns([1, 3])
     with col_logo:
         st.image("https://cdn-icons-png.flaticon.com/512/2645/2645328.png", width=80)
     with col_info:
-        st.markdown(f"## {EMPRESA}")
+        # Nota: Asegúrate de que la variable EMPRESA esté definida o usa empresa_data si lo prefieres
+        empresa_nombre = st.session_state.get('nombre_empresa', 'Empresa')
+        st.markdown(f"## {empresa_nombre}")
         st.markdown(f"**RIF:** J-50775718-8")
         st.markdown(f"<p style='text-align: right; color: gray;'>Generado: {pd.Timestamp.now().strftime('%d/%m/%Y %H:%M')}</p>", unsafe_allow_html=True)
 
@@ -1803,24 +1812,28 @@ def disenar_reporte_asiento_contable(numero_comprobante):
             'Debe (Bs.)': formato_contable,
             'Haber (Bs.)': formato_contable
         }), 
-        width='stretch', 
+        use_container_width=True, 
         hide_index=True
     )
 
-    t_debe = df_asiento['debe'].sum()
-    t_haber = df_asiento['haber'].sum()
-    dif = t_debe - t_haber
+    # Verificación de columnas antes de operar para evitar errores de ejecución
+    if 'debe' in df_asiento.columns and 'haber' in df_asiento.columns:
+        t_debe = df_asiento['debe'].sum()
+        t_haber = df_asiento['haber'].sum()
+        dif = t_debe - t_haber
 
-    st.divider()
+        st.divider()
 
-    ct1, ct2 = st.columns(2)
-    ct1.metric("TOTAL DEBE", f"Bs. {formato_contable(t_debe)}")
-    ct2.metric("TOTAL HABER", f"Bs. {formato_contable(t_haber)}")
+        ct1, ct2 = st.columns(2)
+        ct1.metric("TOTAL DEBE", f"Bs. {formato_contable(t_debe)}")
+        ct2.metric("TOTAL HABER", f"Bs. {formato_contable(t_haber)}")
 
-    if abs(dif) < 0.01:
-        st.success("✅ Partida Doble Cuadrada")
+        if abs(dif) < 0.01:
+            st.success("✅ Partida Doble Cuadrada")
+        else:
+            st.error(f"❌ Descuadre Detectado: Bs. {formato_contable(dif)}")
     else:
-        st.error(f"❌ Descuadre Detectado: Bs. {formato_contable(dif)}")
+        st.error("❌ Los datos del comprobante están incompletos.")
 
 
 
@@ -7993,6 +8006,111 @@ elif opcion_menu == "📝 Asientos Contables":
                             if 'cursor' in locals() and cursor:
                                 cursor.close()
 
+
+    elif sub_opcion == "Consultar Comprobante":
+        st.subheader("🔍 Buscador de Comprobantes")
+
+        # 1. SEGURIDAD Y CONTEXTO
+        db_actual = st.session_state.get('DB_ACTUAL')
+        cliente_id = st.session_state.get('cliente_id')
+        rol = st.session_state.get('rol')
+
+        if not db_actual:
+            st.error("No se ha seleccionado una base de datos de empresa.")
+            st.stop()
+
+        empresa_data = obtener_datos_agente_db(db_actual)
+
+        # 2. FILTRO DE ACCESO
+        if empresa_data and rol != 'admin':
+            if empresa_data['id'] != cliente_id:
+                st.error("⚠️ Acceso denegado: No tienes permisos para esta empresa.")
+                st.stop()
+
+        if not empresa_data:
+            st.error("⚠️ No se pudieron cargar los datos de la empresa.")
+        else:
+            # Asegurarnos de tener un mapeo de meses si no es global
+            meses_dict = {
+                "Enero": "01", "Febrero": "02", "Marzo": "03", "Abril": "04", 
+                "Mayo": "05", "Junio": "06", "Julio": "07", "Agosto": "08", 
+                "Septiembre": "09", "Octubre": "10", "Noviembre": "11", "Diciembre": "12"
+            }
+            mes_num = meses_dict.get(mes_sel, "01")
+            fecha_inicio = f"{ano_sel}-{mes_num}-01"
+            ultimo_dia = calendar.monthrange(int(ano_sel), int(mes_num))[1]
+            fecha_fin = f"{ano_sel}-{mes_num}-{ultimo_dia:02d}"
+
+            # --- PARTE 1: CARGAR EL LISTADO FILTRADO POR FECHA ---
+            df_listado = pd.DataFrame()
+            conn_list = conectar_db(db_actual)
+            
+            if conn_list:
+                try:
+                    # Filtrado por el mes y año seleccionados en la barra superior para optimizar rendimiento
+                    query_listado = f"""
+                        SELECT n_comprobante as 'Nº', MAX(fecha) as 'Fecha', MAX(descripcion) as 'Concepto' 
+                        FROM `{db_actual}`.asientos_contables 
+                        WHERE fecha BETWEEN %s AND %s
+                        GROUP BY n_comprobante ORDER BY fecha DESC
+                    """
+                    df_listado = pd.read_sql(query_listado, conn_list, params=(fecha_inicio, fecha_fin))
+                except Exception as e:
+                    st.error(f"Error al cargar el listado de comprobantes: {e}")
+                finally:
+                    conn_list.close()
+
+            # --- PARTE 2: INTERFAZ DE SELECCIÓN Y TEXT INPUT SIN CONFLICTOS ---
+            n_comp_seleccionado = ""
+            if not df_listado.empty:
+                with st.expander(f"📋 Listado de Comprobantes ({mes_sel} {ano_sel})", expanded=True):
+                    event = st.dataframe(
+                        df_listado, use_container_width=True, hide_index=True,
+                        on_select="rerun", selection_mode="single-row"
+                    )
+                    if len(event.selection.rows) > 0:
+                        idx = event.selection.rows[0]
+                        n_comp_seleccionado = str(df_listado.iloc[idx]['Nº'])
+
+            # Usar session_state para mantener la sincronización del input de texto de forma limpia
+            if "busc_comp" not in st.session_state:
+                st.session_state.busc_comp = ""
+
+            if n_comp_seleccionado and n_comp_seleccionado != st.session_state.busc_comp:
+                st.session_state.busc_comp = n_comp_seleccionado
+
+            # --- PARTE 3: GENERAR REPORTE ---
+            with st.expander("🔍 Generar Reporte", expanded=True):
+                n_comp = st.text_input("Nº de Comprobante", key="busc_comp")
+                btn_comp = st.button("🔎 Generar Reporte", type="primary", use_container_width=True)
+
+            if btn_comp and n_comp:
+                # Reporte visual
+                disenar_reporte_asiento_contable(n_comp)
+                
+                # PDF (Conexión dinámica)
+                conn_pdf = conectar_db(db_actual)
+                if conn_pdf:
+                    try:
+                        query_pdf = f"SELECT * FROM `{db_actual}`.asientos_contables WHERE n_comprobante = %s"
+                        df_asiento_pdf = pd.read_sql(query_pdf, conn_pdf, params=(n_comp,))
+                        
+                        if not df_asiento_pdf.empty:
+                            st.divider()
+                            pdf_bytes = generar_pdf_comprobante(df_asiento_pdf, n_comp, conn_pdf)
+                            st.download_button(
+                                label=f"📥 Descargar PDF {n_comp}",
+                                data=pdf_bytes,
+                                file_name=f"Comprobante_{n_comp}.pdf",
+                                mime="application/pdf",
+                                use_container_width=True
+                            )
+                        else:
+                            st.warning(f"No se encontraron registros para el comprobante {n_comp}.")
+                    except Exception as e:
+                        st.error(f"Error al generar el PDF del comprobante: {e}")
+                    finally:
+                        conn_pdf.close()
 
     elif sub_opcion == "Consultar Saldos Iniciales":
         st.subheader("🏁 Comprobante de Apertura")
