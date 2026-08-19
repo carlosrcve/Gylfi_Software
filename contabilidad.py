@@ -5397,14 +5397,40 @@ if "🏠 Inicio" in opcion_menu:
     valor_patrimonio = kpis.get('patrimonio', 0)
 
     u_v = 0
-    if not df_utilidad.empty and 'utilidad_acumulada' in df_utilidad.columns:
-        if 'f_fin_global' in st.session_state and st.session_state['f_fin_global']:
-            # ... busca la fila por anio y mes ...
-            fila_mes = df_utilidad[(df_utilidad['anio'] == anio_limite) & (df_utilidad['mes'] == mes_limite)]
-            if not fila_mes.empty:
-                u_v = fila_mes['utilidad_acumulada'].iloc[0]
-    else:
-        u_v = df_utilidad['utilidad_acumulada'].iloc[-1] # <-- El 'else' está mal indentado
+    if df_utilidad is not None and not df_utilidad.empty:
+        # Buscamos de forma flexible cualquier columna que represente la utilidad
+        posibles_columnas = ['utilidad_acumulada', 'utilidad_neta', 'utilidad_mensual', 'utilidad']
+        col_utilidad = next((c for c in posibles_columnas if c in df_utilidad.columns), None)
+        
+        # Si no encuentra ninguna de las conocidas, agarra la última columna numérica disponible
+        if not col_utilidad:
+            numericas = df_utilidad.select_dtypes(include='number').columns
+            if len(numericas) > 0:
+                col_utilidad = numericas[-1]
+
+        if col_utilidad:
+            if 'f_fin_global' in st.session_state and st.session_state['f_fin_global']:
+                try:
+                    fecha_fin_Sesion = pd.to_datetime(st.session_state['f_fin_global'])
+                    mes_limite = fecha_fin_Sesion.month
+                    anio_limite = fecha_fin_Sesion.year
+                    
+                    # Verificamos si existen las columnas de año y mes para filtrar con precisión
+                    if 'anio' in df_utilidad.columns and 'mes' in df_utilidad.columns:
+                        df_utilidad['anio'] = pd.to_numeric(df_utilidad['anio'], errors='coerce')
+                        df_utilidad['mes'] = pd.to_numeric(df_utilidad['mes'], errors='coerce')
+                        fila_mes = df_utilidad[(df_utilidad['anio'] == anio_limite) & (df_utilidad['mes'] == mes_limite)]
+                        
+                        if not fila_mes.empty:
+                            u_v = fila_mes[col_utilidad].iloc[0]
+                        else:
+                            u_v = df_utilidad[col_utilidad].iloc[-1]
+                    else:
+                        u_v = df_utilidad[col_utilidad].iloc[-1]
+                except Exception as e:
+                    u_v = df_utilidad[col_utilidad].iloc[-1]
+            else:
+                u_v = df_utilidad[col_utilidad].iloc[-1]
 
     col1, col2, col3, col4 = st.columns(4)
     with col1:
