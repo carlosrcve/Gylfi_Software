@@ -3669,24 +3669,28 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
             # 1. VALIDACIÓN PREVENTIVA (Antes de cargar la lista)
             try:
                 if conn:
-                    conn.ping(reconnect=True)
+                    pass # Evitamos el .ping conflictivo
                 else:
                     conn = conectar_db(db_actual)
             except Exception as e:
                 conn = conectar_db(db_actual)
 
+            # ⚠️ CAMBIA 'retencion_iva_realizada' por el nombre real de tu columna en la BD (ej. 'estatus', 'retenido', etc.)
+            query_facturas = "SELECT n_factura as numero_factura, proveedor FROM libro_compras WHERE estatus = 1"
+            
+            facturas_bloqueadas = ejecutar_consulta(query_facturas, conn)
 
-            facturas_bloqueadas = ejecutar_consulta("SELECT n_factura as numero_factura, proveedor FROM libro_compras WHERE retencion_iva_realizada = 1", conn)
-
-            if not facturas_bloqueadas.empty:
-                opciones = facturas_bloqueadas['numero_factura'] + " - " + facturas_bloqueadas['proveedor']
+            if facturas_bloqueadas is not None and not facturas_bloqueadas.empty:
+                opciones = facturas_bloqueadas['numero_factura'].astype(str) + " - " + facturas_bloqueadas['proveedor'].astype(str)
                 seleccion_label = st.selectbox("Seleccione factura para habilitar:", opciones, key="sel_des_iva")
                 nro_a_desbloquear = seleccion_label.split(" - ")[0]
                 
                 if st.button("Habilitar Factura", key="btn_des_iva"):
                     cursor_aux = conn.cursor()
-                    cursor_aux.execute("UPDATE libro_compras SET retencion_iva_realizada = 0 WHERE n_factura = %s", (nro_a_desbloquear,))
+                    # ⚠️ Asegúrate de usar el mismo nombre de columna aquí también
+                    cursor_aux.execute("UPDATE libro_compras SET estatus = 0 WHERE n_factura = %s", (nro_a_desbloquear,))
                     conn.commit()
+                    cursor_aux.close()
                     st.success(f"Factura {nro_a_desbloquear} habilitada.")
                     st.rerun()
             else:
