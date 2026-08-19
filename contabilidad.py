@@ -9407,13 +9407,28 @@ elif opcion_menu == "📚 Libros Fiscales":
             col_c1, col_c2, col_c3 = st.columns([1, 1, 1])
             with col_c3:
                 ver_todo = st.checkbox("📂 Ver todo", key="todo_compras")
+            
+            # --- BLINDAJE DE FECHAS SEGURO ---
+            from datetime import date as d_tipo, datetime as dt_tipo
+
+            def _obtener_f_segura(key_s):
+                val = st.session_state.get(key_s)
+                if val is not None:
+                    try:
+                        if hasattr(val, 'year') and hasattr(val, 'month'):
+                            return val
+                        elif isinstance(val, str):
+                            return dt_tipo.strptime(val, "%Y-%m-%d").date()
+                    except Exception:
+                        pass
+                return d_tipo.today()
+
             with col_c1:
-                desde_c = st.date_input("Desde", st.session_state.get('f_inicio_global', datetime.date.today()), key="desde_c", disabled=ver_todo)
+                desde_c = st.date_input("Desde", _obtener_f_segura('f_inicio_global'), key="desde_c", disabled=ver_todo)
             with col_c2:
-                hasta_c = st.date_input("Hasta", st.session_state.get('f_fin_global', datetime.date.today()), key="hasta_c", disabled=ver_todo)
+                hasta_c = st.date_input("Hasta", _obtener_f_segura('f_fin_global'), key="hasta_c", disabled=ver_todo)
 
             st.error("⚠️ **Atención:** Las acciones aquí solo afectan al Libro de Compras.")
-
             # 2. CARGA AUTOMÁTICA
             try:
                 conn = conectar_db(db_actual)
