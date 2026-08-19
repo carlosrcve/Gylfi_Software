@@ -7765,57 +7765,57 @@ elif opcion_menu == "📝 Asientos Contables":
 
 
         with tab2:
-        st.subheader("📂 Importar nuevo estado de cuenta")
+            st.subheader("📂 Importar nuevo estado de cuenta")
 
-        db_actual = st.session_state.get('DB_ACTUAL')
-        cliente_id = st.session_state.get('cliente_id')
-        rol = st.session_state.get('rol')
+            db_actual = st.session_state.get('DB_ACTUAL')
+            cliente_id = st.session_state.get('cliente_id')
+            rol = st.session_state.get('rol')
 
-        if not db_actual:
-            st.error("No se ha seleccionado una base de datos de empresa.")
-            st.stop()
-
-        empresa_data = obtener_datos_agente_db(db_actual)
-
-        if empresa_data and rol != 'admin':
-            if empresa_data['id'] != cliente_id:
-                st.error("⚠️ Acceso denegado: No tienes permisos para esta empresa.")
+            if not db_actual:
+                st.error("No se ha seleccionado una base de datos de empresa.")
                 st.stop()
 
-        if not empresa_data:
-            st.error("⚠️ No se pudieron cargar los datos de la empresa.")
-        else:
-            banco_sel = st.selectbox("Seleccione el Banco", ["Banco de Venezuela (BDV)", "Banesco", "Mercantil"], key="banco_select")
-            archivo_banco = st.file_uploader("Suba el archivo Excel (.xlsx) del banco", type=["xlsx"], key="file_banco")
+            empresa_data = obtener_datos_agente_db(db_actual)
 
-            if archivo_banco:
-                if st.button("Procesar e Importar"):
-                    with st.spinner(f"Procesando archivo de {banco_sel}..."):
-                        try:
-                            if conn:
-                                try:
-                                    conn.ping(reconnect=True)
-                                except Exception:
-                                    pass
+            if empresa_data and rol != 'admin':
+                if empresa_data['id'] != cliente_id:
+                    st.error("⚠️ Acceso denegado: No tienes permisos para esta empresa.")
+                    st.stop()
 
-                            resultado = False
-                            
-                            if banco_sel == "Banco de Venezuela (BDV)":
-                                resultado = cargar_estado_cuenta_bdv(archivo_banco, conn)
-                            elif banco_sel == "Banesco":
-                                resultado = cargar_estado_cuenta_banesco(archivo_banco, conn)
-                            elif banco_sel == "Mercantil":
-                                resultado = cargar_estado_cuenta_mercantil(archivo_banco, conn)
-                            
-                            if resultado:
-                                st.success(f"✅ Movimientos de {banco_sel} importados con éxito.")
-                                st.balloons()
-                                st.rerun()
-                            else:
-                                st.error(f"❌ No se pudieron procesar los datos de {banco_sel}.")
+            if not empresa_data:
+                st.error("⚠️ No se pudieron cargar los datos de la empresa.")
+            else:
+                banco_sel = st.selectbox("Seleccione el Banco", ["Banco de Venezuela (BDV)", "Banesco", "Mercantil"], key="banco_select")
+                archivo_banco = st.file_uploader("Suba el archivo Excel (.xlsx) del banco", type=["xlsx"], key="file_banco")
+
+                if archivo_banco:
+                    if st.button("Procesar e Importar"):
+                        with st.spinner(f"Procesando archivo de {banco_sel}..."):
+                            try:
+                                if conn:
+                                    try:
+                                        conn.ping(reconnect=True)
+                                    except Exception:
+                                        pass
+
+                                resultado = False
                                 
-                        except Exception as e:
-                            st.error(f"Error crítico procesando {banco_sel}: {e}")
+                                if banco_sel == "Banco de Venezuela (BDV)":
+                                    resultado = cargar_estado_cuenta_bdv(archivo_banco, conn)
+                                elif banco_sel == "Banesco":
+                                    resultado = cargar_estado_cuenta_banesco(archivo_banco, conn)
+                                elif banco_sel == "Mercantil":
+                                    resultado = cargar_estado_cuenta_mercantil(archivo_banco, conn)
+                                
+                                if resultado:
+                                    st.success(f"✅ Movimientos de {banco_sel} importados con éxito.")
+                                    st.balloons()
+                                    st.rerun()
+                                else:
+                                    st.error(f"❌ No se pudieron procesar los datos de {banco_sel}.")
+                                    
+                            except Exception as e:
+                                st.error(f"Error crítico procesando {banco_sel}: {e}")
     
 
    
