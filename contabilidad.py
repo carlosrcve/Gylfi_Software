@@ -7742,39 +7742,33 @@ elif opcion_menu == "📝 Asientos Contables":
                         pass
 
     # --- TAB 2: IMPORTACIÓN DE MOVIMIENTOS ---
+    # ==========================================
+    # --- TAB 2: IMPORTACIÓN DE MOVIMIENTOS ---
+    # ==========================================
     with tab2:
         st.subheader("📂 Importar nuevo estado de cuenta")
 
-        db_actual = st.session_state.get('DB_ACTUAL')
-        cliente_id = st.session_state.get('cliente_id')
-        rol = st.session_state.get('rol')
-
-        if not db_actual:
-            st.error("No se ha seleccionado una base de datos de empresa.")
-            st.stop()
-
-        empresa_data = obtener_datos_agente_db(db_actual)
-
-        if empresa_data and rol != 'admin':
-            if empresa_data['id'] != cliente_id:
-                st.error("⚠️ Acceso denegado: No tienes permisos para esta empresa.")
-                st.stop()
-
-        if not empresa_data:
-            st.error("⚠️ No se pudieron cargar los datos de la empresa.")
+        # Filtro de acceso por rol (reutilizando las variables globales ya validadas arriba)
+        if rol != 'admin' and empresa_data.get('id') != cliente_id:
+            st.error("⚠️ Acceso denegado: No tienes permisos para esta empresa.")
         else:
             banco_sel = st.selectbox("Seleccione el Banco", ["Banco de Venezuela (BDV)", "Banesco", "Mercantil"], key="banco_select")
             archivo_banco = st.file_uploader("Suba el archivo Excel (.xlsx) del banco", type=["xlsx"], key="file_banco")
 
             if archivo_banco:
-                if st.button("Procesar e Importar"):
+                if st.button("Procesar e Importar", key="btn_procesar_importar"):
                     with st.spinner(f"Procesando archivo de {banco_sel}..."):
                         try:
+                            # Aseguramos que la conexión global esté activa antes de importar
                             if conn:
                                 try:
                                     conn.ping(reconnect=True)
                                 except Exception:
-                                    pass
+                                    conn = conectar_db(db_actual)
+                                    st.session_state['conn_conciliacion'] = conn
+                            else:
+                                conn = conectar_db(db_actual)
+                                st.session_state['conn_conciliacion'] = conn
 
                             resultado = False
                             
