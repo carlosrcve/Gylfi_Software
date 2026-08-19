@@ -8364,22 +8364,18 @@ elif opcion_menu == "📖 Mayor Analítico":
 # E. ESTADOS FINANCIEROS -> BALANCE COMPROBACIÓN
 elif sub_opcion == "Balance de Comprobación":
     # 1. Obtener datos de sesión
-    EMPRESA = st.session_state.get('CLIENTE_NOMBRE')
+    EMPRESA = st.session_state.get('CLIENTE_NOMBRE', 'Empresa')
     db_actual = st.session_state.get('DB_ACTUAL')
     sucursal = st.session_state.get('SUCURSAL_SELECCIONADA', 'Todas')
     
-    # RECUPERAR LAS FECHAS GLOBALES DESDE EL SESSION_STATE
-    f_inicio_global = st.session_state.get('f_inicio_global')
-    f_fin_global = st.session_state.get('f_fin_global')
+    # RECUPERAR LAS FECHAS GLOBALES DESDE EL SESSION_STATE de forma segura
+    f_inicio_global = st.session_state.get('f_inicio_global', datetime.now().date())
+    f_fin_global = st.session_state.get('f_fin_global', datetime.now().date())
     
     if not db_actual or db_actual == 'none':
         st.warning("⚠️ Por favor, seleccione un Cliente/Empresa en el panel lateral.")
         st.stop()
         
-    if not f_inicio_global or not f_fin_global:
-        st.warning("⚠️ Por favor, configure el período de fechas en el panel lateral.")
-        st.stop()
-    
     st.subheader(f"⚖️ Balance de Comprobación: {EMPRESA}")
     
     # --- FILTROS DE FECHA ---
@@ -8398,151 +8394,165 @@ elif sub_opcion == "Balance de Comprobación":
             # 3. Generar el reporte usando la conexión temporal
             df_bal = generar_balance_profesional(conn_temporal, f_bal_desde, f_bal_hasta, sucursal)
             
-            if not df_bal.empty:
-                columnas_finales = ['codigo', 'nombre', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final', 'nivel']
-                df_display = df_bal[columnas_finales].copy()
-                
-                # Preparar columna con sangría para la pantalla
-                df_display['Cuenta'] = df_display.apply(lambda x: f"{'    ' * (int(x['nivel'])-1)}{x['nombre']}", axis=1)
-                nombre_archivo_pdf = f"Balance_{EMPRESA}_{f_bal_hasta.strftime('%d_%m_%Y')}.pdf"
-
-                # --- VISUALIZACIÓN EN DATAFRAME ---
-                st.dataframe(
-                    df_display.style.format({
-                        'Saldo Inicial': formato_contable, 
-                        'Debe': formato_contable, 
-                        'Haber': formato_contable, 
-                        'Saldo Final': formato_contable
-                    }).apply(estilo_balance, axis=1),
-                    column_order=['codigo', 'Cuenta', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final'],
-                    width='stretch', height=500, hide_index=True
-                )
-
-                # --- OBTENER TOTALES DIRECTO DE LA FILA Σ ---
-                fila_sigma = df_display[df_display['codigo'] == 'Σ']
-
-                # Inicializamos y extraemos de forma segura para pantalla y PDF
-                if not fila_sigma.empty:
-                    t = fila_sigma.iloc[0]
-                    t_inicial = float(t['Saldo Inicial'])
-                    t_debe = float(t['Debe'])
-                    t_haber = float(t['Haber'])
-                    t_final = float(t['Saldo Final'])
-                else:
-                    t_inicial = t_debe = t_haber = t_final = 0.0
-
-                # --- VISUALIZACIÓN DEL RESUMEN PATRIMONIAL ---
-                st.markdown("### 📊 Resumen Patrimonial")
-
-                c1, c2, c3, c4 = st.columns(4)
-                c1.metric("Saldo Inicial", formato_contable(t_inicial))
-                c2.metric("Total Debe", formato_contable(t_debe))
-                c3.metric("Total Haber", formato_contable(t_haber))
-                c4.metric("Saldo Final", formato_contable(t_final))
-
-                # Mensaje de cuadre
-                if abs(abs(t_debe) - abs(t_haber)) < 0.01:
-                    st.success("✅ La ecuación patrimonial está balanceada.")
-                else:
-                    diferencia = t_debe - t_haber
-                    st.error(f"❌ Descuadre detectado: {formato_contable(diferencia)}")
-
-                # --- BOTONES DE EXPORTACIÓN ---
-                st.divider()
-                col_btn1, col_btn2 = st.columns(2)
-
-                # 1. EXCEL
-                columnas_excel = {
-                    'codigo': 'Código',
-                    'nombre': 'Cuenta',
-                    'Saldo Inicial': 'Saldo Inicial',
-                    'Debe': 'Debe',
-                    'Haber': 'Haber',
-                    'Saldo Final': 'Saldo Final'
-                }
-                df_excel = df_bal[list(columnas_excel.keys())].copy()
-                df_excel = df_excel.rename(columns=columnas_excel)
-
-                output_ex = io.BytesIO()
-                with pd.ExcelWriter(output_ex, engine='xlsxwriter') as writer:
-                    df_excel.to_excel(writer, index=False, sheet_name='Balance')
-                    workbook  = writer.book
-                    worksheet = writer.sheets['Balance']
-                    format_num = workbook.add_format({'num_format': '#,##0.00'})
-                    
-                    worksheet.set_column('B:B', 40)
-                    worksheet.set_column('C:F', 18, format_num)
-
-                col_btn1.download_button(
-                    label="📥 Descargar Excel Limpio",
-                    data=output_ex.getvalue(),
-                    file_name=f"Balance_{EMPRESA}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    width='stretch'
-                )
-
-                # 2. PDF PROFESIONAL
-                if col_btn2.button("📄 Generar PDF Profesional", width='stretch', type="primary"):
-                    try:
-                        from fpdf import FPDF
-                        
-                        class PDF(FPDF):
-                            def header(self):
-                                self.set_font('Arial', 'B', 10)
-                                self.cell(100, 5, f"{EMPRESA}", ln=0)
-                                self.set_font('Arial', '', 8)
-                                self.cell(0, 5, f"Fecha: {datetime.now().strftime('%d/%m/%Y')}", ln=1, align='R')
-                                self.ln(10)
-                                self.set_font('Arial', 'B', 12)
-                                self.cell(0, 5, "Balance de Comprobación", ln=1, align='C')
-                                self.set_font('Arial', '', 9)
-                                self.cell(0, 5, f"Periodo: {f_bal_desde.strftime('%d/%m/%Y')} al {f_bal_hasta.strftime('%d/%m/%Y')}", ln=1, align='C')
-                                self.ln(5)
-                                # Encabezados de tabla
-                                self.set_fill_color(230, 230, 230)
-                                self.set_font('Arial', 'B', 8)
-                                self.cell(25, 7, " Código", 1, 0, 'L', True)
-                                self.cell(70, 7, " Descripción", 1, 0, 'L', True)
-                                self.cell(24, 7, "S. Inicial", 1, 0, 'C', True)
-                                self.cell(24, 7, "Debe", 1, 0, 'C', True)
-                                self.cell(24, 7, "Haber", 1, 0, 'C', True)
-                                self.cell(24, 7, "S. Final", 1, 1, 'C', True)
-
-                        pdf = PDF()
-                        pdf.add_page()
-                        for _, row in df_display.iterrows():
-                            pdf.set_font("Arial", 'B' if row['nivel'] <= 2 else '', 7)
-                            indent = "  " * (int(row['nivel']) - 1)
-                            pdf.cell(25, 6, str(row['codigo']), 1)
-                            pdf.cell(70, 6, f"{indent}{row['nombre']}"[:45], 1)
-                            pdf.cell(24, 6, f"{row['Saldo Inicial']:,.2f}", 1, 0, 'R')
-                            pdf.cell(24, 6, f"{row['Debe']:,.2f}", 1, 0, 'R')
-                            pdf.cell(24, 6, f"{row['Haber']:,.2f}", 1, 0, 'R')
-                            pdf.cell(24, 6, f"{row['Saldo Final']:,.2f}", 1, 1, 'R')
-
-                        # Totales finales en el PDF (Usando las variables correctamente asignadas)
-                        pdf.set_fill_color(0, 0, 0)
-                        pdf.set_text_color(255, 255, 255)
-                        pdf.set_font("Arial", 'B', 8)
-                        pdf.cell(95, 8, "TOTALES GENERALES (NETO)", 1, 0, 'R', True)
-                        pdf.cell(24, 8, f"{t_inicial:,.2f}", 1, 0, 'R', True)
-                        pdf.cell(24, 8, f"{t_debe:,.2f}", 1, 0, 'R', True)
-                        pdf.cell(24, 8, f"{t_haber:,.2f}", 1, 0, 'R', True)
-                        pdf.cell(24, 8, f"{t_final:,.2f}", 1, 1, 'R', True)
-
-                        pdf_bytes = pdf.output(dest='S').encode('latin-1')
-                        st.download_button(
-                            label="⬇️ Descargar PDF Ahora", 
-                            data=pdf_bytes, 
-                            file_name=nombre_archivo_pdf, 
-                            mime="application/pdf", 
-                            width='stretch'
-                        )
-                    except Exception as e_pdf:
-                        st.error(f"Error generando PDF: {e_pdf}")
-
+            # Validar que df_bal no sea None ni esté vacío
+            if df_bal is None or not hasattr(df_bal, 'empty') or df_bal.empty:
+                st.info("ℹ️ No hay datos o la función de balance retornó vacío para el rango seleccionado.")
             else:
-                st.info("No hay datos para el rango seleccionado.")
+                # Normalizar nombres de columnas por si la función externa usa mayúsculas o nombres alternativos
+                renombres = {}
+                if 'Código' in df_bal.columns: renombres['Código'] = 'codigo'
+                if 'Plan' in df_bal.columns: renombres['Plan'] = 'nombre'
+                if 'plan_cuentas' in df_bal.columns: renombres['plan_cuentas'] = 'nombre'
+                if renombres:
+                    df_bal = df_bal.rename(columns=renombres)
+
+                # Asegurarnos de que las columnas requeridas existan antes de filtrar
+                columnas_necesarias = ['codigo', 'nombre', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final', 'nivel']
+                faltantes = [c for c in columnas_necesarias if c not in df_bal.columns]
+                
+                if faltantes:
+                    st.error(f"❌ Error de estructura: Faltan las columnas {faltantes} en el resultado del balance.")
+                else:
+                    df_display = df_bal[columnas_necesarias].copy()
+                    
+                    # Preparar columna con sangría para la pantalla
+                    df_display['Cuenta'] = df_display.apply(lambda x: f"{'    ' * (int(x['nivel'])-1)}{x['nombre']}", axis=1)
+                    nombre_archivo_pdf = f"Balance_{EMPRESA}_{f_bal_hasta.strftime('%d_%m_%Y')}.pdf"
+
+                    # --- VISUALIZACIÓN EN DATAFRAME ---
+                    st.dataframe(
+                        df_display.style.format({
+                            'Saldo Inicial': formato_contable, 
+                            'Debe': formato_contable, 
+                            'Haber': formato_contable, 
+                            'Saldo Final': formato_contable
+                        }).apply(estilo_balance, axis=1),
+                        column_order=['codigo', 'Cuenta', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final'],
+                        use_container_width=True, height=500, hide_index=True
+                    )
+
+                    # --- OBTENER TOTALES DIRECTO DE LA FILA Σ ---
+                    fila_sigma = df_display[df_display['codigo'] == 'Σ']
+
+                    # Inicializamos y extraemos de forma segura para pantalla y PDF
+                    if not fila_sigma.empty:
+                        t = fila_sigma.iloc[0]
+                        t_inicial = float(t['Saldo Inicial'])
+                        t_debe = float(t['Debe'])
+                        t_haber = float(t['Haber'])
+                        t_final = float(t['Saldo Final'])
+                    else:
+                        t_inicial = t_debe = t_haber = t_final = 0.0
+
+                    # --- VISUALIZACIÓN DEL RESUMEN PATRIMONIAL ---
+                    st.markdown("### 📊 Resumen Patrimonial")
+
+                    c1, c2, c3, c4 = st.columns(4)
+                    c1.metric("Saldo Inicial", formato_contable(t_inicial))
+                    c2.metric("Total Debe", formato_contable(t_debe))
+                    c3.metric("Total Haber", formato_contable(t_haber))
+                    c4.metric("Saldo Final", formato_contable(t_final))
+
+                    # Mensaje de cuadre
+                    if abs(abs(t_debe) - abs(t_haber)) < 0.01:
+                        st.success("✅ La ecuación patrimonial está balanceada.")
+                    else:
+                        diferencia = t_debe - t_haber
+                        st.error(f"❌ Descuadre detectado: {formato_contable(diferencia)}")
+
+                    # --- BOTONES DE EXPORTACIÓN ---
+                    st.divider()
+                    col_btn1, col_btn2 = st.columns(2)
+
+                    # 1. EXCEL
+                    columnas_excel = {
+                        'codigo': 'Código',
+                        'nombre': 'Cuenta',
+                        'Saldo Inicial': 'Saldo Inicial',
+                        'Debe': 'Debe',
+                        'Haber': 'Haber',
+                        'Saldo Final': 'Saldo Final'
+                    }
+                    df_excel = df_bal[list(columnas_excel.keys())].copy()
+                    df_excel = df_excel.rename(columns=columnas_excel)
+
+                    output_ex = io.BytesIO()
+                    with pd.ExcelWriter(output_ex, engine='xlsxwriter') as writer:
+                        df_excel.to_excel(writer, index=False, sheet_name='Balance')
+                        workbook  = writer.book
+                        worksheet = writer.sheets['Balance']
+                        format_num = workbook.add_format({'num_format': '#,##0.00'})
+                        
+                        worksheet.set_column('B:B', 40)
+                        worksheet.set_column('C:F', 18, format_num)
+
+                    col_btn1.download_button(
+                        label="📥 Descargar Excel Limpio",
+                        data=output_ex.getvalue(),
+                        file_name=f"Balance_{EMPRESA}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        use_container_width=True
+                    )
+
+                    # 2. PDF PROFESIONAL
+                    if col_btn2.button("📄 Generar PDF Profesional", use_container_width=True, type="primary"):
+                        try:
+                            from fpdf import FPDF
+                            
+                            class PDF(FPDF):
+                                def header(self):
+                                    self.set_font('Arial', 'B', 10)
+                                    self.cell(100, 5, f"{EMPRESA}", ln=0)
+                                    self.set_font('Arial', '', 8)
+                                    self.cell(0, 5, f"Fecha: {datetime.now().strftime('%d/%m/%Y')}", ln=1, align='R')
+                                    self.ln(10)
+                                    self.set_font('Arial', 'B', 12)
+                                    self.cell(0, 5, "Balance de Comprobación", ln=1, align='C')
+                                    self.set_font('Arial', '', 9)
+                                    self.cell(0, 5, f"Periodo: {f_bal_desde.strftime('%d/%m/%Y')} al {f_bal_hasta.strftime('%d/%m/%Y')}", ln=1, align='C')
+                                    self.ln(5)
+                                    # Encabezados de tabla
+                                    self.set_fill_color(230, 230, 230)
+                                    self.set_font('Arial', 'B', 8)
+                                    self.cell(25, 7, " Código", 1, 0, 'L', True)
+                                    self.cell(70, 7, " Descripción", 1, 0, 'L', True)
+                                    self.cell(24, 7, "S. Inicial", 1, 0, 'C', True)
+                                    self.cell(24, 7, "Debe", 1, 0, 'C', True)
+                                    self.cell(24, 7, "Haber", 1, 0, 'C', True)
+                                    self.cell(24, 7, "S. Final", 1, 1, 'C', True)
+
+                            pdf = PDF()
+                            pdf.add_page()
+                            for _, row in df_display.iterrows():
+                                pdf.set_font("Arial", 'B' if row['nivel'] <= 2 else '', 7)
+                                indent = "  " * (int(row['nivel']) - 1)
+                                pdf.cell(25, 6, str(row['codigo']), 1)
+                                pdf.cell(70, 6, f"{indent}{row['nombre']}"[:45], 1)
+                                pdf.cell(24, 6, f"{row['Saldo Inicial']:,.2f}", 1, 0, 'R')
+                                pdf.cell(24, 6, f"{row['Debe']:,.2f}", 1, 0, 'R')
+                                pdf.cell(24, 6, f"{row['Haber']:,.2f}", 1, 0, 'R')
+                                pdf.cell(24, 6, f"{row['Saldo Final']:,.2f}", 1, 1, 'R')
+
+                            # Totales finales en el PDF
+                            pdf.set_fill_color(0, 0, 0)
+                            pdf.set_text_color(255, 255, 255)
+                            pdf.set_font("Arial", 'B', 8)
+                            pdf.cell(95, 8, "TOTALES GENERALES (NETO)", 1, 0, 'R', True)
+                            pdf.cell(24, 8, f"{t_inicial:,.2f}", 1, 0, 'R', True)
+                            pdf.cell(24, 8, f"{t_debe:,.2f}", 1, 0, 'R', True)
+                            pdf.cell(24, 8, f"{t_haber:,.2f}", 1, 0, 'R', True)
+                            pdf.cell(24, 8, f"{t_final:,.2f}", 1, 1, 'R', True)
+
+                            pdf_bytes = pdf.output(dest='S').encode('latin-1')
+                            st.download_button(
+                                label="⬇️ Descargar PDF Ahora", 
+                                data=pdf_bytes, 
+                                file_name=nombre_archivo_pdf, 
+                                mime="application/pdf", 
+                                use_container_width=True
+                            )
+                        except Exception as e_pdf:
+                            st.error(f"Error generando PDF: {e_pdf}")
 
         except Exception as e:
             st.error(f"Error procesando balance: {e}")
