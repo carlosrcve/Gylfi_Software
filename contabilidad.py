@@ -580,32 +580,35 @@ def obtener_saldos_acumulados(conexion, fecha_corte, nombre_db):
 @st.cache_data(ttl=300)
 def obtener_datos_pie(db, fecha_inicio, fecha_fin):
     df_vacio = pd.DataFrame(columns=['nombre', 'Saldo Final'])
-    
     conn = conectar_db(db)
     if not conn:
         return df_vacio
         
-    query = f"""
-        SELECT descripcion as nombre, SUM(debe) as "Saldo Final" 
-        FROM rishon_letzion_ca.asientos_contables 
-        WHERE plan_cuentas LIKE '6%' AND fecha >= %s AND fecha <= %s 
-        GROUP BY descripcion 
-        HAVING SUM(debe) > 0 
-        ORDER BY 2 DESC 
-        LIMIT 10
-    """
+    db_segura = str(db).strip()
+    
+    query = (
+        "SELECT descripcion as nombre, SUM(debe) as `Saldo Final` "
+        f"FROM `{db_segura}`.asientos_contables "
+        "WHERE plan_cuentas LIKE '6%%' "
+        "AND fecha >= %s AND fecha <= %s "
+        "GROUP BY descripcion "
+        "HAVING SUM(debe) > 0 "
+        "ORDER BY 2 DESC "
+        "LIMIT 10"
+    )
     
     try:
-        # USAMOS NUESTRA FUNCIÓN SEGURA EN LUGAR DE ejecutar_consulta
         df = ejecutar_consulta(query, conn, params=(fecha_inicio, fecha_fin))
         return df if not df.empty else df_vacio
     except Exception as e:
         print(f"Error en obtener_datos_pie: {e}")
         return df_vacio
     finally:
-        # CORREGIDO: Cierre directo y seguro compatible con PyMySQL (sin .is_connected())
         if conn:
-            conn.close()
+            try:
+                conn.close()
+            except Exception:
+                pass
 
 
 @st.cache_data(ttl=300)
