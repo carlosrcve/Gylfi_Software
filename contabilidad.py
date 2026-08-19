@@ -546,22 +546,19 @@ def obtener_saldos_acumulados(conexion, fecha_corte, nombre_db):
     try:
         cur.execute(f"USE `{db_segura}`")
         
-        # Filtramos la fecha SOLO en asientos_contables. 
-        # Los saldos_iniciales se suman siempre (o deberías filtrar por año si aplica).
+        # Consulta limpia sin conflictos de comillas en el SQL string
         query = """
             SELECT 
                 COALESCE(SUM(CASE WHEN plan_cuentas LIKE '1%' THEN (debe - haber) ELSE 0 END), 0) as activo,
                 COALESCE(SUM(CASE WHEN plan_cuentas LIKE '2%' THEN (haber - debe) ELSE 0 END), 0) as pasivo,
                 COALESCE(SUM(CASE WHEN plan_cuentas LIKE '3%' THEN (haber - debe) ELSE 0 END), 0) as patrimonio
             FROM (
-                -- 1. Asientos contables filtrados por fecha
                 SELECT plan_cuentas, debe, haber 
                 FROM asientos_contables 
                 WHERE fecha <= %s
                 
                 UNION ALL
                 
-                -- 2. Saldos iniciales (Asegúrate de que aquí no falten datos)
                 SELECT plan_cuentas, debe, haber 
                 FROM saldos_iniciales
             ) as todo_acumulado
@@ -570,14 +567,10 @@ def obtener_saldos_acumulados(conexion, fecha_corte, nombre_db):
         cur.execute(query, (fecha_corte,))
         resultado = cur.fetchone()
         
-        # LOG DE DEBUG: Si esto imprime ceros en la consola, el problema está en los datos de la tabla
-        if resultado and resultado.get('activo') == 0:
-            print(f"DEBUG: La consulta retornó 0. Verifica si hay registros en `{db_segura}`.asientos_contables hasta {fecha_corte}")
-            
         return resultado if resultado else {"activo": 0, "pasivo": 0, "patrimonio": 0}
 
     except Exception as e:
-        st.error(f"🔥 ERROR REAL EN SQL: {e}")  # <-- Esto saldrá directo en la pantalla del dashboard
+        st.error(f"🔥 ERROR REAL EN SQL: {e}")
         return {"activo": 0, "pasivo": 0, "patrimonio": 0}
     finally:
         cur.close()
