@@ -2147,13 +2147,17 @@ def generar_balance_comprobacion(conn, f_i, f_f, sucursal):
     
     db = st.session_state.get('DB_ACTUAL')
     # Definimos la columna que contiene el ID contable
-    COLUMNA_ID = "plan_cuentas" 
+    COLUMNA_ID = "codigo" # Porque ahora tu SQL devuelve 'codigo'
     
     try:
-        sql_si = f"SELECT {COLUMNA_ID}, SUM(debe) - SUM(haber) as val FROM `{db}`.saldos_iniciales GROUP BY {COLUMNA_ID}"
-        sql_ac = f"SELECT {COLUMNA_ID}, SUM(debe) - SUM(haber) as val FROM `{db}`.asientos_contables WHERE fecha < %s GROUP BY {COLUMNA_ID}"
-        sql_mo_d = f"SELECT {COLUMNA_ID}, SUM(debe) as val FROM `{db}`.asientos_contables WHERE fecha BETWEEN %s AND %s GROUP BY {COLUMNA_ID}"
-        sql_mo_h = f"SELECT {COLUMNA_ID}, SUM(haber) as val FROM `{db}`.asientos_contables WHERE fecha BETWEEN %s AND %s GROUP BY {COLUMNA_ID}"
+        # Usamos JOIN para obtener el 'codigo' del plan de cuentas basado en el nombre que está en las tablas de movimiento
+        sql_si = f"SELECT p.codigo, SUM(s.debe) - SUM(s.haber) as val FROM `{db}`.saldos_iniciales s JOIN `{db}`.plan_cuentas p ON s.plan_cuentas = p.nombre GROUP BY p.codigo"
+        
+        sql_ac = f"SELECT p.codigo, SUM(a.debe) - SUM(a.haber) as val FROM `{db}`.asientos_contables a JOIN `{db}`.plan_cuentas p ON a.plan_cuentas = p.nombre WHERE a.fecha < %s GROUP BY p.codigo"
+        
+        sql_mo_d = f"SELECT p.codigo, SUM(a.debe) as val FROM `{db}`.asientos_contables a JOIN `{db}`.plan_cuentas p ON a.plan_cuentas = p.nombre WHERE a.fecha BETWEEN %s AND %s GROUP BY p.codigo"
+        
+        sql_mo_h = f"SELECT p.codigo, SUM(a.haber) as val FROM `{db}`.asientos_contables a JOIN `{db}`.plan_cuentas p ON a.plan_cuentas = p.nombre WHERE a.fecha BETWEEN %s AND %s GROUP BY p.codigo"
 
         dfs = {
             'si': ejecutar_consulta(sql_si, conn),
