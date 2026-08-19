@@ -2146,12 +2146,14 @@ def generar_balance_comprobacion(conn, f_i, f_f, sucursal):
         return pd.DataFrame(columns=['Código', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final'])
     
     db = st.session_state.get('DB_ACTUAL')
+    # Definimos la columna que contiene el ID contable
+    COLUMNA_ID = "plan_cuentas" 
     
     try:
-        sql_si = f"SELECT plan_cuentas, SUM(debe) - SUM(haber) as val FROM `{db}`.saldos_iniciales GROUP BY plan_cuentas"
-        sql_ac = f"SELECT plan_cuentas, SUM(debe) - SUM(haber) as val FROM `{db}`.asientos_contables WHERE fecha < %s GROUP BY plan_cuentas"
-        sql_mo_d = f"SELECT plan_cuentas, SUM(debe) as val FROM `{db}`.asientos_contables WHERE fecha BETWEEN %s AND %s GROUP BY plan_cuentas"
-        sql_mo_h = f"SELECT plan_cuentas, SUM(haber) as val FROM `{db}`.asientos_contables WHERE fecha BETWEEN %s AND %s GROUP BY plan_cuentas"
+        sql_si = f"SELECT {COLUMNA_ID}, SUM(debe) - SUM(haber) as val FROM `{db}`.saldos_iniciales GROUP BY {COLUMNA_ID}"
+        sql_ac = f"SELECT {COLUMNA_ID}, SUM(debe) - SUM(haber) as val FROM `{db}`.asientos_contables WHERE fecha < %s GROUP BY {COLUMNA_ID}"
+        sql_mo_d = f"SELECT {COLUMNA_ID}, SUM(debe) as val FROM `{db}`.asientos_contables WHERE fecha BETWEEN %s AND %s GROUP BY {COLUMNA_ID}"
+        sql_mo_h = f"SELECT {COLUMNA_ID}, SUM(haber) as val FROM `{db}`.asientos_contables WHERE fecha BETWEEN %s AND %s GROUP BY {COLUMNA_ID}"
 
         dfs = {
             'si': ejecutar_consulta(sql_si, conn),
@@ -2163,13 +2165,18 @@ def generar_balance_comprobacion(conn, f_i, f_f, sucursal):
         lista_frames = []
         for nombre, df in dfs.items():
             if df is not None and not df.empty:
-                col_name = [c for c in df.columns if 'plan_cuenta' in c.lower() or 'codigo' in c.lower()][0]
-                df = df.rename(columns={col_name: 'Código', 'val': nombre})
-                
-                df[nombre] = pd.to_numeric(df[nombre], errors='coerce').fillna(0.0)
-                df['Código'] = df['Código'].astype(str).str.strip().str.replace('.0', '', regex=False)
-                df = df.set_index('Código')
-                lista_frames.append(df)
+                # Verificar si nuestra columna ID existe en los resultados
+                if COLUMNA_ID in df.columns:
+                    # Renombramos usando la variable centralizada
+                    df = df.rename(columns={COLUMNA_ID: 'Código', 'val': nombre})
+                    
+                    # Diagnóstico visual por si los datos no son lo que esperas
+                    # st.write(f"Pre-limpieza {nombre}:", df['Código'].head().tolist())
+                    
+                    df[nombre] = pd.to_numeric(df[nombre], errors='coerce').fillna(0.0)
+                    df['Código'] = df['Código'].astype(str).str.strip().str.replace('.0', '', regex=False)
+                    df = df.set_index('Código')
+                    lista_frames.append(df)
 
         if not lista_frames:
             return pd.DataFrame(columns=['Código', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final'])
@@ -2177,22 +2184,18 @@ def generar_balance_comprobacion(conn, f_i, f_f, sucursal):
         balance = pd.concat(lista_frames, axis=1).fillna(0.0)
         balance.reset_index(inplace=True)
         
-        # Asegurar columnas numéricas estándar como float de Python
         for c in ['si', 'ac', 'debe', 'haber']:
             if c not in balance.columns: 
                 balance[c] = 0.0
             balance[c] = balance[c].astype(float)
             
-        # Extracción del primer dígito para cuentas de tipo Activo/Gasto (1 y 5)
         balance['Tipo'] = balance['Código'].astype(str).str[0]
         
-        # CÁLCULO VECTORIZADO (Sin usar .apply(), evitando el error de numpy types)
+        # CÁLCULO VECTORIZADO
         balance['Saldo Inicial'] = balance['si'] + balance['ac']
         
-        # Máscaras lógicas para tipos contables
         es_activo_gasto = balance['Tipo'].isin(['1', '5'])
         
-        # Saldo Final vectorizado según naturaleza
         balance['Saldo Final'] = 0.0
         balance.loc[es_activo_gasto, 'Saldo Final'] = balance['Saldo Inicial'] + balance['debe'] - balance['haber']
         balance.loc[~es_activo_gasto, 'Saldo Final'] = balance['Saldo Inicial'] - balance['debe'] + balance['haber']
