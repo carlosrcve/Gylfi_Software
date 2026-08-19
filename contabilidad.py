@@ -2035,33 +2035,7 @@ def generar_balance_profesional(conn, f_i, f_f, sucursal):
         cursor = conn.cursor()
         cursor.execute(f"USE `{db}`")
         
-        # 1. Obtener datos
-        df_saldos = generar_balance_comprobacion(conn, f_i, f_f, sucursal)
-        
-        # --- VALIDACIÓN CRÍTICA DE SALDOS ---
-        if df_saldos is None or df_saldos.empty:
-            st.warning("⚠️ La función 'generar_balance_comprobacion' no devolvió datos para el rango o sucursal seleccionados.")
-            return None
-            
-        # Normalizar nombres de columnas por si vienen con minúsculas u otro formato
-        renombres_saldos = {}
-        for col in df_saldos.columns:
-            col_lower = str(col).lower()
-            if 'codigo' in col_lower: renombres_saldos[col] = 'Código'
-            elif 'inicial' in col_lower: renombres_saldos[col] = 'Saldo Inicial'
-            elif 'debe' in col_lower: renombres_saldos[col] = 'Debe'
-            elif 'haber' in col_lower: renombres_saldos[col] = 'Haber'
-            elif 'final' in col_lower: renombres_saldos[col] = 'Saldo Final'
-        
-        df_saldos = df_saldos.rename(columns=renombres_saldos)
-
-        # Verificar que las columnas requeridas ahora sí existan
-        cols_saldos = ['Código', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final']
-        faltantes_saldos = [c for c in cols_saldos if c not in df_saldos.columns]
-        if faltantes_saldos:
-            st.error(f"❌ Error: Faltan las columnas {faltantes_saldos} en el resultado de saldos. Columnas disponibles: {list(df_saldos.columns)}")
-            return None
-
+        # 1. Consultar el plan de cuentas primero para tener la estructura base siempre disponible
         query_plan = f"SELECT codigo, nombre, nivel, padre FROM `{db}`.plan_cuentas ORDER BY codigo"
         df_plan = ejecutar_consulta(query_plan, conn)
         
@@ -2069,12 +2043,39 @@ def generar_balance_profesional(conn, f_i, f_f, sucursal):
             st.error("⚠️ El plan de cuentas está vacío o no se pudo consultar.")
             return None
 
-        # Seleccionar columnas estrictas
         cols_plan = ['codigo', 'nombre', 'nivel', 'padre']
         df_plan = df_plan[cols_plan]
-        df_saldos = df_saldos[cols_saldos]
+
+        # 2. Obtener datos de saldos y movimientos
+        df_saldos = generar_balance_comprobacion(conn, f_i, f_f, sucursal)
+        cols_saldos = ['Código', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final']
         
-        # Merge limpio
+        # --- VALIDACIÓN FLEXIBLE DE SALDOS VACÍOS ---
+        if df_saldos is None or df_saldos.empty:
+            st.info("ℹ️ No hay movimientos registrados para este rango o sucursal. Mostrando cuentas en ceros.")
+            # Creamos un DataFrame vacío con las columnas necesarias para hacer el merge sin rompernos
+            df_saldos = pd.DataFrame(columns=cols_saldos)
+        else:
+            # Normalizar nombres de columnas por si vienen con minúsculas u otro formato
+            renombres_saldos = {}
+            for col in df_saldos.columns:
+                col_lower = str(col).lower()
+                if 'codigo' in col_lower: renombres_saldos[col] = 'Código'
+                elif 'inicial' in col_lower: renombres_saldos[col] = 'Saldo Inicial'
+                elif 'debe' in col_lower: renombres_saldos[col] = 'Debe'
+                elif 'haber' in col_lower: renombres_saldos[col] = 'Haber'
+                elif 'final' in col_lower: renombres_saldos[col] = 'Saldo Final'
+            
+            df_saldos = df_saldos.rename(columns=renombres_saldos)
+
+            # Verificar y rellenar faltantes si la función devolvió columnas incompletas
+            for c in cols_saldos:
+                if c not in df_saldos.columns:
+                    df_saldos[c] = 0.0
+
+            df_saldos = df_saldos[cols_saldos]
+        
+        # Merge limpio (el how='left' garantiza que todo el plan de cuentas aparezca aunque df_saldos esté vacío)
         df = pd.merge(df_plan, df_saldos, left_on='codigo', right_on='Código', how='left')
         
         # --- CONTINUACIÓN DEL CÁLCULO ---
