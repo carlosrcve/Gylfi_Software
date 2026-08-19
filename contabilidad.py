@@ -7920,6 +7920,9 @@ elif opcion_menu == "📝 Asientos Contables":
 
 
         # --- TAB 5: CIERRE DE MES (CANDADO DE SEGURIDAD) ---
+        # ==========================================
+        # --- TAB 5: CIERRE Y BLOQUEO DE MES ---
+        # ==========================================
         with tab5:
             st.subheader("🔒 Cierre y Bloqueo de Mes")
             
@@ -7954,7 +7957,8 @@ elif opcion_menu == "📝 Asientos Contables":
                 st.stop()
 
             try:
-                cursor = conn.cursor(buffered=True)
+                # CORREGIDO: Se quitó 'buffered=True'
+                cursor = conn.cursor()
                 query_check = f"SELECT COUNT(*) FROM `{db_actual}`.banco_movimientos WHERE MONTH(fecha_movimiento) = %s AND YEAR(fecha_movimiento) = %s AND estado_conciliacion = 'Cerrado'"
                 cursor.execute(query_check, (mes_num, ano_sel))
                 es_cerrado = cursor.fetchone()[0] > 0
