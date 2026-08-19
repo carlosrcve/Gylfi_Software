@@ -8821,9 +8821,24 @@ elif sub_opcion == "Estado de Resultados":
     # 3. INTERFAZ DEL REPORTE
     st.subheader(f"📈 Estado de Resultados: {EMPRESA}")
     
+    # --- BLINDAJE LOCAL DE FECHAS (Evita conflicto con from datetime import datetime) ---
+    from datetime import date as d_type, datetime as dt_type
+
+    def obtener_fecha_segura(key_sesion):
+        val = st.session_state.get(key_sesion)
+        if val is not None:
+            try:
+                if hasattr(val, 'year') and hasattr(val, 'month'):
+                    return val
+                elif isinstance(val, str):
+                    return dt_type.strptime(val, "%Y-%m-%d").date()
+            except Exception:
+                pass
+        return d_type.today()
+
     col_f1, col_f2 = st.columns(2)
-    f_er_desde = col_f1.date_input("Desde", st.session_state.get('f_inicio_global', datetime.date.today()), key="er_desde")
-    f_er_hasta = col_f2.date_input("Hasta", st.session_state.get('f_fin_global', datetime.date.today()), key="er_hasta")
+    f_er_desde = col_f1.date_input("Desde", obtener_fecha_segura('f_inicio_global'), key="er_desde")
+    f_er_hasta = col_f2.date_input("Hasta", obtener_fecha_segura('f_fin_global'), key="er_hasta")
     
     # 4. CONEXIÓN Y PROCESAMIENTO
     conn_er = conectar_db(db_actual)
