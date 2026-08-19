@@ -922,48 +922,35 @@ def obtener_salud_fiscal(db, f_inicio=None, f_fin=None):
                 pass
 
 @st.cache_data(ttl=300)
-def obtener_analisis_gastos_clase6(db, f_i, f_f):
-    """
-    Obtiene gastos de Clase 6 con validación de seguridad para multi-empresa.
-    """
-    # 1. Validación de Seguridad (CRÍTICA)
-    if not db or not str(db).strip().replace("_", "").isalnum():
-        raise ValueError(f"Nombre de base de datos no seguro: {db}")
-
+def obtener_analisis_gastos_clase6(db, fecha_inicio, fecha_fin):
+    # Definimos la query de manera estática y limpia
+    db_segura = str(db).strip()
+    
+    query = (
+        "SELECT plan_cuentas, MAX(cuenta_contable) as cuenta_contable, "
+        "(SUM(debe) - SUM(haber)) as total_gasto "
+        f"FROM `{db_segura}`.asientos_contables "
+        "WHERE plan_cuentas LIKE '6%%' "
+        "AND fecha >= %s AND fecha <= %s "  # <--- AQUÍ SE CORRIGE EL ≥ y ≤
+        "GROUP BY plan_cuentas "
+        "HAVING total_gasto != 0 "
+        "ORDER BY total_gasto DESC"
+    )
+    
     conn = conectar_db(db)
     if not conn:
         return pd.DataFrame()
-    
-    # Asegurar hora final para que tome todo el día
-    f_i_str = str(f_i).split()[0] + " 00:00:00"
-    f_f_str = str(f_f).split()[0] + " 23:59:59"
-
-    query = f"""
-        SELECT 
-            plan_cuentas, 
-            MAX(cuenta_contable) as cuenta_contable, 
-            (SUM(debe) - SUM(haber)) as total_gasto
-        FROM `{db}`.asientos_contables 
-        WHERE plan_cuentas LIKE '6%'
-          AND fecha >= %s AND fecha <= %s
-        GROUP BY plan_cuentas
-        HAVING total_gasto != 0
-        ORDER BY total_gasto DESC
-    """
-    
+        
     try:
-        df = ejecutar_consulta(query, conn, params=(f_i_str, f_f_str))
+        # Ejecutamos pasando parámetros
+        df = ejecutar_consulta(query, conn, params=(fecha_inicio, fecha_fin))
+        return df if df is not None else pd.DataFrame()
     except Exception as e:
-        print(f"❌ Error en Clase 6 para {db}: {e}")
-        df = pd.DataFrame()
+        print(f"Error en obtener_analisis_gastos_clase6: {e}")
+        return pd.DataFrame()
     finally:
         if conn:
-            try:
-                conn.close()
-            except:
-                pass
-        
-    return df
+            conn.close()
 
 
 @st.cache_data(ttl=300)
