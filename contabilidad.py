@@ -2089,9 +2089,20 @@ def generar_balance_profesional(conn, f_i, f_f, sucursal):
         for c in cols_finales:
             if c not in df_saldos.columns: df_saldos[c] = 0.0
         
-        df_saldos['codigo'] = df_saldos['codigo'].astype(str).str.strip().str.replace('.0', '', regex=False)
-
-        # 4. Merge Final garantizando tipos iguales (string vs string)
+        # 4. Merge Final garantizando tipos iguales y formatos limpios
+        
+        # --- DIAGNÓSTICO EN STREAMLIT ---
+        st.write("### Diagnóstico de Códigos")
+        st.write("Primeros 5 códigos del Plan:", df_plan['codigo'].head().tolist())
+        st.write("Primeros 5 códigos de los Saldos:", df_saldos['codigo'].head().tolist())
+        # --------------------------------
+        
+        # LIMPIEZA RADICAL: Eliminamos cualquier carácter que no sea número (puntos, guiones, espacios)
+        # Esto hace que '1.01.01' y '10101' coincidan como '10101'
+        df_plan['codigo'] = df_plan['codigo'].astype(str).str.replace(r'[^0-9]', '', regex=True)
+        df_saldos['codigo'] = df_saldos['codigo'].astype(str).str.replace(r'[^0-9]', '', regex=True)
+        
+        # Ahora el merge debería encontrar las coincidencias
         df = pd.merge(df_plan, df_saldos[cols_finales], on='codigo', how='left')
         
         cols_num = ['Saldo Inicial', 'Debe', 'Haber', 'Saldo Final']
