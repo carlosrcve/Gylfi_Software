@@ -619,7 +619,7 @@ def obtener_datos_barras(db, fecha_inicio, fecha_fin):
         SELECT 
             CASE 
                 WHEN plan_cuentas LIKE '4%' THEN 'Ingresos' 
-                WHEN plan_cuentas LIKE '5%' THEN 'Egresos' 
+                WHEN plan_consultas LIKE '5%' THEN 'Egresos' 
                 ELSE 'Otros' 
             END as Categoría, 
             SUM(haber - debe) as Monto 
