@@ -5031,6 +5031,54 @@ def _obtener_datos_agente_db_real(valor_busqueda):
         if conn_central:
             conn_central.close()
 
+
+def guardar_saldo_mensual(conn, banco, mes, ano, inicial, final, db_name=None):
+    # Si no se pasa un nombre de BD explícito, intentamos sacarlo de la sesión
+    if not db_name:
+        db_name = st.session_state.get('DB_ACTUAL', 'kingdirver_ca')
+        
+    # Usamos buffered=True para que el conector consuma todo al instante
+    cursor = conn.cursor(buffered=True)
+    try:
+        # Registro de actividad (protegido por si faltan variables en session_state)
+        usuario = st.session_state.get('usuario', 'Sistema')
+        cliente_id = st.session_state.get('cliente_id', 'N/A')
+        registrar_log_automatico(conn, "GUARDAR_SALDO_MENSUAL", f"Usuario {usuario} guardó saldo mensual para {cliente_id} (Banco: {banco})")
+        
+        # Consulta dinámica usando la base de datos correcta entre backticks
+        query = f"""
+            INSERT INTO `{db_name}`.saldos_bancarios (banco, mes, ano, saldo_inicial, saldo_final)
+            VALUES (%s, %s, %s, %s, %s) AS nuevo
+            ON DUPLICATE KEY UPDATE 
+            saldo_inicial = nuevo.saldo_inicial, 
+            saldo_final = nuevo.saldo_final
+        """
+        
+        cursor.execute(query, (str(banco), str(mes), int(ano), float(inicial), float(final)))
+        conn.commit()
+        return True
+        
+    except Exception as e:
+        st.error(f"Error en la base de datos al guardar saldo: {e}")
+        try:
+            conn.rollback()
+        except:
+            pass
+        return False
+        
+    finally:
+        # Cerrar el cursor liberando memoria
+        try:
+            cursor.close() 
+        except:
+            pass
+            
+        # Mantener la conexión viva con ping en lugar de cerrarla
+        try:
+            conn.ping(reconnect=True)
+        except:
+            pass
+
 def gestionar_sidebar():
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
     user_id = st.session_state.get('user_id', st.session_state.get('cliente_id', 'N/A'))
