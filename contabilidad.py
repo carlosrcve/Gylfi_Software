@@ -7347,51 +7347,46 @@ elif opcion_menu == "📂 Plan de Cuentas":
                         st.error("❌ Faltan columnas en el archivo.")
 
         with tab2:
-            st.markdown("### 📋 Plan de Cuentas (Edición, Nuevos y Eliminación)")
+            st.markdown("### 📋 Plan de Cuentas")
             
-            # 1. Cargamos los datos actuales
+            # 1. Cargamos datos
             df_actual = consultar_tabla_db(conn_empresa, "plan_cuentas")
             
-            if df_actual is None or df_actual.empty:
-                df_actual = pd.DataFrame(columns=['id', 'codigo', 'nombre', 'nivel', 'tipo', 'padre'])
-            
-            # 2. Editor interactivo
-            # num_rows="dynamic" habilita el botón de eliminar (icono de basura) y agregar fila
+            # 2. LIMPIEZA FORZADA: Convertimos TODO a string para que no explote
+            if df_actual is not None and not df_actual.empty:
+                df_mostrar = df_actual.astype(str).replace('nan', '')
+            else:
+                df_mostrar = pd.DataFrame(columns=['id', 'codigo', 'nombre', 'nivel', 'tipo', 'padre'])
+
+            # 3. Editor simple
             df_editado = st.data_editor(
-                df_actual, 
+                df_mostrar, 
                 key="editor_plan_cuentas", 
-                num_rows="dynamic", 
-                width='stretch',
-                column_config={
-                    "id": st.column_config.NumberColumn("ID", disabled=True), # ID inalterable
-                    "codigo": st.column_config.TextColumn("Código Contable", required=True),
-                    "nombre": st.column_config.TextColumn("Nombre Cuenta", required=True),
-                    "tipo": st.column_config.SelectboxColumn("Tipo", options=["Activo", "Pasivo", "Patrimonio", "Ingreso", "Egreso"]),
-                }
+                num_rows="dynamic",
+                use_container_width=True
             )
             
-            # 3. Guardado inteligente
-            if st.button("💾 Guardar Cambios en Plan de Cuentas", type="primary"):
+            # 4. Guardado
+            if st.button("💾 Guardar"):
                 try:
-                    # Usamos tu función de actualización completa
-                    actualizar_tabla_completa_db(conn_empresa, "plan_cuentas", df_editado)
-                    st.success("✅ ¡Plan de cuentas actualizado correctamente!")
-                    st.balloons()
-                    st.rerun() # Recargamos para refrescar IDs si hubo nuevos
-                except Exception as e:
-                    st.error(f"❌ Error al guardar: {e}")
-
-        with tab3:
-            st.markdown("### ⚠️ Vaciar Plan de Cuentas")
-            st.warning("Esta acción borrará TODA la información del plan de cuentas de esta empresa.")
-            if st.checkbox("Estoy seguro de querer borrar todo"):
-                if st.button("🗑️ ELIMINAR TODOS LOS DATOS", type="primary"):
-                    cursor = conn_empresa.cursor()
-                    cursor.execute("TRUNCATE TABLE plan_cuentas")
-                    conn_empresa.commit()
-                    st.success("✅ ¡Tabla vaciada exitosamente!")
-                    st.balloons()
+                    # Aquí antes de enviar, convertimos los vacíos a None para MySQL
+                    df_final = df_editado.replace('', None)
+                    actualizar_tabla_completa_db(conn_empresa, "plan_cuentas", df_final)
                     st.rerun()
+                except Exception as e:
+                    st.error(f"Error: {e}")
+
+                with tab3:
+                    st.markdown("### ⚠️ Vaciar Plan de Cuentas")
+                    st.warning("Esta acción borrará TODA la información del plan de cuentas de esta empresa.")
+                    if st.checkbox("Estoy seguro de querer borrar todo"):
+                        if st.button("🗑️ ELIMINAR TODOS LOS DATOS", type="primary"):
+                            cursor = conn_empresa.cursor()
+                            cursor.execute("TRUNCATE TABLE plan_cuentas")
+                            conn_empresa.commit()
+                            st.success("✅ ¡Tabla vaciada exitosamente!")
+                            st.balloons()
+                            st.rerun()
 
         with tab4:
             st.markdown("### 📥 Descargar Respaldo")
