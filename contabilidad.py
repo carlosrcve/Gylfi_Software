@@ -2127,19 +2127,15 @@ def generar_balance_comprobacion(conn, f_i, f_f, sucursal):
     registrar_log_automatico(conn, "BALANCE_COMPROBACION", f"Balance para cliente ID: {cliente_id} (BD: {db})")
     
     try:
-        # 1. Saldos Iniciales (La base de toda la historia contable previa)
+        # 1. Traer los Saldos Iniciales fijos de la tabla 'saldos_iniciales'
         sql_si = f"SELECT plan_cuentas, SUM(debe) - SUM(haber) as val FROM `{db}`.saldos_iniciales GROUP BY plan_cuentas"
         
-        # 2. Asientos anteriores a la fecha de inicio (para ajustar el saldo inicial si la fecha de corte es posterior)
-        sql_ac = f"SELECT plan_cuentas, SUM(debe) - SUM(haber) as val FROM `{db}`.asientos_contables WHERE fecha < %s GROUP BY plan_cuentas"
-        
-        # 3. Movimientos del período (Debe y Haber en el rango seleccionado, ej: mayo-junio)
+        # 2. Movimientos EXCLUSIVOS del rango seleccionado (Ej: Del 1 al 31 de mayo) en 'asientos_contables'
         sql_mo_d = f"SELECT plan_cuentas, SUM(debe) as val FROM `{db}`.asientos_contables WHERE fecha BETWEEN %s AND %s GROUP BY plan_cuentas"
         sql_mo_h = f"SELECT plan_cuentas, SUM(haber) as val FROM `{db}`.asientos_contables WHERE fecha BETWEEN %s AND %s GROUP BY plan_cuentas"
 
         dfs = {
             'si': ejecutar_consulta(sql_si, conn),
-            'ac': ejecutar_consulta(sql_ac, conn, params=(f_i,)),
             'debe': ejecutar_consulta(sql_mo_d, conn, params=(f_i, f_f)),
             'haber': ejecutar_consulta(sql_mo_h, conn, params=(f_i, f_f))
         }
@@ -2160,15 +2156,15 @@ def generar_balance_comprobacion(conn, f_i, f_f, sucursal):
         balance = pd.concat(lista_frames, axis=1).fillna(0.0)
         balance.reset_index(inplace=True)
         
-        for c in ['si', 'ac', 'debe', 'haber']:
+        for c in ['si', 'debe', 'haber']:
             if c not in balance.columns: 
                 balance[c] = 0.0
             balance[c] = balance[c].astype(float)
             
         balance['Tipo'] = balance['Código'].astype(str).str[0]
         
-        # Saldo Inicial total = Lo que traía de saldos iniciales + asientos previos a la fecha de filtro
-        balance['Saldo Inicial'] = balance['si'] + balance['ac']
+        # El Saldo Inicial para el reporte es directamente lo que viene de la tabla saldos_iniciales ('si')
+        balance['Saldo Inicial'] = balance['si']
         
         # Naturaleza de las cuentas (Activo/Gasto aumentan por el Debe, Pasivo/Capital/Ingreso por el Haber)
         es_activo_gasto = balance['Tipo'].isin(['1', '5'])
