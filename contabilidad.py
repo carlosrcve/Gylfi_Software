@@ -3055,7 +3055,9 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                     id_final = empresa_data_env.get('id') if isinstance(empresa_data_env, dict) else empresa_data_env
                     empresa_nombre = empresa_data_env.get('nombre_empresa') or empresa_data_env.get('razon_social') or "EMPRESA"
                     empresa_rif = empresa_data_env.get('rif') or "000000000"
-                    domicilio_fiscal = empresa_data_env.get('domicilio_fiscal') or empresa_data_env.get('direccion') or "DIRECCIÓN NO REGISTRADA"
+                    
+                    # CORREGIDO: Se elimina 'domicilio_fiscal' porque no existe en la tabla clientes
+                    domicilio_fiscal = empresa_data_env.get('direccion') or "DIRECCIÓN NO REGISTRADA"
 
                     cursor = None
                     try:
