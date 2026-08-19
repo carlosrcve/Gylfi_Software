@@ -7349,48 +7349,41 @@ elif opcion_menu == "📂 Plan de Cuentas":
         with tab2:
             st.markdown("### 📋 Plan de Cuentas (Edición, Nuevos y Eliminación)")
             
-            # 1. Cargamos los datos actuales
-            df_actual = consultar_tabla_db(conn_empresa, "plan_cuentas")
-            
+            # 1. Cargamos los datos actuales de forma segura
+            try:
+                df_actual = consultar_tabla_db(conn_empresa, "plan_cuentas")
+            except Exception as e:
+                st.error(f"Error al consultar la base de datos: {e}")
+                df_actual = pd.DataFrame()
+
             if df_actual is None or df_actual.empty:
+                st.warning("⚠️ No hay cuentas registradas o la tabla está vacía. Puedes agregar una nueva fila abajo.")
                 df_actual = pd.DataFrame(columns=['id', 'codigo', 'nombre', 'nivel', 'tipo', 'padre'])
             else:
-                # Asegurarnos de que las columnas de texto no tengan NaN extraños que rompan el editor
-                for col in ['codigo', 'nombre', 'tipo', 'padre']:
-                    if col in df_actual.columns:
-                        df_actual[col] = df_actual[col].fillna("").astype(str)
-                        # Si por error quedó la palabra 'None' o 'nan' como texto, la limpiamos
-                        df_actual[col] = df_actual[col].replace(['None', 'nan', 'NAT'], '')
-                
-                if 'id' in df_actual.columns:
-                    df_actual['id'] = pd.to_numeric(df_actual['id'], errors='coerce')
-                    
-                if 'nivel' in df_actual.columns:
-                    df_actual['nivel'] = pd.to_numeric(df_actual['nivel'], errors='coerce').fillna(1).astype(int)
+                # Limpieza básica para asegurar que Streamlit pueda renderizar los tipos de datos
+                for col in df_actual.columns:
+                    if col in ['codigo', 'nombre', 'tipo', 'padre']:
+                        df_actual[col] = df_actual[col].fillna("").astype(str).replace(['None', 'nan', 'NAT'], '')
+                    elif col in ['id', 'nivel']:
+                        df_actual[col] = pd.to_numeric(df_actual[col], errors='coerce').fillna(0).astype(int)
 
-            # 2. Editor interactivo
+            # 2. Mostramos un expander de depuración por si acaso
+            with st.expander("Ver DataFrame crudo (Depuración)"):
+                st.write(df_actual)
+
+            # 3. Editor interactivo básico sin configuraciones complejas que puedan bloquearlo
             df_editado = st.data_editor(
                 df_actual, 
-                key="editor_plan_cuentas", 
+                key="editor_plan_cuentas_seguro", 
                 num_rows="dynamic", 
-                width='stretch',
-                column_config={
-                    "id": st.column_config.NumberColumn("ID", disabled=True),
-                    "codigo": st.column_config.TextColumn("Código Contable", required=True),
-                    "nombre": st.column_config.TextColumn("Nombre Cuenta", required=True),
-                    "nivel": st.column_config.NumberColumn("Nivel", min_value=1, max_value=5),
-                    "tipo": st.column_config.SelectboxColumn("Tipo", options=["Activo", "Pasivo", "Patrimonio", "Ingreso", "Egreso", "Grupo"]),
-                    "padre": st.column_config.TextColumn("Cuenta Padre")
-                }
+                use_container_width=True
             )
             
-            # 3. Guardado inteligente con conversión limpia para MySQL
+            # 4. Guardado inteligente
             if st.button("💾 Guardar Cambios en Plan de Cuentas", type="primary"):
                 try:
-                    # Copiamos para no alterar la vista de sesión antes de guardar
                     df_a_guardar = df_editado.copy()
-                    
-                    # Reemplazamos los strings vacíos o nulos por None real para que MySQL guarde NULL
+                    # Limpiar strings vacíos a None para MySQL
                     df_a_guardar = df_a_guardar.replace(r'^\s*$', None, regex=True)
                     df_a_guardar = df_a_guardar.where(pd.notnull(df_a_guardar), None)
                     
@@ -7400,7 +7393,7 @@ elif opcion_menu == "📂 Plan de Cuentas":
                     st.balloons()
                     st.rerun() 
                 except Exception as e:
-                    st.error(f"❌ Error al guardar: {e}")
+                    st.error(f"❌ Error al guardar en base de datos: {e}")
 
         with tab3:
             st.markdown("### ⚠️ Vaciar Plan de Cuentas")
