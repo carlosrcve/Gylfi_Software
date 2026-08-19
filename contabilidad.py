@@ -7665,75 +7665,7 @@ elif opcion_menu == "📝 Asientos Contables":
             "🔒 Cierre de Mes"
         ])
 
-    # ==========================================
-    # --- TAB 1: CONFIGURACIÓN DE SALDOS ---
-    # ==========================================
-    with tab1:
-        st.subheader("⚙️ Gestión de Saldos Bancarios")
-
-        if rol != 'admin' and empresa_data.get('id') != cliente_id:
-            st.error("⚠️ Acceso denegado: No tienes permisos para esta empresa.")
-        else:
-            try:
-                query_saldos = f"""
-                    SELECT id, banco, mes, ano, saldo_inicial, saldo_final 
-                    FROM `{db_actual}`.saldos_bancarios 
-                    ORDER BY ano DESC, id DESC
-                """
-                df_saldos = ejecutar_consulta(query_saldos, conn)
-                
-                if df_saldos is not None and not df_saldos.empty:
-                    df_view = df_saldos.copy()
-                    
-                    def formatear_moneda(valor):
-                        try:
-                            if pd.isna(valor) or valor is None:
-                                return "0,00"
-                            return "{:,.2f}".format(float(valor)).replace(",", "X").replace(".", ",").replace("X", ".")
-                        except Exception:
-                            return "0,00"
-
-                    df_view['saldo_inicial'] = df_view['saldo_inicial'].apply(formatear_moneda)
-                    df_view['saldo_final'] = df_view['saldo_final'].apply(formatear_moneda)
-                    
-                    st.dataframe(df_view, use_container_width=True)
-                else:
-                    nombre_emp = empresa_data.get('nombre_empresa', 'la empresa')
-                    st.info(f"No hay saldos registrados para {nombre_emp}.")
-                    
-            except Exception as e:
-                st.error(f"Error al cargar la tabla de saldos: {e}")
-
-            st.markdown("---")
-            st.subheader("➕ Agregar / Editar Saldo")
-            
-            with st.form("form_saldos_main"):
-                c1, c2 = st.columns(2)
-                m_input = c1.selectbox("Mes", ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", 
-                                             "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"], key="form_mes_saldo")
-                a_input = c2.selectbox("Año", [2025, 2026, 2027], key="form_ano_saldo")
-                
-                c4, c5 = st.columns(2)
-                val_ini = c4.number_input("Saldo Inicial", value=0.00, format="%.2f", key="form_val_ini")
-                val_fin = c5.number_input("Saldo Final", value=0.00, format="%.2f", key="form_val_fin")
-                
-                if st.form_submit_button("Guardar / Actualizar Registro"):
-                    if guardar_saldo_mensual(conn, 'BDV', m_input, a_input, val_ini, val_fin, db_name=db_actual):
-                        st.success(f"✅ Registro de {m_input} guardado.")
-                        st.rerun()
-
-            with st.expander("🗑️ Eliminar un registro"):
-                id_eliminar = st.number_input("ID del registro a eliminar", min_value=1, step=1, key="input_id_eliminar_tab1")
-                if st.button("Confirmar Eliminación", key="btn_confirmar_eliminar_tab1"):
-                    try:
-                        cursor = conn.cursor()
-                        cursor.execute(f"DELETE FROM `{db_actual}`.saldos_bancarios WHERE id = %s", (id_eliminar,))
-                        conn.commit()
-                        cursor.close()
-                        st.warning("Registro eliminado.")
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Error al eliminar: {e}")
+    
 
    
 
