@@ -13,4 +13,4 @@ sqlalchemy
 pytesseract
 numpy
 openpyxl
-
+xlsxwriter
