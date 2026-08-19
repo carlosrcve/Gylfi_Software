@@ -2035,7 +2035,7 @@ def generar_balance_profesional(conn, f_i, f_f, sucursal):
         cursor = conn.cursor()
         cursor.execute(f"USE `{db}`")
         
-        # 1. Consultar el plan de cuentas primero para tener la estructura base siempre disponible
+        # 1. Consultar el plan de cuentas (eliminando posibles duplicados por 'codigo')
         query_plan = f"SELECT codigo, nombre, nivel, padre FROM `{db}`.plan_cuentas ORDER BY codigo"
         df_plan = ejecutar_consulta(query_plan, conn)
         
@@ -2043,6 +2043,8 @@ def generar_balance_profesional(conn, f_i, f_f, sucursal):
             st.error("⚠️ El plan de cuentas está vacío o no se pudo consultar.")
             return None
 
+        # Limpiar duplicados en el plan de cuentas basándonos en el código de cuenta
+        df_plan = df_plan.drop_duplicates(subset=['codigo'], keep='first')
         cols_plan = ['codigo', 'nombre', 'nivel', 'padre']
         df_plan = df_plan[cols_plan]
 
@@ -2050,13 +2052,11 @@ def generar_balance_profesional(conn, f_i, f_f, sucursal):
         df_saldos = generar_balance_comprobacion(conn, f_i, f_f, sucursal)
         cols_saldos = ['Código', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final']
         
-        # --- VALIDACIÓN FLEXIBLE DE SALDOS VACÍOS ---
         if df_saldos is None or df_saldos.empty:
             st.info("ℹ️ No hay movimientos registrados para este rango o sucursal. Mostrando cuentas en ceros.")
-            # Creamos un DataFrame vacío con las columnas necesarias para hacer el merge sin rompernos
             df_saldos = pd.DataFrame(columns=cols_saldos)
         else:
-            # Normalizar nombres de columnas por si vienen con minúsculas u otro formato
+            # Normalizar nombres de columnas
             renombres_saldos = {}
             for col in df_saldos.columns:
                 col_lower = str(col).lower()
@@ -2068,28 +2068,33 @@ def generar_balance_profesional(conn, f_i, f_f, sucursal):
             
             df_saldos = df_saldos.rename(columns=renombres_saldos)
 
-            # Verificar y rellenar faltantes si la función devolvió columnas incompletas
             for c in cols_saldos:
                 if c not in df_saldos.columns:
                     df_saldos[c] = 0.0
 
+            # Eliminar duplicados en saldos por si el reporte base viene repetido
+            df_saldos = df_saldos.drop_duplicates(subset=['Código'], keep='first')
             df_saldos = df_saldos[cols_saldos]
         
-        # Merge limpio (el how='left' garantiza que todo el plan de cuentas aparezca aunque df_saldos esté vacío)
+        # 3. Merge limpio
         df = pd.merge(df_plan, df_saldos, left_on='codigo', right_on='Código', how='left')
+        
+        # --- BLINDAJE DE ÍNDICES DUPLICADOS ---
+        # Si por alguna razón quedaron códigos repetidos, los unificamos sumando sus valores
+        df = df.groupby(['codigo', 'nombre', 'nivel', 'padre'], as_index=False)[['Saldo Inicial', 'Debe', 'Haber', 'Saldo Final']].sum()
         
         # --- CONTINUACIÓN DEL CÁLCULO ---
         cols_numericas = ['Saldo Inicial', 'Debe', 'Haber', 'Saldo Final']
         df[cols_numericas] = df[cols_numericas].fillna(0).astype(float)
         
-        # 1. Limpieza inicial: Ponemos a cero los padres para empezar la suma desde abajo
+        # Limpieza inicial de padres
         padres_codigos = df['padre'].dropna().unique()
         df.loc[df['codigo'].isin(padres_codigos), cols_numericas] = 0.0
 
-        # 2. CALCULAR SALDO FINAL PRIMERO (La base real de datos)
+        # Calcular saldo final
         df['Saldo Final'] = df['Saldo Inicial'] + df['Debe'] - df['Haber']
         
-        # 3. Roll-up jerárquico
+        # Roll-up jerárquico
         niveles = sorted(df['nivel'].unique(), reverse=True)
         
         for n in niveles:
@@ -2103,13 +2108,6 @@ def generar_balance_profesional(conn, f_i, f_f, sucursal):
                 
                 if mask.any():
                     df.loc[mask, cols_numericas] += fila_suma
-                else:
-                    print(f"⚠️ Alerta: El padre '{p_codigo_str}' no existe en el plan.")
-
-        # Validación final de DataFrame vacío
-        if df is None or df.empty:
-            st.error("⚠️ Error: El DataFrame está vacío o no se pudo generar.")
-            return df 
 
         # --- BLOQUE SEGURO DE PROCESAMIENTO ---
         def get_columna(cod, col):
@@ -2133,10 +2131,13 @@ def generar_balance_profesional(conn, f_i, f_f, sucursal):
         }])
 
         df = pd.concat([df, fila_total], ignore_index=True)
+        
+        # RECONFIGURAR ÍNDICE LIMPIO PARA EVITAR EL ERROR DE STYLER
+        df = df.reset_index(drop=True)
         return df
 
     except Exception as e:
-        st.error(f"Error procesando la base de datos: {e}")
+        st.error(f"Error procesando balance: {e}")
         return None
     finally:
         if cursor: cursor.close()
