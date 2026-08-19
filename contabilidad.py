@@ -7616,7 +7616,7 @@ elif opcion_menu == "📝 Asientos Contables":
         if not conn:
             st.error(f"❌ Error: No se pudo conectar a la base de datos {db_actual}")
             st.stop()
-
+       
         try:
             # 3. Selectores Globales
             col1, col2 = st.columns([1, 1])
@@ -7631,14 +7631,18 @@ elif opcion_menu == "📝 Asientos Contables":
             with col2:
                 ano_sel = st.selectbox("Año", [2025, 2026, 2027], index=1, key="ano_seleccionado")
 
-            # Tabs: Orden Lógico de trabajo
-            tab1, tab2, tab3, tab4, tab5 = st.tabs([
-                "⚙️ Configuración Saldos", 
-                "📂 Importar Movimientos", 
-                "📜 Estado de Cuenta", 
-                "📊 Conciliación Bancaria", 
-                "🔒 Cierre de Mes"
-            ])
+        except Exception as e:
+            st.error(f"Error al inicializar los selectores globales: {e}")
+            st.stop()
+
+        # Tabs: Orden Lógico de trabajo
+        tab1, tab2, tab3, tab4, tab5 = st.tabs([
+            "⚙️ Configuración Saldos", 
+            "📂 Importar Movimientos", 
+            "📜 Estado de Cuenta", 
+            "📊 Conciliación Bancaria", 
+            "🔒 Cierre de Mes"
+        ])
 
         with tab1:
             st.subheader("⚙️ Gestión de Saldos Bancarios")
