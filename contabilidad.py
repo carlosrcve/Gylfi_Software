@@ -1332,14 +1332,14 @@ def _obtener_datos_agente_db_real(valor_busqueda):
 
     cursor = None
     try:
-        # CORREGIDO: Usando pymysql.cursors.DictCursor de manera consistente
+        # Usamos DictCursor de PyMySQL
         cursor = conn_central.cursor(pymysql.cursors.DictCursor)
         
-        # Si es un string, busca por db_nombre. Si es int, busca por id. (Se removió domicilio_fiscal por el error 1054)
+        # BLINDADO: Seleccionamos * para evitar errores si falta alguna columna específica en la tabla
         if isinstance(valor_busqueda, str):
-            query = "SELECT id, nombre_empresa, rif FROM clientes WHERE db_nombre = %s"
+            query = "SELECT * FROM clientes WHERE db_nombre = %s"
         else:
-            query = "SELECT id, nombre_empresa, rif FROM clientes WHERE id = %s"
+            query = "SELECT * FROM clientes WHERE id = %s"
         
         cursor.execute(query, (valor_busqueda,))
         datos = cursor.fetchone()
