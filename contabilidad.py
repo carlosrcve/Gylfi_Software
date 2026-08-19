@@ -1272,48 +1272,29 @@ def actualizar_tabla_completa_db(conn, nombre_tabla, df_nuevo):
 
 
 def consultar_tabla_db(conn, nombre_tabla, limite=None):
-    """
-    Consulta registros de forma segura utilizando la conexión activa.
-    """
-    df = pd.DataFrame()
-    cursor = None
-    
-    # 🛡️ SEGURIDAD: Validar estrictamente el nombre de la tabla para evitar Inyección SQL
+    # 1. Validar nombre de tabla
     if not re.match(r"^[a-zA-Z0-9_]+$", str(nombre_tabla)):
-        raise ValueError(f"Nombre de tabla inválido o inseguro: {nombre_tabla}")
+        st.error(f"Nombre de tabla inseguro: {nombre_tabla}")
+        return None
 
     if not conn:
-        raise Exception("No hay conexión activa a la base de datos.")
+        st.error("No hay conexión activa.")
+        return None
 
     try:
-        usuario = st.session_state.get('usuario', 'Desconocido')
-        cliente = st.session_state.get('cliente_id', 'N/A')
-        
-        # Registrar log de forma segura
-        if 'registrar_log_automatico' in globals():
-            registrar_log_automatico(conn, "CONSULTA_TABLA", f"Usuario {usuario} consultó {nombre_tabla} para cliente {cliente}")
-        
-        cursor = conn.cursor()
-        
-        # Construcción segura utilizando backticks
+        # 2. Construcción directa
         query = f"SELECT * FROM `{nombre_tabla}`"
         if limite and isinstance(limite, int):
             query += f" LIMIT {limite}"
             
+        # 3. Llamar a la función que SÍ sabe hacer el trabajo (ejecutar_consulta)
+        # No abras cursores aquí si ejecutar_consulta ya lo hace.
         df = ejecutar_consulta(query, conn)
-        
+        return df
+
     except Exception as e:
-        st.error(f"Error al consultar la tabla {nombre_tabla}: {e}")
-    finally:
-        if cursor:
-            cursor.close()
-        if conn:
-            try:
-                conn.ping(reconnect=True)
-            except Exception:
-                pass
-                
-    return df
+        st.error(f"Error consultando {nombre_tabla}: {e}")
+        return None
 
 
 @st.cache_data(ttl=300)
