@@ -2035,24 +2035,23 @@ def generar_balance_profesional(conn, f_i, f_f, sucursal):
         cursor = conn.cursor()
         cursor.execute(f"USE `{db}`")
         
-        # 1. Consultar el plan de cuentas (columna estandarizada como 'codigo')
-        query_plan = f"SELECT cuenta_contable AS codigo, nombre, nivel, padre FROM `{db}`.plan_cuentas ORDER BY cuenta_contable"
+        # 1. Consultar el plan de cuentas (estandarizado como 'codigo')
+        query_plan = f"SELECT codigo, nombre, nivel, padre FROM `{db}`.plan_cuentas ORDER BY codigo"
         df_plan = ejecutar_consulta(query_plan, conn)
         
         if df_plan is None or df_plan.empty:
             st.error("⚠️ El plan de cuentas está vacío.")
             return None
 
-        df_plan = df_plan.drop_duplicates(subset=['codigo'], keep='first')
-        
-        # 2. Obtener datos de saldos
+        # 2. Obtener movimientos
         df_saldos = generar_balance_comprobacion(conn, f_i, f_f, sucursal)
-        cols_finales = ['codigo', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final']
         
+        # Crear estructura base si df_saldos está vacío
+        cols_finales = ['codigo', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final']
         if df_saldos is None or df_saldos.empty:
             df_saldos = pd.DataFrame(columns=cols_finales)
         else:
-            # Renombrar columnas a formato estándar
+            # Normalizar nombres de columnas a 'codigo' y los valores numéricos
             renombres = {}
             for col in df_saldos.columns:
                 c_low = str(col).lower()
@@ -2061,112 +2060,48 @@ def generar_balance_profesional(conn, f_i, f_f, sucursal):
                 elif 'debe' in c_low: renombres[col] = 'Debe'
                 elif 'haber' in c_low: renombres[col] = 'Haber'
                 elif 'final' in c_low: renombres[col] = 'Saldo Final'
-            
             df_saldos = df_saldos.rename(columns=renombres)
-            
-            # Asegurar que existan las columnas
-            for c in cols_finales:
-                if c not in df_saldos.columns:
-                    df_saldos[c] = 0.0
-            
-            df_saldos = df_saldos[cols_finales].drop_duplicates(subset=['codigo'], keep='first')
 
-        # 3. Merge profesional unificado usando 'codigo'
-        df = pd.merge(df_plan, df_saldos, on='codigo', how='left')
-        
-        # Llenar nulos con 0 para cálculos
-        cols_num = ['Saldo Inicial', 'Debe', 'Haber', 'Saldo Final']
-        df[cols_num] = df[cols_num].fillna(0.0)
-
-        # --- 2.1. INYECCIÓN DE LA TABLA DE SALDOS INICIALES ---
+        # 3. Inyección de saldos iniciales (si existe la tabla)
         try:
-            # Usamos 'cuenta_contable' y calculamos el neto entre 'debe' y 'haber'
-            query_s_init = f"""
-                SELECT cuenta_contable AS codigo, 
-                       COALESCE(debe, 0) - COALESCE(haber, 0) AS saldo_inicial_neto 
-                FROM `{db}`.saldos_iniciales
-            """
-            df_tabla_iniciales = ejecutar_consulta(query_s_init, conn)
-            
-            if df_tabla_iniciales is not None and not df_tabla_iniciales.empty:
-                # Agrupamos por si hay varias filas para la misma cuenta
-                df_tabla_iniciales = df_tabla_iniciales.groupby('codigo', as_index=False)['saldo_inicial_neto'].sum()
-                
-                if not df_saldos.empty:
-                    df_saldos = pd.merge(df_saldos, df_tabla_iniciales, left_on='Código', right_on='codigo', how='left')
-                    df_saldos['saldo_inicial_neto'] = df_saldos['saldo_inicial_neto'].fillna(0.0)
-                    df_saldos['Saldo Inicial'] = df_saldos['Saldo Inicial'] + df_saldos['saldo_inicial_neto']
-                    
-                    # Limpiamos columnas auxiliares creadas en el merge
-                    cols_a_borrar = [c for c in ['saldo_inicial_neto', 'codigo'] if c in df_saldos.columns]
-                    df_saldos = df_saldos.drop(columns=cols_a_borrar)
-                else:
-                    df_saldos = df_tabla_iniciales.rename(columns={'codigo': 'Código', 'saldo_inicial_neto': 'Saldo Inicial'})
-                    df_saldos['Debe'] = 0.0
-                    df_saldos['Haber'] = 0.0
-                    df_saldos['Saldo Final'] = df_saldos['Saldo Inicial']
-        except Exception as e:
-            # Si ocurre alguna incidencia, evitamos detener el balance general
+            query_s_init = f"SELECT cuenta_contable AS codigo, (COALESCE(debe, 0) - COALESCE(haber, 0)) AS saldo_inicial_neto FROM `{db}`.saldos_iniciales"
+            df_init = ejecutar_consulta(query_s_init, conn)
+            if df_init is not None and not df_init.empty:
+                df_init = df_init.groupby('codigo', as_index=False)['saldo_inicial_neto'].sum()
+                df_saldos = pd.merge(df_saldos, df_init, on='codigo', how='outer')
+                df_saldos['Saldo Inicial'] = df_saldos['Saldo Inicial'].fillna(0.0) + df_saldos['saldo_inicial_neto'].fillna(0.0)
+                df_saldos = df_saldos.drop(columns=['saldo_inicial_neto'])
+        except:
             pass
 
-        # 3. Merge limpio con el plan de cuentas
-        df = pd.merge(df_plan, df_saldos, left_on='codigo', right_on='Código', how='left')
+        # Asegurar columnas necesarias
+        for c in cols_finales:
+            if c not in df_saldos.columns: df_saldos[c] = 0.0
         
-        # --- BLINDAJE DE ÍNDICES DUPLICADOS ---
-        df = df.groupby(['codigo', 'nombre', 'nivel', 'padre'], as_index=False)[['Saldo Inicial', 'Debe', 'Haber', 'Saldo Final']].sum()
-        
-        # --- CONTINUACIÓN DEL CÁLCULO ---
-        cols_numericas = ['Saldo Inicial', 'Debe', 'Haber', 'Saldo Final']
-        df[cols_numericas] = df[cols_numericas].fillna(0).astype(float)
-        
-        # Limpieza inicial de padres
-        padres_codigos = df['padre'].dropna().unique()
-        df.loc[df['codigo'].isin(padres_codigos), cols_numericas] = 0.0
+        # 4. Merge Final
+        df = pd.merge(df_plan, df_saldos[cols_finales], on='codigo', how='left')
+        df[cols_finales[1:]] = df[cols_finales[1:]].fillna(0.0)
 
-        # Calcular saldo final inicial con la nueva data integrada
+        # 5. Cálculo Jerárquico
+        padres_codigos = df['padre'].dropna().unique()
+        df.loc[df['codigo'].isin(padres_codigos), cols_finales[1:]] = 0.0
         df['Saldo Final'] = df['Saldo Inicial'] + df['Debe'] - df['Haber']
         
-        # Roll-up jerárquico
-        niveles = sorted(df['nivel'].unique(), reverse=True)
-        
-        for n in niveles:
-            if n <= 1: continue 
-            
-            resumen = df[df['nivel'] == n].groupby('padre')[cols_numericas].sum()
-            
-            for p_codigo, fila_suma in resumen.iterrows():
-                p_codigo_str = str(p_codigo).strip()
-                mask = df['codigo'].astype(str).str.strip() == p_codigo_str
-                
+        for n in sorted(df['nivel'].unique(), reverse=True):
+            if n <= 1: continue
+            for p_cod, grupo in df[df['nivel'] == n].groupby('padre'):
+                mask = df['codigo'] == p_cod
                 if mask.any():
-                    df.loc[mask, cols_numericas] += fila_suma
+                    df.loc[mask, cols_finales[1:]] += grupo[cols_finales[1:]].sum()
 
-        # --- BLOQUE SEGURO DE PROCESAMIENTO ---
-        def get_columna(cod, col):
-            fila = df[df['codigo'].astype(str) == str(cod)]
-            return fila[col].sum() if not fila.empty else 0
-
-        saldo_inicial = get_columna('1', 'Saldo Inicial') + get_columna('2', 'Saldo Inicial') + get_columna('3', 'Saldo Inicial') + get_columna('4', 'Saldo Inicial') + get_columna('5', 'Saldo Inicial') + get_columna('6', 'Saldo Inicial') + get_columna('7', 'Saldo Inicial') + get_columna('8', 'Saldo Inicial')
-        total_debe = get_columna('1', 'Debe') - get_columna('2', 'Debe') - get_columna('3', 'Debe') - get_columna('4', 'Debe') - get_columna('5', 'Debe') - get_columna('6', 'Debe') - get_columna('7', 'Debe') - get_columna('8', 'Debe')
-        total_haber = get_columna('1', 'Haber') - get_columna('2', 'Haber') - get_columna('4', 'Haber') - get_columna('5', 'Haber') - get_columna('6', 'Haber') - get_columna('7', 'Haber') - get_columna('8', 'Haber')
-        saldo_final_resumen = get_columna('4', 'Saldo Final') + get_columna('5', 'Saldo Final') + get_columna('6', 'Saldo Final') + get_columna('7', 'Saldo Final') + get_columna('8', 'Saldo Final')
-        
+        # 6. Fila Total
         fila_total = pd.DataFrame([{
-            'codigo': 'Σ',
-            'nombre': 'RESUMEN MOVIMIENTOS',
-            'nivel': 0,
-            'padre': None,
-            'Saldo Inicial': saldo_inicial,
-            'Debe': total_debe,
-            'Haber': total_haber,
-            'Saldo Final': saldo_final_resumen
+            'codigo': 'Σ', 'nombre': 'RESUMEN MOVIMIENTOS', 'nivel': 0, 'padre': None,
+            'Saldo Inicial': df['Saldo Inicial'].sum(), 'Debe': df['Debe'].sum(),
+            'Haber': df['Haber'].sum(), 'Saldo Final': df['Saldo Final'].sum()
         }])
-
-        df = pd.concat([df, fila_total], ignore_index=True)
         
-        # RECONFIGURAR ÍNDICE LIMPIO PARA EVITAR EL ERROR DE STYLER
-        df = df.reset_index(drop=True)
-        return df
+        return pd.concat([df, fila_total], ignore_index=True)
 
     except Exception as e:
         st.error(f"Error procesando balance: {e}")
