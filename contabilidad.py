@@ -2958,7 +2958,8 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
             st.error("❌ No se pudo establecer conexión.")
             st.stop()
 
-        conn.ping(reconnect=True, attempts=3, delay=1)
+        # La conexión ya fue validada por 'if not conn:', 
+        # no es necesario realizar un .ping() adicional.
         st.write(f"Conectado a: **{db_actual}**")
 
         # Filtros (Corregida la indentación y las keys independientes)
