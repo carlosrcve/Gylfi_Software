@@ -2076,34 +2076,33 @@ def generar_balance_profesional(conn, f_i, f_f, sucursal):
         # --- 2.1. INYECCIÓN DE LA TABLA DE SALDOS INICIALES ---
         # Consultamos directamente la tabla de saldos iniciales de la BD para asegurar que no se omitan
         try:
-            query_s_init = f"SELECT codigo, saldo_inicial FROM `{db}`.saldos_iniciales"
+            # Usamos 'cuenta_contable' y calculamos el neto entre 'debe' y 'haber'
+            query_s_init = f"""
+                SELECT cuenta_contable AS codigo, 
+                       COALESCE(debe, 0) - COALESCE(haber, 0) AS saldo_inicial_neto 
+                FROM `{db}`.saldos_iniciales
+            """
             df_tabla_iniciales = ejecutar_consulta(query_s_init, conn)
             
             if df_tabla_iniciales is not None and not df_tabla_iniciales.empty:
-                # Normalizamos columnas de la tabla externa de iniciales
-                df_tabla_iniciales.columns = [str(c).lower().strip() for c in df_tabla_iniciales.columns]
-                # Asegurar nombres estándar
-                col_c_in = next((c for c in df_tabla_iniciales.columns if 'codigo' in c), None)
-                col_s_in = next((c for c in df_tabla_iniciales.columns if 'inicial' in c or 'saldo' in c), None)
+                # Agrupamos por si hay varias filas para la misma cuenta
+                df_tabla_iniciales = df_tabla_iniciales.groupby('codigo', as_index=False)['saldo_inicial_neto'].sum()
                 
-                if col_c_in and col_s_in:
-                    df_tabla_iniciales = df_tabla_iniciales.rename(columns={col_c_in: 'Código', col_s_in: 'Val_Inicial'})
-                    df_tabla_iniciales['Val_Inicial'] = pd.to_numeric(df_tabla_iniciales['Val_Inicial'], errors='coerce').fillna(0.0)
+                if not df_saldos.empty:
+                    df_saldos = pd.merge(df_saldos, df_tabla_iniciales, left_on='Código', right_on='codigo', how='left')
+                    df_saldos['saldo_inicial_neto'] = df_saldos['saldo_inicial_neto'].fillna(0.0)
+                    df_saldos['Saldo Inicial'] = df_saldos['Saldo Inicial'] + df_saldos['saldo_inicial_neto']
                     
-                    # Si df_saldos ya tiene registros, fusionamos o sumamos los saldos iniciales externos
-                    if not df_saldos.empty:
-                        df_saldos = pd.merge(df_saldos, df_tabla_iniciales[['Código', 'Val_Inicial']], on='Código', how='left')
-                        df_saldos['Val_Inicial'] = df_saldos['Val_Inicial'].fillna(0.0)
-                        # Sumamos el saldo inicial de la tabla externa al saldo inicial existente
-                        df_saldos['Saldo Inicial'] = df_saldos['Saldo Inicial'] + df_saldos['Val_Inicial']
-                        df_saldos = df_saldos.drop(columns=['Val_Inicial'])
-                    else:
-                        df_saldos = df_tabla_iniciales.rename(columns={'Val_Inicial': 'Saldo Inicial'})
-                        df_saldos['Debe'] = 0.0
-                        df_saldos['Haber'] = 0.0
-                        df_saldos['Saldo Final'] = df_saldos['Saldo Inicial']
-        except Exception:
-            # Si la tabla de saldos iniciales tiene otro nombre o no existe en alguna empresa, continúa sin interrumpir
+                    # Limpiamos columnas auxiliares creadas en el merge
+                    cols_a_borrar = [c for c in ['saldo_inicial_neto', 'codigo'] if c in df_saldos.columns]
+                    df_saldos = df_saldos.drop(columns=cols_a_borrar)
+                else:
+                    df_saldos = df_tabla_iniciales.rename(columns={'codigo': 'Código', 'saldo_inicial_neto': 'Saldo Inicial'})
+                    df_saldos['Debe'] = 0.0
+                    df_saldos['Haber'] = 0.0
+                    df_saldos['Saldo Final'] = df_saldos['Saldo Inicial']
+        except Exception as e:
+            # Si ocurre alguna incidencia, evitamos detener el balance general
             pass
 
         # 3. Merge limpio con el plan de cuentas
@@ -2170,7 +2169,7 @@ def generar_balance_profesional(conn, f_i, f_f, sucursal):
         return None
     finally:
         if cursor: cursor.close()
-        
+
 def generar_balance_comprobacion(conn, f_i, f_f, sucursal):
     registrar_log_automatico(conn, "BALANCE_COMPROBACION", f"Balance para {st.session_state.cliente_id}")
     
