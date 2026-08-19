@@ -8884,13 +8884,12 @@ elif sub_opcion == "Estado de Resultados":
 
 
                 # 1. GESTIÓN DE TASA BCV
-                # 1. GESTIÓN DE TASA BCV
                 if 'tasa_bcv' not in st.session_state:
-                    tasa, _ = obtener_tasa_bcv_hoy(conn)
+                    tasa, _ = obtener_tasa_bcv_hoy(conn_er) # Cambiado a conn_er
                     st.session_state.tasa_bcv = tasa
 
                 if st.button("🔄 Actualizar Tasa BCV"):
-                    tasa, _ = obtener_tasa_bcv_hoy(conn)
+                    tasa, _ = obtener_tasa_bcv_hoy(conn_er) # Cambiado a conn_er
                     st.session_state.tasa_bcv = tasa
                     st.rerun()
 
