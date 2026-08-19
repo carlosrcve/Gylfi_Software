@@ -2035,7 +2035,7 @@ def generar_balance_profesional(conn, f_i, f_f, sucursal):
         cursor = conn.cursor()
         cursor.execute(f"USE `{db}`")
         
-        # 1. Consultar el plan de cuentas
+        # 1. Consultar el plan de cuentas original
         query_plan = f"SELECT codigo, nombre, nivel, tipo, padre FROM `{db}`.plan_cuentas ORDER BY codigo"
         df_plan = ejecutar_consulta(query_plan, conn)
         
@@ -2051,6 +2051,7 @@ def generar_balance_profesional(conn, f_i, f_f, sucursal):
         if df_saldos is None or df_saldos.empty:
             df_saldos = pd.DataFrame(columns=cols_finales)
         else:
+            # Estandarizar nombres de columnas de saldos
             renombres = {}
             for col in df_saldos.columns:
                 c_low = str(col).lower()
@@ -2065,45 +2066,45 @@ def generar_balance_profesional(conn, f_i, f_f, sucursal):
             if c not in df_saldos.columns: 
                 df_saldos[c] = 0.0
 
-        # --- UNIFICACIÓN DE FORMATO DE CÓDIGOS (ELIMINAR PUNTOS EN AMBOS) ---
-        # Esto quita los puntos (1.1.1.01 -> 11101) para que coincidan perfectamente al hacer el merge
-        df_plan['codigo_limpio'] = df_plan['codigo'].astype(str).str.replace(r'[^0-9]', '', regex=True)
-        df_plan['padre_limpio'] = df_plan['padre'].astype(str).str.replace(r'[^0-9]', '', regex=True)
+        # --- LIMPIEZA Y NORMALIZACIÓN DE CÓDIGOS PARA EL MERGE ---
+        # Creamos una llave común sin puntos en ambos DataFrames (ej: '1.1.1.01' y '11101' se vuelven '11101')
+        df_plan['llave_join'] = df_plan['codigo'].astype(str).str.replace(r'[^0-9]', '', regex=True)
+        df_plan['llave_padre'] = df_plan['padre'].astype(str).str.replace(r'[^0-9]', '', regex=True)
         
-        df_saldos['codigo_limpio'] = df_saldos['codigo'].astype(str).str.replace(r'[^0-9]', '', regex=True)
+        df_saldos['llave_join'] = df_saldos['codigo'].astype(str).str.replace(r'[^0-9]', '', regex=True)
 
-        # 3. Hacer el merge usando los códigos limpios
+        # 3. Hacer el merge utilizando la llave numérica limpia
         df = pd.merge(
             df_plan, 
-            df_saldos[['codigo_limpio', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final']], 
-            on='codigo_limpio', 
+            df_saldos[['llave_join', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final']], 
+            on='llave_join', 
             how='left'
         )
         
         cols_num = ['Saldo Inicial', 'Debe', 'Haber', 'Saldo Final']
         df[cols_num] = df[cols_num].fillna(0.0).astype(float)
 
-        # 4. Limpiar los saldos en las cuentas de "Grupo" para evitar duplicidad antes de sumar
+        # 4. Limpiar los saldos en las cuentas de tipo "Grupo" para que no dupliquen valores propios
         if 'tipo' in df.columns:
             is_grupo = df['tipo'].astype(str).str.lower() == 'grupo'
             df.loc[is_grupo, cols_num] = 0.0
 
-        # 5. SUMATORIA JERÁRQUICA DE ABAJO HACIA ARRIBA usando los códigos limpios y el padre limpio
+        # 5. SUMATORIA JERÁRQUICA DE ABAJO HACIA ARRIBA (Usando la llave limpia del padre)
         niveles_disponibles = sorted([n for n in df['nivel'].dropna().unique()], reverse=True)
         
         for n in niveles_disponibles:
             filas_nivel = df[df['nivel'] == n]
             for _, fila in filas_nivel.iterrows():
-                p_cod = fila['padre_limpio']
+                p_cod = fila['llave_padre']
                 if pd.notna(p_cod) and p_cod != '' and p_cod != 'none' and p_cod != 'nan':
-                    mask_padre = df['codigo_limpio'] == str(p_cod)
+                    mask_padre = df['llave_join'] == str(p_cod)
                     if mask_padre.any():
                         df.loc[mask_padre, cols_num] = df.loc[mask_padre, cols_num].values + fila[cols_num].values
 
-        # Asegurarnos de conservar la columna 'codigo' original para mostrarla bonita en la tabla
+        # Recalcular saldo final global de cada fila por seguridad
         df['Saldo Final'] = df['Saldo Inicial'] + df['Debe'] - df['Haber']
 
-        # 6. Fila Total Global (asegurando todas las columnas que el sistema espera)
+        # 6. Fila Total Global (Sumando solo los elementos de nivel 1 principal)
         fila_total = pd.DataFrame([{
             'codigo': 'Σ', 'nombre': 'TOTAL GENERAL', 'nivel': 0, 'tipo': 'Total', 'padre': None,
             'Saldo Inicial': float(df[df['nivel'] == 1]['Saldo Inicial'].sum()), 
@@ -2112,12 +2113,10 @@ def generar_balance_profesional(conn, f_i, f_f, sucursal):
             'Saldo Final': float(df[df['nivel'] == 1]['Saldo Final'].sum())
         }])
         
-        # INCLUIMOS 'nivel', 'tipo' Y 'padre' EN LAS COLUMNAS DE SALIDA
+        # Columnas de salida respetando la estructura que exige tu visualización
         cols_salida = ['codigo', 'nombre', 'nivel', 'tipo', 'padre', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final']
         
-        # Nos aseguramos de que el DataFrame 'df' tenga explícitamente esas columnas antes de concatenar
         df_final = pd.concat([df[cols_salida], fila_total[cols_salida]], ignore_index=True)
-        
         return df_final
 
     except Exception as e:
