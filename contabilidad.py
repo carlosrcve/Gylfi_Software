@@ -2035,7 +2035,7 @@ def generar_balance_profesional(conn, f_i, f_f, sucursal):
         cursor = conn.cursor()
         cursor.execute(f"USE `{db}`")
         
-        # 1. Consultar el plan de cuentas (estandarizado como 'codigo')
+        # 1. Consultar el plan de cuentas
         query_plan = f"SELECT codigo, nombre, nivel, padre FROM `{db}`.plan_cuentas ORDER BY codigo"
         df_plan = ejecutar_consulta(query_plan, conn)
         
@@ -2043,73 +2043,51 @@ def generar_balance_profesional(conn, f_i, f_f, sucursal):
             st.error("⚠️ El plan de cuentas está vacío.")
             return None
 
-        # ASEGURAR QUE 'codigo' SEA STRING LIMPIO EN PLAN
+        # Asegurar string limpio en el plan
         df_plan['codigo'] = df_plan['codigo'].astype(str).str.strip().str.replace('.0', '', regex=False)
 
+        # 2. Obtener movimientos desde el balance de comprobación unificado
         df_saldos = generar_balance_comprobacion(conn, f_i, f_f, sucursal)
-        # FUERZA EL NOMBRE DE LA COLUMNA A MINÚSCULAS DESDE EL INICIO
-        if 'Código' in df_saldos.columns:
-            df_saldos = df_saldos.rename(columns={'Código': 'codigo'})
         
-        # Ahora el merge con el plan será mucho más seguro
-        df_plan['codigo'] = df_plan['codigo'].astype(str).str.strip().str.replace(r'[^0-9]', '', regex=True)
-        df_saldos['codigo'] = df_saldos['codigo'].astype(str).str.strip().str.replace(r'[^0-9]', '', regex=True)
+        cols_finales = ['codigo', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final']
+        
+        if df_saldos is None or df_saldos.empty:
+            df_saldos = pd.DataFrame(columns=cols_finales)
+            df_saldos = df_saldos.astype({'codigo': str, 'Saldo Inicial': float, 'Debe': float, 'Haber': float, 'Saldo Final': float})
         else:
+            # Estandarizar nombres de columnas devueltas por la función de comprobación
             renombres = {}
             for col in df_saldos.columns:
                 c_low = str(col).lower()
-                if 'codigo' in c_low or 'cuenta' in c_low: renombres[col] = 'codigo'
+                if 'codigo' in c_low or 'código' in c_low or 'cuenta' in c_low: renombres[col] = 'codigo'
                 elif 'inicial' in c_low: renombres[col] = 'Saldo Inicial'
                 elif 'debe' in c_low: renombres[col] = 'Debe'
                 elif 'haber' in c_low: renombres[col] = 'Haber'
                 elif 'final' in c_low: renombres[col] = 'Saldo Final'
             df_saldos = df_saldos.rename(columns=renombres)
 
-        # 3. Inyección de saldos iniciales (si existe la tabla)
-        try:
-            query_s_init = f"SELECT cuenta_contable AS codigo, (COALESCE(debe, 0) - COALESCE(haber, 0)) AS saldo_inicial_neto FROM `{db}`.saldos_iniciales"
-            df_init = ejecutar_consulta(query_s_init, conn)
-            if df_init is not None and not df_init.empty:
-                df_init['codigo'] = df_init['codigo'].astype(str).str.strip().str.replace('.0', '', regex=False)
-                df_init = df_init.groupby('codigo', as_index=False)['saldo_inicial_neto'].sum()
-                
-                if 'codigo' in df_saldos.columns and not df_saldos.empty:
-                    df_saldos['codigo'] = df_saldos['codigo'].astype(str).str.strip().str.replace('.0', '', regex=False)
-                    df_saldos = pd.merge(df_saldos, df_init, on='codigo', how='outer')
-                    df_saldos['Saldo Inicial'] = df_saldos['Saldo Inicial'].fillna(0.0) + df_saldos['saldo_inicial_neto'].fillna(0.0)
-                    df_saldos = df_saldos.drop(columns=['saldo_inicial_neto'])
-                else:
-                    df_saldos = df_init.rename(columns={'saldo_inicial_neto': 'Saldo Inicial'})
-                    df_saldos['Debe'] = 0.0
-                    df_saldos['Haber'] = 0.0
-                    df_saldos['Saldo Final'] = df_saldos['Saldo Inicial']
-        except:
-            pass
-
-        # Asegurar columnas necesarias y formato de tipo texto en saldos
+        # Asegurar que existan todas las columnas numéricas necesarias
         for c in cols_finales:
-            if c not in df_saldos.columns: df_saldos[c] = 0.0
-        
-        # 4. Merge Final garantizando tipos iguales y formatos limpios
-        
+            if c not in df_saldos.columns: 
+                df_saldos[c] = 0.0
+
         # --- DIAGNÓSTICO EN STREAMLIT ---
         st.write("### Diagnóstico de Códigos")
         st.write("Primeros 5 códigos del Plan:", df_plan['codigo'].head().tolist())
         st.write("Primeros 5 códigos de los Saldos:", df_saldos['codigo'].head().tolist())
         # --------------------------------
         
-        # LIMPIEZA RADICAL: Eliminamos cualquier carácter que no sea número (puntos, guiones, espacios)
-        # Esto hace que '1.01.01' y '10101' coincidan como '10101'
+        # LIMPIEZA RADICAL: Eliminamos caracteres no numéricos para alinear los códigos (ej: '1.01' con '101')
         df_plan['codigo'] = df_plan['codigo'].astype(str).str.replace(r'[^0-9]', '', regex=True)
         df_saldos['codigo'] = df_saldos['codigo'].astype(str).str.replace(r'[^0-9]', '', regex=True)
         
-        # Ahora el merge debería encontrar las coincidencias
+        # 4. Merge Final garantizando la estructura
         df = pd.merge(df_plan, df_saldos[cols_finales], on='codigo', how='left')
         
         cols_num = ['Saldo Inicial', 'Debe', 'Haber', 'Saldo Final']
         df[cols_num] = df[cols_num].fillna(0.0).astype(float)
 
-        # 5. Cálculo Jerárquico blindado (Usando .values para evitar errores de tipo numpy)
+        # 5. Cálculo Jerárquico blindado
         padres_codigos = df['padre'].dropna().astype(str).str.strip().unique()
         df.loc[df['codigo'].isin(padres_codigos), cols_num] = 0.0
         df['Saldo Final'] = df['Saldo Inicial'] + df['Debe'] - df['Haber']
@@ -2119,7 +2097,6 @@ def generar_balance_profesional(conn, f_i, f_f, sucursal):
             for p_cod, grupo in df[df['nivel'] == n].groupby('padre'):
                 mask = df['codigo'] == str(p_cod).strip()
                 if mask.any():
-                    # Usamos .values para sumar matrices flotantes limpias de forma segura
                     suma_grupo = grupo[cols_num].sum().values
                     df.loc[mask, cols_num] = df.loc[mask, cols_num].values + suma_grupo
                     
