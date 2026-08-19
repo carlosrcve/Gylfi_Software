@@ -2150,9 +2150,7 @@ def generar_balance_comprobacion(conn, f_i, f_f, sucursal):
                 col_name = [c for c in df.columns if 'plan_cuenta' in c.lower() or 'codigo' in c.lower()][0]
                 df = df.rename(columns={col_name: 'Código', 'val': nombre})
                 
-                # CORRECCIÓN DE TIPO: Forzar valor numérico a float
                 df[nombre] = pd.to_numeric(df[nombre], errors='coerce').fillna(0.0)
-                
                 df['Código'] = df['Código'].astype(str).str.strip().str.replace('.0', '', regex=False)
                 df = df.set_index('Código')
                 lista_frames.append(df)
@@ -2163,23 +2161,24 @@ def generar_balance_comprobacion(conn, f_i, f_f, sucursal):
         balance = pd.concat(lista_frames, axis=1).fillna(0.0)
         balance.reset_index(inplace=True)
         
-        # Asegurar que todas las columnas operativas sean float explícitos
         for c in ['si', 'ac', 'debe', 'haber']:
             if c not in balance.columns: balance[c] = 0.0
             balance[c] = balance[c].astype(float)
             
         balance['Tipo'] = balance['Código'].astype(str).str[0]
         
+        # Corrección: Retornar tupla simple de floats limpios
         def calcular(row):
-            # Ahora todas las variables son float, no habrá conflicto de tipos
             si_bruto = float(row['si']) + float(row['ac'])
             if row['Tipo'] in ['1', '5']:
                 s_final = si_bruto + float(row['debe']) - float(row['haber'])
             else:
                 s_final = si_bruto - float(row['debe']) + float(row['haber'])
-            return pd.Series([si_bruto, s_final])
+            return pd.Series([float(si_bruto), float(s_final)], index=['Saldo Inicial', 'Saldo Final'])
 
-        balance[['Saldo Inicial', 'Saldo Final']] = balance.apply(calcular, axis=1)
+        res_calculo = balance.apply(calcular, axis=1)
+        balance['Saldo Inicial'] = res_calculo['Saldo Inicial']
+        balance['Saldo Final'] = res_calculo['Saldo Final']
         
         return balance[['Código', 'Saldo Inicial', 'debe', 'haber', 'Saldo Final']].rename(columns={
             'debe': 'Debe', 'haber': 'Haber'
