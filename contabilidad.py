@@ -8810,10 +8810,12 @@ elif sub_opcion == "Balance General":
                         st.error(f"Error al generar el PDF: {e_pdf}")
 
                 # VALIDACIÓN EN PANTALLA
-                if abs(act - (abs(pas) + abs(pat))) < 0.01:
+                descuadre_final = act - (pas + patrimonio_ajustado)
+                
+                if abs(descuadre_final) < 0.01:
                     st.success("✅ Ecuación Patrimonial Cuadrada")
                 else:
-                    st.error(f"❌ Ecuación Patrimonial Descuadrada: {formato_contable(act - (abs(pas) + abs(pat)))}")
+                    st.error(f"❌ Ecuación Patrimonial Descuadrada: {formato_contable(descuadre_final)}")
             else:
                 st.info("No se encontraron datos para generar el balance.")
 
