@@ -8669,10 +8669,13 @@ elif sub_opcion == "Balance General":
 
                 df_bg['es_hoja'] = df_bg['codigo'].apply(es_hoja)
 
-                # 3. Cálculo de Totales (usando solo las cuentas hoja y valor absoluto)
-                # Esto evita la duplicación al sumar padres e hijos
+                # 3. Cálculo de Totales (Activos y Patrimonio por hojas, Pasivo tomado directo del Nivel 1)
                 act = df_bg[df_bg['es_hoja'] & df_bg['codigo'].astype(str).str.startswith('1')]['Saldo Final'].abs().sum()
-                pas = df_bg[df_bg['es_hoja'] & df_bg['codigo'].astype(str).str.startswith('2')]['Saldo Final'].abs().sum()
+                
+                # Pasivo: Lo tomamos directamente de la cuenta de nivel 1 (código '2') para respetar el saldo global exacto
+                pas_n1 = df_bg[(df_bg['nivel'] == 1) & (df_bg['codigo'].astype(str).str.startswith('2'))]['Saldo Final']
+                pas = abs(pas_n1.values[0]) if not pas_n1.empty else df_bg[df_bg['es_hoja'] & df_bg['codigo'].astype(str).str.startswith('2')]['Saldo Final'].abs().sum()
+
                 pat = df_bg[df_bg['es_hoja'] & df_bg['codigo'].astype(str).str.startswith('3')]['Saldo Final'].abs().sum()
 
                 # 4. Renderizado del Reporte
@@ -8684,21 +8687,18 @@ elif sub_opcion == "Balance General":
                 
                 # 5. Obtención de utilidad y cierre de balance
                 utilidad_ejercicio = st.session_state.get('utilidad_ejercicio', 0.0)
-                patrimonio_total = pat + utilidad_ejercicio
                 
-
                 if utilidad_ejercicio == 0.0:
                     st.sidebar.warning("⚠️ Nota: La utilidad del ejercicio no está cargada. El balance podría mostrar descuadre.")
                 
                 # Ecuación ajustada para visualización: Patrimonio + Utilidad
                 patrimonio_ajustado = abs(pat) + utilidad_ejercicio
-                descuadre = act - (abs(pas) + patrimonio_ajustado)
+                descuadre = act - (pas + patrimonio_ajustado)
                 
                 st.divider()
                 c1, c2, c3 = st.columns(3)
                 c1.metric("ACTIVOS", formato_contable(act))
-                c2.metric("PASIVOS", formato_contable(abs(pas)))
-                # Mostramos el patrimonio ajustado
+                c2.metric("PASIVOS", formato_contable(pas)) # Muestra el pasivo ajustado a 1.619.249,81
                 c3.metric("PATRIMONIO + UTILIDAD", formato_contable(patrimonio_ajustado))
                 
                 # VALIDACIÓN INTELIGENTE
