@@ -8685,19 +8685,33 @@ elif sub_opcion == "Balance General":
                     width='stretch', height=500, hide_index=True
                 )
                 
-                # 5. Obtención de utilidad y cierre de balance
+                # 5. Obtención o cálculo automático de la utilidad para el cierre del Balance
                 utilidad_ejercicio = st.session_state.get('utilidad_ejercicio', 0.0)
                 
-                if utilidad_ejercicio == 0.0:
-                    st.sidebar.warning("⚠️ Nota: La utilidad del ejercicio está en 0. Visita el Estado de Resultados primero.")
-                
-                # Ecuación ajustada para visualización: Patrimonio + Utilidad
+                # Si no se ha visitado el Estado de Resultados, la calculamos aquí mismo al vuelo
+                if utilidad_ejercicio == 0.0 and 'df_datos' in locals() and not df_datos.empty:
+                    df_n1_er = df_datos[df_datos['nivel'] == 1].copy()
+                    if df_n1_er.empty:
+                        df_n1_er = df_datos[df_datos['codigo'].astype(str).str.strip().str.replace(r'[^0-9]', '', regex=True).str.len() == 1]
+                    
+                    df_n1_er['c_limpio'] = df_n1_er['codigo'].astype(str).str.strip().str.replace(r'[^0-9]', '', regex=True)
+                    
+                    ing_b = df_n1_er[df_n1_er['c_limpio'].str.startswith('4')]['Saldo Final'].sum()
+                    cos_b = df_n1_er[df_n1_er['c_limpio'].str.startswith('5')]['Saldo Final'].sum()
+                    gas_b = df_n1_er[df_n1_er['c_limpio'].str.startswith('6')]['Saldo Final'].sum()
+                    otros_ing_b = df_n1_er[df_n1_er['c_limpio'].str.startswith('7')]['Saldo Final'].sum()
+                    otros_egr_b = df_n1_er[df_n1_er['c_limpio'].str.startswith('8')]['Saldo Final'].sum()
+                    
+                    utilidad_ejercicio = abs(ing_b) + abs(otros_ing_b) - (abs(cos_b) + abs(gas_b) + abs(otros_egr_b))
+                    st.session_state['utilidad_ejercicio'] = utilidad_ejercicio
+
+                # Ecuación ajustada para visualización: Patrimonio + Utilidad del Ejercicio
                 patrimonio_ajustado = abs(pat) + utilidad_ejercicio
                 descuadre = act - (pas + patrimonio_ajustado)
                 
                 st.divider()
                 
-                # Mostramos 4 columnas para detallar con total transparencia la ecuación patrimonial
+                # Mostramos 4 columnas detallando la ecuación patrimonial completa
                 c1, c2, c3, c4 = st.columns(4)
                 c1.metric("ACTIVOS", formato_contable(act))
                 c2.metric("PASIVOS", formato_contable(pas))
@@ -8705,6 +8719,12 @@ elif sub_opcion == "Balance General":
                 c4.metric("UTILIDAD EJERCICIO", formato_contable(utilidad_ejercicio), 
                           delta=f"{formato_contable(utilidad_ejercicio)}",
                           delta_color="normal" if utilidad_ejercicio >= 0 else "inverse")
+
+                # Comprobación final en pantalla del balance exacto
+                if abs(descuadre) < 0.01:
+                    st.success("✅ ¡Balance General Cuadrado Perfectamente!")
+                else:
+                    st.error(f"❌ Descuadre contable detectado: {formato_contable(descuadre)}")
 
                 # Comprobación final en pantalla del balance exacto
                 if abs(descuadre) < 0.01:
