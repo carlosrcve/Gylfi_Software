@@ -8885,14 +8885,13 @@ elif sub_opcion == "Estado de Resultados":
                     otros_ing = df_n1[df_n1['codigo_limpio'].str.startswith('7')]['Saldo Final'].sum()
                     otros_egr = df_n1[df_n1['codigo_limpio'].str.startswith('8')]['Saldo Final'].sum()
 
-                    # Fórmula contable completa: 
-                    # Ingresos y Otros Ingresos suelen ser acreedores (vienen con signo negativo o se consideran positivos para la utilidad),
-                    # Costos, Gastos y Otros Egresos restan. 
+                    # Fórmula contable completa para la utilidad real
                     utilidad = abs(ing) + abs(otros_ing) - (abs(cos) + abs(gas) + abs(otros_egr))
                     
                     col1, col2, col3 = st.columns(3)
                     with col1:
-                        st.metric("Ingresos Totales", f"Bs. {(abs(ing) + abs(otros_ing)):,.2f}")
+                        # Muestra exclusivamente los ingresos de la cuenta 4
+                        st.metric("Ingresos Totales", f"Bs. {abs(ing):,.2f}")
                     with col2:
                         st.metric("Costos y Gastos", f"Bs. {(abs(cos) + abs(gas) + abs(otros_egr)):,.2f}")
                     with col3:
