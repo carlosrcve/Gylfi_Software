@@ -8826,7 +8826,7 @@ elif sub_opcion == "Estado de Resultados":
     # 3. INTERFAZ DEL REPORTE
     st.subheader(f"📈 Estado de Resultados: {EMPRESA}")
     
-    # --- BLINDAJE LOCAL DE FECHAS (Evita conflicto con from datetime import datetime) ---
+    # --- BLINDAJE LOCAL DE FECHAS ---
     from datetime import date as d_type, datetime as dt_type
 
     def obtener_fecha_segura(key_sesion):
@@ -8853,110 +8853,101 @@ elif sub_opcion == "Estado de Resultados":
             conn_er.ping(reconnect=True)
             df_datos = generar_balance_profesional(conn_er, f_er_desde, f_er_hasta, sucursal)
             
-            if not df_datos.empty:
-                # 1. Filtramos cuentas de resultados (4 al 8)
-                df_er = df_datos[df_datos['codigo'].astype(str).str.startswith(('4', '5', '6', '7', '8'))].copy()
+            if df_datos is not None and not df_datos.empty:
+                # Limpiamos el código para asegurarnos de evaluar el primer dígito correctamente sin importar espacios o puntos
+                df_datos['codigo_limpio'] = df_datos['codigo'].astype(str).str.strip().str.replace(r'[^0-9]', '', regex=True)
+                
+                # 1. Filtramos cuentas de resultados (4 al 8) usando el código limpio
+                df_er = df_datos[df_datos['codigo_limpio'].str.startswith(('4', '5', '6', '7', '8'))].copy()
                 df_er['Cuenta'] = df_er.apply(lambda x: f"{'    ' * (int(x['nivel'])-1)}{x['nombre']}", axis=1)
                 
-                # 2. RENDERIZADO EN PANTALLA
-                st.dataframe(
-                    df_er.style.format({'Saldo Final': formato_contable}).apply(estilo_balance, axis=1),
-                    column_order=['codigo', 'Cuenta', 'Saldo Final'],
-                    width='stretch', 
-                    height=400, 
-                    hide_index=True
-                )
-                
-                # 3. CÁLCULO DE UTILIDAD (Usando Nivel 1)
-                df_n1 = df_er[df_er['nivel'] == 1]
-                ing = df_n1[df_n1['codigo'].astype(str).str.startswith('4')]['Saldo Final'].sum()
-                cos = df_n1[df_n1['codigo'].astype(str).str.startswith('5')]['Saldo Final'].sum()
-                gas = df_n1[df_n1['codigo'].astype(str).str.startswith('6')]['Saldo Final'].sum()
-                # Utilidad = Ingresos (abs porque suelen ser acreedores) - Costos - Gastos
-                utilidad = abs(ing) - (abs(cos) + abs(gas))
-                col1, col2, col3 = st.columns(3)
-
-                with col1:
-                    st.metric("Ingresos Totales", f"Bs. {ing:,.2f}")
-
-                with col2:
-                    st.metric("Costos Totales", f"Bs. {cos:,.2f}") # <--- AQUÍ LA NUEVA MÉTRICA
-
-                with col3:
-                    st.metric("Utilidad / Pérdida", f"Bs. {formato_contable(utilidad)}", 
-                          delta=f"{formato_contable(utilidad)}",
-                          delta_color="normal" if utilidad >= 0 else "inverse")
-
-
-                # 1. GESTIÓN DE TASA BCV
-                if 'tasa_bcv' not in st.session_state:
-                    tasa, _ = obtener_tasa_bcv_hoy(conn_er) # Cambiado a conn_er
-                    st.session_state.tasa_bcv = tasa
-
-                if st.button("🔄 Actualizar Tasa BCV"):
-                    tasa, _ = obtener_tasa_bcv_hoy(conn_er) # Cambiado a conn_er
-                    st.session_state.tasa_bcv = tasa
-                    st.rerun()
-
-                tasa = st.session_state.tasa_bcv if st.session_state.tasa_bcv > 0 else 1.0
-
-                # 2. CÁLCULO UNIFICADO (Usando df_er, la misma fuente que tu tabla)
-                # Asegúrate de que df_er sea la variable que contiene tu reporte completo
-                if 'df_er' in locals() and not df_er.empty:
-                    df_n1 = df_er[df_er['nivel'] == 1]
+                if df_er.empty:
+                    st.warning("⚠️ No se encontraron registros para las cuentas de Resultados (4, 5, 6, 7, 8) en el período seleccionado.")
+                else:
+                    # 2. RENDERIZADO EN PANTALLA
+                    st.dataframe(
+                        df_er.style.format({'Saldo Final': formato_contable}).apply(estilo_balance, axis=1),
+                        column_order=['codigo', 'Cuenta', 'Saldo Final'],
+                        width='stretch', 
+                        height=400, 
+                        hide_index=True
+                    )
                     
-                    # Cálculos en Bolívares
-                    ing = df_n1[df_n1['codigo'].astype(str).str.startswith('4')]['Saldo Final'].sum()
-                    cos = df_n1[df_n1['codigo'].astype(str).str.startswith('5')]['Saldo Final'].sum()
-                    gas = df_n1[df_n1['codigo'].astype(str).str.startswith('6')]['Saldo Final'].sum()
+                    # 3. CÁLCULO DE UTILIDAD (Usando Nivel 1 o sumando de forma flexible si el nivel varía)
+                    df_n1 = df_er[df_er['nivel'] == 1]
+                    if df_n1.empty:
+                        # Respaldo por si el nivel 1 no está marcado explícitamente, tomamos los códigos de un dígito
+                        df_n1 = df_er[df_er['codigo_limpio'].str.len() == 1]
+
+                    ing = df_n1[df_n1['codigo_limpio'].str.startswith('4')]['Saldo Final'].sum()
+                    cos = df_n1[df_n1['codigo_limpio'].str.startswith('5')]['Saldo Final'].sum()
+                    gas = df_n1[df_n1['codigo_limpio'].str.startswith('6')]['Saldo Final'].sum()
+                    
+                    # Utilidad = Ingresos (abs porque suelen ser acreedores) - Costos - Gastos
                     utilidad = abs(ing) - (abs(cos) + abs(gas))
                     
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.metric("Ingresos Totales", f"Bs. {ing:,.2f}")
+                    with col2:
+                        st.metric("Costos Totales", f"Bs. {cos:,.2f}")
+                    with col3:
+                        st.metric("Utilidad / Pérdida", f"Bs. {formato_contable(utilidad)}", 
+                            delta=f"{formato_contable(utilidad)}",
+                            delta_color="normal" if utilidad >= 0 else "inverse")
+
+                    # 1. GESTIÓN DE TASA BCV
+                    if 'tasa_bcv' not in st.session_state:
+                        tasa, _ = obtener_tasa_bcv_hoy(conn_er)
+                        st.session_state.tasa_bcv = tasa
+
+                    if st.button("🔄 Actualizar Tasa BCV"):
+                        tasa, _ = obtener_tasa_bcv_hoy(conn_er)
+                        st.session_state.tasa_bcv = tasa
+                        st.rerun()
+
+                    tasa = st.session_state.tasa_bcv if st.session_state.tasa_bcv > 0 else 1.0
+
                     # Cálculos en USD
                     ing_usd, cos_usd, gas_usd, util_usd = [x / tasa for x in [abs(ing), abs(cos), abs(gas), utilidad]]
                     costos_gastos_usd = cos_usd + gas_usd
-                else:
-                    # Si df_er no existe aquí, significa que el cálculo debe ir DENTRO del bloque que genera el reporte
-                    st.warning("El reporte principal aún no se ha generado.")
-                    ing, cos, gas, utilidad, ing_usd, costos_gastos_usd, util_usd = [0.0]*7
 
-                # 3. VISUALIZACIÓN
-                c1, c2, c3 = st.columns(3)
+                    # 3. VISUALIZACIÓN EN USD
+                    c1, c2, c3 = st.columns(3)
+                    with c1:
+                        st.metric("Ingresos (USD)", f"$ {formato_contable(ing_usd)}")
+                    with c2:
+                        st.metric("Costos/Gastos (USD)", f"$ {formato_contable(costos_gastos_usd)}")
+                    with c3:
+                        st.metric("Utilidad (USD)", f"$ {formato_contable(util_usd)}", 
+                                    delta=f"{formato_contable(util_usd)} USD",
+                                    delta_color="normal" if utilidad >= 0 else "inverse")
 
-                with c1:
-                    st.metric("Ingresos (USD)", f"$ {formato_contable(ing_usd)}")
+                    # Contenedor estético para la Tasa BCV
+                    with st.container():
+                        st.markdown(
+                            f"""
+                            <div style="
+                                background-color: #f0f2f6; 
+                                padding: 10px; 
+                                border-radius: 10px; 
+                                border-left: 5px solid #0081C9;
+                                max-width: 300px; 
+                                display: flex; 
+                                justify-content: space-between; 
+                                align-items: center;
+                            ">
+                                <span style="color: #31333F; font-weight: bold; font-size: 14px;">
+                                    🔄 Tasa de Referencia BCV
+                                </span>
+                                <span style="color: #0081C9; font-weight: 900; font-size: 16px;">
+                                    {tasa:,.2f} <span style="font-size: 12px; color: #808495;">Bs/USD</span>
+                                </span>
+                            </div>
+                            """,
+                            unsafe_allow_html=True
+                        )
 
-                with c2:
-                    st.metric("Costos/Gastos (USD)", f"$ {formato_contable(costos_gastos_usd)}")
-
-                with c3:
-                    st.metric("Utilidad (USD)", f"$ {formato_contable(util_usd)}", 
-                              delta=f"{formato_contable(util_usd)} USD",
-                              delta_color="normal" if utilidad >= 0 else "inverse")
-
-                # Contenedor estético para la Tasa BCV
-                with st.container():
-                    st.markdown(
-                        f"""
-                        <div style="
-                            background-color: #f0f2f6; 
-                            padding: 10px; 
-                            border-radius: 10px; 
-                            border-left: 5px solid #0081C9;
-                            max-width: 300px;  /* <--- ESTA ES LA CLAVE */ 
-                            display: flex; 
-                            justify-content: space-between; 
-                            align-items: center;
-                        ">
-                            <span style="color: #31333F; font-weight: bold; font-size: 14px;">
-                                🔄 Tasa de Referencia BCV
-                            </span>
-                            <span style="color: #0081C9; font-weight: 900; font-size: 16px;">
-                                {tasa:,.2f} <span style="font-size: 12px; color: #808495;">Bs/USD</span>
-                            </span>
-                        </div>
-                        """,
-                        unsafe_allow_html=True
-                    )
                 
                 st.divider()
 
