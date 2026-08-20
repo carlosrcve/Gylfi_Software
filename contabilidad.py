@@ -8689,17 +8689,28 @@ elif sub_opcion == "Balance General":
                 utilidad_ejercicio = st.session_state.get('utilidad_ejercicio', 0.0)
                 
                 if utilidad_ejercicio == 0.0:
-                    st.sidebar.warning("⚠️ Nota: La utilidad del ejercicio no está cargada. El balance podría mostrar descuadre.")
+                    st.sidebar.warning("⚠️ Nota: La utilidad del ejercicio está en 0. Visita el Estado de Resultados primero.")
                 
                 # Ecuación ajustada para visualización: Patrimonio + Utilidad
                 patrimonio_ajustado = abs(pat) + utilidad_ejercicio
                 descuadre = act - (pas + patrimonio_ajustado)
                 
                 st.divider()
-                c1, c2, c3 = st.columns(3)
+                
+                # Mostramos 4 columnas para detallar con total transparencia la ecuación patrimonial
+                c1, c2, c3, c4 = st.columns(4)
                 c1.metric("ACTIVOS", formato_contable(act))
-                c2.metric("PASIVOS", formato_contable(pas)) # Muestra el pasivo ajustado a 1.619.249,81
-                c3.metric("PATRIMONIO + UTILIDAD", formato_contable(patrimonio_ajustado))
+                c2.metric("PASIVOS", formato_contable(pas))
+                c3.metric("PATRIMONIO", formato_contable(abs(pat)))
+                c4.metric("UTILIDAD EJERCICIO", formato_contable(utilidad_ejercicio), 
+                          delta=f"{formato_contable(utilidad_ejercicio)}",
+                          delta_color="normal" if utilidad_ejercicio >= 0 else "inverse")
+
+                # Comprobación final en pantalla del balance exacto
+                if abs(descuadre) < 0.01:
+                    st.success("✅ ¡Balance General Cuadrado Perfectamente!")
+                else:
+                    st.error(f"❌ Descuadre contable detectado: {formato_contable(descuadre)}")
                 
                 # VALIDACIÓN INTELIGENTE
                 st.subheader("Estado de Validación")
