@@ -2006,7 +2006,7 @@ def mostrar_interfaz_mayor(f_ini_g, f_fin_g, db_nombre):
 
 
 
-ddef generar_balance_profesional(conn, f_i, f_f, sucursal):
+def generar_balance_profesional(conn, f_i, f_f, sucursal):
     db = st.session_state.get('DB_ACTUAL')
     if not db:
         st.error("Papi, no has seleccionado ninguna base de datos.")
