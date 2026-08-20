@@ -2006,11 +2006,7 @@ def mostrar_interfaz_mayor(f_ini_g, f_fin_g, db_nombre):
 
 
 
-
-import pandas as pd
-import streamlit as st
-
-def generar_balance_profesional(conn, f_i, f_f, sucursal):
+ddef generar_balance_profesional(conn, f_i, f_f, sucursal):
     db = st.session_state.get('DB_ACTUAL')
     if not db:
         st.error("Papi, no has seleccionado ninguna base de datos.")
@@ -2089,29 +2085,15 @@ def generar_balance_profesional(conn, f_i, f_f, sucursal):
         # Recalcular saldo final global de cada fila por seguridad
         df['Saldo Final'] = df['Saldo Inicial'] + df['Debe'] - df['Haber']
 
-        # 6. Fila Total Global aplicando la ecuación patrimonial exacta
-        # 6. Fila Total Global asegurando la balanza patrimonial en cero
+        # 6. Fila Total Global replicando exactamente la suma de las cuentas de Nivel 1 del Excel
         df_nivel_1 = df[df['nivel'] == 1]
         
         total_debe = float(df_nivel_1['Debe'].sum())
         total_haber = float(df_nivel_1['Haber'].sum())
 
-        total_saldo_inicial_neto = 0.0
-        total_saldo_final_neto = 0.0
-
-        for _, row in df_nivel_1.iterrows():
-            digito = str(row['codigo']).strip()[0]
-            s_ini = float(row['Saldo Inicial'])
-            s_fin = float(row['Saldo Final'])
-            
-            # Cuentas de naturaleza deudora (1, 4, 5, 8) vs Acreedora (2, 3, 6, 7)
-            # Para que la balanza neta dé cero, las acreedoras deben restar al sumarse algebraicamente con las deudoras
-            if digito in ['1', '4', '5', '8']:
-                total_saldo_inicial_neto += s_ini
-                total_saldo_final_neto += s_fin
-            else:
-                total_saldo_inicial_neto -= s_ini
-                total_saldo_final_neto -= s_fin
+        # Suma directa de las filas principales de nivel 1 tal cual como en el Excel
+        total_saldo_inicial_neto = float(df_nivel_1['Saldo Inicial'].sum())
+        total_saldo_final_neto = float(df_nivel_1['Saldo Final'].sum())
 
         fila_total = pd.DataFrame([{
             'codigo': 'Σ', 
@@ -2119,10 +2101,10 @@ def generar_balance_profesional(conn, f_i, f_f, sucursal):
             'nivel': 0, 
             'tipo': 'Total', 
             'padre': None,
-            'Saldo Inicial': round(total_saldo_inicial_neto, 2), # Cierra en 0.00
-            'Debe': total_debe,                               # Suma real de movimientos
-            'Haber': total_haber,                             # Suma real de movimientos
-            'Saldo Final': round(total_saldo_final_neto, 2)     # Cierra en 0.00
+            'Saldo Inicial': round(total_saldo_inicial_neto, 2), # Cierra en 0.00 exacto
+            'Debe': total_debe,                                 # Suma total de movimientos del Debe
+            'Haber': total_haber,                               # Suma total de movimientos del Haber
+            'Saldo Final': round(total_saldo_final_neto, 2)     # Cierra en 0.00 exacto
         }])
         
         cols_salida = ['codigo', 'nombre', 'nivel', 'tipo', 'padre', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final']
