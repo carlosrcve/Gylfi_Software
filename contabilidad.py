@@ -8873,24 +8873,28 @@ elif sub_opcion == "Estado de Resultados":
                         hide_index=True
                     )
                     
-                    # 3. CÁLCULO DE UTILIDAD (Usando Nivel 1 o sumando de forma flexible si el nivel varía)
+                    # 3. CÁLCULO DE UTILIDAD / PÉRDIDA GLOBAL (Cuentas 4 a 8)
                     df_n1 = df_er[df_er['nivel'] == 1]
                     if df_n1.empty:
-                        # Respaldo por si el nivel 1 no está marcado explícitamente, tomamos los códigos de un dígito
                         df_n1 = df_er[df_er['codigo_limpio'].str.len() == 1]
 
+                    # Extracción de saldos por categoría principal
                     ing = df_n1[df_n1['codigo_limpio'].str.startswith('4')]['Saldo Final'].sum()
                     cos = df_n1[df_n1['codigo_limpio'].str.startswith('5')]['Saldo Final'].sum()
                     gas = df_n1[df_n1['codigo_limpio'].str.startswith('6')]['Saldo Final'].sum()
-                    
-                    # Utilidad = Ingresos (abs porque suelen ser acreedores) - Costos - Gastos
-                    utilidad = abs(ing) - (abs(cos) + abs(gas))
+                    otros_ing = df_n1[df_n1['codigo_limpio'].str.startswith('7')]['Saldo Final'].sum()
+                    otros_egr = df_n1[df_n1['codigo_limpio'].str.startswith('8')]['Saldo Final'].sum()
+
+                    # Fórmula contable completa: 
+                    # Ingresos y Otros Ingresos suelen ser acreedores (vienen con signo negativo o se consideran positivos para la utilidad),
+                    # Costos, Gastos y Otros Egresos restan. 
+                    utilidad = abs(ing) + abs(otros_ing) - (abs(cos) + abs(gas) + abs(otros_egr))
                     
                     col1, col2, col3 = st.columns(3)
                     with col1:
-                        st.metric("Ingresos Totales", f"Bs. {ing:,.2f}")
+                        st.metric("Ingresos Totales", f"Bs. {(abs(ing) + abs(otros_ing)):,.2f}")
                     with col2:
-                        st.metric("Costos Totales", f"Bs. {cos:,.2f}")
+                        st.metric("Costos y Gastos", f"Bs. {(abs(cos) + abs(gas) + abs(otros_egr)):,.2f}")
                     with col3:
                         st.metric("Utilidad / Pérdida", f"Bs. {formato_contable(utilidad)}", 
                             delta=f"{formato_contable(utilidad)}",
