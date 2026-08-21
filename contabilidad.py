@@ -5344,48 +5344,37 @@ elif not st.session_state.get('bienvenida_completada', False):
     st.stop()
 
 else:
-    # 3. Si ya pasó la bienvenida, carga el menú lateral
     menu_lateral = gestionar_sidebar()
 
-# --- LÓGICA DE NAVEGACIÓN UNIFICADA ---
-# Nos aseguramos de conectar a la base de datos central antes de entrar a los módulos de admin
-try:
-    conn = conectar_db() # Conexión a la central
+# --- LÓGICA DE NAVEGACIÓN ---
+# Usamos una bandera para saber si entramos a un módulo exclusivo de admin
+es_modulo_admin = menu_lateral in ["⚙️ Gestión de Usuarios", "🏢 Gestión de Empresas"]
+
+if es_modulo_admin:
+    try:
+        conn = conectar_db() # Conexión a la central
+        if conn:
+            if menu_lateral == "⚙️ Gestión de Usuarios":
+                panel_administracion(conn)
+            elif menu_lateral == "🏢 Gestión de Empresas":
+                panel_gestion_clientes(conn)
+            conn.close()
+        else:
+            st.error("🔌 No se pudo establecer conexión con el servidor MySQL.")
+    except Exception as e:
+        st.error(f"Error al acceder a la gestión central: {e}")
     
-    if menu_lateral == "⚙️ Gestión de Usuarios":
-        if conn:
-            panel_administracion(conn)
-        else:
-            st.error("🔌 No se pudo establecer conexión con el servidor MySQL.")
+    # IMPORTANTE: Aquí sí detenemos, porque ya renderizamos el módulo admin
+    st.stop() 
 
-    elif menu_lateral == "🏢 Gestión de Empresas":
-        if conn:
-            panel_gestion_clientes(conn)
-        else:
-            st.error("🔌 No se pudo establecer conexión con el servidor MySQL.")
-
-    # Cerramos la conexión al terminar el bloque de renderizado
-    if conn:
-        conn.close()
-
-except Exception as e:
-    st.error(f"Error al acceder a la gestión central: {e}")
-
-# Detenemos para evitar que el código del dashboard contable se ejecute abajo si es admin
-st.stop()
-
-# Sacamos los datos directamente de lo que ya se seleccionó en el Sidebar
-if 'DB_ACTUAL' in st.session_state and st.session_state.get('DB_ACTUAL'):
-    EMPRESA = st.session_state.get('CLIENTE_NOMBRE', "Empresa Seleccionada")
-    # Si también guardas el RIF en el session_state, lo buscas aquí:
-    RIF = st.session_state.get('rif_empresa_seleccionada', "J-00000000-0")
-else:
-    EMPRESA = "Seleccione Cliente"
-    RIF = "J-00000000-0"
-
+# --- SI NO ES ADMIN, CONTINUAMOS CON EL DASHBOARD CONTABLE ---
+# Sacamos los datos de la sesión
+EMPRESA = st.session_state.get('CLIENTE_NOMBRE', "Empresa Seleccionada")
+RIF = st.session_state.get('rif_empresa_seleccionada', "J-00000000-0")
 DATOS_EMPRESA = {"nombre": EMPRESA, "rif": RIF}
 
 if menu_lateral == "📊 Auditoría Contable":
+    # Tu lógica de módulos existente...
     with st.sidebar:
         st.divider()
         st.subheader("Módulos")
