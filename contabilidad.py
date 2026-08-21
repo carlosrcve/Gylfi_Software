@@ -362,6 +362,77 @@ def login_screen():
 
 
 
+def panel_gestion_clientes(conn):
+    st.header("🏢 Gestión de Clientes / Empresas")
+    st.markdown("Administra las empresas suscritas al sistema y provisiona nuevas bases de datos en la nube de forma automatizada.")
+    
+    # 1. FORMULARIO DE REGISTRO DE EMPRESA
+    with st.expander("➕ Registrar Nueva Empresa en el Sistema", expanded=False):
+        with st.form("registro_empresa"):
+            col1, col2 = st.columns(2)
+            with col1:
+                nombre_empresa = st.text_input("Nombre de la Empresa (Razón Social)", help="Ej: Inversiones Globales, C.A.")
+                rif = st.text_input("RIF", help="Ej: J-12345678-9")
+            with col2:
+                db_nombre = st.text_input(
+                    "Nombre de la BD (Sin espacios ni caracteres raros)", 
+                    help="Ej: inversiones_globales_ca"
+                )
+                estado = st.selectbox("Estado Inicial", ["Activo", "Inactivo"])
+            
+            btn_guardar = st.form_submit_button("💾 Crear Nueva Empresa y Base de Datos")
+            
+            if btn_guardar:
+                if not nombre_empresa or not db_nombre:
+                    st.error("❌ El nombre de la empresa y el nombre de la BD son obligatorios.")
+                else:
+                    try:
+                        # A. Guardar el registro principal en la tabla central 'clientes'
+                        cursor = conn.cursor()
+                        sql = """
+                            INSERT INTO control_central.clientes (nombre_empresa, rif, db_nombre, estado) 
+                            VALUES (%s, %s, %s, %s)
+                        """
+                        cursor.execute(sql, (nombre_empresa, rif, db_nombre, estado))
+                        conn.commit()
+                        cursor.close()
+                        
+                        # B. Disparar tu función multi-tenant para crear la BD y las tablas físicas en TiDB Cloud
+                        st.info(f"🚀 Provisionando base de datos y tablas para '{db_nombre}' en TiDB Cloud...")
+                        conectar_db(db_nombre) 
+                        
+                        st.success(f"✅ ¡Empresa '{nombre_empresa}' y su base de datos fueron configuradas con éxito!")
+                        st.balloons()
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"❌ Error al crear la empresa: {e}")
+
+    st.divider()
+
+    # 2. TABLA DE EMPRESAS REGISTRADAS
+    st.subheader("📋 Listado de Empresas Registradas")
+    
+    try:
+        query_view = "SELECT id, nombre_empresa, rif, db_nombre, estado FROM control_central.clientes"
+        df_clientes = ejecutar_consulta(query_view, conn)
+        
+        if df_clientes is not None and not df_clientes.empty:
+            st.dataframe(
+                df_clientes, 
+                use_container_width=True,
+                column_config={
+                    "id": "ID",
+                    "nombre_empresa": st.column_config.TextColumn("Razón Social"),
+                    "rif": st.column_config.TextColumn("RIF"),
+                    "db_nombre": st.column_config.TextColumn("Base de Datos (TiDB)"),
+                    "estado": st.column_config.SelectboxColumn("Estado", options=["Activo", "Inactivo"])
+                }
+            )
+        else:
+            st.info("ℹ️ No hay empresas registradas todavía en el sistema.")
+    except Exception as e:
+        st.error(f"❌ Error al cargar la lista de empresas: {e}")
+
 def panel_administracion(conn):
     st.header("⚙️ Gestión de Usuarios y Accesos")
     
@@ -5157,7 +5228,8 @@ def gestionar_sidebar():
 
         # --- Navegación ---
         if user_rol == 'admin':
-            menu = st.radio("Navegación", ["📊 Auditoría Contable", "⚙️ Gestión de Usuarios"], key="menu_nav")
+            menu = st.radio("Navegación", ["📊 Auditoría Contable", "⚙️ Gestión de Usuarios", "🏢 Gestión de Empresas"], key="menu_nav")
+
         else:
             menu = "📊 Auditoría Contable"
 
@@ -5264,34 +5336,43 @@ def gestionar_sidebar():
 verificar_inactividad()
 
 if 'logueado' not in st.session_state or not st.session_state['logueado']:
-    # 1. Si no está logueado, muestra la pantalla de acceso
     login_screen()
     st.stop()
 
 elif not st.session_state.get('bienvenida_completada', False):
-    # 2. Si acaba de loguearse, muestra la plantilla grande con la barra de carga
     mostrar_plantilla_bienvenida()
     st.stop()
 
 else:
-    # 3. Si ya pasó la bienvenida, carga el menú lateral y la aplicación normal
+    # 3. Si ya pasó la bienvenida, carga el menú lateral
     menu_lateral = gestionar_sidebar()
 
-
-if menu_lateral == "⚙️ Gestión de Usuarios":    
-    try:
-        conn = conectar_db() 
+# --- LÓGICA DE NAVEGACIÓN UNIFICADA ---
+# Nos aseguramos de conectar a la base de datos central antes de entrar a los módulos de admin
+try:
+    conn = conectar_db() # Conexión a la central
+    
+    if menu_lateral == "⚙️ Gestión de Usuarios":
         if conn:
             panel_administracion(conn)
-            try:
-                conn.close()
-            except Exception:
-                pass
         else:
             st.error("🔌 No se pudo establecer conexión con el servidor MySQL.")
-    except Exception as e:
-        st.error(f"Error al acceder a la gestión central: {e}")
-    st.stop()
+
+    elif menu_lateral == "🏢 Gestión de Empresas":
+        if conn:
+            panel_gestion_clientes(conn)
+        else:
+            st.error("🔌 No se pudo establecer conexión con el servidor MySQL.")
+
+    # Cerramos la conexión al terminar el bloque de renderizado
+    if conn:
+        conn.close()
+
+except Exception as e:
+    st.error(f"Error al acceder a la gestión central: {e}")
+
+# Detenemos para evitar que el código del dashboard contable se ejecute abajo si es admin
+st.stop()
 
 # Sacamos los datos directamente de lo que ya se seleccionó en el Sidebar
 if 'DB_ACTUAL' in st.session_state and st.session_state.get('DB_ACTUAL'):
