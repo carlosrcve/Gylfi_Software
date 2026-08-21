@@ -361,6 +361,26 @@ def login_screen():
             st.markdown('</div>', unsafe_allow_html=True)
 
 
+def mostrar_calendario_cliente(conn_cliente, rif_cliente):
+    st.subheader("📅 Calendario Fiscal SENIAT")
+    
+    # Obtenemos el terminal de RIF del cliente para filtrar solo lo que le corresponde
+    # El terminal suele ser el último dígito antes del guion del RIF
+    terminal_rif = int(rif_cliente.split('-')[-1])
+    
+    query = """
+        SELECT concepto, fecha_vencimiento 
+        FROM calendario_fiscal_2026 
+        WHERE terminal_rif = %s 
+        ORDER BY fecha_vencimiento ASC
+    """
+    
+    df_calendario = ejecutar_consulta(query, conn_cliente, params=(terminal_rif,))
+    
+    if df_calendario is not None and not df_calendario.empty:
+        st.dataframe(df_calendario, use_container_width=True)
+    else:
+        st.info("ℹ️ No hay fechas próximas en el calendario fiscal.")
 
 def panel_gestion_clientes(conn):
     st.header("🏢 Gestión de Clientes / Empresas")
@@ -415,6 +435,65 @@ def panel_gestion_clientes(conn):
 
     st.divider()
 
+    # --- SECCIÓN DE ADMINISTRACIÓN: GESTIÓN DE CALENDARIO SENIAT ---
+    with st.expander("📅 Cargar / Actualizar Calendario de Contribuyentes Especiales (SENIAT)"):
+        st.markdown("""
+        Sube el archivo oficial (CSV o Excel) con las fechas del calendario de Sujetos Pasivos Especiales. 
+        Esto actualizará las fechas para todos los terminales de RIF y protegerá a las empresas especiales de multas.
+        """)
+        
+        archivo_seniat = st.file_uploader("Selecciona el archivo oficial del SENIAT", type=["csv", "xlsx"], key="upload_seniat_admin")
+        
+        if archivo_seniat is not None:
+            import pandas as pd
+            
+            try:
+                if archivo_seniat.name.endswith('.csv'):
+                    df_seniat = pd.read_csv(archivo_seniat)
+                else:
+                    df_seniat = pd.read_excel(archivo_seniat)
+                    
+                st.write("🔍 **Vista previa del calendario a cargar:**", df_seniat.head())
+                
+                if st.button("🚀 Sincronizar Calendario para todas las Bases de Datos"):
+                    # Extraemos de forma dinámica todas las bases de datos registradas en control_central.clientes
+                    cursor_dbs = conn.cursor()
+                    cursor_dbs.execute("SELECT db_nombre FROM control_central.clientes WHERE tipo_contribuyente = 'Contribuyente Especial'")
+                    empresas_especiales = [row[0] for row in cursor_dbs.fetchall()]
+                    cursor_dbs.close()
+                    
+                    if not empresas_especiales:
+                        st.warning("⚠️ No hay empresas marcadas como 'Contribuyente Especial' en el sistema.")
+                    else:
+                        for db_name in empresas_especiales:
+                            conexion_temp = conectar_db(db_name)
+                            if conexion_temp:
+                                cursor = conexion_temp.cursor()
+                                
+                                # Bucle de inserción o actualización masiva con REPLACE INTO
+                                for _, row in df_seniat.iterrows():
+                                    cursor.execute("""
+                                        REPLACE INTO calendario_fiscal_2026 (impuesto_id, concepto, mes_idx, fecha_vencimiento, terminal_rif)
+                                        VALUES (%s, %s, %s, %s, %s)
+                                    """, (
+                                        row['impuesto_id'], 
+                                        row['concepto'], 
+                                        int(row['mes_idx']), 
+                                        row['fecha_vencimiento'], 
+                                        int(row['terminal_rif'])
+                                    ))
+                                
+                                conexion_temp.commit()
+                                cursor.close()
+                                conexion_temp.close()
+                                
+                        st.success("✅ ¡Calendario del SENIAT sincronizado correctamente para todas las bases de datos de contribuyentes especiales!")
+                    
+            except Exception as e:
+                st.error(f"❌ Error al procesar el archivo del SENIAT: {e}")
+
+    st.divider()
+
     # 2. TABLA DE EMPRESAS REGISTRADAS
     st.subheader("📋 Listado de Empresas Registradas")
     
@@ -440,6 +519,8 @@ def panel_gestion_clientes(conn):
             st.info("ℹ️ No hay empresas registradas todavía en el sistema.")
     except Exception as e:
         st.error(f"❌ Error al cargar la lista de empresas: {e}")
+
+
 def panel_administracion(conn):
     st.header("⚙️ Gestión de Usuarios y Accesos")
     
@@ -5163,6 +5244,34 @@ def guardar_saldo_mensual(conn, banco, mes, ano, inicial, final, db_name=None):
         except:
             pass
 
+def verificar_si_es_contribuyente_especial(db_name):
+    """
+    Verifica de forma dinámica en la base de datos central si la empresa actual 
+    está registrada como 'Contribuyente Especial'.
+    """
+    # 1. Si ya lo tenemos guardado en la sesión del usuario, lo leemos directamente por velocidad:
+    if 'tipo_contribuyente' in st.session_state:
+        tipo = str(st.session_state['tipo_contribuyente']).strip()
+        return tipo == "Contribuyente Especial"
+
+    # 2. Si no está en sesión, hacemos una consulta rápida a tu conexión principal o tabla de control
+    try:
+        # Asumiendo que tienes una función para conectar a tu BD principal/gestor de clientes
+        conexion_admin = conectar_db_principal() # O tu método de conexión global
+        if conexion_admin:
+            cursor = conexion_admin.cursor(dictionary=True)
+            cursor.execute("SELECT tipo_contribuyente FROM empresas WHERE db_nombre = %s", (db_name,))
+            resultado = cursor.fetchone()
+            cursor.close()
+            conexion_admin.close()
+            
+            if resultado and resultado['tipo_contribuyente']:
+                return str(resultado['tipo_contribuyente']).strip() == "Contribuyente Especial"
+    except Exception as e:
+        print(f"Error verificando tipo de contribuyente: {e}")
+    
+    return False
+
 def gestionar_sidebar():
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
     user_id = st.session_state.get('user_id', st.session_state.get('cliente_id', 'N/A'))
@@ -5345,12 +5454,20 @@ def gestionar_sidebar():
             if 'id' in datos_sel:
                 st.session_state['cliente_id_seleccionado'] = int(datos_sel['id'])
 
-            # 🟢 AQUÍ ES DONDE DEBE IR:
-            # Guardamos el tipo de contribuyente en la sesión para controlar los accesos a los módulos
-            if 'tipo_contribuyente' in datos_sel:
+            # 🟢 GESTIÓN DEL TIPO DE CONTRIBUYENTE:
+            # Validamos si existe la columna en los datos seleccionados para actualizar el session_state
+            if 'tipo_contribuyente' in datos_sel and pd.notna(datos_sel['tipo_contribuyente']):
                 st.session_state['tipo_contribuyente'] = str(datos_sel['tipo_contribuyente']).strip()
             else:
-                st.session_state['tipo_contribuyente'] = 'Contribuyente Ordinario'  # Valor por defecto por seguridad
+                # Búsqueda alternativa por si el nombre de la empresa coincide directamente en el dataframe general
+                try:
+                    match_contribuyente = df_filtrado.loc[df_filtrado['nombre_empresa'] == nombre_seleccionado, 'tipo_contribuyente']
+                    if not match_contribuyente.empty and pd.notna(match_contribuyente.values[0]):
+                        st.session_state['tipo_contribuyente'] = str(match_contribuyente.values[0]).strip()
+                    else:
+                        st.session_state['tipo_contribuyente'] = 'Contribuyente Ordinario'
+                except Exception:
+                    st.session_state['tipo_contribuyente'] = 'Contribuyente Ordinario'
 
     return menu
 
@@ -7103,273 +7220,14 @@ if "🏠 Inicio" in opcion_menu:
         st.code(traceback.format_exc())
     
 
-    # --- FILA 11: CALENDARIO ESPECIAL PEDACITO DE CIELO ---
-    # CALENDARIO FSICAL DE CONTRIBUYENTE ESPECIAL
-    # FORZAMOS el nombre correcto de tu BD en TiDB Cloud
-    db_objetivo = "pedacito_de_cielo_ca"
+    # --- FILA 11: CALENDARIO FISCAL AUTOMATIZADO ---
+    tipo_usuario = st.session_state.get('tipo_contribuyente', 'Contribuyente Ordinario')
+    es_especial = (tipo_usuario == "Contribuyente Especial")
 
-    if db == db_objetivo or "pedacito" in str(db).lower():
-        
-        # 1. Conexión segura a TiDB Cloud
-        conexion_activa = conectar_db(db_objetivo)
-        
-        if conexion_activa is not None:
-            try:
-                # Solución al error 'Unread result found': consumimos o cerramos limpiamente
-                cursor = conexion_activa.cursor()
-                cursor.execute("SELECT 1") 
-                cursor.fetchall() # Consumimos los resultados pendientes del buffer
-                cursor.close()
-            except Exception as e:
-                st.error(f"❌ Error al ejecutar en la base de datos: {e}")
-                st.stop()
-        else:
-            st.error(f"❌ No se pudo establecer la conexión con '{db_objetivo}'.")
-            st.stop()
-                
-        with tab1:
-            # ==========================================
-            # 1. LÍNEA DIVISORIA ANTES DE LAS ALERTAS
-            # ==========================================
-            st.divider()
+    if es_especial:
+        mostrar_calendario_fiscal(tipo_usuario, db)
 
-            # ==========================================
-            # 2. SISTEMA DE ALERTAS Y CONTROL DE PAGOS
-            # ==========================================
-            st.markdown("### 🔔 Estado de Alertas Fiscales Próximas")
-
-            hoy = date.today()
-            
-            eventos_fiscales = [
-                {"id": "iva_1", "concepto": "IVA / Anticipos (1era Quincena)", "fecha": date(2026, 8, 31), "mes_idx": 7},
-                {"id": "iva_2", "concepto": "IVA / Anticipos (2da Quincena)", "fecha": date(2026, 8, 14), "mes_idx": 7},
-                {"id": "islr", "concepto": "Retenciones de ISLR", "fecha": date(2026, 8, 7), "mes_idx": 7},
-                {"id": "pensiones", "concepto": "Ley de Protección de Pensiones", "fecha": date(2026, 8, 17), "mes_idx": 7},
-            ]
-
-            # Archivo local para persistencia de pagos
-            archivo_pagos = "pagos_pedacito.json"
-
-            def cargar_pagos_disco():
-                if os.path.exists(archivo_pagos):
-                    try:
-                        with open(archivo_pagos, "r") as f:
-                            return json.load(f)
-                    except:
-                        pass
-                return {"iva_1": False, "iva_2": False, "islr": False, "pensiones": False}
-
-            def guardar_pagos_disco(datos):
-                try:
-                    with open(archivo_pagos, "w") as f:
-                        json.dump(datos, f)
-                except:
-                    pass
-
-            # Inicializamos en session_state cargando desde el archivo si no existe
-            if 'pagos_realizados_pedacito' not in st.session_state:
-                st.session_state['pagos_realizados_pedacito'] = cargar_pagos_disco()
-
-            # Contenedor para que el cliente pueda marcar si ya pagó
-            st.markdown("##### 📝 Control de Pagos Realizados:")
-            
-            col_c1, col_c2 = st.columns(2)
-            with col_c1:
-                val_iva_2 = st.checkbox("✅ IVA 2da Quincena Pagado", value=st.session_state['pagos_realizados_pedacito'].get("iva_2", False), key="chk_iva_2")
-                val_islr = st.checkbox("✅ Retenciones ISLR Pagadas", value=st.session_state['pagos_realizados_pedacito'].get("islr", False), key="chk_islr")
-            with col_c2:
-                val_pensiones = st.checkbox("✅ Ley de Pensiones Pagada", value=st.session_state['pagos_realizados_pedacito'].get("pensiones", False), key="chk_pensiones")
-                val_iva_1 = st.checkbox("✅ IVA 1era Quincena Pagado", value=st.session_state['pagos_realizados_pedacito'].get("iva_1", False), key="chk_iva_1")
-
-            # Actualizar diccionario y guardar en disco si hubo cambios
-            nuevos_pagos = {
-                "iva_1": val_iva_1,
-                "iva_2": val_iva_2,
-                "islr": val_islr,
-                "pensiones": val_pensiones
-            }
-
-            if nuevos_pagos != st.session_state['pagos_realizados_pedacito']:
-                st.session_state['pagos_realizados_pedacito'] = nuevos_pagos
-                guardar_pagos_disco(nuevos_pagos)
-
-            pagos_realizados = st.session_state['pagos_realizados_pedacito']
-
-            # Evaluador de Alertas y Sonido
-            alerta_activa = False
-            mensajes_urgentes = []
-            
-            for evento in eventos_fiscales:
-                dias_restantes = (evento["fecha"] - hoy).days
-                pagado = pagos_realizados.get(evento["id"], False)
-                
-                if pagado:
-                    st.info(f"✔️ **{evento['concepto']}**: Declarado y pagado a tiempo. ¡Sin deudas pendientes para esta fecha!")
-                elif 0 <= dias_restantes <= 3:
-                    alerta_activa = True
-                    mensaje_alerta = f"⚠️ **¡ATENCIÓN!** Se acerca la declaración y pago de **{evento['concepto']}** programada para la fecha **{evento['fecha'].strftime('%d/%m/%Y')}** (Faltan {dias_restantes} días)."
-                    mensajes_urgentes.append(mensaje_alerta)
-
-            if alerta_activa:
-                # Reproductor de audio oculto
-                audio_html = """
-                    <audio autoplay style="display:none;">
-                      <source src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3" type="audio/mpeg">
-                    </audio>
-                """
-                st.markdown(audio_html, unsafe_allow_html=True)
-
-                # Notificación flotante estilo bancario (toast superior) que desaparece en 5 segundos
-                texto_notificacion = "<br>".join(mensajes_urgentes)
-                banco_notif_html = f"""
-                    <div id="banco-toast-alerta" style="
-                        position: fixed;
-                        top: 20px;
-                        right: 20px;
-                        z-index: 999999;
-                        background-color: #fff3cd;
-                        color: #856404;
-                        padding: 16px 20px;
-                        border-radius: 8px;
-                        border-left: 6px solid #ffeeba;
-                        border: 1px solid #ffeeba;
-                        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-                        font-family: sans-serif;
-                        max-width: 400px;
-                        animation: slideIn 0.5s ease-out;
-                    ">
-                        <div style="font-weight: bold; margin-bottom: 5px; font-size: 15px;">🔔 Notificación Fiscal Urgente</div>
-                        <div style="font-size: 13px; line-height: 1.4;">{texto_notificacion}</div>
-                    </div>
-
-                    <style>
-                    @keyframes slideIn {{
-                        from {{ transform: translateX(100%); opacity: 0; }}
-                        to {{ transform: translateX(0); opacity: 1; }}
-                    }}
-                    @keyframes fadeOut {{
-                        from {{ opacity: 1; }}
-                        to {{ opacity: 0; }}
-                    }}
-                    </style>
-
-                    <script>
-                        setTimeout(function() {{
-                            var toast = document.getElementById('banco-toast-alerta');
-                            if (toast) {{
-                                toast.style.animation = 'fadeOut 0.5s ease-out forwards';
-                                setTimeout(function() {{
-                                    toast.remove();
-                                }}, 500);
-                            }}
-                        }}, 5000);
-                    </script>
-                """
-                st.markdown(banco_notif_html, unsafe_allow_html=True)
-                
-            else:
-                if not any(pagos_realizados.values()) and not any(0 <= (e["fecha"] - hoy).days <= 3 for e in eventos_fiscales):
-                    st.success("✅ No hay obligaciones fiscales críticas a menos de 3 días de vencimiento en este momento.")
-
-            # ==========================================
-            # 3. LÍNEA DIVISORIA ANTES DEL CALENDARIO FISCAL
-            # ==========================================
-            st.divider()
-
-            # ==========================================
-            # 4. TÍTULOS Y TABLAS DEL CALENDARIO FISCAL
-            # ==========================================
-            st.subheader("📊 Calendario Fiscal 2026 - Sujeto Especial (SENIAT)")
-            st.markdown("### 🗓️ Cronograma de Declaraciones y Pagos")
-            
-            # Estilo visual moderno para las tablas
-            st.markdown("""
-            <style>
-                .fiscal-table {
-                    width: 100%;
-                    border-collapse: collapse;
-                    margin-bottom: 20px;
-                    font-family: sans-serif;
-                    font-size: 14px;
-                }
-                .fiscal-table th {
-                    background-color: #2b313e;
-                    color: white;
-                    text-align: center;
-                    padding: 8px;
-                    border: 1px solid #ddd;
-                }
-                .fiscal-table td {
-                    text-align: center;
-                    padding: 8px;
-                    border: 1px solid #ddd;
-                }
-                .header-iva { background-color: #d4edda; color: #155724; font-weight: bold; text-align: left; padding: 8px; }
-                .header-islr { background-color: #fff3cd; color: #856404; font-weight: bold; text-align: left; padding: 8px; }
-                .header-pensiones { background-color: #cce5ff; color: #004085; font-weight: bold; text-align: left; padding: 8px; }
-            </style>
-            """, unsafe_allow_html=True)
-
-            meses = ["ENE", "FEB", "MAR", "ABR", "MAY", "JUN", "JUL", "AGO", "SEPT", "OCT", "NOV", "DIC"]
-            
-            q1_vals = ["❌", "❌", "❌", "❌", "❌", "❌", "❌", "31", "29", "20", "27", "16"]
-            q2_vals = ["❌", "❌", "❌", "❌", "❌", "❌", "❌", "14", "14", "05", "13", "03"]
-            islr_vals = ["❌", "❌", "❌", "❌", "❌", "❌", "❌", "07", "08", "09", "06", "09"]
-            pensiones_vals = ["❌", "❌", "❌", "❌", "❌", "❌", "❌", "17", "29", "20", "27", "16"]
-
-            if pagos_realizados["iva_1"]:
-                q1_vals[7] = "✅ Pagado"
-            if pagos_realizados["iva_2"]:
-                q2_vals[7] = "✅ Pagado"
-            if pagos_realizados["islr"]:
-                islr_vals[7] = "✅ Pagado"
-            if pagos_realizados["pensiones"]:
-                pensiones_vals[7] = "✅ Pagado"
-
-            # Renderizar Tabla 1: IVA 1era Quincena
-            st.markdown("#### 1. IVA, Anticipos de ISLR, IGTF y Retenciones de IVA")
-            html_iva_1 = f"""
-            <table class="fiscal-table">
-                <tr><th colspan="13" class="header-iva">Primera Quincena (01 al 15) - R.I.F. Terminado en 0</th></tr>
-                <tr><th>R.I.F.</th>{"".join([f"<th>{m}</th>" for m in meses])}</tr>
-                <tr><td><b>0</b></td>{"".join([f"<td>{val}</td>" for val in q1_vals])}</tr>
-            </table>
-            """
-            st.markdown(html_iva_1, unsafe_allow_html=True)
-
-            # Renderizar Tabla 2: IVA 2da Quincena
-            html_iva_2 = f"""
-            <table class="fiscal-table">
-                <tr><th colspan="13" class="header-iva" style="background-color: #e2f0d9;">Segunda Quincena (16 al último) - R.I.F. Terminado en 0</th></tr>
-                <tr><th>R.I.F.</th>{"".join([f"<th>{m}</th>" for m in meses])}</tr>
-                <tr><td><b>0</b></td>{"".join([f"<td>{val}</td>" for val in q2_vals])}</tr>
-            </table>
-            """
-            st.markdown(html_iva_2, unsafe_allow_html=True)
-
-            # Renderizar Retenciones ISLR
-            st.markdown("#### 2. Retenciones de Impuesto Sobre la Renta")
-            html_islr = f"""
-            <table class="fiscal-table">
-                <tr><th>R.I.F.</th>{"".join([f"<th>{m}</th>" for m in meses])}</tr>
-                <tr><td><b>0</b></td>{"".join([f"<td>{val}</td>" for val in islr_vals])}</tr>
-            </table>
-            """
-            st.markdown(html_islr, unsafe_allow_html=True)
-
-            # Renderizar Ley de Pensiones
-            st.markdown("#### 3. Ley de Protección de las Pensiones de Seguridad Social")
-            html_pensiones = f"""
-            <table class="fiscal-table">
-                <tr><th>R.I.F.</th>{"".join([f"<th>{m}</th>" for m in meses])}</tr>
-                <tr><td><b>0</b></td>{"".join([f"<td>{val}</td>" for val in pensiones_vals])}</tr>
-            </table>
-            """
-            st.markdown(html_pensiones, unsafe_allow_html=True)
-
-    else:
-        pass
-
+    
 
 elif opcion_menu == "📂 Plan de Cuentas":
     st.subheader("Gestión de Plan de Cuentas")
@@ -10822,27 +10680,21 @@ elif opcion_menu == "📚 Libros Fiscales":
                         )
 
 
-    elif sub_opcion == "Comprobante de Retención IVA":
-        # Obtenemos el tipo del contribuyente de la sesión
-        tipo_usuario = st.session_state.get('tipo_contribuyente', 'Contribuyente Ordinario')
+    # Dentro de tu enrutador de vistas o pestañas principales:
+    if sub_opcion == "Comprobante de Retención IVA":
         
-        # Lógica de acceso
+        # 🟢 AQUÍ VA LA VALIDACIÓN
+        tipo_usuario = st.session_state.get('tipo_contribuyente', 'Contribuyente Ordinario')
+
         if tipo_usuario == "Contribuyente Especial":
-            import datetime as dt 
-            db_actual = st.session_state.get('DB_ACTUAL', 'railway')
-            conn_valida = conectar_db(db_actual)
-            
-            if conn_valida:
-                mostrar_interfaz_retencion_iva(
-                    EMPRESA, 
-                    st.session_state.get('f_inicio_global', dt.date.today()), 
-                    st.session_state.get('f_fin_global', dt.date.today())
-                )
-                conn_valida.close()
-            else:
-                st.error("No se pudo restablecer la conexión para el módulo de IVA.")
+            # Solo si es especial, ejecutamos la función que muestra la interfaz
+            mostrar_interfaz_retencion_iva(
+                EMPRESA, 
+                st.session_state.get('f_inicio_global', dt.date.today()), 
+                st.session_state.get('f_fin_global', dt.date.today())
+            )
         else:
-            # Si es Ordinario, mostramos un mensaje de restricción
+            # Bloqueamos el acceso para los ordinarios
             st.warning("⚠️ Este módulo es exclusivo para **Contribuyentes Especiales**.")
             st.info("Si cree que esto es un error, contacte a soporte para actualizar su clasificación fiscal.")
 
