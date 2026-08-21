@@ -8364,10 +8364,6 @@ elif opcion_menu == "📝 Asientos Contables":
                         else:
                             st.info("💡 Debe marcar la casilla de arriba para habilitar el botón de borrado.")
 
-    elif sub_opcion == "Consultar Cierre Contable":
-        st.subheader("🔒 Asientos de Cierre")
-        st.info("Aquí puedes programar la consulta a la tabla de cierres (similar a la de apertura).")
-        
     elif sub_opcion == "Gestor Documental":
         st.subheader("📁 Gestor Documental en la Nube")
         st.markdown("Sube y administra comprobantes, transferencias, PDFs o archivos de Office de forma organizada.")
@@ -8436,7 +8432,7 @@ elif opcion_menu == "📝 Asientos Contables":
 
         st.divider()
 
-        # --- LISTADO Y DESCARGA DE DOCUMENTOS EXISTENTES ---
+        # --- LISTADO, DESCARGA Y ELIMINACIÓN DE DOCUMENTOS EXISTENTES ---
         st.markdown("### 🗂️ Documentos Almacenados")
         
         conn_doc = conectar_db(db_actual)
@@ -8447,7 +8443,7 @@ elif opcion_menu == "📝 Asientos Contables":
                 
                 if df_docs is not None and not df_docs.empty:
                     for _, row in df_docs.iterrows():
-                        cols = st.columns([3, 2, 2, 1])
+                        cols = st.columns([3, 2, 2, 1, 1])
                         cols[0].text(f"📄 {row['nombre_archivo']}")
                         cols[1].text(f"📂 {row['categoria']}")
                         cols[2].text(str(row['fecha_subida'])[:10])
@@ -8464,15 +8460,30 @@ elif opcion_menu == "📝 Asientos Contables":
                                 )
                         else:
                             cols[3].text("⚠️ No hallado")
+                            
+                        # Botón de eliminación
+                        if cols[4].button("🗑️", key=f"del_{row['id']}"):
+                            try:
+                                # 1. Borrar archivo físico si existe
+                                if os.path.exists(row['ruta_archivo']):
+                                    os.remove(row['ruta_archivo'])
+                                
+                                # 2. Borrar registro de la base de datos MySQL
+                                cursor_del = conn_doc.cursor()
+                                cursor_del.execute("DELETE FROM documentos_cloud WHERE id = %s", (row['id'],))
+                                conn_doc.commit()
+                                cursor_del.close()
+                                
+                                st.success(f"🗑️ Archivo '{row['nombre_archivo']}' eliminado con éxito.")
+                                st.rerun()
+                            except Exception as ex_del:
+                                st.error(f"❌ Error al eliminar el documento: {ex_del}")
                 else:
                     st.info("ℹ️ No hay documentos subidos para esta empresa todavía.")
             except Exception as e:
                 st.error(f"Error al cargar la lista de documentos: {e}")
             finally:
                 conn_doc.close()
-
-
-
 
 
 
