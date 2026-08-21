@@ -378,7 +378,13 @@ def panel_gestion_clientes(conn):
                     "Nombre de la BD (Sin espacios ni caracteres raros)", 
                     help="Ej: inversiones_globales_ca"
                 )
-                estado = st.selectbox("Estado Inicial", ["Activo", "Inactivo"])
+                # NUEVO: Selector de Tipo de Contribuyente
+                tipo_contribuyente = st.selectbox(
+                    "Tipo de Contribuyente", 
+                    ["Contribuyente Ordinario", "Contribuyente Especial"]
+                )
+            
+            estado = st.selectbox("Estado Inicial", ["Activo", "Inactivo"])
             
             btn_guardar = st.form_submit_button("💾 Crear Nueva Empresa y Base de Datos")
             
@@ -387,13 +393,13 @@ def panel_gestion_clientes(conn):
                     st.error("❌ El nombre de la empresa y el nombre de la BD son obligatorios.")
                 else:
                     try:
-                        # A. Guardar el registro principal en la tabla central 'clientes'
+                        # A. Guardar el registro principal en la tabla central 'clientes' incluyendo el tipo de contribuyente
                         cursor = conn.cursor()
                         sql = """
-                            INSERT INTO control_central.clientes (nombre_empresa, rif, db_nombre, estado) 
-                            VALUES (%s, %s, %s, %s)
+                            INSERT INTO control_central.clientes (nombre_empresa, rif, db_nombre, tipo_contribuyente, estado) 
+                            VALUES (%s, %s, %s, %s, %s)
                         """
-                        cursor.execute(sql, (nombre_empresa, rif, db_nombre, estado))
+                        cursor.execute(sql, (nombre_empresa, rif, db_nombre, tipo_contribuyente, estado))
                         conn.commit()
                         cursor.close()
                         
@@ -413,7 +419,8 @@ def panel_gestion_clientes(conn):
     st.subheader("📋 Listado de Empresas Registradas")
     
     try:
-        query_view = "SELECT id, nombre_empresa, rif, db_nombre, estado FROM control_central.clientes"
+        # Añadido 'tipo_contribuyente' a la consulta SQL
+        query_view = "SELECT id, nombre_empresa, rif, db_nombre, tipo_contribuyente, estado FROM control_central.clientes"
         df_clientes = ejecutar_consulta(query_view, conn)
         
         if df_clientes is not None and not df_clientes.empty:
@@ -425,6 +432,7 @@ def panel_gestion_clientes(conn):
                     "nombre_empresa": st.column_config.TextColumn("Razón Social"),
                     "rif": st.column_config.TextColumn("RIF"),
                     "db_nombre": st.column_config.TextColumn("Base de Datos (TiDB)"),
+                    "tipo_contribuyente": st.column_config.SelectboxColumn("Tipo de Contribuyente", options=["Contribuyente Ordinario", "Contribuyente Especial"]),
                     "estado": st.column_config.SelectboxColumn("Estado", options=["Activo", "Inactivo"])
                 }
             )
@@ -432,7 +440,6 @@ def panel_gestion_clientes(conn):
             st.info("ℹ️ No hay empresas registradas todavía en el sistema.")
     except Exception as e:
         st.error(f"❌ Error al cargar la lista de empresas: {e}")
-
 def panel_administracion(conn):
     st.header("⚙️ Gestión de Usuarios y Accesos")
     
