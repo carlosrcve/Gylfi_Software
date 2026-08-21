@@ -5310,7 +5310,7 @@ if menu_lateral == "📊 Auditoría Contable":
         st.session_state['opcion_menu_auditoria'] = opcion_menu
 
         if opcion_menu == "📝 Asientos Contables":
-            sub_opcion = st.radio("Acciones:", ["Subir Datos", "Conciliación Bancaria", "Consultar Comprobante", "Consultar Saldos Iniciales", "Consultar Cierre Contable"], key="sub_asientos")
+            sub_opcion = st.radio("Acciones:", ["Subir Datos", "Conciliación Bancaria", "Consultar Comprobante", "Consultar Saldos Iniciales", "Consultar Cierre Contable","Gestor Documental",], key="sub_asientos")
         elif opcion_menu == "📊 Estados Financieros":
             st.markdown("---")
             sub_opcion = st.radio("Reportes Financieros:", ["Balance de Comprobación", "Balance General", "Estado de Resultados"], key="sub_estados")
@@ -8355,6 +8355,113 @@ elif opcion_menu == "📝 Asientos Contables":
     elif sub_opcion == "Consultar Cierre Contable":
         st.subheader("🔒 Asientos de Cierre")
         st.info("Aquí puedes programar la consulta a la tabla de cierres (similar a la de apertura).")
+        
+    elif sub_opcion == "Gestor Documental":
+        st.subheader("📁 Gestor Documental en la Nube")
+        st.markdown("Sube y administra comprobantes, transferencias, PDFs o archivos de Office de forma organizada.")
+
+        db_actual = st.session_state.get('DB_ACTUAL')
+        if not db_actual or db_actual == 'none':
+            st.warning("⚠️ Por favor, selecciona un Cliente/Empresa primero.")
+            st.stop()
+
+        import os
+        from datetime import datetime
+
+        # Directorio base para almacenar los archivos de forma local o persistente en el servidor
+        DIRECTORIO_SUBIDAS = "documentos_clientes"
+        dir_empresa = os.path.join(DIRECTORIO_SUBIDAS, str(db_actual))
+        os.makedirs(dir_empresa, exist_ok=True)
+
+        # --- FORMULARIO DE SUBIDA ---
+        with st.expander("📤 Subir Nuevo Documento", expanded=True):
+            col1, col2 = st.columns(2)
+            with col1:
+                categoria = st.selectbox(
+                    "Categoría del Documento", 
+                    ["Transferencia Bancaria", "Factura PDF", "Documento Legal", "Excel / Reporte", "Otro"]
+                )
+            with col2:
+                archivos_subidos = st.file_uploader(
+                    "Selecciona los archivos", 
+                    type=["pdf", "docx", "xlsx", "xls", "png", "jpg", "jpeg", "txt"], 
+                    accept_multiple_files=True
+                )
+
+            if st.button("💾 Guardar Documentos en la Nube", type="primary"):
+                if archivos_subidos:
+                    conn_doc = conectar_db(db_actual)
+                    cursor = conn_doc.cursor() if conn_doc else None
+                    
+                    try:
+                        for archivo in archivos_subidos:
+                            # Evitar colisiones de nombres usando marca de tiempo
+                            timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+                            nombre_limpio = f"{timestamp_str}_{archivo.name}"
+                            ruta_completa = os.path.join(dir_empresa, nombre_limpio)
+                            
+                            # Guardar el archivo físicamente en el servidor
+                            with open(ruta_completa, "wb") as f:
+                                f.write(archivo.getbuffer())
+                            
+                            # Registrar en la base de datos MySQL
+                            query_insert = """
+                                INSERT INTO documentos_cloud (empresa_db, categoria, nombre_archivo, ruta_archivo) 
+                                VALUES (%s, %s, %s, %s)
+                            """
+                            cursor.execute(query_insert, (str(db_actual), categoria, archivo.name, ruta_completa))
+                        
+                        conn_doc.commit()
+                        st.success(f"✅ ¡{len(archivos_subidos)} archivo(s) subido(s) y guardado(s) con éxito!")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"❌ Error al guardar los documentos: {e}")
+                    finally:
+                        if conn_doc:
+                            conn_doc.close()
+                else:
+                    st.warning("⚠️ Debes seleccionar al menos un archivo antes de guardar.")
+
+        st.divider()
+
+        # --- LISTADO Y DESCARGA DE DOCUMENTOS EXISTENTES ---
+        st.markdown("### 🗂️ Documentos Almacenados")
+        
+        conn_doc = conectar_db(db_actual)
+        if conn_doc:
+            try:
+                query_select = "SELECT id, categoria, nombre_archivo, ruta_archivo, fecha_subida FROM documentos_cloud WHERE empresa_db = %s ORDER BY fecha_subida DESC"
+                df_docs = ejecutar_consulta(query_select, conn_doc, params=(str(db_actual),))
+                
+                if df_docs is not None and not df_docs.empty:
+                    for _, row in df_docs.iterrows():
+                        cols = st.columns([3, 2, 2, 1])
+                        cols[0].text(f"📄 {row['nombre_archivo']}")
+                        cols[1].text(f"📂 {row['categoria']}")
+                        cols[2].text(str(row['fecha_subida'])[:10])
+                        
+                        # Botón de descarga directa
+                        if os.path.exists(row['ruta_archivo']):
+                            with open(row['ruta_archivo'], "rb") as file_to_download:
+                                cols[3].download_button(
+                                    label="⬇️",
+                                    data=file_to_download,
+                                    file_name=row['nombre_archivo'],
+                                    mime="application/octet-stream",
+                                    key=f"down_{row['id']}"
+                                )
+                        else:
+                            cols[3].text("⚠️ No hallado")
+                else:
+                    st.info("ℹ️ No hay documentos subidos para esta empresa todavía.")
+            except Exception as e:
+                st.error(f"Error al cargar la lista de documentos: {e}")
+            finally:
+                conn_doc.close()
+
+
+
+
 
 
 # D. MAYOR ANALÍTICO
