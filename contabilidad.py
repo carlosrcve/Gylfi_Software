@@ -1032,24 +1032,24 @@ def obtener_historico_utilidad_acumulada(db, año=2026, mes_limite=6):
         año = 2026
         mes_limite = 6
 
-    # 3. Consulta 100% Segura usando Parámetros (%s)
+    # 3. Consulta 100% Segura usando Parámetros (%s) y caracteres escapados (%%)
     query = f"""
         SELECT 
-            MONTH(STR_TO_DATE(fecha, '%Y-%m-%d')) as mes,
-            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '4%' THEN haber ELSE 0 END) as ingresos_haber,
-            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '4%' THEN debe ELSE 0 END) as ingresos_debe,
-            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '5%' THEN haber ELSE 0 END) as costos_haber,
-            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '5%' THEN debe ELSE 0 END) as costos_debe,
-            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '6%' THEN haber ELSE 0 END) as gastos_haber,
-            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '6%' THEN debe ELSE 0 END) as gastos_debe,
-            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '7%' THEN haber ELSE 0 END) as otros_ingresos_haber,
-            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '7%' THEN debe ELSE 0 END) as otros_ingresos_debe,
-            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '8%' THEN haber ELSE 0 END) as otros_haber,
-            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '8%' THEN debe ELSE 0 END) as oitros_debe
+            MONTH(STR_TO_DATE(fecha, '%%Y-%%m-%%d')) as mes,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '4%%' THEN haber ELSE 0 END) as ingresos_haber,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '4%%' THEN debe ELSE 0 END) as ingresos_debe,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '5%%' THEN haber ELSE 0 END) as costos_haber,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '5%%' THEN debe ELSE 0 END) as costos_debe,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '6%%' THEN haber ELSE 0 END) as gastos_haber,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '6%%' THEN debe ELSE 0 END) as gastos_debe,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '7%%' THEN haber ELSE 0 END) as otros_ingresos_haber,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '7%%' THEN debe ELSE 0 END) as otros_ingresos_debe,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '8%%' THEN haber ELSE 0 END) as otros_haber,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '8%%' THEN debe ELSE 0 END) as oitros_debe
         FROM `{db}`.asientos_contables 
-        WHERE YEAR(STR_TO_DATE(fecha, '%Y-%m-%d')) = %s 
-          AND MONTH(STR_TO_DATE(fecha, '%Y-%m-%d')) <= %s
-        GROUP BY MONTH(STR_TO_DATE(fecha, '%Y-%m-%d'))
+        WHERE YEAR(STR_TO_DATE(fecha, '%%Y-%%m-%%d')) = %s 
+          AND MONTH(STR_TO_DATE(fecha, '%%Y-%%m-%%d')) <= %s
+        GROUP BY MONTH(STR_TO_DATE(fecha, '%%Y-%%m-%%d'))
         ORDER BY mes ASC
     """
     
@@ -2085,15 +2085,29 @@ def generar_balance_profesional(conn, f_i, f_f, sucursal):
         # Recalcular saldo final global de cada fila por seguridad
         df['Saldo Final'] = df['Saldo Inicial'] + df['Debe'] - df['Haber']
 
-        # 6. Fila Total Global replicando exactamente la suma de las cuentas de Nivel 1 del Excel
+        # 6. Fila Total Global aplicando la ecuación patrimonial exacta
+        # 6. Fila Total Global asegurando la balanza patrimonial en cero
         df_nivel_1 = df[df['nivel'] == 1]
         
         total_debe = float(df_nivel_1['Debe'].sum())
         total_haber = float(df_nivel_1['Haber'].sum())
 
-        # Suma directa de las filas principales de nivel 1 tal cual como en el Excel
-        total_saldo_inicial_neto = float(df_nivel_1['Saldo Inicial'].sum())
-        total_saldo_final_neto = float(df_nivel_1['Saldo Final'].sum())
+        total_saldo_inicial_neto = 0.0
+        total_saldo_final_neto = 0.0
+
+        for _, row in df_nivel_1.iterrows():
+            digito = str(row['codigo']).strip()[0]
+            s_ini = float(row['Saldo Inicial'])
+            s_fin = float(row['Saldo Final'])
+            
+            # Cuentas de naturaleza deudora (1, 4, 5, 8) vs Acreedora (2, 3, 6, 7)
+            # Para que la balanza neta dé cero, las acreedoras deben restar al sumarse algebraicamente con las deudoras
+            if digito in ['1', '4', '5', '8']:
+                total_saldo_inicial_neto += s_ini
+                total_saldo_final_neto += s_fin
+            else:
+                total_saldo_inicial_neto -= s_ini
+                total_saldo_final_neto -= s_fin
 
         fila_total = pd.DataFrame([{
             'codigo': 'Σ', 
@@ -2101,10 +2115,10 @@ def generar_balance_profesional(conn, f_i, f_f, sucursal):
             'nivel': 0, 
             'tipo': 'Total', 
             'padre': None,
-            'Saldo Inicial': round(total_saldo_inicial_neto, 2), # Cierra en 0.00 exacto
-            'Debe': total_debe,                                 # Suma total de movimientos del Debe
-            'Haber': total_haber,                               # Suma total de movimientos del Haber
-            'Saldo Final': round(total_saldo_final_neto, 2)     # Cierra en 0.00 exacto
+            'Saldo Inicial': round(total_saldo_inicial_neto, 2), # Cierra en 0.00
+            'Debe': total_debe,                               # Suma real de movimientos
+            'Haber': total_haber,                             # Suma real de movimientos
+            'Saldo Final': round(total_saldo_final_neto, 2)     # Cierra en 0.00
         }])
         
         cols_salida = ['codigo', 'nombre', 'nivel', 'tipo', 'padre', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final']
@@ -8669,13 +8683,10 @@ elif sub_opcion == "Balance General":
 
                 df_bg['es_hoja'] = df_bg['codigo'].apply(es_hoja)
 
-                # 3. Cálculo de Totales (Activos y Patrimonio por hojas, Pasivo tomado directo del Nivel 1)
+                # 3. Cálculo de Totales (usando solo las cuentas hoja y valor absoluto)
+                # Esto evita la duplicación al sumar padres e hijos
                 act = df_bg[df_bg['es_hoja'] & df_bg['codigo'].astype(str).str.startswith('1')]['Saldo Final'].abs().sum()
-                
-                # Pasivo: Lo tomamos directamente de la cuenta de nivel 1 (código '2') para respetar el saldo global exacto
-                pas_n1 = df_bg[(df_bg['nivel'] == 1) & (df_bg['codigo'].astype(str).str.startswith('2'))]['Saldo Final']
-                pas = abs(pas_n1.values[0]) if not pas_n1.empty else df_bg[df_bg['es_hoja'] & df_bg['codigo'].astype(str).str.startswith('2')]['Saldo Final'].abs().sum()
-
+                pas = df_bg[df_bg['es_hoja'] & df_bg['codigo'].astype(str).str.startswith('2')]['Saldo Final'].abs().sum()
                 pat = df_bg[df_bg['es_hoja'] & df_bg['codigo'].astype(str).str.startswith('3')]['Saldo Final'].abs().sum()
 
                 # 4. Renderizado del Reporte
@@ -8685,52 +8696,24 @@ elif sub_opcion == "Balance General":
                     width='stretch', height=500, hide_index=True
                 )
                 
-                # 5. Obtención o cálculo automático de la utilidad para el cierre del Balance
+                # 5. Obtención de utilidad y cierre de balance
                 utilidad_ejercicio = st.session_state.get('utilidad_ejercicio', 0.0)
+                patrimonio_total = pat + utilidad_ejercicio
                 
-                # Si no se ha visitado el Estado de Resultados, la calculamos aquí mismo al vuelo
-                if utilidad_ejercicio == 0.0 and 'df_datos' in locals() and not df_datos.empty:
-                    df_n1_er = df_datos[df_datos['nivel'] == 1].copy()
-                    if df_n1_er.empty:
-                        df_n1_er = df_datos[df_datos['codigo'].astype(str).str.strip().str.replace(r'[^0-9]', '', regex=True).str.len() == 1]
-                    
-                    df_n1_er['c_limpio'] = df_n1_er['codigo'].astype(str).str.strip().str.replace(r'[^0-9]', '', regex=True)
-                    
-                    ing_b = df_n1_er[df_n1_er['c_limpio'].str.startswith('4')]['Saldo Final'].sum()
-                    cos_b = df_n1_er[df_n1_er['c_limpio'].str.startswith('5')]['Saldo Final'].sum()
-                    gas_b = df_n1_er[df_n1_er['c_limpio'].str.startswith('6')]['Saldo Final'].sum()
-                    otros_ing_b = df_n1_er[df_n1_er['c_limpio'].str.startswith('7')]['Saldo Final'].sum()
-                    otros_egr_b = df_n1_er[df_n1_er['c_limpio'].str.startswith('8')]['Saldo Final'].sum()
-                    
-                    utilidad_ejercicio = abs(ing_b) + abs(otros_ing_b) - (abs(cos_b) + abs(gas_b) + abs(otros_egr_b))
-                    st.session_state['utilidad_ejercicio'] = utilidad_ejercicio
 
-                # Ecuación ajustada para visualización: Patrimonio + Utilidad del Ejercicio
+                if utilidad_ejercicio == 0.0:
+                    st.sidebar.warning("⚠️ Nota: La utilidad del ejercicio no está cargada. El balance podría mostrar descuadre.")
+                
+                # Ecuación ajustada para visualización: Patrimonio + Utilidad
                 patrimonio_ajustado = abs(pat) + utilidad_ejercicio
-                descuadre = act - (pas + patrimonio_ajustado)
+                descuadre = act - (abs(pas) + patrimonio_ajustado)
                 
                 st.divider()
-                
-                # Mostramos 4 columnas detallando la ecuación patrimonial completa
-                c1, c2, c3, c4 = st.columns(4)
+                c1, c2, c3 = st.columns(3)
                 c1.metric("ACTIVOS", formato_contable(act))
-                c2.metric("PASIVOS", formato_contable(pas))
-                c3.metric("PATRIMONIO", formato_contable(abs(pat)))
-                c4.metric("UTILIDAD EJERCICIO", formato_contable(utilidad_ejercicio), 
-                          delta=f"{formato_contable(utilidad_ejercicio)}",
-                          delta_color="normal" if utilidad_ejercicio >= 0 else "inverse")
-
-                # Comprobación final en pantalla del balance exacto
-                if abs(descuadre) < 0.01:
-                    st.success("✅ ¡Balance General Cuadrado Perfectamente!")
-                else:
-                    st.error(f"❌ Descuadre contable detectado: {formato_contable(descuadre)}")
-
-                # Comprobación final en pantalla del balance exacto
-                if abs(descuadre) < 0.01:
-                    st.success("✅ ¡Balance General Cuadrado Perfectamente!")
-                else:
-                    st.error(f"❌ Descuadre contable detectado: {formato_contable(descuadre)}")
+                c2.metric("PASIVOS", formato_contable(abs(pas)))
+                # Mostramos el patrimonio ajustado
+                c3.metric("PATRIMONIO + UTILIDAD", formato_contable(patrimonio_ajustado))
                 
                 # VALIDACIÓN INTELIGENTE
                 st.subheader("Estado de Validación")
@@ -8810,12 +8793,10 @@ elif sub_opcion == "Balance General":
                         st.error(f"Error al generar el PDF: {e_pdf}")
 
                 # VALIDACIÓN EN PANTALLA
-                descuadre_final = act - (pas + patrimonio_ajustado)
-                
-                if abs(descuadre_final) < 0.01:
+                if abs(act - (abs(pas) + abs(pat))) < 0.01:
                     st.success("✅ Ecuación Patrimonial Cuadrada")
                 else:
-                    st.error(f"❌ Ecuación Patrimonial Descuadrada: {formato_contable(descuadre_final)}")
+                    st.error(f"❌ Ecuación Patrimonial Descuadrada: {formato_contable(act - (abs(pas) + abs(pat)))}")
             else:
                 st.info("No se encontraron datos para generar el balance.")
 
@@ -8859,7 +8840,7 @@ elif sub_opcion == "Estado de Resultados":
     # 3. INTERFAZ DEL REPORTE
     st.subheader(f"📈 Estado de Resultados: {EMPRESA}")
     
-    # --- BLINDAJE LOCAL DE FECHAS ---
+    # --- BLINDAJE LOCAL DE FECHAS (Evita conflicto con from datetime import datetime) ---
     from datetime import date as d_type, datetime as dt_type
 
     def obtener_fecha_segura(key_sesion):
@@ -8886,104 +8867,110 @@ elif sub_opcion == "Estado de Resultados":
             conn_er.ping(reconnect=True)
             df_datos = generar_balance_profesional(conn_er, f_er_desde, f_er_hasta, sucursal)
             
-            if df_datos is not None and not df_datos.empty:
-                # Limpiamos el código para asegurarnos de evaluar el primer dígito correctamente sin importar espacios o puntos
-                df_datos['codigo_limpio'] = df_datos['codigo'].astype(str).str.strip().str.replace(r'[^0-9]', '', regex=True)
-                
-                # 1. Filtramos cuentas de resultados (4 al 8) usando el código limpio
-                df_er = df_datos[df_datos['codigo_limpio'].str.startswith(('4', '5', '6', '7', '8'))].copy()
+            if not df_datos.empty:
+                # 1. Filtramos cuentas de resultados (4 al 8)
+                df_er = df_datos[df_datos['codigo'].astype(str).str.startswith(('4', '5', '6', '7', '8'))].copy()
                 df_er['Cuenta'] = df_er.apply(lambda x: f"{'    ' * (int(x['nivel'])-1)}{x['nombre']}", axis=1)
                 
-                if df_er.empty:
-                    st.warning("⚠️ No se encontraron registros para las cuentas de Resultados (4, 5, 6, 7, 8) en el período seleccionado.")
-                else:
-                    # 2. RENDERIZADO EN PANTALLA
-                    st.dataframe(
-                        df_er.style.format({'Saldo Final': formato_contable}).apply(estilo_balance, axis=1),
-                        column_order=['codigo', 'Cuenta', 'Saldo Final'],
-                        width='stretch', 
-                        height=400, 
-                        hide_index=True
-                    )
-                    
-                    # 3. CÁLCULO DE UTILIDAD / PÉRDIDA GLOBAL (Cuentas 4 a 8)
+                # 2. RENDERIZADO EN PANTALLA
+                st.dataframe(
+                    df_er.style.format({'Saldo Final': formato_contable}).apply(estilo_balance, axis=1),
+                    column_order=['codigo', 'Cuenta', 'Saldo Final'],
+                    width='stretch', 
+                    height=400, 
+                    hide_index=True
+                )
+                
+                # 3. CÁLCULO DE UTILIDAD (Usando Nivel 1)
+                df_n1 = df_er[df_er['nivel'] == 1]
+                ing = df_n1[df_n1['codigo'].astype(str).str.startswith('4')]['Saldo Final'].sum()
+                cos = df_n1[df_n1['codigo'].astype(str).str.startswith('5')]['Saldo Final'].sum()
+                gas = df_n1[df_n1['codigo'].astype(str).str.startswith('6')]['Saldo Final'].sum()
+                # Utilidad = Ingresos (abs porque suelen ser acreedores) - Costos - Gastos
+                utilidad = abs(ing) - (abs(cos) + abs(gas))
+                col1, col2, col3 = st.columns(3)
+
+                with col1:
+                    st.metric("Ingresos Totales", f"Bs. {ing:,.2f}")
+
+                with col2:
+                    st.metric("Costos Totales", f"Bs. {cos:,.2f}") # <--- AQUÍ LA NUEVA MÉTRICA
+
+                with col3:
+                    st.metric("Utilidad / Pérdida", f"Bs. {formato_contable(utilidad)}", 
+                          delta=f"{formato_contable(utilidad)}",
+                          delta_color="normal" if utilidad >= 0 else "inverse")
+
+
+                # 1. GESTIÓN DE TASA BCV
+                if 'tasa_bcv' not in st.session_state:
+                    tasa, _ = obtener_tasa_bcv_hoy(conn_er) # Cambiado a conn_er
+                    st.session_state.tasa_bcv = tasa
+
+                if st.button("🔄 Actualizar Tasa BCV"):
+                    tasa, _ = obtener_tasa_bcv_hoy(conn_er) # Cambiado a conn_er
+                    st.session_state.tasa_bcv = tasa
+                    st.rerun()
+
+                tasa = st.session_state.tasa_bcv if st.session_state.tasa_bcv > 0 else 1.0
+
+                # 2. CÁLCULO UNIFICADO (Usando df_er, la misma fuente que tu tabla)
+                # Asegúrate de que df_er sea la variable que contiene tu reporte completo
+                if 'df_er' in locals() and not df_er.empty:
                     df_n1 = df_er[df_er['nivel'] == 1]
-                    if df_n1.empty:
-                        df_n1 = df_er[df_er['codigo_limpio'].str.len() == 1]
-
-                    # Extracción de saldos por categoría principal
-                    ing = df_n1[df_n1['codigo_limpio'].str.startswith('4')]['Saldo Final'].sum()
-                    cos = df_n1[df_n1['codigo_limpio'].str.startswith('5')]['Saldo Final'].sum()
-                    gas = df_n1[df_n1['codigo_limpio'].str.startswith('6')]['Saldo Final'].sum()
-                    otros_ing = df_n1[df_n1['codigo_limpio'].str.startswith('7')]['Saldo Final'].sum()
-                    otros_egr = df_n1[df_n1['codigo_limpio'].str.startswith('8')]['Saldo Final'].sum()
-
-                    # Fórmula contable completa para la utilidad real
-                    utilidad = abs(ing) + abs(otros_ing) - (abs(cos) + abs(gas) + abs(otros_egr))
                     
-                    col1, col2, col3 = st.columns(3)
-                    with col1:
-                        # Muestra exclusivamente los ingresos de la cuenta 4
-                        st.metric("Ingresos Totales", f"Bs. {abs(ing):,.2f}")
-                    with col2:
-                        st.metric("Costos y Gastos", f"Bs. {(abs(cos) + abs(gas) + abs(otros_egr)):,.2f}")
-                    with col3:
-                        st.metric("Utilidad / Pérdida", f"Bs. {formato_contable(utilidad)}", 
-                            delta=f"{formato_contable(utilidad)}",
-                            delta_color="normal" if utilidad >= 0 else "inverse")
-
-                    # 1. GESTIÓN DE TASA BCV
-                    if 'tasa_bcv' not in st.session_state:
-                        tasa, _ = obtener_tasa_bcv_hoy(conn_er)
-                        st.session_state.tasa_bcv = tasa
-
-                    if st.button("🔄 Actualizar Tasa BCV"):
-                        tasa, _ = obtener_tasa_bcv_hoy(conn_er)
-                        st.session_state.tasa_bcv = tasa
-                        st.rerun()
-
-                    tasa = st.session_state.tasa_bcv if st.session_state.tasa_bcv > 0 else 1.0
-
+                    # Cálculos en Bolívares
+                    ing = df_n1[df_n1['codigo'].astype(str).str.startswith('4')]['Saldo Final'].sum()
+                    cos = df_n1[df_n1['codigo'].astype(str).str.startswith('5')]['Saldo Final'].sum()
+                    gas = df_n1[df_n1['codigo'].astype(str).str.startswith('6')]['Saldo Final'].sum()
+                    utilidad = abs(ing) - (abs(cos) + abs(gas))
+                    
                     # Cálculos en USD
                     ing_usd, cos_usd, gas_usd, util_usd = [x / tasa for x in [abs(ing), abs(cos), abs(gas), utilidad]]
                     costos_gastos_usd = cos_usd + gas_usd
+                else:
+                    # Si df_er no existe aquí, significa que el cálculo debe ir DENTRO del bloque que genera el reporte
+                    st.warning("El reporte principal aún no se ha generado.")
+                    ing, cos, gas, utilidad, ing_usd, costos_gastos_usd, util_usd = [0.0]*7
 
-                    # 3. VISUALIZACIÓN EN USD
-                    c1, c2, c3 = st.columns(3)
-                    with c1:
-                        st.metric("Ingresos (USD)", f"$ {formato_contable(ing_usd)}")
-                    with c2:
-                        st.metric("Costos/Gastos (USD)", f"$ {formato_contable(costos_gastos_usd)}")
-                    with c3:
-                        st.metric("Utilidad (USD)", f"$ {formato_contable(util_usd)}", 
-                                    delta=f"{formato_contable(util_usd)} USD",
-                                    delta_color="normal" if utilidad >= 0 else "inverse")
+                # 3. VISUALIZACIÓN
+                c1, c2, c3 = st.columns(3)
 
-                    # Contenedor estético para la Tasa BCV
-                    with st.container():
-                        st.markdown(
-                            f"""
-                            <div style="
-                                background-color: #f0f2f6; 
-                                padding: 10px; 
-                                border-radius: 10px; 
-                                border-left: 5px solid #0081C9;
-                                max-width: 300px; 
-                                display: flex; 
-                                justify-content: space-between; 
-                                align-items: center;
-                            ">
-                                <span style="color: #31333F; font-weight: bold; font-size: 14px;">
-                                    🔄 Tasa de Referencia BCV
-                                </span>
-                                <span style="color: #0081C9; font-weight: 900; font-size: 16px;">
-                                    {tasa:,.2f} <span style="font-size: 12px; color: #808495;">Bs/USD</span>
-                                </span>
-                            </div>
-                            """,
-                            unsafe_allow_html=True
-                        )
+                with c1:
+                    st.metric("Ingresos (USD)", f"$ {formato_contable(ing_usd)}")
 
+                with c2:
+                    st.metric("Costos/Gastos (USD)", f"$ {formato_contable(costos_gastos_usd)}")
+
+                with c3:
+                    st.metric("Utilidad (USD)", f"$ {formato_contable(util_usd)}", 
+                              delta=f"{formato_contable(util_usd)} USD",
+                              delta_color="normal" if utilidad >= 0 else "inverse")
+
+                # Contenedor estético para la Tasa BCV
+                with st.container():
+                    st.markdown(
+                        f"""
+                        <div style="
+                            background-color: #f0f2f6; 
+                            padding: 10px; 
+                            border-radius: 10px; 
+                            border-left: 5px solid #0081C9;
+                            max-width: 300px;  /* <--- ESTA ES LA CLAVE */ 
+                            display: flex; 
+                            justify-content: space-between; 
+                            align-items: center;
+                        ">
+                            <span style="color: #31333F; font-weight: bold; font-size: 14px;">
+                                🔄 Tasa de Referencia BCV
+                            </span>
+                            <span style="color: #0081C9; font-weight: 900; font-size: 16px;">
+                                {tasa:,.2f} <span style="font-size: 12px; color: #808495;">Bs/USD</span>
+                            </span>
+                        </div>
+                        """,
+                        unsafe_allow_html=True
+                    )
                 
                 st.divider()
 
