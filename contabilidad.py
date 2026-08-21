@@ -5323,6 +5323,7 @@ def gestionar_sidebar():
 
             st.session_state['cliente_seleccionado_previo'] = nombre_seleccionado
 
+            # ... (código existente donde obtienes la fila seleccionada)
             fila_seleccionada = df_filtrado[df_filtrado['nombre_empresa'] == nombre_seleccionado]
             if fila_seleccionada.empty:
                 fila_seleccionada = df_filtrado.iloc[[0]]
@@ -5336,6 +5337,13 @@ def gestionar_sidebar():
             st.session_state['CLIENTE_NOMBRE'] = nombre_seleccionado
             if 'id' in datos_sel:
                 st.session_state['cliente_id_seleccionado'] = int(datos_sel['id'])
+
+            # 🟢 AQUÍ ES DONDE DEBE IR:
+            # Guardamos el tipo de contribuyente en la sesión para controlar los accesos a los módulos
+            if 'tipo_contribuyente' in datos_sel:
+                st.session_state['tipo_contribuyente'] = str(datos_sel['tipo_contribuyente']).strip()
+            else:
+                st.session_state['tipo_contribuyente'] = 'Contribuyente Ordinario'  # Valor por defecto por seguridad
 
     return menu
 
@@ -10808,27 +10816,28 @@ elif opcion_menu == "📚 Libros Fiscales":
 
 
     elif sub_opcion == "Comprobante de Retención IVA":
-        # 1. Aseguramos que el módulo datetime esté disponible con su alias correcto
-        import datetime as dt 
-
-       
+        # Obtenemos el tipo del contribuyente de la sesión
+        tipo_usuario = st.session_state.get('tipo_contribuyente', 'Contribuyente Ordinario')
         
-        # 2. Validamos la conexión antes de entrar a la interfaz pesada
-        db_actual = st.session_state.get('DB_ACTUAL', 'railway')
-        conn_valida = conectar_db(db_actual)
-        
-        if conn_valida:
-            # Pasamos 'conn_valida' como primer parámetro
-            mostrar_interfaz_retencion_iva(
-                EMPRESA, 
-                st.session_state.get('f_inicio_global', dt.date.today()), 
-                st.session_state.get('f_fin_global', dt.date.today())
-            )
+        # Lógica de acceso
+        if tipo_usuario == "Contribuyente Especial":
+            import datetime as dt 
+            db_actual = st.session_state.get('DB_ACTUAL', 'railway')
+            conn_valida = conectar_db(db_actual)
             
-            # Es recomendable cerrar la conexión al salir de la interfaz si ya no se usa aquí
-            conn_valida.close()
+            if conn_valida:
+                mostrar_interfaz_retencion_iva(
+                    EMPRESA, 
+                    st.session_state.get('f_inicio_global', dt.date.today()), 
+                    st.session_state.get('f_fin_global', dt.date.today())
+                )
+                conn_valida.close()
+            else:
+                st.error("No se pudo restablecer la conexión para el módulo de IVA.")
         else:
-            st.error("No se pudo restablecer la conexión para el módulo de IVA.")
+            # Si es Ordinario, mostramos un mensaje de restricción
+            st.warning("⚠️ Este módulo es exclusivo para **Contribuyentes Especiales**.")
+            st.info("Si cree que esto es un error, contacte a soporte para actualizar su clasificación fiscal.")
 
 # --- USAMOS "IN" PARA QUE NO IMPORTE EL EMOJI QUE PONGAS EN EL SIDEBAR ---
 elif "Proveedores" in opcion_menu:
