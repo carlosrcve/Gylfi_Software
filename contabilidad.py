@@ -45,7 +45,6 @@ try:
 except ImportError:
     HAS_TESSERACT = False
 
-
 def conectar_db(nombre_db=None):
     db_a_usar = nombre_db if nombre_db else "control_central"
     
@@ -71,6 +70,19 @@ def conectar_db(nombre_db=None):
                 )
                 with conn.cursor() as cursor_temp:
                     cursor_temp.execute(f"CREATE DATABASE IF NOT EXISTS `{db_a_usar}`;")
+                    
+                    # SELECCIONAMOS LA BD Y CREAMOS LA TABLA AUTOMÁTICAMENTE
+                    cursor_temp.execute(f"USE `{db_a_usar}`;")
+                    cursor_temp.execute("""
+                        CREATE TABLE IF NOT EXISTS documentos_cloud (
+                            id INT AUTO_INCREMENT PRIMARY KEY,
+                            empresa_db VARCHAR(100) NOT NULL,
+                            categoria VARCHAR(50) NOT NULL,
+                            nombre_archivo VARCHAR(255) NOT NULL,
+                            ruta_archivo VARCHAR(500) NOT NULL,
+                            fecha_subida TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                        );
+                    """)
                 conn.close()
             except Exception as ex:
                 print(f"Aviso al asegurar BD de cliente: {ex}")
