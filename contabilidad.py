@@ -5229,13 +5229,11 @@ def gestionar_sidebar():
         # --- Navegación ---
         if user_rol == 'admin':
             menu = st.radio("Navegación", ["📊 Auditoría Contable", "⚙️ Gestión de Usuarios", "🏢 Gestión de Empresas"], key="menu_nav")
-
         else:
             menu = "📊 Auditoría Contable"
 
         st.divider()
 
-        # --- Selección de Empresa ---
         # --- Selección de Empresa ---
         if menu == "📊 Auditoría Contable":
             conn_sidebar = conectar_db()
@@ -5308,10 +5306,20 @@ def gestionar_sidebar():
                 st.stop()
 
             nombres_empresas = df_filtrado['nombre_empresa'].tolist()
-            nombre_seleccionado = nombres_empresas[0]
 
-            st.markdown(f"**🏢 Empresa Asignada:**")
-            st.info(f"{str(nombre_seleccionado).upper()}")
+            # Mantenemos la selección anterior si ya existía en el session_state
+            idx_default = 0
+            if 'CLIENTE_NOMBRE' in st.session_state and st.session_state['CLIENTE_NOMBRE'] in nombres_empresas:
+                idx_default = nombres_empresas.index(st.session_state['CLIENTE_NOMBRE'])
+
+            # CAMBIO: Usamos st.selectbox para que el admin pueda elegir la empresa de la lista
+            st.markdown(f"**🏢 Selección de Empresa:**")
+            nombre_seleccionado = st.selectbox(
+                "📂 SELECCIONE EMPRESA", 
+                nombres_empresas, 
+                index=idx_default,
+                key="selector_empresa_interactivo"
+            )
 
             st.session_state['cliente_seleccionado_previo'] = nombre_seleccionado
 
