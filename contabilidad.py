@@ -7340,8 +7340,10 @@ if "🏠 Inicio" in opcion_menu:
     
 
     # --- FILA 11: CALENDARIO FISCAL AUTOMATIZADO ---
+    tipo_usuario = st.session_state.get('tipo_contribuyente', 'Contribuyente Ordinario')
+    es_especial = (tipo_usuario == "Contribuyente Especial")
+
     if es_especial:
-        # Asegúrate de usar la variable correcta donde tienes el RIF del cliente logueado
         rif_actual = st.session_state.get('rif_empresa_activa') 
         mostrar_calendario_cliente(rif_actual)
 
