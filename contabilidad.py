@@ -361,6 +361,7 @@ def login_screen():
             st.markdown('</div>', unsafe_allow_html=True)
 
 
+
 def obtener_calendario_seniat_2026(terminal_rif):
     """
     Retorna el diccionario con los cronogramas fiscales del SENIAT 2026 
@@ -395,7 +396,7 @@ def obtener_calendario_seniat_2026(terminal_rif):
         9: ["14", "06", "05", "15", "08", "09", "13", "11", "07", "01", "10", "14"]
     }
 
-    # Función auxiliar para manejar agrupaciones de RIF (ej: 0 y 8, 1 y 4, etc.)
+    # Función auxiliar para manejar agrupaciones de RIF
     def obtener_grupo_islr(term):
         if term in [0, 8]: return 0
         elif term in [1, 4]: return 1
@@ -408,23 +409,22 @@ def obtener_calendario_seniat_2026(terminal_rif):
 
     # 3. Estimadas de ISLR
     estimadas_islr_matrix = [
-        ["15", "09", "13", "10", "12", "12", "08", "14", "08", "09", "13", "09"], # 0 y 8
-        ["09", "10", "11", "14", "13", "11", "10", "13", "09", "14", "12", "15"], # 1 y 4
-        ["08", "12", "09", "08", "14", "10", "14", "12", "10", "15", "09", "11"], # 2 y 3
-        ["14", "13", "12", "09", "15", "09", "13", "11", "15", "08", "10", "10"], # 5 y 9
-        ["13", "11", "10", "13", "11", "15", "09", "10", "11", "13", "11", "08"]  # 6 y 7
+        ["15", "09", "13", "10", "12", "12", "08", "14", "08", "09", "13", "09"], 
+        ["09", "10", "11", "14", "13", "11", "10", "13", "09", "14", "12", "15"], 
+        ["08", "12", "09", "08", "14", "10", "14", "12", "10", "15", "09", "11"], 
+        ["14", "13", "12", "09", "15", "09", "13", "11", "15", "08", "10", "10"], 
+        ["13", "11", "10", "13", "11", "15", "09", "10", "11", "13", "11", "08"]  
     ]
 
     # 4. Retenciones de ISLR
     retenciones_islr_matrix = [
-        ["15", "09", "06", "10", "12", "05", "08", "07", "08", "09", "06", "09"], # 0 y 8
-        ["09", "10", "11", "07", "13", "11", "10", "06", "09", "06", "05", "07"], # 1 y 4
-        ["08", "05", "09", "08", "07", "10", "07", "12", "10", "07", "09", "04"], # 2 y 3
-        ["14", "06", "05", "09", "08", "09", "06", "11", "07", "08", "10", "10"], # 5 y 9
-        ["13", "11", "10", "06", "11", "04", "09", "10", "04", "13", "11", "08"]  # 6 y 7
+        ["15", "09", "06", "10", "12", "05", "08", "07", "08", "09", "06", "09"], 
+        ["09", "10", "11", "07", "13", "11", "10", "06", "09", "06", "05", "07"], 
+        ["08", "05", "09", "08", "07", "10", "07", "12", "10", "07", "09", "04"], 
+        ["14", "06", "05", "09", "08", "09", "06", "11", "07", "08", "10", "10"], 
+        ["13", "11", "10", "06", "11", "04", "09", "10", "04", "13", "11", "08"]  
     ]
 
-    # Retornamos todo empaquetado para el terminal consultado
     return {
         "iva_1": iva_1_map.get(terminal_rif, iva_1_map[0]),
         "iva_2": iva_2_map.get(terminal_rif, iva_2_map[0]),
@@ -434,36 +434,89 @@ def obtener_calendario_seniat_2026(terminal_rif):
 
 def mostrar_calendario_cliente(rif_cliente):
     # 1. Extraer el terminal del RIF de forma robusta
-    # Funciona para: 'J-40513352-0' o 'J405133520'
     try:
         rif_str = str(rif_cliente).strip()
         terminal_rif = int(rif_str[-1])
     except:
         terminal_rif = 0
 
-    # 2. Obtener datos desde la lógica local (sin consultar base de datos)
+    # 2. Manejo de persistencia de pagos mediante archivo JSON local
+    archivo_pagos = "pagos_pedacito.json"
+
+    def cargar_pagos_disco():
+        if os.path.exists(archivo_pagos):
+            try:
+                with open(archivo_pagos, "r") as f:
+                    return json.load(f)
+            except:
+                pass
+        return {"iva_1": False, "iva_2": False, "islr": False, "pensiones": False}
+
+    def guardar_pagos_disco(datos):
+        try:
+            with open(archivo_pagos, "w") as f:
+                json.dump(datos, f)
+        except:
+            pass
+
+    if 'pagos_realizados_pedacito' not in st.session_state:
+        st.session_state['pagos_realizados_pedacito'] = cargar_pagos_disco()
+
+    # Contenedor interactivo con casillas de verificación (checkbox)
+    st.markdown("##### 📝 Control de Pagos Realizados:")
+    col_c1, col_c2 = st.columns(2)
+    with col_c1:
+        val_iva_2 = st.checkbox("✅ IVA 2da Quincena Pagado", value=st.session_state['pagos_realizados_pedacito'].get("iva_2", False), key="chk_iva_2")
+        val_islr = st.checkbox("✅ Retenciones ISLR Pagadas", value=st.session_state['pagos_realizados_pedacito'].get("islr", False), key="chk_islr")
+    with col_c2:
+        val_pensiones = st.checkbox("✅ Ley de Pensiones Pagada", value=st.session_state['pagos_realizados_pedacito'].get("pensiones", False), key="chk_pensiones")
+        val_iva_1 = st.checkbox("✅ IVA 1era Quincena Pagado", value=st.session_state['pagos_realizados_pedacito'].get("iva_1", False), key="chk_iva_1")
+
+    nuevos_pagos = {
+        "iva_1": val_iva_1,
+        "iva_2": val_iva_2,
+        "islr": val_islr,
+        "pensiones": val_pensiones
+    }
+
+    if nuevos_pagos != st.session_state['pagos_realizados_pedacito']:
+        st.session_state['pagos_realizados_pedacito'] = nuevos_pagos
+        guardar_pagos_disco(nuevos_pagos)
+
+    pagos_realizados = st.session_state['pagos_realizados_pedacito']
+
+    # 3. Obtener datos desde la lógica local según el terminal
     calendario = obtener_calendario_seniat_2026(terminal_rif)
     
-    # Extraemos los datos
-    q1_vals = calendario['iva_1']
-    q2_vals = calendario['iva_2']
-    islr_vals = calendario['retenciones_islr']
-    # Nota: Si el SENIAT publica fechas específicas de pensiones, 
-    # agrégalas al diccionario 'obtener_calendario_seniat_2026'
-    pensiones_vals = ["15"] * 12 
-    
+    q1_vals = list(calendario['iva_1'])
+    q2_vals = list(calendario['iva_2'])
+    islr_vals = list(calendario['retenciones_islr'])
+    pensiones_vals = ["17", "29", "20", "27", "16", "15", "15", "17", "29", "20", "27", "16"] # Ajustado dinámico o base
+
+    # Actualizar visualmente si el pago fue marcado (ejemplo aplicado al mes de Agosto, índice 7)
+    if pagos_realizados["iva_1"]:
+        q1_vals[7] = "✅ Pagado"
+    if pagos_realizados["iva_2"]:
+        q2_vals[7] = "✅ Pagado"
+    if pagos_realizados["islr"]:
+        islr_vals[7] = "✅ Pagado"
+    if pagos_realizados["pensiones"]:
+        pensiones_vals[7] = "✅ Pagado"
+
     meses = ["ENE", "FEB", "MAR", "ABR", "MAY", "JUN", "JUL", "AGO", "SEPT", "OCT", "NOV", "DIC"]
 
     st.subheader(f"📊 Calendario Fiscal 2026 - Contribuyente Especial (Terminal RIF: {terminal_rif})")
     st.markdown("### 🗓️ Cronograma de Declaraciones y Pagos")
 
-    # Estilos CSS (puedes mantenerlos fuera de la función si prefieres)
+    # Estilos CSS modernos para las tablas
     st.markdown("""
     <style>
         .fiscal-table { width: 100%; border-collapse: collapse; margin-bottom: 20px; font-family: sans-serif; font-size: 14px; }
         .fiscal-table th { background-color: #2b313e; color: white; text-align: center; padding: 8px; border: 1px solid #ddd; }
         .fiscal-table td { text-align: center; padding: 8px; border: 1px solid #ddd; }
         .header-iva { background-color: #d4edda; color: #155724; font-weight: bold; text-align: left; padding: 8px; }
+        .header-islr { background-color: #fff3cd; color: #856404; font-weight: bold; text-align: left; padding: 8px; }
+        .header-pensiones { background-color: #cce5ff; color: #004085; font-weight: bold; text-align: left; padding: 8px; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -488,6 +541,7 @@ def mostrar_calendario_cliente(rif_cliente):
     st.markdown("#### 2. Retenciones de Impuesto Sobre la Renta")
     st.markdown(f"""
     <table class="fiscal-table">
+        <tr><th colspan="13" class="header-islr">Retenciones de Impuesto Sobre la Renta - R.I.F. Terminado en {terminal_rif}</th></tr>
         <tr><th>R.I.F.</th>{"".join([f"<th>{m}</th>" for m in meses])}</tr>
         <tr><td><b>{terminal_rif}</b></td>{"".join([f"<td>{val}</td>" for val in islr_vals])}</tr>
     </table>
@@ -496,6 +550,7 @@ def mostrar_calendario_cliente(rif_cliente):
     st.markdown("#### 3. Ley de Protección de las Pensiones de Seguridad Social")
     st.markdown(f"""
     <table class="fiscal-table">
+        <tr><th colspan="13" class="header-pensiones">Ley de Pensiones - R.I.F. Terminado en {terminal_rif}</th></tr>
         <tr><th>R.I.F.</th>{"".join([f"<th>{m}</th>" for m in meses])}</tr>
         <tr><td><b>{terminal_rif}</b></td>{"".join([f"<td>{val}</td>" for val in pensiones_vals])}</tr>
     </table>
