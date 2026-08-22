@@ -493,14 +493,14 @@ def mostrar_calendario_cliente(rif_cliente):
     islr_vals = list(calendario['retenciones_islr'])
     pensiones_vals = ["17", "29", "20", "27", "16", "15", "15", "17", "29", "20", "27", "16"]
 
-    # --- SISTEMA DE ALERTAS INTELIGENTES (AQUÍ INCORPORADO) ---
+    # --- SISTEMA DE ALERTAS INTELIGENTES ---
     st.divider()
     st.markdown("### 🔔 Estado de Alertas Fiscales Próximas")
 
     hoy = date.today()
     mes_actual_idx = hoy.month - 1  # 0 a 11 (Ej. Agosto = 7)
 
-    # Fechas límite evaluadas para el mes actual en curso (ej. Agosto 2026)
+    # Fechas límite evaluadas para el mes actual en curso
     try:
         dia_iva_1 = int(q1_vals[mes_actual_idx])
         dia_iva_2 = int(q2_vals[mes_actual_idx])
@@ -539,7 +539,7 @@ def mostrar_calendario_cliente(rif_cliente):
         """
         st.markdown(audio_html, unsafe_allow_html=True)
 
-        # Notificación flotante estilo bancario (toast superior)
+        # Notificación flotante estilo bancario (toast superior con llaves duplicadas)
         texto_notificacion = "<br>".join(mensajes_urgentes)
         banco_notif_html = f"""
             <div id="banco-toast-alerta" style="
@@ -582,7 +582,7 @@ def mostrar_calendario_cliente(rif_cliente):
                             toast.remove();
                         }}, 500);
                     }}
-                }, 5000);
+                }}, 5000);
             </script>
         """
         st.markdown(banco_notif_html, unsafe_allow_html=True)
@@ -591,7 +591,6 @@ def mostrar_calendario_cliente(rif_cliente):
             st.success("✅ No hay obligaciones fiscales críticas a menos de 3 días de vencimiento en este momento.")
 
     st.divider()
-    # ----------------------------------------------------
 
     # Actualizar visualmente si el pago fue marcado para reflejarlo en la tabla del mes actual
     if pagos_realizados["iva_1"]:
@@ -655,6 +654,8 @@ def mostrar_calendario_cliente(rif_cliente):
         <tr><td><b>{terminal_rif}</b></td>{"".join([f"<td>{val}</td>" for val in pensiones_vals])}</tr>
     </table>
     """, unsafe_allow_html=True)
+
+
 def panel_gestion_clientes(conn):
     st.header("🏢 Gestión de Clientes / Empresas")
     st.markdown("Administra las empresas suscritas al sistema y provisiona nuevas bases de datos en la nube de forma automatizada.")
