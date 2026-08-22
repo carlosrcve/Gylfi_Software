@@ -433,29 +433,73 @@ def obtener_calendario_seniat_2026(terminal_rif):
     }
 
 def mostrar_calendario_cliente(rif_cliente):
-    # 1. Extraer el terminal del RIF
+    # 1. Extraer el terminal del RIF de forma robusta
+    # Funciona para: 'J-40513352-0' o 'J405133520'
     try:
-        terminal_rif = int(rif_cliente.split('-')[-1])
+        rif_str = str(rif_cliente).strip()
+        terminal_rif = int(rif_str[-1])
     except:
         terminal_rif = 0
 
-    # --- AQUÍ ESTÁ EL CAMBIO: Llamamos a la función local en lugar de SQL ---
+    # 2. Obtener datos desde la lógica local (sin consultar base de datos)
     calendario = obtener_calendario_seniat_2026(terminal_rif)
     
-    # Extraemos los datos del diccionario que nos devuelve la función
+    # Extraemos los datos
     q1_vals = calendario['iva_1']
     q2_vals = calendario['iva_2']
     islr_vals = calendario['retenciones_islr']
-    # Si quieres agregar pensiones, puedes añadirlo al diccionario de la función también
-    pensiones_vals = ["15"] * 12 # O ajusta según tu lógica de fechas
+    # Nota: Si el SENIAT publica fechas específicas de pensiones, 
+    # agrégalas al diccionario 'obtener_calendario_seniat_2026'
+    pensiones_vals = ["15"] * 12 
     
     meses = ["ENE", "FEB", "MAR", "ABR", "MAY", "JUN", "JUL", "AGO", "SEPT", "OCT", "NOV", "DIC"]
 
-    st.subheader(f"📊 Calendario Fiscal 2026 - Contribuyente Especial (Terminal: {terminal_rif})")
-    
-    # ... A PARTIR DE AQUÍ TU CÓDIGO HTML SIGUE IGUAL ...
-    # (El código que ya tenías para generar el HTML funciona perfectamente 
-    # porque las variables q1_vals, q2_vals, etc., ya tienen los datos)
+    st.subheader(f"📊 Calendario Fiscal 2026 - Contribuyente Especial (Terminal RIF: {terminal_rif})")
+    st.markdown("### 🗓️ Cronograma de Declaraciones y Pagos")
+
+    # Estilos CSS (puedes mantenerlos fuera de la función si prefieres)
+    st.markdown("""
+    <style>
+        .fiscal-table { width: 100%; border-collapse: collapse; margin-bottom: 20px; font-family: sans-serif; font-size: 14px; }
+        .fiscal-table th { background-color: #2b313e; color: white; text-align: center; padding: 8px; border: 1px solid #ddd; }
+        .fiscal-table td { text-align: center; padding: 8px; border: 1px solid #ddd; }
+        .header-iva { background-color: #d4edda; color: #155724; font-weight: bold; text-align: left; padding: 8px; }
+    </style>
+    """, unsafe_allow_html=True)
+
+    # Renderizar Tablas
+    st.markdown("#### 1. IVA, Anticipos de ISLR, IGTF y Retenciones de IVA")
+    st.markdown(f"""
+    <table class="fiscal-table">
+        <tr><th colspan="13" class="header-iva">Primera Quincena (01 al 15) - R.I.F. Terminado en {terminal_rif}</th></tr>
+        <tr><th>R.I.F.</th>{"".join([f"<th>{m}</th>" for m in meses])}</tr>
+        <tr><td><b>{terminal_rif}</b></td>{"".join([f"<td>{val}</td>" for val in q1_vals])}</tr>
+    </table>
+    """, unsafe_allow_html=True)
+
+    st.markdown(f"""
+    <table class="fiscal-table">
+        <tr><th colspan="13" class="header-iva" style="background-color: #e2f0d9;">Segunda Quincena (16 al último) - R.I.F. Terminado en {terminal_rif}</th></tr>
+        <tr><th>R.I.F.</th>{"".join([f"<th>{m}</th>" for m in meses])}</tr>
+        <tr><td><b>{terminal_rif}</b></td>{"".join([f"<td>{val}</td>" for val in q2_vals])}</tr>
+    </table>
+    """, unsafe_allow_html=True)
+
+    st.markdown("#### 2. Retenciones de Impuesto Sobre la Renta")
+    st.markdown(f"""
+    <table class="fiscal-table">
+        <tr><th>R.I.F.</th>{"".join([f"<th>{m}</th>" for m in meses])}</tr>
+        <tr><td><b>{terminal_rif}</b></td>{"".join([f"<td>{val}</td>" for val in islr_vals])}</tr>
+    </table>
+    """, unsafe_allow_html=True)
+
+    st.markdown("#### 3. Ley de Protección de las Pensiones de Seguridad Social")
+    st.markdown(f"""
+    <table class="fiscal-table">
+        <tr><th>R.I.F.</th>{"".join([f"<th>{m}</th>" for m in meses])}</tr>
+        <tr><td><b>{terminal_rif}</b></td>{"".join([f"<td>{val}</td>" for val in pensiones_vals])}</tr>
+    </table>
+    """, unsafe_allow_html=True)
 
 def panel_gestion_clientes(conn):
     st.header("🏢 Gestión de Clientes / Empresas")
@@ -7296,11 +7340,10 @@ if "🏠 Inicio" in opcion_menu:
     
 
     # --- FILA 11: CALENDARIO FISCAL AUTOMATIZADO ---
-    tipo_usuario = st.session_state.get('tipo_contribuyente', 'Contribuyente Ordinario')
-    es_especial = (tipo_usuario == "Contribuyente Especial")
-
     if es_especial:
-        mostrar_calendario_cliente(tipo_usuario, db)
+        # Asegúrate de usar la variable correcta donde tienes el RIF del cliente logueado
+        rif_actual = st.session_state.get('rif_empresa_activa') 
+        mostrar_calendario_cliente(rif_actual)
 
     
 
