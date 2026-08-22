@@ -362,25 +362,39 @@ def login_screen():
 
 
 def mostrar_calendario_cliente(conn_cliente, rif_cliente):
-    st.subheader("📅 Calendario Fiscal SENIAT")
+    st.subheader("📅 Calendario Fiscal SENIAT 2026")
     
-    # Obtenemos el terminal de RIF del cliente para filtrar solo lo que le corresponde
-    # El terminal suele ser el último dígito antes del guion del RIF
-    terminal_rif = int(rif_cliente.split('-')[-1])
-    
+    # Extraer terminal: el último dígito del RIF
+    try:
+        terminal_rif = int(rif_cliente.split('-')[-1])
+    except:
+        st.error("Formato de RIF inválido para extraer terminal.")
+        return
+
+    # Consulta para obtener los vencimientos del terminal
     query = """
-        SELECT concepto, fecha_vencimiento 
+        SELECT 
+            concepto, 
+            CASE mes_idx 
+                WHEN 0 THEN 'Ene' WHEN 1 THEN 'Feb' WHEN 2 THEN 'Mar' 
+                WHEN 3 THEN 'Abr' WHEN 4 THEN 'May' WHEN 5 THEN 'Jun' 
+                WHEN 6 THEN 'Jul' WHEN 7 THEN 'Ago' WHEN 8 THEN 'Sep' 
+                WHEN 9 THEN 'Oct' WHEN 10 THEN 'Nov' WHEN 11 THEN 'Dic' 
+            END as mes,
+            DAY(fecha_vencimiento) as dia_vencimiento
         FROM calendario_fiscal_2026 
         WHERE terminal_rif = %s 
-        ORDER BY fecha_vencimiento ASC
+        ORDER BY mes_idx ASC
     """
     
-    df_calendario = ejecutar_consulta(query, conn_cliente, params=(terminal_rif,))
+    df = ejecutar_consulta(query, conn_cliente, params=(terminal_rif,))
     
-    if df_calendario is not None and not df_calendario.empty:
-        st.dataframe(df_calendario, use_container_width=True)
+    if df is not None and not df.empty:
+        # Convertimos el formato para que sea más legible (estilo calendario)
+        df_pivot = df.pivot(index='concepto', columns='mes', values='dia_vencimiento')
+        st.dataframe(df_pivot, use_container_width=True)
     else:
-        st.info("ℹ️ No hay fechas próximas en el calendario fiscal.")
+        st.info("ℹ️ No hay fechas registradas para este terminal.")
 
 def panel_gestion_clientes(conn):
     st.header("🏢 Gestión de Clientes / Empresas")
