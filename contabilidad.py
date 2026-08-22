@@ -491,17 +491,117 @@ def mostrar_calendario_cliente(rif_cliente):
     q1_vals = list(calendario['iva_1'])
     q2_vals = list(calendario['iva_2'])
     islr_vals = list(calendario['retenciones_islr'])
-    pensiones_vals = ["17", "29", "20", "27", "16", "15", "15", "17", "29", "20", "27", "16"] # Ajustado dinámico o base
+    pensiones_vals = ["17", "29", "20", "27", "16", "15", "15", "17", "29", "20", "27", "16"]
 
-    # Actualizar visualmente si el pago fue marcado (ejemplo aplicado al mes de Agosto, índice 7)
+    # --- SISTEMA DE ALERTAS INTELIGENTES (AQUÍ INCORPORADO) ---
+    st.divider()
+    st.markdown("### 🔔 Estado de Alertas Fiscales Próximas")
+
+    hoy = date.today()
+    mes_actual_idx = hoy.month - 1  # 0 a 11 (Ej. Agosto = 7)
+
+    # Fechas límite evaluadas para el mes actual en curso (ej. Agosto 2026)
+    try:
+        dia_iva_1 = int(q1_vals[mes_actual_idx])
+        dia_iva_2 = int(q2_vals[mes_actual_idx])
+        dia_islr = int(islr_vals[mes_actual_idx])
+        dia_pensiones = int(pensiones_vals[mes_actual_idx])
+    except:
+        dia_iva_1, dia_iva_2, dia_islr, dia_pensiones = 15, 30, 15, 17
+
+    eventos_fiscales = [
+        {"id": "iva_1", "concepto": "IVA / Anticipos (1era Quincena)", "fecha": date(hoy.year, hoy.month, dia_iva_1)},
+        {"id": "iva_2", "concepto": "IVA / Anticipos (2da Quincena)", "fecha": date(hoy.year, hoy.month, dia_iva_2)},
+        {"id": "islr", "concepto": "Retenciones de ISLR", "fecha": date(hoy.year, hoy.month, dia_islr)},
+        {"id": "pensiones", "concepto": "Ley de Protección de Pensiones", "fecha": date(hoy.year, hoy.month, dia_pensiones)},
+    ]
+
+    alerta_activa = False
+    mensajes_urgentes = []
+
+    for evento in eventos_fiscales:
+        dias_restantes = (evento["fecha"] - hoy).days
+        pagado = pagos_realizados.get(evento["id"], False)
+        
+        if pagado:
+            st.info(f"✔️ **{evento['concepto']}**: Declarado y pagado a tiempo. ¡Sin deudas pendientes para esta fecha!")
+        elif 0 <= dias_restantes <= 3:
+            alerta_activa = True
+            mensaje_alerta = f"⚠️ **¡ATENCIÓN!** Se acerca la declaración y pago de **{evento['concepto']}** programada para el **{evento['fecha'].strftime('%d/%m/%Y')}** (Faltan {dias_restantes} días)."
+            mensajes_urgentes.append(mensaje_alerta)
+
+    if alerta_activa:
+        # Reproductor de audio oculto para alerta sonora
+        audio_html = """
+            <audio autoplay style="display:none;">
+              <source src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3" type="audio/mpeg">
+            </audio>
+        """
+        st.markdown(audio_html, unsafe_allow_html=True)
+
+        # Notificación flotante estilo bancario (toast superior)
+        texto_notificacion = "<br>".join(mensajes_urgentes)
+        banco_notif_html = f"""
+            <div id="banco-toast-alerta" style="
+                position: fixed;
+                top: 20px;
+                right: 20px;
+                z-index: 999999;
+                background-color: #fff3cd;
+                color: #856404;
+                padding: 16px 20px;
+                border-radius: 8px;
+                border-left: 6px solid #ffeeba;
+                border: 1px solid #ffeeba;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+                font-family: sans-serif;
+                max-width: 400px;
+                animation: slideIn 0.5s ease-out;
+            ">
+                <div style="font-weight: bold; margin-bottom: 5px; font-size: 15px;">🔔 Notificación Fiscal Urgente</div>
+                <div style="font-size: 13px; line-height: 1.4;">{texto_notificacion}</div>
+            </div>
+
+            <style>
+            @keyframes slideIn {{
+                from {{ transform: translateX(100%); opacity: 0; }}
+                to {{ transform: translateX(0); opacity: 1; }}
+            }}
+            @keyframes fadeOut {{
+                from {{ opacity: 1; }}
+                to {{ opacity: 0; }}
+            }}
+            </style>
+
+            <script>
+                setTimeout(function() {{
+                    var toast = document.getElementById('banco-toast-alerta');
+                    if (toast) {{
+                        toast.style.animation = 'fadeOut 0.5s ease-out forwards';
+                        setTimeout(function() {{
+                            toast.remove();
+                        }}, 500);
+                    }}
+                }, 5000);
+            </script>
+        """
+        st.markdown(banco_notif_html, unsafe_allow_html=True)
+    else:
+        if not any(pagos_realizados.values()) and not any(0 <= (e["fecha"] - hoy).days <= 3 for e in eventos_fiscales):
+            st.success("✅ No hay obligaciones fiscales críticas a menos de 3 días de vencimiento en este momento.")
+
+    st.divider()
+    # ----------------------------------------------------
+
+    # Actualizar visualmente si el pago fue marcado para reflejarlo en la tabla del mes actual
     if pagos_realizados["iva_1"]:
-        q1_vals[7] = "✅ Pagado"
+        q1_vals[mes_actual_idx] = "✅ Pagado"
     if pagos_realizados["iva_2"]:
-        q2_vals[7] = "✅ Pagado"
+        q2_vals[mes_actual_idx] = "✅ Pagado"
     if pagos_realizados["islr"]:
-        islr_vals[7] = "✅ Pagado"
+        islr_vals[mes_actual_idx] = "✅ Pagado"
     if pagos_realizados["pensiones"]:
-        pensiones_vals[7] = "✅ Pagado"
+        pensiones_vals[mes_actual_idx] = "✅ Pagado"
 
     meses = ["ENE", "FEB", "MAR", "ABR", "MAY", "JUN", "JUL", "AGO", "SEPT", "OCT", "NOV", "DIC"]
 
@@ -555,7 +655,6 @@ def mostrar_calendario_cliente(rif_cliente):
         <tr><td><b>{terminal_rif}</b></td>{"".join([f"<td>{val}</td>" for val in pensiones_vals])}</tr>
     </table>
     """, unsafe_allow_html=True)
-
 def panel_gestion_clientes(conn):
     st.header("🏢 Gestión de Clientes / Empresas")
     st.markdown("Administra las empresas suscritas al sistema y provisiona nuevas bases de datos en la nube de forma automatizada.")
