@@ -362,39 +362,118 @@ def login_screen():
 
 
 def mostrar_calendario_cliente(conn_cliente, rif_cliente):
-    st.subheader("📅 Calendario Fiscal SENIAT 2026")
-    
-    # Extraer terminal: el último dígito del RIF
+    # 1. Extraer el terminal del RIF de forma automática (ej: J-12345678-0 -> terminal 0)
     try:
         terminal_rif = int(rif_cliente.split('-')[-1])
     except:
-        st.error("Formato de RIF inválido para extraer terminal.")
-        return
+        terminal_rif = 0  # Valor por defecto si hay un error en el formato
 
-    # Consulta para obtener los vencimientos del terminal
+    st.subheader(f"📊 Calendario Fiscal 2026 - Contribuyente Especial (Terminal RIF: {terminal_rif})")
+    st.markdown("### 🗓️ Cronograma de Declaraciones y Pagos")
+
+    # 2. Consultar la base de datos para este terminal específico
     query = """
-        SELECT 
-            concepto, 
-            CASE mes_idx 
-                WHEN 0 THEN 'Ene' WHEN 1 THEN 'Feb' WHEN 2 THEN 'Mar' 
-                WHEN 3 THEN 'Abr' WHEN 4 THEN 'May' WHEN 5 THEN 'Jun' 
-                WHEN 6 THEN 'Jul' WHEN 7 THEN 'Ago' WHEN 8 THEN 'Sep' 
-                WHEN 9 THEN 'Oct' WHEN 10 THEN 'Nov' WHEN 11 THEN 'Dic' 
-            END as mes,
-            DAY(fecha_vencimiento) as dia_vencimiento
+        SELECT impuesto_id, concepto, mes_idx, fecha_vencimiento 
         FROM calendario_fiscal_2026 
         WHERE terminal_rif = %s 
         ORDER BY mes_idx ASC
     """
-    
-    df = ejecutar_consulta(query, conn_cliente, params=(terminal_rif,))
-    
-    if df is not None and not df.empty:
-        # Convertimos el formato para que sea más legible (estilo calendario)
-        df_pivot = df.pivot(index='concepto', columns='mes', values='dia_vencimiento')
-        st.dataframe(df_pivot, use_container_width=True)
+    df_calendario = ejecutar_consulta(query, conn_cliente, params=(terminal_rif,))
+
+    if df_calendario is not None and not df_calendario.empty:
+        # Aquí construimos dinámicamente las listas de los 12 meses (índices 0 al 11)
+        meses = ["ENE", "FEB", "MAR", "ABR", "MAY", "JUN", "JUL", "AGO", "SEPT", "OCT", "NOV", "DIC"]
+        
+        # Inicializamos listas con "❌" para los 12 meses
+        q1_vals = ["❌"] * 12
+        q2_vals = ["❌"] * 12
+        islr_vals = ["❌"] * 12
+        pensiones_vals = ["❌"] * 12
+
+        # Rellenamos con las fechas reales que vienen de la base de datos
+        for _, row in df_calendario.iterrows():
+            mes = int(row['mes_idx'])
+            dia = str(row['fecha_vencimiento'].day).zfill(2) # Formato de dos dígitos ej: '31', '07'
+            imp_id = row['impuesto_id']
+
+            if imp_id == 'iva_1':
+                q1_vals[mes] = dia
+            elif imp_id == 'iva_2':
+                q2_vals[mes] = dia
+            elif imp_id == 'islr':
+                islr_vals[mes] = dia
+            elif imp_id == 'pensiones':
+                pensiones_vals[mes] = dia
+
+        # Estilo visual de las tablas (el mismo que te gustó)
+        st.markdown("""
+        <style>
+            .fiscal-table {
+                width: 100%;
+                border-collapse: collapse;
+                margin-bottom: 20px;
+                font-family: sans-serif;
+                font-size: 14px;
+            }
+            .fiscal-table th {
+                background-color: #2b313e;
+                color: white;
+                text-align: center;
+                padding: 8px;
+                border: 1px solid #ddd;
+            }
+            .fiscal-table td {
+                text-align: center;
+                padding: 8px;
+                border: 1px solid #ddd;
+            }
+            .header-iva { background-color: #d4edda; color: #155724; font-weight: bold; text-align: left; padding: 8px; }
+        </style>
+        """, unsafe_allow_html=True)
+
+        # Renderizar Tabla 1: IVA 1era Quincena
+        st.markdown("#### 1. IVA, Anticipos de ISLR, IGTF y Retenciones de IVA")
+        html_iva_1 = f"""
+        <table class="fiscal-table">
+            <tr><th colspan="13" class="header-iva">Primera Quincena (01 al 15) - R.I.F. Terminado en {terminal_rif}</th></tr>
+            <tr><th>R.I.F.</th>{"".join([f"<th>{m}</th>" for m in meses])}</tr>
+            <tr><td><b>{terminal_rif}</b></td>{"".join([f"<td>{val}</td>" for val in q1_vals])}</tr>
+        </table>
+        """
+        st.markdown(html_iva_1, unsafe_allow_html=True)
+
+        # Renderizar Tabla 2: IVA 2da Quincena
+        html_iva_2 = f"""
+        <table class="fiscal-table">
+            <tr><th colspan="13" class="header-iva" style="background-color: #e2f0d9;">Segunda Quincena (16 al último) - R.I.F. Terminado en {terminal_rif}</th></tr>
+            <tr><th>R.I.F.</th>{"".join([f"<th>{m}</th>" for m in meses])}</tr>
+            <tr><td><b>{terminal_rif}</b></td>{"".join([f"<td>{val}</td>" for val in q2_vals])}</tr>
+        </table>
+        """
+        st.markdown(html_iva_2, unsafe_allow_html=True)
+
+        # Renderizar Retenciones ISLR
+        st.markdown("#### 2. Retenciones de Impuesto Sobre la Renta")
+        html_islr = f"""
+        <table class="fiscal-table">
+            <tr><th>R.I.F.</th>{"".join([f"<th>{m}</th>" for m in meses])}</tr>
+            <tr><td><b>{terminal_rif}</b></td>{"".join([f"<td>{val}</td>" for val in islr_vals])}</tr>
+        </table>
+        """
+        st.markdown(html_islr, unsafe_allow_html=True)
+
+        # Renderizar Ley de Pensiones
+        st.markdown("#### 3. Ley de Protección de las Pensiones de Seguridad Social")
+        html_pensiones = f"""
+        <table class="fiscal-table">
+            <tr><th>R.I.F.</th>{"".join([f"<th>{m}</th>" for m in meses])}</tr>
+            <tr><td><b>{terminal_rif}</b></td>{"".join([f"<td>{val}</td>" for val in pensiones_vals])}</tr>
+        </table>
+        """
+        st.markdown(html_pensiones, unsafe_allow_html=True)
+
     else:
-        st.info("ℹ️ No hay fechas registradas para este terminal.")
+        st.warning("⚠️ No se encontraron registros en el calendario fiscal para este terminal en la base de datos.")
 
 def panel_gestion_clientes(conn):
     st.header("🏢 Gestión de Clientes / Empresas")
