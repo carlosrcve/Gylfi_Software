@@ -5594,12 +5594,21 @@ def renderizar_tab_asientos_automatizados(db_connection):
                 try:
                     cursor = db_connection.cursor(pymysql.cursors.DictCursor)
                     
-                    # ⚠️ FUERZA EL CAMBIO DE BASE DE DATOS SEGÚN LA EMPRESA SELECCIONADA EN LA SESIÓN
-                    # (Asegúrate de cambiar 'nombre_bd_cliente' por la variable de session_state donde guardas la BD del tenant actual)
-                    nombre_bd_cliente = st.session_state.get("empresa_seleccionada_bd", "control_central") 
-                    cursor.execute(f"USE `{nombre_bd_cliente}`")
-
-                    # Consultamos el plan de cuentas en la base de datos correcta del cliente
+                    # 🛡️ ASEGURAR QUE LA TABLA EXISTA EN ESTA BD ANTES DE CONSULTARLA
+                    cursor.execute("""
+                        CREATE TABLE IF NOT EXISTS plan_cuentas (
+                            id INT NOT NULL,
+                            codigo VARCHAR(50) NOT NULL,
+                            nombre VARCHAR(255) NOT NULL,
+                            nivel INT NOT NULL,
+                            tipo ENUM('Grupo', 'Detalle') NOT NULL,
+                            padre VARCHAR(50) DEFAULT NULL,
+                            PRIMARY KEY (id),
+                            UNIQUE (codigo)
+                        ) ENGINE=InnoDB;
+                    """)
+                    
+                    # Ahora sí consultamos con confianza
                     cursor.execute("SELECT codigo, CONCAT(codigo, ' - ', nombre) as descripcion_cuenta FROM plan_cuentas WHERE tipo = 'Detalle'")
                     cuentas_db = cursor.fetchall()
                     cursor.close()
