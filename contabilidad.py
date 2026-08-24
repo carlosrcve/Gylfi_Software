@@ -5547,19 +5547,21 @@ def verificar_si_es_contribuyente_especial(db_name):
     return False
 
 
+import pandas as pd
+import streamlit as st
+import pymysql
+
 def renderizar_tab_asientos_automatizados(db_connection):
     st.subheader("🤖 Asientos Automatizados (Comprobantes Contables)")
     st.markdown("""
     Sube tu archivo Excel de compras del periodo. El sistema procesará la información para que puedas asignar 
-    las cuentas contables de forma sencilla y generar automáticamente los asientos en partida doble.
+    las cuentas contables y generar automáticamente los asientos en partida doble.
     """)
 
     # ----------------------------------------------------
     # PASO 0: CARGAR PLAN DE CUENTAS GENERAL (GLOBAL)
     # ----------------------------------------------------
-    codigos_disponibles = []
     mapa_descripciones = {}
-    
     try:
         cursor_opt = db_connection.cursor(pymysql.cursors.DictCursor)
         cursor_opt.execute("""
@@ -5578,20 +5580,14 @@ def renderizar_tab_asientos_automatizados(db_connection):
         cuentas_opt = cursor_opt.fetchall()
         cursor_opt.close()
         
-        # Filtrar y limpiar para evitar nulos o cadenas vacías en la lista de opciones
-        codigos_disponibles = [str(c["codigo"]).strip() for c in cuentas_opt if c.get("codigo")]
         mapa_descripciones = {str(c["codigo"]).strip(): c["nombre"] for c in cuentas_opt if c.get("codigo")}
     except Exception as e:
         st.warning(f"No se pudo cargar el plan de cuentas de forma automática: {e}")
 
-    # Fallback si la tabla está vacía para evitar fallos en Streamlit
-    if not codigos_disponibles:
-        codigos_disponibles = ["SIN_CONFIGURAR"]
-        mapa_descripciones["SIN_CONFIGURAR"] = "Debe registrar cuentas en plan_cuentas"
-
-    default_code = codigos_disponibles[0]
-    cta_iva_default = "1.1.4.01.001" if "1.1.4.01.001" in codigos_disponibles else default_code
-    cta_prov_default = "2.1.1.01.001" if "2.1.1.01.001" in codigos_disponibles else default_code
+    # Valores por defecto inteligentes si existen en la BD, sino vacíos para que el usuario los llene
+    default_gasto = "5.1.1.01.001" if "5.1.1.01.001" in mapa_descripciones else ""
+    cta_iva_default = "1.1.4.01.001" if "1.1.4.01.001" in mapa_descripciones else ""
+    cta_prov_default = "2.1.1.01.001" if "2.1.1.01.001" in mapa_descripciones else ""
 
     # ----------------------------------------------------
     # PASO 1: CARGA DEL EXCEL
@@ -5676,8 +5672,8 @@ def renderizar_tab_asientos_automatizados(db_connection):
                             "n_comprobante": n_comprobante_base,
                             "descripcion": proveedor,
                             "fecha": fecha_op,
-                            "plan_cuentas": default_code, 
-                            "cuenta_contable": mapa_descripciones.get(default_code, ""),
+                            "plan_cuentas": default_gasto, 
+                            "cuenta_contable": mapa_descripciones.get(default_gasto, "Cuenta de Gasto/Costo"),
                             "referencia": nro_doc,
                             "debe": base_imponible,
                             "haber": 0.0,
@@ -5691,7 +5687,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
                                 "descripcion": proveedor,
                                 "fecha": fecha_op,
                                 "plan_cuentas": cta_iva_default,
-                                "cuenta_contable": mapa_descripciones.get(cta_iva_default, ""),
+                                "cuenta_contable": mapa_descripciones.get(cta_iva_default, "Crédito Fiscal IVA"),
                                 "referencia": nro_doc,
                                 "debe": credito_fiscal,
                                 "haber": 0.0,
@@ -5704,7 +5700,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
                             "descripcion": proveedor,
                             "fecha": fecha_op,
                             "plan_cuentas": cta_prov_default,
-                            "cuenta_contable": mapa_descripciones.get(cta_prov_default, ""),
+                            "cuenta_contable": mapa_descripciones.get(cta_prov_default, "Cuentas por Pagar Proveedores"),
                             "referencia": nro_doc,
                             "debe": 0.0,
                             "haber": total_factura,
@@ -5712,7 +5708,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
                         })
 
                     st.session_state['df_asientos_proceso'] = pd.DataFrame(filas_asiento_temporal)
-                    st.success("¡Segundo frame generado con éxito! Selecciona y ajusta las cuentas contables necesarias:")
+                    st.success("¡Segundo frame generado con éxito! Modifica los códigos de cuenta o descripciones si lo deseas:")
 
                 except Exception as sql_err:
                     st.error(f"Error al procesar los datos de las compras: {sql_err}")
@@ -5721,26 +5717,26 @@ def renderizar_tab_asientos_automatizados(db_connection):
             if 'df_asientos_proceso' in st.session_state and not st.session_state['df_asientos_proceso'].empty:
                 st.markdown("### 📋 Segundo Frame: Estructura del Asiento Contable (Partida Doble)")
                 
+                # Usamos TextColumn en lugar de SelectboxColumn para evitar bloqueos por tablas vacías
                 df_editado = st.data_editor(
                     st.session_state['df_asientos_proceso'],
                     num_rows="dynamic",
                     column_config={
-                        "plan_cuentas": st.column_config.SelectboxColumn(
+                        "plan_cuentas": st.column_config.TextColumn(
                             "Plan de Cuentas (Código)",
-                            help="Selecciona el código de la cuenta del plan",
-                            options=codigos_disponibles,
-                            required=False  # <--- Cambiado a False para evitar el error visual rojo
+                            help="Ingresa o ajusta el código contable (Ej: 5.1.1.01.001)",
+                            required=False
                         ),
                         "cuenta_contable": st.column_config.TextColumn(
                             "Descripción Cuenta",
-                            help="Nombre automático de la cuenta"
+                            help="Nombre de la cuenta contable"
                         ),
                         "fecha": st.column_config.TextColumn("Fecha"),
                     },
                     key="editor_asientos_auto_tab4"
                 )
 
-                # Actualizar el nombre de la cuenta automáticamente al cambiar el código
+                # Actualizar el nombre de la cuenta automáticamente al escribir/cambiar el código
                 for idx, row in df_editado.iterrows():
                     codigo_actual = str(row.get("plan_cuentas", "")).strip()
                     if codigo_actual in mapa_descripciones:
