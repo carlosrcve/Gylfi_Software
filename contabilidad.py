@@ -5552,7 +5552,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
     st.subheader("🤖 Asientos Automatizados (Comprobantes Contables)")
     st.markdown("""
     Sube tu archivo Excel de compras del periodo. El sistema procesará la información para que puedas asignar 
-    las cuentas contables de detalle mediante una lista desplegable y generar automáticamente los asientos en partida doble.
+    las cuentas contables de detalle mediante una lista desplegable con nombres y códigos, y generar automáticamente los asientos en partida doble.
     """)
 
     # ----------------------------------------------------
@@ -5560,41 +5560,39 @@ def renderizar_tab_asientos_automatizados(db_connection):
     # ----------------------------------------------------
     codigos_disponibles = []
     mapa_descripciones = {}
+    opciones_desplegable = []
     
     try:
         cursor_opt = db_connection.cursor(pymysql.cursors.DictCursor)
-        # Consultamos explícitamente solo las cuentas de tipo 'Detalle' como lo tienes en MySQL
         cursor_opt.execute("SELECT codigo, nombre FROM plan_cuentas WHERE tipo = 'Detalle'")
         cuentas_opt = cursor_opt.fetchall()
         cursor_opt.close()
         
         if cuentas_opt:
-            codigos_disponibles = [str(c["codigo"]).strip() for c in cuentas_opt if c.get("codigo")]
-            mapa_descripciones = {str(c["codigo"]).strip(): c["nombre"] for c in cuentas_opt if c.get("codigo")}
+            for c in cuentas_opt:
+                codigo = str(c["codigo"]).strip()
+                nombre = str(c["nombre"]).strip()
+                if codigo:
+                    codigos_disponibles.append(codigo)
+                    mapa_descripciones[codigo] = nombre
+                    # Formato amigable para que el desplegable muestre código y descripción
+                    opciones_desplegable.append(f"{codigo} - {nombre}")
     except Exception as e:
         st.warning(f"Error al consultar el plan de cuentas: {e}")
 
-    # Fallback de seguridad por si acaso la conexión falla o devuelve vacío momentáneamente
-    if not codigos_disponibles:
-        codigos_disponibles = ["1.1.1.01.001", "1.1.1.01.002", "1.1.1.02.001"]
-        mapa_descripciones = {
-            "1.1.1.01.001": "Caja Chica",
-            "1.1.1.01.002": "Caja Nacional",
-            "1.1.1.02.001": "Banco de Venezuela"
-        }
+    # Fallback por seguridad si no hay cuentas
+    if not opciones_desplegable:
+        opciones_desplegable = [
+            "1.1.1.01.001 - Caja Chica", 
+            "1.1.1.01.002 - Caja Nacional", 
+            "1.1.1.02.001 - Banco de Venezuela"
+        ]
+        for op in opciones_desplegable:
+            partes = op.split(" - ")
+            codigos_disponibles.append(partes[0])
+            mapa_descripciones[partes[0]] = partes[1]
 
-    # Valores por defecto inteligentes basados en las cuentas de detalle disponibles
-    default_gasto = codigos_disponibles[0]
-    cta_iva_default = codigos_disponibles[0]
-    cta_prov_default = codigos_disponibles[0]
-    
-    for cod in codigos_disponibles:
-        if "5." in cod or "6." in cod:
-            default_gasto = cod
-        if "1.1.4" in cod:
-            cta_iva_default = cod
-        if "2.1.1" in cod:
-            cta_prov_default = cod
+    default_opcion = opciones_desplegable[0]
 
     # ----------------------------------------------------
     # PASO 1: CARGA DEL EXCEL
@@ -5636,7 +5634,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
                     filas_asiento_temporal = []
 
                     for idx, row in df_compras.iterrows():
-                        # Extracción robusta de la fecha del primer frame
+                        # Extracción de la fecha del primer frame
                         fecha_op = ""
                         for col in ["Fecha de Operación", "Fecha de Operacion", "Fecha", "FECHA", "fecha", "Fecha Operacion"]:
                             if col in row and pd.notna(row[col]):
@@ -5675,13 +5673,16 @@ def renderizar_tab_asientos_automatizados(db_connection):
 
                         total_factura = base_imponible + credito_fiscal
 
+                        # Buscar una opción por defecto formateada para la celda
+                        opcion_def_fila = default_opcion
+
                         # Fila 1: Gasto / Costo (Al Debe)
                         filas_asiento_temporal.append({
                             "n_comprobante": n_comprobante_base,
                             "descripcion": proveedor,
                             "fecha": fecha_op,
-                            "plan_cuentas": default_gasto, 
-                            "cuenta_contable": mapa_descripciones.get(default_gasto, ""),
+                            "plan_cuentas": opcion_def_fila, 
+                            "cuenta_contable": "",
                             "referencia": nro_doc,
                             "debe": base_imponible,
                             "haber": 0.0,
@@ -5694,8 +5695,8 @@ def renderizar_tab_asientos_automatizados(db_connection):
                                 "n_comprobante": n_comprobante_base,
                                 "descripcion": proveedor,
                                 "fecha": fecha_op,
-                                "plan_cuentas": cta_iva_default,
-                                "cuenta_contable": mapa_descripciones.get(cta_iva_default, ""),
+                                "plan_cuentas": opcion_def_fila,
+                                "cuenta_contable": "",
                                 "referencia": nro_doc,
                                 "debe": credito_fiscal,
                                 "haber": 0.0,
@@ -5707,8 +5708,8 @@ def renderizar_tab_asientos_automatizados(db_connection):
                             "n_comprobante": n_comprobante_base,
                             "descripcion": proveedor,
                             "fecha": fecha_op,
-                            "plan_cuentas": cta_prov_default,
-                            "cuenta_contable": mapa_descripciones.get(cta_prov_default, ""),
+                            "plan_cuentas": opcion_def_fila,
+                            "cuenta_contable": "",
                             "referencia": nro_doc,
                             "debe": 0.0,
                             "haber": total_factura,
@@ -5716,7 +5717,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
                         })
 
                     st.session_state['df_asientos_proceso'] = pd.DataFrame(filas_asiento_temporal)
-                    st.success("¡Segundo frame generado con éxito! Ya puedes usar los menús desplegables en la columna de cuentas:")
+                    st.success("¡Segundo frame generado con éxito! Selecciona las cuentas con el buscador integrado:")
 
                 except Exception as sql_err:
                     st.error(f"Error al procesar los datos de las compras: {sql_err}")
@@ -5725,34 +5726,36 @@ def renderizar_tab_asientos_automatizados(db_connection):
             if 'df_asientos_proceso' in st.session_state and not st.session_state['df_asientos_proceso'].empty:
                 st.markdown("### 📋 Segundo Frame: Estructura del Asiento Contable (Partida Doble)")
                 
-                # Configuramos el data editor con el SelectboxColumn alimentado por las cuentas de detalle de MySQL
+                # El SelectboxColumn ahora incluye todas las opciones combinadas (Código + Nombre)
                 df_editado = st.data_editor(
                     st.session_state['df_asientos_proceso'],
                     num_rows="dynamic",
                     column_config={
                         "plan_cuentas": st.column_config.SelectboxColumn(
-                            "Plan de Cuentas (Código)",
-                            help="Selecciona una cuenta de detalle de la lista",
-                            options=codigos_disponibles,
+                            "Plan de Cuentas (Código - Nombre)",
+                            help="Escribe o despliega la lista para buscar y seleccionar la cuenta",
+                            options=opciones_desplegable,
                             required=False
                         ),
                         "cuenta_contable": st.column_config.TextColumn(
                             "Descripción Cuenta",
-                            help="Nombre automático obtenido del plan de cuentas"
+                            help="Nombre de la cuenta"
                         ),
                         "fecha": st.column_config.TextColumn(
                             "Fecha",
-                            help="Fecha extraída del archivo de compras"
+                            help="Fecha extraída del archivo"
                         ),
                     },
                     key="editor_asientos_auto_tab4"
                 )
 
-                # Actualizar automáticamente la descripción de la cuenta al interactuar con el desplegable
+                # Procesar la selección del usuario separando el código para la BD y el nombre para la descripción
                 for idx, row in df_editado.iterrows():
-                    codigo_actual = str(row.get("plan_cuentas", "")).strip()
-                    if codigo_actual in mapa_descripciones:
-                        df_editado.at[idx, "cuenta_contable"] = mapa_descripciones[codigo_actual]
+                    seleccion_completa = str(row.get("plan_cuentas", ""))
+                    if " - " in seleccion_completa:
+                        codigo_puro = seleccion_completa.split(" - ")[0].strip()
+                        nombre_puro = seleccion_completa.split(" - ")[1].strip()
+                        df_editado.at[idx, "cuenta_contable"] = nombre_puro
 
                 # Botón para guardar los asientos definitivos en el Libro Diario
                 if st.button("💾 Guardar Asientos Definitivos en el Libro Diario"):
@@ -5778,7 +5781,9 @@ def renderizar_tab_asientos_automatizados(db_connection):
                         """
                         
                         for index, row in df_editado.iterrows():
-                            codigo_cuenta = str(row["plan_cuentas"]).strip()
+                            seleccion_completa = str(row["plan_cuentas"])
+                            # Extraer únicamente el código antes del guion para la base de datos
+                            codigo_cuenta = seleccion_completa.split(" - ")[0].strip() if " - " in seleccion_completa else seleccion_completa.strip()
                             nombre_cuenta_contable = mapa_descripciones.get(codigo_cuenta, str(row.get("cuenta_contable", "Cuenta General")))
 
                             valores = (
