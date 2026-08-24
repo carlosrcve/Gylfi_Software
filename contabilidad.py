@@ -5592,10 +5592,14 @@ def renderizar_tab_asientos_automatizados(db_connection):
             # ----------------------------------------------------
             if st.button("🔄 Generar Propuesta de Asientos Contables"):
                 try:
-                    # Usamos el cursor directamente de la conexión del cliente autenticado
                     cursor = db_connection.cursor(pymysql.cursors.DictCursor)
                     
-                    # Consultamos directamente la tabla plan_cuentas de la base de datos del cliente ya conectada en el login
+                    # ⚠️ FUERZA EL CAMBIO DE BASE DE DATOS SEGÚN LA EMPRESA SELECCIONADA EN LA SESIÓN
+                    # (Asegúrate de cambiar 'nombre_bd_cliente' por la variable de session_state donde guardas la BD del tenant actual)
+                    nombre_bd_cliente = st.session_state.get("empresa_seleccionada_bd", "control_central") 
+                    cursor.execute(f"USE `{nombre_bd_cliente}`")
+
+                    # Consultamos el plan de cuentas en la base de datos correcta del cliente
                     cursor.execute("SELECT codigo, CONCAT(codigo, ' - ', nombre) as descripcion_cuenta FROM plan_cuentas WHERE tipo = 'Detalle'")
                     cuentas_db = cursor.fetchall()
                     cursor.close()
