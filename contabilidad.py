@@ -5548,10 +5548,6 @@ def verificar_si_es_contribuyente_especial(db_name):
 
 
 
-import pandas as pd
-import streamlit as st
-import pymysql
-
 def renderizar_tab_asientos_automatizados(db_connection):
     st.subheader("🤖 Asientos Automatizados (Comprobantes Contables)")
     st.markdown("""
@@ -5568,9 +5564,13 @@ def renderizar_tab_asientos_automatizados(db_connection):
     
     try:
         cursor_opt = db_connection.cursor(pymysql.cursors.DictCursor)
-        cursor_opt.execute("SELECT codigo, nombre FROM plan_cuentas WHERE tipo = 'Detalle'")
+        # Usamos TRIM y LOWER para evitar fallas por espacios o diferencias en mayúsculas/minúsculas
+        cursor_opt.execute("SELECT codigo, nombre FROM plan_cuentas WHERE LOWER(TRIM(tipo)) = 'detalle'")
         cuentas_opt = cursor_opt.fetchall()
         cursor_opt.close()
+        
+        # Mensaje de depuración temporal para confirmar las cuentas leídas de la BD
+        st.info(f"🔍 Diagnóstico: Se encontraron {len(cuentas_opt)} cuentas de tipo 'Detalle' en la base de datos.")
         
         if cuentas_opt:
             for c in cuentas_opt:
