@@ -5548,7 +5548,6 @@ def verificar_si_es_contribuyente_especial(db_name):
 
 
 def renderizar_tab_asientos_automatizados(db_connection):
-    db_connection = obtener_conexion_tidb() # Reemplaza esto con tu función real de conexión
     st.subheader("🤖 Automatización Inteligente de Comprobantes Contables")
     st.markdown("""
     Sube tu archivo Excel de compras del periodo. El sistema procesará la información para que puedas asignar 
@@ -8022,10 +8021,7 @@ elif opcion_menu == "📝 Asientos Contables":
                             else:
                                 st.error("❌ Error de conexión.")
             with tab4:
-                # --- PESTAÑA 4: Asientos Automatizados ---
-                # Obtenemos la conexión activa usando tu propia función de TiDB Cloud
                 conexion_actual = conectar_db() 
-                
                 if conexion_actual:
                     renderizar_tab_asientos_automatizados(conexion_actual)
                 else:
