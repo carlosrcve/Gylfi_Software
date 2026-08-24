@@ -5556,13 +5556,41 @@ def renderizar_tab_asientos_automatizados(db_connection):
     """)
 
     # ----------------------------------------------------
+    # PASO 0: CARGAR PLAN DE CUENTAS GENERAL (GLOBAL PARA LA VISTA)
+    # ----------------------------------------------------
+    codigos_disponibles = []
+    mapa_descripciones = {}
+    try:
+        cursor_opt = db_connection.cursor(pymysql.cursors.DictCursor)
+        cursor_opt.execute("""
+            CREATE TABLE IF NOT EXISTS plan_cuentas (
+                id INT NOT NULL,
+                codigo VARCHAR(50) NOT NULL,
+                nombre VARCHAR(255) NOT NULL,
+                nivel INT NOT NULL,
+                tipo ENUM('Grupo', 'Detalle') NOT NULL,
+                padre VARCHAR(50) DEFAULT NULL,
+                PRIMARY KEY (id),
+                UNIQUE (codigo)
+            ) ENGINE=InnoDB;
+        """)
+        cursor_opt.execute("SELECT codigo, nombre FROM plan_cuentas WHERE tipo = 'Detalle'")
+        cuentas_opt = cursor_opt.fetchall()
+        cursor_opt.close()
+        
+        codigos_disponibles = [c["codigo"] for c in cuentas_opt]
+        mapa_descripciones = {c["codigo"]: c["nombre"] for c in cuentas_opt}
+    except Exception as e:
+        st.warning(f"No se pudo cargar el plan de cuentas de forma automática: {e}")
+
+    # ----------------------------------------------------
     # PASO 1: CARGA DEL EXCEL (PRIMER FRAME)
     # ----------------------------------------------------
     st.markdown("### 📁 Paso 1: Carga el Archivo de Compras")
     
     with st.expander("Ver formato requerido de columnas para el Excel"):
         st.markdown("""
-        El Excel debe contener las siguientes columnas exactas:
+        El Excel debe contener las siguientes columnas (o nombres similares):
         - `Fecha de Operación` (YYYY-MM-DD)
         - `Tipo de Documento`
         - `Número de Documento`
@@ -5579,6 +5607,10 @@ def renderizar_tab_asientos_automatizados(db_connection):
     if archivo_excel is not None:
         try:
             df_compras = pd.read_excel(archivo_excel)
+            
+            # Limpiar nombres de columnas por si tienen espacios de más
+            df_compras.columns = df_compras.columns.str.strip()
+            
             st.success("¡Archivo cargado correctamente! Vista previa de los datos originales:")
             st.dataframe(df_compras, use_container_width=True)
 
@@ -5591,41 +5623,45 @@ def renderizar_tab_asientos_automatizados(db_connection):
             # ----------------------------------------------------
             if st.button("🔄 Generar Propuesta de Asientos Contables"):
                 try:
-                    cursor = db_connection.cursor(pymysql.cursors.DictCursor)
-                    
-                    # 🛡️ ASEGURAR QUE LA TABLA EXISTA EN ESTA BD ANTES DE CONSULTARLA
-                    cursor.execute("""
-                        CREATE TABLE IF NOT EXISTS plan_cuentas (
-                            id INT NOT NULL,
-                            codigo VARCHAR(50) NOT NULL,
-                            nombre VARCHAR(255) NOT NULL,
-                            nivel INT NOT NULL,
-                            tipo ENUM('Grupo', 'Detalle') NOT NULL,
-                            padre VARCHAR(50) DEFAULT NULL,
-                            PRIMARY KEY (id),
-                            UNIQUE (codigo)
-                        ) ENGINE=InnoDB;
-                    """)
-                    
-                    cursor.execute("SELECT codigo, nombre, CONCAT(codigo, ' - ', nombre) as descripcion_cuenta FROM plan_cuentas WHERE tipo = 'Detalle'")
-                    cuentas_db = cursor.fetchall()
-                    cursor.close()
-                    
-                    lista_opciones_cuentas = [c["descripcion_cuenta"] for c in cuentas_db]
-                    mapa_nombres = {c["codigo"]: c["nombre"] for c in cuentas_db}
-
                     # Cuentas por defecto sugeridas
-                    cta_iva_default = "1.1.4.01.001" if "1.1.4.01.001" in mapa_nombres else (lista_opciones_cuentas[0].split(' - ')[0] if lista_opciones_cuentas else "")
-                    cta_prov_default = "2.1.1.01.001" if "2.1.1.01.001" in mapa_nombres else (lista_opciones_cuentas[0].split(' - ')[0] if lista_opciones_cuentas else "")
+                    cta_iva_default = "1.1.4.01.001" if "1.1.4.01.001" in mapa_descripciones else (codigos_disponibles[0] if codigos_disponibles else "")
+                    cta_prov_default = "2.1.1.01.001" if "2.1.1.01.001" in mapa_descripciones else (codigos_disponibles[0] if codigos_disponibles else "")
 
                     filas_asiento_temporal = []
 
                     for idx, row in df_compras.iterrows():
-                        fecha_op = str(row.get("Fecha de Operación", ""))[:10]
-                        proveedor = str(row.get("Nombre o Razón Social", "Sin Proveedor"))
-                        nro_doc = str(row.get("Número de Documento", ""))
-                        base_imponible = float(row.get("Base Imponible", 0.0))
-                        credito_fiscal = float(row.get("Credito Fiscales", 0.0))
+                        # Búsqueda flexible de la fecha para evitar que llegue vacía
+                        fecha_op = ""
+                        for col_candidata in ["Fecha de Operación", "Fecha de Operacion", "Fecha", "FECHA", "fecha"]:
+                            if col_candidata in row and pd.notna(row[col_candidata]):
+                                fecha_op = str(row[col_candidata])[:10]
+                                break
+
+                        # Búsqueda flexible para los demás campos clave
+                        proveedor = "Sin Proveedor"
+                        for col_prov in ["Nombre o Razón Social", "Nombre o Razon Social", "Proveedor", "Razón Social"]:
+                            if col_prov in row and pd.notna(row[col_prov]):
+                                proveedor = str(row[col_prov])
+                                break
+
+                        nro_doc = ""
+                        for col_doc in ["Número de Documento", "Numero de Documento", "Nro Documento", "Documento"]:
+                            if col_doc in row and pd.notna(row[col_doc]):
+                                nro_doc = str(row[col_doc])
+                                break
+
+                        base_imponible = 0.0
+                        for col_bi in ["Base Imponible", "Base_Imponible", "BASE IMPONIBLE"]:
+                            if col_bi in row and pd.notna(row[col_bi]):
+                                base_imponible = float(row[col_bi])
+                                break
+
+                        credito_fiscal = 0.0
+                        for col_cf in ["Credito Fiscales", "Crédito Fiscal", "Credito_Fiscal", "IVA"]:
+                            if col_cf in row and pd.notna(row[col_cf]):
+                                credito_fiscal = float(row[col_cf])
+                                break
+
                         total_factura = base_imponible + credito_fiscal
 
                         # Fila 1: Costo / Gasto (Al Debe)
@@ -5648,7 +5684,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
                                 "descripcion": proveedor,
                                 "fecha": fecha_op,
                                 "plan_cuentas": cta_iva_default,
-                                "cuenta_contable": mapa_nombres.get(cta_iva_default, ""),
+                                "cuenta_contable": mapa_descripciones.get(cta_iva_default, ""),
                                 "referencia": nro_doc,
                                 "debe": credito_fiscal,
                                 "haber": 0.0,
@@ -5661,7 +5697,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
                             "descripcion": proveedor,
                             "fecha": fecha_op,
                             "plan_cuentas": cta_prov_default,
-                            "cuenta_contable": mapa_nombres.get(cta_prov_default, ""),
+                            "cuenta_contable": mapa_descripciones.get(cta_prov_default, ""),
                             "referencia": nro_doc,
                             "debe": 0.0,
                             "haber": total_factura,
@@ -5672,25 +5708,13 @@ def renderizar_tab_asientos_automatizados(db_connection):
                     st.success("¡Segundo frame generado con éxito! Ajusta las cuentas contables según sea necesario:")
 
                 except Exception as sql_err:
-                    st.error(f"Error al consultar el plan de cuentas en la base de datos de la empresa: {sql_err}")
+                    st.error(f"Error al procesar los datos de las compras: {sql_err}")
 
             # Si ya existe el DataFrame procesado en memoria, mostramos la tabla interactiva y editores
             if 'df_asientos_proceso' in st.session_state and not st.session_state['df_asientos_proceso'].empty:
                 st.markdown("### 📋 Segundo Frame: Estructura del Asiento Contable (Partida Doble)")
                 
-                # Obtener lista actual de códigos para el selectbox
-                try:
-                    cursor_opt = db_connection.cursor(pymysql.cursors.DictCursor)
-                    cursor_opt.execute("SELECT codigo, nombre FROM plan_cuentas WHERE tipo = 'Detalle'")
-                    cuentas_opt = cursor_opt.fetchall()
-                    cursor_opt.close()
-                    codigos_disponibles = [c["codigo"] for c in cuentas_opt]
-                    mapa_descripciones = {c["codigo"]: c["nombre"] for c in cuentas_opt}
-                except Exception:
-                    codigos_disponibles = []
-                    mapa_descripciones = {}
-
-                # Configurar el editor para que 'plan_cuentas' sea un desplegable de códigos
+                # Configurar el editor para que 'plan_cuentas' sea un desplegable de códigos válido
                 df_editado = st.data_editor(
                     st.session_state['df_asientos_proceso'],
                     num_rows="dynamic",
@@ -5710,7 +5734,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
                     key="editor_asientos_auto"
                 )
 
-                # Actualizar automáticamente la descripción de la cuenta si el usuario cambia el código en tiempo real en la tabla
+                # Actualizar automáticamente la descripción de la cuenta si el usuario cambia el código en tiempo real
                 for idx, row in df_editado.iterrows():
                     codigo_actual = str(row.get("plan_cuentas", "")).strip()
                     if codigo_actual in mapa_descripciones:
@@ -5727,10 +5751,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
                         
                         for index, row in df_editado.iterrows():
                             codigo_cuenta = str(row["plan_cuentas"]).strip()
-                            
-                            cursor.execute("SELECT nombre FROM plan_cuentas WHERE codigo = %s", (codigo_cuenta,))
-                            res_cuenta = cursor.fetchone()
-                            nombre_cuenta_contable = res_cuenta[0] if res_cuenta else str(row.get("cuenta_contable", "Cuenta General"))
+                            nombre_cuenta_contable = mapa_descripciones.get(codigo_cuenta, str(row.get("cuenta_contable", "Cuenta General")))
 
                             valores = (
                                 row["n_comprobante"],
