@@ -5546,6 +5546,166 @@ def verificar_si_es_contribuyente_especial(db_name):
     
     return False
 
+
+def renderizar_tab_asientos_automatizados(db_connection):
+    st.subheader("🤖 Automatización Inteligente de Comprobantes Contables")
+    st.markdown("""
+    Sube tu archivo Excel de compras del periodo. El sistema procesará la información para que puedas asignar 
+    las cuentas contables de forma sencilla y generar automáticamente los asientos en partida doble.
+    """)
+
+    # ----------------------------------------------------
+    # PASO 1: CARGA DEL EXCEL (PRIMER FRAME)
+    # ----------------------------------------------------
+    st.markdown("### 📁 Paso 1: Carga el Archivo de Compras")
+    
+    # Opcional: Permitir descargar plantilla de ejemplo para el cliente
+    with st.expander("Ver formato requerido de columnas para el Excel"):
+        st.markdown("""
+        El Excel debe contener las siguientes columnas exactas:
+        - `Fecha de Operación` (YYYY-MM-DD)
+        - `Tipo de Documento`
+        - `Número de Documento`
+        - `Número de Control`
+        - `Nombre o Razón Social`
+        - `R.I.F.`
+        - `Total Compras`
+        - `Base Imponible`
+        - `Credito Fiscales`
+        """)
+
+    archivo_excel = st.file_uploader("Sube tu archivo de Excel", type=["xlsx", "xls"], key="uploader_excel_compras")
+
+    if archivo_excel is not None:
+        try:
+            df_compras = pd.read_excel(archivo_excel)
+            st.success("¡Archivo cargado correctamente! Vista previa de los datos originales:")
+            st.dataframe(df_compras.head())
+
+            # Definir Nomenclatura del Comprobante
+            st.markdown("### ⚙️ Configuración del Lote")
+            n_comprobante_base = st.text_input("Indica el Número de Comprobante base para este lote (Ej. 050001)", value="050001")
+
+            # ----------------------------------------------------
+            # PASO 2: CONVERSIÓN A SEGUNDO FRAME (ASIENTOS CONTABLES)
+            # ----------------------------------------------------
+            if st.button("🔄 Generar Propuesta de Asientos Contables"):
+                # Cargar el plan de cuentas desde la base de datos para los selectbox
+                cursor = db_connection.cursor(dictionary=True)
+                cursor.execute("SELECT codigo, CONCAT(codigo, ' - ', nombre) as descripcion_cuenta FROM plan_cuentas WHERE tipo = 'Detalle'")
+                cuentas_db = cursor.fetchall()
+                cursor.close()
+
+                lista_opciones_cuentas = [c["descripcion_cuenta"] for c in cuentas_db]
+                # Diccionario rápido para extraer solo el código si es necesario
+                mapa_cuentas = {c["descripcion_cuenta"]: c["codigo"] for c in cuentas_db}
+
+                filas_asiento_temporal = []
+
+                for idx, row in df_compras.iterrows():
+                    fecha_op = str(row.get("Fecha de Operación", ""))[:10]
+                    proveedor = str(row.get("Nombre o Razón Social", "Sin Proveedor"))
+                    nro_doc = str(row.get("Número de Documento", ""))
+                    base_imponible = float(row.get("Base Imponible", 0.0))
+                    credito_fiscal = float(row.get("Credito Fiscales", 0.0))
+                    total_factura = base_imponible + credito_fiscal
+
+                    # Fila 1: Costo / Gasto (Al Debe)
+                    filas_asiento_temporal.append({
+                        "n_comprobante": n_comprobante_base,
+                        "descripcion": proveedor,
+                        "fecha": fecha_op,
+                        "plan_cuentas": "", # Se llenará con el selectbox
+                        "referencia": nro_doc,
+                        "debe": base_imponible,
+                        "haber": 0.0,
+                        "tipo_linea": "Gasto/Costo"
+                    })
+
+                    # Fila 2: IVA Crédito Fiscal (Al Debe) - Si aplica
+                    if credito_fiscal > 0:
+                        filas_asiento_temporal.append({
+                            "n_comprobante": n_comprobante_base,
+                            "descripcion": proveedor,
+                            "fecha": fecha_op,
+                            "plan_cuentas": "1.1.4.01.001" if "1.1.4.01.001" in [v.split(' - ')[0] for v in lista_opciones_cuentas] else "",
+                            "referencia": nro_doc,
+                            "debe": credito_fiscal,
+                            "haber": 0.0,
+                            "tipo_linea": "IVA Crédito Fiscal"
+                        })
+
+                    # Fila 3: Contrapartida - Proveedores o Banco (Al Haber)
+                    filas_asiento_temporal.append({
+                        "n_comprobante": n_comprobante_base,
+                        "descripcion": proveedor,
+                        "fecha": fecha_op,
+                        "plan_cuentas": "2.1.1.01.001" if "2.1.1.01.001" in [v.split(' - ')[0] for v in lista_opciones_cuentas] else "",
+                        "referencia": nro_doc,
+                        "debe": 0.0,
+                        "haber": total_factura,
+                        "tipo_linea": "Contrapartida (Por Pagar/Banco)"
+                    })
+
+                # Guardar en session_state para permitir edición interactiva en Streamlit
+                st.session_state['df_asientos_proceso'] = pd.DataFrame(filas_asiento_temporal)
+                st.success("¡Segundo frame generado con éxito! Ajusta las cuentas contables según sea necesario:")
+
+            # Si ya existe el DataFrame procesado en memoria, mostramos la tabla interactiva y editores
+            if 'df_asientos_proceso' in st.session_state and not st.session_state['df_asientos_proceso'].empty:
+                st.markdown("### 📋 Segundo Frame: Estructura del Asiento Contable (Partida Doble)")
+                
+                # Renderizamos un data editor para que el cliente pueda ajustar cuentas o montos si lo desea
+                df_editado = st.data_editor(
+                    st.session_state['df_asientos_proceso'],
+                    num_rows="dynamic",
+                    key="editor_asientos_auto"
+                )
+
+                # Botón final para volcar los datos a la tabla 'asientos_contables' de la BD
+                if st.button("💾 Guardar Asientos Definitivos en el Libro Diario"):
+                    try:
+                        cursor = db_connection.cursor()
+                        sql_insert = """
+                            INSERT INTO asientos_contables (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                        """
+                        
+                        # Aquí puedes buscar de forma automática el nombre de la cuenta usando el código seleccionado
+                        for index, row in df_editado.iterrows():
+                            codigo_cuenta = str(row["plan_cuentas"]).split(' - ')[0].strip()
+                            
+                            # Obtener nombre de la cuenta desde la BD
+                            cursor.execute("SELECT nombre FROM plan_cuentas WHERE codigo = %s", (codigo_cuenta,))
+                            res_cuenta = cursor.fetchone()
+                            nombre_cuenta_contable = res_cuenta[0] if res_cuenta else "Cuenta General"
+
+                            valores = (
+                                row["n_comprobante"],
+                                row["descripcion"],
+                                row["fecha"],
+                                codigo_cuenta,
+                                nombre_cuenta_contable,
+                                row["referencia"],
+                                float(row["debe"]),
+                                float(row["haber"])
+                            )
+                            cursor.execute(sql_insert, valores)
+
+                        db_connection.commit()
+                        cursor.close()
+                        st.success("🎉 ¡Todos los asientos contables fueron guardados e integrados exitosamente en la base de datos!")
+                        
+                        # Limpiar estado temporal
+                        del st.session_state['df_asientos_proceso']
+                        
+                    except Exception as db_err:
+                        db_connection.rollback()
+                        st.error(f"Error al guardar los asientos en la base de datos: {db_err}")
+
+        except Exception as e:
+            st.error(f"Error al leer el archivo Excel: {e}")
+            
 def gestionar_sidebar():
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
     user_id = st.session_state.get('user_id', st.session_state.get('cliente_id', 'N/A'))
@@ -7680,7 +7840,12 @@ elif opcion_menu == "📝 Asientos Contables":
         # 1. Validación de Seguridad: ¿Hay base de datos?
         if 'DB_ACTUAL' in st.session_state and st.session_state['DB_ACTUAL']:
             db_nombre = st.session_state['DB_ACTUAL']
-            tab1, tab2, tab3 = st.tabs(["📖 Ver Libro Diario", "📤 Importar Excel", "🗑️ Vaciar Asiento de Diarios"])
+            tab1, tab2, tab3, tab4 = st.tabs([
+                "📖 Ver Libro Diario", 
+                "📤 Importar Excel", 
+                "🗑️ Vaciar Asiento de Diarios",
+                "🤖 Asientos Automatizados"
+            ])
 
             def exportar_a_excel(df):
                 output = io.BytesIO()
@@ -7855,6 +8020,9 @@ elif opcion_menu == "📝 Asientos Contables":
                                     pass
                             else:
                                 st.error("❌ Error de conexión.")
+            with tab4:
+                # --- PESTAÑA 4: renderizar_tab_asientos_automatizados --- 
+                renderizar_tab_asientos_automatizados()                
         else:
             st.warning("⚠️ Por favor, seleccione una empresa en el panel lateral para gestionar sus asientos.")
 
