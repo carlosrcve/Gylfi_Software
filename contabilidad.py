@@ -5548,6 +5548,7 @@ def verificar_si_es_contribuyente_especial(db_name):
 
 
 def renderizar_tab_asientos_automatizados(db_connection):
+    db_connection = obtener_conexion_tidb() # Reemplaza esto con tu función real de conexión
     st.subheader("🤖 Automatización Inteligente de Comprobantes Contables")
     st.markdown("""
     Sube tu archivo Excel de compras del periodo. El sistema procesará la información para que puedas asignar 
@@ -5705,7 +5706,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
 
         except Exception as e:
             st.error(f"Error al leer el archivo Excel: {e}")
-            
+
 def gestionar_sidebar():
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
     user_id = st.session_state.get('user_id', st.session_state.get('cliente_id', 'N/A'))
@@ -8022,7 +8023,7 @@ elif opcion_menu == "📝 Asientos Contables":
                                 st.error("❌ Error de conexión.")
             with tab4:
                 # --- PESTAÑA 4: renderizar_tab_asientos_automatizados --- 
-                renderizar_tab_asientos_automatizados()                
+                renderizar_tab_asientos_automatizados(conexion)
         else:
             st.warning("⚠️ Por favor, seleccione una empresa en el panel lateral para gestionar sus asientos.")
 
