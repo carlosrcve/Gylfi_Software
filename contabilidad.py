@@ -5547,11 +5547,6 @@ def verificar_si_es_contribuyente_especial(db_name):
     return False
 
 
-
-import pandas as pd
-import streamlit as st
-import pymysql
-
 def renderizar_tab_asientos_automatizados(db_connection):
     st.subheader("🤖 Asientos Automatizados (Comprobantes Contables)")
     st.markdown("""
@@ -5583,18 +5578,18 @@ def renderizar_tab_asientos_automatizados(db_connection):
         cuentas_opt = cursor_opt.fetchall()
         cursor_opt.close()
         
-        # Obtenemos la lista limpia de códigos
-        codigos_disponibles = [str(c["codigo"]).strip() for c in cuentas_opt]
-        mapa_descripciones = {str(c["codigo"]).strip(): c["nombre"] for c in cuentas_opt}
+        # Filtrar y limpiar para evitar nulos o cadenas vacías en la lista de opciones
+        codigos_disponibles = [str(c["codigo"]).strip() for c in cuentas_opt if c.get("codigo")]
+        mapa_descripciones = {str(c["codigo"]).strip(): c["nombre"] for c in cuentas_opt if c.get("codigo")}
     except Exception as e:
         st.warning(f"No se pudo cargar el plan de cuentas de forma automática: {e}")
 
-    # Asegurar que la lista no esté vacía para evitar errores en SelectboxColumn
+    # Fallback si la tabla está vacía para evitar fallos en Streamlit
     if not codigos_disponibles:
-        codigos_disponibles = [""]
+        codigos_disponibles = ["SIN_CONFIGURAR"]
+        mapa_descripciones["SIN_CONFIGURAR"] = "Debe registrar cuentas en plan_cuentas"
 
-    # Valor por defecto seguro (el primero disponible)
-    default_code = codigos_disponibles[0] if codigos_disponibles else ""
+    default_code = codigos_disponibles[0]
     cta_iva_default = "1.1.4.01.001" if "1.1.4.01.001" in codigos_disponibles else default_code
     cta_prov_default = "2.1.1.01.001" if "2.1.1.01.001" in codigos_disponibles else default_code
 
@@ -5676,7 +5671,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
 
                         total_factura = base_imponible + credito_fiscal
 
-                        # Fila 1: Gasto / Costo (Al Debe) -> Sugerimos un código por defecto válido
+                        # Fila 1: Gasto / Costo (Al Debe)
                         filas_asiento_temporal.append({
                             "n_comprobante": n_comprobante_base,
                             "descripcion": proveedor,
@@ -5703,7 +5698,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
                                 "tipo_linea": "IVA Crédito Fiscal"
                             })
 
-                        # Fila 3: Contrapartida - Cuentas por Pagar o Banco (Al Haber)
+                        # Fila 3: Contrapartida (Al Haber)
                         filas_asiento_temporal.append({
                             "n_comprobante": n_comprobante_base,
                             "descripcion": proveedor,
@@ -5734,7 +5729,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
                             "Plan de Cuentas (Código)",
                             help="Selecciona el código de la cuenta del plan",
                             options=codigos_disponibles,
-                            required=True
+                            required=False  # <--- Cambiado a False para evitar el error visual rojo
                         ),
                         "cuenta_contable": st.column_config.TextColumn(
                             "Descripción Cuenta",
@@ -5755,7 +5750,6 @@ def renderizar_tab_asientos_automatizados(db_connection):
                 if st.button("💾 Guardar Asientos Definitivos en el Libro Diario"):
                     try:
                         cursor = db_connection.cursor()
-                        # Verificamos que la tabla exista antes de insertar
                         cursor.execute("""
                             CREATE TABLE IF NOT EXISTS asientos_contables (
                                 id INT AUTO_INCREMENT PRIMARY KEY,
