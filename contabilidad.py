@@ -5548,18 +5548,23 @@ def verificar_si_es_contribuyente_especial(db_name):
 
 
 
+import pandas as pd
+import streamlit as st
+import pymysql
+
 def renderizar_tab_asientos_automatizados(db_connection):
-    st.subheader("🤖 Automatización Inteligente de Comprobantes Contables")
+    st.subheader("🤖 Asientos Automatizados (Comprobantes Contables)")
     st.markdown("""
     Sube tu archivo Excel de compras del periodo. El sistema procesará la información para que puedas asignar 
     las cuentas contables de forma sencilla y generar automáticamente los asientos en partida doble.
     """)
 
     # ----------------------------------------------------
-    # PASO 0: CARGAR PLAN DE CUENTAS GENERAL (GLOBAL PARA LA VISTA)
+    # PASO 0: CARGAR PLAN DE CUENTAS GENERAL (GLOBAL)
     # ----------------------------------------------------
     codigos_disponibles = []
     mapa_descripciones = {}
+    
     try:
         cursor_opt = db_connection.cursor(pymysql.cursors.DictCursor)
         cursor_opt.execute("""
@@ -5578,106 +5583,113 @@ def renderizar_tab_asientos_automatizados(db_connection):
         cuentas_opt = cursor_opt.fetchall()
         cursor_opt.close()
         
-        codigos_disponibles = [c["codigo"] for c in cuentas_opt]
-        mapa_descripciones = {c["codigo"]: c["nombre"] for c in cuentas_opt}
+        # Obtenemos la lista limpia de códigos
+        codigos_disponibles = [str(c["codigo"]).strip() for c in cuentas_opt]
+        mapa_descripciones = {str(c["codigo"]).strip(): c["nombre"] for c in cuentas_opt}
     except Exception as e:
         st.warning(f"No se pudo cargar el plan de cuentas de forma automática: {e}")
 
+    # Asegurar que la lista no esté vacía para evitar errores en SelectboxColumn
+    if not codigos_disponibles:
+        codigos_disponibles = [""]
+
+    # Valor por defecto seguro (el primero disponible)
+    default_code = codigos_disponibles[0] if codigos_disponibles else ""
+    cta_iva_default = "1.1.4.01.001" if "1.1.4.01.001" in codigos_disponibles else default_code
+    cta_prov_default = "2.1.1.01.001" if "2.1.1.01.001" in codigos_disponibles else default_code
+
     # ----------------------------------------------------
-    # PASO 1: CARGA DEL EXCEL (PRIMER FRAME)
+    # PASO 1: CARGA DEL EXCEL
     # ----------------------------------------------------
     st.markdown("### 📁 Paso 1: Carga el Archivo de Compras")
     
     with st.expander("Ver formato requerido de columnas para el Excel"):
         st.markdown("""
-        El Excel debe contener las siguientes columnas (o nombres similares):
-        - `Fecha de Operación` (YYYY-MM-DD)
+        El Excel debe contener las columnas:
+        - `Fecha de Operación`
         - `Tipo de Documento`
         - `Número de Documento`
         - `Número de Control`
         - `Nombre o Razón Social`
         - `R.I.F.`
         - `Total Compras`
+        - `Compras Exentas`
         - `Base Imponible`
+        - `Alicuota(%)`
         - `Credito Fiscales`
         """)
 
-    archivo_excel = st.file_uploader("Sube tu archivo de Excel", type=["xlsx", "xls"], key="uploader_excel_compras")
+    archivo_excel = st.file_uploader("Sube tu archivo de Excel", type=["xlsx", "xls"], key="uploader_excel_compras_tab4")
 
     if archivo_excel is not None:
         try:
             df_compras = pd.read_excel(archivo_excel)
-            
-            # Limpiar nombres de columnas por si tienen espacios de más
             df_compras.columns = df_compras.columns.str.strip()
             
-            st.success("¡Archivo cargado correctamente! Vista previa de los datos originales:")
+            st.success("¡Archivo cargado correctamente! Vista previa:")
             st.dataframe(df_compras, use_container_width=True)
 
-            # Definir Nomenclatura del Comprobante
             st.markdown("### ⚙️ Configuración del Lote")
-            n_comprobante_base = st.text_input("Indica el Número de Comprobante base para este lote (Ej. 050001)", value="050001")
+            n_comprobante_base = st.text_input("Número de Comprobante base (Ej. 050001)", value="050001")
 
             # ----------------------------------------------------
-            # PASO 2: CONVERSIÓN A SEGUNDO FRAME (ASIENTOS CONTABLES)
+            # PASO 2: CONVERSIÓN A SEGUNDO FRAME
             # ----------------------------------------------------
             if st.button("🔄 Generar Propuesta de Asientos Contables"):
                 try:
-                    # Cuentas por defecto sugeridas
-                    cta_iva_default = "1.1.4.01.001" if "1.1.4.01.001" in mapa_descripciones else (codigos_disponibles[0] if codigos_disponibles else "")
-                    cta_prov_default = "2.1.1.01.001" if "2.1.1.01.001" in mapa_descripciones else (codigos_disponibles[0] if codigos_disponibles else "")
-
                     filas_asiento_temporal = []
 
                     for idx, row in df_compras.iterrows():
-                        # Búsqueda flexible de la fecha para evitar que llegue vacía
+                        # 1. Fecha flexible
                         fecha_op = ""
-                        for col_candidata in ["Fecha de Operación", "Fecha de Operacion", "Fecha", "FECHA", "fecha"]:
-                            if col_candidata in row and pd.notna(row[col_candidata]):
-                                fecha_op = str(row[col_candidata])[:10]
+                        for col in ["Fecha de Operación", "Fecha de Operacion", "Fecha", "FECHA", "fecha"]:
+                            if col in row and pd.notna(row[col]):
+                                fecha_op = str(row[col])[:10]
                                 break
 
-                        # Búsqueda flexible para los demás campos clave
+                        # 2. Proveedor / Descripción
                         proveedor = "Sin Proveedor"
-                        for col_prov in ["Nombre o Razón Social", "Nombre o Razon Social", "Proveedor", "Razón Social"]:
-                            if col_prov in row and pd.notna(row[col_prov]):
-                                proveedor = str(row[col_prov])
+                        for col in ["Nombre o Razón Social", "Nombre o Razon Social", "Proveedor", "Razón Social"]:
+                            if col in row and pd.notna(row[col]):
+                                proveedor = str(row[col])
                                 break
 
+                        # 3. Referencia (Nro Documento)
                         nro_doc = ""
-                        for col_doc in ["Número de Documento", "Numero de Documento", "Nro Documento", "Documento"]:
-                            if col_doc in row and pd.notna(row[col_doc]):
-                                nro_doc = str(row[col_doc])
+                        for col in ["Número de Documento", "Numero de Documento", "Nro Documento", "Documento"]:
+                            if col in row and pd.notna(row[col]):
+                                nro_doc = str(row[col])
                                 break
 
+                        # 4. Montos
                         base_imponible = 0.0
-                        for col_bi in ["Base Imponible", "Base_Imponible", "BASE IMPONIBLE"]:
-                            if col_bi in row and pd.notna(row[col_bi]):
-                                base_imponible = float(row[col_bi])
+                        for col in ["Base Imponible", "Base_Imponible", "BASE IMPONIBLE"]:
+                            if col in row and pd.notna(row[col]):
+                                base_imponible = float(row[col])
                                 break
 
                         credito_fiscal = 0.0
-                        for col_cf in ["Credito Fiscales", "Crédito Fiscal", "Credito_Fiscal", "IVA"]:
-                            if col_cf in row and pd.notna(row[col_cf]):
-                                credito_fiscal = float(row[col_cf])
+                        for col in ["Credito Fiscales", "Crédito Fiscal", "Credito_Fiscal", "IVA"]:
+                            if col in row and pd.notna(row[col]):
+                                credito_fiscal = float(row[col])
                                 break
 
                         total_factura = base_imponible + credito_fiscal
 
-                        # Fila 1: Costo / Gasto (Al Debe)
+                        # Fila 1: Gasto / Costo (Al Debe) -> Sugerimos un código por defecto válido
                         filas_asiento_temporal.append({
                             "n_comprobante": n_comprobante_base,
                             "descripcion": proveedor,
                             "fecha": fecha_op,
-                            "plan_cuentas": "", 
-                            "cuenta_contable": "",
+                            "plan_cuentas": default_code, 
+                            "cuenta_contable": mapa_descripciones.get(default_code, ""),
                             "referencia": nro_doc,
                             "debe": base_imponible,
                             "haber": 0.0,
                             "tipo_linea": "Gasto/Costo"
                         })
 
-                        # Fila 2: IVA Crédito Fiscal (Al Debe) - Si aplica
+                        # Fila 2: IVA Crédito Fiscal (Al Debe)
                         if credito_fiscal > 0:
                             filas_asiento_temporal.append({
                                 "n_comprobante": n_comprobante_base,
@@ -5691,7 +5703,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
                                 "tipo_linea": "IVA Crédito Fiscal"
                             })
 
-                        # Fila 3: Contrapartida - Proveedores o Banco (Al Haber)
+                        # Fila 3: Contrapartida - Cuentas por Pagar o Banco (Al Haber)
                         filas_asiento_temporal.append({
                             "n_comprobante": n_comprobante_base,
                             "descripcion": proveedor,
@@ -5705,25 +5717,24 @@ def renderizar_tab_asientos_automatizados(db_connection):
                         })
 
                     st.session_state['df_asientos_proceso'] = pd.DataFrame(filas_asiento_temporal)
-                    st.success("¡Segundo frame generado con éxito! Ajusta las cuentas contables según sea necesario:")
+                    st.success("¡Segundo frame generado con éxito! Selecciona y ajusta las cuentas contables necesarias:")
 
                 except Exception as sql_err:
                     st.error(f"Error al procesar los datos de las compras: {sql_err}")
 
-            # Si ya existe el DataFrame procesado en memoria, mostramos la tabla interactiva y editores
+            # Mostrar tabla interactiva si existe en memoria
             if 'df_asientos_proceso' in st.session_state and not st.session_state['df_asientos_proceso'].empty:
                 st.markdown("### 📋 Segundo Frame: Estructura del Asiento Contable (Partida Doble)")
                 
-                # Configurar el editor para que 'plan_cuentas' sea un desplegable de códigos válido
                 df_editado = st.data_editor(
                     st.session_state['df_asientos_proceso'],
                     num_rows="dynamic",
                     column_config={
                         "plan_cuentas": st.column_config.SelectboxColumn(
                             "Plan de Cuentas (Código)",
-                            help="Selecciona el código de la cuenta",
+                            help="Selecciona el código de la cuenta del plan",
                             options=codigos_disponibles,
-                            required=False
+                            required=True
                         ),
                         "cuenta_contable": st.column_config.TextColumn(
                             "Descripción Cuenta",
@@ -5731,19 +5742,34 @@ def renderizar_tab_asientos_automatizados(db_connection):
                         ),
                         "fecha": st.column_config.TextColumn("Fecha"),
                     },
-                    key="editor_asientos_auto"
+                    key="editor_asientos_auto_tab4"
                 )
 
-                # Actualizar automáticamente la descripción de la cuenta si el usuario cambia el código en tiempo real
+                # Actualizar el nombre de la cuenta automáticamente al cambiar el código
                 for idx, row in df_editado.iterrows():
                     codigo_actual = str(row.get("plan_cuentas", "")).strip()
                     if codigo_actual in mapa_descripciones:
                         df_editado.at[idx, "cuenta_contable"] = mapa_descripciones[codigo_actual]
 
-                # Botón final para volcar los datos a la tabla 'asientos_contables' de la BD
+                # Botón de Guardado en la BD (`asientos_contables`)
                 if st.button("💾 Guardar Asientos Definitivos en el Libro Diario"):
                     try:
                         cursor = db_connection.cursor()
+                        # Verificamos que la tabla exista antes de insertar
+                        cursor.execute("""
+                            CREATE TABLE IF NOT EXISTS asientos_contables (
+                                id INT AUTO_INCREMENT PRIMARY KEY,
+                                n_comprobante VARCHAR(50),
+                                descripcion TEXT,
+                                fecha DATE,
+                                plan_cuentas VARCHAR(100),
+                                cuenta_contable VARCHAR(255),
+                                referencia VARCHAR(100),
+                                debe DECIMAL(15, 2) DEFAULT 0.00,
+                                haber DECIMAL(15, 2) DEFAULT 0.00
+                            );
+                        """)
+
                         sql_insert = """
                             INSERT INTO asientos_contables (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber)
                             VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
@@ -5756,7 +5782,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
                             valores = (
                                 row["n_comprobante"],
                                 row["descripcion"],
-                                row["fecha"],
+                                row["fecha"] if row["fecha"] else None,
                                 codigo_cuenta,
                                 nombre_cuenta_contable,
                                 row["referencia"],
@@ -5767,7 +5793,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
 
                         db_connection.commit()
                         cursor.close()
-                        st.success("🎉 ¡Todos los asientos contables fueron guardados e integrados exitosamente en la base de datos!")
+                        st.success("🎉 ¡Asientos contables guardados exitosamente en el Libro Diario!")
                         
                         del st.session_state['df_asientos_proceso']
                         st.rerun()
