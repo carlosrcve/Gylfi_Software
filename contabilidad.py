@@ -5556,7 +5556,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
     st.subheader("🤖 Asientos Automatizados (Comprobantes Contables)")
     st.markdown("""
     Sube tu archivo Excel de compras del periodo. El sistema procesará la información para que puedas asignar 
-    las cuentas contables de detalle mediante selectores interactivos con búsqueda y scroll, generando los asientos en partida doble.
+    las cuentas contables de detalle mediante selectores interactivos con buscador y scroll, y generar automáticamente los asientos en partida doble.
     """)
 
     # ----------------------------------------------------
@@ -5582,7 +5582,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
     except Exception as e:
         st.warning(f"Error al consultar el plan de cuentas: {e}")
 
-    # Fallback por seguridad si no hay cuentas de detalle cargadas
+    # Fallback por seguridad si no hay cuentas
     if not opciones_desplegable:
         opciones_desplegable = [
             "1.1.1.01.001 - Caja Chica", 
@@ -5626,7 +5626,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
             n_comprobante_base = st.text_input("Número de Comprobante base (Ej. 050001)", value="050001")
 
             # ----------------------------------------------------
-            # PASO 2: CONVERSIÓN Y PROPUESTA INTERACTIVA
+            # PASO 2: CONVERSIÓN A SEGUNDO FRAME INTERACTIVO
             # ----------------------------------------------------
             if st.button("🔄 Generar Propuesta de Asientos Contables"):
                 try:
@@ -5671,13 +5671,14 @@ def renderizar_tab_asientos_automatizados(db_connection):
                                 break
 
                         total_factura = base_imponible + credito_fiscal
+                        opcion_def_fila = opciones_desplegable[0]
 
                         # Fila 1: Gasto / Costo (Al Debe)
                         filas_asiento_temporal.append({
                             "n_comprobante": n_comprobante_base,
                             "descripcion": proveedor,
                             "fecha": fecha_op,
-                            "cuenta_seleccionada": opciones_desplegable[0],
+                            "cuenta_seleccionada": opcion_def_fila, 
                             "referencia": nro_doc,
                             "debe": base_imponible,
                             "haber": 0.0,
@@ -5690,7 +5691,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
                                 "n_comprobante": n_comprobante_base,
                                 "descripcion": proveedor,
                                 "fecha": fecha_op,
-                                "cuenta_seleccionada": opciones_desplegable[0],
+                                "cuenta_seleccionada": opcion_def_fila,
                                 "referencia": nro_doc,
                                 "debe": credito_fiscal,
                                 "haber": 0.0,
@@ -5702,7 +5703,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
                             "n_comprobante": n_comprobante_base,
                             "descripcion": proveedor,
                             "fecha": fecha_op,
-                            "cuenta_seleccionada": opciones_desplegable[0],
+                            "cuenta_seleccionada": opcion_def_fila,
                             "referencia": nro_doc,
                             "debe": 0.0,
                             "haber": total_factura,
@@ -5710,33 +5711,32 @@ def renderizar_tab_asientos_automatizados(db_connection):
                         })
 
                     st.session_state['lista_asientos_proceso'] = filas_asiento_temporal
-                    st.success("¡Propuesta generada con éxito! Asigna las cuentas utilizando los selectores interactivos:")
+                    st.success("¡Segundo frame generado con éxito! Selecciona las cuentas usando los selectores con buscador y scroll:")
 
                 except Exception as sql_err:
                     st.error(f"Error al procesar los datos de las compras: {sql_err}")
 
-            # Mostrar formulario interactivo con st.selectbox por cada fila
+            # Mostrar filas interactivas con selectbox individual
             if 'lista_asientos_proceso' in st.session_state and len(st.session_state['lista_asientos_proceso']) > 0:
                 st.markdown("### 📋 Segundo Frame: Asignación Interactiva de Cuentas (Partida Doble)")
                 
-                # Encabezados visuales de la tabla
-                cols_header = st.columns([1.2, 2.2, 1.1, 2.5, 1.1, 1.1, 1.1, 1.3])
-                cols_header[0].markdown("**Comprobante**")
-                cols_header[1].markdown("**Descripción**")
-                cols_header[2].markdown("**Fecha**")
-                cols_header[3].markdown("**Plan de Cuentas (Buscar/Scroll)**")
-                cols_header[4].markdown("**Referencia**")
-                cols_header[5].markdown("**Debe**")
-                cols_header[6].markdown("**Haber**")
-                cols_header[7].markdown("**Tipo**")
+                # Encabezados de la tabla interactiva
+                cols_h = st.columns([1.1, 2.2, 1.1, 2.8, 1.1, 1.1, 1.1, 1.3])
+                cols_h[0].markdown("**Comprobante**")
+                cols_h[1].markdown("**Descripción**")
+                cols_h[2].markdown("**Fecha**")
+                cols_h[3].markdown("**Plan de Cuentas (Código - Nombre)**")
+                cols_h[4].markdown("**Referencia**")
+                cols_h[5].markdown("**Debe**")
+                cols_h[6].markdown("**Haber**")
+                cols_h[7].markdown("**Tipo**")
                 
                 st.markdown("---")
 
-                # Lista temporal para guardar los cambios actualizados
                 datos_actualizados = []
 
                 for i, row in enumerate(st.session_state['lista_asientos_proceso']):
-                    c = st.columns([1.2, 2.2, 1.1, 2.5, 1.1, 1.1, 1.1, 1.3])
+                    c = st.columns([1.1, 2.2, 1.1, 2.8, 1.1, 1.1, 1.1, 1.3])
                     
                     with c[0]:
                         n_comp = st.text_input(f"comp_{i}", value=row["n_comprobante"], key=f"comp_{i}", label_visibility="collapsed")
@@ -5745,7 +5745,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
                     with c[2]:
                         fec = st.text_input(f"fec_{i}", value=row["fecha"], key=f"fec_{i}", label_visibility="collapsed")
                     with c[3]:
-                        # SELECTBOX NATIVO CON SCROLL Y BUSCADOR INTEGRADO
+                        # SELECTBOX NATIVO CON SCROLL Y BUSCADOR IDÉNTICO AL EJEMPLO QUE MOSTRASTE
                         cta_sel = st.selectbox(
                             f"cta_{i}", 
                             options=opciones_desplegable, 
@@ -5762,7 +5762,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
                     with c[7]:
                         tipo_lin = st.text_input(f"tipo_{i}", value=row["tipo_linea"], key=f"tipo_{i}", disabled=True, label_visibility="collapsed")
 
-                    # Extraer código puro y nombre
+                    # Extraer código puro y nombre de la opción seleccionada
                     codigo_puro = cta_sel.split(" - ")[0].strip()
                     nombre_puro = mapa_descripciones.get(codigo_puro, "Cuenta General")
 
@@ -5780,7 +5780,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
                     })
 
                 st.markdown("")
-                # Botón para guardar los asientos definitivos en el Libro Diario
+                # Botón para guardar los asientos definitivos en la base de datos
                 if st.button("💾 Guardar Asientos Definitivos en el Libro Diario", type="primary"):
                     try:
                         cursor = db_connection.cursor()
