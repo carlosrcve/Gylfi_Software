@@ -5591,7 +5591,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
             # ----------------------------------------------------
             if st.button("🔄 Generar Propuesta de Asientos Contables"):
                 # Cargar el plan de cuentas desde la base de datos para los selectbox
-                cursor = db_connection.cursor(dictionary=True)
+                cursor = db_connection.cursor(pymysql.cursors.DictCursor)
                 cursor.execute("SELECT codigo, CONCAT(codigo, ' - ', nombre) as descripcion_cuenta FROM plan_cuentas WHERE tipo = 'Detalle'")
                 cuentas_db = cursor.fetchall()
                 cursor.close()
