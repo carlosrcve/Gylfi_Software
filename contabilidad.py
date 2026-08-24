@@ -8022,15 +8022,14 @@ elif opcion_menu == "📝 Asientos Contables":
                             else:
                                 st.error("❌ Error de conexión.")
             with tab4:
-                # --- PESTAÑA 4: renderizar_tab_asientos_automatizados ---
-                try:
-                    # Asegúrate de usar la función con la que te conectas en tu app (ej. get_db_connection() o similar)
-                    # O si usas una variable global, asegúrate de importarla o definirla.
-                    conexion_activa = obtener_conexion_tidb() # Cambia esto por tu método real de conexión si es distinto
-                    renderizar_tab_asientos_automatizados(conexion_activa)
-                except NameError:
-                    # Si la función de conexión tiene otro nombre, ajústala aquí o pasa la variable correcta
-                    st.error("No se pudo establecer la conexión a la base de datos para la automatización.")
+                # --- PESTAÑA 4: Asientos Automatizados ---
+                # Obtenemos la conexión activa usando tu propia función de TiDB Cloud
+                conexion_actual = conectar_db() 
+                
+                if conexion_actual:
+                    renderizar_tab_asientos_automatizados(conexion_actual)
+                else:
+                    st.error("No se pudo establecer la conexión con la base de datos para cargar los asientos automatizados.")
 
         else:
             st.warning("⚠️ Por favor, seleccione una empresa en el panel lateral para gestionar sus asientos.")
