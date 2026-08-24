@@ -5547,6 +5547,7 @@ def verificar_si_es_contribuyente_especial(db_name):
     return False
 
 
+
 def renderizar_tab_asientos_automatizados(db_connection):
     st.subheader("🤖 Automatización Inteligente de Comprobantes Contables")
     st.markdown("""
@@ -5590,72 +5591,74 @@ def renderizar_tab_asientos_automatizados(db_connection):
             # PASO 2: CONVERSIÓN A SEGUNDO FRAME (ASIENTOS CONTABLES)
             # ----------------------------------------------------
             if st.button("🔄 Generar Propuesta de Asientos Contables"):
-                # Cargar el plan de cuentas desde la base de datos para los selectbox
-                cursor = db_connection.cursor(pymysql.cursors.DictCursor)
-                cursor.execute("SELECT codigo, CONCAT(codigo, ' - ', nombre) as descripcion_cuenta FROM plan_cuentas WHERE tipo = 'Detalle'")
-                cuentas_db = cursor.fetchall()
-                cursor.close()
+                try:
+                    # Cargar el plan de cuentas usando DictCursor de PyMySQL correctamente
+                    cursor = db_connection.cursor(pymysql.cursors.DictCursor)
+                    cursor.execute("SELECT codigo, CONCAT(codigo, ' - ', nombre) as descripcion_cuenta FROM plan_cuentas WHERE tipo = 'Detalle'")
+                    cuentas_db = cursor.fetchall()
+                    cursor.close()
+                    
+                    lista_opciones_cuentas = [c["descripcion_cuenta"] for c in cuentas_db]
+                    mapa_cuentas = {c["descripcion_cuenta"]: c["codigo"] for c in cuentas_db}
 
-                lista_opciones_cuentas = [c["descripcion_cuenta"] for c in cuentas_db]
-                # Diccionario rápido para extraer solo el código si es necesario
-                mapa_cuentas = {c["descripcion_cuenta"]: c["codigo"] for c in cuentas_db}
+                    filas_asiento_temporal = []
 
-                filas_asiento_temporal = []
+                    for idx, row in df_compras.iterrows():
+                        fecha_op = str(row.get("Fecha de Operación", ""))[:10]
+                        proveedor = str(row.get("Nombre o Razón Social", "Sin Proveedor"))
+                        nro_doc = str(row.get("Número de Documento", ""))
+                        base_imponible = float(row.get("Base Imponible", 0.0))
+                        credito_fiscal = float(row.get("Credito Fiscales", 0.0))
+                        total_factura = base_imponible + credito_fiscal
 
-                for idx, row in df_compras.iterrows():
-                    fecha_op = str(row.get("Fecha de Operación", ""))[:10]
-                    proveedor = str(row.get("Nombre o Razón Social", "Sin Proveedor"))
-                    nro_doc = str(row.get("Número de Documento", ""))
-                    base_imponible = float(row.get("Base Imponible", 0.0))
-                    credito_fiscal = float(row.get("Credito Fiscales", 0.0))
-                    total_factura = base_imponible + credito_fiscal
-
-                    # Fila 1: Costo / Gasto (Al Debe)
-                    filas_asiento_temporal.append({
-                        "n_comprobante": n_comprobante_base,
-                        "descripcion": proveedor,
-                        "fecha": fecha_op,
-                        "plan_cuentas": "", # Se llenará con el selectbox
-                        "referencia": nro_doc,
-                        "debe": base_imponible,
-                        "haber": 0.0,
-                        "tipo_linea": "Gasto/Costo"
-                    })
-
-                    # Fila 2: IVA Crédito Fiscal (Al Debe) - Si aplica
-                    if credito_fiscal > 0:
+                        # Fila 1: Costo / Gasto (Al Debe)
                         filas_asiento_temporal.append({
                             "n_comprobante": n_comprobante_base,
                             "descripcion": proveedor,
                             "fecha": fecha_op,
-                            "plan_cuentas": "1.1.4.01.001" if "1.1.4.01.001" in [v.split(' - ')[0] for v in lista_opciones_cuentas] else "",
+                            "plan_cuentas": "", 
                             "referencia": nro_doc,
-                            "debe": credito_fiscal,
+                            "debe": base_imponible,
                             "haber": 0.0,
-                            "tipo_linea": "IVA Crédito Fiscal"
+                            "tipo_linea": "Gasto/Costo"
                         })
 
-                    # Fila 3: Contrapartida - Proveedores o Banco (Al Haber)
-                    filas_asiento_temporal.append({
-                        "n_comprobante": n_comprobante_base,
-                        "descripcion": proveedor,
-                        "fecha": fecha_op,
-                        "plan_cuentas": "2.1.1.01.001" if "2.1.1.01.001" in [v.split(' - ')[0] for v in lista_opciones_cuentas] else "",
-                        "referencia": nro_doc,
-                        "debe": 0.0,
-                        "haber": total_factura,
-                        "tipo_linea": "Contrapartida (Por Pagar/Banco)"
-                    })
+                        # Fila 2: IVA Crédito Fiscal (Al Debe) - Si aplica
+                        if credito_fiscal > 0:
+                            filas_asiento_temporal.append({
+                                "n_comprobante": n_comprobante_base,
+                                "descripcion": proveedor,
+                                "fecha": fecha_op,
+                                "plan_cuentas": "1.1.4.01.001" if "1.1.4.01.001" in [v.split(' - ')[0] for v in lista_opciones_cuentas] else "",
+                                "referencia": nro_doc,
+                                "debe": credito_fiscal,
+                                "haber": 0.0,
+                                "tipo_linea": "IVA Crédito Fiscal"
+                            })
 
-                # Guardar en session_state para permitir edición interactiva en Streamlit
-                st.session_state['df_asientos_proceso'] = pd.DataFrame(filas_asiento_temporal)
-                st.success("¡Segundo frame generado con éxito! Ajusta las cuentas contables según sea necesario:")
+                        # Fila 3: Contrapartida - Proveedores o Banco (Al Haber)
+                        filas_asiento_temporal.append({
+                            "n_comprobante": n_comprobante_base,
+                            "descripcion": proveedor,
+                            "fecha": fecha_op,
+                            "plan_cuentas": "2.1.1.01.001" if "2.1.1.01.001" in [v.split(' - ')[0] for v in lista_opciones_cuentas] else "",
+                            "referencia": nro_doc,
+                            "debe": 0.0,
+                            "haber": total_factura,
+                            "tipo_linea": "Contrapartida (Por Pagar/Banco)"
+                        })
+
+                    # Guardar en session_state para permitir edición interactiva en Streamlit
+                    st.session_state['df_asientos_proceso'] = pd.DataFrame(filas_asiento_temporal)
+                    st.success("¡Segundo frame generado con éxito! Ajusta las cuentas contables según sea necesario:")
+
+                except Exception as sql_err:
+                    st.error(f"Error al consultar el plan de cuentas en la base de datos de la empresa: {sql_err}")
 
             # Si ya existe el DataFrame procesado en memoria, mostramos la tabla interactiva y editores
             if 'df_asientos_proceso' in st.session_state and not st.session_state['df_asientos_proceso'].empty:
                 st.markdown("### 📋 Segundo Frame: Estructura del Asiento Contable (Partida Doble)")
                 
-                # Renderizamos un data editor para que el cliente pueda ajustar cuentas o montos si lo desea
                 df_editado = st.data_editor(
                     st.session_state['df_asientos_proceso'],
                     num_rows="dynamic",
@@ -5671,11 +5674,9 @@ def renderizar_tab_asientos_automatizados(db_connection):
                             VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                         """
                         
-                        # Aquí puedes buscar de forma automática el nombre de la cuenta usando el código seleccionado
                         for index, row in df_editado.iterrows():
                             codigo_cuenta = str(row["plan_cuentas"]).split(' - ')[0].strip()
                             
-                            # Obtener nombre de la cuenta desde la BD
                             cursor.execute("SELECT nombre FROM plan_cuentas WHERE codigo = %s", (codigo_cuenta,))
                             res_cuenta = cursor.fetchone()
                             nombre_cuenta_contable = res_cuenta[0] if res_cuenta else "Cuenta General"
