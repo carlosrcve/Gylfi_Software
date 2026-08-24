@@ -5548,6 +5548,10 @@ def verificar_si_es_contribuyente_especial(db_name):
 
 
 
+import pandas as pd
+import streamlit as st
+import pymysql
+
 def renderizar_tab_asientos_automatizados(db_connection):
     st.subheader("🤖 Asientos Automatizados (Comprobantes Contables)")
     st.markdown("""
@@ -5592,6 +5596,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
             codigos_disponibles.append(partes[0])
             mapa_descripciones[partes[0]] = partes[1]
 
+    # Aseguramos que la opción por defecto sea estrictamente la primera de la lista real cargada
     default_opcion = opciones_desplegable[0]
 
     # ----------------------------------------------------
