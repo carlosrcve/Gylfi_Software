@@ -5580,8 +5580,8 @@ def renderizar_tab_asientos_automatizados(db_connection):
         try:
             df_compras = pd.read_excel(archivo_excel)
             st.success("¡Archivo cargado correctamente! Vista previa de los datos originales:")
-            st.dataframe(df_compras.head(15), height=450)
             st.dataframe(df_compras.head())
+            st.dataframe(df_compras, use_container_width=True)
 
             # Definir Nomenclatura del Comprobante
             st.markdown("### ⚙️ Configuración del Lote")
