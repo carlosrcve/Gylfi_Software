@@ -5592,8 +5592,10 @@ def renderizar_tab_asientos_automatizados(db_connection):
             # ----------------------------------------------------
             if st.button("🔄 Generar Propuesta de Asientos Contables"):
                 try:
-                    # Cargar el plan de cuentas usando DictCursor de PyMySQL correctamente
+                    # Usamos el cursor directamente de la conexión del cliente autenticado
                     cursor = db_connection.cursor(pymysql.cursors.DictCursor)
+                    
+                    # Consultamos directamente la tabla plan_cuentas de la base de datos del cliente ya conectada en el login
                     cursor.execute("SELECT codigo, CONCAT(codigo, ' - ', nombre) as descripcion_cuenta FROM plan_cuentas WHERE tipo = 'Detalle'")
                     cuentas_db = cursor.fetchall()
                     cursor.close()
