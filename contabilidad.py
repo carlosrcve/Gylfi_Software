@@ -5548,14 +5548,6 @@ def verificar_si_es_contribuyente_especial(db_name):
 
 
 
-import pandas as pd
-import streamlit as st
-import pymysql
-import ssl
-
-# (Asumiendo que tienes tu función de conexión disponible en el ámbito)
-# def conectar_db(nombre_db=None): ...
-
 def renderizar_tab_asientos_automatizados(db_connection):
     st.subheader("🤖 Asientos Automatizados (Comprobantes Contables)")
     st.markdown("""
@@ -5576,13 +5568,22 @@ def renderizar_tab_asientos_automatizados(db_connection):
     if db_central:
         try:
             cursor_opt = db_central.cursor(pymysql.cursors.DictCursor)
+            
+            # 1. Intentamos la consulta estándar filtrando por tipo Detalle (insensible a mayúsculas/minúsculas)
             cursor_opt.execute("""
                 SELECT codigo, nombre, tipo 
                 FROM plan_cuentas 
-                WHERE LOWER(TRIM(tipo)) = 'detalle'
+                WHERE tipo = 'Detalle' OR LOWER(TRIM(tipo)) = 'detalle'
                 ORDER BY codigo ASC
             """)
             cuentas_opt = cursor_opt.fetchall()
+            
+            # 2. Si no trae nada, consultamos si la tabla tiene al menos registros generales para diagnosticar
+            if not cuentas_opt:
+                cursor_opt.execute("SELECT COUNT(*) as total, tipo FROM plan_cuentas GROUP BY tipo")
+                diagnostico = cursor_opt.fetchall()
+                st.warning(f"⚠️ Diagnóstico de la tabla 'plan_cuentas': {diagnostico}")
+            
             cursor_opt.close()
             
             if cuentas_opt:
@@ -5595,7 +5596,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
                         opciones_desplegable.append(f"{codigo} - {nombre}")
                 st.success(f"🔗 Sincronización exitosa con Control Central: {len(opciones_desplegable)} cuentas de detalle cargadas.")
             else:
-                st.warning("⚠️ La tabla 'plan_cuentas' en 'control_central' no arrojó registros de tipo 'Detalle'.")
+                st.error("⚠️ La tabla 'plan_cuentas' en 'control_central' existe pero no devolvió registros marcados como 'Detalle'. Revisa si tu columna 'tipo' tiene asignado 'Detalle' exactamente o si la tabla está vacía.")
                 
         except Exception as e:
             st.error(f"❌ Error al consultar el plan de cuentas en control_central: {e}")
@@ -5831,7 +5832,6 @@ def renderizar_tab_asientos_automatizados(db_connection):
                         st.error(f"Error al guardar los asientos en la base de datos: {db_err}")
 
         except Exception as e:
-            st.error(f"Error al leer el archivo Excel: {e}")
 
 def gestionar_sidebar():
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
