@@ -5552,15 +5552,44 @@ def renderizar_tab_asientos_automatizados(db_connection):
     st.subheader("🤖 Asientos Automatizados (Comprobantes Contables)")
     st.markdown("""
     Sube tu archivo Excel de compras del periodo. El sistema procesará la información integrándose 
-    directamente con el plan de cuentas maestro y los parámetros de control central para generar los asientos en partida doble.
+    directly con el plan de cuentas maestro y los parámetros de control central para generar los asientos en partida doble.
     """)
 
-    # 1. OBTENER LA BASE DE DATOS DE LA EMPRESA ACTUAL DESDE EL SESSION STATE
-    # Asegúrate de que esta sea la variable donde guardas el nombre de la BD del cliente (ej: 'empresa_actual', 'db_cliente', etc.)
-    nombre_db_cliente = st.session_state.get('empresa_actual') or st.session_state.get('db_seleccionada')
-    
+    # 1. BÚSQUEDA AUTOMÁTICA DE LA EMPRESA EN EL SESSION STATE
+    # Revisamos las llaves más comunes que se suelen usar en aplicaciones multi-empresa
+    posibles_llaves = ['empresa_actual', 'db_seleccionada', 'empresa', 'current_db', 'cliente_activo', 'db_actual']
+    nombre_db_cliente = None
+
+    for llave in posibles_llaves:
+        if llave in st.session_state and st.session_state[llave]:
+            nombre_db_cliente = st.session_state[llave]
+            break
+
+    # Si aún no se encuentra, intentamos buscar dinámicamente cualquier llave que parezca una base de datos o empresa
     if not nombre_db_cliente:
-        st.error("⚠️ No se ha seleccionado ninguna empresa activa en la sesión.")
+        for k, v in st.session_state.items():
+            if isinstance(v, str) and ('_' in v or 'db' in k.lower() or 'empresa' in k.lower()):
+                # Opcional: puedes ajustar este filtro según cómo nombres tus bases de datos de clientes
+                nombre_db_cliente = v
+                break
+
+    # Si de plano no se encuentra, damos la opción de seleccionarla manualmente para no bloquearte
+    if not nombre_db_cliente:
+        st.warning("⚠️ No se detectó automáticamente una empresa activa en la sesión. Selecciona la base de datos del cliente:")
+        try:
+            cursor_temp = db_connection.cursor()
+            cursor_temp.execute("SHOW DATABASES")
+            dbs = [row[0] for row in cursor_temp.fetchall()]
+            cursor_temp.close()
+            # Filtramos bases de datos del sistema si es necesario
+            dbs_filtradas = [db for db in dbs if db not in ['information_schema', 'mysql', 'performance_schema', 'sys', 'control_central']]
+            nombre_db_cliente = st.selectbox("Base de datos de la empresa:", dbs_filtradas)
+        except Exception as e:
+            st.error(f"No se pudieron listar las bases de datos: {e}")
+            return
+
+    if not nombre_db_cliente:
+        st.error("⚠️ No se pudo determinar la base de datos de la empresa activa.")
         return
 
     db_segura = str(nombre_db_cliente).strip()
@@ -5580,7 +5609,6 @@ def renderizar_tab_asientos_automatizados(db_connection):
             total_registros = len(cuentas_opt)
             st.info(f"🔍 Conectado a la BD del cliente: `{db_segura}` | Registros totales en plan_cuentas: `{total_registros}`")
 
-            # Filtrar cuentas de detalle si aplica
             cuentas_detalle = [c for c in cuentas_opt if str(c.get("tipo", "")).strip().lower() == 'detalle']
             lista_a_usar = cuentas_detalle if cuentas_detalle else cuentas_opt
             
@@ -5795,7 +5823,6 @@ def renderizar_tab_asientos_automatizados(db_connection):
                     try:
                         cursor = db_connection.cursor()
                         
-                        # Crear la tabla en la BD del cliente si no existe
                         cursor.execute(f"""
                             CREATE TABLE IF NOT EXISTS `{db_segura}`.asientos_contables (
                                 id INT AUTO_INCREMENT PRIMARY KEY,
