@@ -5555,6 +5555,15 @@ def renderizar_tab_asientos_automatizados(db_connection):
     directamente con el plan de cuentas maestro y los parámetros de control central para generar los asientos en partida doble.
     """)
 
+    # 1. OBTENER LA BASE DE DATOS DE LA EMPRESA ACTUAL DESDE EL SESSION STATE
+    # Asegúrate de que esta sea la variable donde guardas el nombre de la BD del cliente (ej: 'empresa_actual', 'db_cliente', etc.)
+    nombre_db_cliente = st.session_state.get('empresa_actual') or st.session_state.get('db_seleccionada')
+    
+    if not nombre_db_cliente:
+        st.error("⚠️ No se ha seleccionado ninguna empresa activa en la sesión.")
+        return
+
+    db_segura = str(nombre_db_cliente).strip()
     codigos_disponibles = []
     mapa_descripciones = {}
     opciones_desplegable = []
@@ -5563,57 +5572,38 @@ def renderizar_tab_asientos_automatizados(db_connection):
         try:
             cursor_opt = db_connection.cursor(pymysql.cursors.DictCursor)
             
-            # 1. DIAGNÓSTICO DE SEGURIDAD
-            cursor_opt.execute("SELECT DATABASE() as db_actual, COUNT(*) as total_filas FROM plan_cuentas")
-            info_bd = cursor_opt.fetchone()
-            
-            nombre_db = info_bd.get("db_actual", "Desconocida")
-            total_registros = info_bd.get("total_filas", 0)
-            
-            st.info(f"🔍 Conectado a la BD: `{nombre_db}` | Registros totales en plan_cuentas: `{total_registros}`")
-
-            # 2. Consulta de cuentas de detalle
-            cursor_opt.execute("""
-                SELECT codigo, nombre, tipo 
-                FROM plan_cuentas 
-                WHERE LOWER(TRIM(tipo)) = 'detalle'
-                ORDER BY codigo ASC
-            """)
+            # 2. CONSULTAR PLAN DE CUENTAS APUNTANDO A LA BASE DE DATOS DEL CLIENTE
+            query_plan = f"SELECT codigo, nombre, tipo FROM `{db_segura}`.plan_cuentas ORDER BY codigo ASC"
+            cursor_opt.execute(query_plan)
             cuentas_opt = cursor_opt.fetchall()
             
-            if not cuentas_opt and total_registros > 0:
-                cursor_opt.execute("SELECT codigo, nombre, tipo FROM plan_cuentas ORDER BY codigo ASC")
-                cuentas_opt = cursor_opt.fetchall()
+            total_registros = len(cuentas_opt)
+            st.info(f"🔍 Conectado a la BD del cliente: `{db_segura}` | Registros totales en plan_cuentas: `{total_registros}`")
+
+            # Filtrar cuentas de detalle si aplica
+            cuentas_detalle = [c for c in cuentas_opt if str(c.get("tipo", "")).strip().lower() == 'detalle']
+            lista_a_usar = cuentas_detalle if cuentas_detalle else cuentas_opt
             
             cursor_opt.close()
             
-            if cuentas_opt:
-                for c in cuentas_opt:
+            if lista_a_usar:
+                for c in lista_a_usar:
                     codigo = str(c.get("codigo", "")).strip()
                     nombre = str(c.get("nombre", "")).strip()
-                    tipo_cta = str(c.get("tipo", "")).strip().lower()
                     
                     if codigo:
                         codigos_disponibles.append(codigo)
                         mapa_descripciones[codigo] = nombre
-                        if tipo_cta == 'detalle' or not tipo_cta:
-                            opciones_desplegable.append(f"{codigo} - {nombre}")
-                
-                if not opciones_desplegable:
-                    for c in cuentas_opt:
-                        codigo = str(c.get("codigo", "")).strip()
-                        nombre = str(c.get("nombre", "")).strip()
-                        if codigo:
-                            opciones_desplegable.append(f"{codigo} - {nombre}")
+                        opciones_desplegable.append(f"{codigo} - {nombre}")
 
-                st.success(f"🔗 Sincronización exitosa: {len(opciones_desplegable)} cuentas cargadas.")
+                st.success(f"🔗 Sincronización exitosa: {len(opciones_desplegable)} cuentas cargadas para `{db_segura}`.")
             else:
-                st.error(f"⚠️ La tabla 'plan_cuentas' en la base de datos `{nombre_db}` devolvió 0 registros.")
+                st.error(f"⚠️ La tabla 'plan_cuentas' en la base de datos `{db_segura}` devolvió 0 registros.")
                 
         except Exception as e:
-            st.error(f"❌ Error crítico al consultar el plan de cuentas: {e}")
+            st.error(f"❌ Error crítico al consultar el plan de cuentas en `{db_segura}`: {e}")
     else:
-        st.error("❌ No se pudo establecer conexión con la base de datos de la empresa.")
+        st.error("❌ No se pudo establecer conexión general con el servidor de bases de datos.")
 
     if not opciones_desplegable:
         st.error("No se puede avanzar sin un Plan de Cuentas válido sincronizado para esta empresa.")
@@ -5692,11 +5682,10 @@ def renderizar_tab_asientos_automatizados(db_connection):
 
                         total_factura = base_imponible + credito_fiscal
 
-                        # Búsqueda cuenta de Gasto/Costo
+                        # Búsqueda cuenta de Gasto/Costo (Clase 6)
                         opcion_gasto = default_opcion
                         for opt in opciones_desplegable:
-                            opt_lower = opt.lower()
-                            if opt.startswith("6") or "gasto" in opt_lower or "costo" in opt_lower or "compra" in opt_lower or "inventario" in opt_lower:
+                            if opt.startswith("6") or "gasto" in opt.lower() or "costo" in opt.lower():
                                 opcion_gasto = opt
                                 break
 
@@ -5752,19 +5741,18 @@ def renderizar_tab_asientos_automatizados(db_connection):
                         })
 
                     st.session_state['df_asientos_proceso'] = pd.DataFrame(filas_asiento_temporal)
-                    st.success("¡Propuesta de asientos generada exitosamente con el plan de la empresa!")
+                    st.success("¡Propuesta de asientos generada exitosamente con el plan de cuentas de la empresa!")
                     st.rerun()
 
                 except Exception as proc_err:
                     st.error(f"Error al procesar los datos de las compras: {proc_err}")
 
             # ----------------------------------------------------
-            # PASO 3: EDITOR Y PERSISTENCIA
+            # PASO 3: EDITOR Y PERSISTENCIA EN LA BD DEL CLIENTE
             # ----------------------------------------------------
             if 'df_asientos_proceso' in st.session_state and not st.session_state['df_asientos_proceso'].empty:
                 st.markdown("### 📋 Segundo Frame: Estructura del Asiento Contable (Partida Doble)")
                 
-                # Sincronización directa del editor con el session_state
                 st.session_state['df_asientos_proceso'] = st.data_editor(
                     st.session_state['df_asientos_proceso'],
                     num_rows="dynamic",
@@ -5788,14 +5776,12 @@ def renderizar_tab_asientos_automatizados(db_connection):
                 )
                 df_editado = st.session_state['df_asientos_proceso']
 
-                # Actualizar nombres de cuentas puros según la selección del selectbox
                 for idx, row in df_editado.iterrows():
                     seleccion_completa = str(row.get("plan_cuentas", ""))
                     if " - " in seleccion_completa:
                         nombre_puro = seleccion_completa.split(" - ")[1].strip()
                         df_editado.at[idx, "cuenta_contable"] = nombre_puro
 
-                # Indicadores de control de partida doble
                 tot_debe = df_editado['debe'].sum()
                 tot_haber = df_editado['haber'].sum()
                 col_m1, col_m2 = st.columns(2)
@@ -5808,8 +5794,10 @@ def renderizar_tab_asientos_automatizados(db_connection):
                 if st.button("💾 Guardar Asientos Definitivos en el Libro Diario", key="btn_guardar_asientos_definitivos"):
                     try:
                         cursor = db_connection.cursor()
-                        cursor.execute("""
-                            CREATE TABLE IF NOT EXISTS asientos_contables (
+                        
+                        # Crear la tabla en la BD del cliente si no existe
+                        cursor.execute(f"""
+                            CREATE TABLE IF NOT EXISTS `{db_segura}`.asientos_contables (
                                 id INT AUTO_INCREMENT PRIMARY KEY,
                                 n_comprobante VARCHAR(50),
                                 descripcion TEXT,
@@ -5822,8 +5810,9 @@ def renderizar_tab_asientos_automatizados(db_connection):
                             );
                         """)
 
-                        sql_insert = """
-                            INSERT INTO asientos_contables (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber)
+                        sql_insert = f"""
+                            INSERT INTO `{db_segura}`.asientos_contables 
+                            (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber)
                             VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                         """
                         
@@ -5833,7 +5822,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
                             nombre_cuenta_contable = mapa_descripciones.get(codigo_cuenta, str(row.get("cuenta_contable", "Cuenta General")))
 
                             fecha_val = row["fecha"]
-                            fecha_sql = None if pd.isna(fecha_val) or str(fecha_val).strip() in ["", "nat", "None"] else str(fecha_val).strip()[:10]
+                            fecha_sql = None if pd.isna(fecha_val) or str(fecha_val).strip().lower() in ["", "nat", "none"] else str(fecha_val).strip()[:10]
 
                             valores = (
                                 row["n_comprobante"],
@@ -5849,7 +5838,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
 
                         db_connection.commit()
                         cursor.close()
-                        st.success("🎉 ¡Asientos contables guardados exitosamente en el Libro Diario de la empresa!")
+                        st.success(f"🎉 ¡Asientos contables guardados exitosamente en la base de datos de `{db_segura}`!")
                         
                         del st.session_state['df_asientos_proceso']
                         st.rerun()
