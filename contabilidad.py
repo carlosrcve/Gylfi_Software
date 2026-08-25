@@ -8163,19 +8163,25 @@ elif opcion_menu == "📝 Asientos Contables":
                             else:
                                 st.error("❌ Error de conexión.")
             with tab4:
-                conexion_actual = conectar_db() 
+                # 1. Obtenemos el nombre o identificador de la base de datos de la empresa actual desde la sesión.
+                # (Ajusta 'empresa_actual' o 'db_cliente' por la clave exacta que uses en tu app)
+                nombre_bd_empresa = st.session_state.get('empresa_actual') 
                 
+                # 2. Conectamos pasando la empresa activa (si tu conectar_db acepta el nombre de la BD)
+                conexion_actual = conectar_db(nombre_bd_empresa) 
+                
+                # --- O ALTERNATIVAMENTE SI conectar_db() NO RECIBE PARÁMETROS ---
+                # conexion_actual = conectar_db()
+                # if conexion_actual and nombre_bd_empresa:
+                #     cursor_tmp = conexion_actual.cursor()
+                #     cursor_tmp.execute(f"USE `{nombre_bd_empresa}`")
+                #     cursor_tmp.close()
+                # -----------------------------------------------------------------
+
                 if conexion_actual:
-                    # Forzamos a que salte de control_central a la base de datos del cliente activo
-                    nombre_bd_cliente = st.session_state.get('empresa_actual') # Ajusta por tu variable de sesión
-                    if nombre_bd_cliente:
-                        cursor_tmp = conexion_actual.cursor()
-                        cursor_tmp.execute(f"USE `{nombre_bd_cliente}`")
-                        cursor_tmp.close()
-                        
                     renderizar_tab_asientos_automatizados(conexion_actual)
                 else:
-                    st.error("No se pudo establecer la conexión con la base de datos para cargar los asientos automatizados.")
+                    st.error("No se pudo establecer la conexión con la base de datos de la empresa para cargar los asientos automatizados.")
 
         else:
             st.warning("⚠️ Por favor, seleccione una empresa en el panel lateral para gestionar sus asientos.")
