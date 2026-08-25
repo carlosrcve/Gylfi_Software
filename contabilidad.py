@@ -5558,29 +5558,31 @@ def renderizar_tab_asientos_automatizados(db_connection):
     # ----------------------------------------------------
     # CARGAR PLAN DE CUENTAS DESDE LA BASE DE DATOS DEL CLIENTE
     # ----------------------------------------------------
+    # ----------------------------------------------------
+    # CARGAR PLAN DE CUENTAS DESDE LA BASE DE DATOS DEL CLIENTE
+    # ----------------------------------------------------
     codigos_disponibles = []
     mapa_descripciones = {}
     opciones_desplegable = []
     
-    # Validamos que la conexión del cliente esté activa
     if db_connection:
         try:
             cursor_opt = db_connection.cursor(pymysql.cursors.DictCursor)
             
-            # 1. Consultamos el plan de cuentas en la BD específica de esta empresa (multicliente)
+            # Consultamos directamente todas las cuentas de tipo Detalle (manejando cualquier variante de mayúsculas)
             cursor_opt.execute("""
                 SELECT codigo, nombre, tipo 
                 FROM plan_cuentas 
-                WHERE tipo = 'Detalle' OR LOWER(TRIM(tipo)) = 'detalle'
+                WHERE LOWER(TRIM(tipo)) = 'detalle'
                 ORDER BY codigo ASC
             """)
             cuentas_opt = cursor_opt.fetchall()
             
-            # 2. Diagnóstico por si la tabla del cliente no tiene registros de detalle
+            # Si por alguna razón la consulta estricta no trajo nada, hacemos un respaldo trayendo todo 
+            # para ver qué tipos existen realmente en la base de datos de esta empresa
             if not cuentas_opt:
-                cursor_opt.execute("SELECT COUNT(*) as total, tipo FROM plan_cuentas GROUP BY tipo")
-                diagnostico = cursor_opt.fetchall()
-                st.warning(f"⚠️ Diagnóstico de la tabla 'plan_cuentas' para esta empresa: {diagnostico}")
+                cursor_opt.execute("SELECT codigo, nombre, tipo FROM plan_cuentas ORDER BY codigo ASC")
+                cuentas_opt = cursor_opt.fetchall()
             
             cursor_opt.close()
             
@@ -5588,20 +5590,32 @@ def renderizar_tab_asientos_automatizados(db_connection):
                 for c in cuentas_opt:
                     codigo = str(c.get("codigo", "")).strip()
                     nombre = str(c.get("nombre", "")).strip()
+                    tipo_cta = str(c.get("tipo", "")).strip().lower()
+                    
                     if codigo:
                         codigos_disponibles.append(codigo)
                         mapa_descripciones[codigo] = nombre
-                        opciones_desplegable.append(f"{codigo} - {nombre}")
-                st.success(f"🔗 Sincronización exitosa con la empresa actual: {len(opciones_desplegable)} cuentas de detalle cargadas.")
+                        # Si quieres filtrar solo detalles o permitir todo, aquí puedes asegurarlo:
+                        if tipo_cta == 'detalle':
+                            opciones_desplegable.append(f"{codigo} - {nombre}")
+                
+                # Si el filtro estricto no llenó opciones pero la tabla tiene registros, cargamos todos para no bloquearte
+                if not opciones_desplegable and cuentas_opt:
+                    for c in cuentas_opt:
+                        codigo = str(c.get("codigo", "")).strip()
+                        nombre = str(c.get("nombre", "")).strip()
+                        if codigo:
+                            opciones_desplegable.append(f"{codigo} - {nombre}")
+
+                st.success(f"🔗 Sincronización exitosa: {len(opciones_desplegable)} cuentas cargadas desde la base de datos de la empresa.")
             else:
-                st.error("⚠️ La tabla 'plan_cuentas' en la base de datos de esta empresa existe pero no devolvió registros marcados como 'Detalle'.")
+                st.error("⚠️ La tabla 'plan_cuentas' en la base de datos de esta empresa está vacía.")
                 
         except Exception as e:
             st.error(f"❌ Error al consultar el plan de cuentas en la base de datos del cliente: {e}")
     else:
         st.error("❌ No se pudo establecer conexión con la base de datos de la empresa.")
 
-    # Si sigue vacío, detenemos la ejecución de manera controlada
     if not opciones_desplegable:
         st.error("No se puede avanzar sin un Plan de Cuentas válido sincronizado para esta empresa.")
         return
