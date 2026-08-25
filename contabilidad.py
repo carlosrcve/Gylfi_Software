@@ -8164,7 +8164,15 @@ elif opcion_menu == "📝 Asientos Contables":
                                 st.error("❌ Error de conexión.")
             with tab4:
                 conexion_actual = conectar_db() 
+                
                 if conexion_actual:
+                    # Forzamos a que salte de control_central a la base de datos del cliente activo
+                    nombre_bd_cliente = st.session_state.get('empresa_actual') # Ajusta por tu variable de sesión
+                    if nombre_bd_cliente:
+                        cursor_tmp = conexion_actual.cursor()
+                        cursor_tmp.execute(f"USE `{nombre_bd_cliente}`")
+                        cursor_tmp.close()
+                        
                     renderizar_tab_asientos_automatizados(conexion_actual)
                 else:
                     st.error("No se pudo establecer la conexión con la base de datos para cargar los asientos automatizados.")
