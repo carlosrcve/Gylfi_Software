@@ -5555,7 +5555,6 @@ def renderizar_tab_asientos_automatizados(db_connection):
     directamente con el plan de cuentas maestro y los parámetros de control central para generar los asientos en partida doble.
     """)
 
-
     codigos_disponibles = []
     mapa_descripciones = {}
     opciones_desplegable = []
@@ -5564,7 +5563,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
         try:
             cursor_opt = db_connection.cursor(pymysql.cursors.DictCursor)
             
-            # 1. DIAGNÓSTICO DE SEGURIDAD: Ver a qué base de datos estamos conectados realmente
+            # 1. DIAGNÓSTICO DE SEGURIDAD
             cursor_opt.execute("SELECT DATABASE() as db_actual, COUNT(*) as total_filas FROM plan_cuentas")
             info_bd = cursor_opt.fetchone()
             
@@ -5573,7 +5572,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
             
             st.info(f"🔍 Conectado a la BD: `{nombre_db}` | Registros totales en plan_cuentas: `{total_registros}`")
 
-            # 2. Consulta flexible para traer todas las cuentas de detalle
+            # 2. Consulta de cuentas de detalle
             cursor_opt.execute("""
                 SELECT codigo, nombre, tipo 
                 FROM plan_cuentas 
@@ -5582,7 +5581,6 @@ def renderizar_tab_asientos_automatizados(db_connection):
             """)
             cuentas_opt = cursor_opt.fetchall()
             
-            # Si el filtro estricto no trae nada pero la tabla tiene filas, traemos todo para evitar bloqueos
             if not cuentas_opt and total_registros > 0:
                 cursor_opt.execute("SELECT codigo, nombre, tipo FROM plan_cuentas ORDER BY codigo ASC")
                 cuentas_opt = cursor_opt.fetchall()
@@ -5601,7 +5599,6 @@ def renderizar_tab_asientos_automatizados(db_connection):
                         if tipo_cta == 'detalle' or not tipo_cta:
                             opciones_desplegable.append(f"{codigo} - {nombre}")
                 
-                # Respaldo por si el tipo no decía 'detalle' exacto pero hay cuentas
                 if not opciones_desplegable:
                     for c in cuentas_opt:
                         codigo = str(c.get("codigo", "")).strip()
@@ -5611,7 +5608,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
 
                 st.success(f"🔗 Sincronización exitosa: {len(opciones_desplegable)} cuentas cargadas.")
             else:
-                st.error(f"⚠️ La tabla 'plan_cuentas' en la base de datos `{nombre_db}` devolvió 0 registros. Revisa si la sesión seleccionó el cliente correcto.")
+                st.error(f"⚠️ La tabla 'plan_cuentas' en la base de datos `{nombre_db}` devolvió 0 registros.")
                 
         except Exception as e:
             st.error(f"❌ Error crítico al consultar el plan de cuentas: {e}")
@@ -5636,7 +5633,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
         - `Nombre o Razón Social` (o `Proveedor`)
         - `Número de Documento` (o `Nro Documento`)
         - `Base Imponible`
-        - `Credito Fiscales` (o `IVA`)
+        - `Créditos Fiscales` (o `IVA`)
         """)
 
     archivo_excel = st.file_uploader("Sube tu archivo de Excel", type=["xlsx", "xls"], key="uploader_excel_compras_tab4")
@@ -5695,7 +5692,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
 
                         total_factura = base_imponible + credito_fiscal
 
-                        # Búsqueda inteligente de cuenta de Gasto/Costo (Fila 1)
+                        # Búsqueda cuenta de Gasto/Costo
                         opcion_gasto = default_opcion
                         for opt in opciones_desplegable:
                             opt_lower = opt.lower()
@@ -5715,7 +5712,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
                             "tipo_linea": "Gasto/Costo"
                         })
 
-                        # Búsqueda inteligente de cuenta de IVA Crédito Fiscal (Fila 2)
+                        # Búsqueda cuenta de IVA Crédito Fiscal
                         opcion_iva = default_opcion
                         for opt in opciones_desplegable:
                             if "1.1.4.01.001" in opt or "crédito fiscal" in opt.lower() or "iva" in opt.lower():
@@ -5735,7 +5732,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
                                 "tipo_linea": "IVA Crédito Fiscal"
                             })
 
-                        # Búsqueda inteligente de Contrapartida / Proveedores por Pagar (Fila 3)
+                        # Búsqueda Contrapartida / Proveedores por Pagar
                         opcion_contrapartida = default_opcion
                         for opt in opciones_desplegable:
                             if "2.1.1.01.001" in opt or "proveedores" in opt.lower() or "por pagar" in opt.lower():
@@ -5762,12 +5759,13 @@ def renderizar_tab_asientos_automatizados(db_connection):
                     st.error(f"Error al procesar los datos de las compras: {proc_err}")
 
             # ----------------------------------------------------
-            # PASO 3: EDITOR Y PERSISTENCIA (Usa la BD de la empresa)
+            # PASO 3: EDITOR Y PERSISTENCIA
             # ----------------------------------------------------
             if 'df_asientos_proceso' in st.session_state and not st.session_state['df_asientos_proceso'].empty:
                 st.markdown("### 📋 Segundo Frame: Estructura del Asiento Contable (Partida Doble)")
                 
-                df_editado = st.data_editor(
+                # Sincronización directa del editor con el session_state
+                st.session_state['df_asientos_proceso'] = st.data_editor(
                     st.session_state['df_asientos_proceso'],
                     num_rows="dynamic",
                     column_config={
@@ -5788,12 +5786,24 @@ def renderizar_tab_asientos_automatizados(db_connection):
                     },
                     key="editor_asientos_auto_tab4"
                 )
+                df_editado = st.session_state['df_asientos_proceso']
 
+                # Actualizar nombres de cuentas puros según la selección del selectbox
                 for idx, row in df_editado.iterrows():
                     seleccion_completa = str(row.get("plan_cuentas", ""))
                     if " - " in seleccion_completa:
                         nombre_puro = seleccion_completa.split(" - ")[1].strip()
                         df_editado.at[idx, "cuenta_contable"] = nombre_puro
+
+                # Indicadores de control de partida doble
+                tot_debe = df_editado['debe'].sum()
+                tot_haber = df_editado['haber'].sum()
+                col_m1, col_m2 = st.columns(2)
+                col_m1.metric("Total Debe", f"{tot_debe:,.2f}")
+                col_m2.metric("Total Haber", f"{tot_haber:,.2f}")
+
+                if abs(tot_debe - tot_haber) > 0.01:
+                    st.warning("⚠️ Los montos del Debe y el Haber no coinciden exactamente. Revisa los valores antes de guardar.")
 
                 if st.button("💾 Guardar Asientos Definitivos en el Libro Diario", key="btn_guardar_asientos_definitivos"):
                     try:
@@ -5822,10 +5832,13 @@ def renderizar_tab_asientos_automatizados(db_connection):
                             codigo_cuenta = seleccion_completa.split(" - ")[0].strip() if " - " in seleccion_completa else seleccion_completa.strip()
                             nombre_cuenta_contable = mapa_descripciones.get(codigo_cuenta, str(row.get("cuenta_contable", "Cuenta General")))
 
+                            fecha_val = row["fecha"]
+                            fecha_sql = None if pd.isna(fecha_val) or str(fecha_val).strip() in ["", "nat", "None"] else str(fecha_val).strip()[:10]
+
                             valores = (
                                 row["n_comprobante"],
                                 row["descripcion"],
-                                row["fecha"] if row["fecha"] and str(row["fecha"]).strip() != "" else None,
+                                fecha_sql,
                                 codigo_cuenta,
                                 nombre_cuenta_contable,
                                 row["referencia"],
@@ -8163,25 +8176,18 @@ elif opcion_menu == "📝 Asientos Contables":
                             else:
                                 st.error("❌ Error de conexión.")
             with tab4:
-                # 1. Obtenemos el nombre o identificador de la base de datos de la empresa actual desde la sesión.
-                # (Ajusta 'empresa_actual' o 'db_cliente' por la clave exacta que uses en tu app)
-                nombre_bd_empresa = st.session_state.get('empresa_actual') 
+                # 1. Recuperamos de la sesión el nombre o ID de la base de datos de la empresa actual 
+                # (Ajusta la clave 'empresa_actual' por la variable exacta que uses en tu app para el cliente)
+                nombre_bd_cliente = st.session_state.get('empresa_actual') 
                 
-                # 2. Conectamos pasando la empresa activa (si tu conectar_db acepta el nombre de la BD)
-                conexion_actual = conectar_db(nombre_bd_empresa) 
+                # 2. Llamamos a la conexión inyectándole la base de datos del cliente
+                conexion_actual = conectar_db(nombre_bd_cliente) 
                 
-                # --- O ALTERNATIVAMENTE SI conectar_db() NO RECIBE PARÁMETROS ---
-                # conexion_actual = conectar_db()
-                # if conexion_actual and nombre_bd_empresa:
-                #     cursor_tmp = conexion_actual.cursor()
-                #     cursor_tmp.execute(f"USE `{nombre_bd_empresa}`")
-                #     cursor_tmp.close()
-                # -----------------------------------------------------------------
-
+                # 3. Validamos y renderizamos
                 if conexion_actual:
                     renderizar_tab_asientos_automatizados(conexion_actual)
                 else:
-                    st.error("No se pudo establecer la conexión con la base de datos de la empresa para cargar los asientos automatizados.")
+                    st.error("No se pudo establecer la conexión con la base de datos de la empresa para los asientos automatizados.")
 
         else:
             st.warning("⚠️ Por favor, seleccione una empresa en el panel lateral para gestionar sus asientos.")
