@@ -5548,48 +5548,61 @@ def verificar_si_es_contribuyente_especial(db_name):
 
 
 
+import pandas as pd
+import streamlit as st
+import pymysql
+import ssl
+
+# (Asumiendo que tienes tu función de conexión disponible en el ámbito)
+# def conectar_db(nombre_db=None): ...
+
 def renderizar_tab_asientos_automatizados(db_connection):
     st.subheader("🤖 Asientos Automatizados (Comprobantes Contables)")
     st.markdown("""
     Sube tu archivo Excel de compras del periodo. El sistema procesará la información integrándose 
-    directamente con el plan de cuentas activo y los parámetros de control central para generar los asientos en partida doble.
+    directamente con el plan de cuentas maestro y los parámetros de control central para generar los asientos en partida doble.
     """)
 
     # ----------------------------------------------------
-    # CARGAR PLAN DE CUENTAS DINÁMICAMENTE DESDE LA BD (CONTROL CENTRAL)
+    # CARGAR PLAN DE CUENTAS DESDE CONTROL CENTRAL
     # ----------------------------------------------------
     codigos_disponibles = []
     mapa_descripciones = {}
     opciones_desplegable = []
     
-    try:
-        cursor_opt = db_connection.cursor(pymysql.cursors.DictCursor)
-        # Consulta estricta conectada al plan de cuentas de la base de datos central
-        cursor_opt.execute("""
-            SELECT codigo, nombre, tipo 
-            FROM plan_cuentas 
-            WHERE LOWER(TRIM(tipo)) = 'detalle'
-            ORDER BY codigo ASC
-        """)
-        cuentas_opt = cursor_opt.fetchall()
-        cursor_opt.close()
-        
-        if cuentas_opt:
-            for c in cuentas_opt:
-                codigo = str(c.get("codigo", "")).strip()
-                nombre = str(c.get("nombre", "")).strip()
-                if codigo:
-                    codigos_disponibles.append(codigo)
-                    mapa_descripciones[codigo] = nombre
-                    opciones_desplegable.append(f"{codigo} - {nombre}")
-            st.success(f"🔗 Conexión exitosa con Control Central: {len(opciones_desplegable)} cuentas de detalle cargadas.")
-        else:
-            st.warning("⚠️ No se encontraron cuentas de tipo 'Detalle' en la base de datos. Verifica tu Plan de Cuentas.")
+    # Nos conectamos explícitamente a 'control_central' para extraer el plan de cuentas maestro
+    db_central = conectar_db("control_central")
+    
+    if db_central:
+        try:
+            cursor_opt = db_central.cursor(pymysql.cursors.DictCursor)
+            cursor_opt.execute("""
+                SELECT codigo, nombre, tipo 
+                FROM plan_cuentas 
+                WHERE LOWER(TRIM(tipo)) = 'detalle'
+                ORDER BY codigo ASC
+            """)
+            cuentas_opt = cursor_opt.fetchall()
+            cursor_opt.close()
             
-    except Exception as e:
-        st.error(f"❌ Error de conexión al consultar el plan de cuentas en la base de datos: {e}")
+            if cuentas_opt:
+                for c in cuentas_opt:
+                    codigo = str(c.get("codigo", "")).strip()
+                    nombre = str(c.get("nombre", "")).strip()
+                    if codigo:
+                        codigos_disponibles.append(codigo)
+                        mapa_descripciones[codigo] = nombre
+                        opciones_desplegable.append(f"{codigo} - {nombre}")
+                st.success(f"🔗 Sincronización exitosa con Control Central: {len(opciones_desplegable)} cuentas de detalle cargadas.")
+            else:
+                st.warning("⚠️ La tabla 'plan_cuentas' en 'control_central' no arrojó registros de tipo 'Detalle'.")
+                
+        except Exception as e:
+            st.error(f"❌ Error al consultar el plan de cuentas en control_central: {e}")
+    else:
+        st.error("❌ No se pudo establecer conexión con la base de datos 'control_central' para obtener el plan de cuentas.")
 
-    # Si no hay opciones, detenemos la ejecución para obligar a configurar el plan de cuentas real
+    # Si por alguna razón sigue vacío, detenemos la ejecución de manera controlada
     if not opciones_desplegable:
         st.error("No se puede avanzar sin un Plan de Cuentas válido sincronizado desde el control central.")
         return
@@ -5632,7 +5645,6 @@ def renderizar_tab_asientos_automatizados(db_connection):
                     filas_asiento_temporal = []
 
                     for idx, row in df_compras.iterrows():
-                        # Extracción dinámica de Fecha
                         fecha_op = ""
                         for col in ["Fecha de Operación", "Fecha de Operacion", "Fecha", "FECHA", "fecha", "Fecha Operacion"]:
                             if col in row and pd.notna(row[col]):
@@ -5642,28 +5654,24 @@ def renderizar_tab_asientos_automatizados(db_connection):
                                 fecha_op = val_f[:10]
                                 break
 
-                        # Extracción dinámica de Proveedor / Razón Social
                         proveedor = "Sin Proveedor"
                         for col in ["Nombre o Razón Social", "Nombre o Razon Social", "Proveedor", "Razón Social", "Razon Social"]:
                             if col in row and pd.notna(row[col]):
                                 proveedor = str(row[col]).strip()
                                 break
 
-                        # Extracción dinámica de Número de Documento
                         nro_doc = ""
                         for col in ["Número de Documento", "Numero de Documento", "Nro Documento", "Documento", "Nro_Documento"]:
                             if col in row and pd.notna(row[col]):
                                 nro_doc = str(row[col]).strip()
                                 break
 
-                        # Extracción dinámica de Base Imponible
                         base_imponible = 0.0
                         for col in ["Base Imponible", "Base_Imponible", "BASE IMPONIBLE", "BaseImponible"]:
                             if col in row and pd.notna(row[col]):
                                 base_imponible = float(row[col])
                                 break
 
-                        # Extracción dinámica de Crédito Fiscal / IVA
                         credito_fiscal = 0.0
                         for col in ["Credito Fiscales", "Crédito Fiscal", "Credito_Fiscal", "IVA", "Créditos Fiscales"]:
                             if col in row and pd.notna(row[col]):
@@ -5732,14 +5740,14 @@ def renderizar_tab_asientos_automatizados(db_connection):
                         })
 
                     st.session_state['df_asientos_proceso'] = pd.DataFrame(filas_asiento_temporal)
-                    st.success("¡Propuesta de asientos generada exitosamente conectada a tu plan central!")
+                    st.success("¡Propuesta de asientos generada exitosamente con el plan central!")
                     st.rerun()
 
                 except Exception as proc_err:
                     st.error(f"Error al procesar los datos de las compras: {proc_err}")
 
             # ----------------------------------------------------
-            # PASO 3: EDITOR Y PERSISTENCIA EN LIBRO DIARIO
+            # PASO 3: EDITOR Y PERSISTENCIA (Usa la BD del cliente recibida por parámetro)
             # ----------------------------------------------------
             if 'df_asientos_proceso' in st.session_state and not st.session_state['df_asientos_proceso'].empty:
                 st.markdown("### 📋 Segundo Frame: Estructura del Asiento Contable (Partida Doble)")
@@ -5813,7 +5821,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
 
                         db_connection.commit()
                         cursor.close()
-                        st.success("🎉 ¡Asientos contables guardados exitosamente en el Libro Diario!")
+                        st.success("🎉 ¡Asientos contables guardados exitosamente en el Libro Diario de la empresa!")
                         
                         del st.session_state['df_asientos_proceso']
                         st.rerun()
