@@ -5551,31 +5551,28 @@ def verificar_si_es_contribuyente_especial(db_name):
 def renderizar_tab_asientos_automatizados(db_connection):
     st.subheader("🤖 Asientos Automatizados (Comprobantes Contables)")
     st.markdown("""
-    Sube tu archivo Excel de compras del periodo. El sistema procesará la información para que puedas asignar 
-    las cuentas contables de detalle mediante una lista desplegable con nombres y códigos, y generar automáticamente los asientos en partida doble.
+    Sube tu archivo Excel de compras del periodo. El sistema procesará la información integrándose 
+    directamente con el plan de cuentas activo y los parámetros de control central para generar los asientos en partida doble.
     """)
 
     # ----------------------------------------------------
-    # CARGAR PLAN DE CUENTAS (FILTRANDO SOLO 'Detalle')
+    # CARGAR PLAN DE CUENTAS DINÁMICAMENTE DESDE LA BD (CONTROL CENTRAL)
     # ----------------------------------------------------
     codigos_disponibles = []
     mapa_descripciones = {}
     opciones_desplegable = []
     
     try:
-        # Usamos DictCursor para leer por nombre de columna de forma segura
         cursor_opt = db_connection.cursor(pymysql.cursors.DictCursor)
-        
-        # Consulta para asegurar que traiga todas las cuentas de tipo 'Detalle'
+        # Consulta estricta conectada al plan de cuentas de la base de datos central
         cursor_opt.execute("""
             SELECT codigo, nombre, tipo 
             FROM plan_cuentas 
             WHERE LOWER(TRIM(tipo)) = 'detalle'
+            ORDER BY codigo ASC
         """)
         cuentas_opt = cursor_opt.fetchall()
         cursor_opt.close()
-        
-        st.info(f"🔍 Diagnóstico: Se encontraron exitosamente {len(cuentas_opt)} cuentas de tipo 'Detalle' en la base de datos.")
         
         if cuentas_opt:
             for c in cuentas_opt:
@@ -5585,20 +5582,17 @@ def renderizar_tab_asientos_automatizados(db_connection):
                     codigos_disponibles.append(codigo)
                     mapa_descripciones[codigo] = nombre
                     opciones_desplegable.append(f"{codigo} - {nombre}")
+            st.success(f"🔗 Conexión exitosa con Control Central: {len(opciones_desplegable)} cuentas de detalle cargadas.")
+        else:
+            st.warning("⚠️ No se encontraron cuentas de tipo 'Detalle' en la base de datos. Verifica tu Plan de Cuentas.")
+            
     except Exception as e:
-        st.warning(f"Error al consultar el plan de cuentas: {e}")
+        st.error(f"❌ Error de conexión al consultar el plan de cuentas en la base de datos: {e}")
 
-    # Fallback de seguridad absoluto por si ocurre alguna desconexión
+    # Si no hay opciones, detenemos la ejecución para obligar a configurar el plan de cuentas real
     if not opciones_desplegable:
-        opciones_desplegable = [
-            "1.1.1.01.001 - Caja Chica", 
-            "1.1.1.01.002 - Caja Nacional", 
-            "1.1.1.02.001 - Banco de Venezuela"
-        ]
-        for op in opciones_desplegable:
-            partes = op.split(" - ")
-            codigos_disponibles.append(partes[0])
-            mapa_descripciones[partes[0]] = partes[1]
+        st.error("No se puede avanzar sin un Plan de Cuentas válido sincronizado desde el control central.")
+        return
 
     default_opcion = opciones_desplegable[0]
 
@@ -5609,16 +5603,12 @@ def renderizar_tab_asientos_automatizados(db_connection):
     
     with st.expander("Ver formato requerido de columnas para el Excel"):
         st.markdown("""
-        El Excel debe contener las columnas:
-        - `Fecha de Operación` (o `Fecha`)
-        - `Tipo de Documento`
-        - `Número de Documento`
-        - `Número de Control`
-        - `Nombre o Razón Social`
-        - `R.I.F.`
-        - `Total Compras`
+        El sistema detecta automáticamente las columnas estándar de tus reportes de compras:
+        - `Fecha de Operación` (o variantes como `Fecha`)
+        - `Nombre o Razón Social` (o `Proveedor`)
+        - `Número de Documento` (o `Nro Documento`)
         - `Base Imponible`
-        - `Credito Fiscales`
+        - `Credito Fiscales` (o `IVA`)
         """)
 
     archivo_excel = st.file_uploader("Sube tu archivo de Excel", type=["xlsx", "xls"], key="uploader_excel_compras_tab4")
@@ -5635,13 +5625,14 @@ def renderizar_tab_asientos_automatizados(db_connection):
             n_comprobante_base = st.text_input("Número de Comprobante base (Ej. 050001)", value="050001")
 
             # ----------------------------------------------------
-            # PASO 2: CONVERSIÓN A SEGUNDO FRAME
+            # PASO 2: CONVERSIÓN Y MAPEO AUTOMATIZADO
             # ----------------------------------------------------
             if st.button("🔄 Generar Propuesta de Asientos Contables", key="btn_generar_propuesta_asientos"):
                 try:
                     filas_asiento_temporal = []
 
                     for idx, row in df_compras.iterrows():
+                        # Extracción dinámica de Fecha
                         fecha_op = ""
                         for col in ["Fecha de Operación", "Fecha de Operacion", "Fecha", "FECHA", "fecha", "Fecha Operacion"]:
                             if col in row and pd.notna(row[col]):
@@ -5651,24 +5642,28 @@ def renderizar_tab_asientos_automatizados(db_connection):
                                 fecha_op = val_f[:10]
                                 break
 
+                        # Extracción dinámica de Proveedor / Razón Social
                         proveedor = "Sin Proveedor"
                         for col in ["Nombre o Razón Social", "Nombre o Razon Social", "Proveedor", "Razón Social", "Razon Social"]:
                             if col in row and pd.notna(row[col]):
                                 proveedor = str(row[col]).strip()
                                 break
 
+                        # Extracción dinámica de Número de Documento
                         nro_doc = ""
                         for col in ["Número de Documento", "Numero de Documento", "Nro Documento", "Documento", "Nro_Documento"]:
                             if col in row and pd.notna(row[col]):
                                 nro_doc = str(row[col]).strip()
                                 break
 
+                        # Extracción dinámica de Base Imponible
                         base_imponible = 0.0
                         for col in ["Base Imponible", "Base_Imponible", "BASE IMPONIBLE", "BaseImponible"]:
                             if col in row and pd.notna(row[col]):
                                 base_imponible = float(row[col])
                                 break
 
+                        # Extracción dinámica de Crédito Fiscal / IVA
                         credito_fiscal = 0.0
                         for col in ["Credito Fiscales", "Crédito Fiscal", "Credito_Fiscal", "IVA", "Créditos Fiscales"]:
                             if col in row and pd.notna(row[col]):
@@ -5676,14 +5671,20 @@ def renderizar_tab_asientos_automatizados(db_connection):
                                 break
 
                         total_factura = base_imponible + credito_fiscal
-                        opcion_def_fila = default_opcion
 
-                        # Fila 1: Gasto / Costo (Al Debe) -> Por defecto asignamos Proveedores Nacionales o la primera cuenta de detalle de gasto
+                        # Búsqueda inteligente de cuenta de Gasto/Costo (Fila 1)
+                        opcion_gasto = default_opcion
+                        for opt in opciones_desplegable:
+                            opt_lower = opt.lower()
+                            if opt.startswith("6") or "gasto" in opt_lower or "costo" in opt_lower or "compra" in opt_lower or "inventario" in opt_lower:
+                                opcion_gasto = opt
+                                break
+
                         filas_asiento_temporal.append({
                             "n_comprobante": n_comprobante_base,
                             "descripcion": proveedor,
                             "fecha": fecha_op,
-                            "plan_cuentas": opcion_def_fila, 
+                            "plan_cuentas": opcion_gasto, 
                             "cuenta_contable": "",
                             "referencia": nro_doc,
                             "debe": base_imponible,
@@ -5691,10 +5692,10 @@ def renderizar_tab_asientos_automatizados(db_connection):
                             "tipo_linea": "Gasto/Costo"
                         })
 
-                        # Fila 2: IVA Crédito Fiscal (Al Debe) -> Buscamos de forma inteligente la cuenta de IVA Crédito Fiscal si existe
-                        opcion_iva = opcion_def_fila
+                        # Búsqueda inteligente de cuenta de IVA Crédito Fiscal (Fila 2)
+                        opcion_iva = default_opcion
                         for opt in opciones_desplegable:
-                            if "1.1.4.01.001" in opt or "I.V.A. Crédito Fiscal" in opt:
+                            if "1.1.4.01.001" in opt or "crédito fiscal" in opt.lower() or "iva" in opt.lower():
                                 opcion_iva = opt
                                 break
 
@@ -5711,10 +5712,10 @@ def renderizar_tab_asientos_automatizados(db_connection):
                                 "tipo_linea": "IVA Crédito Fiscal"
                             })
 
-                        # Fila 3: Contrapartida (Al Haber) -> Proveedores Nacionales (2.1.1.01.001)
-                        opcion_contrapartida = opcion_def_fila
+                        # Búsqueda inteligente de Contrapartida / Proveedores por Pagar (Fila 3)
+                        opcion_contrapartida = default_opcion
                         for opt in opciones_desplegable:
-                            if "2.1.1.01.001" in opt or "Proveedores Nacionales" in opt:
+                            if "2.1.1.01.001" in opt or "proveedores" in opt.lower() or "por pagar" in opt.lower():
                                 opcion_contrapartida = opt
                                 break
 
@@ -5731,12 +5732,15 @@ def renderizar_tab_asientos_automatizados(db_connection):
                         })
 
                     st.session_state['df_asientos_proceso'] = pd.DataFrame(filas_asiento_temporal)
-                    st.success("¡Segundo frame generado con éxito con todo tu plan de cuentas operativo!")
+                    st.success("¡Propuesta de asientos generada exitosamente conectada a tu plan central!")
                     st.rerun()
 
-                except Exception as sql_err:
-                    st.error(f"Error al procesar los datos de las compras: {sql_err}")
+                except Exception as proc_err:
+                    st.error(f"Error al procesar los datos de las compras: {proc_err}")
 
+            # ----------------------------------------------------
+            # PASO 3: EDITOR Y PERSISTENCIA EN LIBRO DIARIO
+            # ----------------------------------------------------
             if 'df_asientos_proceso' in st.session_state and not st.session_state['df_asientos_proceso'].empty:
                 st.markdown("### 📋 Segundo Frame: Estructura del Asiento Contable (Partida Doble)")
                 
@@ -5746,7 +5750,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
                     column_config={
                         "plan_cuentas": st.column_config.SelectboxColumn(
                             "Plan de Cuentas (Código - Nombre)",
-                            help="Escribe o despliega la lista para buscar y seleccionar la cuenta",
+                            help="Selecciona la cuenta vinculada directamente desde control central",
                             options=opciones_desplegable,
                             required=False
                         ),
