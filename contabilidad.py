@@ -5832,6 +5832,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
                         st.error(f"Error al guardar los asientos en la base de datos: {db_err}")
 
         except Exception as e:
+            st.error(f"Error al leer el archivo Excel: {e}")
 
 def gestionar_sidebar():
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
