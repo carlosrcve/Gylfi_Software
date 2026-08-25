@@ -5556,20 +5556,18 @@ def renderizar_tab_asientos_automatizados(db_connection):
     """)
 
     # ----------------------------------------------------
-    # CARGAR PLAN DE CUENTAS DESDE CONTROL CENTRAL
+    # CARGAR PLAN DE CUENTAS DESDE LA BASE DE DATOS DEL CLIENTE
     # ----------------------------------------------------
     codigos_disponibles = []
     mapa_descripciones = {}
     opciones_desplegable = []
     
-    # Nos conectamos explícitamente a 'control_central' para extraer el plan de cuentas maestro
-    db_central = conectar_db("control_central")
-    
-    if db_central:
+    # Validamos que la conexión del cliente esté activa
+    if db_connection:
         try:
-            cursor_opt = db_central.cursor(pymysql.cursors.DictCursor)
+            cursor_opt = db_connection.cursor(pymysql.cursors.DictCursor)
             
-            # 1. Intentamos la consulta estándar filtrando por tipo Detalle (insensible a mayúsculas/minúsculas)
+            # 1. Consultamos el plan de cuentas en la BD específica de esta empresa (multicliente)
             cursor_opt.execute("""
                 SELECT codigo, nombre, tipo 
                 FROM plan_cuentas 
@@ -5578,11 +5576,11 @@ def renderizar_tab_asientos_automatizados(db_connection):
             """)
             cuentas_opt = cursor_opt.fetchall()
             
-            # 2. Si no trae nada, consultamos si la tabla tiene al menos registros generales para diagnosticar
+            # 2. Diagnóstico por si la tabla del cliente no tiene registros de detalle
             if not cuentas_opt:
                 cursor_opt.execute("SELECT COUNT(*) as total, tipo FROM plan_cuentas GROUP BY tipo")
                 diagnostico = cursor_opt.fetchall()
-                st.warning(f"⚠️ Diagnóstico de la tabla 'plan_cuentas': {diagnostico}")
+                st.warning(f"⚠️ Diagnóstico de la tabla 'plan_cuentas' para esta empresa: {diagnostico}")
             
             cursor_opt.close()
             
@@ -5594,18 +5592,18 @@ def renderizar_tab_asientos_automatizados(db_connection):
                         codigos_disponibles.append(codigo)
                         mapa_descripciones[codigo] = nombre
                         opciones_desplegable.append(f"{codigo} - {nombre}")
-                st.success(f"🔗 Sincronización exitosa con Control Central: {len(opciones_desplegable)} cuentas de detalle cargadas.")
+                st.success(f"🔗 Sincronización exitosa con la empresa actual: {len(opciones_desplegable)} cuentas de detalle cargadas.")
             else:
-                st.error("⚠️ La tabla 'plan_cuentas' en 'control_central' existe pero no devolvió registros marcados como 'Detalle'. Revisa si tu columna 'tipo' tiene asignado 'Detalle' exactamente o si la tabla está vacía.")
+                st.error("⚠️ La tabla 'plan_cuentas' en la base de datos de esta empresa existe pero no devolvió registros marcados como 'Detalle'.")
                 
         except Exception as e:
-            st.error(f"❌ Error al consultar el plan de cuentas en control_central: {e}")
+            st.error(f"❌ Error al consultar el plan de cuentas en la base de datos del cliente: {e}")
     else:
-        st.error("❌ No se pudo establecer conexión con la base de datos 'control_central' para obtener el plan de cuentas.")
+        st.error("❌ No se pudo establecer conexión con la base de datos de la empresa.")
 
-    # Si por alguna razón sigue vacío, detenemos la ejecución de manera controlada
+    # Si sigue vacío, detenemos la ejecución de manera controlada
     if not opciones_desplegable:
-        st.error("No se puede avanzar sin un Plan de Cuentas válido sincronizado desde el control central.")
+        st.error("No se puede avanzar sin un Plan de Cuentas válido sincronizado para esta empresa.")
         return
 
     default_opcion = opciones_desplegable[0]
@@ -5741,14 +5739,14 @@ def renderizar_tab_asientos_automatizados(db_connection):
                         })
 
                     st.session_state['df_asientos_proceso'] = pd.DataFrame(filas_asiento_temporal)
-                    st.success("¡Propuesta de asientos generada exitosamente con el plan central!")
+                    st.success("¡Propuesta de asientos generada exitosamente con el plan de la empresa!")
                     st.rerun()
 
                 except Exception as proc_err:
                     st.error(f"Error al procesar los datos de las compras: {proc_err}")
 
             # ----------------------------------------------------
-            # PASO 3: EDITOR Y PERSISTENCIA (Usa la BD del cliente recibida por parámetro)
+            # PASO 3: EDITOR Y PERSISTENCIA (Usa la BD de la empresa)
             # ----------------------------------------------------
             if 'df_asientos_proceso' in st.session_state and not st.session_state['df_asientos_proceso'].empty:
                 st.markdown("### 📋 Segundo Frame: Estructura del Asiento Contable (Partida Doble)")
@@ -5759,7 +5757,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
                     column_config={
                         "plan_cuentas": st.column_config.SelectboxColumn(
                             "Plan de Cuentas (Código - Nombre)",
-                            help="Selecciona la cuenta vinculada directamente desde control central",
+                            help="Selecciona la cuenta vinculada directamente desde la base de datos de la empresa",
                             options=opciones_desplegable,
                             required=False
                         ),
