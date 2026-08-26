@@ -5773,9 +5773,11 @@ def renderizar_tab_asientos_automatizados(db_connection):
             # ----------------------------------------------------
             # PASO 3: EDITOR Y FORMATO DE NÚMEROS (SIN TIPO_LINEA)
             # ----------------------------------------------------
+            # ----------------------------------------------------
+            # PASO 3: EDITOR Y FORMATO DE NÚMEROS (OPTIMIZADO Y VELOZ)
+            # ----------------------------------------------------
             if 'df_asientos_proceso' in st.session_state and not st.session_state['df_asientos_proceso'].empty:
                 st.markdown("### 📋 Segundo Frame: Estructura del Asiento Contable (Partida Doble)")
-                st.info("💡 Consejo: Después de seleccionar una cuenta en el menú desplegable, haz clic en cualquier otra celda o fuera del menú para confirmar el cambio antes de guardar.")
                 
                 df_editado = st.data_editor(
                     st.session_state['df_asientos_proceso'],
@@ -5789,7 +5791,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
                         ),
                         "cuenta_contable": st.column_config.TextColumn(
                             "Descripción Cuenta",
-                            help="Nombre de la cuenta"
+                            help="Nombre de la cuenta sincronizado automáticamente"
                         ),
                         "fecha": st.column_config.TextColumn(
                             "Fecha",
@@ -5809,13 +5811,18 @@ def renderizar_tab_asientos_automatizados(db_connection):
                     key="editor_asientos_auto_tab4"
                 )
                 
-                st.session_state['df_asientos_proceso'] = df_editado
-
-                for idx, row in df_editado.iterrows():
-                    seleccion_completa = str(row.get("plan_cuentas", ""))
+                # Actualización limpia y directa al vuelo por cada fila del editor
+                for idx in df_editado.index:
+                    seleccion_completa = str(df_editado.at[idx, "plan_cuentas"])
                     if " - " in seleccion_completa:
-                        nombre_puro = seleccion_completa.split(" - ")[1].strip()
-                        df_editado.at[idx, "cuenta_contable"] = nombre_puro
+                        partes = seleccion_completa.split(" - ", 1)
+                        codigo_puro = partes[0].strip()
+                        # Asignamos directamente la descripción correcta basada en el diccionario del plan de cuentas
+                        df_editado.at[idx, "cuenta_contable"] = mapa_descripciones.get(codigo_puro, partes[1].strip())
+                    else:
+                        df_editado.at[idx, "cuenta_contable"] = mapa_descripciones.get(seleccion_completa.strip(), "Cuenta General")
+
+                st.session_state['df_asientos_proceso'] = df_editado
 
                 tot_debe = df_editado['debe'].sum()
                 tot_haber = df_editado['haber'].sum()
@@ -5824,7 +5831,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
                 col_m2.metric("Total Haber", f"{tot_haber:,.2f}")
 
                 if abs(tot_debe - tot_haber) > 0.01:
-                    st.warning("⚠️ Los montos del Debe y el Haber no coinciden exactamente. Revisa los valores antes de guardar.")
+                    st.warning("⚠️ Los montos del Debe y el Haber não coinciden exactamente. Revisa los valores antes de guardar.")
 
                 if st.button("💾 Guardar Asientos Definitivos en el Libro Diario", key="btn_guardar_asientos_definitivos"):
                     try:
@@ -5853,7 +5860,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
                         for index, row in df_editado.iterrows():
                             seleccion_completa = str(row["plan_cuentas"])
                             codigo_cuenta = seleccion_completa.split(" - ")[0].strip() if " - " in seleccion_completa else seleccion_completa.strip()
-                            nombre_cuenta_contable = mapa_descripciones.get(codigo_cuenta, str(row.get("cuenta_contable", "Cuenta General")))
+                            nombre_cuenta_contable = str(row["cuenta_contable"])
 
                             fecha_val = row["fecha"]
                             fecha_sql = None if pd.isna(fecha_val) or str(fecha_val).strip().lower() in ["", "nat", "none"] else str(fecha_val).strip()[:10]
