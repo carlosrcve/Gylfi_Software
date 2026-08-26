@@ -5548,6 +5548,9 @@ def verificar_si_es_contribuyente_especial(db_name):
 
 
 
+import pandas as pd
+import pymysql
+
 def renderizar_tab_asientos_automatizados(db_connection):
     st.subheader("🤖 Asientos Automatizados (Comprobantes Contables)")
     st.markdown("""
@@ -5564,10 +5567,9 @@ def renderizar_tab_asientos_automatizados(db_connection):
     mapa_nombres_empresas = {}
     
     try:
-        cursor_temp = db_connection.cursor(pymysql.cursors.DictCursor)
-        cursor_temp.execute("SELECT * FROM control_central.cliente")
-        clientes_db = cursor_temp.fetchall()
-        cursor_temp.close()
+        with db_connection.cursor(pymysql.cursors.DictCursor) as cursor_temp:
+            cursor_temp.execute("SELECT * FROM control_central.cliente")
+            clientes_db = cursor_temp.fetchall()
         
         for cli in clientes_db:
             db_name = str(cli.get("base_de_datos", cli.get("db_name", cli.get("schema_name", "")))).strip()
@@ -5645,61 +5647,57 @@ def renderizar_tab_asientos_automatizados(db_connection):
     # ----------------------------------------------------
     if db_connection:
         try:
-            cursor_opt = db_connection.cursor(pymysql.cursors.DictCursor)
-            
-            # Verificar o intentar crear la tabla plan_cuentas si no existe para evitar el error 1146
-            cursor_opt.execute(f"""
-                CREATE TABLE IF NOT EXISTS `{db_segura}`.plan_cuentas (
-                    codigo VARCHAR(50) PRIMARY KEY,
-                    nombre VARCHAR(255),
-                    tipo VARCHAR(50)
-                );
-            """)
-            db_connection.commit()
+            with db_connection.cursor(pymysql.cursors.DictCursor) as cursor_opt:
+                # Verificar o intentar crear la tabla plan_cuentas si no existe
+                cursor_opt.execute(f"""
+                    CREATE TABLE IF NOT EXISTS `{db_segura}`.plan_cuentas (
+                        codigo VARCHAR(50) PRIMARY KEY,
+                        nombre VARCHAR(255),
+                        tipo VARCHAR(50)
+                    );
+                """)
+                db_connection.commit()
 
-            # 1. Cargar Plan de Cuentas
-            query_plan = f"SELECT codigo, nombre, tipo FROM `{db_segura}`.plan_cuentas ORDER BY codigo ASC"
-            cursor_opt.execute(query_plan)
-            cuentas_opt = cursor_opt.fetchall()
-            
-            cuentas_detalle = [c for c in cuentas_opt if str(c.get("tipo", "")).strip().lower() == 'detalle']
-            lista_cuentas = cuentas_detalle if cuentas_detalle else cuentas_opt
-            
-            for c in lista_cuentas:
-                codigo = str(c.get("codigo", "")).strip()
-                nombre = str(c.get("nombre", "")).strip()
-                if codigo:
-                    mapa_descripciones[codigo] = nombre
-                    opciones_desplegable.append(f"{codigo} - {nombre}")
-
-            # 2. Cargar Tabla Proveedores (Blindada)
-            try:
-                cursor_opt.execute(f"SELECT * FROM `{db_segura}`.proveedores")
-                proveedores_db = cursor_opt.fetchall()
+                # 1. Cargar Plan de Cuentas
+                cursor_opt.execute(f"SELECT codigo, nombre, tipo FROM `{db_segura}`.plan_cuentas ORDER BY codigo ASC")
+                cuentas_opt = cursor_opt.fetchall()
                 
-                for prov in proveedores_db:
-                    p_nombre = str(prov.get("nombre", prov.get("razon_social", ""))).strip().upper()
-                    p_rif = str(prov.get("rif", prov.get("RIF", ""))).strip().upper()
-                    
-                    p_codigo = str(prov.get("codigo_cuenta", prov.get("codigo", prov.get("cuenta_gasto", "")))).strip()
-                    p_desc = str(prov.get("descripcion_cuenta", prov.get("descripcion", ""))).strip()
-                    p_cod_pagar = str(prov.get("codigo_cuenta_pagar", "")).strip()
-                    p_desc_pagar = str(prov.get("descripcion_cuenta_pagar", "")).strip()
-                    
-                    info_prov = {
-                        "codigo_cuenta": p_codigo,
-                        "descripcion_cuenta": p_desc,
-                        "codigo_cuenta_pagar": p_cod_pagar,
-                        "descripcion_cuenta_pagar": p_desc_pagar
-                    }
-                    if p_rif: mapa_proveedores_cuentas[p_rif] = info_prov
-                    if p_nombre: mapa_proveedores_cuentas[p_nombre] = info_prov
-            except Exception:
-                pass # Si no existe la tabla proveedores, la ignoramos sin romper el flujo
+                cuentas_detalle = [c for c in cuentas_opt if str(c.get("tipo", "")).strip().lower() == 'detalle']
+                lista_cuentas = cuentas_detalle if cuentas_detalle else cuentas_opt
+                
+                for c in lista_cuentas:
+                    codigo = str(c.get("codigo", "")).strip()
+                    nombre = str(c.get("nombre", "")).strip()
+                    if codigo:
+                        mapa_descripciones[codigo] = nombre
+                        opciones_desplegable.append(f"{codigo} - {nombre}")
 
-            cursor_opt.close()
-            
-            # Si el plan de cuentas está totalmente vacío, inyectamos cuentas genéricas por defecto para que la app no muera
+                # 2. Cargar Tabla Proveedores
+                try:
+                    cursor_opt.execute(f"SELECT * FROM `{db_segura}`.proveedores")
+                    proveedores_db = cursor_opt.fetchall()
+                    
+                    for prov in proveedores_db:
+                        p_nombre = str(prov.get("nombre", prov.get("razon_social", ""))).strip().upper()
+                        p_rif = str(prov.get("rif", prov.get("RIF", ""))).strip().upper()
+                        
+                        p_codigo = str(prov.get("codigo_cuenta", prov.get("codigo", prov.get("cuenta_gasto", "")))).strip()
+                        p_desc = str(prov.get("descripcion_cuenta", prov.get("descripcion", ""))).strip()
+                        p_cod_pagar = str(prov.get("codigo_cuenta_pagar", "")).strip()
+                        p_desc_pagar = str(prov.get("descripcion_cuenta_pagar", "")).strip()
+                        
+                        info_prov = {
+                            "codigo_cuenta": p_codigo,
+                            "descripcion_cuenta": p_desc,
+                            "codigo_cuenta_pagar": p_cod_pagar,
+                            "descripcion_cuenta_pagar": p_desc_pagar
+                        }
+                        if p_rif: mapa_proveedores_cuentas[p_rif] = info_prov
+                        if p_nombre: mapa_proveedores_cuentas[p_nombre] = info_prov
+                except Exception:
+                    pass 
+
+            # Cuentas genéricas por defecto si el plan está vacío
             if not opciones_desplegable:
                 st.warning(f"⚠️ La tabla 'plan_cuentas' en `{db_segura}` está vacía. Se cargaron cuentas temporales de respaldo.")
                 opciones_desplegable = [
@@ -5725,6 +5723,13 @@ def renderizar_tab_asientos_automatizados(db_connection):
                 mapa_descripciones[partes[0]] = partes[1]
 
     default_opcion = opciones_desplegable[0]
+
+    def obtener_opcion_valida(codigo_buscado, fallback):
+        """Busca y retorna el string exacto 'Código - Nombre' en las opciones disponibles."""
+        for opt in opciones_desplegable:
+            if opt.startswith(codigo_buscado + " -"):
+                return opt
+        return fallback
 
     # ----------------------------------------------------
     # PRIMER FRAME: CARGA Y VISTA PREVIA DEL EXCEL
@@ -5777,7 +5782,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
                             val_str = str(raw_fecha).strip().split(" ")[0]
                             try:
                                 fecha_op = pd.to_datetime(val_str).strftime("%Y-%m-%d")
-                            except:
+                            except Exception:
                                 fecha_op = val_str[:10] if val_str else ""
 
                         razon_social = str(buscar_valor(["Nombre o Razón Social", "Nombre o Razon Social", "Razon Social", "Proveedor"], "Sin Nombre")).strip()
@@ -5786,17 +5791,17 @@ def renderizar_tab_asientos_automatizados(db_connection):
 
                         try:
                             base_imponible = float(buscar_valor(["Base Imponible"], 0.0))
-                        except:
+                        except Exception:
                             base_imponible = 0.0
 
                         try:
                             credito_fiscal = float(buscar_valor(["Credito Fiscales", "Crédito Fiscales", "Credito Fiscal", "IVA"], 0.0))
-                        except:
+                        except Exception:
                             credito_fiscal = 0.0
 
                         try:
                             total_compras = float(buscar_valor(["Total Compras"], base_imponible + credito_fiscal))
-                        except:
+                        except Exception:
                             total_compras = base_imponible + credito_fiscal
 
                         n_comprobante_actual = f"{n_comprobante_base}-{nro_doc}"
@@ -5808,25 +5813,27 @@ def renderizar_tab_asientos_automatizados(db_connection):
                         if datos_prov:
                             p_cod_gasto = str(datos_prov.get("codigo_cuenta", "")).strip()
                             if p_cod_gasto:
-                                opcion_gasto = next((opt for opt in opciones_desplegable if opt.startswith(p_cod_gasto + " -")), None)
+                                opcion_gasto = obtener_opcion_valida(p_cod_gasto, None)
 
                             p_cod_pagar = str(datos_prov.get("codigo_cuenta_pagar", "")).strip()
                             if p_cod_pagar:
-                                opcion_contrapartida = next((opt for opt in opciones_desplegable if opt.startswith(p_cod_pagar + " -")), None)
+                                opcion_contrapartida = obtener_opcion_valida(p_cod_pagar, None)
 
                         if not opcion_gasto:
                             for opt in opciones_desplegable:
                                 if (opt.startswith("5") or opt.startswith("6")) and "iva" not in opt.lower():
                                     opcion_gasto = opt
                                     break
-                        if not opcion_gasto: opcion_gasto = default_opcion
+                        if not opcion_gasto: 
+                            opcion_gasto = default_opcion
 
                         if not opcion_contrapartida:
                             for opt in opciones_desplegable:
                                 if opt.startswith("2.1.1") or opt.startswith("2"):
                                     opcion_contrapartida = opt
                                     break
-                        if not opcion_contrapartida: opcion_contrapartida = default_opcion
+                        if not opcion_contrapartida: 
+                            opcion_contrapartida = default_opcion
 
                         desc_gasto = opcion_gasto.split(" - ", 1)[1] if " - " in opcion_gasto else ""
                         desc_contra = opcion_contrapartida.split(" - ", 1)[1] if " - " in opcion_contrapartida else ""
@@ -5961,44 +5968,43 @@ def renderizar_tab_asientos_automatizados(db_connection):
 
                 if st.button("💾 Guardar Todo el Asiento en el Libro Diario", key="btn_guardar_asientos_finales", use_container_width=True):
                     try:
-                        cursor = db_connection.cursor()
-                        cursor.execute(f"""
-                            CREATE TABLE IF NOT EXISTS `{db_segura}`.asientos_contables (
-                                id INT AUTO_INCREMENT PRIMARY KEY,
-                                n_comprobante VARCHAR(50),
-                                descripcion TEXT,
-                                fecha DATE,
-                                plan_cuentas VARCHAR(100),
-                                cuenta_contable VARCHAR(255),
-                                referencia VARCHAR(100),
-                                debe DECIMAL(15, 2) DEFAULT 0.00,
-                                haber DECIMAL(15, 2) DEFAULT 0.00
-                            );
-                        """)
+                        with db_connection.cursor() as cursor:
+                            cursor.execute(f"""
+                                CREATE TABLE IF NOT EXISTS `{db_segura}`.asientos_contables (
+                                    id INT AUTO_INCREMENT PRIMARY KEY,
+                                    n_comprobante VARCHAR(50),
+                                    descripcion TEXT,
+                                    fecha DATE,
+                                    plan_cuentas VARCHAR(100),
+                                    cuenta_contable VARCHAR(255),
+                                    referencia VARCHAR(100),
+                                    debe DECIMAL(15, 2) DEFAULT 0.00,
+                                    haber DECIMAL(15, 2) DEFAULT 0.00
+                                );
+                            """)
 
-                        sql_insert = f"""
-                            INSERT INTO `{db_segura}`.asientos_contables 
-                            (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber)
-                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                        """
-                        
-                        for _, r_row in df_editado.iterrows():
-                            f_op = r_row["fecha"] if pd.notna(r_row["fecha"]) and str(r_row["fecha"]).strip() != "" else None
-                            cod_plan = str(r_row["plan_cuentas"]).split(" - ")[0].strip()
+                            sql_insert = f"""
+                                INSERT INTO `{db_segura}`.asientos_contables 
+                                (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber)
+                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                            """
                             
-                            cursor.execute(sql_insert, (
-                                str(r_row["n_comprobante"]),
-                                str(r_row["descripcion"]),
-                                f_op,
-                                cod_plan,
-                                str(r_row["cuenta_contable"]),
-                                str(r_row["referencia"]),
-                                float(r_row["debe"] or 0.0),
-                                float(r_row["haber"] or 0.0)
-                            ))
+                            for _, r_row in df_editado.iterrows():
+                                f_op = r_row["fecha"] if pd.notna(r_row["fecha"]) and str(r_row["fecha"]).strip() != "" else None
+                                cod_plan = str(r_row["plan_cuentas"]).split(" - ")[0].strip()
+                                
+                                cursor.execute(sql_insert, (
+                                    str(r_row["n_comprobante"]),
+                                    str(r_row["descripcion"]),
+                                    f_op,
+                                    cod_plan,
+                                    str(r_row["cuenta_contable"]),
+                                    str(r_row["referencia"]),
+                                    float(r_row["debe"] or 0.0),
+                                    float(r_row["haber"] or 0.0)
+                                ))
                         
                         db_connection.commit()
-                        cursor.close()
                         st.success(f"🎉 ¡Asientos guardados exitosamente en la base de datos `{db_segura}`!")
                     except Exception as db_save_err:
                         db_connection.rollback()
