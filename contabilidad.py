@@ -5781,8 +5781,10 @@ def renderizar_tab_asientos_automatizados(db_connection):
             # ----------------------------------------------------
             if 'df_asientos_proceso' in st.session_state and not st.session_state['df_asientos_proceso'].empty:
                 st.markdown("### 📋 Segundo Frame: Estructura del Asiento Contable (Partida Doble)")
+                st.info("💡 Consejo: Después de seleccionar una cuenta en el menú desplegable, haz clic en cualquier otra celda o fuera del menú para confirmar el cambio antes de guardar.")
                 
-                st.session_state['df_asientos_proceso'] = st.data_editor(
+                # Usamos un contenedor de formulario o asignamos el resultado asegurando el estado
+                df_editado = st.data_editor(
                     st.session_state['df_asientos_proceso'],
                     num_rows="dynamic",
                     column_config={
@@ -5803,7 +5805,9 @@ def renderizar_tab_asientos_automatizados(db_connection):
                     },
                     key="editor_asientos_auto_tab4"
                 )
-                df_editado = st.session_state['df_asientos_proceso']
+                
+                # Actualizamos inmediatamente el session state con lo que devuelve el editor
+                st.session_state['df_asientos_proceso'] = df_editado
 
                 for idx, row in df_editado.iterrows():
                     seleccion_completa = str(row.get("plan_cuentas", ""))
