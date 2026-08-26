@@ -5805,7 +5805,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
                     fin = min(inicio + tamano_lote, total_filas)
                     df_a_procesar = df_total.iloc[inicio:fin].copy()
                     
-                    st.info(Mostrando lote de registros **{inicio + 1} al {fin}** de un total de **{total_filas}** facturas cargadas.)
+                    st.info(f"📦 Mostrando lote de registros **{inicio + 1} al {fin}** de un total de **{total_filas}** facturas cargadas.")
                 
                 # ----------------------------------------------------
                 # PASO 3: EDITOR Y FORMATO DE NÚMEROS (SOBRE EL LOTE ACTUAL)
@@ -5910,8 +5910,6 @@ def renderizar_tab_asientos_automatizados(db_connection):
                         db_connection.commit()
                         cursor.close()
                         st.success(f"🎉 ¡Los asientos de este lote fueron guardados exitosamente en la base de datos de `{db_segura}`!")
-                        
-                        # Opcional: Si quieres limpiar el lote guardado del DataFrame principal, puedes hacerlo aquí
                         
                     except Exception as db_err:
                         db_connection.rollback()
