@@ -5561,20 +5561,33 @@ def renderizar_tab_asientos_automatizados(db_connection):
         cursor_temp = db_connection.cursor()
         cursor_temp.execute("SHOW DATABASES")
         dbs = [row[0] for row in cursor_temp.fetchall()]
-        cursor_temp.close()
         
-        # Filtro estricto para excluir bases de sistema y posibles formatos de fecha (YYYY-MM-DD)
+        # Filtro estricto: comprobar que la base de datos realmente tenga la tabla 'plan_cuentas'
         dbs_filtradas = []
         for db in dbs:
             db_lower = str(db).lower()
+            # Ignorar esquemas del sistema y fechas
             if db_lower in ['information_schema', 'mysql', 'performance_schema', 'sys', 'control_central']:
                 continue
-            if len(db_lower) == 10 and db_lower[4] == '-' and db_lower[7] == '-': # Excluye fechas tipo YYYY-MM-DD
+            if len(db_lower) == 10 and db_lower[4] == '-' and db_lower[7] == '-':
                 continue
-            dbs_filtradas.append(db)
-            
+                
+            # Verificar si la BD tiene la tabla plan_cuentas para asegurar que es una empresa contable válida
+            try:
+                cursor_temp.execute(f"SHOW TABLES FROM `{db}` LIKE 'plan_cuentas'")
+                resultado_tabla = cursor_temp.fetchone()
+                if resultado_tabla:
+                    dbs_filtradas.append(db)
+            except:
+                continue
+                
+        cursor_temp.close()
     except Exception as e:
         st.error(f"Error al listar bases de datos: {e}")
+        return
+
+    if not dbs_filtradas:
+        st.error("⚠️ No se encontraron bases de datos válidas con estructura contable ('plan_cuentas').")
         return
 
     # Intentar preseleccionar si hay algo en session_state o contiene king/driver
@@ -5955,6 +5968,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
 
         except Exception as excel_err:
             st.error(f"❌ Error al procesar el archivo Excel: {excel_err}")
+            
 def gestionar_sidebar():
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
     user_id = st.session_state.get('user_id', st.session_state.get('cliente_id', 'N/A'))
