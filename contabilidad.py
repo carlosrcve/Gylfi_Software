@@ -5548,14 +5548,18 @@ def verificar_si_es_contribuyente_especial(db_name):
 
 
 
+
 def renderizar_tab_asientos_automatizados(db_connection):
     st.subheader("🤖 Asientos Automatizados (Comprobantes Contables)")
     st.markdown("""
-    Sube tu archivo Excel de compras del periodo. El sistema procesará la información integrándose 
-    directamente con el plan de cuentas maestro, la **tabla de proveedores** y los parámetros de control central.
+    Sube tu **Libro de Compras** en Excel. El sistema procesará los datos en dos etapas:
+    1. **Primer Frame**: Visualización del archivo cargado.
+    2. **Segundo Frame**: Estructura automática del asiento contable listo para guardar.
     """)
 
-    # 1. BÚSQUEDA AUTOMÁTICA DE LA EMPRESA EN EL SESSION STATE
+    # ----------------------------------------------------
+    # BÚSQUEDA Y CONEXIÓN A LA BD DE LA EMPRESA
+    # ----------------------------------------------------
     posibles_llaves = ['empresa_actual', 'db_seleccionada', 'empresa', 'current_db', 'cliente_activo', 'db_actual']
     nombre_db_cliente = None
 
@@ -5571,54 +5575,50 @@ def renderizar_tab_asientos_automatizados(db_connection):
                 break
 
     if not nombre_db_cliente:
-        st.warning("⚠️ No se detectó automáticamente una empresa activa en la sesión. Selecciona la base de datos del cliente:")
+        st.warning("⚠️ Selecciona la base de datos de la empresa activa:")
         try:
             cursor_temp = db_connection.cursor()
             cursor_temp.execute("SHOW DATABASES")
             dbs = [row[0] for row in cursor_temp.fetchall()]
             cursor_temp.close()
             dbs_filtradas = [db for db in dbs if db not in ['information_schema', 'mysql', 'performance_schema', 'sys', 'control_central']]
-            nombre_db_cliente = st.selectbox("Base de datos de la empresa:", dbs_filtradas)
+            nombre_db_cliente = st.selectbox("Base de datos:", dbs_filtradas)
         except Exception as e:
-            st.error(f"No se pudieron listar las bases de datos: {e}")
+            st.error(f"Error al listar bases de datos: {e}")
             return
 
     if not nombre_db_cliente:
-        st.error("⚠️ No se pudo determinar la base de datos de la empresa activa.")
+        st.error("⚠️ No se pudo determinar la base de datos activa.")
         return
 
     db_segura = str(nombre_db_cliente).strip()
-    codigos_disponibles = []
     mapa_descripciones = {}
     opciones_desplegable = []
     mapa_proveedores_cuentas = {}  
     
+    # ----------------------------------------------------
+    # CARGA DE TABLAS: PLAN_CUENTAS Y PROVEEDORES
+    # ----------------------------------------------------
     if db_connection:
         try:
             cursor_opt = db_connection.cursor(pymysql.cursors.DictCursor)
             
-            # 2. CONSULTAR PLAN DE CUENTAS
+            # 1. Cargar Plan de Cuentas
             query_plan = f"SELECT codigo, nombre, tipo FROM `{db_segura}`.plan_cuentas ORDER BY codigo ASC"
             cursor_opt.execute(query_plan)
             cuentas_opt = cursor_opt.fetchall()
             
-            total_registros = len(cuentas_opt)
-            st.info(f"🔍 Conectado a la BD del cliente: `{db_segura}` | Registros en plan_cuentas: `{total_registros}`")
-
             cuentas_detalle = [c for c in cuentas_opt if str(c.get("tipo", "")).strip().lower() == 'detalle']
-            lista_a_usar = cuentas_detalle if cuentas_detalle else cuentas_opt
+            lista_cuentas = cuentas_detalle if cuentas_detalle else cuentas_opt
             
-            if lista_a_usar:
-                for c in lista_a_usar:
-                    codigo = str(c.get("codigo", "")).strip()
-                    nombre = str(c.get("nombre", "")).strip()
-                    
-                    if codigo:
-                        codigos_disponibles.append(codigo)
-                        mapa_descripciones[codigo] = nombre
-                        opciones_desplegable.append(f"{codigo} - {nombre}")
+            for c in lista_cuentas:
+                codigo = str(c.get("codigo", "")).strip()
+                nombre = str(c.get("nombre", "")).strip()
+                if codigo:
+                    mapa_descripciones[codigo] = nombre
+                    opciones_desplegable.append(f"{codigo} - {nombre}")
 
-            # 2.1 CONSULTAR LA TABLA PROVEEDORES (Buscando columnas de cuentas si existen)
+            # 2. Cargar Tabla Proveedores
             try:
                 query_prov = f"SELECT * FROM `{db_segura}`.proveedores"
                 cursor_opt.execute(query_prov)
@@ -5628,249 +5628,220 @@ def renderizar_tab_asientos_automatizados(db_connection):
                     p_nombre = str(prov.get("nombre", prov.get("razon_social", ""))).strip().upper()
                     p_rif = str(prov.get("rif", prov.get("RIF", ""))).strip().upper()
                     
-                    # Intentar capturar cuentas personalizadas si la tabla las tiene
-                    p_codigo = str(prov.get("codigo_cuenta", prov.get("cuenta_gasto", ""))).strip()
-                    p_desc = str(prov.get("descripcion_cuenta", "")).strip()
+                    p_codigo = str(prov.get("codigo_cuenta", prov.get("codigo", prov.get("cuenta_gasto", "")))).strip()
+                    p_desc = str(prov.get("descripcion_cuenta", prov.get("descripcion", ""))).strip()
                     p_cod_pagar = str(prov.get("codigo_cuenta_pagar", "")).strip()
                     p_desc_pagar = str(prov.get("descripcion_cuenta_pagar", "")).strip()
                     
-                    info_prov_dict = {
+                    info_prov = {
                         "codigo_cuenta": p_codigo,
                         "descripcion_cuenta": p_desc,
                         "codigo_cuenta_pagar": p_cod_pagar,
                         "descripcion_cuenta_pagar": p_desc_pagar
                     }
-                    
                     if p_rif:
-                        mapa_proveedores_cuentas[p_rif] = info_prov_dict
+                        mapa_proveedores_cuentas[p_rif] = info_prov
                     if p_nombre:
-                        mapa_proveedores_cuentas[p_nombre] = info_prov_dict
-                        
-                st.success(f"🤝 Tabla de proveedores sincronizada: {len(proveedores_db)} registros leídos.")
+                        mapa_proveedores_cuentas[p_nombre] = info_prov
             except Exception as prov_err:
-                st.warning(f"⚠️ No se pudo leer la tabla de proveedores completa: {prov_err}")
+                pass
 
             cursor_opt.close()
             
             if not opciones_desplegable:
-                st.error(f"⚠️ La tabla 'plan_cuentas' en la base de datos `{db_segura}` devolvió 0 registros.")
+                st.error(f"⚠️ La tabla 'plan_cuentas' en `{db_segura}` está vacía.")
                 return
                 
         except Exception as e:
-            st.error(f"❌ Error crítico al consultar las tablas en `{db_segura}`: {e}")
+            st.error(f"❌ Error al consultar plan_cuentas en BD: {e}")
             return
-    else:
-        st.error("❌ No se pudo establecer conexión general con el servidor.")
-        return
 
     default_opcion = opciones_desplegable[0]
 
     # ----------------------------------------------------
-    # PASO 1: CARGA DEL EXCEL
+    # PRIMER FRAME: CARGA Y VISTA PREVIA DEL EXCEL
     # ----------------------------------------------------
-    st.markdown("### 📁 Paso 1: Carga el Archivo de Compras")
-    archivo_excel = st.file_uploader("Sube tu archivo de Excel", type=["xlsx", "xls"], key="uploader_excel_compras_tab4")
+    st.markdown("### 📋 Primer Frame: Libro de Compras Subido")
+    archivo_excel = st.file_uploader("Subir Libro de Compras (Excel)", type=["xlsx", "xls"], key="uploader_libro_compras")
 
     if archivo_excel is not None:
         try:
             df_compras = pd.read_excel(archivo_excel)
             df_compras.columns = df_compras.columns.str.strip()
             
-            st.success("¡Archivo cargado correctamente! Vista previa:")
             st.dataframe(df_compras, use_container_width=True)
 
-            st.markdown("### ⚙️ Configuración del Lote")
-            n_comprobante_base = st.text_input("Número de Comprobante base (Ej. 050001)", value="050001")
+            st.markdown("---")
+            st.markdown("### ⚙️ Configuración de Asientos y Naturaleza Fiscal")
             
-            if st.button("🔄 Generar Propuesta de Asientos Contables", key="btn_generar_propuesta_asientos"):
+            col_cfg1, col_cfg2 = st.columns(2)
+            with col_cfg1:
+                n_comprobante_base = st.text_input("Prefijo de Comprobante:", value="050001")
+            with col_cfg2:
+                # Condicional fiscal para clientes formales o especiales que asumen el IVA como costo/gasto
+                iva_es_costo = st.checkbox(
+                    "¿Contribuyente formal / El IVA se asume como costo o gasto?", 
+                    value=False,
+                    help="Si está marcado, el crédito fiscal no se separa en una cuenta de activo, sino que se integra al costo/gasto de la operación."
+                )
+            
+            if st.button("🔄 Generar Estructura del Segundo Frame", key="btn_generar_segundo_frame"):
                 try:
                     filas_asiento_temporal = []
-                    
-                    db_actual_str = str(db_segura).strip().lower()
-                    db_limpia = "".join(c for c in db_actual_str if c.isalnum())
-                    es_contribuyente_formal_exento = ("kingdirver" in db_limpia or "kingdriver" in db_limpia)
 
                     for idx, row in df_compras.iterrows():
-                        # 📅 Fecha
-                        fecha_op = ""
-                        for col in df_compras.columns:
-                            col_lower = str(col).strip().lower()
-                            if any(k in col_lower for k in ["fecha", "fch", "date"]):
-                                valor_celda = row[col]
-                                if pd.notna(valor_celda):
-                                    if hasattr(valor_celda, "strftime"):
-                                        fecha_op = valor_celda.strftime("%Y-%m-%d")
-                                    else:
-                                        val_str = str(valor_celda).strip().split(" ")[0]
-                                        try:
-                                            fecha_op = pd.to_datetime(val_str).strftime("%Y-%m-%d")
-                                        except:
-                                            fecha_op = val_str[:10]
-                                    break
+                        def buscar_valor(posibles_nombres, default=""):
+                            for col in df_compras.columns:
+                                c_clean = str(col).strip().lower()
+                                for pos in posibles_nombres:
+                                    if pos.lower() in c_clean:
+                                        val = row[col]
+                                        if pd.notna(val):
+                                            return val
+                            return default
 
-                        # Proveedor
-                        proveedor = "Sin Proveedor"
-                        for col in df_compras.columns:
-                            col_lower = str(col).strip().lower()
-                            if any(k in col_lower for k in ["nombre", "proveedor", "razon", "social"]):
-                                if pd.notna(row[col]):
-                                    proveedor = str(row[col]).strip()
-                                    break
-
-                        # 🆔 RIF (Búsqueda amplia en cualquier columna que contenga rif, ci, nit o cedula)
-                        rif_proveedor = ""
-                        for col in df_compras.columns:
-                            col_lower = str(col).strip().lower()
-                            if any(k in col_lower for k in ["rif", "nit", "cedula", "cédula", "ci"]):
-                                if pd.notna(row[col]):
-                                    rif_proveedor = str(row[col]).strip().upper()
-                                    break
-
-                        # Nro Documento
-                        nro_doc = ""
-                        for col in df_compras.columns:
-                            col_lower = str(col).strip().lower()
-                            if any(k in col_lower for k in ["documento", "factura", "nro", "numero", "N°"]):
-                                if pd.notna(row[col]):
-                                    nro_doc = str(row[col]).strip()
-                                    break
-
-                        # Montos
-                        base_imponible = 0.0
-                        for col in df_compras.columns:
-                            col_lower = str(col).strip().lower()
-                            if "base" in col_lower:
-                                if pd.notna(row[col]):
-                                    base_imponible = float(row[col])
-                                    break
-
-                        credito_fiscal = 0.0
-                        for col in df_compras.columns:
-                            col_lower = str(col).strip().lower()
-                            if "credito" in col_lower or "iva" in col_lower:
-                                if pd.notna(row[col]):
-                                    credito_fiscal = float(row[col])
-                                    break
-
-                        if es_contribuyente_formal_exento:
-                            base_imponible_efectiva = base_imponible + credito_fiscal
-                            total_factura = base_imponible_efectiva  
+                        # Fecha
+                        raw_fecha = buscar_valor(["Fecha de Operación", "Fecha de Operacion", "Fecha"])
+                        if hasattr(raw_fecha, "strftime"):
+                            fecha_op = raw_fecha.strftime("%Y-%m-%d")
                         else:
-                            base_imponible_efectiva = base_imponible
-                            total_factura = base_imponible + credito_fiscal
+                            val_str = str(raw_fecha).strip().split(" ")[0]
+                            try:
+                                fecha_op = pd.to_datetime(val_str).strftime("%Y-%m-%d")
+                            except:
+                                fecha_op = val_str[:10] if val_str else ""
 
-                        n_comprobante_actual = f"{n_comprobante_base}-{nro_doc}" if nro_doc else f"{n_comprobante_base}-{idx+1}"
+                        razon_social = str(buscar_valor(["Nombre o Razón Social", "Nombre o Razon Social", "Razon Social", "Proveedor"], "Sin Nombre")).strip()
+                        rif_val = str(buscar_valor(["R.I.F.", "RIF", "Cedula"], "")).strip().upper()
+                        nro_doc = str(buscar_valor(["Número de Documento", "Numero de Documento", "Nro Documento", "Factura"], f"{idx+1}")).strip()
 
-                        # Cruce con proveedor
+                        try:
+                            base_imponible = float(buscar_valor(["Base Imponible"], 0.0))
+                        except:
+                            base_imponible = 0.0
+
+                        try:
+                            credito_fiscal = float(buscar_valor(["Credito Fiscales", "Crédito Fiscales", "Credito Fiscal", "IVA"], 0.0))
+                        except:
+                            credito_fiscal = 0.0
+
+                        try:
+                            total_compras = float(buscar_valor(["Total Compras"], base_imponible + credito_fiscal))
+                        except:
+                            total_compras = base_imponible + credito_fiscal
+
+                        n_comprobante_actual = f"{n_comprobante_base}-{nro_doc}"
+
+                        # Determinar cuentas asignadas
                         opcion_gasto = None
                         opcion_contrapartida = None
                         
-                        datos_prov = mapa_proveedores_cuentas.get(rif_proveedor)
-                        if not datos_prov and proveedor:
-                            datos_prov = mapa_proveedores_cuentas.get(proveedor.upper())
+                        datos_prov = mapa_proveedores_cuentas.get(rif_val)
+                        if not datos_prov:
+                            datos_prov = mapa_proveedores_cuentas.get(razon_social.upper())
 
                         if datos_prov:
                             p_cod_gasto = str(datos_prov.get("codigo_cuenta", "")).strip()
-                            p_desc_gasto = str(datos_prov.get("descripcion_cuenta", "")).strip()
                             if p_cod_gasto:
-                                encontrado_en_plan = next((opt for opt in opciones_desplegable if opt.startswith(p_cod_gasto + " -")), None)
-                                opcion_gasto = encontrado_en_plan if encontrado_en_plan else f"{p_cod_gasto} - {p_desc_gasto}"
+                                encontrado = next((opt for opt in opciones_desplegable if opt.startswith(p_cod_gasto + " -")), None)
+                                if encontrado: opcion_gasto = encontrado
 
                             p_cod_pagar = str(datos_prov.get("codigo_cuenta_pagar", "")).strip()
-                            p_desc_pagar = str(datos_prov.get("descripcion_cuenta_pagar", "")).strip()
                             if p_cod_pagar:
-                                encontrado_pagar = next((opt for opt in opciones_desplegable if opt.startswith(p_cod_pagar + " -")), None)
-                                opcion_contrapartida = encontrado_pagar if encontrado_pagar else f"{p_cod_pagar} - {p_desc_pagar}"
+                                encontrado_pag = next((opt for opt in opciones_desplegable if opt.startswith(p_cod_pagar + " -")), None)
+                                if encontrado_pag: opcion_contrapartida = encontrado_pag
 
-                        # Si es contribuyente formal, buscamos una cuenta de gasto real (ej. Compras, Gastos Operativos, etc.) y evitamos las que digan IVA
-                        if es_contribuyente_formal_exento and not opcion_gasto:
+                        if not opcion_gasto:
                             for opt in opciones_desplegable:
                                 opt_lower = opt.lower()
-                                if (opt.startswith("5") or opt.startswith("6")) and "iva" not in opt_lower and "crédito" not in opt_lower:
+                                if (opt.startswith("5") or opt.startswith("6")) and "iva" not in opt_lower:
                                     opcion_gasto = opt
                                     break
-
-                        if not opcion_gasto:
-                            for opt in opciones_desplegable:
-                                if opt.startswith("5") or opt.startswith("6"):
-                                    opcion_gasto = opt
-                                    break
-                        if not opcion_gasto:
-                            opcion_gasto = default_opcion
+                        if not opcion_gasto: opcion_gasto = default_opcion
 
                         if not opcion_contrapartida:
                             for opt in opciones_desplegable:
-                                opt_lower = opt.lower()
-                                if (opt.startswith("2.1.1") or opt.startswith("2")) and "anticipo" not in opt_lower:
+                                if opt.startswith("2.1.1") or opt.startswith("2"):
                                     opcion_contrapartida = opt
                                     break
-                        if not opcion_contrapartida:
-                            opcion_contrapartida = default_opcion
+                        if not opcion_contrapartida: opcion_contrapartida = default_opcion
 
                         desc_gasto = opcion_gasto.split(" - ", 1)[1] if " - " in opcion_gasto else ""
                         desc_contra = opcion_contrapartida.split(" - ", 1)[1] if " - " in opcion_contrapartida else ""
 
-                        # LÍNEA 1: GASTO / COSTO AL DEBE
-                        if base_imponible_efectiva > 0:
-                            desc_linea_gasto = (
-                                f"Factura {nro_doc} - {proveedor} (RIF: {rif_proveedor}) [IVA Integrado al Costo]" 
-                                if es_contribuyente_formal_exento 
-                                else f"Factura {nro_doc} - {proveedor} (RIF: {rif_proveedor})"
-                            )
+                        # ----------------------------------------------------
+                        # CONSTRUCCIÓN CONDICIONAL SEGÚN NATURALEZA FISCAL
+                        # ----------------------------------------------------
+                        if iva_es_costo:
+                            # CASO CONTRIBUYENTE FORMAL / IVA AL COSTO:
+                            # El monto que va al debe del gasto/costo incluye la base imponible + el IVA.
+                            monto_debe_gasto = base_imponible + credito_fiscal
+                            
                             filas_asiento_temporal.append({
                                 "n_comprobante": n_comprobante_actual,
-                                "descripcion": desc_linea_gasto,
+                                "descripcion": f"Factura {nro_doc} - {razon_social} (Incluye IVA al Costo)",
                                 "fecha": fecha_op,
-                                "plan_cuentas": opcion_gasto, 
+                                "plan_cuentas": opcion_gasto,
                                 "cuenta_contable": desc_gasto,
                                 "referencia": nro_doc,
-                                "debe": base_imponible_efectiva,
+                                "debe": monto_debe_gasto,
+                                "haber": 0.0
+                            })
+                        else:
+                            # CASO ORDINARIO:
+                            # 1. Base Imponible al Debe (Gasto)
+                            filas_asiento_temporal.append({
+                                "n_comprobante": n_comprobante_actual,
+                                "descripcion": f"Factura {nro_doc} - {razon_social}",
+                                "fecha": fecha_op,
+                                "plan_cuentas": opcion_gasto,
+                                "cuenta_contable": desc_gasto,
+                                "referencia": nro_doc,
+                                "debe": base_imponible,
                                 "haber": 0.0
                             })
 
-                        # LÍNEA 2: IVA CRÉDITO FISCAL (Solo si NO es exento)
-                        if not es_contribuyente_formal_exento and credito_fiscal > 0:
-                            opcion_iva = default_opcion
-                            for opt in opciones_desplegable:
-                                opt_lower = opt.lower()
-                                if (opt.startswith("1.1.4") or "crédito fiscal" in opt_lower or "credito fiscal" in opt_lower or ("iva" in opt_lower and opt.startswith("1"))):
-                                    opcion_iva = opt
-                                    break
-                            
-                            desc_iva = opcion_iva.split(" - ", 1)[1] if " - " in opcion_iva else ""
-                            filas_asiento_temporal.append({
-                                "n_comprobante": n_comprobante_actual,
-                                "descripcion": f"IVA Factura {nro_doc} - {proveedor} (RIF: {rif_proveedor})",
-                                "fecha": fecha_op,
-                                "plan_cuentas": opcion_iva,
-                                "cuenta_contable": desc_iva,
-                                "referencia": nro_doc,
-                                "debe": credito_fiscal,
-                                "haber": 0.0
-                            })
+                            # 2. IVA Crédito Fiscal al Debe
+                            if credito_fiscal > 0:
+                                opcion_iva = default_opcion
+                                for opt in opciones_desplegable:
+                                    opt_lower = opt.lower()
+                                    if "1.1.4" in opt or "crédito fiscal" in opt_lower or "credito fiscal" in opt_lower:
+                                        opcion_iva = opt
+                                        break
+                                desc_iva = opcion_iva.split(" - ", 1)[1] if " - " in opcion_iva else ""
+                                
+                                filas_asiento_temporal.append({
+                                    "n_comprobante": n_comprobante_actual,
+                                    "descripcion": f"IVA Crédito Fiscal Factura {nro_doc} - {razon_social}",
+                                    "fecha": fecha_op,
+                                    "plan_cuentas": opcion_iva,
+                                    "cuenta_contable": desc_iva,
+                                    "referencia": nro_doc,
+                                    "debe": credito_fiscal,
+                                    "haber": 0.0
+                                })
 
-                        # LÍNEA 3: CUENTA POR PAGAR AL HABER
-                        if total_factura > 0:
-                            filas_asiento_temporal.append({
-                                "n_comprobante": n_comprobante_actual,
-                                "descripcion": f"Cuentas por Pagar Factura {nro_doc} - {proveedor} (RIF: {rif_proveedor})",
-                                "fecha": fecha_op,
-                                "plan_cuentas": opcion_contrapartida,
-                                "cuenta_contable": desc_contra,
-                                "referencia": nro_doc,
-                                "debe": 0.0,
-                                "haber": total_factura
-                            })
+                        # 3. Cuenta por Pagar / Proveedor (Total Compras al Haber)
+                        filas_asiento_temporal.append({
+                            "n_comprobante": n_comprobante_actual,
+                            "descripcion": f"Cuentas por Pagar Factura {nro_doc} - {razon_social}",
+                            "fecha": fecha_op,
+                            "plan_cuentas": opcion_contrapartida,
+                            "cuenta_contable": desc_contra,
+                            "referencia": nro_doc,
+                            "debe": 0.0,
+                            "haber": total_compras
+                        })
 
                     st.session_state['df_asientos_proceso'] = pd.DataFrame(filas_asiento_temporal)
-                    st.success("¡Propuesta generada correctamente con RIFs detectados y cuentas de gasto ajustadas!")
                     st.rerun()
 
                 except Exception as proc_err:
-                    st.error(f"Error al procesar los datos de las compras: {proc_err}")
+                    st.error(f"Error procesando los datos: {proc_err}")
 
             # ----------------------------------------------------
-            # PASO 3: SEGUNDO FRAME (ESTRUCTURA COMPLETA)
+            # SEGUNDO FRAME: ESTRUCTURA COMPLETA DEL ASIENTO CONTABLE
             # ----------------------------------------------------
             if 'df_asientos_proceso' in st.session_state and not st.session_state['df_asientos_proceso'].empty:
                 df_a_procesar = st.session_state['df_asientos_proceso']
@@ -5893,17 +5864,20 @@ def renderizar_tab_asientos_automatizados(db_connection):
                     num_rows="dynamic",
                     use_container_width=True,
                     column_config={
+                        "n_comprobante": st.column_config.TextColumn("n_comprobante"),
+                        "descripcion": st.column_config.TextColumn("Descripción"),
+                        "fecha": st.column_config.TextColumn("Fecha"),
                         "plan_cuentas": st.column_config.SelectboxColumn(
-                            "Plan de Cuentas (Código - Nombre)",
+                            "Plan de Cuentas (Código)",
                             options=opciones_desplegable,
-                            required=False
+                            required=True
                         ),
                         "cuenta_contable": st.column_config.TextColumn("Descripción Cuenta", disabled=True),
-                        "fecha": st.column_config.TextColumn("Fecha"),
+                        "referencia": st.column_config.TextColumn("Referencia"),
                         "debe": st.column_config.NumberColumn("Debe", format="%,.2f"),
                         "haber": st.column_config.NumberColumn("Haber", format="%,.2f"),
                     },
-                    key="editor_asientos_todo_completo"
+                    key="editor_segundo_frame"
                 )
                 
                 for idx in df_editado.index:
@@ -5917,7 +5891,10 @@ def renderizar_tab_asientos_automatizados(db_connection):
                 col_m1.metric("Total Debe (General)", f"{tot_debe:,.2f}")
                 col_m2.metric("Total Haber (General)", f"{tot_haber:,.2f}")
 
-                if st.button("💾 Guardar Todo el Asiento en el Libro Diario", key="btn_guardar_asientos_definitivos", use_container_width=True):
+                # ----------------------------------------------------
+                # BOTÓN DE GUARDADO EN TABLA ASIENTOS_CONTABLES
+                # ----------------------------------------------------
+                if st.button("💾 Guardar Todo el Asiento en el Libro Diario", key="btn_guardar_asientos_finales", use_container_width=True):
                     try:
                         cursor = db_connection.cursor()
                         cursor.execute(f"""
@@ -5942,11 +5919,13 @@ def renderizar_tab_asientos_automatizados(db_connection):
                         
                         for _, r_row in df_editado.iterrows():
                             f_op = r_row["fecha"] if pd.notna(r_row["fecha"]) and str(r_row["fecha"]).strip() != "" else None
+                            cod_plan = str(r_row["plan_cuentas"]).split(" - ")[0].strip()
+                            
                             cursor.execute(sql_insert, (
                                 str(r_row["n_comprobante"]),
                                 str(r_row["descripcion"]),
                                 f_op,
-                                str(r_row["plan_cuentas"]),
+                                cod_plan,
                                 str(r_row["cuenta_contable"]),
                                 str(r_row["referencia"]),
                                 float(r_row["debe"] or 0.0),
@@ -5955,13 +5934,13 @@ def renderizar_tab_asientos_automatizados(db_connection):
                         
                         db_connection.commit()
                         cursor.close()
-                        st.success("🎉 ¡Asientos guardados exitosamente!")
+                        st.success("🎉 ¡Asientos guardados exitosamente en la tabla `asientos_contables`!")
                     except Exception as db_save_err:
                         db_connection.rollback()
-                        st.error(f"❌ Error al guardar en base de datos: {db_save_err}")
+                        st.error(f"❌ Error al guardar en la base de datos: {db_save_err}")
 
         except Exception as excel_err:
-            st.error(f"❌ Error al leer el archivo Excel: {excel_err}")
+            st.error(f"❌ Error al procesar el archivo Excel: {excel_err}")
 
 def gestionar_sidebar():
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
