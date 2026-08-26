@@ -5548,10 +5548,6 @@ def verificar_si_es_contribuyente_especial(db_name):
 
 
 
-import pandas as pd
-import pymysql
-import streamlit as st
-
 def renderizar_tab_asientos_automatizados(db_connection):
     st.subheader("🤖 Asientos Automatizados (Comprobantes Contables)")
     st.markdown("""
@@ -5728,10 +5724,13 @@ def renderizar_tab_asientos_automatizados(db_connection):
 
                         total_factura = base_imponible + credito_fiscal
 
-                        # 🆕 BÚSQUEDA INTELIGENTE: Verificar si el proveedor tiene cuenta asignada en su tabla
-                        opcion_gasto = default_opcion
+                        # ----------------------------------------------------
+                        # BÚSQUEDA INTELIGENTE DE LA CUENTA DE GASTO/COSTO DESDE PROVEEDORES
+                        # ----------------------------------------------------
+                        opcion_gasto = None
                         prov_upper = proveedor.upper()
                         
+                        # 1. Buscar si el proveedor tiene una cuenta asignada en su tabla
                         if prov_upper in mapa_proveedores_cuentas and mapa_proveedores_cuentas[prov_upper]["codigo_cuenta"]:
                             p_cod = mapa_proveedores_cuentas[prov_upper]["codigo_cuenta"]
                             encontrado_en_plan = next((opt for opt in opciones_desplegable if opt.startswith(p_cod + " -")), None)
@@ -5740,15 +5739,22 @@ def renderizar_tab_asientos_automatizados(db_connection):
                             else:
                                 p_desc = mapa_proveedores_cuentas[prov_upper]["descripcion_cuenta"]
                                 opcion_gasto = f"{p_cod} - {p_desc}" if p_desc else p_cod
-                        else:
+
+                        # 2. Si el proveedor no tiene cuenta asignada, buscar una cuenta de Gasto (5) o Costo (6) por defecto
+                        if not opcion_gasto:
                             for opt in opciones_desplegable:
                                 opt_lower = opt.lower()
                                 if opt.startswith("5") or opt.startswith("6") or "gasto" in opt_lower or "costo" in opt_lower or "compra" in opt_lower:
                                     opcion_gasto = opt
                                     break
+                        
+                        # 3. Fallback final si no encuentra nada
+                        if not opcion_gasto:
+                            opcion_gasto = default_opcion
 
                         desc_gasto = opcion_gasto.split(" - ", 1)[1] if " - " in opcion_gasto else ""
 
+                        # LÍNEA 1: EL GASTO / COSTO AL DEBE (Base Imponible)
                         filas_asiento_temporal.append({
                             "n_comprobante": n_comprobante_base,
                             "descripcion": proveedor,
@@ -5764,12 +5770,13 @@ def renderizar_tab_asientos_automatizados(db_connection):
                         opcion_iva = default_opcion
                         for opt in opciones_desplegable:
                             opt_lower = opt.lower()
-                            if ("iva" in opt_lower or "crédito" in opt_lower or "credito" in opt_lower or "fiscal" in opt_lower):
+                            if ("iva" in opt_lower or "crédito" in opt_lower or "credito" in opt_lower or "fiscal" in opt_lower) and not opt.startswith("2"):
                                 opcion_iva = opt
                                 break
                         
                         desc_iva = opcion_iva.split(" - ", 1)[1] if " - " in opcion_iva else ""
 
+                        # LÍNEA 2: IVA CRÉDITO FISCAL AL DEBE (si aplica)
                         if credito_fiscal > 0:
                             filas_asiento_temporal.append({
                                 "n_comprobante": n_comprobante_base,
@@ -5782,7 +5789,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
                                 "haber": 0.0
                             })
 
-                        # Búsqueda dinámica de Contrapartida (Cuentas por Pagar)
+                        # Búsqueda dinámica de Contrapartida (Cuentas por Pagar / Pasivo)
                         opcion_contrapartida = default_opcion
                         for opt in opciones_desplegable:
                             opt_lower = opt.lower()
@@ -5792,6 +5799,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
 
                         desc_contra = opcion_contrapartida.split(" - ", 1)[1] if " - " in opcion_contrapartida else ""
 
+                        # LÍNEA 3: CUENTA POR PAGAR AL HABER (Total factura)
                         filas_asiento_temporal.append({
                             "n_comprobante": n_comprobante_base,
                             "descripcion": proveedor,
