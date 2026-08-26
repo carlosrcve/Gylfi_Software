@@ -5558,49 +5558,66 @@ def renderizar_tab_asientos_automatizados(db_connection):
     """)
 
     # ----------------------------------------------------
-    # VALIDACIÓN DE ROL Y FILTRADO DE EMPRESAS (CORREGIDO)
+    # VALIDACIÓN DE ROL Y FILTRADO DE EMPRESAS (CONECTADO A `usuarios` Y `clientes`)
     # ----------------------------------------------------
-    rol_usuario = str(st.session_state.get("role", st.session_state.get("tipo_usuario", "cliente"))).strip().lower()
-    es_admin = rol_usuario in ["admin", "administrador"] or st.session_state.get("es_admin", False)
+    usuario_actual = str(st.session_state.get("user", st.session_state.get("usuario", "norbe"))).strip()
+    
+    rol_usuario = "cliente"
+    es_admin = False
+    db_asignada_usuario = ""
 
     dbs_filtradas = []
     mapa_nombres_empresas = {}
     
     try:
         with db_connection.cursor(pymysql.cursors.DictCursor) as cursor_temp:
-            # Corrección: Tabla 'clientes' en plural y uso de las columnas reales (db_nombre, nombre_empresa)
+            # 1. Consultar el rol y db_nombre del usuario actual en la tabla 'usuarios'
+            cursor_temp.execute(
+                "SELECT rol, db_nombre FROM control_central.usuarios WHERE usuario = %s", 
+                (usuario_actual,)
+            )
+            res_usuario = cursor_temp.fetchone()
+            
+            if res_usuario:
+                rol_usuario = str(res_usuario.get("rol", "cliente")).strip().lower()
+                db_asignada_usuario = str(res_usuario.get("db_nombre", "")).strip()
+            
+            es_admin = rol_usuario in ["admin", "administrador"] or st.session_state.get("es_admin", False)
+
+            # 2. Consultar todas las empresas disponibles en la tabla 'clientes'
             cursor_temp.execute("SELECT * FROM control_central.clientes")
             clientes_db = cursor_temp.fetchall()
         
         for cli in clientes_db:
-            db_name = str(cli.get("db_nombre", cli.get("base_de_datos", ""))).strip()
-            nombre_comercial = str(cli.get("nombre_empresa", cli.get("nombre", db_name))).strip()
+            db_name = str(cli.get("db_nombre", "")).strip()
+            nombre_comercial = str(cli.get("nombre_empresa", db_name)).strip()
             
             if db_name:
                 if es_admin:
                     dbs_filtradas.append(db_name)
                     mapa_nombres_empresas[db_name] = nombre_comercial
                 else:
-                    db_usuario_sesion = str(st.session_state.get("db_name", st.session_state.get("empresa_asignada", ""))).strip().lower()
-                    if db_name.lower() == db_usuario_sesion:
+                    # Si no es admin, filtramos por la base de datos que tiene asignada en la tabla usuarios
+                    if db_asignada_usuario and db_name.lower() == db_asignada_usuario.lower():
                         dbs_filtradas.append(db_name)
                         mapa_nombres_empresas[db_name] = nombre_comercial
                         
     except Exception as e:
-        st.warning(f"⚠️ No se pudo consultar `control_central.clientes`: {e}")
+        st.warning(f"⚠️ Error consultando `control_central`: {e}")
         if es_admin:
-            dbs_filtradas = ["kingdriver_ca", "rishon_letzion_ca"]
+            dbs_filtradas = ["kingdriver_ca"]
         else:
-            db_usuario_sesion = str(st.session_state.get("db_name", "kingdriver_ca")).strip()
-            dbs_filtradas = [db_usuario_sesion]
+            dbs_filtradas = [db_asignada_usuario if db_asignada_usuario else "kingdriver_ca"]
 
-    if not es_admin and not dbs_filtradas:
-        db_usuario_sesion = str(st.session_state.get("db_name", "")).strip()
-        if db_usuario_sesion:
-            dbs_filtradas = [db_usuario_sesion]
+    # Plan de respaldo si la lista viene vacía para el usuario
+    if not dbs_filtradas:
+        if db_asignada_usuario:
+            dbs_filtradas = [db_asignada_usuario]
+        else:
+            dbs_filtradas = ["kingdriver_ca"]
 
     if not dbs_filtradas:
-        st.error("⚠️ No se encontró una empresa asignada a tu usuario o no hay registros en la tabla clientes.")
+        st.error("⚠️ No se encontró una empresa asignada a tu usuario en la tabla `usuarios`.")
         return
 
     # ----------------------------------------------------
@@ -5697,18 +5714,18 @@ def renderizar_tab_asientos_automatizados(db_connection):
                 except Exception:
                     pass  
 
-            # Cuentas genéricas por defecto si el plan está vacío
-            if not opciones_desplegable:
-                st.warning(f"⚠️ La tabla 'plan_cuentas' en `{db_segura}` está vacía. Se cargaron cuentas temporales de respaldo.")
-                opciones_desplegable = [
-                    "5.1.1.01.001 - Compras Generales",
-                    "5.1.1.01.002 - IVA al Costo",
-                    "1.1.4.01.001 - IVA Crédito Fiscal",
-                    "2.1.1.01.001 - Cuentas por Pagar Comerciales"
-                ]
-                for op in opciones_desplegable:
-                    partes = op.split(" - ")
-                    mapa_descripciones[partes[0]] = partes[1]
+                # Cuentas genéricas por defecto si el plan está vacío
+                if not opciones_desplegable:
+                    st.warning(f"⚠️ La tabla 'plan_cuentas' en `{db_segura}` está vacía. Se cargaron cuentas temporales de respaldo.")
+                    opciones_desplegable = [
+                        "5.1.1.01.001 - Compras Generales",
+                        "5.1.1.01.002 - IVA al Costo",
+                        "1.1.4.01.001 - IVA Crédito Fiscal",
+                        "2.1.1.01.001 - Cuentas por Pagar Comerciales"
+                    ]
+                    for op in opciones_desplegable:
+                        partes = op.split(" - ")
+                        mapa_descripciones[partes[0]] = partes[1]
                 
         except Exception as e:
             st.warning(f"⚠️ Advertencia al consultar tablas en `{db_segura}`: {e}. Usando plan de cuentas de emergencia.")
