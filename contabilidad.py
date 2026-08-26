@@ -5548,6 +5548,10 @@ def verificar_si_es_contribuyente_especial(db_name):
 
 
 
+import pandas as pd
+import pymysql
+import streamlit as st
+
 def renderizar_tab_asientos_automatizados(db_connection):
     st.subheader("🤖 Asientos Automatizados (Comprobantes Contables)")
     st.markdown("""
@@ -5625,7 +5629,6 @@ def renderizar_tab_asientos_automatizados(db_connection):
                 proveedores_db = cursor_opt.fetchall()
                 
                 for prov in proveedores_db:
-                    # Ajusta los nombres de las columnas según cómo las creaste en tu tabla proveedores (ej. 'nombre', 'razon_social', 'codigo_cuenta', 'descripcion_cuenta')
                     p_nombre = str(prov.get("nombre", prov.get("razon_social", ""))).strip().upper()
                     p_codigo = str(prov.get("codigo_cuenta", "")).strip()
                     p_desc = str(prov.get("descripcion_cuenta", "")).strip()
@@ -5731,7 +5734,6 @@ def renderizar_tab_asientos_automatizados(db_connection):
                         
                         if prov_upper in mapa_proveedores_cuentas and mapa_proveedores_cuentas[prov_upper]["codigo_cuenta"]:
                             p_cod = mapa_proveedores_cuentas[prov_upper]["codigo_cuenta"]
-                            # Buscar si este código existe en las opciones desplegables para formatearlo bien (Codigo - Nombre)
                             encontrado_en_plan = next((opt for opt in opciones_desplegable if opt.startswith(p_cod + " -")), None)
                             if encontrado_en_plan:
                                 opcion_gasto = encontrado_en_plan
@@ -5739,7 +5741,6 @@ def renderizar_tab_asientos_automatizados(db_connection):
                                 p_desc = mapa_proveedores_cuentas[prov_upper]["descripcion_cuenta"]
                                 opcion_gasto = f"{p_cod} - {p_desc}" if p_desc else p_cod
                         else:
-                            # Respaldo: Búsqueda dinámica genérica si el proveedor no tiene cuenta propia
                             for opt in opciones_desplegable:
                                 opt_lower = opt.lower()
                                 if opt.startswith("5") or opt.startswith("6") or "gasto" in opt_lower or "costo" in opt_lower or "compra" in opt_lower:
@@ -5810,34 +5811,13 @@ def renderizar_tab_asientos_automatizados(db_connection):
                     st.error(f"Error al procesar los datos de las compras: {proc_err}")
 
             # ----------------------------------------------------
-            # PASO 2.5: FILTRADO Y PAGINACIÓN DEL LOTE
+            # PASO 3: SEGUNDO FRAME (ESTRUCTURA COMPLETA DEL ASIENTO)
             # ----------------------------------------------------
             if 'df_asientos_proceso' in st.session_state and not st.session_state['df_asientos_proceso'].empty:
-                df_total = st.session_state['df_asientos_proceso']
-                total_filas = len(df_total)
+                df_a_procesar = st.session_state['df_asientos_proceso']
+                total_filas = len(df_a_procesar)
                 
-                st.markdown("### 🎛️ Control de Lotes y Paginación")
-                col_ctrl1, col_ctrl2, col_ctrl3 = st.columns(3)
-                
-                with col_ctrl1:
-                    modo_vista = st.radio("Filtrar lote por:", ["Paginación por bloques", "Ver todo"], horizontal=True)
-                
-                df_a_procesar = df_total.copy()
-                
-                if modo_vista == "Paginación por bloques":
-                    with col_ctrl2:
-                        tamano_lote = st.selectbox("Registros por página:", [10, 20, 50, 100], index=1)
-                    
-                    total_paginas = max(1, (total_filas + tamano_lote - 1) // tamano_lote)
-                    
-                    with col_ctrl3:
-                        pagina_actual = st.number_input(f"Página (1 a {total_paginas}):", min_value=1, max_value=total_paginas, value=1, step=1)
-                    
-                    inicio = (pagina_actual - 1) * tamano_lote
-                    fin = min(inicio + tamano_lote, total_filas)
-                    df_a_procesar = df_total.iloc[inicio:fin].copy()
-                    
-                    st.info(f"📦 Mostrando lote de registros **{inicio + 1} al {fin}** de un total de **{total_filas}** filas cargadas.")
+                st.markdown(f"### 📋 Segundo Frame: Estructura Completa del Asiento Contable ({total_filas} registros)")
                 
                 def obtener_descripcion(val):
                     val_str = str(val).strip()
@@ -5849,14 +5829,10 @@ def renderizar_tab_asientos_automatizados(db_connection):
                 for idx in df_a_procesar.index:
                     df_a_procesar.at[idx, "cuenta_contable"] = obtener_descripcion(df_a_procesar.at[idx, "plan_cuentas"])
 
-                # ----------------------------------------------------
-                # PASO 3: EDITOR
-                # ----------------------------------------------------
-                st.markdown("### 📋 Segundo Frame: Estructura del Asiento Contable (Partida Doble)")
-                
                 df_editado = st.data_editor(
                     df_a_procesar,
                     num_rows="dynamic",
+                    use_container_width=True,
                     column_config={
                         "plan_cuentas": st.column_config.SelectboxColumn(
                             "Plan de Cuentas (Código - Nombre)",
@@ -5873,28 +5849,24 @@ def renderizar_tab_asientos_automatizados(db_connection):
                         "debe": st.column_config.NumberColumn("Debe", format="%,.2f", help="Monto al Debe"),
                         "haber": st.column_config.NumberColumn("Haber", format="%,.2f", help="Monto al Haber"),
                     },
-                    key=f"editor_lote_{pagina_actual if modo_vista == 'Paginación por bloques' else 'todo'}"
+                    key="editor_asientos_todo_completo"
                 )
                 
                 for idx in df_editado.index:
                     df_editado.at[idx, "cuenta_contable"] = obtener_descripcion(df_editado.at[idx, "plan_cuentas"])
 
-                if modo_vista == "Paginación por bloques":
-                    df_total.iloc[inicio:fin] = df_editado
-                else:
-                    df_total = df_editado
-                st.session_state['df_asientos_proceso'] = df_total
+                st.session_state['df_asientos_proceso'] = df_editado
 
                 tot_debe = df_editado['debe'].sum()
                 tot_haber = df_editado['haber'].sum()
                 col_m1, col_m2 = st.columns(2)
-                col_m1.metric("Total Debe (Lote Actual)", f"{tot_debe:,.2f}")
-                col_m2.metric("Total Haber (Lote Actual)", f"{tot_haber:,.2f}")
+                col_m1.metric("Total Debe (General)", f"{tot_debe:,.2f}")
+                col_m2.metric("Total Haber (General)", f"{tot_haber:,.2f}")
 
                 if abs(tot_debe - tot_haber) > 0.01:
-                    st.warning("⚠️ Los montos del Debe y el Haber de este lote no coinciden exactamente.")
+                    st.warning("⚠️ Los montos totales del Debe y el Haber no coinciden exactamente.")
 
-                if st.button("💾 Guardar Asientos de este Lote en el Libro Diario", key="btn_guardar_asientos_definitivos"):
+                if st.button("💾 Guardar Todo el Asiento en el Libro Diario", key="btn_guardar_asientos_definitivos", use_container_width=True):
                     try:
                         cursor = db_connection.cursor()
                         
@@ -5940,7 +5912,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
 
                         db_connection.commit()
                         cursor.close()
-                        st.success(f"🎉 ¡Los asientos de este lote fueron guardados exitosamente en la base de datos de `{db_segura}`!")
+                        st.success(f"🎉 ¡Todos los asientos fueron guardados exitosamente en la base de datos de `{db_segura}`!")
                         
                     except Exception as db_err:
                         db_connection.rollback()
