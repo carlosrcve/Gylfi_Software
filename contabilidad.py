@@ -5685,7 +5685,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
                     p_codigo = str(prov.get("codigo_cuenta", prov.get("codigo", prov.get("cuenta_gasto", "")))).strip()
                     p_desc = str(prov.get("descripcion_cuenta", prov.get("descripcion", ""))).strip()
                     p_cod_pagar = str(prov.get("codigo_cuenta_pagar", "")).strip()
-                    p_desc_pagar = str(prov.get("descripcion_cuenta_pagar", ""))).strip()
+                    p_desc_pagar = str(prov.get("descripcion_cuenta_pagar", "")).strip() # <-- Corregido aquí
                     
                     info_prov = {
                         "codigo_cuenta": p_codigo,
