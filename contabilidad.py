@@ -5680,16 +5680,19 @@ def renderizar_tab_asientos_automatizados(db_connection):
 
             st.markdown("### ⚙️ Configuración del Lote")
             n_comprobante_base = st.text_input("Número de Comprobante base (Ej. 050001)", value="050001")
-
             # ----------------------------------------------------
-            # PASO 2: CONVERSIÓN Y MAPEO AUTOMATIZADO CON VALIDACIÓN DE CONTRIBUYENTE FORMAL
+            # PASO 2: CONVERSIÓN Y MAPEO AUTOMATIZADO CON VALIDACIÓN ROBUSTA DE CONTRIBUYENTE FORMAL
             # ----------------------------------------------------
             if st.button("🔄 Generar Propuesta de Asientos Contables", key="btn_generar_propuesta_asientos"):
                 try:
                     filas_asiento_temporal = []
                     
-                    # 🔍 Validar si la base de datos activa corresponde al contribuyente formal exento
-                    es_contribuyente_formal_exento = (db_segura.strip().lower() == "kingdirver_ca")
+                    # 🔍 Validación robusta de la base de datos activa (soporta "kingdirver_ca", "kingdriver", etc.)
+                    db_actual_str = str(db_segura).strip().lower()
+                    db_limpia = "".join(c for c in db_actual_str if c.isalnum())
+                    
+                    # Detectar si es King Driver por el nombre de la BD o por la sesión activa
+                    es_contribuyente_formal_exento = ("kingdirver" in db_limpia or "kingdriver" in db_limpia)
 
                     for idx, row in df_compras.iterrows():
                         # 📅 Extracción robusta y universal de la fecha
@@ -5741,10 +5744,10 @@ def renderizar_tab_asientos_automatizados(db_connection):
                                 credito_fiscal = float(row[col])
                                 break
 
-                        # 🛠️ REGLA ESPECIAL PARA KINGDRIVER_CA: El IVA se suma al costo/gasto
+                        # 🛠️ REGLA ESPECIAL: Si es King Driver, el IVA se suma al costo/gasto principal
                         if es_contribuyente_formal_exento:
                             base_imponible_efectiva = base_imponible + credito_fiscal
-                            total_factura = base_imponible_efectiva  # El total a pagar al proveedor incluye el IVA asumido como costo
+                            total_factura = base_imponible_efectiva  
                         else:
                             base_imponible_efectiva = base_imponible
                             total_factura = base_imponible + credito_fiscal
@@ -5758,7 +5761,6 @@ def renderizar_tab_asientos_automatizados(db_connection):
                         opcion_contrapartida = None
                         
                         datos_prov = mapa_proveedores_cuentas.get(rif_proveedor)
-                        
                         if not datos_prov and proveedor:
                             datos_prov = mapa_proveedores_cuentas.get(proveedor.upper())
 
@@ -5783,9 +5785,9 @@ def renderizar_tab_asientos_automatizados(db_connection):
                                 else:
                                     opcion_contrapartida = f"{p_cod_pagar} - {p_desc_pagar}" if p_desc_pagar else p_cod_pagar
 
-                        # 🆕 Si es kingdriver_ca, forzar la cuenta de gasto hacia la de Iva como Costo (Ingresos Exentos)
+                        # 🆕 Forzar la cuenta de gasto hacia la de IVA como Costo (5.1.1.01.002) si es King Driver
                         if es_contribuyente_formal_exento:
-                            cuenta_exenta_forzada = next((opt for opt in opciones_desplegable if "5.1.1.01.002" in opt or "Ingresos Exentos" in opt), None)
+                            cuenta_exenta_forzada = next((opt for opt in opciones_desplegable if "5.1.1.01.002" in opt or "ingresos exentos" in opt.lower()), None)
                             if cuenta_exenta_forzada:
                                 opcion_gasto = cuenta_exenta_forzada
 
@@ -5797,10 +5799,11 @@ def renderizar_tab_asientos_automatizados(db_connection):
                         if not opcion_gasto:
                             opcion_gasto = default_opcion
 
+                        # Búsqueda de cuenta por pagar (evitando anticipos)
                         if not opcion_contrapartida:
                             for opt in opciones_desplegable:
                                 opt_lower = opt.lower()
-                                if opt.startswith("2") or "por pagar" in opt_lower or "proveedores" in opt_lower:
+                                if (opt.startswith("2.1.1") or opt.startswith("2")) and "anticipo" not in opt_lower:
                                     opcion_contrapartida = opt
                                     break
                         if not opcion_contrapartida:
@@ -5809,7 +5812,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
                         desc_gasto = opcion_gasto.split(" - ", 1)[1] if " - " in opcion_gasto else ""
                         desc_contra = opcion_contrapartida.split(" - ", 1)[1] if " - " in opcion_contrapartida else ""
 
-                        # LÍNEA 1: EL GASTO / COSTO AL DEBE (Con IVA incluido si es kingdriver_ca)
+                        # LÍNEA 1: EL GASTO / COSTO AL DEBE (Incluye IVA sumado)
                         if base_imponible_efectiva > 0:
                             desc_linea_gasto = (
                                 f"Factura {nro_doc} - {proveedor} (Incluye IVA Asumido como Costo)" 
@@ -5827,7 +5830,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
                                 "haber": 0.0
                             })
 
-                        # LÍNEA 2: IVA CRÉDITO FISCAL AL DEBE (Solo aplica si NO es el contribuyente formal exento)
+                        # LÍNEA 2: IVA CRÉDITO FISCAL AL DEBE (Solo aplica si NO es contribuyente formal exento)
                         if not es_contribuyente_formal_exento and credito_fiscal > 0:
                             opcion_iva = default_opcion
                             for opt in opciones_desplegable:
@@ -5863,7 +5866,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
                             })
 
                     st.session_state['df_asientos_proceso'] = pd.DataFrame(filas_asiento_temporal)
-                    st.success("¡Propuesta generada aplicando la fecha correcta y la regla fiscal de contribuyente formal exento!")
+                    st.success("¡Propuesta generada con éxito para King Driver (IVA integrado al costo)!")
                     st.rerun()
 
                 except Exception as proc_err:
