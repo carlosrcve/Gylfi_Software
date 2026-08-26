@@ -6003,6 +6003,8 @@ def renderizar_tab_asientos_automatizados(db_connection):
                                 );
                             """)
                             # Aquí continúa tu lógica de inserción posterior...
+                    except Exception as db_err:
+                        st.error(f"Error al guardar en la base de datos: {db_err}")
         except Exception as e:
             st.error(f"Error al leer el archivo Excel: {e}")
             
