@@ -5777,6 +5777,9 @@ def renderizar_tab_asientos_automatizados(db_connection):
                     st.error(f"Error al procesar los datos de las compras: {proc_err}")
 
             # ----------------------------------------------------
+            # PASO 3: EDITOR Y FORMATO DE NÚMEROS (CORREGIDO Y SEGURO)
+            # ----------------------------------------------------
+            # ----------------------------------------------------
             # PASO 3: EDITOR Y FORMATO DE NÚMEROS (ACTUALIZACIÓN INSTANTÁNEA)
             # ----------------------------------------------------
             if 'df_asientos_proceso' in st.session_state and not st.session_state['df_asientos_proceso'].empty:
@@ -5789,7 +5792,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
                         return val_str.split(" - ")[0].strip()
                     return val_str
 
-                # Asegurarnos de que la descripción coincida exactamente con el código actual antes de renderizar
+                # Sincronizamos las descripciones de manera matricial antes de pintar
                 df_actual = st.session_state['df_asientos_proceso']
                 codigos_puros = df_actual['plan_cuentas'].apply(extraer_codigo)
                 df_actual['cuenta_contable'] = codigos_puros.map(mapa_descripciones).fillna(df_actual['cuenta_contable'])
@@ -5829,7 +5832,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
                     key="editor_asientos_auto_tab4"
                 )
                 
-                # Actualización vectorial inmediata post-edición para evitar tener que hacer clic varias veces
+                # Actualización vectorial inmediata post-edición para evitar desfases o clics múltiples
                 codigos_editados = df_editado['plan_cuentas'].apply(extraer_codigo)
                 df_editado['cuenta_contable'] = codigos_editados.map(mapa_descripciones).fillna(df_editado['cuenta_contable'])
                 
@@ -5855,7 +5858,49 @@ def renderizar_tab_asientos_automatizados(db_connection):
                                 descripcion TEXT,
                                 fecha DATE,
                                 plan_cuentas VARCHAR(100),
-                    <response clipped>
+                                cuenta_contable VARCHAR(255),
+                                referencia VARCHAR(100),
+                                debe DECIMAL(15, 2) DEFAULT 0.00,
+                                haber DECIMAL(15, 2) DEFAULT 0.00
+                            );
+                        """)
+
+                        sql_insert = f"""
+                            INSERT INTO `{db_segura}`.asientos_contables 
+                            (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                        """
+                        
+                        for index, row in df_editado.iterrows():
+                            seleccion_completa = str(row["plan_cuentas"])
+                            codigo_cuenta = seleccion_completa.split(" - ")[0].strip() if " - " in seleccion_completa else seleccion_completa.strip()
+                            nombre_cuenta_contable = mapa_descripciones.get(codigo_cuenta, str(row["cuenta_contable"]))
+
+                            fecha_val = row["fecha"]
+                            fecha_sql = None if pd.isna(fecha_val) or str(fecha_val).strip().lower() in ["", "nat", "none"] else str(fecha_val).strip()[:10]
+
+                            valores = (
+                                row["n_comprobante"],
+                                row["descripcion"],
+                                fecha_sql,
+                                codigo_cuenta,
+                                nombre_cuenta_contable,
+                                row["referencia"],
+                                float(row["debe"]),
+                                float(row["haber"])
+                            )
+                            cursor.execute(sql_insert, valores)
+
+                        db_connection.commit()
+                        cursor.close()
+                        st.success(f"🎉 ¡Asientos contables guardados exitosamente en la base de datos de `{db_segura}`!")
+                        
+                        del st.session_state['df_asientos_proceso']
+                        st.rerun()
+                        
+                    except Exception as db_err:
+                        db_connection.rollback()
+                        st.error(f"Error al guardar los asientos en la base de datos: {db_err}")
 
         except Exception as e:
             st.error(f"Error al leer el archivo Excel: {e}")
