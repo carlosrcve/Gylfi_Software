@@ -5777,24 +5777,23 @@ def renderizar_tab_asientos_automatizados(db_connection):
                     st.error(f"Error al procesar los datos de las compras: {proc_err}")
 
             # ----------------------------------------------------
-            # PASO 3: EDITOR Y FORMATO DE NÚMEROS (CORREGIDO Y SEGURO)
+            # PASO 3: EDITOR Y FORMATO DE NÚMEROS (ACTUALIZACIÓN INSTANTÁNEA)
             # ----------------------------------------------------
             if 'df_asientos_proceso' in st.session_state and not st.session_state['df_asientos_proceso'].empty:
                 st.markdown("### 📋 Segundo Frame: Estructura del Asiento Contable (Partida Doble)")
                 
-                # Función interna para limpiar y obtener la descripción exacta del diccionario
-                def obtener_nombre_cuenta(valor_celda):
-                    val_str = str(valor_celda).strip()
+                # Función para extraer limpiamente el código de la opción seleccionada
+                def extraer_codigo(val):
+                    val_str = str(val).strip()
                     if " - " in val_str:
-                        codigo = val_str.split(" - ")[0].strip()
-                        return mapa_descripciones.get(codigo, val_str.split(" - ", 1)[1].strip())
-                    else:
-                        return mapa_descripciones.get(val_str, "Cuenta General")
+                        return val_str.split(" - ")[0].strip()
+                    return val_str
 
-                # Sincronizamos las descripciones en el session_state antes de pintar
-                for idx in st.session_state['df_asientos_proceso'].index:
-                    sel = st.session_state['df_asientos_proceso'].at[idx, "plan_cuentas"]
-                    st.session_state['df_asientos_proceso'].at[idx, "cuenta_contable"] = obtener_nombre_cuenta(sel)
+                # Asegurarnos de que la descripción coincida exactamente con el código actual antes de renderizar
+                df_actual = st.session_state['df_asientos_proceso']
+                codigos_puros = df_actual['plan_cuentas'].apply(extraer_codigo)
+                df_actual['cuenta_contable'] = codigos_puros.map(mapa_descripciones).fillna(df_actual['cuenta_contable'])
+                st.session_state['df_asientos_proceso'] = df_actual
 
                 # Renderizamos el editor
                 df_editado = st.data_editor(
@@ -5830,11 +5829,10 @@ def renderizar_tab_asientos_automatizados(db_connection):
                     key="editor_asientos_auto_tab4"
                 )
                 
-                # Actualizamos las descripciones basándonos estrictamente en lo que el usuario acaba de modificar en el editor
-                for idx in df_editado.index:
-                    sel = df_editado.at[idx, "plan_cuentas"]
-                    df_editado.at[idx, "cuenta_contable"] = obtener_nombre_cuenta(sel)
-
+                # Actualización vectorial inmediata post-edición para evitar tener que hacer clic varias veces
+                codigos_editados = df_editado['plan_cuentas'].apply(extraer_codigo)
+                df_editado['cuenta_contable'] = codigos_editados.map(mapa_descripciones).fillna(df_editado['cuenta_contable'])
+                
                 st.session_state['df_asientos_proceso'] = df_editado
 
                 tot_debe = df_editado['debe'].sum()
@@ -5857,49 +5855,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
                                 descripcion TEXT,
                                 fecha DATE,
                                 plan_cuentas VARCHAR(100),
-                                cuenta_contable VARCHAR(255),
-                                referencia VARCHAR(100),
-                                debe DECIMAL(15, 2) DEFAULT 0.00,
-                                haber DECIMAL(15, 2) DEFAULT 0.00
-                            );
-                        """)
-
-                        sql_insert = f"""
-                            INSERT INTO `{db_segura}`.asientos_contables 
-                            (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber)
-                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                        """
-                        
-                        for index, row in df_editado.iterrows():
-                            seleccion_completa = str(row["plan_cuentas"])
-                            codigo_cuenta = seleccion_completa.split(" - ")[0].strip() if " - " in seleccion_completa else seleccion_completa.strip()
-                            nombre_cuenta_contable = mapa_descripciones.get(codigo_cuenta, str(row["cuenta_contable"]))
-
-                            fecha_val = row["fecha"]
-                            fecha_sql = None if pd.isna(fecha_val) or str(fecha_val).strip().lower() in ["", "nat", "none"] else str(fecha_val).strip()[:10]
-
-                            valores = (
-                                row["n_comprobante"],
-                                row["descripcion"],
-                                fecha_sql,
-                                codigo_cuenta,
-                                nombre_cuenta_contable,
-                                row["referencia"],
-                                float(row["debe"]),
-                                float(row["haber"])
-                            )
-                            cursor.execute(sql_insert, valores)
-
-                        db_connection.commit()
-                        cursor.close()
-                        st.success(f"🎉 ¡Asientos contables guardados exitosamente en la base de datos de `{db_segura}`!")
-                        
-                        del st.session_state['df_asientos_proceso']
-                        st.rerun()
-                        
-                    except Exception as db_err:
-                        db_connection.rollback()
-                        st.error(f"Error al guardar los asientos en la base de datos: {db_err}")
+                    <response clipped>
 
         except Exception as e:
             st.error(f"Error al leer el archivo Excel: {e}")
