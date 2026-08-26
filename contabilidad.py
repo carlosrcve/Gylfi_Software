@@ -5663,7 +5663,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
             n_comprobante_base = st.text_input("Número de Comprobante base (Ej. 050001)", value="050001")
 
             # ----------------------------------------------------
-            # PASO 2: CONVERSIÓN Y MAPEO AUTOMATIZADO (DINÁMICO DESDE MYSQL)
+            # PASO 2: CONVERSIÓN Y MAPEO AUTOMATIZADO (SIN TIPO_LINEA)
             # ----------------------------------------------------
             if st.button("🔄 Generar Propuesta de Asientos Contables", key="btn_generar_propuesta_asientos"):
                 try:
@@ -5705,11 +5705,10 @@ def renderizar_tab_asientos_automatizados(db_connection):
 
                         total_factura = base_imponible + credito_fiscal
 
-                        # --- BÚSQUEDA 100% DINÁMICA DE CUENTA DE GASTO/COSTO DESDE MYSQL ---
+                        # Búsqueda dinámica de Gasto/Costo
                         opcion_gasto = default_opcion
                         for opt in opciones_desplegable:
                             opt_lower = opt.lower()
-                            # Busca por nomenclatura contable típica (clase 5 o 6) o por palabras clave en su nombre en MySQL
                             if opt.startswith("5") or opt.startswith("6") or "gasto" in opt_lower or "costo" in opt_lower or "compra" in opt_lower:
                                 opcion_gasto = opt
                                 break
@@ -5722,15 +5721,13 @@ def renderizar_tab_asientos_automatizados(db_connection):
                             "cuenta_contable": "",
                             "referencia": nro_doc,
                             "debe": base_imponible,
-                            "haber": 0.0,
-                            "tipo_linea": "Gasto/Costo"
+                            "haber": 0.0
                         })
 
-                        # --- BÚSQUEDA 100% DINÁMICA DE CUENTA DE IVA CRÉDITO FISCAL DESDE MYSQL ---
+                        # Búsqueda dinámica de IVA Crédito Fiscal
                         opcion_iva = default_opcion
                         for opt in opciones_desplegable:
                             opt_lower = opt.lower()
-                            # Busca cuentas de activo circulante (clase 1) que contengan términos de iva o crédito fiscal
                             if ("iva" in opt_lower or "crédito" in opt_lower or "credito" in opt_lower or "fiscal" in opt_lower):
                                 opcion_iva = opt
                                 break
@@ -5744,15 +5741,13 @@ def renderizar_tab_asientos_automatizados(db_connection):
                                 "cuenta_contable": "",
                                 "referencia": nro_doc,
                                 "debe": credito_fiscal,
-                                "haber": 0.0,
-                                "tipo_linea": "IVA Crédito Fiscal"
+                                "haber": 0.0
                             })
 
-                        # --- BÚSQUEDA 100% DINÁMICA DE CONTRAPARTIDA (PROVEEDORES / POR PAGAR) DESDE MYSQL ---
+                        # Búsqueda dinámica de Contrapartida
                         opcion_contrapartida = default_opcion
                         for opt in opciones_desplegable:
                             opt_lower = opt.lower()
-                            # Busca cuentas de pasivo (clase 2) o términos de proveedores y cuentas por pagar
                             if opt.startswith("2") or "proveedor" in opt_lower or "pagar" in opt_lower or "acreedor" in opt_lower:
                                 opcion_contrapartida = opt
                                 break
@@ -5765,8 +5760,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
                             "cuenta_contable": "",
                             "referencia": nro_doc,
                             "debe": 0.0,
-                            "haber": total_factura,
-                            "tipo_linea": "Contrapartida (Por Pagar/Banco)"
+                            "haber": total_factura
                         })
 
                     st.session_state['df_asientos_proceso'] = pd.DataFrame(filas_asiento_temporal)
@@ -5777,13 +5771,12 @@ def renderizar_tab_asientos_automatizados(db_connection):
                     st.error(f"Error al procesar los datos de las compras: {proc_err}")
 
             # ----------------------------------------------------
-            # PASO 3: EDITOR Y PERSISTENCIA EN LA BD DEL CLIENTE
+            # PASO 3: EDITOR Y FORMATO DE NÚMEROS (SIN TIPO_LINEA)
             # ----------------------------------------------------
             if 'df_asientos_proceso' in st.session_state and not st.session_state['df_asientos_proceso'].empty:
                 st.markdown("### 📋 Segundo Frame: Estructura del Asiento Contable (Partida Doble)")
                 st.info("💡 Consejo: Después de seleccionar una cuenta en el menú desplegable, haz clic en cualquier otra celda o fuera del menú para confirmar el cambio antes de guardar.")
                 
-                # Usamos un contenedor de formulario o asignamos el resultado asegurando el estado
                 df_editado = st.data_editor(
                     st.session_state['df_asientos_proceso'],
                     num_rows="dynamic",
@@ -5802,11 +5795,20 @@ def renderizar_tab_asientos_automatizados(db_connection):
                             "Fecha",
                             help="Fecha extraída del archivo"
                         ),
+                        "debe": st.column_config.NumberColumn(
+                            "Debe",
+                            format="%,.2f",
+                            help="Monto al Debe"
+                        ),
+                        "haber": st.column_config.NumberColumn(
+                            "Haber",
+                            format="%,.2f",
+                            help="Monto al Haber"
+                        ),
                     },
                     key="editor_asientos_auto_tab4"
                 )
                 
-                # Actualizamos inmediatamente el session state con lo que devuelve el editor
                 st.session_state['df_asientos_proceso'] = df_editado
 
                 for idx, row in df_editado.iterrows():
