@@ -5557,8 +5557,6 @@ def renderizar_tab_asientos_automatizados(db_connection):
     # ----------------------------------------------------
     # VALIDACIÓN DE ROL Y FILTRADO DE EMPRESAS
     # ----------------------------------------------------
-    # Suponemos que en st.session_state manejas el rol (ej: 'admin', 'administrador', o booleano 'es_admin')
-    # y la base de datos asignada al usuario regular (ej: 'db_usuario' o 'empresa_asignada')
     rol_usuario = str(st.session_state.get("role", st.session_state.get("tipo_usuario", "cliente"))).strip().lower()
     es_admin = rol_usuario in ["admin", "administrador"] or st.session_state.get("es_admin", False)
 
@@ -5574,16 +5572,13 @@ def renderizar_tab_asientos_automatizados(db_connection):
         for cli in clientes_db:
             db_name = str(cli.get("base_de_datos", cli.get("db_name", cli.get("schema_name", "")))).strip()
             nombre_comercial = str(cli.get("nombre", cli.get("razon_social", db_name))).strip()
-            # Podrías también verificar si la tabla cliente guarda el usuario o email asociado:
             usuario_asociado = str(cli.get("usuario", cli.get("email", cli.get("user", "")))).strip().lower()
             
             if db_name:
-                # Si es admin, guardamos todas. Si es cliente, evaluamos si le pertenece.
                 if es_admin:
                     dbs_filtradas.append(db_name)
                     mapa_nombres_empresas[db_name] = nombre_comercial
                 else:
-                    # Filtramos por la empresa que le corresponde al usuario logueado en sesión
                     db_usuario_sesion = str(st.session_state.get("db_name", st.session_state.get("empresa_asignada", ""))).strip().lower()
                     if db_name.lower() == db_usuario_sesion or usuario_asociado == str(st.session_state.get("username", "")).strip().lower():
                         dbs_filtradas.append(db_name)
@@ -5594,11 +5589,9 @@ def renderizar_tab_asientos_automatizados(db_connection):
         if es_admin:
             dbs_filtradas = ["kingdriver_ca", "rishon_letzion_ca"]
         else:
-            # Respaldo seguro para usuario regular si falla la consulta
             db_usuario_sesion = str(st.session_state.get("db_name", "kingdriver_ca")).strip()
             dbs_filtradas = [db_usuario_sesion]
 
-    # Si un usuario regular no arrojó ninguna coincidencia por sesión, le asignamos su BD de sesión por defecto
     if not es_admin and not dbs_filtradas:
         db_usuario_sesion = str(st.session_state.get("db_name", "")).strip()
         if db_usuario_sesion:
@@ -5632,32 +5625,39 @@ def renderizar_tab_asientos_automatizados(db_connection):
             key="select_db_admin_asientos"
         )
     else:
-        # El cliente regular no ve selector múltiple, se le fija directamente su empresa única
         nombre_db_cliente = dbs_filtradas[0]
         nombre_amigable = mapa_nombres_empresas.get(nombre_db_cliente, nombre_db_cliente)
-        st.info(id_empresa_info := f"🏢 **Empresa Activa:** {nombre_amigable} (`{nombre_db_cliente}`)")
+        st.info(f"🏢 **Empresa Activa:** {nombre_amigable} (`{nombre_db_cliente}`)")
 
     if not nombre_db_cliente:
         st.error("⚠️ Debes seleccionar una base de datos.")
         return
 
     db_segura = str(nombre_db_cliente).strip()
-    
-    # Detección estricta para King Driver
     es_king_driver = any(term in db_segura.lower() for term in ["kindriver", "king_driver", "driver", "king"])
 
     mapa_descripciones = {}
     opciones_desplegable = []
     mapa_proveedores_cuentas = {}  
-    
+
     # ----------------------------------------------------
-    # CARGA DE TABLAS: PLAN_CUENTAS Y PROVEEDORES
+    # CARGA SEGURA DE TABLAS: PLAN_CUENTAS Y PROVEEDORES
     # ----------------------------------------------------
     if db_connection:
         try:
             cursor_opt = db_connection.cursor(pymysql.cursors.DictCursor)
             
-            # 1. Cargar Plan de Cuentas de la BD correspondiente
+            # Verificar o intentar crear la tabla plan_cuentas si no existe para evitar el error 1146
+            cursor_opt.execute(f"""
+                CREATE TABLE IF NOT EXISTS `{db_segura}`.plan_cuentas (
+                    codigo VARCHAR(50) PRIMARY KEY,
+                    nombre VARCHAR(255),
+                    tipo VARCHAR(50)
+                );
+            """)
+            db_connection.commit()
+
+            # 1. Cargar Plan de Cuentas
             query_plan = f"SELECT codigo, nombre, tipo FROM `{db_segura}`.plan_cuentas ORDER BY codigo ASC"
             cursor_opt.execute(query_plan)
             cuentas_opt = cursor_opt.fetchall()
@@ -5672,10 +5672,9 @@ def renderizar_tab_asientos_automatizados(db_connection):
                     mapa_descripciones[codigo] = nombre
                     opciones_desplegable.append(f"{codigo} - {nombre}")
 
-            # 2. Cargar Tabla Proveedores
+            # 2. Cargar Tabla Proveedores (Blindada)
             try:
-                query_prov = f"SELECT * FROM `{db_segura}`.proveedores"
-                cursor_opt.execute(query_prov)
+                cursor_opt.execute(f"SELECT * FROM `{db_segura}`.proveedores")
                 proveedores_db = cursor_opt.fetchall()
                 
                 for prov in proveedores_db:
@@ -5685,7 +5684,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
                     p_codigo = str(prov.get("codigo_cuenta", prov.get("codigo", prov.get("cuenta_gasto", "")))).strip()
                     p_desc = str(prov.get("descripcion_cuenta", prov.get("descripcion", ""))).strip()
                     p_cod_pagar = str(prov.get("codigo_cuenta_pagar", "")).strip()
-                    p_desc_pagar = str(prov.get("descripcion_cuenta_pagar", "")).strip() # <-- Corregido aquí
+                    p_desc_pagar = str(prov.get("descripcion_cuenta_pagar", "")).strip()
                     
                     info_prov = {
                         "codigo_cuenta": p_codigo,
@@ -5696,17 +5695,34 @@ def renderizar_tab_asientos_automatizados(db_connection):
                     if p_rif: mapa_proveedores_cuentas[p_rif] = info_prov
                     if p_nombre: mapa_proveedores_cuentas[p_nombre] = info_prov
             except Exception:
-                pass
+                pass # Si no existe la tabla proveedores, la ignoramos sin romper el flujo
 
             cursor_opt.close()
             
+            # Si el plan de cuentas está totalmente vacío, inyectamos cuentas genéricas por defecto para que la app no muera
             if not opciones_desplegable:
-                st.error(f"⚠️ La tabla 'plan_cuentas' en `{db_segura}` está vacía.")
-                return
+                st.warning(f"⚠️ La tabla 'plan_cuentas' en `{db_segura}` está vacía. Se cargaron cuentas temporales de respaldo.")
+                opciones_desplegable = [
+                    "5.1.1.01.001 - Compras Generales",
+                    "5.1.1.01.002 - IVA al Costo",
+                    "1.1.4.01.001 - IVA Crédito Fiscal",
+                    "2.1.1.01.001 - Cuentas por Pagar Comerciales"
+                ]
+                for op in opciones_desplegable:
+                    partes = op.split(" - ")
+                    mapa_descripciones[partes[0]] = partes[1]
                 
         except Exception as e:
-            st.error(f"❌ Error al consultar plan_cuentas en la BD `{db_segura}`: {e}")
-            return
+            st.warning(f"⚠️ Advertencia al consultar tablas en `{db_segura}`: {e}. Usando plan de cuentas de emergencia.")
+            opciones_desplegable = [
+                "5.1.1.01.001 - Compras Generales",
+                "5.1.1.01.002 - IVA al Costo",
+                "1.1.4.01.001 - IVA Crédito Fiscal",
+                "2.1.1.01.001 - Cuentas por Pagar Comerciales"
+            ]
+            for op in opciones_desplegable:
+                partes = op.split(" - ")
+                mapa_descripciones[partes[0]] = partes[1]
 
     default_opcion = opciones_desplegable[0]
 
@@ -5815,9 +5831,6 @@ def renderizar_tab_asientos_automatizados(db_connection):
                         desc_gasto = opcion_gasto.split(" - ", 1)[1] if " - " in opcion_gasto else ""
                         desc_contra = opcion_contrapartida.split(" - ", 1)[1] if " - " in opcion_contrapartida else ""
 
-                        # ----------------------------------------------------
-                        # APLICACIÓN DE REGLAS SEGÚN EMPRESA SELECCIONADA
-                        # ----------------------------------------------------
                         if es_king_driver:
                             filas_asiento_temporal.append({
                                 "n_comprobante": n_comprobante_actual,
