@@ -5689,12 +5689,13 @@ def renderizar_tab_asientos_automatizados(db_connection):
                     filas_asiento_temporal = []
 
                     for idx, row in df_compras.iterrows():
+                        # 📅 Extracción robusta de la fecha para pasarla al segundo frame
                         fecha_op = ""
                         for col in ["Fecha de Operación", "Fecha de Operacion", "Fecha", "FECHA", "fecha", "Fecha Operacion"]:
                             if col in row and pd.notna(row[col]):
                                 val_f = str(row[col]).strip()
                                 if " " in val_f:
-                                    val_f = val_f.split(" ")[0]
+                                    val_f = val_f.split(" ")[0]  # Limpiar la hora si viene en formato timestamp
                                 fecha_op = val_f[:10]
                                 break
 
@@ -5738,16 +5739,12 @@ def renderizar_tab_asientos_automatizados(db_connection):
                         opcion_gasto = None
                         opcion_contrapartida = None
                         
-                        # Buscar coincidencia exacta por RIF en el diccionario de proveedores cargado previamente
-                        # (Asumiendo que guardamos el RIF como clave en mapa_proveedores_cuentas)
                         datos_prov = mapa_proveedores_cuentas.get(rif_proveedor)
                         
                         if not datos_prov and proveedor:
-                            # Fallback secundario por nombre si el RIF exacto no hace match
                             datos_prov = mapa_proveedores_cuentas.get(proveedor.upper())
 
                         if datos_prov:
-                            # 1. Extraer cuenta de gasto/costo asociada al proveedor
                             p_cod_gasto = str(datos_prov.get("codigo_cuenta", "")).strip()
                             p_desc_gasto = str(datos_prov.get("descripcion_cuenta", "")).strip()
                             
@@ -5758,7 +5755,6 @@ def renderizar_tab_asientos_automatizados(db_connection):
                                 else:
                                     opcion_gasto = f"{p_cod_gasto} - {p_desc_gasto}" if p_desc_gasto else p_cod_gasto
 
-                            # 2. Extraer cuenta por pagar (pasivo) asociada al proveedor (si tu tabla de proveedores la contempla)
                             p_cod_pagar = str(datos_prov.get("codigo_cuenta_pagar", "")).strip()
                             p_desc_pagar = str(datos_prov.get("descripcion_cuenta_pagar", "")).strip()
                             
@@ -5769,7 +5765,6 @@ def renderizar_tab_asientos_automatizados(db_connection):
                                 else:
                                     opcion_contrapartida = f"{p_cod_pagar} - {p_desc_pagar}" if p_desc_pagar else p_cod_pagar
 
-                        # Fallbacks automáticos si el proveedor no tiene cuentas parametrizadas por RIF
                         if not opcion_gasto:
                             for opt in opciones_desplegable:
                                 if opt.startswith("5") or opt.startswith("6"):
@@ -5790,12 +5785,12 @@ def renderizar_tab_asientos_automatizados(db_connection):
                         desc_gasto = opcion_gasto.split(" - ", 1)[1] if " - " in opcion_gasto else ""
                         desc_contra = opcion_contrapartida.split(" - ", 1)[1] if " - " in opcion_contrapartida else ""
 
-                        # LÍNEA 1: EL GASTO / COSTO AL DEBE (Base Imponible) - 100% ligado al proveedor por RIF
+                        # LÍNEA 1: EL GASTO / COSTO AL DEBE (Base Imponible)
                         if base_imponible > 0:
                             filas_asiento_temporal.append({
                                 "n_comprobante": n_comprobante_actual,
                                 "descripcion": f"Factura {nro_doc} - {proveedor} (RIF: {rif_proveedor})",
-                                "fecha": fecha_op,
+                                "fecha": fecha_op,  # <-- Aquí va la fecha del primer frame
                                 "plan_cuentas": opcion_gasto, 
                                 "cuenta_contable": desc_gasto,
                                 "referencia": nro_doc,
@@ -5803,7 +5798,6 @@ def renderizar_tab_asientos_automatizados(db_connection):
                                 "haber": 0.0
                             })
 
-                        # Búsqueda estricta de IVA Crédito Fiscal
                         opcion_iva = default_opcion
                         for opt in opciones_desplegable:
                             opt_lower = opt.lower()
@@ -5818,7 +5812,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
                             filas_asiento_temporal.append({
                                 "n_comprobante": n_comprobante_actual,
                                 "descripcion": f"IVA Factura {nro_doc} - {proveedor}",
-                                "fecha": fecha_op,
+                                "fecha": fecha_op,  # <-- Aquí va la fecha del primer frame
                                 "plan_cuentas": opcion_iva,
                                 "cuenta_contable": desc_iva,
                                 "referencia": nro_doc,
@@ -5826,12 +5820,12 @@ def renderizar_tab_asientos_automatizados(db_connection):
                                 "haber": 0.0
                             })
 
-                        # LÍNEA 3: CUENTA POR PAGAR AL HABER (Total factura: Base + IVA) - Ligada a la configuración del proveedor
+                        # LÍNEA 3: CUENTA POR PAGAR AL HABER (Total factura)
                         if total_factura > 0:
                             filas_asiento_temporal.append({
                                 "n_comprobante": n_comprobante_actual,
                                 "descripcion": f"Cuentas por Pagar Factura {nro_doc} - {proveedor} (RIF: {rif_proveedor})",
-                                "fecha": fecha_op,
+                                "fecha": fecha_op,  # <-- Aquí va la fecha del primer frame
                                 "plan_cuentas": opcion_contrapartida,
                                 "cuenta_contable": desc_contra,
                                 "referencia": nro_doc,
