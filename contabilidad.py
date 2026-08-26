@@ -5552,11 +5552,10 @@ def renderizar_tab_asientos_automatizados(db_connection):
     st.subheader("🤖 Asientos Automatizados (Comprobantes Contables)")
     st.markdown("""
     Sube tu archivo Excel de compras del periodo. El sistema procesará la información integrándose 
-    directly con el plan de cuentas maestro y los parámetros de control central para generar los asientos en partida doble.
+    directamente con el plan de cuentas maestro y los parámetros de control central para generar los asientos en partida doble.
     """)
 
     # 1. BÚSQUEDA AUTOMÁTICA DE LA EMPRESA EN EL SESSION STATE
-    # Revisamos las llaves más comunes que se suelen usar en aplicaciones multi-empresa
     posibles_llaves = ['empresa_actual', 'db_seleccionada', 'empresa', 'current_db', 'cliente_activo', 'db_actual']
     nombre_db_cliente = None
 
@@ -5565,15 +5564,12 @@ def renderizar_tab_asientos_automatizados(db_connection):
             nombre_db_cliente = st.session_state[llave]
             break
 
-    # Si aún no se encuentra, intentamos buscar dinámicamente cualquier llave que parezca una base de datos o empresa
     if not nombre_db_cliente:
         for k, v in st.session_state.items():
             if isinstance(v, str) and ('_' in v or 'db' in k.lower() or 'empresa' in k.lower()):
-                # Opcional: puedes ajustar este filtro según cómo nombres tus bases de datos de clientes
                 nombre_db_cliente = v
                 break
 
-    # Si de plano no se encuentra, damos la opción de seleccionarla manualmente para no bloquearte
     if not nombre_db_cliente:
         st.warning("⚠️ No se detectó automáticamente una empresa activa en la sesión. Selecciona la base de datos del cliente:")
         try:
@@ -5581,7 +5577,6 @@ def renderizar_tab_asientos_automatizados(db_connection):
             cursor_temp.execute("SHOW DATABASES")
             dbs = [row[0] for row in cursor_temp.fetchall()]
             cursor_temp.close()
-            # Filtramos bases de datos del sistema si es necesario
             dbs_filtradas = [db for db in dbs if db not in ['information_schema', 'mysql', 'performance_schema', 'sys', 'control_central']]
             nombre_db_cliente = st.selectbox("Base de datos de la empresa:", dbs_filtradas)
         except Exception as e:
@@ -5668,7 +5663,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
             n_comprobante_base = st.text_input("Número de Comprobante base (Ej. 050001)", value="050001")
 
             # ----------------------------------------------------
-            # PASO 2: CONVERSIÓN Y MAPEO AUTOMATIZADO
+            # PASO 2: CONVERSIÓN Y MAPEO AUTOMATIZADO (DINÁMICO DESDE MYSQL)
             # ----------------------------------------------------
             if st.button("🔄 Generar Propuesta de Asientos Contables", key="btn_generar_propuesta_asientos"):
                 try:
@@ -5710,10 +5705,12 @@ def renderizar_tab_asientos_automatizados(db_connection):
 
                         total_factura = base_imponible + credito_fiscal
 
-                        # Búsqueda cuenta de Gasto/Costo (Clase 6)
+                        # --- BÚSQUEDA 100% DINÁMICA DE CUENTA DE GASTO/COSTO DESDE MYSQL ---
                         opcion_gasto = default_opcion
                         for opt in opciones_desplegable:
-                            if opt.startswith("6") or "gasto" in opt.lower() or "costo" in opt.lower():
+                            opt_lower = opt.lower()
+                            # Busca por nomenclatura contable típica (clase 5 o 6) o por palabras clave en su nombre en MySQL
+                            if opt.startswith("5") or opt.startswith("6") or "gasto" in opt_lower or "costo" in opt_lower or "compra" in opt_lower:
                                 opcion_gasto = opt
                                 break
 
@@ -5729,10 +5726,12 @@ def renderizar_tab_asientos_automatizados(db_connection):
                             "tipo_linea": "Gasto/Costo"
                         })
 
-                        # Búsqueda cuenta de IVA Crédito Fiscal
+                        # --- BÚSQUEDA 100% DINÁMICA DE CUENTA DE IVA CRÉDITO FISCAL DESDE MYSQL ---
                         opcion_iva = default_opcion
                         for opt in opciones_desplegable:
-                            if "1.1.4.01.001" in opt or "crédito fiscal" in opt.lower() or "iva" in opt.lower():
+                            opt_lower = opt.lower()
+                            # Busca cuentas de activo circulante (clase 1) que contengan términos de iva o crédito fiscal
+                            if ("iva" in opt_lower or "crédito" in opt_lower or "credito" in opt_lower or "fiscal" in opt_lower):
                                 opcion_iva = opt
                                 break
 
@@ -5749,10 +5748,12 @@ def renderizar_tab_asientos_automatizados(db_connection):
                                 "tipo_linea": "IVA Crédito Fiscal"
                             })
 
-                        # Búsqueda Contrapartida / Proveedores por Pagar
+                        # --- BÚSQUEDA 100% DINÁMICA DE CONTRAPARTIDA (PROVEEDORES / POR PAGAR) DESDE MYSQL ---
                         opcion_contrapartida = default_opcion
                         for opt in opciones_desplegable:
-                            if "2.1.1.01.001" in opt or "proveedores" in opt.lower() or "por pagar" in opt.lower():
+                            opt_lower = opt.lower()
+                            # Busca cuentas de pasivo (clase 2) o términos de proveedores y cuentas por pagar
+                            if opt.startswith("2") or "proveedor" in opt_lower or "pagar" in opt_lower or "acreedor" in opt_lower:
                                 opcion_contrapartida = opt
                                 break
 
@@ -5769,7 +5770,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
                         })
 
                     st.session_state['df_asientos_proceso'] = pd.DataFrame(filas_asiento_temporal)
-                    st.success("¡Propuesta de asientos generada exitosamente con el plan de cuentas de la empresa!")
+                    st.success("¡Propuesta de asientos generada dinámicamente con el plan de cuentas de la empresa!")
                     st.rerun()
 
                 except Exception as proc_err:
