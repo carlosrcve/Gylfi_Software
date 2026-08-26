@@ -5547,7 +5547,6 @@ def verificar_si_es_contribuyente_especial(db_name):
     return False
 
 
-
 def renderizar_tab_asientos_automatizados(db_connection):
     st.subheader("🤖 Asientos Automatizados (Comprobantes Contables)")
     st.markdown("""
@@ -5663,7 +5662,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
             n_comprobante_base = st.text_input("Número de Comprobante base (Ej. 050001)", value="050001")
 
             # ----------------------------------------------------
-            # PASO 2: CONVERSIÓN Y MAPEO AUTOMATIZADO (SIN TIPO_LINEA)
+            # PASO 2: CONVERSIÓN Y MAPEO AUTOMATIZADO
             # ----------------------------------------------------
             if st.button("🔄 Generar Propuesta de Asientos Contables", key="btn_generar_propuesta_asientos"):
                 try:
@@ -5713,12 +5712,15 @@ def renderizar_tab_asientos_automatizados(db_connection):
                                 opcion_gasto = opt
                                 break
 
+                        # Extraer nombre inicial para la descripción
+                        desc_gasto = opcion_gasto.split(" - ", 1)[1] if " - " in opcion_gasto else ""
+
                         filas_asiento_temporal.append({
                             "n_comprobante": n_comprobante_base,
                             "descripcion": proveedor,
                             "fecha": fecha_op,
                             "plan_cuentas": opcion_gasto, 
-                            "cuenta_contable": "",
+                            "cuenta_contable": desc_gasto,
                             "referencia": nro_doc,
                             "debe": base_imponible,
                             "haber": 0.0
@@ -5731,6 +5733,8 @@ def renderizar_tab_asientos_automatizados(db_connection):
                             if ("iva" in opt_lower or "crédito" in opt_lower or "credito" in opt_lower or "fiscal" in opt_lower):
                                 opcion_iva = opt
                                 break
+                        
+                        desc_iva = opcion_iva.split(" - ", 1)[1] if " - " in opcion_iva else ""
 
                         if credito_fiscal > 0:
                             filas_asiento_temporal.append({
@@ -5738,7 +5742,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
                                 "descripcion": proveedor,
                                 "fecha": fecha_op,
                                 "plan_cuentas": opcion_iva,
-                                "cuenta_contable": "",
+                                "cuenta_contable": desc_iva,
                                 "referencia": nro_doc,
                                 "debe": credito_fiscal,
                                 "haber": 0.0
@@ -5752,12 +5756,14 @@ def renderizar_tab_asientos_automatizados(db_connection):
                                 opcion_contrapartida = opt
                                 break
 
+                        desc_contra = opcion_contrapartida.split(" - ", 1)[1] if " - " in opcion_contrapartida else ""
+
                         filas_asiento_temporal.append({
                             "n_comprobante": n_comprobante_base,
                             "descripcion": proveedor,
                             "fecha": fecha_op,
                             "plan_cuentas": opcion_contrapartida,
-                            "cuenta_contable": "",
+                            "cuenta_contable": desc_contra,
                             "referencia": nro_doc,
                             "debe": 0.0,
                             "haber": total_factura
@@ -5771,14 +5777,12 @@ def renderizar_tab_asientos_automatizados(db_connection):
                     st.error(f"Error al procesar los datos de las compras: {proc_err}")
 
             # ----------------------------------------------------
-            # PASO 3: EDITOR Y FORMATO DE NÚMEROS (SIN TIPO_LINEA)
-            # ----------------------------------------------------
-            # ----------------------------------------------------
             # PASO 3: EDITOR Y FORMATO DE NÚMEROS (OPTIMIZADO Y VELOZ)
             # ----------------------------------------------------
             if 'df_asientos_proceso' in st.session_state and not st.session_state['df_asientos_proceso'].empty:
                 st.markdown("### 📋 Segundo Frame: Estructura del Asiento Contable (Partida Doble)")
                 
+                # Renderizamos el editor de manera limpia y fluida
                 df_editado = st.data_editor(
                     st.session_state['df_asientos_proceso'],
                     num_rows="dynamic",
@@ -5791,7 +5795,8 @@ def renderizar_tab_asientos_automatizados(db_connection):
                         ),
                         "cuenta_contable": st.column_config.TextColumn(
                             "Descripción Cuenta",
-                            help="Nombre de la cuenta sincronizado automáticamente"
+                            help="Nombre de la cuenta sincronizado",
+                            disabled=True  # Bloqueada para que se actualice sola instantáneamente sin retrasos
                         ),
                         "fecha": st.column_config.TextColumn(
                             "Fecha",
@@ -5811,17 +5816,16 @@ def renderizar_tab_asientos_automatizados(db_connection):
                     key="editor_asientos_auto_tab4"
                 )
                 
-                # Actualización limpia y directa al vuelo por cada fila del editor
+                # Actualizamos las descripciones al vuelo basándonos estrictamente en lo que el usuario seleccionó
                 for idx in df_editado.index:
-                    seleccion_completa = str(df_editado.at[idx, "plan_cuentas"])
-                    if " - " in seleccion_completa:
-                        partes = seleccion_completa.split(" - ", 1)
-                        codigo_puro = partes[0].strip()
-                        # Asignamos directamente la descripción correcta basada en el diccionario del plan de cuentas
-                        df_editado.at[idx, "cuenta_contable"] = mapa_descripciones.get(codigo_puro, partes[1].strip())
+                    sel = str(df_editado.at[idx, "plan_cuentas"])
+                    if " - " in sel:
+                        cod = sel.split(" - ")[0].strip()
+                        df_editado.at[idx, "cuenta_contable"] = mapa_descripciones.get(cod, sel.split(" - ")[1].strip())
                     else:
-                        df_editado.at[idx, "cuenta_contable"] = mapa_descripciones.get(seleccion_completa.strip(), "Cuenta General")
+                        df_editado.at[idx, "cuenta_contable"] = mapa_descripciones.get(sel.strip(), "Cuenta General")
 
+                # Guardamos los cambios limpios en el session state
                 st.session_state['df_asientos_proceso'] = df_editado
 
                 tot_debe = df_editado['debe'].sum()
@@ -5831,7 +5835,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
                 col_m2.metric("Total Haber", f"{tot_haber:,.2f}")
 
                 if abs(tot_debe - tot_haber) > 0.01:
-                    st.warning("⚠️ Los montos del Debe y el Haber não coinciden exactamente. Revisa los valores antes de guardar.")
+                    st.warning("⚠️ Los montos del Debe y el Haber no coinciden exactamente. Revisa los valores antes de guardar.")
 
                 if st.button("💾 Guardar Asientos Definitivos en el Libro Diario", key="btn_guardar_asientos_definitivos"):
                     try:
@@ -5860,7 +5864,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
                         for index, row in df_editado.iterrows():
                             seleccion_completa = str(row["plan_cuentas"])
                             codigo_cuenta = seleccion_completa.split(" - ")[0].strip() if " - " in seleccion_completa else seleccion_completa.strip()
-                            nombre_cuenta_contable = str(row["cuenta_contable"])
+                            nombre_cuenta_contable = mapa_descripciones.get(codigo_cuenta, str(row["cuenta_contable"]))
 
                             fecha_val = row["fecha"]
                             fecha_sql = None if pd.isna(fecha_val) or str(fecha_val).strip().lower() in ["", "nat", "none"] else str(fecha_val).strip()[:10]
