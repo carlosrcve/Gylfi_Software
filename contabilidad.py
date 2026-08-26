@@ -11409,6 +11409,18 @@ elif "Proveedores" in opcion_menu:
     # 1. Obtenemos la conexión
     conn_empresa = conectar_db(db_actual)
     
+    # 🆕 1.1 OBTENER PLAN DE CUENTAS PARA LOS SELECTORES DE LA TABLA PROVEEDORES
+    opciones_cuentas_prov = [""]
+    try:
+        cursor_pc = conn_empresa.cursor(pymysql.cursors.DictCursor)
+        cursor_pc.execute(f"SELECT codigo, nombre FROM `{db_actual}`.plan_cuentas ORDER BY codigo ASC")
+        cuentas_db = cursor_pc.fetchall()
+        cursor_pc.close()
+        for c in cuentas_db:
+            opciones_cuentas_prov.append(f"{str(c.get('codigo')).strip()} - {str(c.get('nombre')).strip()}")
+    except Exception:
+        pass # Si falla o la tabla no existe aún, se mantiene vacío para permitir texto libre
+    
     try:
         # 2. Definición estricta de tabs
         tab1, tab2 = st.tabs(["📥 Cargar desde Excel", "📋 Directorio Actual"])
@@ -11416,6 +11428,7 @@ elif "Proveedores" in opcion_menu:
         # 3. Lógica de Pestaña 1
         with tab1:
             st.markdown("### Subir Archivo Masivo")
+            st.markdown("Asegúrate de que tu Excel contenga las columnas de identificación fiscal, razón social y opcionalmente los campos de parametrización contable (`codigo_cuenta`).")
             file_p = st.file_uploader("Seleccione el archivo Excel", type=["xlsx"], key="file_prov_up")
                 
             if file_p:
@@ -11429,20 +11442,28 @@ elif "Proveedores" in opcion_menu:
 
         # 4. Lógica de Pestaña 2
         with tab2:
-            st.markdown("### 📋 Directorio Actual")
+            st.markdown("### 📋 Directorio Actual y Parametrización Contable")
             
-            # 1. Inicializamos los datos en session_state solo si no existen
+            # 1. Inicializamos los datos en session_state asegurando las columnas nuevas de cuentas
             if "df_proveedores_cache" not in st.session_state:
                 df_temp = consultar_tabla_db(conn_empresa, "proveedores")
+                
+                columnas_necesarias = ["rif", "tipo_persona", "razon_social", "direccion_fiscal", "codigo_cuenta", "descripcion_cuenta"]
+                
                 if df_temp is None or not isinstance(df_temp, pd.DataFrame) or df_temp.empty:
-                    df_temp = pd.DataFrame(columns=["rif", "tipo_persona", "razon_social", "direccion_fiscal"])
+                    df_temp = pd.DataFrame(columns=columnas_necesarias)
+                else:
+                    # Garantizar que existan las columnas nuevas si la tabla en BD es antigua
+                    for col in columnas_necesarias:
+                        if col not in df_temp.columns:
+                            df_temp[col] = ""
                 
                 for col in df_temp.columns:
                     df_temp[col] = df_temp[col].astype(str).replace(['None', 'nan', 'NAT'], '')
                 
                 st.session_state.df_proveedores_cache = df_temp
 
-            # 2. El data_editor ahora lee y escribe directamente sobre el session_state
+            # 2. El data_editor con las columnas de cuentas integradas
             df_editado = st.data_editor(
                 st.session_state.df_proveedores_cache, 
                 key="editor_proveedores_dinamico", 
@@ -11453,7 +11474,16 @@ elif "Proveedores" in opcion_menu:
                     "rif": st.column_config.TextColumn("RIF (Llave Primaria)", required=True),
                     "tipo_persona": st.column_config.SelectboxColumn("Tipo", options=["PN", "PJ"], required=True),
                     "razon_social": st.column_config.TextColumn("Razón Social", required=True),
-                    "direccion_fiscal": st.column_config.TextColumn("Dirección Fiscal", required=True)
+                    "direccion_fiscal": st.column_config.TextColumn("Dirección Fiscal", required=True),
+                    "codigo_cuenta": st.column_config.TextColumn(
+                        "Código Cuenta por Defecto", 
+                        help="Código contable predeterminado para este proveedor al procesar compras"
+                    ),
+                    "descripcion_cuenta": st.column_config.TextColumn(
+                        "Descripción Cuenta", 
+                        help="Nombre o descripción asociada a la cuenta contable",
+                        disabled=False
+                    )
                 }
             )
             
@@ -11502,7 +11532,6 @@ elif "Proveedores" in opcion_menu:
                 conn_empresa.close()
             except Exception:
                 pass
-
 
 
 elif "Inventarios" in opcion_menu:
