@@ -5548,7 +5548,6 @@ def verificar_si_es_contribuyente_especial(db_name):
 
 
 
-
 def renderizar_tab_asientos_automatizados(db_connection):
     st.subheader("🤖 Asientos Automatizados (Comprobantes Contables)")
     st.markdown("""
@@ -5592,6 +5591,10 @@ def renderizar_tab_asientos_automatizados(db_connection):
         return
 
     db_segura = str(nombre_db_cliente).strip()
+    
+    # Detección automática si es el cliente King Driver
+    es_king_driver = "kindriver" in db_segura.lower()
+
     mapa_descripciones = {}
     opciones_desplegable = []
     mapa_proveedores_cuentas = {}  
@@ -5662,6 +5665,10 @@ def renderizar_tab_asientos_automatizados(db_connection):
     # PRIMER FRAME: CARGA Y VISTA PREVIA DEL EXCEL
     # ----------------------------------------------------
     st.markdown("### 📋 Primer Frame: Libro de Compras Subido")
+    
+    if es_king_driver:
+        st.info("🚗 **Modo King Driver Detectado:** El sistema aplicará automáticamente el IVA como costo utilizando la cuenta `5.1.1.01.002 Iva Credito Fiscal (Ingresos Exentos)`.")
+
     archivo_excel = st.file_uploader("Subir Libro de Compras (Excel)", type=["xlsx", "xls"], key="uploader_libro_compras")
 
     if archivo_excel is not None:
@@ -5672,18 +5679,18 @@ def renderizar_tab_asientos_automatizados(db_connection):
             st.dataframe(df_compras, use_container_width=True)
 
             st.markdown("---")
-            st.markdown("### ⚙️ Configuración de Asientos y Naturaleza Fiscal")
+            st.markdown("### ⚙️ Configuración de Asientos")
             
             col_cfg1, col_cfg2 = st.columns(2)
             with col_cfg1:
                 n_comprobante_base = st.text_input("Prefijo de Comprobante:", value="050001")
             with col_cfg2:
-                # Condicional fiscal para clientes formales o especiales que asumen el IVA como costo/gasto
-                iva_es_costo = st.checkbox(
-                    "¿Contribuyente formal / El IVA se asume como costo o gasto?", 
-                    value=False,
-                    help="Si está marcado, el crédito fiscal no se separa en una cuenta de activo, sino que se integra al costo/gasto de la operación."
-                )
+                # Indicador visual informativo en pantalla
+                if es_king_driver:
+                    st.success("✅ Tratamiento especial de IVA activado para King Driver.")
+                else:
+                    st.markdown("<br>", unsafe_allow_html=True)
+                    st.caption("Empresa regular: Utiliza crédito fiscal estándar.")
             
             if st.button("🔄 Generar Estructura del Segundo Frame", key="btn_generar_segundo_frame"):
                 try:
@@ -5770,25 +5777,42 @@ def renderizar_tab_asientos_automatizados(db_connection):
                         desc_contra = opcion_contrapartida.split(" - ", 1)[1] if " - " in opcion_contrapartida else ""
 
                         # ----------------------------------------------------
-                        # CONSTRUCCIÓN CONDICIONAL SEGÚN NATURALEZA FISCAL
+                        # CONSTRUCCIÓN SEGÚN REGLA DE NEGOCIO (KING DRIVER VS OTROS)
                         # ----------------------------------------------------
-                        if iva_es_costo:
-                            # CASO CONTRIBUYENTE FORMAL / IVA AL COSTO:
-                            # El monto que va al debe del gasto/costo incluye la base imponible + el IVA.
-                            monto_debe_gasto = base_imponible + credito_fiscal
-                            
+                        if es_king_driver:
+                            # 1. Base Imponible al Debe (Gasto normal)
                             filas_asiento_temporal.append({
                                 "n_comprobante": n_comprobante_actual,
-                                "descripcion": f"Factura {nro_doc} - {razon_social} (Incluye IVA al Costo)",
+                                "descripcion": f"Factura {nro_doc} - {razon_social}",
                                 "fecha": fecha_op,
                                 "plan_cuentas": opcion_gasto,
                                 "cuenta_contable": desc_gasto,
                                 "referencia": nro_doc,
-                                "debe": monto_debe_gasto,
+                                "debe": base_imponible,
                                 "haber": 0.0
                             })
+
+                            # 2. IVA al Costo usando la cuenta específica de King Driver
+                            if credito_fiscal > 0:
+                                opcion_iva_kd = default_opcion
+                                for opt in opciones_desplegable:
+                                    if "5.1.1.01.002" in opt or "ingresos exentos" in opt.lower():
+                                        opcion_iva_kd = opt
+                                        break
+                                desc_iva_kd = opcion_iva_kd.split(" - ", 1)[1] if " - " in opcion_iva_kd else ""
+                                
+                                filas_asiento_temporal.append({
+                                    "n_comprobante": n_comprobante_actual,
+                                    "descripcion": f"IVA al Costo Factura {nro_doc} - {razon_social}",
+                                    "fecha": fecha_op,
+                                    "plan_cuentas": opcion_iva_kd,
+                                    "cuenta_contable": desc_iva_kd,
+                                    "referencia": nro_doc,
+                                    "debe": credito_fiscal,
+                                    "haber": 0.0
+                                })
                         else:
-                            # CASO ORDINARIO:
+                            # CASO ORDINARIO (Otras empresas):
                             # 1. Base Imponible al Debe (Gasto)
                             filas_asiento_temporal.append({
                                 "n_comprobante": n_comprobante_actual,
@@ -5801,12 +5825,12 @@ def renderizar_tab_asientos_automatizados(db_connection):
                                 "haber": 0.0
                             })
 
-                            # 2. IVA Crédito Fiscal al Debe
+                            # 2. IVA Crédito Fiscal estándar al Debe
                             if credito_fiscal > 0:
                                 opcion_iva = default_opcion
                                 for opt in opciones_desplegable:
                                     opt_lower = opt.lower()
-                                    if "1.1.4" in opt or "crédito fiscal" in opt_lower or "credito fiscal" in opt_lower:
+                                    if "1.1.4.01.001" in opt or "crédito fiscal" in opt_lower or "credito fiscal" in opt_lower:
                                         opcion_iva = opt
                                         break
                                 desc_iva = opcion_iva.split(" - ", 1)[1] if " - " in opcion_iva else ""
