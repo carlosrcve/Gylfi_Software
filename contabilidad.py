@@ -5777,27 +5777,24 @@ def renderizar_tab_asientos_automatizados(db_connection):
                     st.error(f"Error al procesar los datos de las compras: {proc_err}")
 
             # ----------------------------------------------------
-            # PASO 3: EDITOR Y FORMATO DE NÚMEROS (OPTIMIZADO Y VELOZ)
+            # PASO 3: EDITOR Y FORMATO DE NÚMEROS (ULTRA RÁPIDO)
             # ----------------------------------------------------
             if 'df_asientos_proceso' in st.session_state and not st.session_state['df_asientos_proceso'].empty:
                 st.markdown("### 📋 Segundo Frame: Estructura del Asiento Contable (Partida Doble)")
                 
-                # Renderizamos el editor de manera limpia y fluida
+                # Trabajamos directamente con el DataFrame del session state de manera limpia
                 df_editado = st.data_editor(
                     st.session_state['df_asientos_proceso'],
                     num_rows="dynamic",
                     column_config={
                         "plan_cuentas": st.column_config.SelectboxColumn(
-                            "Plan de Cuentas (Código - Nombre)",
-                            help="Selecciona la cuenta vinculada directamente desde la base de datos de la empresa",
+                            "Plan de Cuentas (Código y Nombre)",
+                            help="Selecciona la cuenta contable",
                             options=opciones_desplegable,
                             required=False
                         ),
-                        "cuenta_contable": st.column_config.TextColumn(
-                            "Descripción Cuenta",
-                            help="Nombre de la cuenta sincronizado",
-                            disabled=True  # Bloqueada para que se actualice sola instantáneamente sin retrasos
-                        ),
+                        # Eliminamos la columna cuenta_contable del editor visual para eliminar el desfase y la lentitud
+                        "cuenta_contable": None, 
                         "fecha": st.column_config.TextColumn(
                             "Fecha",
                             help="Fecha extraída del archivo"
@@ -5816,16 +5813,6 @@ def renderizar_tab_asientos_automatizados(db_connection):
                     key="editor_asientos_auto_tab4"
                 )
                 
-                # Actualizamos las descripciones al vuelo basándonos estrictamente en lo que el usuario seleccionó
-                for idx in df_editado.index:
-                    sel = str(df_editado.at[idx, "plan_cuentas"])
-                    if " - " in sel:
-                        cod = sel.split(" - ")[0].strip()
-                        df_editado.at[idx, "cuenta_contable"] = mapa_descripciones.get(cod, sel.split(" - ")[1].strip())
-                    else:
-                        df_editado.at[idx, "cuenta_contable"] = mapa_descripciones.get(sel.strip(), "Cuenta General")
-
-                # Guardamos los cambios limpios en el session state
                 st.session_state['df_asientos_proceso'] = df_editado
 
                 tot_debe = df_editado['debe'].sum()
@@ -5863,8 +5850,14 @@ def renderizar_tab_asientos_automatizados(db_connection):
                         
                         for index, row in df_editado.iterrows():
                             seleccion_completa = str(row["plan_cuentas"])
-                            codigo_cuenta = seleccion_completa.split(" - ")[0].strip() if " - " in seleccion_completa else seleccion_completa.strip()
-                            nombre_cuenta_contable = mapa_descripciones.get(codigo_cuenta, str(row["cuenta_contable"]))
+                            
+                            # Extraemos el código limpio y buscamos su descripción exacta al instante de guardar
+                            if " - " in seleccion_completa:
+                                codigo_cuenta = seleccion_completa.split(" - ")[0].strip()
+                                nombre_cuenta_contable = mapa_descripciones.get(codigo_cuenta, seleccion_completa.split(" - ", 1)[1].strip())
+                            else:
+                                codigo_cuenta = seleccion_completa.strip()
+                                nombre_cuenta_contable = mapa_descripciones.get(codigo_cuenta, "Cuenta General")
 
                             fecha_val = row["fecha"]
                             fecha_sql = None if pd.isna(fecha_val) or str(fecha_val).strip().lower() in ["", "nat", "none"] else str(fecha_val).strip()[:10]
