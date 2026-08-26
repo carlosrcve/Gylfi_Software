@@ -5548,6 +5548,7 @@ def verificar_si_es_contribuyente_especial(db_name):
 
 
 
+
 def renderizar_tab_asientos_automatizados(db_connection):
     st.subheader("🤖 Asientos Automatizados (Comprobantes Contables)")
     st.markdown("""
@@ -5592,8 +5593,8 @@ def renderizar_tab_asientos_automatizados(db_connection):
 
     db_segura = str(nombre_db_cliente).strip()
     
-    # Detección automática si es el cliente King Driver
-    es_king_driver = "kindriver" in db_segura.lower()
+    # Detección automática ampliada para capturar cualquier variación del nombre de la BD de King Driver
+    es_king_driver = any(term in db_segura.lower() for term in ["kindriver", "king_driver", "driver"])
 
     mapa_descripciones = {}
     opciones_desplegable = []
@@ -5667,7 +5668,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
     st.markdown("### 📋 Primer Frame: Libro de Compras Subido")
     
     if es_king_driver:
-        st.info("🚗 **Modo King Driver Detectado:** El sistema aplicará automáticamente el IVA como costo utilizando la cuenta `5.1.1.01.002 Iva Credito Fiscal (Ingresos Exentos)`.")
+        st.info("🚗 **Modo King Driver Detectado:** El sistema aplicará automáticamente el IVA como costo utilizando la cuenta `5.1.1.01.002`.")
 
     archivo_excel = st.file_uploader("Subir Libro de Compras (Excel)", type=["xlsx", "xls"], key="uploader_libro_compras")
 
@@ -5685,7 +5686,6 @@ def renderizar_tab_asientos_automatizados(db_connection):
             with col_cfg1:
                 n_comprobante_base = st.text_input("Prefijo de Comprobante:", value="050001")
             with col_cfg2:
-                # Indicador visual informativo en pantalla
                 if es_king_driver:
                     st.success("✅ Tratamiento especial de IVA activado para King Driver.")
                 else:
@@ -5792,11 +5792,11 @@ def renderizar_tab_asientos_automatizados(db_connection):
                                 "haber": 0.0
                             })
 
-                            # 2. IVA al Costo usando la cuenta específica de King Driver
+                            # 2. IVA al Costo usando obligatoriamente la cuenta 5.1.1.01.002
                             if credito_fiscal > 0:
                                 opcion_iva_kd = default_opcion
                                 for opt in opciones_desplegable:
-                                    if "5.1.1.01.002" in opt or "ingresos exentos" in opt.lower():
+                                    if opt.startswith("5.1.1.01.002") or "ingresos exentos" in opt.lower():
                                         opcion_iva_kd = opt
                                         break
                                 desc_iva_kd = opcion_iva_kd.split(" - ", 1)[1] if " - " in opcion_iva_kd else ""
@@ -5813,7 +5813,6 @@ def renderizar_tab_asientos_automatizados(db_connection):
                                 })
                         else:
                             # CASO ORDINARIO (Otras empresas):
-                            # 1. Base Imponible al Debe (Gasto)
                             filas_asiento_temporal.append({
                                 "n_comprobante": n_comprobante_actual,
                                 "descripcion": f"Factura {nro_doc} - {razon_social}",
@@ -5825,7 +5824,6 @@ def renderizar_tab_asientos_automatizados(db_connection):
                                 "haber": 0.0
                             })
 
-                            # 2. IVA Crédito Fiscal estándar al Debe
                             if credito_fiscal > 0:
                                 opcion_iva = default_opcion
                                 for opt in opciones_desplegable:
