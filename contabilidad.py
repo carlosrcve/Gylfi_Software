@@ -5558,7 +5558,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
     """)
 
     # ----------------------------------------------------
-    # VALIDACIÓN DE ROL Y FILTRADO DE EMPRESAS
+    # VALIDACIÓN DE ROL Y FILTRADO DE EMPRESAS (CORREGIDO)
     # ----------------------------------------------------
     rol_usuario = str(st.session_state.get("role", st.session_state.get("tipo_usuario", "cliente"))).strip().lower()
     es_admin = rol_usuario in ["admin", "administrador"] or st.session_state.get("es_admin", False)
@@ -5568,13 +5568,13 @@ def renderizar_tab_asientos_automatizados(db_connection):
     
     try:
         with db_connection.cursor(pymysql.cursors.DictCursor) as cursor_temp:
-            cursor_temp.execute("SELECT * FROM control_central.cliente")
+            # Corrección: Tabla 'clientes' en plural y uso de las columnas reales (db_nombre, nombre_empresa)
+            cursor_temp.execute("SELECT * FROM control_central.clientes")
             clientes_db = cursor_temp.fetchall()
         
         for cli in clientes_db:
-            db_name = str(cli.get("base_de_datos", cli.get("db_name", cli.get("schema_name", "")))).strip()
-            nombre_comercial = str(cli.get("nombre", cli.get("razon_social", db_name))).strip()
-            usuario_asociado = str(cli.get("usuario", cli.get("email", cli.get("user", "")))).strip().lower()
+            db_name = str(cli.get("db_nombre", cli.get("base_de_datos", ""))).strip()
+            nombre_comercial = str(cli.get("nombre_empresa", cli.get("nombre", db_name))).strip()
             
             if db_name:
                 if es_admin:
@@ -5582,12 +5582,12 @@ def renderizar_tab_asientos_automatizados(db_connection):
                     mapa_nombres_empresas[db_name] = nombre_comercial
                 else:
                     db_usuario_sesion = str(st.session_state.get("db_name", st.session_state.get("empresa_asignada", ""))).strip().lower()
-                    if db_name.lower() == db_usuario_sesion or usuario_asociado == str(st.session_state.get("username", "")).strip().lower():
+                    if db_name.lower() == db_usuario_sesion:
                         dbs_filtradas.append(db_name)
                         mapa_nombres_empresas[db_name] = nombre_comercial
                         
     except Exception as e:
-        st.warning(f"⚠️ No se pudo consultar `control_central.cliente`, usando respaldo automático: {e}")
+        st.warning(f"⚠️ No se pudo consultar `control_central.clientes`: {e}")
         if es_admin:
             dbs_filtradas = ["kingdriver_ca", "rishon_letzion_ca"]
         else:
@@ -5600,7 +5600,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
             dbs_filtradas = [db_usuario_sesion]
 
     if not dbs_filtradas:
-        st.error("⚠️ No se encontró una empresa asignada a tu usuario o no hay registros en la tabla cliente.")
+        st.error("⚠️ No se encontró una empresa asignada a tu usuario o no hay registros en la tabla clientes.")
         return
 
     # ----------------------------------------------------
@@ -5695,7 +5695,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
                         if p_rif: mapa_proveedores_cuentas[p_rif] = info_prov
                         if p_nombre: mapa_proveedores_cuentas[p_nombre] = info_prov
                 except Exception:
-                    pass 
+                    pass  
 
             # Cuentas genéricas por defecto si el plan está vacío
             if not opciones_desplegable:
