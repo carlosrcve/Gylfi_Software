@@ -5777,19 +5777,26 @@ def renderizar_tab_asientos_automatizados(db_connection):
                     st.error(f"Error al procesar los datos de las compras: {proc_err}")
 
             # ----------------------------------------------------
-            # PASO 3: EDITOR Y FORMATO DE NÚMEROS (ULTRA RÁPIDO)
+            # PASO 3: EDITOR Y FORMATO DE NÚMEROS (CORREGIDO Y SEGURO)
             # ----------------------------------------------------
             if 'df_asientos_proceso' in st.session_state and not st.session_state['df_asientos_proceso'].empty:
                 st.markdown("### 📋 Segundo Frame: Estructura del Asiento Contable (Partida Doble)")
                 
-                # Sincronizamos las descripciones en vivo antes de pintar para garantizar que ninguna quede desfasada
-                for idx in st.session_state['df_asientos_proceso'].index:
-                    sel = str(st.session_state['df_asientos_proceso'].at[idx, "plan_cuentas"])
-                    if " - " in sel:
-                        cod = sel.split(" - ")[0].strip()
-                        st.session_state['df_asientos_proceso'].at[idx, "cuenta_contable"] = mapa_descripciones.get(cod, sel.split(" - ", 1)[1].strip())
+                # Función interna para limpiar y obtener la descripción exacta del diccionario
+                def obtener_nombre_cuenta(valor_celda):
+                    val_str = str(valor_celda).strip()
+                    if " - " in val_str:
+                        codigo = val_str.split(" - ")[0].strip()
+                        return mapa_descripciones.get(codigo, val_str.split(" - ", 1)[1].strip())
+                    else:
+                        return mapa_descripciones.get(val_str, "Cuenta General")
 
-                # Renderizamos el editor manteniendo ambas columnas
+                # Sincronizamos las descripciones en el session_state antes de pintar
+                for idx in st.session_state['df_asientos_proceso'].index:
+                    sel = st.session_state['df_asientos_proceso'].at[idx, "plan_cuentas"]
+                    st.session_state['df_asientos_proceso'].at[idx, "cuenta_contable"] = obtener_nombre_cuenta(sel)
+
+                # Renderizamos el editor
                 df_editado = st.data_editor(
                     st.session_state['df_asientos_proceso'],
                     num_rows="dynamic",
@@ -5803,7 +5810,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
                         "cuenta_contable": st.column_config.TextColumn(
                             "Descripción Cuenta",
                             help="Nombre de la cuenta sincronizado automáticamente",
-                            disabled=True  # Bloqueada para que no dé error y se actualice sola
+                            disabled=True
                         ),
                         "fecha": st.column_config.TextColumn(
                             "Fecha",
@@ -5823,12 +5830,10 @@ def renderizar_tab_asientos_automatizados(db_connection):
                     key="editor_asientos_auto_tab4"
                 )
                 
-                # Actualizamos de inmediato el estado con lo que devolvió el editor
+                # Actualizamos las descripciones basándonos estrictamente en lo que el usuario acaba de modificar en el editor
                 for idx in df_editado.index:
-                    sel = str(df_editado.at[idx, "plan_cuentas"])
-                    if " - " in sel:
-                        cod = sel.split(" - ")[0].strip()
-                        df_editado.at[idx, "cuenta_contable"] = mapa_descripciones.get(cod, sel.split(" - ", 1)[1].strip())
+                    sel = df_editado.at[idx, "plan_cuentas"]
+                    df_editado.at[idx, "cuenta_contable"] = obtener_nombre_cuenta(sel)
 
                 st.session_state['df_asientos_proceso'] = df_editado
 
