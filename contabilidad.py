@@ -5680,6 +5680,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
 
             st.markdown("### ⚙️ Configuración del Lote")
             n_comprobante_base = st.text_input("Número de Comprobante base (Ej. 050001)", value="050001")
+            
             # ----------------------------------------------------
             # PASO 2: CONVERSIÓN Y MAPEO AUTOMATIZADO CON VALIDACIÓN ROBUSTA DE CONTRIBUYENTE FORMAL
             # ----------------------------------------------------
@@ -5952,36 +5953,29 @@ def renderizar_tab_asientos_automatizados(db_connection):
                             VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                         """
                         
-                        for index, row in df_editado.iterrows():
-                            seleccion_completa = str(row["plan_cuentas"])
-                            codigo_cuenta = seleccion_completa.split(" - ")[0].strip() if " - " in seleccion_completa else seleccion_completa.strip()
-                            nombre_cuenta_contable = mapa_descripciones.get(codigo_cuenta, str(row["cuenta_contable"]))
-
-                            fecha_val = row["fecha"]
-                            fecha_sql = None if pd.isna(fecha_val) or str(fecha_val).strip().lower() in ["", "nat", "none"] else str(fecha_val).strip()[:10]
-
-                            valores = (
-                                row["n_comprobante"],
-                                row["descripcion"],
-                                fecha_sql,
-                                codigo_cuenta,
-                                nombre_cuenta_contable,
-                                row["referencia"],
-                                float(row["debe"]),
-                                float(row["haber"])
-                            )
-                            cursor.execute(sql_insert, valores)
-
+                        for _, r_row in df_editado.iterrows():
+                            # Limpiar valores NaN o nulos antes de insertar
+                            f_op = r_row["fecha"] if pd.notna(r_row["fecha"]) and str(r_row["fecha"]).strip() != "" else None
+                            cursor.execute(sql_insert, (
+                                str(r_row["n_comprobante"]),
+                                str(r_row["descripcion"]),
+                                f_op,
+                                str(r_row["plan_cuentas"]),
+                                str(r_row["cuenta_contable"]),
+                                str(r_row["referencia"]),
+                                float(r_row["debe"] or 0.0),
+                                float(r_row["haber"] or 0.0)
+                            ))
+                        
                         db_connection.commit()
                         cursor.close()
-                        st.success(f"🎉 ¡Todos los asientos fueron guardados exitosamente en la base de datos de `{db_segura}`!")
-                        
-                    except Exception as db_err:
+                        st.success("🎉 ¡Todos los asientos contables fueron guardados exitosamente en el Libro Diario de la base de datos!")
+                    except Exception as db_save_err:
                         db_connection.rollback()
-                        st.error(f"Error al guardar los asientos en la base de datos: {db_err}")
+                        st.error(f"❌ Error al guardar los asientos en la base de datos: {db_save_err}")
 
-        except Exception as e:
-            st.error(f"Error al leer el archivo Excel: {e}")
+        except Exception as excel_err:
+            st.error(f"❌ Error al leer o procesar el archivo Excel: {excel_err}")
 
 def gestionar_sidebar():
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
