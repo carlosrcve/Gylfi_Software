@@ -5682,7 +5682,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
             n_comprobante_base = st.text_input("Número de Comprobante base (Ej. 050001)", value="050001")
 
             # ----------------------------------------------------
-            # PASO 2: CONVERSIÓN Y MAPEO AUTOMATIZADO BUSCANDO EN PROVEEDORES
+            # PASO 2: CONVERSIÓN Y MAPEO AUTOMATIZADO BUSCANDO POR RIF EN PROVEEDORES
             # ----------------------------------------------------
             if st.button("🔄 Generar Propuesta de Asientos Contables", key="btn_generar_propuesta_asientos"):
                 try:
@@ -5704,6 +5704,13 @@ def renderizar_tab_asientos_automatizados(db_connection):
                                 proveedor = str(row[col]).strip()
                                 break
 
+                        # 🆕 Capturar el RIF del archivo de compras
+                        rif_proveedor = ""
+                        for col in ["RIF", "Rif", "rif", "NIT", "Nit", "Cédula", "Cedula"]:
+                            if col in row and pd.notna(row[col]):
+                                rif_proveedor = str(row[col]).strip().upper()
+                                break
+
                         nro_doc = ""
                         for col in ["Número de Documento", "Numero de Documento", "Nro Documento", "Documento", "Nro_Documento"]:
                             if col in row and pd.notna(row[col]):
@@ -5723,54 +5730,84 @@ def renderizar_tab_asientos_automatizados(db_connection):
                                 break
 
                         total_factura = base_imponible + credito_fiscal
+                        n_comprobante_actual = f"{n_comprobante_base}-{nro_doc}" if nro_doc else f"{n_comprobante_base}-{idx+1}"
 
                         # ----------------------------------------------------
-                        # BÚSQUEDA INTELIGENTE DE LA CUENTA DE GASTO/COSTO DESDE PROVEEDORES
+                        # BÚSQUEDA INTELIGENTE POR RIF EN LA TABLA DE PROVEEDORES
                         # ----------------------------------------------------
                         opcion_gasto = None
-                        prov_upper = proveedor.upper()
+                        opcion_contrapartida = None
                         
-                        # 1. Buscar si el proveedor tiene una cuenta asignada en su tabla
-                        if prov_upper in mapa_proveedores_cuentas and mapa_proveedores_cuentas[prov_upper]["codigo_cuenta"]:
-                            p_cod = mapa_proveedores_cuentas[prov_upper]["codigo_cuenta"]
-                            encontrado_en_plan = next((opt for opt in opciones_desplegable if opt.startswith(p_cod + " -")), None)
-                            if encontrado_en_plan:
-                                opcion_gasto = encontrado_en_plan
-                            else:
-                                p_desc = mapa_proveedores_cuentas[prov_upper]["descripcion_cuenta"]
-                                opcion_gasto = f"{p_cod} - {p_desc}" if p_desc else p_cod
+                        # Buscar coincidencia exacta por RIF en el diccionario de proveedores cargado previamente
+                        # (Asumiendo que guardamos el RIF como clave en mapa_proveedores_cuentas)
+                        datos_prov = mapa_proveedores_cuentas.get(rif_proveedor)
+                        
+                        if not datos_prov and proveedor:
+                            # Fallback secundario por nombre si el RIF exacto no hace match
+                            datos_prov = mapa_proveedores_cuentas.get(proveedor.upper())
 
-                        # 2. Si el proveedor no tiene cuenta asignada, buscar una cuenta de Gasto (5) o Costo (6) por defecto
+                        if datos_prov:
+                            # 1. Extraer cuenta de gasto/costo asociada al proveedor
+                            p_cod_gasto = str(datos_prov.get("codigo_cuenta", "")).strip()
+                            p_desc_gasto = str(datos_prov.get("descripcion_cuenta", "")).strip()
+                            
+                            if p_cod_gasto:
+                                encontrado_en_plan = next((opt for opt in opciones_desplegable if opt.startswith(p_cod_gasto + " -")), None)
+                                if encontrado_en_plan:
+                                    opcion_gasto = encontrado_en_plan
+                                else:
+                                    opcion_gasto = f"{p_cod_gasto} - {p_desc_gasto}" if p_desc_gasto else p_cod_gasto
+
+                            # 2. Extraer cuenta por pagar (pasivo) asociada al proveedor (si tu tabla de proveedores la contempla)
+                            p_cod_pagar = str(datos_prov.get("codigo_cuenta_pagar", "")).strip()
+                            p_desc_pagar = str(datos_prov.get("descripcion_cuenta_pagar", "")).strip()
+                            
+                            if p_cod_pagar:
+                                encontrado_pagar = next((opt for opt in opciones_desplegable if opt.startswith(p_cod_pagar + " -")), None)
+                                if encontrado_pagar:
+                                    opcion_contrapartida = encontrado_pagar
+                                else:
+                                    opcion_contrapartida = f"{p_cod_pagar} - {p_desc_pagar}" if p_desc_pagar else p_cod_pagar
+
+                        # Fallbacks automáticos si el proveedor no tiene cuentas parametrizadas por RIF
                         if not opcion_gasto:
                             for opt in opciones_desplegable:
-                                opt_lower = opt.lower()
-                                if opt.startswith("5") or opt.startswith("6") or "gasto" in opt_lower or "costo" in opt_lower or "compra" in opt_lower:
+                                if opt.startswith("5") or opt.startswith("6"):
                                     opcion_gasto = opt
                                     break
-                        
-                        # 3. Fallback final si no encuentra nada
                         if not opcion_gasto:
                             opcion_gasto = default_opcion
 
+                        if not opcion_contrapartida:
+                            for opt in opciones_desplegable:
+                                opt_lower = opt.lower()
+                                if opt.startswith("2") or "por pagar" in opt_lower or "proveedores" in opt_lower:
+                                    opcion_contrapartida = opt
+                                    break
+                        if not opcion_contrapartida:
+                            opcion_contrapartida = default_opcion
+
                         desc_gasto = opcion_gasto.split(" - ", 1)[1] if " - " in opcion_gasto else ""
+                        desc_contra = opcion_contrapartida.split(" - ", 1)[1] if " - " in opcion_contrapartida else ""
 
-                        # LÍNEA 1: EL GASTO / COSTO AL DEBE (Base Imponible)
-                        filas_asiento_temporal.append({
-                            "n_comprobante": n_comprobante_base,
-                            "descripcion": proveedor,
-                            "fecha": fecha_op,
-                            "plan_cuentas": opcion_gasto, 
-                            "cuenta_contable": desc_gasto,
-                            "referencia": nro_doc,
-                            "debe": base_imponible,
-                            "haber": 0.0
-                        })
+                        # LÍNEA 1: EL GASTO / COSTO AL DEBE (Base Imponible) - 100% ligado al proveedor por RIF
+                        if base_imponible > 0:
+                            filas_asiento_temporal.append({
+                                "n_comprobante": n_comprobante_actual,
+                                "descripcion": f"Factura {nro_doc} - {proveedor} (RIF: {rif_proveedor})",
+                                "fecha": fecha_op,
+                                "plan_cuentas": opcion_gasto, 
+                                "cuenta_contable": desc_gasto,
+                                "referencia": nro_doc,
+                                "debe": base_imponible,
+                                "haber": 0.0
+                            })
 
-                        # Búsqueda dinámica de IVA Crédito Fiscal
+                        # Búsqueda estricta de IVA Crédito Fiscal
                         opcion_iva = default_opcion
                         for opt in opciones_desplegable:
                             opt_lower = opt.lower()
-                            if ("iva" in opt_lower or "crédito" in opt_lower or "credito" in opt_lower or "fiscal" in opt_lower) and not opt.startswith("2"):
+                            if (opt.startswith("1.1.4") or "crédito fiscal" in opt_lower or "credito fiscal" in opt_lower or ("iva" in opt_lower and opt.startswith("1"))):
                                 opcion_iva = opt
                                 break
                         
@@ -5779,8 +5816,8 @@ def renderizar_tab_asientos_automatizados(db_connection):
                         # LÍNEA 2: IVA CRÉDITO FISCAL AL DEBE (si aplica)
                         if credito_fiscal > 0:
                             filas_asiento_temporal.append({
-                                "n_comprobante": n_comprobante_base,
-                                "descripcion": proveedor,
+                                "n_comprobante": n_comprobante_actual,
+                                "descripcion": f"IVA Factura {nro_doc} - {proveedor}",
                                 "fecha": fecha_op,
                                 "plan_cuentas": opcion_iva,
                                 "cuenta_contable": desc_iva,
@@ -5789,34 +5826,25 @@ def renderizar_tab_asientos_automatizados(db_connection):
                                 "haber": 0.0
                             })
 
-                        # Búsqueda dinámica de Contrapartida (Cuentas por Pagar / Pasivo)
-                        opcion_contrapartida = default_opcion
-                        for opt in opciones_desplegable:
-                            opt_lower = opt.lower()
-                            if opt.startswith("2") or "proveedor" in opt_lower or "pagar" in opt_lower or "acreedor" in opt_lower:
-                                opcion_contrapartida = opt
-                                break
-
-                        desc_contra = opcion_contrapartida.split(" - ", 1)[1] if " - " in opcion_contrapartida else ""
-
-                        # LÍNEA 3: CUENTA POR PAGAR AL HABER (Total factura)
-                        filas_asiento_temporal.append({
-                            "n_comprobante": n_comprobante_base,
-                            "descripcion": proveedor,
-                            "fecha": fecha_op,
-                            "plan_cuentas": opcion_contrapartida,
-                            "cuenta_contable": desc_contra,
-                            "referencia": nro_doc,
-                            "debe": 0.0,
-                            "haber": total_factura
-                        })
+                        # LÍNEA 3: CUENTA POR PAGAR AL HABER (Total factura: Base + IVA) - Ligada a la configuración del proveedor
+                        if total_factura > 0:
+                            filas_asiento_temporal.append({
+                                "n_comprobante": n_comprobante_actual,
+                                "descripcion": f"Cuentas por Pagar Factura {nro_doc} - {proveedor} (RIF: {rif_proveedor})",
+                                "fecha": fecha_op,
+                                "plan_cuentas": opcion_contrapartida,
+                                "cuenta_contable": desc_contra,
+                                "referencia": nro_doc,
+                                "debe": 0.0,
+                                "haber": total_factura
+                            })
 
                     st.session_state['df_asientos_proceso'] = pd.DataFrame(filas_asiento_temporal)
-                    st.success("¡Propuesta de asientos generada cruzando la información con la tabla de proveedores y el plan de cuentas!")
+                    st.success("¡Propuesta generada cruzando exitosamente el RIF con la tabla de proveedores!")
                     st.rerun()
 
                 except Exception as proc_err:
-                    st.error(f"Error al procesar los datos de las compras: {proc_err}")
+                    st.error(f"Error al procesar los datos de las compras por RIF: {proc_err}")
 
             # ----------------------------------------------------
             # PASO 3: SEGUNDO FRAME (ESTRUCTURA COMPLETA DEL ASIENTO)
