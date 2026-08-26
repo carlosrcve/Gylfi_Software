@@ -5800,15 +5800,26 @@ def renderizar_tab_asientos_automatizados(db_connection):
                     with col_ctrl3:
                         pagina_actual = st.number_input(f"Página (1 a {total_paginas}):", min_value=1, max_value=total_paginas, value=1, step=1)
                     
-                    # Slicer para quedarnos solo con el lote actual
                     inicio = (pagina_actual - 1) * tamano_lote
                     fin = min(inicio + tamano_lote, total_filas)
                     df_a_procesar = df_total.iloc[inicio:fin].copy()
                     
                     st.info(f"📦 Mostrando lote de registros **{inicio + 1} al {fin}** de un total de **{total_filas}** facturas cargadas.")
                 
+                # Función interna para asegurar que la descripción coincida con el código seleccionado
+                def obtener_descripcion(val):
+                    val_str = str(val).strip()
+                    if " - " in val_str:
+                        codigo = val_str.split(" - ")[0].strip()
+                        return mapa_descripciones.get(codigo, val_str.split(" - ", 1)[1].strip())
+                    return mapa_descripciones.get(val_str, val_str)
+
+                # Sincronizamos antes de pintar
+                for idx in df_a_procesar.index:
+                    df_a_procesar.at[idx, "cuenta_contable"] = obtener_descripcion(df_a_procesar.at[idx, "plan_cuentas"])
+
                 # ----------------------------------------------------
-                # PASO 3: EDITOR Y FORMATO DE NÚMEROS (SOBRE EL LOTE ACTUAL)
+                # PASO 3: EDITOR CON LA COLUMNA DE DESCRIPCIÓN VISIBLE
                 # ----------------------------------------------------
                 st.markdown("### 📋 Segundo Frame: Estructura del Asiento Contable (Partida Doble)")
                 
@@ -5817,12 +5828,16 @@ def renderizar_tab_asientos_automatizados(db_connection):
                     num_rows="dynamic",
                     column_config={
                         "plan_cuentas": st.column_config.SelectboxColumn(
-                            "Plan de Cuentas (Código y Nombre)",
+                            "Plan de Cuentas (Código - Nombre)",
                             help="Selecciona la cuenta contable",
                             options=opciones_desplegable,
                             required=False
                         ),
-                        "cuenta_contable": None, # Ocultamos la columna conflictiva para evitar bloqueos visuales
+                        "cuenta_contable": st.column_config.TextColumn(
+                            "Descripción Cuenta",
+                            help="Nombre de la cuenta sincronizado automáticamente",
+                            disabled=True  # Bloqueada para que se actualice sola sin errores
+                        ),
                         "fecha": st.column_config.TextColumn(
                             "Fecha",
                             help="Fecha extraída del archivo"
@@ -5841,6 +5856,10 @@ def renderizar_tab_asientos_automatizados(db_connection):
                     key=f"editor_lote_{pagina_actual if modo_vista == 'Paginación por bloques' else 'todo'}"
                 )
                 
+                # Sincronización posterior inmediata basada en lo que modificó el usuario
+                for idx in df_editado.index:
+                    df_editado.at[idx, "cuenta_contable"] = obtener_descripcion(df_editado.at[idx, "plan_cuentas"])
+
                 # Actualizamos de vuelta el segmento editado en el DataFrame general de la sesión
                 if modo_vista == "Paginación por bloques":
                     df_total.iloc[inicio:fin] = df_editado
@@ -5881,16 +5900,10 @@ def renderizar_tab_asientos_automatizados(db_connection):
                             VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                         """
                         
-                        # Guardamos específicamente el lote que el usuario tiene enfocado y validado
                         for index, row in df_editado.iterrows():
                             seleccion_completa = str(row["plan_cuentas"])
-                            
-                            if " - " in seleccion_completa:
-                                codigo_cuenta = seleccion_completa.split(" - ")[0].strip()
-                                nombre_cuenta_contable = mapa_descripciones.get(codigo_cuenta, seleccion_completa.split(" - ", 1)[1].strip())
-                            else:
-                                codigo_cuenta = seleccion_completa.strip()
-                                nombre_cuenta_contable = mapa_descripciones.get(codigo_cuenta, "Cuenta General")
+                            codigo_cuenta = seleccion_completa.split(" - ")[0].strip() if " - " in seleccion_completa else seleccion_completa.strip()
+                            nombre_cuenta_contable = mapa_descripciones.get(codigo_cuenta, str(row["cuenta_contable"]))
 
                             fecha_val = row["fecha"]
                             fecha_sql = None if pd.isna(fecha_val) or str(fecha_val).strip().lower() in ["", "nat", "none"] else str(fecha_val).strip()[:10]
