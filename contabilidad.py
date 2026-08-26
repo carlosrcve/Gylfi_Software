@@ -5779,26 +5779,23 @@ def renderizar_tab_asientos_automatizados(db_connection):
             # ----------------------------------------------------
             # PASO 3: EDITOR Y FORMATO DE NÚMEROS (CORREGIDO Y SEGURO)
             # ----------------------------------------------------
-            # ----------------------------------------------------
-            # PASO 3: EDITOR Y FORMATO DE NÚMEROS (ACTUALIZACIÓN INSTANTÁNEA)
-            # ----------------------------------------------------
             if 'df_asientos_proceso' in st.session_state and not st.session_state['df_asientos_proceso'].empty:
                 st.markdown("### 📋 Segundo Frame: Estructura del Asiento Contable (Partida Doble)")
                 
-                # Función para extraer limpiamente el código de la opción seleccionada
-                def extraer_codigo(val):
-                    val_str = str(val).strip()
+                # Función infalible para limpiar el código y buscar su descripción real
+                def obtener_descripcion_real(valor):
+                    val_str = str(valor).strip()
                     if " - " in val_str:
-                        return val_str.split(" - ")[0].strip()
-                    return val_str
+                        codigo = val_str.split(" - ")[0].strip()
+                        return mapa_descripciones.get(codigo, val_str.split(" - ", 1)[1].strip())
+                    return mapa_descripciones.get(val_str, val_str)
 
-                # Sincronizamos las descripciones de manera matricial antes de pintar
-                df_actual = st.session_state['df_asientos_proceso']
-                codigos_puros = df_actual['plan_cuentas'].apply(extraer_codigo)
-                df_actual['cuenta_contable'] = codigos_puros.map(mapa_descripciones).fillna(df_actual['cuenta_contable'])
-                st.session_state['df_asientos_proceso'] = df_actual
+                # Sincronizamos explícitamente el session_state antes de pintar el editor
+                for idx in st.session_state['df_asientos_proceso'].index:
+                    celda_actual = st.session_state['df_asientos_proceso'].at[idx, "plan_cuentas"]
+                    st.session_state['df_asientos_proceso'].at[idx, "cuenta_contable"] = obtener_descripcion_real(celda_actual)
 
-                # Renderizamos el editor
+                # Renderizamos el editor de Streamlit
                 df_editado = st.data_editor(
                     st.session_state['df_asientos_proceso'],
                     num_rows="dynamic",
@@ -5832,9 +5829,10 @@ def renderizar_tab_asientos_automatizados(db_connection):
                     key="editor_asientos_auto_tab4"
                 )
                 
-                # Actualización vectorial inmediata post-edición para evitar desfases o clics múltiples
-                codigos_editados = df_editado['plan_cuentas'].apply(extraer_codigo)
-                df_editado['cuenta_contable'] = codigos_editados.map(mapa_descripciones).fillna(df_editado['cuenta_contable'])
+                # Sincronización inmediata post-render para atrapar cualquier modificación del usuario
+                for idx in df_editado.index:
+                    celda_editada = df_editado.at[idx, "plan_cuentas"]
+                    df_editado.at[idx, "cuenta_contable"] = obtener_descripcion_real(celda_editada)
                 
                 st.session_state['df_asientos_proceso'] = df_editado
 
@@ -5874,6 +5872,8 @@ def renderizar_tab_asientos_automatizados(db_connection):
                         for index, row in df_editado.iterrows():
                             seleccion_completa = str(row["plan_cuentas"])
                             codigo_cuenta = seleccion_completa.split(" - ")[0].strip() if " - " in seleccion_completa else seleccion_completa.strip()
+                            
+                            # Garantizamos que al guardar se use estrictamente la descripción real del diccionario
                             nombre_cuenta_contable = mapa_descripciones.get(codigo_cuenta, str(row["cuenta_contable"]))
 
                             fecha_val = row["fecha"]
