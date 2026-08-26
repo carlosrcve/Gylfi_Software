@@ -5690,14 +5690,26 @@ def renderizar_tab_asientos_automatizados(db_connection):
 
                     for idx, row in df_compras.iterrows():
                         # 📅 Extracción robusta de la fecha para pasarla al segundo frame
+                        # 📅 Extracción robusta y universal de la fecha
                         fecha_op = ""
-                        for col in ["Fecha de Operación", "Fecha de Operacion", "Fecha", "FECHA", "fecha", "Fecha Operacion"]:
-                            if col in row and pd.notna(row[col]):
-                                val_f = str(row[col]).strip()
-                                if " " in val_f:
-                                    val_f = val_f.split(" ")[0]  # Limpiar la hora si viene en formato timestamp
-                                fecha_op = val_f[:10]
-                                break
+                        for col in df_compras.columns:
+                            col_lower = str(col).strip().lower()
+                            if any(k in col_lower for k in ["fecha", "fch", "date"]):
+                                valor_celda = row[col]
+                                if pd.notna(valor_celda):
+                                    # Si pandas ya lo leyó como timestamp o datetime
+                                    if hasattr(valor_celda, "strftime"):
+                                        fecha_op = valor_celda.strftime("%Y-%m-%d")
+                                    else:
+                                        # Intentar parsearlo de forma segura
+                                        val_str = str(valor_celda).strip()
+                                        if " " in val_str:
+                                            val_str = val_str.split(" ")[0]
+                                        try:
+                                            fecha_op = pd.to_datetime(val_str).strftime("%Y-%m-%d")
+                                        except:
+                                            fecha_op = val_str[:10]
+                                    break
 
                         proveedor = "Sin Proveedor"
                         for col in ["Nombre o Razón Social", "Nombre o Razon Social", "Proveedor", "Razón Social", "Razon Social"]:
