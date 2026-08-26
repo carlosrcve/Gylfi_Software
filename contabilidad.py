@@ -5682,14 +5682,16 @@ def renderizar_tab_asientos_automatizados(db_connection):
             n_comprobante_base = st.text_input("Número de Comprobante base (Ej. 050001)", value="050001")
 
             # ----------------------------------------------------
-            # PASO 2: CONVERSIÓN Y MAPEO AUTOMATIZADO BUSCANDO POR RIF EN PROVEEDORES
+            # PASO 2: CONVERSIÓN Y MAPEO AUTOMATIZADO CON VALIDACIÓN DE CONTRIBUYENTE FORMAL
             # ----------------------------------------------------
             if st.button("🔄 Generar Propuesta de Asientos Contables", key="btn_generar_propuesta_asientos"):
                 try:
                     filas_asiento_temporal = []
+                    
+                    # 🔍 Validar si la base de datos activa corresponde al contribuyente formal exento
+                    es_contribuyente_formal_exento = (db_segura.strip().lower() == "kingdirver_ca")
 
                     for idx, row in df_compras.iterrows():
-                        # 📅 Extracción robusta de la fecha para pasarla al segundo frame
                         # 📅 Extracción robusta y universal de la fecha
                         fecha_op = ""
                         for col in df_compras.columns:
@@ -5697,11 +5699,9 @@ def renderizar_tab_asientos_automatizados(db_connection):
                             if any(k in col_lower for k in ["fecha", "fch", "date"]):
                                 valor_celda = row[col]
                                 if pd.notna(valor_celda):
-                                    # Si pandas ya lo leyó como timestamp o datetime
                                     if hasattr(valor_celda, "strftime"):
                                         fecha_op = valor_celda.strftime("%Y-%m-%d")
                                     else:
-                                        # Intentar parsearlo de forma segura
                                         val_str = str(valor_celda).strip()
                                         if " " in val_str:
                                             val_str = val_str.split(" ")[0]
@@ -5717,7 +5717,6 @@ def renderizar_tab_asientos_automatizados(db_connection):
                                 proveedor = str(row[col]).strip()
                                 break
 
-                        # 🆕 Capturar el RIF del archivo de compras
                         rif_proveedor = ""
                         for col in ["RIF", "Rif", "rif", "NIT", "Nit", "Cédula", "Cedula"]:
                             if col in row and pd.notna(row[col]):
@@ -5742,7 +5741,14 @@ def renderizar_tab_asientos_automatizados(db_connection):
                                 credito_fiscal = float(row[col])
                                 break
 
-                        total_factura = base_imponible + credito_fiscal
+                        # 🛠️ REGLA ESPECIAL PARA KINGDRIVER_CA: El IVA se suma al costo/gasto
+                        if es_contribuyente_formal_exento:
+                            base_imponible_efectiva = base_imponible + credito_fiscal
+                            total_factura = base_imponible_efectiva  # El total a pagar al proveedor incluye el IVA asumido como costo
+                        else:
+                            base_imponible_efectiva = base_imponible
+                            total_factura = base_imponible + credito_fiscal
+
                         n_comprobante_actual = f"{n_comprobante_base}-{nro_doc}" if nro_doc else f"{n_comprobante_base}-{idx+1}"
 
                         # ----------------------------------------------------
@@ -5777,6 +5783,12 @@ def renderizar_tab_asientos_automatizados(db_connection):
                                 else:
                                     opcion_contrapartida = f"{p_cod_pagar} - {p_desc_pagar}" if p_desc_pagar else p_cod_pagar
 
+                        # 🆕 Si es kingdriver_ca, forzar la cuenta de gasto hacia la de Iva como Costo (Ingresos Exentos)
+                        if es_contribuyente_formal_exento:
+                            cuenta_exenta_forzada = next((opt for opt in opciones_desplegable if "5.1.1.01.002" in opt or "Ingresos Exentos" in opt), None)
+                            if cuenta_exenta_forzada:
+                                opcion_gasto = cuenta_exenta_forzada
+
                         if not opcion_gasto:
                             for opt in opciones_desplegable:
                                 if opt.startswith("5") or opt.startswith("6"):
@@ -5797,34 +5809,39 @@ def renderizar_tab_asientos_automatizados(db_connection):
                         desc_gasto = opcion_gasto.split(" - ", 1)[1] if " - " in opcion_gasto else ""
                         desc_contra = opcion_contrapartida.split(" - ", 1)[1] if " - " in opcion_contrapartida else ""
 
-                        # LÍNEA 1: EL GASTO / COSTO AL DEBE (Base Imponible)
-                        if base_imponible > 0:
+                        # LÍNEA 1: EL GASTO / COSTO AL DEBE (Con IVA incluido si es kingdriver_ca)
+                        if base_imponible_efectiva > 0:
+                            desc_linea_gasto = (
+                                f"Factura {nro_doc} - {proveedor} (Incluye IVA Asumido como Costo)" 
+                                if es_contribuyente_formal_exento 
+                                else f"Factura {nro_doc} - {proveedor} (RIF: {rif_proveedor})"
+                            )
                             filas_asiento_temporal.append({
                                 "n_comprobante": n_comprobante_actual,
-                                "descripcion": f"Factura {nro_doc} - {proveedor} (RIF: {rif_proveedor})",
-                                "fecha": fecha_op,  # <-- Aquí va la fecha del primer frame
+                                "descripcion": desc_linea_gasto,
+                                "fecha": fecha_op,
                                 "plan_cuentas": opcion_gasto, 
                                 "cuenta_contable": desc_gasto,
                                 "referencia": nro_doc,
-                                "debe": base_imponible,
+                                "debe": base_imponible_efectiva,
                                 "haber": 0.0
                             })
 
-                        opcion_iva = default_opcion
-                        for opt in opciones_desplegable:
-                            opt_lower = opt.lower()
-                            if (opt.startswith("1.1.4") or "crédito fiscal" in opt_lower or "credito fiscal" in opt_lower or ("iva" in opt_lower and opt.startswith("1"))):
-                                opcion_iva = opt
-                                break
-                        
-                        desc_iva = opcion_iva.split(" - ", 1)[1] if " - " in opcion_iva else ""
+                        # LÍNEA 2: IVA CRÉDITO FISCAL AL DEBE (Solo aplica si NO es el contribuyente formal exento)
+                        if not es_contribuyente_formal_exento and credito_fiscal > 0:
+                            opcion_iva = default_opcion
+                            for opt in opciones_desplegable:
+                                opt_lower = opt.lower()
+                                if (opt.startswith("1.1.4") or "crédito fiscal" in opt_lower or "credito fiscal" in opt_lower or ("iva" in opt_lower and opt.startswith("1"))):
+                                    opcion_iva = opt
+                                    break
+                            
+                            desc_iva = opcion_iva.split(" - ", 1)[1] if " - " in opcion_iva else ""
 
-                        # LÍNEA 2: IVA CRÉDITO FISCAL AL DEBE (si aplica)
-                        if credito_fiscal > 0:
                             filas_asiento_temporal.append({
                                 "n_comprobante": n_comprobante_actual,
                                 "descripcion": f"IVA Factura {nro_doc} - {proveedor}",
-                                "fecha": fecha_op,  # <-- Aquí va la fecha del primer frame
+                                "fecha": fecha_op,
                                 "plan_cuentas": opcion_iva,
                                 "cuenta_contable": desc_iva,
                                 "referencia": nro_doc,
@@ -5837,7 +5854,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
                             filas_asiento_temporal.append({
                                 "n_comprobante": n_comprobante_actual,
                                 "descripcion": f"Cuentas por Pagar Factura {nro_doc} - {proveedor} (RIF: {rif_proveedor})",
-                                "fecha": fecha_op,  # <-- Aquí va la fecha del primer frame
+                                "fecha": fecha_op,
                                 "plan_cuentas": opcion_contrapartida,
                                 "cuenta_contable": desc_contra,
                                 "referencia": nro_doc,
@@ -5846,11 +5863,11 @@ def renderizar_tab_asientos_automatizados(db_connection):
                             })
 
                     st.session_state['df_asientos_proceso'] = pd.DataFrame(filas_asiento_temporal)
-                    st.success("¡Propuesta generada cruzando exitosamente el RIF con la tabla de proveedores!")
+                    st.success("¡Propuesta generada aplicando la fecha correcta y la regla fiscal de contribuyente formal exento!")
                     st.rerun()
 
                 except Exception as proc_err:
-                    st.error(f"Error al procesar los datos de las compras por RIF: {proc_err}")
+                    st.error(f"Error al procesar los datos de las compras: {proc_err}")
 
             # ----------------------------------------------------
             # PASO 3: SEGUNDO FRAME (ESTRUCTURA COMPLETA DEL ASIENTO)
