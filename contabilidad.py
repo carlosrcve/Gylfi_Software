@@ -5547,11 +5547,12 @@ def verificar_si_es_contribuyente_especial(db_name):
     return False
 
 
+
 def renderizar_tab_asientos_automatizados(db_connection):
     st.subheader("🤖 Asientos Automatizados (Comprobantes Contables)")
     st.markdown("""
     Sube tu archivo Excel de compras del periodo. El sistema procesará la información integrándose 
-    directamente con el plan de cuentas maestro y los parámetros de control central para generar los asientos en partida doble.
+    directamente con el plan de cuentas maestro, la **tabla de proveedores** y los parámetros de control central.
     """)
 
     # 1. BÚSQUEDA AUTOMÁTICA DE LA EMPRESA EN EL SESSION STATE
@@ -5590,6 +5591,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
     codigos_disponibles = []
     mapa_descripciones = {}
     opciones_desplegable = []
+    mapa_proveedores_cuentas = {}  # 🆕 Diccionario para almacenar la configuración de la tabla proveedores
     
     if db_connection:
         try:
@@ -5601,12 +5603,10 @@ def renderizar_tab_asientos_automatizados(db_connection):
             cuentas_opt = cursor_opt.fetchall()
             
             total_registros = len(cuentas_opt)
-            st.info(f"🔍 Conectado a la BD del cliente: `{db_segura}` | Registros totales en plan_cuentas: `{total_registros}`")
+            st.info(f"🔍 Conectado a la BD del cliente: `{db_segura}` | Registros en plan_cuentas: `{total_registros}`")
 
             cuentas_detalle = [c for c in cuentas_opt if str(c.get("tipo", "")).strip().lower() == 'detalle']
             lista_a_usar = cuentas_detalle if cuentas_detalle else cuentas_opt
-            
-            cursor_opt.close()
             
             if lista_a_usar:
                 for c in lista_a_usar:
@@ -5618,17 +5618,38 @@ def renderizar_tab_asientos_automatizados(db_connection):
                         mapa_descripciones[codigo] = nombre
                         opciones_desplegable.append(f"{codigo} - {nombre}")
 
-                st.success(f"🔗 Sincronización exitosa: {len(opciones_desplegable)} cuentas cargadas para `{db_segura}`.")
-            else:
+            # 🆕 2.1 CONSULTAR LA TABLA PROVEEDORES Y SUS NUEVAS COLUMNAS DE CUENTA
+            try:
+                query_prov = f"SELECT * FROM `{db_segura}`.proveedores"
+                cursor_opt.execute(query_prov)
+                proveedores_db = cursor_opt.fetchall()
+                
+                for prov in proveedores_db:
+                    # Ajusta los nombres de las columnas según cómo las creaste en tu tabla proveedores (ej. 'nombre', 'razon_social', 'codigo_cuenta', 'descripcion_cuenta')
+                    p_nombre = str(prov.get("nombre", prov.get("razon_social", ""))).strip().upper()
+                    p_codigo = str(prov.get("codigo_cuenta", "")).strip()
+                    p_desc = str(prov.get("descripcion_cuenta", "")).strip()
+                    
+                    if p_nombre:
+                        mapa_proveedores_cuentas[p_nombre] = {
+                            "codigo_cuenta": p_codigo,
+                            "descripcion_cuenta": p_desc
+                        }
+                st.success(f"🤝 Tabla de proveedores sincronizada: {len(mapa_proveedores_cuentas)} registros con parametrización contable.")
+            except Exception as prov_err:
+                st.warning(f"⚠️ No se pudo leer la tabla de proveedores o faltan las columnas nuevas: {prov_err}")
+
+            cursor_opt.close()
+            
+            if not opciones_desplegable:
                 st.error(f"⚠️ La tabla 'plan_cuentas' en la base de datos `{db_segura}` devolvió 0 registros.")
+                return
                 
         except Exception as e:
-            st.error(f"❌ Error crítico al consultar el plan de cuentas en `{db_segura}`: {e}")
+            st.error(f"❌ Error crítico al consultar las tablas en `{db_segura}`: {e}")
+            return
     else:
         st.error("❌ No se pudo establecer conexión general con el servidor de bases de datos.")
-
-    if not opciones_desplegable:
-        st.error("No se puede avanzar sin un Plan de Cuentas válido sincronizado para esta empresa.")
         return
 
     default_opcion = opciones_desplegable[0]
@@ -5662,7 +5683,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
             n_comprobante_base = st.text_input("Número de Comprobante base (Ej. 050001)", value="050001")
 
             # ----------------------------------------------------
-            # PASO 2: CONVERSIÓN Y MAPEO AUTOMATIZADO
+            # PASO 2: CONVERSIÓN Y MAPEO AUTOMATIZADO BUSCANDO EN PROVEEDORES
             # ----------------------------------------------------
             if st.button("🔄 Generar Propuesta de Asientos Contables", key="btn_generar_propuesta_asientos"):
                 try:
@@ -5704,15 +5725,27 @@ def renderizar_tab_asientos_automatizados(db_connection):
 
                         total_factura = base_imponible + credito_fiscal
 
-                        # Búsqueda dinámica de Gasto/Costo
+                        # 🆕 BÚSQUEDA INTELIGENTE: Verificar si el proveedor tiene cuenta asignada en su tabla
                         opcion_gasto = default_opcion
-                        for opt in opciones_desplegable:
-                            opt_lower = opt.lower()
-                            if opt.startswith("5") or opt.startswith("6") or "gasto" in opt_lower or "costo" in opt_lower or "compra" in opt_lower:
-                                opcion_gasto = opt
-                                break
+                        prov_upper = proveedor.upper()
+                        
+                        if prov_upper in mapa_proveedores_cuentas and mapa_proveedores_cuentas[prov_upper]["codigo_cuenta"]:
+                            p_cod = mapa_proveedores_cuentas[prov_upper]["codigo_cuenta"]
+                            # Buscar si este código existe en las opciones desplegables para formatearlo bien (Codigo - Nombre)
+                            encontrado_en_plan = next((opt for opt in opciones_desplegable if opt.startswith(p_cod + " -")), None)
+                            if encontrado_en_plan:
+                                opcion_gasto = encontrado_en_plan
+                            else:
+                                p_desc = mapa_proveedores_cuentas[prov_upper]["descripcion_cuenta"]
+                                opcion_gasto = f"{p_cod} - {p_desc}" if p_desc else p_cod
+                        else:
+                            # Respaldo: Búsqueda dinámica genérica si el proveedor no tiene cuenta propia
+                            for opt in opciones_desplegable:
+                                opt_lower = opt.lower()
+                                if opt.startswith("5") or opt.startswith("6") or "gasto" in opt_lower or "costo" in opt_lower or "compra" in opt_lower:
+                                    opcion_gasto = opt
+                                    break
 
-                        # Extraer nombre inicial para la descripción
                         desc_gasto = opcion_gasto.split(" - ", 1)[1] if " - " in opcion_gasto else ""
 
                         filas_asiento_temporal.append({
@@ -5748,7 +5781,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
                                 "haber": 0.0
                             })
 
-                        # Búsqueda dinámica de Contrapartida
+                        # Búsqueda dinámica de Contrapartida (Cuentas por Pagar)
                         opcion_contrapartida = default_opcion
                         for opt in opciones_desplegable:
                             opt_lower = opt.lower()
@@ -5770,14 +5803,14 @@ def renderizar_tab_asientos_automatizados(db_connection):
                         })
 
                     st.session_state['df_asientos_proceso'] = pd.DataFrame(filas_asiento_temporal)
-                    st.success("¡Propuesta de asientos generada dinámicamente con el plan de cuentas de la empresa!")
+                    st.success("¡Propuesta de asientos generada cruzando la información con la tabla de proveedores y el plan de cuentas!")
                     st.rerun()
 
                 except Exception as proc_err:
                     st.error(f"Error al procesar los datos de las compras: {proc_err}")
 
             # ----------------------------------------------------
-            # PASO 2.5: FILTRADO Y PAGINACIÓN DEL LOTE (NUEVA DINÁMICA)
+            # PASO 2.5: FILTRADO Y PAGINACIÓN DEL LOTE
             # ----------------------------------------------------
             if 'df_asientos_proceso' in st.session_state and not st.session_state['df_asientos_proceso'].empty:
                 df_total = st.session_state['df_asientos_proceso']
@@ -5787,7 +5820,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
                 col_ctrl1, col_ctrl2, col_ctrl3 = st.columns(3)
                 
                 with col_ctrl1:
-                    modo_vista = st.radio("Filtrar lote por:", ["Paginación por bloques", "Ver todo (No recomendado si son muchas)"], horizontal=True)
+                    modo_vista = st.radio("Filtrar lote por:", ["Paginación por bloques", "Ver todo"], horizontal=True)
                 
                 df_a_procesar = df_total.copy()
                 
@@ -5804,9 +5837,8 @@ def renderizar_tab_asientos_automatizados(db_connection):
                     fin = min(inicio + tamano_lote, total_filas)
                     df_a_procesar = df_total.iloc[inicio:fin].copy()
                     
-                    st.info(f"📦 Mostrando lote de registros **{inicio + 1} al {fin}** de un total de **{total_filas}** facturas cargadas.")
+                    st.info(f"📦 Mostrando lote de registros **{inicio + 1} al {fin}** de un total de **{total_filas}** filas cargadas.")
                 
-                # Función interna para asegurar que la descripción coincida con el código seleccionado
                 def obtener_descripcion(val):
                     val_str = str(val).strip()
                     if " - " in val_str:
@@ -5814,12 +5846,11 @@ def renderizar_tab_asientos_automatizados(db_connection):
                         return mapa_descripciones.get(codigo, val_str.split(" - ", 1)[1].strip())
                     return mapa_descripciones.get(val_str, val_str)
 
-                # Sincronizamos antes de pintar
                 for idx in df_a_procesar.index:
                     df_a_procesar.at[idx, "cuenta_contable"] = obtener_descripcion(df_a_procesar.at[idx, "plan_cuentas"])
 
                 # ----------------------------------------------------
-                # PASO 3: EDITOR CON LA COLUMNA DE DESCRIPCIÓN VISIBLE
+                # PASO 3: EDITOR
                 # ----------------------------------------------------
                 st.markdown("### 📋 Segundo Frame: Estructura del Asiento Contable (Partida Doble)")
                 
@@ -5836,31 +5867,18 @@ def renderizar_tab_asientos_automatizados(db_connection):
                         "cuenta_contable": st.column_config.TextColumn(
                             "Descripción Cuenta",
                             help="Nombre de la cuenta sincronizado automáticamente",
-                            disabled=True  # Bloqueada para que se actualice sola sin errores
+                            disabled=True 
                         ),
-                        "fecha": st.column_config.TextColumn(
-                            "Fecha",
-                            help="Fecha extraída del archivo"
-                        ),
-                        "debe": st.column_config.NumberColumn(
-                            "Debe",
-                            format="%,.2f",
-                            help="Monto al Debe"
-                        ),
-                        "haber": st.column_config.NumberColumn(
-                            "Haber",
-                            format="%,.2f",
-                            help="Monto al Haber"
-                        ),
+                        "fecha": st.column_config.TextColumn("Fecha", help="Fecha extraída del archivo"),
+                        "debe": st.column_config.NumberColumn("Debe", format="%,.2f", help="Monto al Debe"),
+                        "haber": st.column_config.NumberColumn("Haber", format="%,.2f", help="Monto al Haber"),
                     },
                     key=f"editor_lote_{pagina_actual if modo_vista == 'Paginación por bloques' else 'todo'}"
                 )
                 
-                # Sincronización posterior inmediata basada en lo que modificó el usuario
                 for idx in df_editado.index:
                     df_editado.at[idx, "cuenta_contable"] = obtener_descripcion(df_editado.at[idx, "plan_cuentas"])
 
-                # Actualizamos de vuelta el segmento editado en el DataFrame general de la sesión
                 if modo_vista == "Paginación por bloques":
                     df_total.iloc[inicio:fin] = df_editado
                 else:
