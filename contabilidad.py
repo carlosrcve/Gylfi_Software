@@ -5555,57 +5555,87 @@ def renderizar_tab_asientos_automatizados(db_connection):
     """)
 
     # ----------------------------------------------------
-    # SELECCIÓN MANUAL / AUTOMÁTICA DE LA BASE DE DATOS (ADMINISTRADOR)
+    # VALIDACIÓN DE ROL Y FILTRADO DE EMPRESAS
     # ----------------------------------------------------
+    # Suponemos que en st.session_state manejas el rol (ej: 'admin', 'administrador', o booleano 'es_admin')
+    # y la base de datos asignada al usuario regular (ej: 'db_usuario' o 'empresa_asignada')
+    rol_usuario = str(st.session_state.get("role", st.session_state.get("tipo_usuario", "cliente"))).strip().lower()
+    es_admin = rol_usuario in ["admin", "administrador"] or st.session_state.get("es_admin", False)
+
+    dbs_filtradas = []
+    mapa_nombres_empresas = {}
+    
     try:
-        cursor_temp = db_connection.cursor()
-        cursor_temp.execute("SHOW DATABASES")
-        dbs = [row[0] for row in cursor_temp.fetchall()]
-        
-        # Filtro estricto: comprobar que la base de datos realmente tenga la tabla 'plan_cuentas'
-        dbs_filtradas = []
-        for db in dbs:
-            db_lower = str(db).lower()
-            # Ignorar esquemas del sistema y fechas
-            if db_lower in ['information_schema', 'mysql', 'performance_schema', 'sys', 'control_central']:
-                continue
-            if len(db_lower) == 10 and db_lower[4] == '-' and db_lower[7] == '-':
-                continue
-                
-            # Verificar si la BD tiene la tabla plan_cuentas para asegurar que es una empresa contable válida
-            try:
-                cursor_temp.execute(f"SHOW TABLES FROM `{db}` LIKE 'plan_cuentas'")
-                resultado_tabla = cursor_temp.fetchone()
-                if resultado_tabla:
-                    dbs_filtradas.append(db)
-            except:
-                continue
-                
+        cursor_temp = db_connection.cursor(pymysql.cursors.DictCursor)
+        cursor_temp.execute("SELECT * FROM control_central.cliente")
+        clientes_db = cursor_temp.fetchall()
         cursor_temp.close()
+        
+        for cli in clientes_db:
+            db_name = str(cli.get("base_de_datos", cli.get("db_name", cli.get("schema_name", "")))).strip()
+            nombre_comercial = str(cli.get("nombre", cli.get("razon_social", db_name))).strip()
+            # Podrías también verificar si la tabla cliente guarda el usuario o email asociado:
+            usuario_asociado = str(cli.get("usuario", cli.get("email", cli.get("user", "")))).strip().lower()
+            
+            if db_name:
+                # Si es admin, guardamos todas. Si es cliente, evaluamos si le pertenece.
+                if es_admin:
+                    dbs_filtradas.append(db_name)
+                    mapa_nombres_empresas[db_name] = nombre_comercial
+                else:
+                    # Filtramos por la empresa que le corresponde al usuario logueado en sesión
+                    db_usuario_sesion = str(st.session_state.get("db_name", st.session_state.get("empresa_asignada", ""))).strip().lower()
+                    if db_name.lower() == db_usuario_sesion or usuario_asociado == str(st.session_state.get("username", "")).strip().lower():
+                        dbs_filtradas.append(db_name)
+                        mapa_nombres_empresas[db_name] = nombre_comercial
+                        
     except Exception as e:
-        st.error(f"Error al listar bases de datos: {e}")
-        return
+        st.warning(f"⚠️ No se pudo consultar `control_central.cliente`, usando respaldo automático: {e}")
+        if es_admin:
+            dbs_filtradas = ["kingdriver_ca", "rishon_letzion_ca"]
+        else:
+            # Respaldo seguro para usuario regular si falla la consulta
+            db_usuario_sesion = str(st.session_state.get("db_name", "kingdriver_ca")).strip()
+            dbs_filtradas = [db_usuario_sesion]
+
+    # Si un usuario regular no arrojó ninguna coincidencia por sesión, le asignamos su BD de sesión por defecto
+    if not es_admin and not dbs_filtradas:
+        db_usuario_sesion = str(st.session_state.get("db_name", "")).strip()
+        if db_usuario_sesion:
+            dbs_filtradas = [db_usuario_sesion]
 
     if not dbs_filtradas:
-        st.error("⚠️ No se encontraron bases de datos válidas con estructura contable ('plan_cuentas').")
+        st.error("⚠️ No se encontró una empresa asignada a tu usuario o no hay registros en la tabla cliente.")
         return
 
-    # Intentar preseleccionar si hay algo en session_state o contiene king/driver
-    index_default = 0
-    for i, db_name in enumerate(dbs_filtradas):
-        if any(k in str(st.session_state).lower() and db_name.lower() in str(st.session_state[k]).lower() for k in st.session_state):
-            index_default = i
-            break
-        if "driver" in db_name.lower() or "king" in db_name.lower():
-            index_default = i
+    # ----------------------------------------------------
+    # INTERFAZ SEGÚN EL ROL (ADMIN VS CLIENTE)
+    # ----------------------------------------------------
+    if es_admin:
+        st.markdown("### 🏢 Contexto de Empresa (Modo Administrador)")
+        
+        index_default = 0
+        for i, db_name in enumerate(dbs_filtradas):
+            if any(k in str(st.session_state).lower() and db_name.lower() in str(st.session_state[k]).lower() for k in st.session_state):
+                index_default = i
+                break
+            if "driver" in db_name.lower() or "king" in db_name.lower():
+                index_default = i
 
-    st.markdown("### 🏢 Contexto de Empresa (Modo Administrador)")
-    nombre_db_cliente = st.selectbox(
-        "Selecciona la Base de Datos de la Empresa Activa:", 
-        dbs_filtradas, 
-        index=index_default,
-        key="select_db_admin_asientos"
-    )
+        format_func = lambda db: f"{mapa_nombres_empresas.get(db, db)} ({db})" if db in mapa_nombres_empresas else db
+        
+        nombre_db_cliente = st.selectbox(
+            "Selecciona la Base de Datos de la Empresa Activa:", 
+            dbs_filtradas, 
+            index=index_default,
+            format_func=format_func,
+            key="select_db_admin_asientos"
+        )
+    else:
+        # El cliente regular no ve selector múltiple, se le fija directamente su empresa única
+        nombre_db_cliente = dbs_filtradas[0]
+        nombre_amigable = mapa_nombres_empresas.get(nombre_db_cliente, nombre_db_cliente)
+        st.info(id_empresa_info := f"🏢 **Empresa Activa:** {nombre_amigable} (`{nombre_db_cliente}`)")
 
     if not nombre_db_cliente:
         st.error("⚠️ Debes seleccionar una base de datos.")
@@ -5627,7 +5657,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
         try:
             cursor_opt = db_connection.cursor(pymysql.cursors.DictCursor)
             
-            # 1. Cargar Plan de Cuentas de la BD seleccionada
+            # 1. Cargar Plan de Cuentas de la BD correspondiente
             query_plan = f"SELECT codigo, nombre, tipo FROM `{db_segura}`.plan_cuentas ORDER BY codigo ASC"
             cursor_opt.execute(query_plan)
             cuentas_opt = cursor_opt.fetchall()
@@ -5655,7 +5685,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
                     p_codigo = str(prov.get("codigo_cuenta", prov.get("codigo", prov.get("cuenta_gasto", "")))).strip()
                     p_desc = str(prov.get("descripcion_cuenta", prov.get("descripcion", ""))).strip()
                     p_cod_pagar = str(prov.get("codigo_cuenta_pagar", "")).strip()
-                    p_desc_pagar = str(prov.get("descripcion_cuenta_pagar", "")).strip()
+                    p_desc_pagar = str(prov.get("descripcion_cuenta_pagar", ""))).strip()
                     
                     info_prov = {
                         "codigo_cuenta": p_codigo,
@@ -5789,7 +5819,6 @@ def renderizar_tab_asientos_automatizados(db_connection):
                         # APLICACIÓN DE REGLAS SEGÚN EMPRESA SELECCIONADA
                         # ----------------------------------------------------
                         if es_king_driver:
-                            # 1. Base Imponible al Debe
                             filas_asiento_temporal.append({
                                 "n_comprobante": n_comprobante_actual,
                                 "descripcion": f"Factura {nro_doc} - {razon_social}",
@@ -5801,7 +5830,6 @@ def renderizar_tab_asientos_automatizados(db_connection):
                                 "haber": 0.0
                             })
 
-                            # 2. IVA al Costo (Cuenta 5.1.1.01.002)
                             if credito_fiscal > 0:
                                 opcion_iva_kd = default_opcion
                                 for opt in opciones_desplegable:
@@ -5821,7 +5849,6 @@ def renderizar_tab_asientos_automatizados(db_connection):
                                     "haber": 0.0
                                 })
                         else:
-                            # CASO ORDINARIO
                             filas_asiento_temporal.append({
                                 "n_comprobante": n_comprobante_actual,
                                 "descripcion": f"Factura {nro_doc} - {razon_social}",
@@ -5852,7 +5879,6 @@ def renderizar_tab_asientos_automatizados(db_connection):
                                     "haber": 0.0
                                 })
 
-                        # 3. Cuenta por Pagar / Proveedor al Haber
                         filas_asiento_temporal.append({
                             "n_comprobante": n_comprobante_actual,
                             "descripcion": f"Cuentas por Pagar Factura {nro_doc} - {razon_social}",
@@ -5920,7 +5946,6 @@ def renderizar_tab_asientos_automatizados(db_connection):
                 col_m1.metric("Total Debe (General)", f"{tot_debe:,.2f}")
                 col_m2.metric("Total Haber (General)", f"{tot_haber:,.2f}")
 
-                # Botón de guardado final
                 if st.button("💾 Guardar Todo el Asiento en el Libro Diario", key="btn_guardar_asientos_finales", use_container_width=True):
                     try:
                         cursor = db_connection.cursor()
