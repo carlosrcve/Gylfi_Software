@@ -5777,40 +5777,52 @@ def renderizar_tab_asientos_automatizados(db_connection):
                     st.error(f"Error al procesar los datos de las compras: {proc_err}")
 
             # ----------------------------------------------------
-            # PASO 3: EDITOR Y FORMATO DE NÚMEROS (CORREGIDO Y SEGURO)
+            # PASO 2.5: FILTRADO Y PAGINACIÓN DEL LOTE (NUEVA DINÁMICA)
             # ----------------------------------------------------
             if 'df_asientos_proceso' in st.session_state and not st.session_state['df_asientos_proceso'].empty:
+                df_total = st.session_state['df_asientos_proceso']
+                total_filas = len(df_total)
+                
+                st.markdown("### 🎛️ Control de Lotes y Paginación")
+                col_ctrl1, col_ctrl2, col_ctrl3 = st.columns(3)
+                
+                with col_ctrl1:
+                    modo_vista = st.radio("Filtrar lote por:", ["Paginación por bloques", "Ver todo (No recomendado si son muchas)"], horizontal=True)
+                
+                df_a_procesar = df_total.copy()
+                
+                if modo_vista == "Paginación por bloques":
+                    with col_ctrl2:
+                        tamano_lote = st.selectbox("Registros por página:", [10, 20, 50, 100], index=1)
+                    
+                    total_paginas = max(1, (total_filas + tamano_lote - 1) // tamano_lote)
+                    
+                    with col_ctrl3:
+                        pagina_actual = st.number_input(f"Página (1 a {total_paginas}):", min_value=1, max_value=total_paginas, value=1, step=1)
+                    
+                    # Slicer para quedarnos solo con el lote actual
+                    inicio = (pagina_actual - 1) * tamano_lote
+                    fin = min(inicio + tamano_lote, total_filas)
+                    df_a_procesar = df_total.iloc[inicio:fin].copy()
+                    
+                    st.info(📦 Mostrando lote de registros **{inicio + 1} al {fin}** de un total de **{total_filas}** facturas cargadas.)
+                
+                # ----------------------------------------------------
+                # PASO 3: EDITOR Y FORMATO DE NÚMEROS (SOBRE EL LOTE ACTUAL)
+                # ----------------------------------------------------
                 st.markdown("### 📋 Segundo Frame: Estructura del Asiento Contable (Partida Doble)")
                 
-                # Función infalible para limpiar el código y buscar su descripción real
-                def obtener_descripcion_real(valor):
-                    val_str = str(valor).strip()
-                    if " - " in val_str:
-                        codigo = val_str.split(" - ")[0].strip()
-                        return mapa_descripciones.get(codigo, val_str.split(" - ", 1)[1].strip())
-                    return mapa_descripciones.get(val_str, val_str)
-
-                # Sincronizamos explícitamente el session_state antes de pintar el editor
-                for idx in st.session_state['df_asientos_proceso'].index:
-                    celda_actual = st.session_state['df_asientos_proceso'].at[idx, "plan_cuentas"]
-                    st.session_state['df_asientos_proceso'].at[idx, "cuenta_contable"] = obtener_descripcion_real(celda_actual)
-
-                # Renderizamos el editor de Streamlit
                 df_editado = st.data_editor(
-                    st.session_state['df_asientos_proceso'],
+                    df_a_procesar,
                     num_rows="dynamic",
                     column_config={
                         "plan_cuentas": st.column_config.SelectboxColumn(
-                            "Plan de Cuentas (Código - Nombre)",
+                            "Plan de Cuentas (Código y Nombre)",
                             help="Selecciona la cuenta contable",
                             options=opciones_desplegable,
                             required=False
                         ),
-                        "cuenta_contable": st.column_config.TextColumn(
-                            "Descripción Cuenta",
-                            help="Nombre de la cuenta sincronizado automáticamente",
-                            disabled=True
-                        ),
+                        "cuenta_contable": None, # Ocultamos la columna conflictiva para evitar bloqueos visuales
                         "fecha": st.column_config.TextColumn(
                             "Fecha",
                             help="Fecha extraída del archivo"
@@ -5826,26 +5838,26 @@ def renderizar_tab_asientos_automatizados(db_connection):
                             help="Monto al Haber"
                         ),
                     },
-                    key="editor_asientos_auto_tab4"
+                    key=f"editor_lote_{pagina_actual if modo_vista == 'Paginación por bloques' else 'todo'}"
                 )
                 
-                # Sincronización inmediata post-render para atrapar cualquier modificación del usuario
-                for idx in df_editado.index:
-                    celda_editada = df_editado.at[idx, "plan_cuentas"]
-                    df_editado.at[idx, "cuenta_contable"] = obtener_descripcion_real(celda_editada)
-                
-                st.session_state['df_asientos_proceso'] = df_editado
+                # Actualizamos de vuelta el segmento editado en el DataFrame general de la sesión
+                if modo_vista == "Paginación por bloques":
+                    df_total.iloc[inicio:fin] = df_editado
+                else:
+                    df_total = df_editado
+                st.session_state['df_asientos_proceso'] = df_total
 
                 tot_debe = df_editado['debe'].sum()
                 tot_haber = df_editado['haber'].sum()
                 col_m1, col_m2 = st.columns(2)
-                col_m1.metric("Total Debe", f"{tot_debe:,.2f}")
-                col_m2.metric("Total Haber", f"{tot_haber:,.2f}")
+                col_m1.metric("Total Debe (Lote Actual)", f"{tot_debe:,.2f}")
+                col_m2.metric("Total Haber (Lote Actual)", f"{tot_haber:,.2f}")
 
                 if abs(tot_debe - tot_haber) > 0.01:
-                    st.warning("⚠️ Los montos del Debe y el Haber no coinciden exactamente. Revisa los valores antes de guardar.")
+                    st.warning("⚠️ Los montos del Debe y el Haber de este lote no coinciden exactamente.")
 
-                if st.button("💾 Guardar Asientos Definitivos en el Libro Diario", key="btn_guardar_asientos_definitivos"):
+                if st.button("💾 Guardar Asientos de este Lote en el Libro Diario", key="btn_guardar_asientos_definitivos"):
                     try:
                         cursor = db_connection.cursor()
                         
@@ -5869,12 +5881,16 @@ def renderizar_tab_asientos_automatizados(db_connection):
                             VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                         """
                         
+                        # Guardamos específicamente el lote que el usuario tiene enfocado y validado
                         for index, row in df_editado.iterrows():
                             seleccion_completa = str(row["plan_cuentas"])
-                            codigo_cuenta = seleccion_completa.split(" - ")[0].strip() if " - " in seleccion_completa else seleccion_completa.strip()
                             
-                            # Garantizamos que al guardar se use estrictamente la descripción real del diccionario
-                            nombre_cuenta_contable = mapa_descripciones.get(codigo_cuenta, str(row["cuenta_contable"]))
+                            if " - " in seleccion_completa:
+                                codigo_cuenta = seleccion_completa.split(" - ")[0].strip()
+                                nombre_cuenta_contable = mapa_descripciones.get(codigo_cuenta, seleccion_completa.split(" - ", 1)[1].strip())
+                            else:
+                                codigo_cuenta = seleccion_completa.strip()
+                                nombre_cuenta_contable = mapa_descripciones.get(codigo_cuenta, "Cuenta General")
 
                             fecha_val = row["fecha"]
                             fecha_sql = None if pd.isna(fecha_val) or str(fecha_val).strip().lower() in ["", "nat", "none"] else str(fecha_val).strip()[:10]
@@ -5893,10 +5909,9 @@ def renderizar_tab_asientos_automatizados(db_connection):
 
                         db_connection.commit()
                         cursor.close()
-                        st.success(f"🎉 ¡Asientos contables guardados exitosamente en la base de datos de `{db_segura}`!")
+                        st.success(f"🎉 ¡Los asientos de este lote fueron guardados exitosamente en la base de datos de `{db_segura}`!")
                         
-                        del st.session_state['df_asientos_proceso']
-                        st.rerun()
+                        # Opcional: Si quieres limpiar el lote guardado del DataFrame principal, puedes hacerlo aquí
                         
                     except Exception as db_err:
                         db_connection.rollback()
