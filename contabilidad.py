@@ -5866,7 +5866,9 @@ def renderizar_tab_asientos_automatizados(db_connection):
                             })
 
                             # 2. IVA al Costo (Debe)
+                            monto_iva_linea = 0.0
                             if credito_fiscal > 0:
+                                monto_iva_linea = credito_fiscal
                                 opcion_iva_kd = default_opcion
                                 for opt in opciones_desplegable:
                                     if opt.startswith("5.1.1.01.002") or "exentos" in opt.lower():
@@ -5884,6 +5886,9 @@ def renderizar_tab_asientos_automatizados(db_connection):
                                     "debe": credito_fiscal,
                                     "haber": 0.0
                                 })
+                            
+                            # Forzar cuadre perfecto: Haber = Base + IVA al Costo
+                            monto_haber_total = base_imponible + monto_iva_linea
                         else:
                             # 1. Gasto / Base Imponible (Debe)
                             filas_asiento_temporal.append({
@@ -5898,7 +5903,9 @@ def renderizar_tab_asientos_automatizados(db_connection):
                             })
 
                             # 2. IVA Crédito Fiscal estándar (Debe)
+                            monto_iva_linea = 0.0
                             if credito_fiscal > 0:
+                                monto_iva_linea = credito_fiscal
                                 opcion_iva = default_opcion
                                 for opt in opciones_desplegable:
                                     if "1.1.4.01.001" in opt or "crédito fiscal" in opt.lower() or "credito fiscal" in opt.lower():
@@ -5916,9 +5923,11 @@ def renderizar_tab_asientos_automatizados(db_connection):
                                     "debe": credito_fiscal,
                                     "haber": 0.0
                                 })
+                            
+                            # Forzar cuadre perfecto: Haber = Base + Crédito Fiscal
+                            monto_haber_total = base_imponible + monto_iva_linea
 
-                        # 3. Contrapartida / Cuentas por Pagar (Haber) -> Asegura cuadre exacto con Base + IVA
-                        monto_haber_total = base_imponible + credito_fiscal if total_compras <= 0 else total_compras
+                        # 3. Contrapartida / Cuentas por Pagar (Haber) -> Cuadre matemático exacto por comprobante
                         filas_asiento_temporal.append({
                             "n_comprobante": n_comprobante_actual,
                             "descripcion": f"Cuentas por Pagar Factura {nro_doc} - {razon_social}",
@@ -6007,7 +6016,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
                         st.error(f"Error al guardar en la base de datos: {db_err}")
         except Exception as e:
             st.error(f"Error al leer el archivo Excel: {e}")
-            
+
 def gestionar_sidebar():
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
     user_id = st.session_state.get('user_id', st.session_state.get('cliente_id', 'N/A'))
