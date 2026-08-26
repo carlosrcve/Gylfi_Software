@@ -5548,53 +5548,51 @@ def verificar_si_es_contribuyente_especial(db_name):
 
 
 
-
 def renderizar_tab_asientos_automatizados(db_connection):
     st.subheader("🤖 Asientos Automatizados (Comprobantes Contables)")
     st.markdown("""
-    Sube tu **Libro de Compras** en Excel. El sistema procesará los datos en dos etapas:
-    1. **Primer Frame**: Visualización del archivo cargado.
-    2. **Segundo Frame**: Estructura automática del asiento contable listo para guardar.
+    Sube tu **Libro de Compras** en Excel. El sistema procesará los datos y aplicará las reglas contables según la empresa activa.
     """)
 
     # ----------------------------------------------------
-    # BÚSQUEDA Y CONEXIÓN A LA BD DE LA EMPRESA
+    # SELECCIÓN MANUAL / AUTOMÁTICA DE LA BASE DE DATOS (ADMINISTRADOR)
     # ----------------------------------------------------
-    posibles_llaves = ['empresa_actual', 'db_seleccionada', 'empresa', 'current_db', 'cliente_activo', 'db_actual']
-    nombre_db_cliente = None
+    try:
+        cursor_temp = db_connection.cursor()
+        cursor_temp.execute("SHOW DATABASES")
+        dbs = [row[0] for row in cursor_temp.fetchall()]
+        cursor_temp.close()
+        dbs_filtradas = [db for db in dbs if db not in ['information_schema', 'mysql', 'performance_schema', 'sys', 'control_central']]
+    except Exception as e:
+        st.error(f"Error al listar bases de datos: {e}")
+        return
 
-    for llave in posibles_llaves:
-        if llave in st.session_state and st.session_state[llave]:
-            nombre_db_cliente = st.session_state[llave]
+    # Intentar preseleccionar si hay algo en session_state
+    index_default = 0
+    for i, db_name in enumerate(dbs_filtradas):
+        if any(k in str(st.session_state).lower() and db_name.lower() in str(st.session_state[k]).lower() for k in st.session_state):
+            index_default = i
             break
+        # Buscar específicamente si contiene king o driver
+        if "driver" in db_name.lower() or "king" in db_name.lower():
+            index_default = i
+
+    st.markdown("### 🏢 Contexto de Empresa (Modo Administrador)")
+    nombre_db_cliente = st.selectbox(
+        "Selecciona la Base de Datos de la Empresa Activa:", 
+        dbs_filtradas, 
+        index=index_default,
+        key="select_db_admin_asientos"
+    )
 
     if not nombre_db_cliente:
-        for k, v in st.session_state.items():
-            if isinstance(v, str) and ('_' in v or 'db' in k.lower() or 'empresa' in k.lower()):
-                nombre_db_cliente = v
-                break
-
-    if not nombre_db_cliente:
-        st.warning("⚠️ Selecciona la base de datos de la empresa activa:")
-        try:
-            cursor_temp = db_connection.cursor()
-            cursor_temp.execute("SHOW DATABASES")
-            dbs = [row[0] for row in cursor_temp.fetchall()]
-            cursor_temp.close()
-            dbs_filtradas = [db for db in dbs if db not in ['information_schema', 'mysql', 'performance_schema', 'sys', 'control_central']]
-            nombre_db_cliente = st.selectbox("Base de datos:", dbs_filtradas)
-        except Exception as e:
-            st.error(f"Error al listar bases de datos: {e}")
-            return
-
-    if not nombre_db_cliente:
-        st.error("⚠️ No se pudo determinar la base de datos activa.")
+        st.error("⚠️ Debes seleccionar una base de datos.")
         return
 
     db_segura = str(nombre_db_cliente).strip()
     
-    # Detección automática ampliada para capturar cualquier variación del nombre de la BD de King Driver
-    es_king_driver = any(term in db_segura.lower() for term in ["kindriver", "king_driver", "driver"])
+    # Detección estricta para King Driver
+    es_king_driver = any(term in db_segura.lower() for term in ["kindriver", "king_driver", "driver", "king"])
 
     mapa_descripciones = {}
     opciones_desplegable = []
@@ -5607,7 +5605,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
         try:
             cursor_opt = db_connection.cursor(pymysql.cursors.DictCursor)
             
-            # 1. Cargar Plan de Cuentas
+            # 1. Cargar Plan de Cuentas de la BD seleccionada
             query_plan = f"SELECT codigo, nombre, tipo FROM `{db_segura}`.plan_cuentas ORDER BY codigo ASC"
             cursor_opt.execute(query_plan)
             cuentas_opt = cursor_opt.fetchall()
@@ -5635,7 +5633,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
                     p_codigo = str(prov.get("codigo_cuenta", prov.get("codigo", prov.get("cuenta_gasto", "")))).strip()
                     p_desc = str(prov.get("descripcion_cuenta", prov.get("descripcion", ""))).strip()
                     p_cod_pagar = str(prov.get("codigo_cuenta_pagar", "")).strip()
-                    p_desc_pagar = str(prov.get("descripcion_cuenta_pagar", "")).strip()
+                    p_desc_pagar = str(prov.get("descripcion_cuenta_pagar", ""))).strip()
                     
                     info_prov = {
                         "codigo_cuenta": p_codigo,
@@ -5643,11 +5641,9 @@ def renderizar_tab_asientos_automatizados(db_connection):
                         "codigo_cuenta_pagar": p_cod_pagar,
                         "descripcion_cuenta_pagar": p_desc_pagar
                     }
-                    if p_rif:
-                        mapa_proveedores_cuentas[p_rif] = info_prov
-                    if p_nombre:
-                        mapa_proveedores_cuentas[p_nombre] = info_prov
-            except Exception as prov_err:
+                    if p_rif: mapa_proveedores_cuentas[p_rif] = info_prov
+                    if p_nombre: mapa_proveedores_cuentas[p_nombre] = info_prov
+            except Exception:
                 pass
 
             cursor_opt.close()
@@ -5657,7 +5653,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
                 return
                 
         except Exception as e:
-            st.error(f"❌ Error al consultar plan_cuentas en BD: {e}")
+            st.error(f"❌ Error al consultar plan_cuentas en la BD `{db_segura}`: {e}")
             return
 
     default_opcion = opciones_desplegable[0]
@@ -5665,10 +5661,13 @@ def renderizar_tab_asientos_automatizados(db_connection):
     # ----------------------------------------------------
     # PRIMER FRAME: CARGA Y VISTA PREVIA DEL EXCEL
     # ----------------------------------------------------
+    st.markdown("---")
     st.markdown("### 📋 Primer Frame: Libro de Compras Subido")
     
     if es_king_driver:
-        st.info("🚗 **Modo King Driver Detectado:** El sistema aplicará automáticamente el IVA como costo utilizando la cuenta `5.1.1.01.002`.")
+        st.success("🚗 **Modo King Driver Detectado:** El sistema aplicará automáticamente el IVA al costo utilizando la cuenta `5.1.1.01.002`.")
+    else:
+        st.info("🏢 **Modo Empresa Regular:** El sistema aplicará Crédito Fiscal estándar.")
 
     archivo_excel = st.file_uploader("Subir Libro de Compras (Excel)", type=["xlsx", "xls"], key="uploader_libro_compras")
 
@@ -5686,11 +5685,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
             with col_cfg1:
                 n_comprobante_base = st.text_input("Prefijo de Comprobante:", value="050001")
             with col_cfg2:
-                if es_king_driver:
-                    st.success("✅ Tratamiento especial de IVA activado para King Driver.")
-                else:
-                    st.markdown("<br>", unsafe_allow_html=True)
-                    st.caption("Empresa regular: Utiliza crédito fiscal estándar.")
+                st.markdown("<br>", unsafe_allow_html=True)
             
             if st.button("🔄 Generar Estructura del Segundo Frame", key="btn_generar_segundo_frame"):
                 try:
@@ -5707,7 +5702,6 @@ def renderizar_tab_asientos_automatizados(db_connection):
                                             return val
                             return default
 
-                        # Fecha
                         raw_fecha = buscar_valor(["Fecha de Operación", "Fecha de Operacion", "Fecha"])
                         if hasattr(raw_fecha, "strftime"):
                             fecha_op = raw_fecha.strftime("%Y-%m-%d")
@@ -5739,29 +5733,22 @@ def renderizar_tab_asientos_automatizados(db_connection):
 
                         n_comprobante_actual = f"{n_comprobante_base}-{nro_doc}"
 
-                        # Determinar cuentas asignadas
                         opcion_gasto = None
                         opcion_contrapartida = None
                         
-                        datos_prov = mapa_proveedores_cuentas.get(rif_val)
-                        if not datos_prov:
-                            datos_prov = mapa_proveedores_cuentas.get(razon_social.upper())
-
+                        datos_prov = mapa_proveedores_cuentas.get(rif_val) or mapa_proveedores_cuentas.get(razon_social.upper())
                         if datos_prov:
                             p_cod_gasto = str(datos_prov.get("codigo_cuenta", "")).strip()
                             if p_cod_gasto:
-                                encontrado = next((opt for opt in opciones_desplegable if opt.startswith(p_cod_gasto + " -")), None)
-                                if encontrado: opcion_gasto = encontrado
+                                opcion_gasto = next((opt for opt in opciones_desplegable if opt.startswith(p_cod_gasto + " -")), None)
 
                             p_cod_pagar = str(datos_prov.get("codigo_cuenta_pagar", "")).strip()
                             if p_cod_pagar:
-                                encontrado_pag = next((opt for opt in opciones_desplegable if opt.startswith(p_cod_pagar + " -")), None)
-                                if encontrado_pag: opcion_contrapartida = encontrado_pag
+                                opcion_contrapartida = next((opt for opt in opciones_desplegable if opt.startswith(p_cod_pagar + " -")), None)
 
                         if not opcion_gasto:
                             for opt in opciones_desplegable:
-                                opt_lower = opt.lower()
-                                if (opt.startswith("5") or opt.startswith("6")) and "iva" not in opt_lower:
+                                if (opt.startswith("5") or opt.startswith("6")) and "iva" not in opt.lower():
                                     opcion_gasto = opt
                                     break
                         if not opcion_gasto: opcion_gasto = default_opcion
@@ -5777,10 +5764,10 @@ def renderizar_tab_asientos_automatizados(db_connection):
                         desc_contra = opcion_contrapartida.split(" - ", 1)[1] if " - " in opcion_contrapartida else ""
 
                         # ----------------------------------------------------
-                        # CONSTRUCCIÓN SEGÚN REGLA DE NEGOCIO (KING DRIVER VS OTROS)
+                        # APLICACIÓN DE REGLAS SEGÚN EMPRESA SELECCIONADA
                         # ----------------------------------------------------
                         if es_king_driver:
-                            # 1. Base Imponible al Debe (Gasto normal)
+                            # 1. Base Imponible al Debe
                             filas_asiento_temporal.append({
                                 "n_comprobante": n_comprobante_actual,
                                 "descripcion": f"Factura {nro_doc} - {razon_social}",
@@ -5792,11 +5779,11 @@ def renderizar_tab_asientos_automatizados(db_connection):
                                 "haber": 0.0
                             })
 
-                            # 2. IVA al Costo usando obligatoriamente la cuenta 5.1.1.01.002
+                            # 2. IVA al Costo (Cuenta 5.1.1.01.002)
                             if credito_fiscal > 0:
                                 opcion_iva_kd = default_opcion
                                 for opt in opciones_desplegable:
-                                    if opt.startswith("5.1.1.01.002") or "ingresos exentos" in opt.lower():
+                                    if opt.startswith("5.1.1.01.002") or "exentos" in opt.lower():
                                         opcion_iva_kd = opt
                                         break
                                 desc_iva_kd = opcion_iva_kd.split(" - ", 1)[1] if " - " in opcion_iva_kd else ""
@@ -5812,7 +5799,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
                                     "haber": 0.0
                                 })
                         else:
-                            # CASO ORDINARIO (Otras empresas):
+                            # CASO ORDINARIO
                             filas_asiento_temporal.append({
                                 "n_comprobante": n_comprobante_actual,
                                 "descripcion": f"Factura {nro_doc} - {razon_social}",
@@ -5827,8 +5814,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
                             if credito_fiscal > 0:
                                 opcion_iva = default_opcion
                                 for opt in opciones_desplegable:
-                                    opt_lower = opt.lower()
-                                    if "1.1.4.01.001" in opt or "crédito fiscal" in opt_lower or "credito fiscal" in opt_lower:
+                                    if "1.1.4.01.001" in opt or "crédito fiscal" in opt.lower() or "credito fiscal" in opt.lower():
                                         opcion_iva = opt
                                         break
                                 desc_iva = opcion_iva.split(" - ", 1)[1] if " - " in opcion_iva else ""
@@ -5844,7 +5830,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
                                     "haber": 0.0
                                 })
 
-                        # 3. Cuenta por Pagar / Proveedor (Total Compras al Haber)
+                        # 3. Cuenta por Pagar / Proveedor al Haber
                         filas_asiento_temporal.append({
                             "n_comprobante": n_comprobante_actual,
                             "descripcion": f"Cuentas por Pagar Factura {nro_doc} - {razon_social}",
@@ -5863,13 +5849,12 @@ def renderizar_tab_asientos_automatizados(db_connection):
                     st.error(f"Error procesando los datos: {proc_err}")
 
             # ----------------------------------------------------
-            # SEGUNDO FRAME: ESTRUCTURA COMPLETA DEL ASIENTO CONTABLE
+            # SEGUNDO FRAME: ESTRUCTURA COMPLETA
             # ----------------------------------------------------
             if 'df_asientos_proceso' in st.session_state and not st.session_state['df_asientos_proceso'].empty:
                 df_a_procesar = st.session_state['df_asientos_proceso']
-                total_filas = len(df_a_procesar)
                 
-                st.markdown(f"### 📋 Segundo Frame: Estructura Completa del Asiento Contable ({total_filas} registros)")
+                st.markdown(f"### 📋 Segundo Frame: Estructura Completa del Asiento Contable ({len(df_a_procesar)} registros)")
                 
                 def obtener_descripcion(val):
                     val_str = str(val).strip()
@@ -5913,9 +5898,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
                 col_m1.metric("Total Debe (General)", f"{tot_debe:,.2f}")
                 col_m2.metric("Total Haber (General)", f"{tot_haber:,.2f}")
 
-                # ----------------------------------------------------
-                # BOTÓN DE GUARDADO EN TABLA ASIENTOS_CONTABLES
-                # ----------------------------------------------------
+                # Botón de guardado final
                 if st.button("💾 Guardar Todo el Asiento en el Libro Diario", key="btn_guardar_asientos_finales", use_container_width=True):
                     try:
                         cursor = db_connection.cursor()
@@ -5956,7 +5939,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
                         
                         db_connection.commit()
                         cursor.close()
-                        st.success("🎉 ¡Asientos guardados exitosamente en la tabla `asientos_contables`!")
+                        st.success(f"🎉 ¡Asientos guardados exitosamente en la base de datos `{db_segura}`!")
                     except Exception as db_save_err:
                         db_connection.rollback()
                         st.error(f"❌ Error al guardar en la base de datos: {db_save_err}")
