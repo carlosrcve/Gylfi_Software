@@ -5562,18 +5562,27 @@ def renderizar_tab_asientos_automatizados(db_connection):
         cursor_temp.execute("SHOW DATABASES")
         dbs = [row[0] for row in cursor_temp.fetchall()]
         cursor_temp.close()
-        dbs_filtradas = [db for db in dbs if db not in ['information_schema', 'mysql', 'performance_schema', 'sys', 'control_central']]
+        
+        # Filtro estricto para excluir bases de sistema y posibles formatos de fecha (YYYY-MM-DD)
+        dbs_filtradas = []
+        for db in dbs:
+            db_lower = str(db).lower()
+            if db_lower in ['information_schema', 'mysql', 'performance_schema', 'sys', 'control_central']:
+                continue
+            if len(db_lower) == 10 and db_lower[4] == '-' and db_lower[7] == '-': # Excluye fechas tipo YYYY-MM-DD
+                continue
+            dbs_filtradas.append(db)
+            
     except Exception as e:
         st.error(f"Error al listar bases de datos: {e}")
         return
 
-    # Intentar preseleccionar si hay algo en session_state
+    # Intentar preseleccionar si hay algo en session_state o contiene king/driver
     index_default = 0
     for i, db_name in enumerate(dbs_filtradas):
         if any(k in str(st.session_state).lower() and db_name.lower() in str(st.session_state[k]).lower() for k in st.session_state):
             index_default = i
             break
-        # Buscar específicamente si contiene king o driver
         if "driver" in db_name.lower() or "king" in db_name.lower():
             index_default = i
 
@@ -5633,7 +5642,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
                     p_codigo = str(prov.get("codigo_cuenta", prov.get("codigo", prov.get("cuenta_gasto", "")))).strip()
                     p_desc = str(prov.get("descripcion_cuenta", prov.get("descripcion", ""))).strip()
                     p_cod_pagar = str(prov.get("codigo_cuenta_pagar", "")).strip()
-                    p_desc_pagar = str(prov.get("descripcion_cuenta_pagar", "")).strip() # <-- Paréntesis corregido aquí
+                    p_desc_pagar = str(prov.get("descripcion_cuenta_pagar", "")).strip()
                     
                     info_prov = {
                         "codigo_cuenta": p_codigo,
@@ -5946,7 +5955,6 @@ def renderizar_tab_asientos_automatizados(db_connection):
 
         except Exception as excel_err:
             st.error(f"❌ Error al procesar el archivo Excel: {excel_err}")
-
 def gestionar_sidebar():
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
     user_id = st.session_state.get('user_id', st.session_state.get('cliente_id', 'N/A'))
