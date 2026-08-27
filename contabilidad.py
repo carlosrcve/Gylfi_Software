@@ -5548,6 +5548,11 @@ def verificar_si_es_contribuyente_especial(db_name):
 
 
 
+import io  # <--- Asegúrate de importar io al inicio de tu archivo si no lo tienes
+import pandas as pd
+import pymysql
+import streamlit as st
+
 def renderizar_tab_asientos_automatizados(db_connection):
     st.subheader("🤖 Asientos Automatizados (Comprobantes Contables)")
     st.markdown("""
@@ -5568,7 +5573,6 @@ def renderizar_tab_asientos_automatizados(db_connection):
     
     try:
         with db_connection.cursor(pymysql.cursors.DictCursor) as cursor_temp:
-            # 1. Consultar el rol y db_nombre del usuario actual en la tabla 'usuarios'
             cursor_temp.execute(
                 "SELECT rol, db_nombre FROM control_central.usuarios WHERE usuario = %s", 
                 (usuario_actual,)
@@ -5581,7 +5585,6 @@ def renderizar_tab_asientos_automatizados(db_connection):
             
             es_admin = rol_usuario in ["admin", "administrador"] or st.session_state.get("es_admin", False)
 
-            # 2. Consultar todas las empresas disponibles en la tabla 'clientes'
             cursor_temp.execute("SELECT * FROM control_central.clientes")
             clientes_db = cursor_temp.fetchall()
         
@@ -5594,7 +5597,6 @@ def renderizar_tab_asientos_automatizados(db_connection):
                     dbs_filtradas.append(db_name)
                     mapa_nombres_empresas[db_name] = nombre_comercial
                 else:
-                    # Si no es admin, filtramos por la base de datos que tiene asignada en la tabla usuarios
                     if db_asignada_usuario and db_name.lower() == db_asignada_usuario.lower():
                         dbs_filtradas.append(db_name)
                         mapa_nombres_empresas[db_name] = nombre_comercial
@@ -5606,7 +5608,6 @@ def renderizar_tab_asientos_automatizados(db_connection):
         else:
             dbs_filtradas = [db_asignada_usuario if db_asignada_usuario else "kingdriver_ca"]
 
-    # Plan de respaldo si la lista viene vacía para el usuario
     if not dbs_filtradas:
         if db_asignada_usuario:
             dbs_filtradas = [db_asignada_usuario]
@@ -5662,7 +5663,6 @@ def renderizar_tab_asientos_automatizados(db_connection):
     if db_connection:
         try:
             with db_connection.cursor(pymysql.cursors.DictCursor) as cursor_opt:
-                # Verificar o intentar crear la tabla plan_cuentas si no existe
                 cursor_opt.execute(f"""
                     CREATE TABLE IF NOT EXISTS `{db_segura}`.plan_cuentas (
                         codigo VARCHAR(50) PRIMARY KEY,
@@ -5672,7 +5672,6 @@ def renderizar_tab_asientos_automatizados(db_connection):
                 """)
                 db_connection.commit()
 
-                # 1. Cargar Plan de Cuentas
                 cursor_opt.execute(f"SELECT codigo, nombre, tipo FROM `{db_segura}`.plan_cuentas ORDER BY codigo ASC")
                 cuentas_opt = cursor_opt.fetchall()
                 
@@ -5686,7 +5685,6 @@ def renderizar_tab_asientos_automatizados(db_connection):
                         mapa_descripciones[codigo] = nombre
                         opciones_desplegable.append(f"{codigo} - {nombre}")
 
-                # 2. Cargar Tabla Proveedores
                 try:
                     cursor_opt.execute(f"SELECT * FROM `{db_segura}`.proveedores")
                     proveedores_db = cursor_opt.fetchall()
@@ -5711,7 +5709,6 @@ def renderizar_tab_asientos_automatizados(db_connection):
                 except Exception:
                     pass  
 
-                # Cuentas genéricas por defecto si el plan está vacío
                 if not opciones_desplegable:
                     st.warning(f"⚠️ La tabla 'plan_cuentas' en `{db_segura}` está vacía. Se cargaron cuentas temporales de respaldo.")
                     opciones_desplegable = [
@@ -5739,7 +5736,6 @@ def renderizar_tab_asientos_automatizados(db_connection):
     default_opcion = opciones_desplegable[0]
 
     def obtener_opcion_valida(codigo_buscado, fallback):
-        """Busca y retorna el string exacto 'Código - Nombre' en las opciones disponibles."""
         for opt in opciones_desplegable:
             if opt.startswith(codigo_buscado + " -"):
                 return opt
@@ -5853,7 +5849,6 @@ def renderizar_tab_asientos_automatizados(db_connection):
                         desc_contra = opcion_contrapartida.split(" - ", 1)[1] if " - " in opcion_contrapartida else ""
 
                         if es_king_driver:
-                            # 1. Gasto / Base Imponible (Debe)
                             filas_asiento_temporal.append({
                                 "n_comprobante": n_comprobante_actual,
                                 "descripcion": f"Factura {nro_doc} - {razon_social}",
@@ -5865,7 +5860,6 @@ def renderizar_tab_asientos_automatizados(db_connection):
                                 "haber": 0.0
                             })
 
-                            # 2. IVA al Costo (Debe)
                             monto_iva_linea = 0.0
                             if credito_fiscal > 0:
                                 monto_iva_linea = credito_fiscal
@@ -5887,10 +5881,8 @@ def renderizar_tab_asientos_automatizados(db_connection):
                                     "haber": 0.0
                                 })
                             
-                            # Forzar cuadre perfecto: Haber = Base + IVA al Costo
                             monto_haber_total = base_imponible + monto_iva_linea
                         else:
-                            # 1. Gasto / Base Imponible (Debe)
                             filas_asiento_temporal.append({
                                 "n_comprobante": n_comprobante_actual,
                                 "descripcion": f"Factura {nro_doc} - {razon_social}",
@@ -5902,7 +5894,6 @@ def renderizar_tab_asientos_automatizados(db_connection):
                                 "haber": 0.0
                             })
 
-                            # 2. IVA Crédito Fiscal estándar (Debe)
                             monto_iva_linea = 0.0
                             if credito_fiscal > 0:
                                 monto_iva_linea = credito_fiscal
@@ -5924,10 +5915,8 @@ def renderizar_tab_asientos_automatizados(db_connection):
                                     "haber": 0.0
                                 })
                             
-                            # Forzar cuadre perfecto: Haber = Base + Crédito Fiscal
                             monto_haber_total = base_imponible + monto_iva_linea
 
-                        # 3. Contrapartida / Cuentas por Pagar (Haber) -> Cuadre matemático exacto por comprobante
                         filas_asiento_temporal.append({
                             "n_comprobante": n_comprobante_actual,
                             "descripcion": f"Cuentas por Pagar Factura {nro_doc} - {razon_social}",
@@ -5994,6 +5983,23 @@ def renderizar_tab_asientos_automatizados(db_connection):
                 col_m1, col_m2 = st.columns(2)
                 col_m1.metric("Total Debe (General)", f"{tot_debe:,.2f}")
                 col_m2.metric("Total Haber (General)", f"{tot_haber:,.2f}")
+
+                # ----------------------------------------------------
+                # BOTÓN DE DESCARGA EN EXCEL DEL SEGUNDO FRAME
+                # ----------------------------------------------------
+                buffer_excel = io.BytesIO()
+                with pd.ExcelWriter(buffer_excel, engine='openpyxl') as writer:
+                    df_editado.to_excel(writer, index=False, sheet_name='Asientos_Contables')
+                buffer_excel.seek(0)
+
+                st.download_button(
+                    label="📥 Descargar Estructura en Excel",
+                    data=buffer_excel,
+                    file_name=f"asientos_contables_{db_segura}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    key="btn_descargar_excel_asientos",
+                    use_container_width=True
+                )
 
                 if st.button("💾 Guardar Todo el Asiento en el Libro Diario", key="btn_guardar_asientos_finales", use_container_width=True):
                     try:
