@@ -5548,11 +5548,6 @@ def verificar_si_es_contribuyente_especial(db_name):
 
 
 
-import io  # <--- Asegúrate de importar io al inicio de tu archivo si no lo tienes
-import pandas as pd
-import pymysql
-import streamlit as st
-
 def renderizar_tab_asientos_automatizados(db_connection):
     st.subheader("🤖 Asientos Automatizados (Comprobantes Contables)")
     st.markdown("""
@@ -5696,7 +5691,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
                         p_codigo = str(prov.get("codigo_cuenta", prov.get("codigo", prov.get("cuenta_gasto", "")))).strip()
                         p_desc = str(prov.get("descripcion_cuenta", prov.get("descripcion", ""))).strip()
                         p_cod_pagar = str(prov.get("codigo_cuenta_pagar", "")).strip()
-                        p_desc_pagar = str(prov.get("descripcion_cuenta_pagar", "")).strip()
+                        p_desc_pagar = str(prov.get("descripcion_cuenta_pagar", ""))).strip()
                         
                         info_prov = {
                             "codigo_cuenta": p_codigo,
@@ -5942,15 +5937,18 @@ def renderizar_tab_asientos_automatizados(db_connection):
                 
                 st.markdown(f"### 📋 Segundo Frame: Estructura Completa del Asiento Contable ({len(df_a_procesar)} registros)")
                 
-                def obtener_descripcion(val):
+                # Limpiamos los valores de plan_cuentas para asegurarnos de que solo guarden el código puro
+                def extraer_solo_codigo(val):
                     val_str = str(val).strip()
                     if " - " in val_str:
-                        codigo = val_str.split(" - ")[0].strip()
-                        return mapa_descripciones.get(codigo, val_str.split(" - ", 1)[1].strip())
-                    return mapa_descripciones.get(val_str, val_str)
+                        return val_str.split(" - ")[0].strip()
+                    return val_str
 
+                # Asegurarnos de que el DataFrame en session_state solo tenga el código limpio
                 for idx in df_a_procesar.index:
-                    df_a_procesar.at[idx, "cuenta_contable"] = obtener_descripcion(df_a_procesar.at[idx, "plan_cuentas"])
+                    codigo_puro = extraer_solo_codigo(df_a_procesar.at[idx, "plan_cuentas"])
+                    df_a_procesar.at[idx, "plan_cuentas"] = codigo_puro
+                    df_a_procesar.at[idx, "cuenta_contable"] = mapa_descripciones.get(codigo_puro, "")
 
                 df_editado = st.data_editor(
                     df_a_procesar,
@@ -5973,8 +5971,11 @@ def renderizar_tab_asientos_automatizados(db_connection):
                     key="editor_segundo_frame"
                 )
                 
+                # Volvemos a limpiar y actualizar la descripción tras cualquier edición en el grid
                 for idx in df_editado.index:
-                    df_editado.at[idx, "cuenta_contable"] = obtener_descripcion(df_editado.at[idx, "plan_cuentas"])
+                    codigo_puro = extraer_solo_codigo(df_editado.at[idx, "plan_cuentas"])
+                    df_editado.at[idx, "plan_cuentas"] = codigo_puro
+                    df_editado.at[idx, "cuenta_contable"] = mapa_descripciones.get(codigo_puro, "")
 
                 st.session_state['df_asientos_proceso'] = df_editado
 
