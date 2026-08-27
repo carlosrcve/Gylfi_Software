@@ -5937,17 +5937,23 @@ def renderizar_tab_asientos_automatizados(db_connection):
                 
                 st.markdown(f"### 📋 Segundo Frame: Estructura Completa del Asiento Contable ({len(df_a_procesar)} registros)")
                 
-                # Asegurarnos de que el DataFrame tenga el formato completo "Código - Nombre" para el SelectboxColumn
+                # Función auxiliar para extraer solo el código limpio por si acaso viene con texto viejo
+                def extraer_solo_codigo(val):
+                    val_str = str(val).strip()
+                    if " - " in val_str:
+                        return val_str.split(" - ")[0].strip()
+                    return val_str
+
+                # Asegurarnos de que el DataFrame tenga EXCLUSIVAMENTE el código limpio en la columna plan_cuentas
                 for idx in df_a_procesar.index:
-                    val_actual = str(df_a_procesar.at[idx, "plan_cuentas"]).strip()
-                    # Si ya viene con el formato completo, lo dejamos; si es solo el código, lo buscamos en el mapa
-                    if " - " not in val_actual:
-                        nombre_cta = mapa_descripciones.get(val_actual, "")
-                        opcion_armada = f"{val_actual} - {nombre_cta}" if nombre_cta else val_actual
-                        if opcion_armada in opciones_desplegable:
-                            df_a_procesar.at[idx, "plan_cuentas"] = opcion_armada
-                        else:
-                            df_a_procesar.at[idx, "plan_cuentas"] = opciones_desplegable[0]
+                    codigo_puro = extraer_solo_codigo(df_a_procesar.at[idx, "plan_cuentas"])
+                    df_a_procesar.at[idx, "plan_cuentas"] = codigo_puro
+                    df_a_procesar.at[idx, "cuenta_contable"] = mapa_descripciones.get(codigo_puro, "")
+
+                # Extraemos la lista de opciones PURAS (solo códigos) para el selectbox
+                opciones_codigos_puros = list(mapa_descripciones.keys())
+                if not opciones_codigos_puros:
+                    opciones_codigos_puros = ["5.1.1.01.001", "5.1.1.01.002", "1.1.4.01.001", "2.1.1.01.001"]
 
                 df_editado = st.data_editor(
                     df_a_procesar,
@@ -5959,7 +5965,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
                         "fecha": st.column_config.TextColumn("Fecha"),
                         "plan_cuentas": st.column_config.SelectboxColumn(
                             "Plan de Cuentas (Código)",
-                            options=opciones_desplegable,
+                            options=opciones_codigos_puros,  # <--- Solo los códigos limpios
                             required=True
                         ),
                         "cuenta_contable": st.column_config.TextColumn("Descripción Cuenta", disabled=True),
@@ -5970,16 +5976,10 @@ def renderizar_tab_asientos_automatizados(db_connection):
                     key="editor_segundo_frame"
                 )
                 
-                # Sincronizamos la descripción automáticamente según la opción seleccionada por el usuario
-                def extraer_solo_codigo(val):
-                    val_str = str(val).strip()
-                    if " - " in val_str:
-                        return val_str.split(" - ")[0].strip()
-                    return val_str
-
+                # Sincronizamos la descripción automáticamente cuando el usuario cambie el código en el grid
                 for idx in df_editado.index:
-                    val_sel = df_editado.at[idx, "plan_cuentas"]
-                    codigo_puro = extraer_solo_codigo(val_sel)
+                    codigo_puro = extraer_solo_codigo(df_editado.at[idx, "plan_cuentas"])
+                    df_editado.at[idx, "plan_cuentas"] = codigo_puro
                     df_editado.at[idx, "cuenta_contable"] = mapa_descripciones.get(codigo_puro, "")
 
                 st.session_state['df_asientos_proceso'] = df_editado
@@ -5995,11 +5995,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
                 # ----------------------------------------------------
                 buffer_excel = io.BytesIO()
                 with pd.ExcelWriter(buffer_excel, engine='openpyxl') as writer:
-                    # Al exportar a Excel, podemos guardar solo el código limpio si lo prefieres
-                    df_exportar = df_editado.copy()
-                    for idx in df_exportar.index:
-                        df_exportar.at[idx, "plan_cuentas"] = extraer_solo_codigo(df_exportar.at[idx, "plan_cuentas"])
-                    df_exportar.to_excel(writer, index=False, sheet_name='Asientos_Contables')
+                    df_editado.to_excel(writer, index=False, sheet_name='Asientos_Contables')
                 buffer_excel.seek(0)
 
                 st.download_button(
@@ -6008,7 +6004,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
                     file_name=f"asientos_contables_{db_segura}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     key="btn_descargar_excel_asientos",
-                    use_container_width=False
+                    use_container_width=True
                 )
 
                 if st.button("💾 Guardar Todo el Asiento en el Libro Diario", key="btn_guardar_asientos_finales", use_container_width=True):
