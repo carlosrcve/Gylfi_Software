@@ -5691,7 +5691,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
                         p_codigo = str(prov.get("codigo_cuenta", prov.get("codigo", prov.get("cuenta_gasto", "")))).strip()
                         p_desc = str(prov.get("descripcion_cuenta", prov.get("descripcion", ""))).strip()
                         p_cod_pagar = str(prov.get("codigo_cuenta_pagar", "")).strip()
-                        p_desc_pagar = str(prov.get("descripcion_cuenta_pagar", ""))).strip()
+                        p_desc_pagar = str(prov.get("descripcion_cuenta_pagar", "")).strip()
                         
                         info_prov = {
                             "codigo_cuenta": p_codigo,
@@ -5702,7 +5702,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
                         if p_rif: mapa_proveedores_cuentas[p_rif] = info_prov
                         if p_nombre: mapa_proveedores_cuentas[p_nombre] = info_prov
                 except Exception:
-                    pass  
+                    pass
 
                 if not opciones_desplegable:
                     st.warning(f"⚠️ La tabla 'plan_cuentas' en `{db_segura}` está vacía. Se cargaron cuentas temporales de respaldo.")
