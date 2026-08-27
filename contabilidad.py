@@ -5765,7 +5765,8 @@ def renderizar_tab_asientos_automatizados(db_connection):
                     filas_asiento_temporal = []
 
                     for idx, row in df_compras.iterrows():
-                        def buscar_valor(posibles_nombres, default=0.0 if isinstance(default, float) else ""):
+                        # CORRECCIÓN: Se evita pasar 'default' a sí mismo en su valor por defecto
+                        def buscar_valor(posibles_nombres, default_val=0.0):
                             for col in df_compras.columns:
                                 c_clean = str(col).strip().lower()
                                 for pos in posibles_nombres:
@@ -5773,7 +5774,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
                                         val = row[col]
                                         if pd.notna(val):
                                             return val
-                            return default
+                            return default_val
 
                         raw_fecha = buscar_valor(["Fecha de Operación", "Fecha de Operacion", "Fecha"], "")
                         if hasattr(raw_fecha, "strftime"):
@@ -5794,7 +5795,6 @@ def renderizar_tab_asientos_automatizados(db_connection):
                         except Exception:
                             base_imponible = 0.0
 
-                        # Capturamos la columna de compras exentas
                         try:
                             compras_exentas = float(buscar_valor(["Compras Exentas", "Exentas", "Sin Derecho a Crédito", "Sin Derecho a Credito"], 0.0))
                         except Exception:
@@ -5841,7 +5841,6 @@ def renderizar_tab_asientos_automatizados(db_connection):
                         if not opcion_contrapartida: 
                             opcion_contrapartida = default_opcion
 
-                        # El monto total al debe para la cuenta de costo incluye tanto la base imponible como las compras exentas
                         monto_costo_debe = base_imponible + compras_exentas
 
                         if es_king_driver:
