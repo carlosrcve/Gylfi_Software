@@ -5678,7 +5678,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
                     nombre = str(c.get("nombre", "")).strip()
                     if codigo:
                         mapa_descripciones[codigo] = nombre
-                        opciones_desplegable.append(f"{codigo} - {nombre}")
+                        opciones_desplegable.append(codigo)  # Guardamos solo el código puro
 
                 try:
                     cursor_opt.execute(f"SELECT * FROM `{db_segura}`.proveedores")
@@ -5706,34 +5706,29 @@ def renderizar_tab_asientos_automatizados(db_connection):
 
                 if not opciones_desplegable:
                     st.warning(f"⚠️ La tabla 'plan_cuentas' en `{db_segura}` está vacía. Se cargaron cuentas temporales de respaldo.")
-                    opciones_desplegable = [
-                        "5.1.1.01.001 - Compras Generales",
-                        "5.1.1.01.002 - IVA al Costo",
-                        "1.1.4.01.001 - IVA Crédito Fiscal",
-                        "2.1.1.01.001 - Cuentas por Pagar Comerciales"
-                    ]
-                    for op in opciones_desplegable:
-                        partes = op.split(" - ")
-                        mapa_descripciones[partes[0]] = partes[1]
+                    opciones_desplegable = ["5.1.1.01.001", "5.1.1.01.002", "1.1.4.01.001", "2.1.1.01.001"]
+                    mapa_descripciones = {
+                        "5.1.1.01.001": "Compras Generales",
+                        "5.1.1.01.002": "IVA al Costo",
+                        "1.1.4.01.001": "IVA Crédito Fiscal",
+                        "2.1.1.01.001": "Cuentas por Pagar Comerciales"
+                    }
                 
         except Exception as e:
             st.warning(f"⚠️ Advertencia al consultar tablas en `{db_segura}`: {e}. Usando plan de cuentas de emergencia.")
-            opciones_desplegable = [
-                "5.1.1.01.001 - Compras Generales",
-                "5.1.1.01.002 - IVA al Costo",
-                "1.1.4.01.001 - IVA Crédito Fiscal",
-                "2.1.1.01.001 - Cuentas por Pagar Comerciales"
-            ]
-            for op in opciones_desplegable:
-                partes = op.split(" - ")
-                mapa_descripciones[partes[0]] = partes[1]
+            opciones_desplegable = ["5.1.1.01.001", "5.1.1.01.002", "1.1.4.01.001", "2.1.1.01.001"]
+            mapa_descripciones = {
+                "5.1.1.01.001": "Compras Generales",
+                "5.1.1.01.002": "IVA al Costo",
+                "1.1.4.01.001": "IVA Crédito Fiscal",
+                "2.1.1.01.001": "Cuentas por Pagar Comerciales"
+            }
 
-    default_opcion = opciones_desplegable[0]
+    default_opcion = opciones_desplegable[0] if opciones_desplegable else "5.1.1.01.001"
 
     def obtener_opcion_valida(codigo_buscado, fallback):
-        for opt in opciones_desplegable:
-            if opt.startswith(codigo_buscado + " -"):
-                return opt
+        if codigo_buscado in opciones_desplegable:
+            return codigo_buscado
         return fallback
 
     # ----------------------------------------------------
@@ -5770,7 +5765,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
                     filas_asiento_temporal = []
 
                     for idx, row in df_compras.iterrows():
-                        def buscar_valor(posibles_nombres, default=""):
+                        def buscar_valor(posibles_nombres, default=0.0 if isinstance(default, float) else ""):
                             for col in df_compras.columns:
                                 c_clean = str(col).strip().lower()
                                 for pos in posibles_nombres:
@@ -5780,7 +5775,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
                                             return val
                             return default
 
-                        raw_fecha = buscar_valor(["Fecha de Operación", "Fecha de Operacion", "Fecha"])
+                        raw_fecha = buscar_valor(["Fecha de Operación", "Fecha de Operacion", "Fecha"], "")
                         if hasattr(raw_fecha, "strftime"):
                             fecha_op = raw_fecha.strftime("%Y-%m-%d")
                         else:
@@ -5799,15 +5794,21 @@ def renderizar_tab_asientos_automatizados(db_connection):
                         except Exception:
                             base_imponible = 0.0
 
+                        # Capturamos la columna de compras exentas
+                        try:
+                            compras_exentas = float(buscar_valor(["Compras Exentas", "Exentas", "Sin Derecho a Crédito", "Sin Derecho a Credito"], 0.0))
+                        except Exception:
+                            compras_exentas = 0.0
+
                         try:
                             credito_fiscal = float(buscar_valor(["Credito Fiscales", "Crédito Fiscales", "Credito Fiscal", "IVA"], 0.0))
                         except Exception:
                             credito_fiscal = 0.0
 
                         try:
-                            total_compras = float(buscar_valor(["Total Compras"], base_imponible + credito_fiscal))
+                            total_compras = float(buscar_valor(["Total Compras"], base_imponible + compras_exentas + credito_fiscal))
                         except Exception:
-                            total_compras = base_imponible + credito_fiscal
+                            total_compras = base_imponible + compras_exentas + credito_fiscal
 
                         n_comprobante_actual = f"{n_comprobante_base}-{nro_doc}"
 
@@ -5826,7 +5827,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
 
                         if not opcion_gasto:
                             for opt in opciones_desplegable:
-                                if (opt.startswith("5") or opt.startswith("6")) and "iva" not in opt.lower():
+                                if opt.startswith("5") and "iva" not in opt.lower():
                                     opcion_gasto = opt
                                     break
                         if not opcion_gasto: 
@@ -5840,8 +5841,8 @@ def renderizar_tab_asientos_automatizados(db_connection):
                         if not opcion_contrapartida: 
                             opcion_contrapartida = default_opcion
 
-                        desc_gasto = opcion_gasto.split(" - ", 1)[1] if " - " in opcion_gasto else ""
-                        desc_contra = opcion_contrapartida.split(" - ", 1)[1] if " - " in opcion_contrapartida else ""
+                        # El monto total al debe para la cuenta de costo incluye tanto la base imponible como las compras exentas
+                        monto_costo_debe = base_imponible + compras_exentas
 
                         if es_king_driver:
                             filas_asiento_temporal.append({
@@ -5849,9 +5850,9 @@ def renderizar_tab_asientos_automatizados(db_connection):
                                 "descripcion": f"Factura {nro_doc} - {razon_social}",
                                 "fecha": fecha_op,
                                 "plan_cuentas": opcion_gasto,
-                                "cuenta_contable": desc_gasto,
+                                "cuenta_contable": mapa_descripciones.get(opcion_gasto, ""),
                                 "referencia": nro_doc,
-                                "debe": base_imponible,
+                                "debe": monto_costo_debe,
                                 "haber": 0.0
                             })
 
@@ -5860,32 +5861,31 @@ def renderizar_tab_asientos_automatizados(db_connection):
                                 monto_iva_linea = credito_fiscal
                                 opcion_iva_kd = default_opcion
                                 for opt in opciones_desplegable:
-                                    if opt.startswith("5.1.1.01.002") or "exentos" in opt.lower():
+                                    if opt.startswith("5.1.1.01.002"):
                                         opcion_iva_kd = opt
                                         break
-                                desc_iva_kd = opcion_iva_kd.split(" - ", 1)[1] if " - " in opcion_iva_kd else ""
                                 
                                 filas_asiento_temporal.append({
                                     "n_comprobante": n_comprobante_actual,
                                     "descripcion": f"IVA al Costo Factura {nro_doc} - {razon_social}",
                                     "fecha": fecha_op,
                                     "plan_cuentas": opcion_iva_kd,
-                                    "cuenta_contable": desc_iva_kd,
+                                    "cuenta_contable": mapa_descripciones.get(opcion_iva_kd, ""),
                                     "referencia": nro_doc,
                                     "debe": credito_fiscal,
                                     "haber": 0.0
                                 })
                             
-                            monto_haber_total = base_imponible + monto_iva_linea
+                            monto_haber_total = monto_costo_debe + monto_iva_linea
                         else:
                             filas_asiento_temporal.append({
                                 "n_comprobante": n_comprobante_actual,
                                 "descripcion": f"Factura {nro_doc} - {razon_social}",
                                 "fecha": fecha_op,
                                 "plan_cuentas": opcion_gasto,
-                                "cuenta_contable": desc_gasto,
+                                "cuenta_contable": mapa_descripciones.get(opcion_gasto, ""),
                                 "referencia": nro_doc,
-                                "debe": base_imponible,
+                                "debe": monto_costo_debe,
                                 "haber": 0.0
                             })
 
@@ -5894,30 +5894,29 @@ def renderizar_tab_asientos_automatizados(db_connection):
                                 monto_iva_linea = credito_fiscal
                                 opcion_iva = default_opcion
                                 for opt in opciones_desplegable:
-                                    if "1.1.4.01.001" in opt or "crédito fiscal" in opt.lower() or "credito fiscal" in opt.lower():
+                                    if opt.startswith("1.1.4.01.001"):
                                         opcion_iva = opt
                                         break
-                                desc_iva = opcion_iva.split(" - ", 1)[1] if " - " in opcion_iva else ""
                                 
                                 filas_asiento_temporal.append({
                                     "n_comprobante": n_comprobante_actual,
                                     "descripcion": f"IVA Crédito Fiscal Factura {nro_doc} - {razon_social}",
                                     "fecha": fecha_op,
                                     "plan_cuentas": opcion_iva,
-                                    "cuenta_contable": desc_iva,
+                                    "cuenta_contable": mapa_descripciones.get(opcion_iva, ""),
                                     "referencia": nro_doc,
                                     "debe": credito_fiscal,
                                     "haber": 0.0
                                 })
                             
-                            monto_haber_total = base_imponible + monto_iva_linea
+                            monto_haber_total = monto_costo_debe + monto_iva_linea
 
                         filas_asiento_temporal.append({
                             "n_comprobante": n_comprobante_actual,
                             "descripcion": f"Cuentas por Pagar Factura {nro_doc} - {razon_social}",
                             "fecha": fecha_op,
                             "plan_cuentas": opcion_contrapartida,
-                            "cuenta_contable": desc_contra,
+                            "cuenta_contable": mapa_descripciones.get(opcion_contrapartida, ""),
                             "referencia": nro_doc,
                             "debe": 0.0,
                             "haber": monto_haber_total
@@ -5937,20 +5936,17 @@ def renderizar_tab_asientos_automatizados(db_connection):
                 
                 st.markdown(f"### 📋 Segundo Frame: Estructura Completa del Asiento Contable ({len(df_a_procesar)} registros)")
                 
-                # Función auxiliar para extraer solo el código limpio por si acaso viene con texto viejo
                 def extraer_solo_codigo(val):
                     val_str = str(val).strip()
                     if " - " in val_str:
                         return val_str.split(" - ")[0].strip()
                     return val_str
 
-                # Asegurarnos de que el DataFrame tenga EXCLUSIVAMENTE el código limpio en la columna plan_cuentas
                 for idx in df_a_procesar.index:
                     codigo_puro = extraer_solo_codigo(df_a_procesar.at[idx, "plan_cuentas"])
                     df_a_procesar.at[idx, "plan_cuentas"] = codigo_puro
                     df_a_procesar.at[idx, "cuenta_contable"] = mapa_descripciones.get(codigo_puro, "")
 
-                # Extraemos la lista de opciones PURAS (solo códigos) para el selectbox
                 opciones_codigos_puros = list(mapa_descripciones.keys())
                 if not opciones_codigos_puros:
                     opciones_codigos_puros = ["5.1.1.01.001", "5.1.1.01.002", "1.1.4.01.001", "2.1.1.01.001"]
@@ -5965,7 +5961,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
                         "fecha": st.column_config.TextColumn("Fecha"),
                         "plan_cuentas": st.column_config.SelectboxColumn(
                             "Plan de Cuentas (Código)",
-                            options=opciones_codigos_puros,  # <--- Solo los códigos limpios
+                            options=opciones_codigos_puros,
                             required=True
                         ),
                         "cuenta_contable": st.column_config.TextColumn("Descripción Cuenta", disabled=True),
@@ -5976,7 +5972,6 @@ def renderizar_tab_asientos_automatizados(db_connection):
                     key="editor_segundo_frame"
                 )
                 
-                # Sincronizamos la descripción automáticamente cuando el usuario cambie el código en el grid
                 for idx in df_editado.index:
                     codigo_puro = extraer_solo_codigo(df_editado.at[idx, "plan_cuentas"])
                     df_editado.at[idx, "plan_cuentas"] = codigo_puro
@@ -5990,9 +5985,6 @@ def renderizar_tab_asientos_automatizados(db_connection):
                 col_m1.metric("Total Debe (General)", f"{tot_debe:,.2f}")
                 col_m2.metric("Total Haber (General)", f"{tot_haber:,.2f}")
 
-                # ----------------------------------------------------
-                # BOTÓN DE DESCARGA EN EXCEL DEL SEGUNDO FRAME
-                # ----------------------------------------------------
                 buffer_excel = io.BytesIO()
                 with pd.ExcelWriter(buffer_excel, engine='openpyxl') as writer:
                     df_editado.to_excel(writer, index=False, sheet_name='Asientos_Contables')
@@ -6023,7 +6015,25 @@ def renderizar_tab_asientos_automatizados(db_connection):
                                     haber DECIMAL(15, 2) DEFAULT 0.00
                                 );
                             """)
-                            # Aquí continúa tu lógica de inserción posterior...
+                            
+                            for _, row in df_editado.iterrows():
+                                codigo_limpio = extraer_solo_codigo(row["plan_cuentas"])
+                                cursor.execute(f"""
+                                    INSERT INTO `{db_segura}`.asientos_contables 
+                                    (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber)
+                                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                                """, (
+                                    row["n_comprobante"],
+                                    row["descripcion"],
+                                    row["fecha"],
+                                    codigo_limpio,
+                                    row["cuenta_contable"],
+                                    row["referencia"],
+                                    row["debe"],
+                                    row["haber"]
+                                ))
+                            db_connection.commit()
+                            st.success("✅ ¡Asientos contables guardados exitosamente en el Libro Diario!")
                     except Exception as db_err:
                         st.error(f"Error al guardar en la base de datos: {db_err}")
         except Exception as e:
