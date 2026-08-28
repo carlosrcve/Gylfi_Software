@@ -6041,7 +6041,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
 def renderizar_tab_asientos_ventas(db_connection):
     st.subheader("🤖 Asientos Automatizados - Libro de Ventas")
     st.markdown("""
-    Sube tu **Libro de Ventas** en Excel. El sistema procesará los datos y generará los asientos de ingresos y débito fiscal según la empresa activa.
+    Sube tu **Libro de Ventas** en Excel. El sistema procesará los datos, consultará la tabla de clientes comerciales por RIF y generará los asientos contables correspondientes.
     """)
 
     # ----------------------------------------------------
@@ -6178,6 +6178,23 @@ def renderizar_tab_asientos_ventas(db_connection):
     default_opcion = opciones_desplegable[0] if opciones_desplegable else "1.1.2.01.001"
 
     # ----------------------------------------------------
+    # CARGAR CLIENTES COMERCIALES DESDE LA BASE DE DATOS
+    # ----------------------------------------------------
+    mapa_clientes_rif = {}
+    try:
+        with db_connection.cursor(pymysql.cursors.DictCursor) as cursor_cli:
+            cursor_cli.execute(f"SELECT rif, codigo_cuenta, descripcion_cuenta FROM `{db_segura}`.clientes_comerciales")
+            clientes_registrados = cursor_cli.fetchall()
+            for cli in clientes_registrados:
+                rif_limpio = str(cli.get("rif", "")).strip().upper()
+                mapa_clientes_rif[rif_limpio] = {
+                    "codigo_cuenta": str(cli.get("codigo_cuenta", "")).strip(),
+                    "descripcion_cuenta": str(cli.get("descripcion_cuenta", "")).strip()
+                }
+    except Exception as e:
+        st.warning(f"⚠️ No se pudo consultar la tabla `clientes_comerciales` (puede que no exista o esté vacía): {e}")
+
+    # ----------------------------------------------------
     # CARGA Y VISTA PREVIA DEL EXCEL (LIBRO DE VENTAS)
     # ----------------------------------------------------
     st.markdown("---")
@@ -6225,6 +6242,7 @@ def renderizar_tab_asientos_ventas(db_connection):
                                 fecha_op = val_str[:10] if val_str else ""
 
                         razon_social = str(buscar_valor(["Nombre y Apellido o Razón Social", "Razon Social", "Cliente"], "Sin Nombre")).strip()
+                        rif_cliente = str(buscar_valor(["R.I.F.", "RIF", "Rif"], "")).strip().upper()
                         nro_doc = str(buscar_valor(["Número de Factura", "Numero de Factura", "Factura"], f"{idx+1}")).strip()
 
                         try:
@@ -6249,15 +6267,23 @@ def renderizar_tab_asientos_ventas(db_connection):
 
                         n_comprobante_actual = f"{n_comprobante_base}-{nro_doc}"
 
-                        # Seleccionar cuentas automáticas (Cuentas por Cobrar, Ingresos, IVA Débito)
+                        # ----------------------------------------------------
+                        # CRUCE CON LA TABLA `clientes_comerciales` SEGÚN EL RIF
+                        # ----------------------------------------------------
                         opcion_cxc = default_opcion
+                        descripcion_personalizada = f"Factura Venta {nro_doc} - {razon_social}"
+
+                        if rif_cliente in mapa_clientes_rif:
+                            info_cli = mapa_clientes_rif[rif_cliente]
+                            if info_cli["codigo_cuenta"]:
+                                opcion_cxc = info_cli["codigo_cuenta"]
+                            if info_cli["descripcion_cuenta"]:
+                                descripcion_personalizada = info_cli["descripcion_cuenta"]
+
+                        # Cuentas predeterminadas para ingresos y iva
                         opcion_ingreso = default_opcion
                         opcion_iva_debito = default_opcion
 
-                        for opt in opciones_desplegable:
-                            if opt.startswith("1.1.2") or opt.startswith("1.1"):
-                                opcion_cxc = opt
-                                break
                         for opt in opciones_desplegable:
                             if opt.startswith("4"):
                                 opcion_ingreso = opt
@@ -6267,10 +6293,10 @@ def renderizar_tab_asientos_ventas(db_connection):
                                 opcion_iva_debito = opt
                                 break
 
-                        # 1. Cuentas por Cobrar (DEBE) - Total Factura
+                        # 1. Cuentas por Cobrar (DEBE) - Tomada de clientes_comerciales o default
                         filas_asiento_temporal.append({
                             "n_comprobante": n_comprobante_actual,
-                            "descripcion": f"Factura Venta {nro_doc} - {razon_social}",
+                            "descripcion": descripcion_personalizada,
                             "fecha": fecha_op,
                             "plan_cuentas": opcion_cxc,
                             "cuenta_contable": mapa_descripciones.get(opcion_cxc, ""),
