@@ -6038,6 +6038,392 @@ def renderizar_tab_asientos_automatizados(db_connection):
         except Exception as e:
             st.error(f"Error al leer el archivo Excel: {e}")
 
+def renderizar_tab_asientos_ventas(db_connection):
+    st.subheader("🤖 Asientos Automatizados - Libro de Ventas")
+    st.markdown("""
+    Sube tu **Libro de Ventas** en Excel. El sistema procesará los datos y generará los asientos de ingresos y débito fiscal según la empresa activa.
+    """)
+
+    # ----------------------------------------------------
+    # VALIDACIÓN DE ROL Y FILTRADO DE EMPRESAS
+    # ----------------------------------------------------
+    usuario_actual = str(st.session_state.get("user", st.session_state.get("usuario", "norbe"))).strip()
+    
+    rol_usuario = "cliente"
+    es_admin = False
+    db_asignada_usuario = ""
+
+    dbs_filtradas = []
+    mapa_nombres_empresas = {}
+    
+    try:
+        with db_connection.cursor(pymysql.cursors.DictCursor) as cursor_temp:
+            cursor_temp.execute(
+                "SELECT rol, db_nombre FROM control_central.usuarios WHERE usuario = %s", 
+                (usuario_actual,)
+            )
+            res_usuario = cursor_temp.fetchone()
+            
+            if res_usuario:
+                rol_usuario = str(res_usuario.get("rol", "cliente")).strip().lower()
+                db_asignada_usuario = str(res_usuario.get("db_nombre", "")).strip()
+            
+            es_admin = rol_usuario in ["admin", "administrador"] or st.session_state.get("es_admin", False)
+
+            cursor_temp.execute("SELECT * FROM control_central.clientes")
+            clientes_db = cursor_temp.fetchall()
+        
+        for cli in clientes_db:
+            db_name = str(cli.get("db_nombre", "")).strip()
+            nombre_comercial = str(cli.get("nombre_empresa", db_name)).strip()
+            
+            if db_name:
+                if es_admin:
+                    dbs_filtradas.append(db_name)
+                    mapa_nombres_empresas[db_name] = nombre_comercial
+                else:
+                    if db_asignada_usuario and db_name.lower() == db_asignada_usuario.lower():
+                        dbs_filtradas.append(db_name)
+                        mapa_nombres_empresas[db_name] = nombre_comercial
+                        
+    except Exception as e:
+        st.warning(f"⚠️ Error consultando `control_central`: {e}")
+        if es_admin:
+            dbs_filtradas = ["kingdriver_ca"]
+        else:
+            dbs_filtradas = [db_asignada_usuario if db_asignada_usuario else "kingdriver_ca"]
+
+    if not dbs_filtradas:
+        if db_asignada_usuario:
+            dbs_filtradas = [db_asignada_usuario]
+        else:
+            dbs_filtradas = ["kingdriver_ca"]
+
+    if not dbs_filtradas:
+        st.error("⚠️ No se encontró una empresa asignada a tu usuario en la tabla `usuarios`.")
+        return
+
+    # ----------------------------------------------------
+    # INTERFAZ SEGÚN EL ROL (ADMIN VS CLIENTE)
+    # ----------------------------------------------------
+    if es_admin:
+        st.markdown("### 🏢 Contexto de Empresa (Modo Administrador)")
+        
+        index_default = 0
+        for i, db_name in enumerate(dbs_filtradas):
+            if any(k in str(st.session_state).lower() and db_name.lower() in str(st.session_state[k]).lower() for k in st.session_state):
+                index_default = i
+                break
+            if "driver" in db_name.lower() or "king" in db_name.lower():
+                index_default = i
+
+        format_func = lambda db: f"{mapa_nombres_empresas.get(db, db)} ({db})" if db in mapa_nombres_empresas else db
+        
+        nombre_db_cliente = st.selectbox(
+            "Selecciona la Base de Datos de la Empresa Activa:", 
+            dbs_filtradas, 
+            index=index_default,
+            format_func=format_func,
+            key="select_db_admin_asientos_ventas"
+        )
+    else:
+        nombre_db_cliente = dbs_filtradas[0]
+        nombre_amigable = mapa_nombres_empresas.get(nombre_db_cliente, nombre_db_cliente)
+        st.info(f"🏢 **Empresa Activa:** {nombre_amigable} (`{nombre_db_cliente}`)")
+
+    if not nombre_db_cliente:
+        st.error("⚠️ Debes seleccionar una base de datos.")
+        return
+
+    db_segura = str(nombre_db_cliente).strip()
+
+    mapa_descripciones = {}
+    opciones_desplegable = []
+
+    # ----------------------------------------------------
+    # CARGA SEGURA DE TABLA: PLAN_CUENTAS
+    # ----------------------------------------------------
+    if db_connection:
+        try:
+            with db_connection.cursor(pymysql.cursors.DictCursor) as cursor_opt:
+                cursor_opt.execute(f"SELECT codigo, nombre, tipo FROM `{db_segura}`.plan_cuentas ORDER BY codigo ASC")
+                cuentas_opt = cursor_opt.fetchall()
+                
+                cuentas_detalle = [c for c in cuentas_opt if str(c.get("tipo", "")).strip().lower() == 'detalle']
+                lista_cuentas = cuentas_detalle if cuentas_detalle else cuentas_opt
+                
+                for c in lista_cuentas:
+                    codigo = str(c.get("codigo", "")).strip()
+                    nombre = str(c.get("nombre", "")).strip()
+                    if codigo:
+                        mapa_descripciones[codigo] = nombre
+                        opciones_desplegable.append(codigo)
+
+                if not opciones_desplegable:
+                    opciones_desplegable = ["1.1.2.01.001", "4.1.1.01.001", "2.1.2.01.001"]
+                    mapa_descripciones = {
+                        "1.1.2.01.001": "Cuentas por Cobrar Comerciales",
+                        "4.1.1.01.001": "Ventas de Servicios / Ingresos",
+                        "2.1.2.01.001": "IVA Débito Fiscal"
+                    }
+        except Exception as e:
+            st.warning(f"⚠️ Advertencia al consultar plan de cuentas: {e}. Usando cuentas predeterminadas.")
+            opciones_desplegable = ["1.1.2.01.001", "4.1.1.01.001", "2.1.2.01.001"]
+            mapa_descripciones = {
+                "1.1.2.01.001": "Cuentas por Cobrar Comerciales",
+                "4.1.1.01.001": "Ventas de Servicios / Ingresos",
+                "2.1.2.01.001": "IVA Débito Fiscal"
+            }
+
+    default_opcion = opciones_desplegable[0] if opciones_desplegable else "1.1.2.01.001"
+
+    # ----------------------------------------------------
+    # CARGA Y VISTA PREVIA DEL EXCEL (LIBRO DE VENTAS)
+    # ----------------------------------------------------
+    st.markdown("---")
+    st.markdown("### 📋 Primer Frame: Libro de Ventas Subido")
+
+    archivo_excel = st.file_uploader("Subir Libro de Ventas (Excel)", type=["xlsx", "xls"], key="uploader_libro_ventas")
+
+    if archivo_excel is not None:
+        try:
+            df_ventas = pd.read_excel(archivo_excel)
+            df_ventas.columns = df_ventas.columns.str.strip()
+            
+            st.dataframe(df_ventas, use_container_width=True)
+
+            st.markdown("---")
+            st.markdown("### ⚙️ Configuración de Asientos de Ventas")
+            
+            col_cfg1, col_cfg2 = st.columns(2)
+            with col_cfg1:
+                n_comprobante_base = st.text_input("Prefijo de Comprobante (Ventas):", value="040001", key="prefijo_ventas")
+            
+            if st.button("🔄 Generar Estructura del Segundo Frame (Ventas)", key="btn_generar_frame_ventas"):
+                try:
+                    filas_asiento_temporal = []
+
+                    for idx, row in df_ventas.iterrows():
+                        def buscar_valor(posibles_nombres, default_val=0.0):
+                            for col in df_ventas.columns:
+                                c_clean = str(col).strip().lower()
+                                for pos in posibles_nombres:
+                                    if pos.lower() in c_clean:
+                                        val = row[col]
+                                        if pd.notna(val):
+                                            return val
+                            return default_val
+
+                        raw_fecha = buscar_valor(["Fecha de Factura", "Fecha"], "")
+                        if hasattr(raw_fecha, "strftime"):
+                            fecha_op = raw_fecha.strftime("%Y-%m-%d")
+                        else:
+                            val_str = str(raw_fecha).strip().split(" ")[0]
+                            try:
+                                fecha_op = pd.to_datetime(val_str).strftime("%Y-%m-%d")
+                            except Exception:
+                                fecha_op = val_str[:10] if val_str else ""
+
+                        razon_social = str(buscar_valor(["Nombre y Apellido o Razón Social", "Razon Social", "Cliente"], "Sin Nombre")).strip()
+                        nro_doc = str(buscar_valor(["Número de Factura", "Numero de Factura", "Factura"], f"{idx+1}")).strip()
+
+                        try:
+                            ventas_exentas = float(buscar_valor(["Ventas Exentas", "Exentas"], 0.0))
+                        except Exception:
+                            ventas_exentas = 0.0
+
+                        try:
+                            base_imponible = float(buscar_valor(["Base Imponible"], 0.0))
+                        except Exception:
+                            base_imponible = 0.0
+
+                        try:
+                            debito_fiscal = float(buscar_valor(["Débito Fiscal", "Debito Fiscal"], 0.0))
+                        except Exception:
+                            debito_fiscal = 0.0
+
+                        try:
+                            total_ventas = float(buscar_valor(["Total Ventas Incluyendo el IVA", "Total Ventas"], base_imponible + ventas_exentas + debito_fiscal))
+                        except Exception:
+                            total_ventas = base_imponible + ventas_exentas + debito_fiscal
+
+                        n_comprobante_actual = f"{n_comprobante_base}-{nro_doc}"
+
+                        # Seleccionar cuentas automáticas (Cuentas por Cobrar, Ingresos, IVA Débito)
+                        opcion_cxc = default_opcion
+                        opcion_ingreso = default_opcion
+                        opcion_iva_debito = default_opcion
+
+                        for opt in opciones_desplegable:
+                            if opt.startswith("1.1.2") or opt.startswith("1.1"):
+                                opcion_cxc = opt
+                                break
+                        for opt in opciones_desplegable:
+                            if opt.startswith("4"):
+                                opcion_ingreso = opt
+                                break
+                        for opt in opciones_desplegable:
+                            if "2.1.2" in opt or "debito" in mapa_descripciones.get(opt, "").lower():
+                                opcion_iva_debito = opt
+                                break
+
+                        # 1. Cuentas por Cobrar (DEBE) - Total Factura
+                        filas_asiento_temporal.append({
+                            "n_comprobante": n_comprobante_actual,
+                            "descripcion": f"Factura Venta {nro_doc} - {razon_social}",
+                            "fecha": fecha_op,
+                            "plan_cuentas": opcion_cxc,
+                            "cuenta_contable": mapa_descripciones.get(opcion_cxc, ""),
+                            "referencia": nro_doc,
+                            "debe": total_ventas,
+                            "haber": 0.0
+                        })
+
+                        # 2. Ingresos / Base Imponible + Exentas (HABER)
+                        monto_ingreso = base_imponible + ventas_exentas
+                        if monto_ingreso > 0:
+                            filas_asiento_temporal.append({
+                                "n_comprobante": n_comprobante_actual,
+                                "descripcion": f"Ingresos por Ventas Factura {nro_doc} - {razon_social}",
+                                "fecha": fecha_op,
+                                "plan_cuentas": opcion_ingreso,
+                                "cuenta_contable": mapa_descripciones.get(opcion_ingreso, ""),
+                                "referencia": nro_doc,
+                                "debe": 0.0,
+                                "haber": monto_ingreso
+                            })
+
+                        # 3. IVA Débito Fiscal (HABER)
+                        if debito_fiscal > 0:
+                            filas_asiento_temporal.append({
+                                "n_comprobante": n_comprobante_actual,
+                                "descripcion": f"IVA Débito Fiscal Factura {nro_doc} - {razon_social}",
+                                "fecha": fecha_op,
+                                "plan_cuentas": opcion_iva_debito,
+                                "cuenta_contable": mapa_descripciones.get(opcion_iva_debito, ""),
+                                "referencia": nro_doc,
+                                "debe": 0.0,
+                                "haber": debito_fiscal
+                            })
+
+                    st.session_state['df_asientos_ventas_proceso'] = pd.DataFrame(filas_asiento_temporal)
+                    st.rerun()
+
+                except Exception as proc_err:
+                    st.error(f"Error procesando los datos de ventas: {proc_err}")
+
+            # ----------------------------------------------------
+            # SEGUNDO FRAME: ESTRUCTURA COMPLETA DE VENTAS
+            # ----------------------------------------------------
+            if 'df_asientos_ventas_proceso' in st.session_state and not st.session_state['df_asientos_ventas_proceso'].empty:
+                df_a_procesar = st.session_state['df_asientos_ventas_proceso']
+                
+                st.markdown(f"### 📋 Segundo Frame: Estructura del Asiento de Ventas ({len(df_a_procesar)} registros)")
+                
+                def extraer_solo_codigo(val):
+                    val_str = str(val).strip()
+                    if " - " in val_str:
+                        return val_str.split(" - ")[0].strip()
+                    return val_str
+
+                for idx in df_a_procesar.index:
+                    codigo_puro = extraer_solo_codigo(df_a_procesar.at[idx, "plan_cuentas"])
+                    df_a_procesar.at[idx, "plan_cuentas"] = codigo_puro
+                    df_a_procesar.at[idx, "cuenta_contable"] = mapa_descripciones.get(codigo_puro, "")
+
+                opciones_codigos_puros = list(mapa_descripciones.keys())
+                if not opciones_codigos_puros:
+                    opciones_codigos_puros = ["1.1.2.01.001", "4.1.1.01.001", "2.1.2.01.001"]
+
+                df_editado = st.data_editor(
+                    df_a_procesar,
+                    num_rows="dynamic",
+                    use_container_width=True,
+                    column_config={
+                        "n_comprobante": st.column_config.TextColumn("n_comprobante"),
+                        "descripcion": st.column_config.TextColumn("Descripción"),
+                        "fecha": st.column_config.TextColumn("Fecha"),
+                        "plan_cuentas": st.column_config.SelectboxColumn(
+                            "Plan de Cuentas (Código)",
+                            options=opciones_codigos_puros,
+                            required=True
+                        ),
+                        "cuenta_contable": st.column_config.TextColumn("Descripción Cuenta", disabled=True),
+                        "referencia": st.column_config.TextColumn("Referencia"),
+                        "debe": st.column_config.NumberColumn("Debe", format="%,.2f"),
+                        "haber": st.column_config.NumberColumn("Haber", format="%,.2f"),
+                    },
+                    key="editor_segundo_frame_ventas"
+                )
+                
+                for idx in df_editado.index:
+                    codigo_puro = extraer_solo_codigo(df_editado.at[idx, "plan_cuentas"])
+                    df_editado.at[idx, "plan_cuentas"] = codigo_puro
+                    df_editado.at[idx, "cuenta_contable"] = mapa_descripciones.get(codigo_puro, "")
+
+                st.session_state['df_asientos_ventas_proceso'] = df_editado
+
+                tot_debe = df_editado['debe'].sum()
+                tot_haber = df_editado['haber'].sum()
+                col_m1, col_m2 = st.columns(2)
+                col_m1.metric("Total Debe (Ventas)", f"{tot_debe:,.2f}")
+                col_m2.metric("Total Haber (Ventas)", f"{tot_haber:,.2f}")
+
+                buffer_excel = io.BytesIO()
+                with pd.ExcelWriter(buffer_excel, engine='openpyxl') as writer:
+                    df_editado.to_excel(writer, index=False, sheet_name='Asientos_Ventas')
+                buffer_excel.seek(0)
+
+                st.download_button(
+                    label="📥 Descargar Estructura de Ventas en Excel",
+                    data=buffer_excel,
+                    file_name=f"asientos_ventas_{db_segura}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    key="btn_descargar_excel_ventas",
+                    use_container_width=True
+                )
+
+                if st.button("💾 Guardar Asientos de Ventas en el Libro Diario", key="btn_guardar_ventas_finales", use_container_width=True):
+                    try:
+                        with db_connection.cursor() as cursor:
+                            cursor.execute(f"""
+                                CREATE TABLE IF NOT EXISTS `{db_segura}`.asientos_contables (
+                                    id INT AUTO_INCREMENT PRIMARY KEY,
+                                    n_comprobante VARCHAR(50),
+                                    descripcion TEXT,
+                                    fecha DATE,
+                                    plan_cuentas VARCHAR(100),
+                                    cuenta_contable VARCHAR(255),
+                                    referencia VARCHAR(100),
+                                    debe DECIMAL(15, 2) DEFAULT 0.00,
+                                    haber DECIMAL(15, 2) DEFAULT 0.00
+                                );
+                            """)
+                            
+                            for _, row in df_editado.iterrows():
+                                codigo_limpio = extraer_solo_codigo(row["plan_cuentas"])
+                                cursor.execute(f"""
+                                    INSERT INTO `{db_segura}`.asientos_contables 
+                                    (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber)
+                                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                                """, (
+                                    row["n_comprobante"],
+                                    row["descripcion"],
+                                    row["fecha"],
+                                    codigo_limpio,
+                                    row["cuenta_contable"],
+                                    row["referencia"],
+                                    row["debe"],
+                                    row["haber"]
+                                ))
+                            db_connection.commit()
+                            st.success("✅ ¡Asientos de ventas guardados exitosamente en el Libro Diario!")
+                    except Exception as db_err:
+                        st.error(f"Error al guardar los asientos de ventas: {db_err}")
+        except Exception as e:
+            st.error(f"Error al leer el archivo Excel de ventas: {e}")
+
+
 def gestionar_sidebar():
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
     user_id = st.session_state.get('user_id', st.session_state.get('cliente_id', 'N/A'))
@@ -8172,11 +8558,12 @@ elif opcion_menu == "📝 Asientos Contables":
         # 1. Validación de Seguridad: ¿Hay base de datos?
         if 'DB_ACTUAL' in st.session_state and st.session_state['DB_ACTUAL']:
             db_nombre = st.session_state['DB_ACTUAL']
-            tab1, tab2, tab3, tab4 = st.tabs([
+            tab1, tab2, tab3, tab4, tab5 = st.tabs([
                 "📖 Ver Libro Diario", 
                 "📤 Importar Excel", 
                 "🗑️ Vaciar Asiento de Diarios",
-                "🤖 Asientos Automatizados"
+                "🤖 Asientos Costos Automatizados",
+                "📈 Asientos Ingresos Automatizados"  # Icono cambiado aquí
             ])
 
             def exportar_a_excel(df):
@@ -8363,6 +8750,19 @@ elif opcion_menu == "📝 Asientos Contables":
                 # 3. Validamos y renderizamos
                 if conexion_actual:
                     renderizar_tab_asientos_automatizados(conexion_actual)
+                else:
+                    st.error("No se pudo establecer la conexión con la base de datos de la empresa para los asientos automatizados.")
+
+            with tab5:
+                # 1. Recuperamos de la sesión el nombre o ID de la base de datos de la empresa actual 
+                nombre_bd_cliente = st.session_state.get('empresa_actual') 
+                
+                # 2. Llamamos a la conexión inyectándole la base de datos del cliente
+                conexion_actual = conectar_db(nombre_bd_cliente) 
+                
+                # 3. Validamos y renderizamos
+                if conexion_actual:
+                    renderizar_tab_asientos_ventas(conexion_actual)
                 else:
                     st.error("No se pudo establecer la conexión con la base de datos de la empresa para los asientos automatizados.")
 
