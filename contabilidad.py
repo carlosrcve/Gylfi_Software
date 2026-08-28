@@ -6245,17 +6245,17 @@ def renderizar_tab_asientos_ventas(db_connection):
                         razon_social = str(buscar_valor(["Nombre y Apellido o Razón Social", "Razon Social", "Cliente"], "Sin Nombre")).strip()
                         rif_cliente = str(buscar_valor(["R.I.F.", "RIF", "Rif"], "")).strip().upper()
                         
-                        # Búsqueda estricta para el número de factura (evitando que agarre la fecha)
+                        # Búsqueda exacta y segura del Número de Factura para que vaya a Referencia
                         nro_doc = ""
                         for col in df_ventas.columns:
                             c_clean = str(col).strip().lower()
-                            if any(k in c_clean for k in ["factura", "nro factura", "numero de factura", "control"]):
+                            if ("factura" in c_clean or "nro" in c_clean or "num" in c_clean) and "fecha" not in c_clean:
                                 val = row[col]
-                                if pd.notna(val):
+                                if pd.notna(val) and str(val).strip() != "":
                                     nro_doc = str(val).strip()
                                     break
                         if not nro_doc:
-                            nro_doc = str(buscar_valor(["Nº", "Num", "Nro"], f"{idx+1}")).strip()
+                            nro_doc = str(idx + 1)
 
                         try:
                             ventas_exentas = float(buscar_valor(["Ventas Exentas", "Exentas"], 0.0))
@@ -6311,7 +6311,7 @@ def renderizar_tab_asientos_ventas(db_connection):
                             "fecha": fecha_op,
                             "plan_cuentas": opcion_cxc,
                             "cuenta_contable": mapa_descripciones.get(opcion_cxc, ""),
-                            "referencia": nro_doc,  # <--- Número de factura exacto
+                            "referencia": nro_doc,  # <--- Número de factura exacto aquí
                             "debe": total_ventas,
                             "haber": 0.0
                         })
@@ -6325,7 +6325,7 @@ def renderizar_tab_asientos_ventas(db_connection):
                                 "fecha": fecha_op,
                                 "plan_cuentas": opcion_ingreso,
                                 "cuenta_contable": mapa_descripciones.get(opcion_ingreso, ""),
-                                "referencia": nro_doc,  # <--- Número de factura exacto
+                                "referencia": nro_doc,  # <--- Número de factura exacto aquí
                                 "debe": 0.0,
                                 "haber": monto_ingreso
                             })
@@ -6338,7 +6338,7 @@ def renderizar_tab_asientos_ventas(db_connection):
                                 "fecha": fecha_op,
                                 "plan_cuentas": opcion_iva_debito,
                                 "cuenta_contable": mapa_descripciones.get(opcion_iva_debito, ""),
-                                "referencia": nro_doc,  # <--- Número de factura exacto
+                                "referencia": nro_doc,  # <--- Número de factura exacto aquí
                                 "debe": 0.0,
                                 "haber": debito_fiscal
                             })
