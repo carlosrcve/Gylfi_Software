@@ -6214,7 +6214,7 @@ def renderizar_tab_asientos_ventas(db_connection):
             
             col_cfg1, col_cfg2 = st.columns(2)
             with col_cfg1:
-                n_comprobante_base = st.text_input("Prefijo de Comprobante (Ventas):", value="040001", key="prefijo_ventas")
+                n_comprobante_base = st.text_input("Número de Comprobante (Fijo para todas las líneas):", value="060001", key="prefijo_ventas")
             
             if st.button("🔄 Generar Estructura del Segundo Frame (Ventas)", key="btn_generar_frame_ventas"):
                 try:
@@ -6243,7 +6243,9 @@ def renderizar_tab_asientos_ventas(db_connection):
 
                         razon_social = str(buscar_valor(["Nombre y Apellido o Razón Social", "Razon Social", "Cliente"], "Sin Nombre")).strip()
                         rif_cliente = str(buscar_valor(["R.I.F.", "RIF", "Rif"], "")).strip().upper()
-                        nro_doc = str(buscar_valor(["Número de Factura", "Numero de Factura", "Factura"], f"{idx+1}")).strip()
+                        
+                        # Captura exacta del número de factura/referencia del primer frame
+                        nro_doc = str(buscar_valor(["Número de Factura", "Numero de Factura", "Factura", "Nro Factura"], f"{idx+1}")).strip()
 
                         try:
                             ventas_exentas = float(buscar_valor(["Ventas Exentas", "Exentas"], 0.0))
@@ -6265,7 +6267,8 @@ def renderizar_tab_asientos_ventas(db_connection):
                         except Exception:
                             total_ventas = base_imponible + ventas_exentas + debito_fiscal
 
-                        n_comprobante_actual = f"{n_comprobante_base}-{nro_doc}"
+                        # El número de comprobante ahora es estrictamente el valor fijo introducido por el usuario (ej. 060001)
+                        n_comprobante_actual = str(n_comprobante_base).strip()
 
                         # ----------------------------------------------------
                         # CRUCE CON LA TABLA `clientes_comerciales` SEGÚN EL RIF
@@ -6300,7 +6303,7 @@ def renderizar_tab_asientos_ventas(db_connection):
                             "fecha": fecha_op,
                             "plan_cuentas": opcion_cxc,
                             "cuenta_contable": mapa_descripciones.get(opcion_cxc, ""),
-                            "referencia": nro_doc,
+                            "referencia": nro_doc,  # <--- Aquí va el número de factura/referencia del primer frame
                             "debe": total_ventas,
                             "haber": 0.0
                         })
@@ -6314,7 +6317,7 @@ def renderizar_tab_asientos_ventas(db_connection):
                                 "fecha": fecha_op,
                                 "plan_cuentas": opcion_ingreso,
                                 "cuenta_contable": mapa_descripciones.get(opcion_ingreso, ""),
-                                "referencia": nro_doc,
+                                "referencia": nro_doc,  # <--- Referencia del primer frame
                                 "debe": 0.0,
                                 "haber": monto_ingreso
                             })
@@ -6327,7 +6330,7 @@ def renderizar_tab_asientos_ventas(db_connection):
                                 "fecha": fecha_op,
                                 "plan_cuentas": opcion_iva_debito,
                                 "cuenta_contable": mapa_descripciones.get(opcion_iva_debito, ""),
-                                "referencia": nro_doc,
+                                "referencia": nro_doc,  # <--- Referencia del primer frame
                                 "debe": 0.0,
                                 "haber": debito_fiscal
                             })
