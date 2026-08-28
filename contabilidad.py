@@ -6192,7 +6192,7 @@ def renderizar_tab_asientos_ventas(db_connection):
                     "descripcion_cuenta": str(cli.get("descripcion_cuenta", "")).strip()
                 }
     except Exception as e:
-        st.warning(f"⚠️ No se pudo consultar la tabla `clientes_comerciales` (puede que no exista o esté vacía): {e}")
+        st.warning(f"⚠️ No se pudo consultar la tabla `clientes_comerciales`: {e}")
 
     # ----------------------------------------------------
     # CARGA Y VISTA PREVIA DEL EXCEL (LIBRO DE VENTAS)
@@ -6231,6 +6231,7 @@ def renderizar_tab_asientos_ventas(db_connection):
                                             return val
                             return default_val
 
+                        # Búsqueda exclusiva para la fecha
                         raw_fecha = buscar_valor(["Fecha de Factura", "Fecha"], "")
                         if hasattr(raw_fecha, "strftime"):
                             fecha_op = raw_fecha.strftime("%Y-%m-%d")
@@ -6244,8 +6245,17 @@ def renderizar_tab_asientos_ventas(db_connection):
                         razon_social = str(buscar_valor(["Nombre y Apellido o Razón Social", "Razon Social", "Cliente"], "Sin Nombre")).strip()
                         rif_cliente = str(buscar_valor(["R.I.F.", "RIF", "Rif"], "")).strip().upper()
                         
-                        # Captura exacta del número de factura/referencia del primer frame
-                        nro_doc = str(buscar_valor(["Número de Factura", "Numero de Factura", "Factura", "Nro Factura"], f"{idx+1}")).strip()
+                        # Búsqueda estricta para el número de factura (evitando que agarre la fecha)
+                        nro_doc = ""
+                        for col in df_ventas.columns:
+                            c_clean = str(col).strip().lower()
+                            if any(k in c_clean for k in ["factura", "nro factura", "numero de factura", "control"]):
+                                val = row[col]
+                                if pd.notna(val):
+                                    nro_doc = str(val).strip()
+                                    break
+                        if not nro_doc:
+                            nro_doc = str(buscar_valor(["Nº", "Num", "Nro"], f"{idx+1}")).strip()
 
                         try:
                             ventas_exentas = float(buscar_valor(["Ventas Exentas", "Exentas"], 0.0))
@@ -6267,7 +6277,6 @@ def renderizar_tab_asientos_ventas(db_connection):
                         except Exception:
                             total_ventas = base_imponible + ventas_exentas + debito_fiscal
 
-                        # El número de comprobante ahora es estrictamente el valor fijo introducido por el usuario (ej. 060001)
                         n_comprobante_actual = str(n_comprobante_base).strip()
 
                         # ----------------------------------------------------
@@ -6283,7 +6292,6 @@ def renderizar_tab_asientos_ventas(db_connection):
                             if info_cli["descripcion_cuenta"]:
                                 descripcion_personalizada = info_cli["descripcion_cuenta"]
 
-                        # Cuentas predeterminadas para ingresos y iva
                         opcion_ingreso = default_opcion
                         opcion_iva_debito = default_opcion
 
@@ -6296,19 +6304,19 @@ def renderizar_tab_asientos_ventas(db_connection):
                                 opcion_iva_debito = opt
                                 break
 
-                        # 1. Cuentas por Cobrar (DEBE) - Tomada de clientes_comerciales o default
+                        # 1. Cuentas por Cobrar (DEBE)
                         filas_asiento_temporal.append({
                             "n_comprobante": n_comprobante_actual,
                             "descripcion": descripcion_personalizada,
                             "fecha": fecha_op,
                             "plan_cuentas": opcion_cxc,
                             "cuenta_contable": mapa_descripciones.get(opcion_cxc, ""),
-                            "referencia": nro_doc,  # <--- Aquí va el número de factura/referencia del primer frame
+                            "referencia": nro_doc,  # <--- Número de factura exacto
                             "debe": total_ventas,
                             "haber": 0.0
                         })
 
-                        # 2. Ingresos / Base Imponible + Exentas (HABER)
+                        # 2. Ingresos (HABER)
                         monto_ingreso = base_imponible + ventas_exentas
                         if monto_ingreso > 0:
                             filas_asiento_temporal.append({
@@ -6317,7 +6325,7 @@ def renderizar_tab_asientos_ventas(db_connection):
                                 "fecha": fecha_op,
                                 "plan_cuentas": opcion_ingreso,
                                 "cuenta_contable": mapa_descripciones.get(opcion_ingreso, ""),
-                                "referencia": nro_doc,  # <--- Referencia del primer frame
+                                "referencia": nro_doc,  # <--- Número de factura exacto
                                 "debe": 0.0,
                                 "haber": monto_ingreso
                             })
@@ -6330,7 +6338,7 @@ def renderizar_tab_asientos_ventas(db_connection):
                                 "fecha": fecha_op,
                                 "plan_cuentas": opcion_iva_debito,
                                 "cuenta_contable": mapa_descripciones.get(opcion_iva_debito, ""),
-                                "referencia": nro_doc,  # <--- Referencia del primer frame
+                                "referencia": nro_doc,  # <--- Número de factura exacto
                                 "debe": 0.0,
                                 "haber": debito_fiscal
                             })
