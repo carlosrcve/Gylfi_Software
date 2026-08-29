@@ -11903,25 +11903,23 @@ elif opcion_menu == "📚 Libros Fiscales":
                         )
 
 
-    # --- FILA 11: CALENDARIO FISCAL AUTOMATIZADO ---
-    tipo_usuario = st.session_state.get('tipo_contribuyente', 'Contribuyente Ordinario')
-    es_especial = (tipo_usuario == "Contribuyente Especial")
+    # Dentro de tu enrutador de vistas o pestañas principales:
+    if sub_opcion == "Comprobante de Retención IVA":
+        
+        # 🟢 AQUÍ VA LA VALIDACIÓN
+        tipo_usuario = st.session_state.get('tipo_contribuyente', 'Contribuyente Ordinario')
 
-    if es_especial:
-        rif_actual = st.session_state.get('rif_empresa_activa')  
-        mostrar_calendario_cliente(rif_actual)
-
-        # Módulo de Retención de IVA (Exclusivo para Contribuyentes Especiales)
-        mostrar_interfaz_retencion_iva(
-            EMPRESA, 
-            st.session_state.get('f_inicio_global', dt.date.today()), 
-            st.session_state.get('f_fin_global', dt.date.today())
-        )
-    else:
-        # Bloqueamos el acceso para los contribuyentes ordinarios
-        st.warning("⚠️ Este módulo es exclusivo para **Contribuyentes Especiales**.")
-        st.info("Si cree que esto es un error, contacte a soporte para actualizar su clasificación fiscal.")
-
+        if tipo_usuario == "Contribuyente Especial":
+            # Solo si es especial, ejecutamos la función que muestra la interfaz
+            mostrar_interfaz_retencion_iva(
+                EMPRESA, 
+                st.session_state.get('f_inicio_global', dt.date.today()), 
+                st.session_state.get('f_fin_global', dt.date.today())
+            )
+        else:
+            # Bloqueamos el acceso para los ordinarios
+            st.warning("⚠️ Este módulo es exclusivo para **Contribuyentes Especiales**.")
+            st.info("Si cree que esto es un error, contacte a soporte para actualizar su clasificación fiscal.")
 
 # --- USAMOS "IN" PARA QUE NO IMPORTE EL EMOJI QUE PONGAS EN EL SIDEBAR ---
 elif "Proveedores" in opcion_menu:
