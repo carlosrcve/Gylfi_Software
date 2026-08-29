@@ -961,13 +961,17 @@ def panel_administracion(conn):
 
 
 
+import pandas as pd
+import streamlit as st
+import bcrypt
+
 def panel_administracion_firmas(conn):
     st.header("🏢 Gestión de Usuarios y Accesos del Administrador de Firmas")
     st.markdown("Registra un nuevo usuario y asígnale su rol y empresa correspondiente de forma manual.")
     
     # 1. CARGAR LAS EMPRESAS YA CREADAS DESDE LA BASE DE DATOS
     try:
-        query_empresas = "SELECT id, nombre_empresa, rif FROM control_central.clientes"
+        query_empresas = "SELECT id, nombre_empresa, rif, db_nombre FROM control_central.clientes"
         df_empresas = ejecutar_consulta(query_empresas, conn)
     except Exception:
         df_empresas = pd.DataFrame()
@@ -1013,21 +1017,20 @@ def panel_administracion_firmas(conn):
                     st.error("❌ Debes seleccionar una empresa para asociar al usuario.")
                 else:
                     try:
-                        # Extraer la fila exacta de la empresa seleccionada
+                        # Extraer la fila exacta de la empresa seleccionada de forma segura por nombre
                         fila_empresa = df_empresas[df_empresas['nombre_empresa'].astype(str).str.strip() == str(empresa_seleccionada).strip()]
                         
                         if fila_empresa.empty:
                             st.error(f"❌ No se encontró la empresa '{empresa_seleccionada}' en el DataFrame.")
                         else:
-                            # Capturamos el ID real de la empresa (ej: 420002 para Mendoza y Asociados)
+                            # Obtenemos el ID exacto que tiene la empresa en MySQL
                             cliente_id_asociado = int(fila_empresa.iloc[0]['id'])
-                            
-                            st.info(f"🔍 Depuración: Empresa seleccionada: '{empresa_seleccionada}' -> ID obtenido: {cliente_id_asociado}")
                             
                             # Hashear la contraseña
                             hashed_password = bcrypt.hashpw(contrasena.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
                             
                             cursor = conn.cursor()
+                            # Insertamos explícitamente el usuario con su cliente_id correcto
                             sql = """
                                 INSERT INTO control_central.usuarios (usuario, clave_hash, rol, cliente_id) 
                                 VALUES (%s, %s, %s, %s)
@@ -1037,7 +1040,7 @@ def panel_administracion_firmas(conn):
                             cursor.close()
                             
                             st.toast("¡Usuario guardado con éxito!", icon="✅")
-                            st.success(f"✅ ¡Usuario '{nombre_usuario.strip()}' asociado correctamente a '{empresa_seleccionada}' con ID {cliente_id_asociado}!")
+                            st.success(f"✅ ¡Usuario '{nombre_usuario.strip()}' vinculado a la empresa '{empresa_seleccionada}' (ID: {cliente_id_asociado})!")
                             st.balloons()
                             st.rerun()
                     except Exception as e:
@@ -1045,10 +1048,9 @@ def panel_administracion_firmas(conn):
 
     st.divider()
 
-    # Tabla para visualizar los usuarios registrados y su empresa asociada
+    # Tabla para visualizar los usuarios registrados y su empresa asociada mediante JOIN
     st.subheader("👥 Usuarios y Roles Registrados en el Sistema")
     try:
-        # Consulta SQL optimizada para traer el nombre de la empresa relacionada
         query_usuarios = """
             SELECT 
                 u.id AS id_usuario, 
@@ -1056,7 +1058,7 @@ def panel_administracion_firmas(conn):
                 u.rol, 
                 u.cliente_id, 
                 c.nombre_empresa AS empresa_asignada, 
-                c.rif 
+                c.db_nombre AS base_de_datos 
             FROM control_central.usuarios u 
             LEFT JOIN control_central.clientes c ON u.cliente_id = c.id
         """
