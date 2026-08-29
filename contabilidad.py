@@ -1,4 +1,4 @@
-# contabilidad.py
+#contabilidad.py
 import os
 import streamlit as st
 import pymysql
@@ -6804,10 +6804,11 @@ def gestionar_sidebar():
                             "SELECT * FROM clientes"
                         ]
                     elif 'admin_firma' in user_rol:
-                        # El administrador de firma ve sus clientes asociados por firma_id o su propio registro
-                        id_firma_actual = st.session_state.get('cliente_id')
+                        # El administrador de firma ve su propio registro de firma por ahora
+                        id_firma_actual = st.session_state.get('cliente_id', 0)
                         queries_a_probar = [
-                            f"SELECT * FROM control_central.clientes WHERE id = {id_firma_actual} OR firma_id = {id_firma_actual}"
+                            f"SELECT * FROM control_central.clientes WHERE id = {id_firma_actual}",
+                            "SELECT * FROM control_central.clientes"
                         ]
                     else:
                         queries_a_probar = [
