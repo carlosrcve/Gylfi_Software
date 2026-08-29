@@ -796,60 +796,56 @@ def panel_gestion_clientes(conn):
 
 
 
-import bcrypt
-import streamlit as st
-
 def panel_administracion(conn):
-    """Interfaz 1: Tu panel maestro de Superusuario (Control Total)"""
-    st.header("⚙️ Gestión de Usuarios y Accesos (Superusuario)")
+    st.header("⚙️ Gestión de Clientes, Usuarios y Accesos")
     
-    # ---------------------------------------------------------
-    # 0. GESTIÓN GENERAL DE FIRMAS Y SUS CLIENTES
-    # ---------------------------------------------------------
-    with st.expander("🏢 Gestión de Firmas y Sus Clientes", expanded=False):
-        st.info("Registra aquí los datos de las firmas de contabilidad y las bases de datos de sus clientes.")
+    # -------------------------------------------------------------------------
+    # FRAME 1: GESTIÓN DE EMPRESAS / CLIENTES (Base de Datos Central)
+    # -------------------------------------------------------------------------
+    with st.expander("🏢 Frame 1: Registrar y Gestionar Empresas / Clientes", expanded=False):
+        st.info("Crea aquí las empresas o clientes que formarán parte del sistema central.")
         
-        with st.form("registro_firma_cliente"):
-            col_f1, col_f2 = st.columns(2)
-            with col_f1:
-                nombre_empresa = st.text_input("Nombre de la Empresa o Firma", help="Ej: King Driver, C.A. o Firma Contable Externa")
+        with st.form("registro_empresa_cliente"):
+            col_e1, col_e2 = st.columns(2)
+            with col_e1:
+                nombre_empresa = st.text_input("Nombre de la Empresa o Firma", help="Ej: King Driver, C.A.")
                 rif = st.text_input("RIF", help="Ej: J-12345678-9")
-            with col_f2:
-                db_nombre = st.text_input("Nombre de la Base de Datos", help="Ej: kingdirver_ca")
+            with col_e2:
+                db_nombre = st.text_input("Nombre de la Base de Datos", help="Ej: kingdriver_ca")
                 tipo_contribuyente = st.selectbox("Tipo de Contribuyente", ["Contribuyente Ordinario", "Contribuyente Especial"])
             
-            btn_guardar_firma = st.form_submit_button("Guardar Empresa / Firma en Base de Datos")
+            btn_guardar_empresa = st.form_submit_button("Guardar Empresa en Base de Datos")
             
-            if btn_guardar_firma:
+            if btn_guardar_empresa:
                 if not nombre_empresa or not rif or not db_nombre:
                     st.error("❌ Todos los campos son obligatorios para registrar la empresa.")
                 else:
                     try:
-                        cursor_f = conn.cursor()
-                        sql_f = """INSERT INTO control_central.clientes (nombre_empresa, rif, db_nombre, estado, tipo_contribuyente) 
+                        cursor_e = conn.cursor()
+                        sql_e = """INSERT INTO control_central.clientes (nombre_empresa, rif, db_nombre, estado, tipo_contribuyente) 
                                    VALUES (%s, %s, %s, 'Activo', %s)"""
-                        cursor_f.execute(sql_f, (nombre_empresa, rif, db_nombre, tipo_contribuyente))
+                        cursor_e.execute(sql_e, (nombre_empresa, rif, db_nombre, tipo_contribuyente))
                         conn.commit()
-                        cursor_f.close()
-                        st.success(f"✅ Empresa '{nombre_empresa}' registrada correctamente en el sistema.")
+                        cursor_e.close()
+                        st.success(f"✅ Empresa '{nombre_empresa}' registrada correctamente.")
                         st.rerun()
                     except Exception as e:
-                        st.error(f"❌ Error al registrar la firma/empresa: {e}")
+                        st.error(f"❌ Error al registrar la empresa: {e}")
         
-        # Tabla visualizadora de clientes/firmas actuales
-        st.subheader("📋 Listado de Empresas / Firmas en el Sistema")
+        # Tabla de empresas/clientes creados
+        st.subheader("📋 Empresas Registradas en el Sistema")
         try:
-            df_firmas_view = ejecutar_consulta("SELECT id, nombre_empresa, rif, db_nombre, estado, tipo_contribuyente FROM control_central.clientes", conn)
-            st.dataframe(df_firmas_view, width='stretch')
+            df_empresas = ejecutar_consulta("SELECT id, nombre_empresa, rif, db_nombre, estado, tipo_contribuyente FROM control_central.clientes", conn)
+            st.dataframe(df_empresas, width='stretch')
         except Exception:
             st.info("No hay empresas registradas todavía.")
 
     st.divider()
 
-    # ---------------------------------------------------------
-    # 1. FORMULARIO ORIGINAL DE REGISTRO DE USUARIOS
-    # ---------------------------------------------------------
-    with st.expander("➕ Registrar Nuevo Usuario del Sistema", expanded=True):
+    # -------------------------------------------------------------------------
+    # FRAME 2: GESTIÓN DE USUARIOS DEL SISTEMA (Admin, Admin_Firma y Clientes)
+    # -------------------------------------------------------------------------
+    with st.expander("➕ Frame 2: Registrar Nuevo Usuario del Sistema", expanded=True):
         with st.form("registro_usuario"):
             col1, col2 = st.columns(2)
             
@@ -858,6 +854,7 @@ def panel_administracion(conn):
                 nueva_p = st.text_input("Contraseña", type="password")
             
             with col2:
+                # Incluimos 'admin_firma' para que puedas asignarlo aquí junto a 'admin' y 'cliente'
                 rol = st.selectbox("Rol del Sistema", ["admin", "admin_firma", "cliente"])
                 
                 # Buscamos las empresas disponibles para asociar
@@ -866,7 +863,7 @@ def panel_administracion(conn):
                     df_cli = ejecutar_consulta(query_cli, conn)
                     opciones_clientes = {row['nombre_empresa']: row['id'] for _, row in df_cli.iterrows()}
                     
-                    nombre_sel = st.selectbox("Asociar a Empresa (Solo para rol cliente)", 
+                    nombre_sel = st.selectbox("Asociar a Empresa (Opcional)", 
                                              ["Ninguna / Acceso Total"] + list(opciones_clientes.keys()))
                 except Exception as e:
                     st.warning(f"⚠️ No se pudieron cargar las empresas de la base de datos: {e}")
@@ -883,9 +880,10 @@ def panel_administracion(conn):
                         salt = bcrypt.gensalt()
                         hash_cifrado = bcrypt.hashpw(nueva_p.encode('utf-8'), salt)
                         
-                        c_id = opciones_clientes.get(nombre_sel) if rol == "cliente" and nombre_sel != "Ninguna / Acceso Total" else None
+                        c_id = opciones_clientes.get(nombre_sel) if nombre_sel != "Ninguna / Acceso Total" else None
                         
                         cursor = conn.cursor()
+                        # Nota: Asegúrate de que tu tabla se llame 'control_central.usuarios' o simplemente 'usuarios' según tu entorno
                         sql = """INSERT INTO control_central.usuarios (usuario, clave_hash, rol, cliente_id) 
                                  VALUES (%s, %s, %s, %s)"""
                         
@@ -893,7 +891,7 @@ def panel_administracion(conn):
                         conn.commit()
                         cursor.close()
                         
-                        st.success(f"✅ Usuario '{nuevo_u}' registrado con seguridad profesional.")
+                        st.success(f"✅ Usuario '{nuevo_u}' ({rol}) registrado con seguridad profesional.")
                         st.balloons()
                     except Exception as e:
                         st.error(f"❌ Error al registrar: Probablemente el usuario ya existe. ({e})")
@@ -928,122 +926,6 @@ def panel_administracion(conn):
             st.info("No se han detectado interacciones todavía.")
     except Exception as e:
         st.error(f"Error cargando logs: {e}")
-
-
-def panel_administrador_firma(conn, usuario_actual):
-    """Interfaz 2: Exclusiva y gemela para el Administrador de la Firma"""
-    st.header(f"🏢 Gestión de Cartera de Clientes - Firma de: {usuario_actual}")
-    
-    # ---------------------------------------------------------
-    # 0. FORMULARIO EXCLUSIVO DE REGISTRO DE CLIENTES DE LA FIRMA
-    # ---------------------------------------------------------
-    with st.expander("➕ Registrar Nuevo Cliente / Empresa de la Firma", expanded=True):
-        st.info("Registra aquí los datos y bases de datos de los clientes asociados a tu firma.")
-        
-        with st.form("registro_cliente_firma_exclusivo"):
-            col_f1, col_f2 = st.columns(2)
-            with col_f1:
-                nombre_empresa = st.text_input("Nombre de la Empresa Cliente", help="Ej: Inversiones XYZ, C.A.")
-                rif = st.text_input("RIF de la Empresa", help="Ej: J-87654321-0")
-            with col_f2:
-                db_nombre = st.text_input("Nombre de la Base de Datos", help="Ej: inv_xyz_ca")
-                tipo_contribuyente = st.selectbox("Tipo de Contribuyente", ["Contribuyente Ordinario", "Contribuyente Especial"])
-            
-            btn_guardar_cliente_firma = st.form_submit_button("Guardar Cliente en la Cartera")
-            
-            if btn_guardar_cliente_firma:
-                if not nombre_empresa or not rif or not db_nombre:
-                    st.error("❌ Todos los campos son obligatorios para registrar el cliente.")
-                else:
-                    try:
-                        cursor_cf = conn.cursor()
-                        # Si deseas vincularlos estrictamente al administrador de firma en una columna futura, 
-                        # puedes sumarla aquí. Por ahora inserta en la misma tabla central de clientes.
-                        sql_cf = """INSERT INTO control_central.clientes (nombre_empresa, rif, db_nombre, estado, tipo_contribuyente) 
-                                   VALUES (%s, %s, %s, 'Activo', %s)"""
-                        cursor_cf.execute(sql_cf, (nombre_empresa, rif, db_nombre, tipo_contribuyente))
-                        conn.commit()
-                        cursor_cf.close()
-                        st.success(f"✅ Cliente '{nombre_empresa}' registrado con éxito en tu cartera.")
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"❌ Error al registrar el cliente: {e}")
-        
-        # Tabla visualizadora de la cartera propia de la firma
-        st.subheader("📋 Mis Empresas / Clientes Registrados")
-        try:
-            # Aquí puedes filtrar opcionalmente por los clientes de esta firma si posees la relación
-            query_mis_cli = "SELECT id, nombre_empresa, rif, db_nombre, estado, tipo_contribuyente FROM control_central.clientes"
-            df_mis_cli = ejecutar_consulta(query_mis_cli, conn)
-            st.dataframe(df_mis_cli, width='stretch')
-        except Exception:
-            st.info("No hay clientes registrados en tu cartera todavía.")
-
-    st.divider()
-
-    # ---------------------------------------------------------
-    # 1. FORMULARIO DE ACCESO PARA LOS USUARIOS DE SUS CLIENTES
-    # ---------------------------------------------------------
-    with st.expander("➕ Registrar Usuario Operativo para mis Clientes", expanded=True):
-        with st.form("registro_usuario_cliente_firma"):
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                nuevo_u = st.text_input("Nombre de Usuario", help="Ej: usuario_xyz")
-                nueva_p = st.text_input("Contraseña", type="password")
-            
-            with col2:
-                rol = "cliente" # Por defecto los creados por la firma son rol cliente de su empresa
-                st.info("Rol asignado automáticamente: **cliente**")
-                
-                # Buscamos las empresas disponibles para asociar este usuario operativo
-                try:
-                    query_cli_f = "SELECT id, nombre_empresa FROM control_central.clientes"
-                    df_cli_f = ejecutar_consulta(query_cli_f, conn)
-                    opciones_cli_f = {row['nombre_empresa']: row['id'] for _, row in df_cli_f.iterrows()}
-                    
-                    nombre_sel_f = st.selectbox("Asociar a Empresa Cliente", list(opciones_cli_f.keys()))
-                except Exception as e:
-                    st.warning(f"⚠️ No se pudieron cargar las empresas: {e}")
-                    opciones_cli_f = {}
-                    nombre_sel_f = None
-
-            btn_crear_u = st.form_submit_button("Guardar Usuario Cliente")
-            
-            if btn_crear_u:
-                if not nuevo_u or not nueva_p or not nombre_sel_f:
-                    st.error("❌ Todos los campos y la empresa asociada son obligatorios.")
-                else:
-                    try:
-                        salt = bcrypt.gensalt()
-                        hash_cifrado = bcrypt.hashpw(nueva_p.encode('utf-8'), salt)
-                        c_id = opciones_cli_f.get(nombre_sel_f)
-                        
-                        cursor_u = conn.cursor()
-                        sql_u = """INSERT INTO control_central.usuarios (usuario, clave_hash, rol, cliente_id) 
-                                 VALUES (%s, %s, %s, %s)"""
-                        cursor_u.execute(sql_u, (nuevo_u, hash_cifrado.decode('utf-8'), rol, c_id))
-                        conn.commit()
-                        cursor_u.close()
-                        
-                        st.success(f"✅ Usuario cliente '{nuevo_u}' registrado exitosamente.")
-                        st.balloons()
-                    except Exception as e:
-                        st.error(f"❌ Error al registrar: {e}")
-
-    # 2. TABLA DE USUARIOS DE LOS CLIENTES DE LA FIRMA
-    st.subheader("👥 Usuarios de mis Clientes Registrados")
-    try:
-        query_view_f = """
-            SELECT u.usuario, u.rol, c.nombre_empresa as empresa_asignada 
-            FROM control_central.usuarios u
-            JOIN control_central.clientes c ON u.cliente_id = c.id
-            WHERE u.rol = 'cliente'
-        """
-        df_usuarios_f = ejecutar_consulta(query_view_f, conn)
-        st.dataframe(df_usuarios_f, width='stretch')
-    except Exception:
-        st.info("No hay usuarios de clientes registrados todavía.")
 
 
 def registrar_log_automatico(conn, accion, detalles):
