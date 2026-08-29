@@ -795,8 +795,83 @@ def panel_gestion_clientes(conn):
         st.error(f"❌ Error al cargar la lista de empresas: {e}")
 
 
-import streamlit as st
-import bcrypt
+
+def panel_gestion_clientes_firma(conn):
+    st.header("🏢 Gestión de Clientes de la Firma")
+    st.markdown("Administra las empresas clientes que atiende la firma y sus datos fiscales centralizados.")
+    
+    # 1. FORMULARIO DE REGISTRO DE CLIENTE DE LA FIRMA
+    with st.expander("➕ Registrar Nuevo Cliente de la Firma", expanded=False):
+        with st.form("registro_cliente_firma"):
+            col1, col2 = st.columns(2)
+            with col1:
+                nombre_empresa = st.text_input("Nombre del Cliente / Razón Social", help="Ej: Inversiones Globales, C.A.")
+                rif = st.text_input("RIF del Cliente", help="Ej: J-12345678-9")
+            with col2:
+                # Campo de identificación interna o código de cliente para la firma
+                codigo_cliente = st.text_input(
+                    "Código o Referencia Interna", 
+                    help="Ej: CLI-001"
+                )
+                # Selector de Tipo de Contribuyente
+                tipo_contribuyente = st.selectbox(
+                    "Tipo de Contribuyente", 
+                    ["Contribuyente Ordinario", "Contribuyente Especial"]
+                )
+            
+            estado = st.selectbox("Estado Inicial", ["Activo", "Inactivo"])
+            
+            btn_guardar = st.form_submit_button("💾 Guardar Cliente de la Firma")
+            
+            if btn_guardar:
+                if not nombre_empresa or not rif:
+                    st.error("❌ El nombre del cliente y el RIF son obligatorios.")
+                else:
+                    try:
+                        # Guardar el registro en la tabla de clientes de la firma
+                        cursor = conn.cursor()
+                        sql = """
+                            INSERT INTO control_central.clientes (nombre_empresa, rif, db_nombre, tipo_contribuyente, estado) 
+                            VALUES (%s, %s, %s, %s, %s)
+                        """
+                        # Usamos codigo_cliente como referencia en db_nombre o un campo equivalente si aplica
+                        cursor.execute(sql, (nombre_empresa, rif, codigo_cliente, tipo_contribuyente, estado))
+                        conn.commit()
+                        cursor.close()
+                        
+                        st.success(f"✅ ¡Cliente de la firma '{nombre_empresa}' registrado con éxito!")
+                        st.balloons()
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"❌ Error al registrar el cliente: {e}")
+
+    st.divider()
+
+    # 2. TABLA DE CLIENTES DE LA FIRMA REGISTRADOS
+    st.subheader("📋 Listado de Clientes de la Firma")
+    
+    try:
+        query_view = "SELECT id, nombre_empresa, rif, db_nombre, tipo_contribuyente, estado FROM control_central.clientes"
+        df_clientes = ejecutar_consulta(query_view, conn)
+        
+        if df_clientes is not None and not df_clientes.empty:
+            st.dataframe(
+                df_clientes, 
+                use_container_width=True,
+                column_config={
+                    "id": "ID",
+                    "nombre_empresa": st.column_config.TextColumn("Razón Social"),
+                    "rif": st.column_config.TextColumn("RIF"),
+                    "db_nombre": st.column_config.TextColumn("Referencia / Código"),
+                    "tipo_contribuyente": st.column_config.SelectboxColumn("Tipo de Contribuyente", options=["Contribuyente Ordinario", "Contribuyente Especial"]),
+                    "estado": st.column_config.SelectboxColumn("Estado", options=["Activo", "Inactivo"])
+                }
+            )
+        else:
+            st.info("ℹ️ No hay clientes de la firma registrados todavía en el sistema.")
+    except Exception as e:
+        st.error(f"❌ Error al cargar la lista de clientes de la firma: {e}")
+
 
 def panel_administracion(conn):
     st.header("⚙️ Gestión de Usuarios y Accesos")
@@ -6645,7 +6720,8 @@ def gestionar_sidebar():
                     "📊 Auditoría Contable", 
                     "⚙️ Gestión de Usuarios", 
                     "🏢 Gestión de Firmas y Accesos", 
-                    "🏢 Gestión de Empresas"
+                    "🏢 Gestión de Empresas",
+                    "🏢 Gestión de Clientes de la Firma"
                 ], 
                 key="menu_nav"
             )
@@ -6654,7 +6730,8 @@ def gestionar_sidebar():
                 "Navegación", 
                 [
                     "📊 Auditoría Contable", 
-                    "🏢 Gestión de Firmas y Accesos"
+                    "🏢 Gestión de Firmas y Accesos",
+                    "🏢 Gestión de Clientes de la Firma"
                 ], 
                 key="menu_nav_firma"
             )
@@ -6779,7 +6856,6 @@ def gestionar_sidebar():
 
 
 # 0. Primero validamos si la sesión expiró por tiempo
-# 0. Primero validamos si la sesión expiró por tiempo
 verificar_inactividad()
 
 if 'logueado' not in st.session_state or not st.session_state['logueado']:
@@ -6798,7 +6874,8 @@ else:
 es_modulo_admin = menu_lateral in [
     "⚙️ Gestión de Usuarios", 
     "🏢 Gestión de Firmas y Accesos", 
-    "🏢 Gestión de Empresas"
+    "🏢 Gestión de Empresas",
+    "🏢 Gestión de Clientes de la Firma"
 ]
 
 if es_modulo_admin:
@@ -6811,6 +6888,8 @@ if es_modulo_admin:
                 panel_administracion_firmas(conn)
             elif menu_lateral == "🏢 Gestión de Empresas":
                 panel_gestion_clientes(conn)
+            elif menu_lateral == "🏢 Gestión de Clientes de la Firma":
+                panel_gestion_clientes_firma(conn)
             conn.close()
         else:
             st.error("🔌 No se pudo establecer conexión con el servidor MySQL.")
@@ -6819,7 +6898,6 @@ if es_modulo_admin:
     
     # Detenemos para que no renderice el panel de auditoría contable por debajo
     st.stop()
-
 
 # --- SI NO ES ADMIN, CONTINUAMOS CON EL DASHBOARD CONTABLE ---
 # Sacamos los datos de la sesión
