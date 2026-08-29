@@ -6806,11 +6806,9 @@ def gestionar_sidebar():
                     elif 'admin_firma' in user_rol:
                         id_firma_actual = st.session_state.get('cliente_id', 0)
                         
-                        # Consulta dinámica: Trae su propio registro y cualquier cliente 
-                        # que serelacione de forma automática (por ejemplo, si agregas un campo 
-                        # o si usamos una regla general para los 120 clientes)
                         queries_a_probar = [
-                            f"SELECT * FROM control_central.clientes WHERE id = {id_firma_actual} OR id IN (SELECT cliente_id FROM control_central.usuarios WHERE rol LIKE '%{user_rol}%')"
+                            # Busca su propia empresa y cualquier otra asociada a su rol exacto de firma
+                            f"SELECT * FROM control_central.clientes WHERE id = {id_firma_actual} OR id IN (SELECT cliente_id FROM control_central.usuarios WHERE rol = '{user_rol}')"
                         ]
                     else:
                         queries_a_probar = [
