@@ -6873,60 +6873,24 @@ elif not st.session_state.get('bienvenida_completada', False):
     st.stop()
 
 else:
-    # Capturamos la opción seleccionada en el menú lateral de la barra lateral
     menu_lateral = gestionar_sidebar()
 
-# --- LÓGICA DE NAVEGACIÓN Y SEGURIDAD CENTRALIZADA ---
-rol_actual = str(st.session_state.get('rol', '')).lower()
+# --- LÓGICA DE NAVEGACIÓN ---
+# Incluimos los módulos de gestión de la firma en la bandera de administración
+es_modulo_admin = menu_lateral in [
+    "⚙️ Gestión de Usuarios", 
+    "🏢 Gestión de Firmas y Accesos", 
+    "🏢 Gestión de Empresas", 
+    "🏢 Gestión de Clientes de la Firma"
+]
 
-# Definimos qué módulos son accesibles según el rol del usuario actual (soportando sufijos numéricos)
-if rol_actual == 'admin':
-    # Administrador Principal / Dueño del Software
-    modulos_permitidos = [
-        "🏠 Inicio",
-        "📊 Auditoría Contable",
-        "⚙️ Gestión de Usuarios", 
-        "🏢 Gestión de Firmas y Accesos", 
-        "🏢 Gestión de Empresas",
-        "🏢 Gestión de Clientes de la Firma"
-    ]
-elif 'admin_firma' in rol_actual:
-    # Administrador de Firma (ej. Óscar Mendoza con rol admin_firma_1)
-    modulos_permitidos = [
-        "🏠 Inicio",
-        "📊 Auditoría Contable",
-        "🏢 Gestión de Firmas y Accesos",
-        "🏢 Gestión de Clientes de la Firma"
-    ]
-else:
-    # Usuario normal / Cliente final
-    modulos_permitidos = [
-        "🏠 Inicio",
-        "📊 Auditoría Contable"
-    ]
-
-# Validamos si el usuario actual tiene permiso para estar en el menú seleccionado
-if menu_lateral not in modulos_permitidos:
-    st.warning("⚠️ No tienes permisos para acceder a este módulo.")
-    st.stop()
-
-# Manejo de pantallas según la selección del menú lateral
-if menu_lateral == "🏠 Inicio":
-    st.info(f"🏠 Bienvenido al sistema central de Gylfi Software. Usuario actual: {st.session_state.get('nombre_usuario', 'Usuario')}")
-
-elif menu_lateral == "📊 Auditoría Contable":
-    # Aquí dejas tu código o función que pinta el dashboard principal de auditoría contable
-    st.info(f"Bienvenido al panel de Auditoría Contable. Empresa activa: {st.session_state.get('CLIENTE_NOMBRE', 'Ninguna')}")
-    # panel_auditoria_contable(conn) <- Coloca aquí tu función de auditoría si la tienes en archivo externo
-
-else:
-    # Módulos administrativos que requieren conexión a la central
+if es_modulo_admin:
     try:
-        conn = conectar_db()  # Conexión a la central
+        conn = conectar_db() # Conexión a la central
         if conn:
             if menu_lateral == "⚙️ Gestión de Usuarios":
                 panel_administracion(conn)
-            elif menu_lateral == "🏢 Gestión de Firmas y Accesos":  
+            elif menu_lateral == "🏢 Gestión de Firmas y Accesos":
                 panel_administracion_firmas(conn)
             elif menu_lateral == "🏢 Gestión de Empresas":
                 panel_gestion_clientes(conn)
@@ -6939,6 +6903,7 @@ else:
     except Exception as e:
         st.error(f"Error al acceder a la gestión central: {e}")
     
+    # IMPORTANTE: Aquí sí detenemos, porque ya renderizamos el módulo admin
     st.stop()
 
 # --- SI NO ES ADMIN, O SI ESTAMOS EN EL DASHBOARD CONTABLE ---
