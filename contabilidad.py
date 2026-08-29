@@ -6744,7 +6744,7 @@ def gestionar_sidebar():
                 del st.session_state[key]
             st.rerun()
 
-        # --- Definición de Módulos según el Rol ---
+        # --- Definición de Módulos según el Rol en el Sidebar ---
         if user_rol == 'admin':
             opciones_modulos = [
                 "🏠 Inicio",
@@ -6758,8 +6758,8 @@ def gestionar_sidebar():
             opciones_modulos = [
                 "🏠 Inicio",
                 "📊 Auditoría Contable", 
-                "🏢 Gestión de Firmas y Accesos",
-                "🏢 Gestión de Clientes de la Firma"
+                "🏢 Gestión de Firmas y Accesos",         
+                "🏢 Gestión de Clientes de la Firma"     
             ]
         else:
             opciones_modulos = [
@@ -6859,6 +6859,7 @@ def gestionar_sidebar():
                         st.session_state['cliente_id_seleccionado'] = int(datos_sel['id'])
 
     return menu
+
 
 # 0. Primero validamos si la sesión expiró por tiempo
 verificar_inactividad()
