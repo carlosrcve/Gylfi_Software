@@ -6783,7 +6783,14 @@ else:
 
 # --- LÓGICA DE NAVEGACIÓN ---
 # Usamos una bandera para saber si entramos a un módulo exclusivo de admin
-es_modulo_admin = menu_lateral in ["⚙️ Gestión de Usuarios", "🏢 Gestión de Firmas y Accesos", "🏢 Gestión de Empresas"]
+es_modulo_admin = menu_lateral = st.sidebar.selectbox(
+    "Menú de Navegación",
+    [
+        "⚙️ Gestión de Usuarios",
+        "🏢 Gestión de Firmas y Accesos",
+        "🏢 Gestión de Empresas"
+    ]
+)
 
 if es_modulo_admin:
     try:
