@@ -1,4 +1,4 @@
-# contabilidad.py
+#contabilidad.py
 import os
 import streamlit as st
 import pymysql
@@ -808,7 +808,7 @@ def panel_administracion(conn):
                 nueva_p = st.text_input("Contraseña", type="password")
             
             with col2:
-                rol = st.selectbox("Rol del Sistema", ["admin", "cliente"])
+                rol = st.selectbox("Rol del Sistema", ["admin", "cliente","admin_firma"])
                 
                 # Buscamos las empresas disponibles para asociar
                 try:
