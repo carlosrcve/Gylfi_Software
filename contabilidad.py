@@ -797,55 +797,10 @@ def panel_gestion_clientes(conn):
 
 
 def panel_administracion(conn):
-    st.header("⚙️ Gestión de Clientes, Usuarios y Accesos")
+    st.header("⚙️ Gestión de Usuarios y Accesos")
     
-    # -------------------------------------------------------------------------
-    # FRAME 1: GESTIÓN DE EMPRESAS / CLIENTES (Base de Datos Central)
-    # -------------------------------------------------------------------------
-    with st.expander("🏢 Frame 1: Registrar y Gestionar Empresas / Clientes", expanded=False):
-        st.info("Crea aquí las empresas o clientes que formarán parte del sistema central.")
-        
-        with st.form("registro_empresa_cliente"):
-            col_e1, col_e2 = st.columns(2)
-            with col_e1:
-                nombre_empresa = st.text_input("Nombre de la Empresa o Firma", help="Ej: King Driver, C.A.")
-                rif = st.text_input("RIF", help="Ej: J-12345678-9")
-            with col_e2:
-                db_nombre = st.text_input("Nombre de la Base de Datos", help="Ej: kingdriver_ca")
-                tipo_contribuyente = st.selectbox("Tipo de Contribuyente", ["Contribuyente Ordinario", "Contribuyente Especial"])
-            
-            btn_guardar_empresa = st.form_submit_button("Guardar Empresa en Base de Datos")
-            
-            if btn_guardar_empresa:
-                if not nombre_empresa or not rif or not db_nombre:
-                    st.error("❌ Todos los campos son obligatorios para registrar la empresa.")
-                else:
-                    try:
-                        cursor_e = conn.cursor()
-                        sql_e = """INSERT INTO control_central.clientes (nombre_empresa, rif, db_nombre, estado, tipo_contribuyente) 
-                                   VALUES (%s, %s, %s, 'Activo', %s)"""
-                        cursor_e.execute(sql_e, (nombre_empresa, rif, db_nombre, tipo_contribuyente))
-                        conn.commit()
-                        cursor_e.close()
-                        st.success(f"✅ Empresa '{nombre_empresa}' registrada correctamente.")
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"❌ Error al registrar la empresa: {e}")
-        
-        # Tabla de empresas/clientes creados
-        st.subheader("📋 Empresas Registradas en el Sistema")
-        try:
-            df_empresas = ejecutar_consulta("SELECT id, nombre_empresa, rif, db_nombre, estado, tipo_contribuyente FROM control_central.clientes", conn)
-            st.dataframe(df_empresas, width='stretch')
-        except Exception:
-            st.info("No hay empresas registradas todavía.")
-
-    st.divider()
-
-    # -------------------------------------------------------------------------
-    # FRAME 2: GESTIÓN DE USUARIOS DEL SISTEMA (Admin, Admin_Firma y Clientes)
-    # -------------------------------------------------------------------------
-    with st.expander("➕ Frame 2: Registrar Nuevo Usuario del Sistema", expanded=True):
+    # 1. FORMULARIO DE REGISTRO
+    with st.expander("➕ Registrar Nuevo Usuario del Sistema", expanded=True):
         with st.form("registro_usuario"):
             col1, col2 = st.columns(2)
             
@@ -854,8 +809,7 @@ def panel_administracion(conn):
                 nueva_p = st.text_input("Contraseña", type="password")
             
             with col2:
-                # Incluimos 'admin_firma' para que puedas asignarlo aquí junto a 'admin' y 'cliente'
-                rol = st.selectbox("Rol del Sistema", ["admin", "admin_firma", "cliente"])
+                rol = st.selectbox("Rol del Sistema", ["admin", "cliente"])
                 
                 # Buscamos las empresas disponibles para asociar
                 try:
@@ -863,12 +817,11 @@ def panel_administracion(conn):
                     df_cli = ejecutar_consulta(query_cli, conn)
                     opciones_clientes = {row['nombre_empresa']: row['id'] for _, row in df_cli.iterrows()}
                     
-                    nombre_sel = st.selectbox("Asociar a Empresa (Opcional)", 
-                                             ["Ninguna / Acceso Total"] + list(opciones_clientes.keys()))
+                    nombre_sel = st.selectbox("Asociar a Empresa (Solo para rol cliente)", 
+                                              ["Ninguna / Acceso Total"] + list(opciones_clientes.keys()))
                 except Exception as e:
                     st.warning(f"⚠️ No se pudieron cargar las empresas de la base de datos: {e}")
                     opciones_clientes = {}
-                    nombre_sel = "Ninguna / Acceso Total"
 
             btn_crear = st.form_submit_button("Guardar Usuario en Base de Datos")
             
@@ -880,18 +833,17 @@ def panel_administracion(conn):
                         salt = bcrypt.gensalt()
                         hash_cifrado = bcrypt.hashpw(nueva_p.encode('utf-8'), salt)
                         
-                        c_id = opciones_clientes.get(nombre_sel) if nombre_sel != "Ninguna / Acceso Total" else None
+                        c_id = opciones_clientes.get(nombre_sel) if rol == "cliente" and nombre_sel != "Ninguna / Acceso Total" else None
                         
                         cursor = conn.cursor()
-                        # Nota: Asegúrate de que tu tabla se llame 'control_central.usuarios' o simplemente 'usuarios' según tu entorno
-                        sql = """INSERT INTO control_central.usuarios (usuario, clave_hash, rol, cliente_id) 
+                        sql = """INSERT INTO usuarios (usuario, clave_hash, rol, cliente_id) 
                                  VALUES (%s, %s, %s, %s)"""
                         
                         cursor.execute(sql, (nuevo_u, hash_cifrado.decode('utf-8'), rol, c_id))
                         conn.commit()
                         cursor.close()
                         
-                        st.success(f"✅ Usuario '{nuevo_u}' ({rol}) registrado con seguridad profesional.")
+                        st.success(f"✅ Usuario '{nuevo_u}' registrado con seguridad profesional.")
                         st.balloons()
                     except Exception as e:
                         st.error(f"❌ Error al registrar: Probablemente el usuario ya existe. ({e})")
