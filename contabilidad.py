@@ -6940,14 +6940,13 @@ else:
     
     st.stop()
 
-# --- SI NO ES ADMIN, CONTINUAMOS CON EL DASHBOARD CONTABLE ---
-# Sacamos los datos de la sesión
+# --- SI NO ES ADMIN, O SI ESTAMOS EN EL DASHBOARD CONTABLE ---
 EMPRESA = st.session_state.get('CLIENTE_NOMBRE', "Empresa Seleccionada")
 RIF = st.session_state.get('rif_empresa_seleccionada', "J-00000000-0")
 DATOS_EMPRESA = {"nombre": EMPRESA, "rif": RIF}
 
 if menu_lateral == "📊 Auditoría Contable":
-    # Tu lógica de módulos existente...
+    # Tu lógica de módulos existente en el sidebar...
     with st.sidebar:
         st.divider()
         st.subheader("Módulos")
@@ -6961,11 +6960,11 @@ if menu_lateral == "📊 Auditoría Contable":
         if "PEDACITO" in str(nombre_sel).upper() and "CIELO" in str(nombre_sel).upper():
             modulos_disponibles.append("🧁 Inventarios")
 
-        opcion_menu = st.selectbox("📂 SELECCIONE UN MÓDULO", modulos_disponibles)
+        opcion_menu = st.selectbox("📂 SELECCIONE UN MÓDULO", modulos_disponibles, key="opcion_menu_auditoria_sb")
         st.session_state['opcion_menu_auditoria'] = opcion_menu
 
         if opcion_menu == "📝 Asientos Contables":
-            sub_opcion = st.radio("Acciones:", ["Subir Datos", "Conciliación Bancaria", "Consultar Comprobante", "Consultar Saldos Iniciales", "Consultar Cierre Contable","Gestor Documental",], key="sub_asientos")
+            sub_opcion = st.radio("Acciones:", ["Subir Datos", "Conciliación Bancaria", "Consultar Comprobante", "Consultar Saldos Iniciales", "Consultar Cierre Contable","Gestor Documental"], key="sub_asientos")
         elif opcion_menu == "📊 Estados Financieros":
             st.markdown("---")
             sub_opcion = st.radio("Reportes Financieros:", ["Balance de Comprobación", "Balance General", "Estado de Resultados"], key="sub_estados")
@@ -6986,15 +6985,17 @@ if menu_lateral == "📊 Auditoría Contable":
         st.number_input("Año", step=1, min_value=2026, max_value=2030, key="año_seleccionado")
         st.selectbox("Mes", meses_lista, key="mes_seleccionado")
 
-
-
-
 # Verifica si el df_acc o el df_gastos tienen filas antes de graficar
 if 'df_gastos_c6' in locals() and df_gastos_c6.empty:
     st.sidebar.warning("⚠️ El DataFrame de Gastos C6 está vacío.")
 
-if "🏠 Inicio" in opcion_menu:
-    # --- INYECCIÓN DE CSS ---
+# Obtenemos la opción activa de forma segura desde la sesión
+opcion_activa = st.session_state.get('opcion_menu_auditoria', "🏠 Inicio")
+
+if "🏠 Inicio" in opcion_activa:
+    # --- INYECCIÓN DE CSS Y PANTALLA DE INICIO DE AUDITORÍA ---
+    st.markdown("### 🏠 Panel Principal de Auditoría Contable")
+    st.info(f"Empresa en auditoría: **{EMPRESA}** (RIF: {RIF})")
     st.markdown("""<style>
             .block-container { max-width: 100% !important; padding-left: 3rem !important; padding-right: 3rem !important; }
             div[data-testid="stVerticalBlock"] div[data-testid="stHorizontalBlock"] > div { flex: 1 !important; min-width: 0 !important; }
