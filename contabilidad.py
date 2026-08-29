@@ -6783,7 +6783,7 @@ else:
 
 # --- LÓGICA DE NAVEGACIÓN ---
 # Usamos una bandera para saber si entramos a un módulo exclusivo de admin
-es_modulo_admin = menu_lateral in ["⚙️ Gestión de Usuarios", "🏢 Gestión de Empresas"]
+es_modulo_admin = menu_lateral in ["⚙️ Gestión de Usuarios", "🏢 Gestión de Firmas y Accesos","🏢 Gestión de Empresas"]
 
 if es_modulo_admin:
     try:
@@ -6791,6 +6791,8 @@ if es_modulo_admin:
         if conn:
             if menu_lateral == "⚙️ Gestión de Usuarios":
                 panel_administracion(conn)
+            elif menu_lateral == "🏢 Gestión de Firmas y Accesos":  # Opción dedicada para el segundo frame
+                panel_administracion_firmas(conn)
             elif menu_lateral == "🏢 Gestión de Empresas":
                 panel_gestion_clientes(conn)
             conn.close()
@@ -6800,7 +6802,7 @@ if es_modulo_admin:
         st.error(f"Error al acceder a la gestión central: {e}")
     
     # IMPORTANTE: Aquí sí detenemos, porque ya renderizamos el módulo admin
-    st.stop() 
+    st.stop()
 
 # --- SI NO ES ADMIN, CONTINUAMOS CON EL DASHBOARD CONTABLE ---
 # Sacamos los datos de la sesión
