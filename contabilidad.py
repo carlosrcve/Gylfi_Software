@@ -3188,11 +3188,8 @@ def obtener_facturas_pendientes(conn, f_desde, f_hasta):
             AND fecha_operacion BETWEEN %s AND %s
         """
         df = ejecutar_consulta(query, conn, params=(f_desde, f_hasta))
+        return df if df is not None else pd.DataFrame()
         
-        if df.empty:
-            st.info(f"ℹ️ No hay facturas pendientes de retención entre {f_desde} y {f_hasta}.")
-            
-        return df
     except Exception as e:
         st.error(f"Error al cargar facturas pendientes: {e}")
         return pd.DataFrame()
@@ -3370,10 +3367,10 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
 
 
 
-# --- 2. VALIDACIÓN DE CONEXIÓN Y CARGA ---
+    # --- 2. VALIDACIÓN DE CONEXIÓN Y CARGA ---
     with tab1:
         st.write("Cargando Generar Nueva...")
-        st.subheader("📝 Generar Nueva Retención")
+        st.subheader("📝 Generar Nueva Retención de IVA")
         db_actual = st.session_state.get("DB_ACTUAL")
 
         if not db_actual:
@@ -3398,20 +3395,33 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
         df_facturas = obtener_facturas_pendientes(conn, f_desde, f_hasta)
 
         if not df_facturas.empty:
-            # Agregamos una columna de checkbox para seleccionar
+            # Aseguramos que la columna de control exista en el DataFrame cargado
             if 'Seleccionar' not in df_facturas.columns:
                 df_facturas.insert(0, "Seleccionar", False)
+
+            # Si tu tabla de base de datos incluye una columna 'retencion_realizada', 
+            # podemos bloquear visualmente esas filas en el editor de Streamlit:
+            column_configs = {
+                "Seleccionar": st.column_config.CheckboxColumn(required=True)
+            }
+            
+            # Si la columna existe en el DF, deshabilitamos la edición en las ya retenidas
+            if 'retencion_realizada' in df_facturas.columns:
+                column_configs["retencion_realizada"] = st.column_config.NumberColumn("Retenida", disabled=True)
 
             # Muestra el editor y captura los cambios
             df_editado = st.data_editor(
                 df_facturas,
-                column_config={"Seleccionar": st.column_config.CheckboxColumn(required=True)},
+                column_config=column_configs,
                 hide_index=True,
-                width="stretch"  # <-- Actualizado de use_container_width=True
+                width="stretch"
             )
 
-            # Filtramos solo las marcadas
-            seleccion = df_editado[df_editado["Seleccionar"] == True]
+            # Filtramos solo las marcadas que NO estén retenidas previamente
+            if 'retencion_realizada' in df_editado.columns:
+                seleccion = df_editado[(df_editado["Seleccionar"] == True) & (df_editado["retencion_realizada"] != 1)]
+            else:
+                seleccion = df_editado[df_editado["Seleccionar"] == True]
             
             if not seleccion.empty:
                 st.session_state['facturas_seleccionadas'] = seleccion
