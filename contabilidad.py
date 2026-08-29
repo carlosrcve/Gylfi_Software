@@ -11921,7 +11921,7 @@ elif opcion_menu == "📚 Libros Fiscales":
         # Bloqueamos el acceso para los contribuyentes ordinarios
         st.warning("⚠️ Este módulo es exclusivo para **Contribuyentes Especiales**.")
         st.info("Si cree que esto es un error, contacte a soporte para actualizar su clasificación fiscal.")
-        
+
 
 # --- USAMOS "IN" PARA QUE NO IMPORTE EL EMOJI QUE PONGAS EN EL SIDEBAR ---
 elif "Proveedores" in opcion_menu:
