@@ -1196,13 +1196,14 @@ def obtener_saldos_acumulados(conexion, fecha_corte, nombre_db):
     if not conexion: 
         return {"activo": 0, "pasivo": 0, "patrimonio": 0}
     
+    # Limpiamos directamente el nombre que viene de la sesión o del selector
     db_segura = str(nombre_db).strip()
     cur = conexion.cursor(pymysql.cursors.DictCursor)
     
     try:
+        # Se conecta de forma limpia a la base de datos que toque (sea admin, firma o cliente final)
         cur.execute(f"USE `{db_segura}`")
         
-        # IMPORTANTE: Se usa LIKE '1%%' con doble porcentaje para que Python no lo confunda con formato
         query = """
             SELECT 
                 COALESCE(SUM(CASE WHEN plan_cuentas LIKE '1%%' THEN (debe - haber) ELSE 0 END), 0) as activo,
