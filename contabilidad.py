@@ -815,9 +815,9 @@ def panel_administracion(conn):
                     help="cliente: Empresa final | admin_firma: Contador con cartera propia | admin: Superusuario global"
                 )
                 
-                # Buscamos las empresas disponibles en control_central
+                # Buscamos los clientes en la tabla real 'clientes' de control_central
                 try:
-                    query_cli = "SELECT id, nombre_empresa FROM control_central.empresas"
+                    query_cli = "SELECT id, nombre_empresa FROM control_central.clientes"
                     df_cli = ejecutar_consulta(query_cli, conn)
                     opciones_clientes = {row['nombre_empresa']: row['id'] for _, row in df_cli.iterrows()}
                 except Exception as e:
@@ -825,7 +825,7 @@ def panel_administracion(conn):
 
                 # Filtro dinámico según el rol
                 if rol == "cliente":
-                    nombre_sel = st.selectbox("Asociar Empresa Directa", ["Seleccione..."] + list(opciones_clientes.keys()))
+                    nombre_sel = st.selectbox("Asociar Cliente Directo", ["Seleccione..."] + list(opciones_clientes.keys()))
                 elif rol == "admin_firma":
                     st.info("💡 Este usuario gestionará una cartera de clientes asignada.")
                     nombre_sel = "Ninguna / Firma Externa"
@@ -859,13 +859,13 @@ def panel_administracion(conn):
                     except Exception as e:
                         st.error(f"❌ Error al registrar: {e}")
 
-    # 2. TABLA DE USUARIOS ACTUALES CON ROLES Y FIRMAS
+    # 2. TABLA DE USUARIOS ACTUALES CON ROLES Y FIRMAS (Apuntando a 'clientes')
     st.subheader("👥 Usuarios y Firmas Registradas en el Ecosistema")
     try:
         query_view = """
-            SELECT u.id, u.usuario, u.rol, c.nombre_empresa as empresa_asignada 
+            SELECT u.id, u.usuario, u.rol, c.nombre_empresa as empresa_asignada, u.db_nombre 
             FROM control_central.usuarios u
-            LEFT JOIN control_central.empresas c ON u.cliente_id = c.id
+            LEFT JOIN control_central.clientes c ON u.cliente_id = c.id
         """
         df_usuarios = ejecutar_consulta(query_view, conn)
         st.dataframe(df_usuarios, width='stretch')
