@@ -878,6 +878,239 @@ def panel_administracion(conn):
     except Exception as e:
         st.error(f"Error cargando logs: {e}")
 
+def panel_gestion_clientes(conn):
+    st.header("🏢 Gestión de Clientes / Empresas")
+    st.markdown("Administra las empresas suscritas al sistema y provisiona nuevas bases de datos en la nube de forma automatizada.")
+    
+    # 1. FORMULARIO DE REGISTRO DE EMPRESA
+    with st.expander("➕ Registrar Nueva Empresa en el Sistema", expanded=False):
+        with st.form("registro_empresa"):
+            col1, col2 = st.columns(2)
+            with col1:
+                nombre_empresa = st.text_input("Nombre de la Empresa (Razón Social)", help="Ej: Inversiones Globales, C.A.")
+                rif = st.text_input("RIF", help="Ej: J-12345678-9")
+            with col2:
+                db_nombre = st.text_input(
+                    "Nombre de la BD (Sin espacios ni caracteres raros)", 
+                    help="Ej: inversiones_globales_ca"
+                )
+                # NUEVO: Selector de Tipo de Contribuyente
+                tipo_contribuyente = st.selectbox(
+                    "Tipo de Contribuyente", 
+                    ["Contribuyente Ordinario", "Contribuyente Especial"]
+                )
+            
+            estado = st.selectbox("Estado Inicial", ["Activo", "Inactivo"])
+            
+            btn_guardar = st.form_submit_button("💾 Crear Nueva Empresa y Base de Datos")
+            
+            if btn_guardar:
+                if not nombre_empresa or not db_nombre:
+                    st.error("❌ El nombre de la empresa y el nombre de la BD son obligatorios.")
+                else:
+                    try:
+                        # A. Guardar el registro principal en la tabla central 'clientes' incluyendo el tipo de contribuyente
+                        cursor = conn.cursor()
+                        sql = """
+                            INSERT INTO control_central.clientes (nombre_empresa, rif, db_nombre, tipo_contribuyente, estado) 
+                            VALUES (%s, %s, %s, %s, %s)
+                        """
+                        cursor.execute(sql, (nombre_empresa, rif, db_nombre, tipo_contribuyente, estado))
+                        conn.commit()
+                        cursor.close()
+                        
+                        # B. Disparar tu función multi-tenant para crear la BD y las tablas físicas en TiDB Cloud
+                        st.info(f"🚀 Provisionando base de datos y tablas para '{db_nombre}' en TiDB Cloud...")
+                        conectar_db(db_nombre) 
+                        
+                        st.success(f"✅ ¡Empresa '{nombre_empresa}' y su base de datos fueron configuradas con éxito!")
+                        st.balloons()
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"❌ Error al crear la empresa: {e}")
+
+    st.divider()
+
+    # --- SECCIÓN DE ADMINISTRACIÓN: GESTIÓN DE CALENDARIO SENIAT ---
+    with st.expander("📅 Cargar / Actualizar Calendario de Contribuyentes Especiales (SENIAT)"):
+        st.markdown("""
+        Sube el archivo oficial (CSV o Excel) con las fechas del calendario de Sujetos Pasivos Especiales. 
+        Esto actualizará las fechas para todos los terminales de RIF y protegerá a las empresas especiales de multas.
+        """)
+        
+        archivo_seniat = st.file_uploader("Selecciona el archivo oficial del SENIAT", type=["csv", "xlsx"], key="upload_seniat_admin")
+        
+        if archivo_seniat is not None:
+            import pandas as pd
+            
+            try:
+                if archivo_seniat.name.endswith('.csv'):
+                    df_seniat = pd.read_csv(archivo_seniat)
+                else:
+                    df_seniat = pd.read_excel(archivo_seniat)
+                    
+                st.write("🔍 **Vista previa del calendario a cargar:**", df_seniat.head())
+                
+                if st.button("🚀 Sincronizar Calendario para todas las Bases de Datos"):
+                    # Extraemos de forma dinámica todas las bases de datos registradas en control_central.clientes
+                    cursor_dbs = conn.cursor()
+                    cursor_dbs.execute("SELECT db_nombre FROM control_central.clientes WHERE tipo_contribuyente = 'Contribuyente Especial'")
+                    empresas_especiales = [row[0] for row in cursor_dbs.fetchall()]
+                    cursor_dbs.close()
+                    
+                    if not empresas_especiales:
+                        st.warning("⚠️ No hay empresas marcadas como 'Contribuyente Especial' en el sistema.")
+                    else:
+                        for db_name in empresas_especiales:
+                            conexion_temp = conectar_db(db_name)
+                            if conexion_temp:
+                                cursor = conexion_temp.cursor()
+                                
+                                # Bucle de inserción o actualización masiva con REPLACE INTO
+                                for _, row in df_seniat.iterrows():
+                                    cursor.execute("""
+                                        REPLACE INTO calendario_fiscal_2026 (impuesto_id, concepto, mes_idx, fecha_vencimiento, terminal_rif)
+                                        VALUES (%s, %s, %s, %s, %s)
+                                    """, (
+                                        row['impuesto_id'], 
+                                        row['concepto'], 
+                                        int(row['mes_idx']), 
+                                        row['fecha_vencimiento'], 
+                                        int(row['terminal_rif'])
+                                    ))
+                                
+                                conexion_temp.commit()
+                                cursor.close()
+                                conexion_temp.close()
+                                
+                        st.success("✅ ¡Calendario del SENIAT sincronizado correctamente para todas las bases de datos de contribuyentes especiales!")
+                    
+            except Exception as e:
+                st.error(f"❌ Error al procesar el archivo del SENIAT: {e}")
+
+    st.divider()
+
+    # 2. TABLA DE EMPRESAS REGISTRADAS
+    st.subheader("📋 Listado de Empresas Registradas")
+    
+    try:
+        # Añadido 'tipo_contribuyente' a la consulta SQL
+        query_view = "SELECT id, nombre_empresa, rif, db_nombre, tipo_contribuyente, estado FROM control_central.clientes"
+        df_clientes = ejecutar_consulta(query_view, conn)
+        
+        if df_clientes is not None and not df_clientes.empty:
+            st.dataframe(
+                df_clientes, 
+                use_container_width=True,
+                column_config={
+                    "id": "ID",
+                    "nombre_empresa": st.column_config.TextColumn("Razón Social"),
+                    "rif": st.column_config.TextColumn("RIF"),
+                    "db_nombre": st.column_config.TextColumn("Base de Datos (TiDB)"),
+                    "tipo_contribuyente": st.column_config.SelectboxColumn("Tipo de Contribuyente", options=["Contribuyente Ordinario", "Contribuyente Especial"]),
+                    "estado": st.column_config.SelectboxColumn("Estado", options=["Activo", "Inactivo"])
+                }
+            )
+        else:
+            st.info("ℹ️ No hay empresas registradas todavía en el sistema.")
+    except Exception as e:
+        st.error(f"❌ Error al cargar la lista de empresas: {e}")
+
+
+
+def panel_gestion_clientes_firma(conn):
+    st.header("🏢 Gestión de Clientes de la Firma")
+    st.markdown("Administra las empresas clientes que atiende la firma y provisiona sus bases de datos en la nube de forma automatizada.")
+    
+    # Capturamos el rol y el ID de la firma actual desde la sesión
+    rol_actual = str(st.session_state.get('rol', '')).lower()
+    id_firma_actual = st.session_state.get('cliente_id')
+    
+    # 1. FORMULARIO DE REGISTRO DE CLIENTE DE LA FIRMA
+    with st.expander("➕ Registrar Nuevo Cliente de la Firma", expanded=False):
+        with st.form("registro_cliente_firma"):
+            col1, col2 = st.columns(2)
+            with col1:
+                nombre_empresa = st.text_input("Nombre del Cliente / Razón Social", help="Ej: Inversiones Globales, C.A.")
+                rif = st.text_input("RIF del Cliente", help="Ej: J-12345678-9")
+            with col2:
+                db_nombre = st.text_input(
+                    "Nombre de la BD (Sin espacios ni caracteres raros)", 
+                    help="Ej: inversiones_globales_ca"
+                )
+                tipo_contribuyente = st.selectbox(
+                    "Tipo de Contribuyente", 
+                    ["Contribuyente Ordinario", "Contribuyente Especial"]
+                )
+            
+            estado = st.selectbox("Estado Inicial", ["Activo", "Inactivo"])
+            
+            btn_guardar = st.form_submit_button("💾 Crear Cliente y Base de Datos")
+            
+            if btn_guardar:
+                if not nombre_empresa or not db_nombre:
+                    st.error("❌ El nombre del cliente y el nombre de la BD son obligatorios.")
+                else:
+                    try:
+                        cursor = conn.cursor()
+                        
+                        # Inserción adaptada para incluir el firma_id del usuario logueado actualmente
+                        sql = """
+                            INSERT INTO control_central.clientes (nombre_empresa, rif, db_nombre, tipo_contribuyente, estado, firma_id) 
+                            VALUES (%s, %s, %s, %s, %s, %s)
+                        """
+                        cursor.execute(sql, (
+                            nombre_empresa, 
+                            rif, 
+                            db_nombre, 
+                            tipo_contribuyente, 
+                            estado, 
+                            id_firma_actual  # <--- Asocia automáticamente el ID de la firma matriz (ej: 420002 de Óscar)
+                        ))
+                        conn.commit()
+                        cursor.close()
+                        
+                        st.info(f"🚀 Provisionando base de datos y tablas para '{db_nombre}' en TiDB Cloud...")
+                        conectar_db(db_nombre)
+                        
+                        st.success(f"✅ ¡Cliente de la firma '{nombre_empresa}' y su base de datos fueron configurados con éxito!")
+                        st.balloons()
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"❌ Error al registrar el cliente: {e}")
+
+    st.divider()
+
+    # 2. TABLA DE CLIENTES DE LA FIRMA REGISTRADOS (CON FILTRO DE SEGURIDAD)
+    st.subheader("📋 Listado de Clientes de la Firma")
+    
+    try:
+        # Aplicamos la misma lógica de aislamiento por roles
+        if rol_actual in ['admin', 'superadmin']:
+            query_view = "SELECT id, nombre_empresa, rif, db_nombre, tipo_contribuyente, estado, firma_id FROM control_central.clientes"
+            df_clientes = ejecutar_consulta(query_view, conn)
+        else:
+            query_view = "SELECT id, nombre_empresa, rif, db_nombre, tipo_contribuyente, estado, firma_id FROM control_central.clientes WHERE id = %s OR firma_id = %s"
+            df_clientes = ejecutar_consulta(query_view, conn, params=(id_firma_actual, id_firma_actual))
+        
+        if df_clientes is not None and not df_clientes.empty:
+            st.dataframe(
+                df_clientes, 
+                use_container_width=True,
+                column_config={
+                    "id": "ID",
+                    "nombre_empresa": st.column_config.TextColumn("Razón Social"),
+                    "rif": st.column_config.TextColumn("RIF"),
+                    "db_nombre": st.column_config.TextColumn("Base de Datos (TiDB)"),
+                    "tipo_contribuyente": st.column_config.SelectboxColumn("Tipo de Contribuyente", options=["Contribuyente Ordinario", "Contribuyente Especial"]),
+                    "estado": st.column_config.SelectboxColumn("Estado", options=["Activo", "Inactivo"]),
+                    "firma_id": st.column_config.NumberColumn("ID Firma Matriz")
+                }
+            )
+        else:
+            st.info("ℹ️ No hay clientes de la firma registrados todavía en el sistema.")
+    except Exception as e:
+        st.error(f"❌ Error al cargar la lista de clientes de la firma: {e}")
 
 def registrar_log_automatico(conn, accion, detalles):
     """Registra automáticamente las interacciones del usuario en la tabla logs_auditoria
@@ -6687,7 +6920,12 @@ else:
 
 # --- LÓGICA DE NAVEGACIÓN ---
 # Usamos una bandera para saber si entramos a un módulo exclusivo de admin
-es_modulo_admin = menu_lateral in ["⚙️ Gestión de Usuarios", "🏢 Gestión de Empresas"]
+es_modulo_admin = menu_lateral in [
+    "⚙️ Gestión de Usuarios", 
+    "🏢 Gestión de Firmas y Accesos", 
+    "🏢 Gestión de Empresas", 
+    "🏢 Gestión de Clientes de la Firma"
+]
 
 if es_modulo_admin:
     try:
@@ -6695,8 +6933,12 @@ if es_modulo_admin:
         if conn:
             if menu_lateral == "⚙️ Gestión de Usuarios":
                 panel_administracion(conn)
+            elif menu_lateral == "🏢 Gestión de Firmas y Accesos":
+                panel_administracion_firmas(conn)
             elif menu_lateral == "🏢 Gestión de Empresas":
                 panel_gestion_clientes(conn)
+            elif menu_lateral == "🏢 Gestión de Clientes de la Firma":
+                panel_gestion_clientes_firma(conn)
             conn.close()
         else:
             st.error("🔌 No se pudo establecer conexión con el servidor MySQL.")
@@ -12083,4 +12325,3 @@ elif "Proveedores" in opcion_menu:
 elif "Inventarios" in opcion_menu:
     # Invocamos el módulo exclusivo pasando la conexión a la base de datos
     modulo_inventario_pedacito_cielo(conn)  
-
