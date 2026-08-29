@@ -961,10 +961,6 @@ def panel_administracion(conn):
 
 
 
-import pandas as pd
-import streamlit as st
-import bcrypt
-
 def panel_administracion_firmas(conn):
     st.header("🏢 Gestión de Usuarios y Accesos del Administrador de Firmas")
     st.markdown("Registra un nuevo usuario y asígnale su rol y empresa correspondiente de forma manual.")
@@ -985,7 +981,6 @@ def panel_administracion_firmas(conn):
                 contrasena = st.text_input("Contraseña", type="password", help="Contraseña de acceso")
             
             with col2:
-                # CAMPO DE ROL MANUAL Y EDITABLE (Ya no está bloqueado)
                 rol_usuario = st.text_input(
                     "Rol del Sistema (Creación Manual)", 
                     value="admin_firma", 
@@ -993,8 +988,11 @@ def panel_administracion_firmas(conn):
                 )
                 
                 # Selector de empresa ya creada
+                lista_nombres = []
                 if not df_empresas.empty and 'nombre_empresa' in df_empresas.columns:
-                    lista_nombres = df_empresas['nombre_empresa'].tolist()
+                    lista_nombres = df_empresas['nombre_empresa'].dropna().tolist()
+                
+                if lista_nombres:
                     empresa_seleccionada = st.selectbox(
                         "Asociar a Empresa Existente", 
                         options=lista_nombres,
@@ -1007,37 +1005,46 @@ def panel_administracion_firmas(conn):
             btn_guardar = st.form_submit_button("💾 Guardar Usuario en Base de Datos")
             
             if btn_guardar:
+                # Notificación visual inmediata al presionar el botón
+                st.toast("⏳ Procesando registro en la base de datos...", icon="🔄")
+                
                 if not nombre_usuario or not contrasena or not rol_usuario:
                     st.error("❌ El nombre de usuario, la contraseña y el rol son obligatorios.")
                 elif not empresa_seleccionada:
                     st.error("❌ Debes seleccionar una empresa para asociar al usuario.")
                 else:
                     try:
-                        # Obtener el ID de la empresa seleccionada
-                        fila_empresa = df_empresas[df_empresas['nombre_empresa'] == empresa_seleccionada]
-                        cliente_id_asociado = int(fila_empresa['id'].values[0])
+                        # Búsqueda segura del ID de la empresa seleccionada
+                        fila_empresa = df_empresas[df_empresas['nombre_empresa'].astype(str).str.strip() == str(empresa_seleccionada).strip()]
                         
-                        # Hashear la contraseña
-                        hashed_password = bcrypt.hashpw(contrasena.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
-                        
-                        cursor = conn.cursor()
-                        sql = """
-                            INSERT INTO control_central.usuarios (usuario, clave_hash, rol, cliente_id) 
-                            VALUES (%s, %s, %s, %s)
-                        """
-                        cursor.execute(sql, (nombre_usuario.strip(), hashed_password, rol_usuario.strip(), cliente_id_asociado))
-                        conn.commit()
-                        cursor.close()
-                        
-                        st.success(f"✅ ¡Usuario '{nombre_usuario}' con rol '{rol_usuario}' asociado correctamente a '{empresa_seleccionada}'!")
-                        st.balloons()
-                        st.rerun()
+                        if fila_empresa.empty:
+                            st.error(f"❌ No se pudo encontrar el ID correspondiente a la empresa '{empresa_seleccionada}'.")
+                        else:
+                            cliente_id_asociado = int(fila_empresa.iloc[0]['id'])
+                            
+                            # Hashear la contraseña
+                            hashed_password = bcrypt.hashpw(contrasena.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+                            
+                            cursor = conn.cursor()
+                            sql = """
+                                INSERT INTO control_central.usuarios (usuario, clave_hash, rol, cliente_id) 
+                                VALUES (%s, %s, %s, %s)
+                            """
+                            cursor.execute(sql, (nombre_usuario.strip(), hashed_password, rol_usuario.strip(), cliente_id_asociado))
+                            conn.commit()
+                            cursor.close()
+                            
+                            # Mensajes de éxito y notificación flotante final
+                            st.toast("¡Usuario guardado con éxito!", icon="✅")
+                            st.success(f"✅ ¡Usuario '{nombre_usuario.strip()}' (Rol: {rol_usuario.strip()}) asociado correctamente a la empresa '{empresa_seleccionada}' (ID: {cliente_id_asociado})!")
+                            st.balloons()
+                            st.rerun()
                     except Exception as e:
-                        st.error(f"❌ Error al registrar el usuario: {e}")
+                        st.error(f"❌ Error crítico al registrar el usuario: {e}")
 
     st.divider()
 
-    # Tabla para visualizar los usuarios registrados
+    # Tabla para visualizar los usuarios registrados y su empresa asociada
     st.subheader("👥 Usuarios y Roles Registrados en el Sistema")
     try:
         query_usuarios = """
