@@ -126,27 +126,6 @@ def conectar_db(nombre_db=None):
         st.session_state.conn = None
         return None
 
-def mostrar_gestion_clientes(conn):
-    st.markdown("### 🏢 Gestión de Clientes de la Firma")
-    st.caption("Administra las empresas clientes que atiende la firma...")
-
-    # 🔑 AQUÍ ES EXACTAMENTE DONDE VA EL CÓDIGO QUE PREGUNTAS:
-    rol_actual = str(st.session_state.get('rol', '')).lower()
-    id_firma_actual = st.session_state.get('cliente_id')
-
-    # Si eres Superadministrador (tú), ves todo
-    if rol_actual in ['admin', 'superadmin']:
-        query_clientes = "SELECT * FROM control_central.clientes"
-    else:
-        # Si eres Administrador de Firma (ej. Óscar Mendoza), solo ves los clientes de su id matriz
-        # (Asegúrate de que tus clientes creados por la firma guarden este id en su columna firma_id o cliente_id)
-        query_clientes = f"SELECT * FROM control_central.clientes WHERE id = {id_firma_actual} OR firma_id = {id_firma_actual}"
-
-    # Ejecutas la consulta con el filtro que le corresponda al usuario actual
-    df_clientes = ejecutar_consulta(query_clientes, conn)
-
-    # Aquí sigues pintando tu tabla y tu formulario de registro normal...
-    st.dataframe(df_clientes, use_container_width=True)
 
 def ejecutar_consulta(query, conn, params=None):
     cursor = None
@@ -821,6 +800,10 @@ def panel_gestion_clientes_firma(conn):
     st.header("🏢 Gestión de Clientes de la Firma")
     st.markdown("Administra las empresas clientes que atiende la firma y provisiona sus bases de datos en la nube de forma automatizada.")
     
+    # Capturamos el rol y el ID de la firma actual desde la sesión
+    rol_actual = str(st.session_state.get('rol', '')).lower()
+    id_firma_actual = st.session_state.get('cliente_id')
+    
     # 1. FORMULARIO DE REGISTRO DE CLIENTE DE LA FIRMA
     with st.expander("➕ Registrar Nuevo Cliente de la Firma", expanded=False):
         with st.form("registro_cliente_firma"):
@@ -829,12 +812,10 @@ def panel_gestion_clientes_firma(conn):
                 nombre_empresa = st.text_input("Nombre del Cliente / Razón Social", help="Ej: Inversiones Globales, C.A.")
                 rif = st.text_input("RIF del Cliente", help="Ej: J-12345678-9")
             with col2:
-                # CAMBIADO: Nombre de la BD en lugar de referencia interna
                 db_nombre = st.text_input(
                     "Nombre de la BD (Sin espacios ni caracteres raros)", 
                     help="Ej: inversiones_globales_ca"
                 )
-                # Selector de Tipo de Contribuyente
                 tipo_contribuyente = st.selectbox(
                     "Tipo de Contribuyente", 
                     ["Contribuyente Ordinario", "Contribuyente Especial"]
@@ -849,8 +830,9 @@ def panel_gestion_clientes_firma(conn):
                     st.error("❌ El nombre del cliente y el nombre de la BD son obligatorios.")
                 else:
                     try:
-                        # A. Guardar el registro en la tabla central de clientes de la firma
                         cursor = conn.cursor()
+                        # Si es un admin de firma creando un cliente, puedes asociarlo opcionalmente usando firma_id
+                        # (Asegúrate de que tu tabla tenga la columna firma_id si deseas asociarlo al creador)
                         sql = """
                             INSERT INTO control_central.clientes (nombre_empresa, rif, db_nombre, tipo_contribuyente, estado) 
                             VALUES (%s, %s, %s, %s, %s)
@@ -859,7 +841,6 @@ def panel_gestion_clientes_firma(conn):
                         conn.commit()
                         cursor.close()
                         
-                        # B. Disparar la función de provisión de la base de datos física en la nube
                         st.info(f"🚀 Provisionando base de datos y tablas para '{db_nombre}' en TiDB Cloud...")
                         conectar_db(db_nombre)
                         
@@ -871,12 +852,17 @@ def panel_gestion_clientes_firma(conn):
 
     st.divider()
 
-    # 2. TABLA DE CLIENTES DE LA FIRMA REGISTRADOS
+    # 2. TABLA DE CLIENTES DE LA FIRMA REGISTRADOS (CON FILTRO DE SEGURIDAD)
     st.subheader("📋 Listado de Clientes de la Firma")
     
     try:
-        query_view = "SELECT id, nombre_empresa, rif, db_nombre, tipo_contribuyente, estado FROM control_central.clientes"
-        df_clientes = ejecutar_consulta(query_view, conn)
+        # Aplicamos la misma lógica de aislamiento por roles
+        if rol_actual in ['admin', 'superadmin']:
+            query_view = "SELECT id, nombre_empresa, rif, db_nombre, tipo_contribuyente, estado FROM control_central.clientes"
+            df_clientes = ejecutar_consulta(query_view, conn)
+        else:
+            query_view = "SELECT id, nombre_empresa, rif, db_nombre, tipo_contribuyente, estado FROM control_central.clientes WHERE id = %s OR firma_id = %s"
+            df_clientes = ejecutar_consulta(query_view, conn, params=(id_firma_actual, id_firma_actual))
         
         if df_clientes is not None and not df_clientes.empty:
             st.dataframe(
@@ -895,6 +881,7 @@ def panel_gestion_clientes_firma(conn):
             st.info("ℹ️ No hay clientes de la firma registrados todavía en el sistema.")
     except Exception as e:
         st.error(f"❌ Error al cargar la lista de clientes de la firma: {e}")
+
 
 def panel_administracion(conn):
     st.header("⚙️ Gestión de Usuarios y Accesos")
@@ -982,11 +969,16 @@ def panel_administracion(conn):
 
 
 
-import pandas as pd
-import streamlit as st
-import bcrypt
 
 def panel_administracion_firmas(conn):
+    # 🔒 Blindaje de seguridad: Solo el Superadministrador puede entrar aquí
+    rol_actual = str(st.session_state.get('rol', '')).lower()
+    if rol_actual not in ['admin', 'superadmin']:
+        st.error("⛔ Acceso denegado. No tienes permisos de Superadministrador para gestionar usuarios y accesos globales.")
+        return  # Corta la ejecución para que no vea nada
+
+    st.header("🏢 Gestión de Usuarios y Accesos del Administrador de Firmas")
+    st.markdown("Registra un nuevo usuario y asígnale su rol y empresa correspondiente de forma manual.")
     st.header("🏢 Gestión de Usuarios y Accesos del Administrador de Firmas")
     st.markdown("Registra un nuevo usuario y asígnale su rol y empresa correspondiente de forma manual.")
     
