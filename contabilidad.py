@@ -11903,9 +11903,9 @@ elif opcion_menu == "📚 Libros Fiscales":
                         )
 
 
-    # Dentro de tu enrutador de vistas o pestañas principales:
+    sub_opcion = st.sidebar.selectbox("Seleccione opción", ["Opciones...", "Comprobante de Retención IVA"])
+
     if sub_opcion == "Comprobante de Retención IVA":
-        
         # 🟢 AQUÍ VA LA VALIDACIÓN
         tipo_usuario = st.session_state.get('tipo_contribuyente', 'Contribuyente Ordinario')
 
