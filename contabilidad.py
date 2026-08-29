@@ -6936,19 +6936,21 @@ else:
 # --- LÓGICA DE NAVEGACIÓN Y SEGURIDAD CENTRALIZADA ---
 rol_actual = str(st.session_state.get('rol', '')).lower()
 
-# Definimos qué módulos son accesibles según el rol del usuario actual
+# Definimos qué módulos son accesibles según el rol del usuario actual (soportando sufijos numéricos)
 if rol_actual == 'admin':
     # Administrador Principal / Dueño del Software
     modulos_permitidos = [
+        "🏠 Inicio",
         "📊 Auditoría Contable",
         "⚙️ Gestión de Usuarios", 
         "🏢 Gestión de Firmas y Accesos", 
         "🏢 Gestión de Empresas",
         "🏢 Gestión de Clientes de la Firma"
     ]
-elif rol_actual == 'admin_firma':
-    # Administrador de Firma (ej. Óscar Mendoza)
+elif 'admin_firma' in rol_actual:
+    # Administrador de Firma (ej. Óscar Mendoza con rol admin_firma_1)
     modulos_permitidos = [
+        "🏠 Inicio",
         "📊 Auditoría Contable",
         "🏢 Gestión de Firmas y Accesos",
         "🏢 Gestión de Clientes de la Firma"
@@ -6956,6 +6958,7 @@ elif rol_actual == 'admin_firma':
 else:
     # Usuario normal / Cliente final
     modulos_permitidos = [
+        "🏠 Inicio",
         "📊 Auditoría Contable"
     ]
 
@@ -6965,7 +6968,10 @@ if menu_lateral not in modulos_permitidos:
     st.stop()
 
 # Manejo de pantallas según la selección del menú lateral
-if menu_lateral == "📊 Auditoría Contable":
+if menu_lateral == "🏠 Inicio":
+    st.info(f"🏠 Bienvenido al sistema central de Gylfi Software. Usuario actual: {st.session_state.get('nombre_usuario', 'Usuario')}")
+
+elif menu_lateral == "📊 Auditoría Contable":
     # Aquí dejas tu código o función que pinta el dashboard principal de auditoría contable
     st.info(f"Bienvenido al panel de Auditoría Contable. Empresa activa: {st.session_state.get('CLIENTE_NOMBRE', 'Ninguna')}")
     # panel_auditoria_contable(conn) <- Coloca aquí tu función de auditoría si la tienes en archivo externo
