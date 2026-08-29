@@ -6618,6 +6618,15 @@ def gestionar_sidebar():
                 """, 
                 unsafe_allow_html=True
             )
+        elif user_rol == 'admin_firma':
+            st.markdown(
+                """
+                <div style="background-color: #1e293b; padding: 10px; border-radius: 8px; text-align: center; margin-bottom: 15px; border: 1px solid #334155;">
+                    <span style="color: #38bdf8; font-weight: bold; font-size: 13px;">🏢 Administrador de Firmas</span>
+                </div>
+                """, 
+                unsafe_allow_html=True
+            )
         else:
             st.markdown(
                 f"""
@@ -6632,20 +6641,38 @@ def gestionar_sidebar():
         st.markdown("---")
         
         # Botón de cerrar sesión
-        if st.sidebar.button("🚪 Cerrar Sesión", key="btn_logout_unico_definitivo"):
+        if st.button("🚪 Cerrar Sesión", key="btn_logout_unico_definitivo"):
             for key in list(st.session_state.keys()):
                 del st.session_state[key]
             st.rerun()
 
-        # --- Navegación ---
+        # --- Navegación limpia y centralizada en el Sidebar ---
         if user_rol == 'admin':
-            menu = st.radio("Navegación", ["📊 Auditoría Contable", "⚙️ Gestión de Usuarios", "🏢 Gestión de Empresas"], key="menu_nav")
+            menu = st.radio(
+                "Navegación", 
+                [
+                    "📊 Auditoría Contable", 
+                    "⚙️ Gestión de Usuarios", 
+                    "🏢 Gestión de Firmas y Accesos", 
+                    "🏢 Gestión de Empresas"
+                ], 
+                key="menu_nav"
+            )
+        elif user_rol == 'admin_firma':
+            menu = st.radio(
+                "Navegación", 
+                [
+                    "📊 Auditoría Contable", 
+                    "🏢 Gestión de Firmas y Accesos"
+                ], 
+                key="menu_nav_firma"
+            )
         else:
             menu = "📊 Auditoría Contable"
 
         st.divider()
 
-        # --- Selección de Empresa ---
+        # --- Selección de Empresa (Solo aplica si estamos en Auditoría u opera global) ---
         if menu == "📊 Auditoría Contable":
             conn_sidebar = conectar_db()
             df_sidebar = pd.DataFrame()
@@ -6718,12 +6745,10 @@ def gestionar_sidebar():
 
             nombres_empresas = df_filtrado['nombre_empresa'].tolist()
 
-            # Mantenemos la selección anterior si ya existía en el session_state
             idx_default = 0
             if 'CLIENTE_NOMBRE' in st.session_state and st.session_state['CLIENTE_NOMBRE'] in nombres_empresas:
                 idx_default = nombres_empresas.index(st.session_state['CLIENTE_NOMBRE'])
 
-            # CAMBIO: Usamos st.selectbox para que el admin pueda elegir la empresa de la lista
             st.markdown(f"**🏢 Selección de Empresa:**")
             nombre_seleccionado = st.selectbox(
                 "📂 SELECCIONE EMPRESA", 
@@ -6734,7 +6759,6 @@ def gestionar_sidebar():
 
             st.session_state['cliente_seleccionado_previo'] = nombre_seleccionado
 
-            # ... (código existente donde obtienes la fila seleccionada)
             fila_seleccionada = df_filtrado[df_filtrado['nombre_empresa'] == nombre_seleccionado]
             if fila_seleccionada.empty:
                 fila_seleccionada = df_filtrado.iloc[[0]]
@@ -6742,19 +6766,15 @@ def gestionar_sidebar():
             datos_sel = fila_seleccionada.iloc[0]
             db_seleccionada = str(datos_sel['db_nombre']).strip()
             
-            # Estas son las variables que el panel principal está buscando:
             st.session_state['DB_ACTUAL'] = db_seleccionada
             st.session_state['db_a_conectar'] = db_seleccionada
             st.session_state['CLIENTE_NOMBRE'] = nombre_seleccionado
             if 'id' in datos_sel:
                 st.session_state['cliente_id_seleccionado'] = int(datos_sel['id'])
 
-            # 🟢 GESTIÓN DEL TIPO DE CONTRIBUYENTE:
-            # Validamos si existe la columna en los datos seleccionados para actualizar el session_state
             if 'tipo_contribuyente' in datos_sel and pd.notna(datos_sel['tipo_contribuyente']):
                 st.session_state['tipo_contribuyente'] = str(datos_sel['tipo_contribuyente']).strip()
             else:
-                # Búsqueda alternativa por si el nombre de la empresa coincide directamente en el dataframe general
                 try:
                     match_contribuyente = df_filtrado.loc[df_filtrado['nombre_empresa'] == nombre_seleccionado, 'tipo_contribuyente']
                     if not match_contribuyente.empty and pd.notna(match_contribuyente.values[0]):
@@ -6768,6 +6788,7 @@ def gestionar_sidebar():
 
 
 # 0. Primero validamos si la sesión expiró por tiempo
+# 0. Primero validamos si la sesión expiró por tiempo
 verificar_inactividad()
 
 if 'logueado' not in st.session_state or not st.session_state['logueado']:
@@ -6779,18 +6800,15 @@ elif not st.session_state.get('bienvenida_completada', False):
     st.stop()
 
 else:
+    # Capturamos la opción seleccionada en el menú lateral de la barra lateral
     menu_lateral = gestionar_sidebar()
 
-# --- LÓGICA DE NAVEGACIÓN ---
-# Usamos una bandera para saber si entramos a un módulo exclusivo de admin
-es_modulo_admin = menu_lateral = st.sidebar.selectbox(
-    "Menú de Navegación",
-    [
-        "⚙️ Gestión de Usuarios",
-        "🏢 Gestión de Firmas y Accesos",
-        "🏢 Gestión de Empresas"
-    ]
-)
+# --- LÓGICA DE NAVEGACIÓN CENTRALIZADA ---
+es_modulo_admin = menu_lateral in [
+    "⚙️ Gestión de Usuarios", 
+    "🏢 Gestión de Firmas y Accesos", 
+    "🏢 Gestión de Empresas"
+]
 
 if es_modulo_admin:
     try:
@@ -6798,7 +6816,7 @@ if es_modulo_admin:
         if conn:
             if menu_lateral == "⚙️ Gestión de Usuarios":
                 panel_administracion(conn)
-            elif menu_lateral == "🏢 Gestión de Firmas y Accesos":  # Opción dedicada para el segundo frame
+            elif menu_lateral == "🏢 Gestión de Firmas y Accesos":  
                 panel_administracion_firmas(conn)
             elif menu_lateral == "🏢 Gestión de Empresas":
                 panel_gestion_clientes(conn)
@@ -6808,8 +6826,9 @@ if es_modulo_admin:
     except Exception as e:
         st.error(f"Error al acceder a la gestión central: {e}")
     
-    # IMPORTANTE: Aquí sí detenemos, porque ya renderizamos el módulo admin
+    # Detenemos para que no renderice el panel de auditoría contable por debajo
     st.stop()
+
 
 # --- SI NO ES ADMIN, CONTINUAMOS CON EL DASHBOARD CONTABLE ---
 # Sacamos los datos de la sesión
