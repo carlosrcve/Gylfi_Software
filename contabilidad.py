@@ -1005,8 +1005,7 @@ def panel_administracion_firmas(conn):
             btn_guardar = st.form_submit_button("💾 Guardar Usuario en Base de Datos")
             
             if btn_guardar:
-                # Notificación visual inmediata al presionar el botón
-                st.toast("⏳ Procesando registro en la base de datos...", icon="🔄")
+                st.toast("⏳ Procesando registro...", icon="🔄")
                 
                 if not nombre_usuario or not contrasena or not rol_usuario:
                     st.error("❌ El nombre de usuario, la contraseña y el rol son obligatorios.")
@@ -1014,13 +1013,16 @@ def panel_administracion_firmas(conn):
                     st.error("❌ Debes seleccionar una empresa para asociar al usuario.")
                 else:
                     try:
-                        # Búsqueda segura del ID de la empresa seleccionada
+                        # Extraer la fila exacta de la empresa seleccionada
                         fila_empresa = df_empresas[df_empresas['nombre_empresa'].astype(str).str.strip() == str(empresa_seleccionada).strip()]
                         
                         if fila_empresa.empty:
-                            st.error(f"❌ No se pudo encontrar el ID correspondiente a la empresa '{empresa_seleccionada}'.")
+                            st.error(f"❌ No se encontró la empresa '{empresa_seleccionada}' en el DataFrame.")
                         else:
+                            # Capturamos el ID real de la empresa (ej: 420002 para Mendoza y Asociados)
                             cliente_id_asociado = int(fila_empresa.iloc[0]['id'])
+                            
+                            st.info(f"🔍 Depuración: Empresa seleccionada: '{empresa_seleccionada}' -> ID obtenido: {cliente_id_asociado}")
                             
                             # Hashear la contraseña
                             hashed_password = bcrypt.hashpw(contrasena.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
@@ -1034,9 +1036,8 @@ def panel_administracion_firmas(conn):
                             conn.commit()
                             cursor.close()
                             
-                            # Mensajes de éxito y notificación flotante final
                             st.toast("¡Usuario guardado con éxito!", icon="✅")
-                            st.success(f"✅ ¡Usuario '{nombre_usuario.strip()}' (Rol: {rol_usuario.strip()}) asociado correctamente a la empresa '{empresa_seleccionada}' (ID: {cliente_id_asociado})!")
+                            st.success(f"✅ ¡Usuario '{nombre_usuario.strip()}' asociado correctamente a '{empresa_seleccionada}' con ID {cliente_id_asociado}!")
                             st.balloons()
                             st.rerun()
                     except Exception as e:
@@ -1047,8 +1048,15 @@ def panel_administracion_firmas(conn):
     # Tabla para visualizar los usuarios registrados y su empresa asociada
     st.subheader("👥 Usuarios y Roles Registrados en el Sistema")
     try:
+        # Consulta SQL optimizada para traer el nombre de la empresa relacionada
         query_usuarios = """
-            SELECT u.id, u.usuario, u.rol, c.nombre_empresa AS empresa_asignada 
+            SELECT 
+                u.id AS id_usuario, 
+                u.usuario, 
+                u.rol, 
+                u.cliente_id, 
+                c.nombre_empresa AS empresa_asignada, 
+                c.rif 
             FROM control_central.usuarios u 
             LEFT JOIN control_central.clientes c ON u.cliente_id = c.id
         """
