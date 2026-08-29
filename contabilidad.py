@@ -126,6 +126,28 @@ def conectar_db(nombre_db=None):
         st.session_state.conn = None
         return None
 
+def mostrar_gestion_clientes(conn):
+    st.markdown("### 🏢 Gestión de Clientes de la Firma")
+    st.caption("Administra las empresas clientes que atiende la firma...")
+
+    # 🔑 AQUÍ ES EXACTAMENTE DONDE VA EL CÓDIGO QUE PREGUNTAS:
+    rol_actual = str(st.session_state.get('rol', '')).lower()
+    id_firma_actual = st.session_state.get('cliente_id')
+
+    # Si eres Superadministrador (tú), ves todo
+    if rol_actual in ['admin', 'superadmin']:
+        query_clientes = "SELECT * FROM control_central.clientes"
+    else:
+        # Si eres Administrador de Firma (ej. Óscar Mendoza), solo ves los clientes de su id matriz
+        # (Asegúrate de que tus clientes creados por la firma guarden este id en su columna firma_id o cliente_id)
+        query_clientes = f"SELECT * FROM control_central.clientes WHERE id = {id_firma_actual} OR firma_id = {id_firma_actual}"
+
+    # Ejecutas la consulta con el filtro que le corresponda al usuario actual
+    df_clientes = ejecutar_consulta(query_clientes, conn)
+
+    # Aquí sigues pintando tu tabla y tu formulario de registro normal...
+    st.dataframe(df_clientes, use_container_width=True)
+
 def ejecutar_consulta(query, conn, params=None):
     cursor = None
     try:
@@ -328,9 +350,9 @@ def login_screen():
             st.info("☁️ **¡Bienvenido a Gylfi Software en la Nube!**")
             st.image("https://cdn-icons-png.flaticon.com/512/5164/5164023.png", width=60)
             st.subheader("Auditoría Inteligente")
-            st.caption("Bienvenido al ecosistema contable de Carlos Rodriguez")
+            st.caption("Bienvenido al ecosistema contable")
             
-            user = st.text_input("Usuario", placeholder="ej: admin_kd", key="user_input")
+            user = st.text_input("Usuario", placeholder="ej: oscar_mendoza", key="user_input")
             password = st.text_input("Contraseña", type="password", placeholder="••••••••", key="pass_input")
             
             if st.button("Ingresar al Portal"):
@@ -338,19 +360,18 @@ def login_screen():
                 res = verificar_usuario(conexion_activa, user, password)
                 
                 if res:
-                    # Se ejecuta la función global al pulsar el botón correctamente
                     play_success_sound()
                     st.toast("¡Acceso Concedido!", icon="🔒")
                     
+                    # Guardamos todas las variables de sesión necesarias
                     st.session_state['logueado'] = True
                     st.session_state['usuario'] = user
                     st.session_state['rol'] = res['rol']
                     st.session_state['user_id'] = res['id']         
                     st.session_state['cliente_id'] = res.get('cliente_id')  
                     
-                    # 🔑 AQUÍ ESTABA EL DETALLE: Guardamos la base de datos del cliente en la sesión
-                    # (Asegúrate de que 'nombre_base_de_datos' coincida con la columna que retorna tu función verificar_usuario)
-                    st.session_state['db_cliente'] = res.get('nombre_base_de_datos') 
+                    # 🔑 CORREGIDO: Usamos 'db_nombre' que es el nombre real de la columna en la tabla usuarios
+                    st.session_state['db_cliente'] = res.get('db_nombre') 
                     
                     st.session_state['bienvenida_completada'] = False
                     
