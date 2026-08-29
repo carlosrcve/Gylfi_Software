@@ -6702,32 +6702,6 @@ def gestionar_sidebar():
     )
 
     with st.sidebar:
-        # --- ESTILOS CSS PARA CORREGIR EL EFECTO BORROSO EN LOS SELECTBOX ---
-        st.markdown(
-            """
-            <style>
-                div[data-baseweb="popover"] div[role="option"] div,
-                div[data-baseweb="popover"] div[role="option"] span,
-                div[data-baseweb="menu"] div,
-                div[data-baseweb="menu"] span {
-                    opacity: 1 !important;
-                    color: #1e293b !important;
-                    font-weight: 600 !important;
-                }
-                div[data-baseweb="popover"] {
-                    background-color: #ffffff !important;
-                    border: 1px solid #cbd5e1 !important;
-                    border-radius: 8px !important;
-                    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1) !important;
-                }
-                div[data-baseweb="popover"] div[role="option"]:hover {
-                    background-color: #f1f5f9 !important;
-                }
-            </style>
-            """,
-            unsafe_allow_html=True
-        )
-
         st.image("https://cdn-icons-png.flaticon.com/512/2645/2645328.png", width=100)
         st.header("Panel de Auditoría")
 
@@ -6742,7 +6716,7 @@ def gestionar_sidebar():
                 """, 
                 unsafe_allow_html=True
             )
-        elif user_rol == 'admin_firma':
+        elif 'admin_firma' in user_rol:
             st.markdown(
                 """
                 <div style="background-color: #1e293b; padding: 10px; border-radius: 8px; text-align: center; margin-bottom: 15px; border: 1px solid #334155;">
@@ -6770,39 +6744,42 @@ def gestionar_sidebar():
                 del st.session_state[key]
             st.rerun()
 
-        # --- Navegación limpia y centralizada en el Sidebar ---
+        # --- Definición de Módulos según el Rol ---
         if user_rol == 'admin':
-            menu = st.radio(
-                "Navegación", 
-                [
-                    "📊 Auditoría Contable", 
-                    "⚙️ Gestión de Usuarios", 
-                    "🏢 Gestión de Firmas y Accesos", 
-                    "🏢 Gestión de Empresas",
-                    "🏢 Gestión de Clientes de la Firma"
-                ], 
-                key="menu_nav"
-            )
-        elif user_rol == 'admin_firma':
-            menu = st.radio(
-                "Navegación", 
-                [
-                    "📊 Auditoría Contable", 
-                    "🏢 Gestión de Firmas y Accesos",
-                    "🏢 Gestión de Clientes de la Firma"
-                ], 
-                key="menu_nav_firma"
-            )
+            opciones_modulos = [
+                "🏠 Inicio",
+                "📊 Auditoría Contable", 
+                "⚙️ Gestión de Usuarios", 
+                "🏢 Gestión de Firmas y Accesos", 
+                "🏢 Gestión de Empresas",
+                "🏢 Gestión de Clientes de la Firma"
+            ]
+        elif 'admin_firma' in user_rol:
+            opciones_modulos = [
+                "🏠 Inicio",
+                "📊 Auditoría Contable", 
+                "🏢 Gestión de Firmas y Accesos",
+                "🏢 Gestión de Clientes de la Firma"
+            ]
         else:
-            menu = "📊 Auditoría Contable"
+            opciones_modulos = [
+                "🏠 Inicio",
+                "📊 Auditoría Contable"
+            ]
+
+        st.markdown("**Módulos**")
+        menu = st.selectbox(
+            "📂 SELECCIONE UN MÓDULO",
+            opciones_modulos,
+            key="selector_modulo_principal"
+        )
 
         st.divider()
 
-        # --- Selección de Empresa (Solo aplica si estamos en Auditoría u opera global) ---
+        # --- Selección de Empresa (Solo si aplica) ---
         if menu == "📊 Auditoría Contable":
             conn_sidebar = conectar_db()
             df_sidebar = pd.DataFrame()
-
             user_limpio = str(nombre_usuario_actual).strip().lower()
 
             if conn_sidebar is not None:
@@ -6817,13 +6794,7 @@ def gestionar_sidebar():
                         pass 
                     cursor_tmp.close()
 
-                    if user_rol == 'admin':
-                        queries_a_probar = [
-                            "SELECT * FROM control_central.clientes",
-                            "SELECT * FROM clientes"
-                        ]
-                    elif user_rol == 'admin_firma':
-                        # El Administrador de Firmas lista los clientes para supervisar/auditar su cartera
+                    if user_rol == 'admin' or 'admin_firma' in user_rol:
                         queries_a_probar = [
                             "SELECT * FROM control_central.clientes",
                             "SELECT * FROM clientes"
@@ -6834,9 +6805,6 @@ def gestionar_sidebar():
                             SELECT c.* FROM control_central.clientes c
                             JOIN control_central.usuarios u ON c.id = u.cliente_id
                             WHERE LOWER(TRIM(u.usuario)) = '{user_limpio}'
-                            """,
-                            f"""
-                            SELECT * FROM control_central.clientes WHERE id = 3
                             """
                         ]
                     
@@ -6848,7 +6816,7 @@ def gestionar_sidebar():
                                 break
                         except Exception:
                             continue
-                except Exception as e:
+                except Exception:
                     pass
                 finally:
                     try:
@@ -6857,64 +6825,38 @@ def gestionar_sidebar():
                     except:
                         pass
 
-            # --- RESPALDO OBLIGATORIO PARA ALIX ---
-            if df_sidebar.empty and user_limpio == 'alix_maria':
-                df_sidebar = pd.DataFrame([{
-                    'id': 3,
-                    'nombre_empresa': 'Distribuidora Rishon Leztion, C.A.',
-                    'rif': 'J-XXXXXXXX-X',
-                    'db_nombre': 'rishon_letzion_ca'
-                }])
-
             if not df_sidebar.empty:
                 df_sidebar = df_sidebar.fillna("")
 
             df_filtrado = df_sidebar
 
-            if user_rol != 'admin' and user_rol != 'admin_firma' and df_filtrado.empty:
+            if user_rol != 'admin' and 'admin_firma' not in user_rol and df_filtrado.empty:
                 st.error(f"❌ El usuario '{nombre_usuario_actual}' no tiene una empresa asignada en la base de datos.")
                 st.stop()
 
-            nombres_empresas = df_filtrado['nombre_empresa'].tolist()
+            nombres_empresas = df_filtrado['nombre_empresa'].tolist() if not df_filtrado.empty else []
 
-            idx_default = 0
-            if 'CLIENTE_NOMBRE' in st.session_state and st.session_state['CLIENTE_NOMBRE'] in nombres_empresas:
-                idx_default = nombres_empresas.index(st.session_state['CLIENTE_NOMBRE'])
+            if nombres_empresas:
+                idx_default = 0
+                if 'CLIENTE_NOMBRE' in st.session_state and st.session_state['CLIENTE_NOMBRE'] in nombres_empresas:
+                    idx_default = nombres_empresas.index(st.session_state['CLIENTE_NOMBRE'])
 
-            st.markdown(f"**🏢 Selección de Empresa:**")
-            nombre_seleccionado = st.selectbox(
-                "📂 SELECCIONE EMPRESA", 
-                nombres_empresas, 
-                index=idx_default,
-                key="selector_empresa_interactivo"
-            )
+                st.markdown(f"**🏢 Selección de Empresa:**")
+                nombre_seleccionado = st.selectbox(
+                    "📂 SELECCIONE EMPRESA", 
+                    nombres_empresas, 
+                    index=idx_default,
+                    key="selector_empresa_interactivo"
+                )
 
-            st.session_state['cliente_seleccionado_previo'] = nombre_seleccionado
-
-            fila_seleccionada = df_filtrado[df_filtrado['nombre_empresa'] == nombre_seleccionado]
-            if fila_seleccionada.empty:
-                fila_seleccionada = df_filtrado.iloc[[0]]
-
-            datos_sel = fila_seleccionada.iloc[0]
-            db_seleccionada = str(datos_sel['db_nombre']).strip()
-            
-            st.session_state['DB_ACTUAL'] = db_seleccionada
-            st.session_state['db_a_conectar'] = db_seleccionada
-            st.session_state['CLIENTE_NOMBRE'] = nombre_seleccionado
-            if 'id' in datos_sel:
-                st.session_state['cliente_id_seleccionado'] = int(datos_sel['id'])
-
-            if 'tipo_contribuyente' in datos_sel and pd.notna(datos_sel['tipo_contribuyente']):
-                st.session_state['tipo_contribuyente'] = str(datos_sel['tipo_contribuyente']).strip()
-            else:
-                try:
-                    match_contribuyente = df_filtrado.loc[df_filtrado['nombre_empresa'] == nombre_seleccionado, 'tipo_contribuyente']
-                    if not match_contribuyente.empty and pd.notna(match_contribuyente.values[0]):
-                        st.session_state['tipo_contribuyente'] = str(match_contribuyente.values[0]).strip()
-                    else:
-                        st.session_state['tipo_contribuyente'] = 'Contribuyente Ordinario'
-                except Exception:
-                    st.session_state['tipo_contribuyente'] = 'Contribuyente Ordinario'
+                fila_seleccionada = df_filtrado[df_filtrado['nombre_empresa'] == nombre_seleccionado]
+                if not fila_seleccionada.empty:
+                    datos_sel = fila_seleccionada.iloc[0]
+                    st.session_state['DB_ACTUAL'] = str(datos_sel['db_nombre']).strip()
+                    st.session_state['db_a_conectar'] = str(datos_sel['db_nombre']).strip()
+                    st.session_state['CLIENTE_NOMBRE'] = nombre_seleccionado
+                    if 'id' in datos_sel:
+                        st.session_state['cliente_id_seleccionado'] = int(datos_sel['id'])
 
     return menu
 
