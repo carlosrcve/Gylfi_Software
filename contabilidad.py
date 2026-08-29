@@ -6875,8 +6875,10 @@ elif not st.session_state.get('bienvenida_completada', False):
 else:
     menu_lateral = gestionar_sidebar()
 
-# --- LÓGICA DE NAVEGACIÓN ---
-# Incluimos los módulos de gestión de la firma en la bandera de administración
+# --- LÓGICA DE SEGURIDAD Y NAVEGACIÓN ---
+rol_actual = str(st.session_state.get('rol', '')).lower()
+
+# Verificamos si el módulo seleccionado pertenece a la zona administrativa/de firmas
 es_modulo_admin = menu_lateral in [
     "⚙️ Gestión de Usuarios", 
     "🏢 Gestión de Firmas y Accesos", 
@@ -6885,6 +6887,11 @@ es_modulo_admin = menu_lateral in [
 ]
 
 if es_modulo_admin:
+    # Validamos estrictamente que el rol actual tenga permisos administrativos
+    if rol_actual != 'admin' and 'admin_firma' not in rol_actual:
+        st.warning("⚠️ No tienes permisos para acceder a este módulo administrativo.")
+        st.stop()
+
     try:
         conn = conectar_db() # Conexión a la central
         if conn:
@@ -6903,7 +6910,7 @@ if es_modulo_admin:
     except Exception as e:
         st.error(f"Error al acceder a la gestión central: {e}")
     
-    # IMPORTANTE: Aquí sí detenemos, porque ya renderizamos el módulo admin
+    # IMPORTANTE: Aquí detenemos la ejecución para que renderice exclusivamente el panel admin/firma seleccionado
     st.stop()
 
 # --- SI NO ES ADMIN, O SI ESTAMOS EN EL DASHBOARD CONTABLE ---
