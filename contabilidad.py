@@ -6919,7 +6919,6 @@ def gestionar_sidebar():
     return menu
 
 # 0. Primero validamos si la sesión expiró por tiempo
-# 0. Primero validamos si la sesión expiró por tiempo
 verificar_inactividad()
 
 if 'logueado' not in st.session_state or not st.session_state['logueado']:
@@ -6938,18 +6937,26 @@ else:
 rol_actual = str(st.session_state.get('rol', '')).lower()
 
 # Definimos qué módulos son accesibles según el rol del usuario actual
-if rol_actual in ['admin', 'superadmin']:
-    # Como superadministrador tienes acceso a todo
+if rol_actual == 'admin':
+    # Administrador Principal / Dueño del Software
     modulos_permitidos = [
+        "📊 Auditoría Contable",
         "⚙️ Gestión de Usuarios", 
         "🏢 Gestión de Firmas y Accesos", 
         "🏢 Gestión de Empresas",
         "🏢 Gestión de Clientes de la Firma"
     ]
-else:
-    # Para el Administrador de Firma (ej. Óscar), solo permitimos su módulo de clientes de la firma
+elif rol_actual == 'admin_firma':
+    # Administrador de Firma (ej. Óscar Mendoza)
     modulos_permitidos = [
+        "📊 Auditoría Contable",
+        "🏢 Gestión de Firmas y Accesos",
         "🏢 Gestión de Clientes de la Firma"
+    ]
+else:
+    # Usuario normal / Cliente final
+    modulos_permitidos = [
+        "📊 Auditoría Contable"
     ]
 
 # Validamos si el usuario actual tiene permiso para estar en el menú seleccionado
@@ -6957,10 +6964,14 @@ if menu_lateral not in modulos_permitidos:
     st.warning("⚠️ No tienes permisos para acceder a este módulo.")
     st.stop()
 
-# Definimos cuáles son los módulos administrativos que requieren conexión a la central
-es_modulo_admin = menu_lateral in modulos_permitidos
+# Manejo de pantallas según la selección del menú lateral
+if menu_lateral == "📊 Auditoría Contable":
+    # Aquí dejas tu código o función que pinta el dashboard principal de auditoría contable
+    st.info(f"Bienvenido al panel de Auditoría Contable. Empresa activa: {st.session_state.get('CLIENTE_NOMBRE', 'Ninguna')}")
+    # panel_auditoria_contable(conn) <- Coloca aquí tu función de auditoría si la tienes en archivo externo
 
-if es_modulo_admin:
+else:
+    # Módulos administrativos que requieren conexión a la central
     try:
         conn = conectar_db()  # Conexión a la central
         if conn:
@@ -6979,7 +6990,6 @@ if es_modulo_admin:
     except Exception as e:
         st.error(f"Error al acceder a la gestión central: {e}")
     
-    # Detenemos para que no renderice otros paneles por debajo
     st.stop()
 
 # --- SI NO ES ADMIN, CONTINUAMOS CON EL DASHBOARD CONTABLE ---
