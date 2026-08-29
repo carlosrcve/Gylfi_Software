@@ -831,13 +831,20 @@ def panel_gestion_clientes_firma(conn):
                 else:
                     try:
                         cursor = conn.cursor()
-                        # Si es un admin de firma creando un cliente, puedes asociarlo opcionalmente usando firma_id
-                        # (Asegúrate de que tu tabla tenga la columna firma_id si deseas asociarlo al creador)
+                        
+                        # Inserción adaptada para incluir el firma_id del usuario logueado actualmente
                         sql = """
-                            INSERT INTO control_central.clientes (nombre_empresa, rif, db_nombre, tipo_contribuyente, estado) 
-                            VALUES (%s, %s, %s, %s, %s)
+                            INSERT INTO control_central.clientes (nombre_empresa, rif, db_nombre, tipo_contribuyente, estado, firma_id) 
+                            VALUES (%s, %s, %s, %s, %s, %s)
                         """
-                        cursor.execute(sql, (nombre_empresa, rif, db_nombre, tipo_contribuyente, estado))
+                        cursor.execute(sql, (
+                            nombre_empresa, 
+                            rif, 
+                            db_nombre, 
+                            tipo_contribuyente, 
+                            estado, 
+                            id_firma_actual  # <--- Asocia automáticamente el ID de la firma matriz (ej: 420002 de Óscar)
+                        ))
                         conn.commit()
                         cursor.close()
                         
@@ -858,10 +865,10 @@ def panel_gestion_clientes_firma(conn):
     try:
         # Aplicamos la misma lógica de aislamiento por roles
         if rol_actual in ['admin', 'superadmin']:
-            query_view = "SELECT id, nombre_empresa, rif, db_nombre, tipo_contribuyente, estado FROM control_central.clientes"
+            query_view = "SELECT id, nombre_empresa, rif, db_nombre, tipo_contribuyente, estado, firma_id FROM control_central.clientes"
             df_clientes = ejecutar_consulta(query_view, conn)
         else:
-            query_view = "SELECT id, nombre_empresa, rif, db_nombre, tipo_contribuyente, estado FROM control_central.clientes WHERE id = %s OR firma_id = %s"
+            query_view = "SELECT id, nombre_empresa, rif, db_nombre, tipo_contribuyente, estado, firma_id FROM control_central.clientes WHERE id = %s OR firma_id = %s"
             df_clientes = ejecutar_consulta(query_view, conn, params=(id_firma_actual, id_firma_actual))
         
         if df_clientes is not None and not df_clientes.empty:
@@ -874,14 +881,14 @@ def panel_gestion_clientes_firma(conn):
                     "rif": st.column_config.TextColumn("RIF"),
                     "db_nombre": st.column_config.TextColumn("Base de Datos (TiDB)"),
                     "tipo_contribuyente": st.column_config.SelectboxColumn("Tipo de Contribuyente", options=["Contribuyente Ordinario", "Contribuyente Especial"]),
-                    "estado": st.column_config.SelectboxColumn("Estado", options=["Activo", "Inactivo"])
+                    "estado": st.column_config.SelectboxColumn("Estado", options=["Activo", "Inactivo"]),
+                    "firma_id": st.column_config.NumberColumn("ID Firma Matriz")
                 }
             )
         else:
             st.info("ℹ️ No hay clientes de la firma registrados todavía en el sistema.")
     except Exception as e:
         st.error(f"❌ Error al cargar la lista de clientes de la firma: {e}")
-
 
 def panel_administracion(conn):
     st.header("⚙️ Gestión de Usuarios y Accesos")
@@ -6912,6 +6919,7 @@ def gestionar_sidebar():
     return menu
 
 # 0. Primero validamos si la sesión expiró por tiempo
+# 0. Primero validamos si la sesión expiró por tiempo
 verificar_inactividad()
 
 if 'logueado' not in st.session_state or not st.session_state['logueado']:
@@ -6926,13 +6934,31 @@ else:
     # Capturamos la opción seleccionada en el menú lateral de la barra lateral
     menu_lateral = gestionar_sidebar()
 
-# --- LÓGICA DE NAVEGACIÓN CENTRALIZADA ---
-es_modulo_admin = menu_lateral in [
-    "⚙️ Gestión de Usuarios", 
-    "🏢 Gestión de Firmas y Accesos", 
-    "🏢 Gestión de Empresas",
-    "🏢 Gestión de Clientes de la Firma"
-]
+# --- LÓGICA DE NAVEGACIÓN Y SEGURIDAD CENTRALIZADA ---
+rol_actual = str(st.session_state.get('rol', '')).lower()
+
+# Definimos qué módulos son accesibles según el rol del usuario actual
+if rol_actual in ['admin', 'superadmin']:
+    # Como superadministrador tienes acceso a todo
+    modulos_permitidos = [
+        "⚙️ Gestión de Usuarios", 
+        "🏢 Gestión de Firmas y Accesos", 
+        "🏢 Gestión de Empresas",
+        "🏢 Gestión de Clientes de la Firma"
+    ]
+else:
+    # Para el Administrador de Firma (ej. Óscar), solo permitimos su módulo de clientes de la firma
+    modulos_permitidos = [
+        "🏢 Gestión de Clientes de la Firma"
+    ]
+
+# Validamos si el usuario actual tiene permiso para estar en el menú seleccionado
+if menu_lateral not in modulos_permitidos:
+    st.warning("⚠️ No tienes permisos para acceder a este módulo.")
+    st.stop()
+
+# Definimos cuáles son los módulos administrativos que requieren conexión a la central
+es_modulo_admin = menu_lateral in modulos_permitidos
 
 if es_modulo_admin:
     try:
@@ -6946,13 +6972,14 @@ if es_modulo_admin:
                 panel_gestion_clientes(conn)
             elif menu_lateral == "🏢 Gestión de Clientes de la Firma":
                 panel_gestion_clientes_firma(conn)
+            
             conn.close()
         else:
             st.error("🔌 No se pudo establecer conexión con el servidor MySQL.")
     except Exception as e:
         st.error(f"Error al acceder a la gestión central: {e}")
     
-    # Detenemos para que no renderice el panel de auditoría contable por debajo
+    # Detenemos para que no renderice otros paneles por debajo
     st.stop()
 
 # --- SI NO ES ADMIN, CONTINUAMOS CON EL DASHBOARD CONTABLE ---
