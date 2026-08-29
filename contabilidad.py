@@ -1405,7 +1405,7 @@ def obtener_historico_utilidad(db, f_inicio=None, f_fin=None):
 
 
 
-@st.cache_data(ttl=1) # O simplemente comentalo un momento: # @st.cache_data(ttl=300)
+@st.cache_data(ttl=1)
 def obtener_salud_fiscal(db, f_inicio=None, f_fin=None):
     if not isinstance(db, str):
         db = str(db) if db else "control_central"
@@ -1444,14 +1444,13 @@ def obtener_salud_fiscal(db, f_inicio=None, f_fin=None):
     f_fin_anual = datetime.date(anio_base, 12, 31)
     db_segura = str(db).strip()
 
-    # Construcción dinámica de la query para DPP
     if db == 'kingdriver_ca':
         dpp_query = "SUM(CASE WHEN plan_cuentas LIKE '6.1.1.03.020%%' THEN haber ELSE 0 END) as DPP_haber, SUM(CASE WHEN plan_cuentas LIKE '6.1.1.03.020%%' THEN debe ELSE 0 END) as DPP_debe"
     else:
         dpp_query = """SUM(CASE WHEN plan_cuentas LIKE '6.1.1.03%%' AND plan_cuentas NOT LIKE '6.1.1.03.013%%' AND plan_cuentas NOT LIKE '6.1.1.03.021%%' AND plan_cuentas NOT LIKE '6.1.1.03.022%%' THEN haber ELSE 0 END) as DPP_haber,
                     SUM(CASE WHEN plan_cuentas LIKE '6.1.1.03%%' AND plan_cuentas NOT LIKE '6.1.1.03.013%%' AND plan_cuentas NOT LIKE '6.1.1.03.021%%' AND plan_cuentas NOT LIKE '6.1.1.03.022%%' THEN debe ELSE 0 END) as DPP_debe"""
 
-    query = """
+    query = f"""
         SELECT 
             YEAR(CAST(fecha AS DATE)) as anio,
             MONTH(CAST(fecha AS DATE)) as mes,
@@ -1471,7 +1470,7 @@ def obtener_salud_fiscal(db, f_inicio=None, f_fin=None):
             SUM(CASE WHEN plan_cuentas LIKE '7.1.1.01%%' THEN haber ELSE 0 END) as otros_ingresos_haber,
             SUM(CASE WHEN plan_cuentas LIKE '7.1.1.07%%' THEN debe ELSE 0 END) as otros_ingresos_debe,
             SUM(CASE WHEN plan_cuentas LIKE '8.1.1.01%%' THEN haber ELSE 0 END) as otros_egresos_haber,
-            SUM(CASE WHEN plan_cuentas LIKE '8.1.1.01%%' THEN debe ELSE 0 END) as otros_egresos_debe,
+            SUM(CASE WHEN plan_cuentas LIKE '8.1.1.01%%' THEN debe ELSE 0 END) as outros_egresos_debe,
             SUM(CASE WHEN plan_cuentas LIKE '2.1.2.01.001%%' THEN haber ELSE 0 END) as iva_debito_fiscal,
             SUM(CASE WHEN plan_cuentas LIKE '2.1.2.01.002%%' THEN haber ELSE 0 END) as iva_por_pagar,
             SUM(CASE WHEN plan_cuentas LIKE '2.1.2.01.003%%' THEN haber ELSE 0 END) as retencion_iva_compras,
@@ -1483,7 +1482,7 @@ def obtener_salud_fiscal(db, f_inicio=None, f_fin=None):
         WHERE CAST(fecha AS DATE) BETWEEN %s AND %s
         GROUP BY anio, mes
         ORDER BY anio ASC, mes ASC
-    """.format(db_segura=db_segura, dpp_query=dpp_query)
+    """
     
     cursor = None
     try:
@@ -1491,7 +1490,6 @@ def obtener_salud_fiscal(db, f_inicio=None, f_fin=None):
         cursor.execute(query, (str(f_inicio_anual), str(f_fin_anual)))
         resultados = cursor.fetchall()
         
-        # BLINDAJE: Definimos todas las columnas fiscales por si la consulta viene vacía
         columnas_fiscales = [
             'anio', 'mes', 'exentos_acum', 'gravados_acum', 'compras_exentas_acum', 'compras_16_acum',
             'DPP_haber', 'DPP_debe', 'comisiones_bancarias_haber', 'comisiones_bancarias_debe',
@@ -1501,24 +1499,16 @@ def obtener_salud_fiscal(db, f_inicio=None, f_fin=None):
             'retencion_islr_proveedores', 'islr_pagar'
         ]
 
-        if resultados:
-            df_sql = pd.DataFrame(resultados)
-        else:
-            df_sql = pd.DataFrame(columns=columnas_fiscales)
+        # CREACIÓN SEGURA: Creamos el DataFrame base con la estructura completa garantizada
+        df_sql = pd.DataFrame(resultados) if resultados else pd.DataFrame(columns=columnas_fiscales)
 
-        # Garantizamos que todas las columnas existan físicamente en el DataFrame
         for col in columnas_fiscales:
             if col not in df_sql.columns:
                 df_sql[col] = 0
 
-        if not df_sql.empty and 'mes' in df_sql.columns:
-            df = pd.merge(meses_skeleton, df_sql, on=['anio', 'mes'], how='left')
-        else:
-            df = meses_skeleton
-
+        df = pd.merge(meses_skeleton, df_sql, on=['anio', 'mes'], how='left')
         df = df.fillna(0)
 
-        # Des-acumulación mes a mes para los acumulados
         df['ingresos_exentos'] = df['exentos_acum'].diff().fillna(df['exentos_acum'])
         df['ingresos_gravados'] = df['gravados_acum'].diff().fillna(df['gravados_acum'])
         df['compras_exentas'] = df['compras_exentas_acum'].diff().fillna(df['compras_exentas_acum'])
@@ -1537,7 +1527,6 @@ def obtener_salud_fiscal(db, f_inicio=None, f_fin=None):
         }
         df['mes_nombre'] = df['mes'].map(dic_meses_nombres)
 
-        import calendar
         df['primer_dia_mes'] = df.apply(lambda row: datetime.date(int(row['anio']), int(row['mes']), 1), axis=1)
 
         df_filtrado = df[(df['primer_dia_mes'] >= datetime.date(f_inicio.year, f_inicio.month, 1)) & 
@@ -1546,7 +1535,6 @@ def obtener_salud_fiscal(db, f_inicio=None, f_fin=None):
         if df_filtrado.empty:
             df_filtrado = df.copy()
 
-        # Sumatorias totales para el periodo filtrado
         total_exentos = df_filtrado['ingresos_exentos'].sum()
         total_gravados = df_filtrado['ingresos_gravados'].sum()
         total_compras_exentas = df_filtrado['compras_exentas'].sum()
