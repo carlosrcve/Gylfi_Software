@@ -961,86 +961,87 @@ def panel_administracion(conn):
 
 
 def panel_administracion_firmas(conn):
-    st.header("⚙️ Gestión de Usuarios y Accesos del Administrador de Firmas")
+    st.header("🏢 Gestión de Usuarios y Accesos del Administrador de Firmas")
+    st.markdown("Registra un nuevo usuario con rol de firma y asígnale su empresa correspondiente.")
     
-    # 1. FORMULARIO DE REGISTRO MANUAL
+    # 1. CARGAR LAS EMPRESAS YA CREADAS DESDE LA BASE DE DATOS
+    try:
+        query_empresas = "SELECT id, nombre_empresa, rif FROM control_central.clientes"
+        df_empresas = ejecutar_consulta(query_empresas, conn)
+    except Exception:
+        df_empresas = pd.DataFrame()
+
     with st.expander("➕ Registrar Nuevo Usuario y Rol Manualmente", expanded=True):
-        with st.form("registro_usuario_admin_firma"):
+        with st.form("registro_admin_firma"):
             col1, col2 = st.columns(2)
             
             with col1:
-                nuevo_u_firma = st.text_input("Nombre de Usuario", help="Ej: gestor_firma o supervisor_firma", key="u_firma")
-                nueva_p_firma = st.text_input("Contraseña", type="password", key="p_firma")
+                nombre_usuario = st.text_input("Nombre de Usuario", help="Ej: contador_firma")
+                contrasena = st.text_input("Contraseña", type="password", help="Contraseña de acceso")
             
             with col2:
-                # Campo manual para digitar el rol del sistema
-                rol_firma = st.text_input("Rol del Sistema (Creación Manual)", value="admin_firma", help="Escribe o personaliza el rol del sistema", key="rol_manual_firma")
+                st.text_input("Rol del Sistema (Creación Manual)", value="admin_firma", disabled=True)
                 
-                # Nota informativa de que los clientes se asignan en otra sección posterior
-                st.info("ℹ️ Este usuario se creará sin empresas asociadas. Podrás asignarlas más adelante.")
+                # Selector de empresa ya creada
+                if not df_empresas.empty and 'nombre_empresa' in df_empresas.columns:
+                    lista_nombres = df_empresas['nombre_empresa'].tolist()
+                    empresa_seleccionada = st.selectbox(
+                        "Asociar a Empresa Existente", 
+                        options=lista_nombres,
+                        help="Selecciona la empresa o firma que este usuario va a administrar"
+                    )
+                else:
+                    empresa_seleccionada = None
+                    st.warning("⚠️ No hay empresas registradas. Debes crear una empresa primero.")
 
-            btn_crear_firma = st.form_submit_button("Guardar Usuario en Base de Datos")
+            btn_guardar = st.form_submit_button("💾 Guardar Usuario en Base de Datos")
             
-            if btn_crear_firma:
-                if not nuevo_u_firma or not nueva_p_firma or not rol_firma:
-                    st.error("❌ El usuario, la contraseña y el rol son obligatorios.")
+            if btn_guardar:
+                if not nombre_usuario or not contrasena:
+                    st.error("❌ El nombre de usuario y la contraseña son obligatorios.")
+                elif not empresa_seleccionada:
+                    st.error("❌ Debes seleccionar una empresa para asociar al usuario.")
                 else:
                     try:
-                        salt_firma = bcrypt.gensalt()
-                        hash_cifrado_firma = bcrypt.hashpw(nueva_p_firma.encode('utf-8'), salt_firma)
+                        # Obtener el ID de la empresa seleccionada
+                        fila_empresa = df_empresas[df_empresas['nombre_empresa'] == empresa_seleccionada]
+                        cliente_id_asociado = int(fila_empresa['id'].values[0])
                         
-                        # Sin asociación de empresas por ahora (cliente_id = NULL)
-                        c_id_firma = None
+                        # Hashear la contraseña
+                        hashed_password = bcrypt.hashpw(contrasena.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
                         
-                        cursor_firma = conn.cursor()
-                        sql_firma = """INSERT INTO usuarios (usuario, clave_hash, rol, cliente_id) 
-                                       VALUES (%s, %s, %s, %s)"""
-                        
-                        cursor_firma.execute(sql_firma, (nuevo_u_firma, hash_cifrado_firma.decode('utf-8'), rol_firma.strip(), c_id_firma))
+                        cursor = conn.cursor()
+                        sql = """
+                            INSERT INTO control_central.usuarios (usuario, clave_hash, rol, cliente_id) 
+                            VALUES (%s, %s, %s, %s)
+                        """
+                        cursor.execute(sql, (nombre_usuario.strip(), hashed_password, 'admin_firma', cliente_id_asociado))
                         conn.commit()
-                        cursor_firma.close()
+                        cursor.close()
                         
-                        st.success(f"✅ Usuario '{nuevo_u_firma}' con rol '{rol_firma}' registrado con éxito.")
+                        st.success(f"✅ ¡Usuario '{nombre_usuario}' asociado correctamente a la empresa '{empresa_seleccionada}'!")
                         st.balloons()
+                        st.rerun()
                     except Exception as e:
-                        st.error(f"❌ Error al registrar: Probablemente el usuario ya existe. ({e})")
+                        st.error(f"❌ Error al registrar el usuario: {e}")
 
-    # 2. TABLA DE USUARIOS REGISTRADOS (La empresa saldrá en blanco si no tiene asignada)
+    st.divider()
+
+    # Tabla para visualizar los usuarios registrados
     st.subheader("👥 Usuarios y Roles Registrados en el Sistema")
     try:
-        query_view_firma = """
-            SELECT u.usuario, u.rol, c.nombre_empresa as empresa_asignada 
-            FROM control_central.usuarios u
+        query_usuarios = """
+            SELECT u.id, u.usuario, u.rol, c.nombre_empresa AS empresa_asignada 
+            FROM control_central.usuarios u 
             LEFT JOIN control_central.clientes c ON u.cliente_id = c.id
         """
-        df_usuarios_firma = ejecutar_consulta(query_view_firma, conn)
-        
-        if not df_usuarios_firma.empty:
-            # Reemplazamos los valores nulos o vacíos para que visualmente se rendericen totalmente en blanco
-            df_usuarios_firma['empresa_asignada'] = df_usuarios_firma['empresa_asignada'].fillna("")
-            st.dataframe(df_usuarios_firma, use_container_width=True)
+        df_usuarios = ejecutar_consulta(query_usuarios, conn)
+        if df_usuarios is not None and not df_usuarios.empty:
+            st.dataframe(df_usuarios, use_container_width=True)
         else:
-            st.info("No hay usuarios registrados todavía.")
+            st.info("ℹ️ No hay usuarios registrados.")
     except Exception as e:
-        st.info(f"No se pudieron cargar los usuarios registrados: {e}")
-
-    # 3. VISOR DE AUDITORÍA INTEGRADO
-    st.divider()
-    st.subheader("🕵️‍♂️ Monitoreo de Interacciones (Logs)")
-    
-    if st.button("🔄 Refrescar Bitácora", key="refresh_logs_firma"):
-        st.rerun()
-        
-    try:
-        query_logs_firma = "SELECT * FROM logs_auditoria ORDER BY fecha DESC LIMIT 100"
-        df_logs_firma = ejecutar_consulta(query_logs_firma, conn)
-        
-        if not df_logs_firma.empty:
-            st.dataframe(df_logs_firma, use_container_width=True)
-        else:
-            st.info("No se han detectado interacciones todavía.")
-    except Exception as e:
-        st.error(f"Error cargando logs: {e}")
+        st.error(f"❌ Error al cargar la lista de usuarios: {e}")
 
 
 def registrar_log_automatico(conn, accion, detalles):
