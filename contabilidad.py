@@ -798,7 +798,7 @@ def panel_gestion_clientes(conn):
 
 def panel_gestion_clientes_firma(conn):
     st.header("🏢 Gestión de Clientes de la Firma")
-    st.markdown("Administra las empresas clientes que atiende la firma y sus datos fiscales centralizados.")
+    st.markdown("Administra las empresas clientes que atiende la firma y provisiona sus bases de datos en la nube de forma automatizada.")
     
     # 1. FORMULARIO DE REGISTRO DE CLIENTE DE LA FIRMA
     with st.expander("➕ Registrar Nuevo Cliente de la Firma", expanded=False):
@@ -808,10 +808,10 @@ def panel_gestion_clientes_firma(conn):
                 nombre_empresa = st.text_input("Nombre del Cliente / Razón Social", help="Ej: Inversiones Globales, C.A.")
                 rif = st.text_input("RIF del Cliente", help="Ej: J-12345678-9")
             with col2:
-                # Campo de identificación interna o código de cliente para la firma
-                codigo_cliente = st.text_input(
-                    "Código o Referencia Interna", 
-                    help="Ej: CLI-001"
+                # CAMBIADO: Nombre de la BD en lugar de referencia interna
+                db_nombre = st.text_input(
+                    "Nombre de la BD (Sin espacios ni caracteres raros)", 
+                    help="Ej: inversiones_globales_ca"
                 )
                 # Selector de Tipo de Contribuyente
                 tipo_contribuyente = st.selectbox(
@@ -821,25 +821,28 @@ def panel_gestion_clientes_firma(conn):
             
             estado = st.selectbox("Estado Inicial", ["Activo", "Inactivo"])
             
-            btn_guardar = st.form_submit_button("💾 Guardar Cliente de la Firma")
+            btn_guardar = st.form_submit_button("💾 Crear Cliente y Base de Datos")
             
             if btn_guardar:
-                if not nombre_empresa or not rif:
-                    st.error("❌ El nombre del cliente y el RIF son obligatorios.")
+                if not nombre_empresa or not db_nombre:
+                    st.error("❌ El nombre del cliente y el nombre de la BD son obligatorios.")
                 else:
                     try:
-                        # Guardar el registro en la tabla de clientes de la firma
+                        # A. Guardar el registro en la tabla central de clientes de la firma
                         cursor = conn.cursor()
                         sql = """
                             INSERT INTO control_central.clientes (nombre_empresa, rif, db_nombre, tipo_contribuyente, estado) 
                             VALUES (%s, %s, %s, %s, %s)
                         """
-                        # Usamos codigo_cliente como referencia en db_nombre o un campo equivalente si aplica
-                        cursor.execute(sql, (nombre_empresa, rif, codigo_cliente, tipo_contribuyente, estado))
+                        cursor.execute(sql, (nombre_empresa, rif, db_nombre, tipo_contribuyente, estado))
                         conn.commit()
                         cursor.close()
                         
-                        st.success(f"✅ ¡Cliente de la firma '{nombre_empresa}' registrado con éxito!")
+                        # B. Disparar la función de provisión de la base de datos física en la nube
+                        st.info(f"🚀 Provisionando base de datos y tablas para '{db_nombre}' en TiDB Cloud...")
+                        conectar_db(db_nombre)
+                        
+                        st.success(f"✅ ¡Cliente de la firma '{nombre_empresa}' y su base de datos fueron configurados con éxito!")
                         st.balloons()
                         st.rerun()
                     except Exception as e:
@@ -862,7 +865,7 @@ def panel_gestion_clientes_firma(conn):
                     "id": "ID",
                     "nombre_empresa": st.column_config.TextColumn("Razón Social"),
                     "rif": st.column_config.TextColumn("RIF"),
-                    "db_nombre": st.column_config.TextColumn("Referencia / Código"),
+                    "db_nombre": st.column_config.TextColumn("Base de Datos (TiDB)"),
                     "tipo_contribuyente": st.column_config.SelectboxColumn("Tipo de Contribuyente", options=["Contribuyente Ordinario", "Contribuyente Especial"]),
                     "estado": st.column_config.SelectboxColumn("Estado", options=["Activo", "Inactivo"])
                 }
@@ -871,7 +874,6 @@ def panel_gestion_clientes_firma(conn):
             st.info("ℹ️ No hay clientes de la firma registrados todavía en el sistema.")
     except Exception as e:
         st.error(f"❌ Error al cargar la lista de clientes de la firma: {e}")
-
 
 def panel_administracion(conn):
     st.header("⚙️ Gestión de Usuarios y Accesos")
