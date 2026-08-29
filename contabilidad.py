@@ -6783,11 +6783,11 @@ else:
 
 # --- LÓGICA DE NAVEGACIÓN ---
 # Usamos una bandera para saber si entramos a un módulo exclusivo de admin
-es_modulo_admin = menu_lateral in ["⚙️ Gestión de Usuarios", "🏢 Gestión de Firmas y Accesos","🏢 Gestión de Empresas"]
+es_modulo_admin = menu_lateral in ["⚙️ Gestión de Usuarios", "🏢 Gestión de Firmas y Accesos", "🏢 Gestión de Empresas"]
 
 if es_modulo_admin:
     try:
-        conn = conectar_db() # Conexión a la central
+        conn = conectar_db()  # Conexión a la central
         if conn:
             if menu_lateral == "⚙️ Gestión de Usuarios":
                 panel_administracion(conn)
