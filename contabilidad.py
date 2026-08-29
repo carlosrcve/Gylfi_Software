@@ -1017,30 +1017,37 @@ def panel_administracion_firmas(conn):
                     st.error("❌ Debes seleccionar una empresa para asociar al usuario.")
                 else:
                     try:
-                        # Extraer la fila exacta de la empresa seleccionada de forma segura por nombre
+                        # Extraer la fila exacta de la empresa seleccionada
                         fila_empresa = df_empresas[df_empresas['nombre_empresa'].astype(str).str.strip() == str(empresa_seleccionada).strip()]
                         
                         if fila_empresa.empty:
                             st.error(f"❌ No se encontró la empresa '{empresa_seleccionada}' en el DataFrame.")
                         else:
-                            # Obtenemos el ID exacto que tiene la empresa en MySQL
+                            # Capturamos tanto el ID como el db_nombre de la empresa
                             cliente_id_asociado = int(fila_empresa.iloc[0]['id'])
+                            db_nombre_asociado = str(fila_empresa.iloc[0]['db_nombre'])
                             
                             # Hashear la contraseña
                             hashed_password = bcrypt.hashpw(contrasena.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
                             
                             cursor = conn.cursor()
-                            # Insertamos explícitamente el usuario con su cliente_id correcto
+                            # INSERTAMOS INCLUYENDO db_nombre PARA QUE NO QUEDE NULO EN LA TABLA DE USUARIOS
                             sql = """
-                                INSERT INTO control_central.usuarios (usuario, clave_hash, rol, cliente_id) 
-                                VALUES (%s, %s, %s, %s)
+                                INSERT INTO control_central.usuarios (usuario, clave_hash, rol, cliente_id, db_nombre) 
+                                VALUES (%s, %s, %s, %s, %s)
                             """
-                            cursor.execute(sql, (nombre_usuario.strip(), hashed_password, rol_usuario.strip(), cliente_id_asociado))
+                            cursor.execute(sql, (
+                                nombre_usuario.strip(), 
+                                hashed_password, 
+                                rol_usuario.strip(), 
+                                cliente_id_asociado, 
+                                db_nombre_asociado
+                            ))
                             conn.commit()
                             cursor.close()
                             
                             st.toast("¡Usuario guardado con éxito!", icon="✅")
-                            st.success(f"✅ ¡Usuario '{nombre_usuario.strip()}' vinculado a la empresa '{empresa_seleccionada}' (ID: {cliente_id_asociado})!")
+                            st.success(f"✅ ¡Usuario '{nombre_usuario.strip()}' vinculado correctamente a '{empresa_seleccionada}' (DB: {db_nombre_asociado})!")
                             st.balloons()
                             st.rerun()
                     except Exception as e:
