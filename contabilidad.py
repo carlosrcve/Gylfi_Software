@@ -878,145 +878,6 @@ def panel_administracion(conn):
     except Exception as e:
         st.error(f"Error cargando logs: {e}")
 
-def panel_gestion_clientes(conn):
-    st.header("🏢 Gestión de Clientes / Empresas")
-    st.markdown("Administra las empresas suscritas al sistema y provisiona nuevas bases de datos en la nube de forma automatizada.")
-    
-    # 1. FORMULARIO DE REGISTRO DE EMPRESA
-    with st.expander("➕ Registrar Nueva Empresa en el Sistema", expanded=False):
-        with st.form("registro_empresa"):
-            col1, col2 = st.columns(2)
-            with col1:
-                nombre_empresa = st.text_input("Nombre de la Empresa (Razón Social)", help="Ej: Inversiones Globales, C.A.")
-                rif = st.text_input("RIF", help="Ej: J-12345678-9")
-            with col2:
-                db_nombre = st.text_input(
-                    "Nombre de la BD (Sin espacios ni caracteres raros)", 
-                    help="Ej: inversiones_globales_ca"
-                )
-                # NUEVO: Selector de Tipo de Contribuyente
-                tipo_contribuyente = st.selectbox(
-                    "Tipo de Contribuyente", 
-                    ["Contribuyente Ordinario", "Contribuyente Especial"]
-                )
-            
-            estado = st.selectbox("Estado Inicial", ["Activo", "Inactivo"])
-            
-            btn_guardar = st.form_submit_button("💾 Crear Nueva Empresa y Base de Datos")
-            
-            if btn_guardar:
-                if not nombre_empresa or not db_nombre:
-                    st.error("❌ El nombre de la empresa y el nombre de la BD son obligatorios.")
-                else:
-                    try:
-                        # A. Guardar el registro principal en la tabla central 'clientes' incluyendo el tipo de contribuyente
-                        cursor = conn.cursor()
-                        sql = """
-                            INSERT INTO control_central.clientes (nombre_empresa, rif, db_nombre, tipo_contribuyente, estado) 
-                            VALUES (%s, %s, %s, %s, %s)
-                        """
-                        cursor.execute(sql, (nombre_empresa, rif, db_nombre, tipo_contribuyente, estado))
-                        conn.commit()
-                        cursor.close()
-                        
-                        # B. Disparar tu función multi-tenant para crear la BD y las tablas físicas en TiDB Cloud
-                        st.info(f"🚀 Provisionando base de datos y tablas para '{db_nombre}' en TiDB Cloud...")
-                        conectar_db(db_nombre) 
-                        
-                        st.success(f"✅ ¡Empresa '{nombre_empresa}' y su base de datos fueron configuradas con éxito!")
-                        st.balloons()
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"❌ Error al crear la empresa: {e}")
-
-    st.divider()
-
-    # --- SECCIÓN DE ADMINISTRACIÓN: GESTIÓN DE CALENDARIO SENIAT ---
-    with st.expander("📅 Cargar / Actualizar Calendario de Contribuyentes Especiales (SENIAT)"):
-        st.markdown("""
-        Sube el archivo oficial (CSV o Excel) con las fechas del calendario de Sujetos Pasivos Especiales. 
-        Esto actualizará las fechas para todos los terminales de RIF y protegerá a las empresas especiales de multas.
-        """)
-        
-        archivo_seniat = st.file_uploader("Selecciona el archivo oficial del SENIAT", type=["csv", "xlsx"], key="upload_seniat_admin")
-        
-        if archivo_seniat is not None:
-            import pandas as pd
-            
-            try:
-                if archivo_seniat.name.endswith('.csv'):
-                    df_seniat = pd.read_csv(archivo_seniat)
-                else:
-                    df_seniat = pd.read_excel(archivo_seniat)
-                    
-                st.write("🔍 **Vista previa del calendario a cargar:**", df_seniat.head())
-                
-                if st.button("🚀 Sincronizar Calendario para todas las Bases de Datos"):
-                    # Extraemos de forma dinámica todas las bases de datos registradas en control_central.clientes
-                    cursor_dbs = conn.cursor()
-                    cursor_dbs.execute("SELECT db_nombre FROM control_central.clientes WHERE tipo_contribuyente = 'Contribuyente Especial'")
-                    empresas_especiales = [row[0] for row in cursor_dbs.fetchall()]
-                    cursor_dbs.close()
-                    
-                    if not empresas_especiales:
-                        st.warning("⚠️ No hay empresas marcadas como 'Contribuyente Especial' en el sistema.")
-                    else:
-                        for db_name in empresas_especiales:
-                            conexion_temp = conectar_db(db_name)
-                            if conexion_temp:
-                                cursor = conexion_temp.cursor()
-                                
-                                # Bucle de inserción o actualización masiva con REPLACE INTO
-                                for _, row in df_seniat.iterrows():
-                                    cursor.execute("""
-                                        REPLACE INTO calendario_fiscal_2026 (impuesto_id, concepto, mes_idx, fecha_vencimiento, terminal_rif)
-                                        VALUES (%s, %s, %s, %s, %s)
-                                    """, (
-                                        row['impuesto_id'], 
-                                        row['concepto'], 
-                                        int(row['mes_idx']), 
-                                        row['fecha_vencimiento'], 
-                                        int(row['terminal_rif'])
-                                    ))
-                                
-                                conexion_temp.commit()
-                                cursor.close()
-                                conexion_temp.close()
-                                
-                        st.success("✅ ¡Calendario del SENIAT sincronizado correctamente para todas las bases de datos de contribuyentes especiales!")
-                    
-            except Exception as e:
-                st.error(f"❌ Error al procesar el archivo del SENIAT: {e}")
-
-    st.divider()
-
-    # 2. TABLA DE EMPRESAS REGISTRADAS
-    st.subheader("📋 Listado de Empresas Registradas")
-    
-    try:
-        # Añadido 'tipo_contribuyente' a la consulta SQL
-        query_view = "SELECT id, nombre_empresa, rif, db_nombre, tipo_contribuyente, estado FROM control_central.clientes"
-        df_clientes = ejecutar_consulta(query_view, conn)
-        
-        if df_clientes is not None and not df_clientes.empty:
-            st.dataframe(
-                df_clientes, 
-                use_container_width=True,
-                column_config={
-                    "id": "ID",
-                    "nombre_empresa": st.column_config.TextColumn("Razón Social"),
-                    "rif": st.column_config.TextColumn("RIF"),
-                    "db_nombre": st.column_config.TextColumn("Base de Datos (TiDB)"),
-                    "tipo_contribuyente": st.column_config.SelectboxColumn("Tipo de Contribuyente", options=["Contribuyente Ordinario", "Contribuyente Especial"]),
-                    "estado": st.column_config.SelectboxColumn("Estado", options=["Activo", "Inactivo"])
-                }
-            )
-        else:
-            st.info("ℹ️ No hay empresas registradas todavía en el sistema.")
-    except Exception as e:
-        st.error(f"❌ Error al cargar la lista de empresas: {e}")
-
-
 
 def panel_gestion_clientes_firma(conn):
     st.header("🏢 Gestión de Clientes de la Firma")
@@ -1111,6 +972,126 @@ def panel_gestion_clientes_firma(conn):
             st.info("ℹ️ No hay clientes de la firma registrados todavía en el sistema.")
     except Exception as e:
         st.error(f"❌ Error al cargar la lista de clientes de la firma: {e}")
+
+def panel_administracion_firmas(conn):
+    # 🔒 Blindaje de seguridad: Solo el Superadministrador puede entrar aquí
+    rol_actual = str(st.session_state.get('rol', '')).lower()
+    if rol_actual not in ['admin', 'superadmin']:
+        st.error("⛔ Acceso denegado. No tienes permisos de Superadministrador para gestionar usuarios y accesos globales.")
+        return  # Corta la ejecución para que no vea nada
+
+    st.header("🏢 Gestión de Usuarios y Accesos del Administrador de Firmas")
+    st.markdown("Registra un nuevo usuario y asígnale su rol y empresa correspondiente de forma manual.")
+    st.header("🏢 Gestión de Usuarios y Accesos del Administrador de Firmas")
+    st.markdown("Registra un nuevo usuario y asígnale su rol y empresa correspondiente de forma manual.")
+    
+    # 1. CARGAR LAS EMPRESAS YA CREADAS DESDE LA BASE DE DATOS
+    try:
+        query_empresas = "SELECT id, nombre_empresa, rif, db_nombre FROM control_central.clientes"
+        df_empresas = ejecutar_consulta(query_empresas, conn)
+    except Exception:
+        df_empresas = pd.DataFrame()
+
+    with st.expander("➕ Registrar Nuevo Usuario y Rol Manualmente", expanded=True):
+        with st.form("registro_admin_firma"):
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                nombre_usuario = st.text_input("Nombre de Usuario", help="Ej: oscar_mendoza")
+                contrasena = st.text_input("Contraseña", type="password", help="Contraseña de acceso")
+            
+            with col2:
+                rol_usuario = st.text_input(
+                    "Rol del Sistema (Creación Manual)", 
+                    value="admin_firma", 
+                    help="Escribe el rol correspondiente (ej: admin_firma)"
+                )
+                
+                # Selector de empresa ya creada
+                lista_nombres = []
+                if not df_empresas.empty and 'nombre_empresa' in df_empresas.columns:
+                    lista_nombres = df_empresas['nombre_empresa'].dropna().tolist()
+                
+                if lista_nombres:
+                    empresa_seleccionada = st.selectbox(
+                        "Asociar a Empresa Existente", 
+                        options=lista_nombres,
+                        help="Selecciona la empresa o firma que este usuario va a administrar"
+                    )
+                else:
+                    empresa_seleccionada = None
+                    st.warning("⚠️ No hay empresas registradas. Debes crear una empresa primero.")
+
+            btn_guardar = st.form_submit_button("💾 Guardar Usuario en Base de Datos")
+            
+            if btn_guardar:
+                st.toast("⏳ Procesando registro...", icon="🔄")
+                
+                if not nombre_usuario or not contrasena or not rol_usuario:
+                    st.error("❌ El nombre de usuario, la contraseña y el rol son obligatorios.")
+                elif not empresa_seleccionada:
+                    st.error("❌ Debes seleccionar una empresa para asociar al usuario.")
+                else:
+                    try:
+                        # Extraer la fila exacta de la empresa seleccionada
+                        fila_empresa = df_empresas[df_empresas['nombre_empresa'].astype(str).str.strip() == str(empresa_seleccionada).strip()]
+                        
+                        if fila_empresa.empty:
+                            st.error(f"❌ No se encontró la empresa '{empresa_seleccionada}' en el DataFrame.")
+                        else:
+                            # Capturamos tanto el ID como el db_nombre de la empresa
+                            cliente_id_asociado = int(fila_empresa.iloc[0]['id'])
+                            db_nombre_asociado = str(fila_empresa.iloc[0]['db_nombre'])
+                            
+                            # Hashear la contraseña
+                            hashed_password = bcrypt.hashpw(contrasena.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+                            
+                            cursor = conn.cursor()
+                            # INSERTAMOS INCLUYENDO db_nombre PARA QUE NO QUEDE NULO EN LA TABLA DE USUARIOS
+                            sql = """
+                                INSERT INTO control_central.usuarios (usuario, clave_hash, rol, cliente_id, db_nombre) 
+                                VALUES (%s, %s, %s, %s, %s)
+                            """
+                            cursor.execute(sql, (
+                                nombre_usuario.strip(), 
+                                hashed_password, 
+                                rol_usuario.strip(), 
+                                cliente_id_asociado, 
+                                db_nombre_asociado
+                            ))
+                            conn.commit()
+                            cursor.close()
+                            
+                            st.toast("¡Usuario guardado con éxito!", icon="✅")
+                            st.success(f"✅ ¡Usuario '{nombre_usuario.strip()}' vinculado correctamente a '{empresa_seleccionada}' (DB: {db_nombre_asociado})!")
+                            st.balloons()
+                            st.rerun()
+                    except Exception as e:
+                        st.error(f"❌ Error crítico al registrar el usuario: {e}")
+
+    st.divider()
+
+    # Tabla para visualizar los usuarios registrados y su empresa asociada mediante JOIN
+    st.subheader("👥 Usuarios y Roles Registrados en el Sistema")
+    try:
+        query_usuarios = """
+            SELECT 
+                u.id AS id_usuario, 
+                u.usuario, 
+                u.rol, 
+                u.cliente_id, 
+                c.nombre_empresa AS empresa_asignada, 
+                c.db_nombre AS base_de_datos 
+            FROM control_central.usuarios u 
+            LEFT JOIN control_central.clientes c ON u.cliente_id = c.id
+        """
+        df_usuarios = ejecutar_consulta(query_usuarios, conn)
+        if df_usuarios is not None and not df_usuarios.empty:
+            st.dataframe(df_usuarios, use_container_width=True)
+        else:
+            st.info("ℹ️ No hay usuarios registrados.")
+    except Exception as e:
+        st.error(f"❌ Error al cargar la lista de usuarios: {e}")
 
 def registrar_log_automatico(conn, accion, detalles):
     """Registra automáticamente las interacciones del usuario en la tabla logs_auditoria
