@@ -960,6 +960,7 @@ def panel_administracion(conn):
         st.error(f"Error cargando logs: {e}")
 
 
+
 def panel_administracion_firmas(conn):
     st.header("🏢 Gestión de Usuarios y Accesos del Administrador de Firmas")
     st.markdown("Registra un nuevo usuario con rol de firma y asígnale su empresa correspondiente.")
