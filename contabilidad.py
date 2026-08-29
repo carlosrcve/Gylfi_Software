@@ -961,9 +961,13 @@ def panel_administracion(conn):
 
 
 
+import pandas as pd
+import streamlit as st
+import bcrypt
+
 def panel_administracion_firmas(conn):
     st.header("🏢 Gestión de Usuarios y Accesos del Administrador de Firmas")
-    st.markdown("Registra un nuevo usuario con rol de firma y asígnale su empresa correspondiente.")
+    st.markdown("Registra un nuevo usuario y asígnale su rol y empresa correspondiente de forma manual.")
     
     # 1. CARGAR LAS EMPRESAS YA CREADAS DESDE LA BASE DE DATOS
     try:
@@ -977,11 +981,16 @@ def panel_administracion_firmas(conn):
             col1, col2 = st.columns(2)
             
             with col1:
-                nombre_usuario = st.text_input("Nombre de Usuario", help="Ej: contador_firma")
+                nombre_usuario = st.text_input("Nombre de Usuario", help="Ej: oscar_mendoza")
                 contrasena = st.text_input("Contraseña", type="password", help="Contraseña de acceso")
             
             with col2:
-                st.text_input("Rol del Sistema (Creación Manual)", value="admin_firma", disabled=True)
+                # CAMPO DE ROL MANUAL Y EDITABLE (Ya no está bloqueado)
+                rol_usuario = st.text_input(
+                    "Rol del Sistema (Creación Manual)", 
+                    value="admin_firma", 
+                    help="Escribe el rol correspondiente (ej: admin_firma)"
+                )
                 
                 # Selector de empresa ya creada
                 if not df_empresas.empty and 'nombre_empresa' in df_empresas.columns:
@@ -998,8 +1007,8 @@ def panel_administracion_firmas(conn):
             btn_guardar = st.form_submit_button("💾 Guardar Usuario en Base de Datos")
             
             if btn_guardar:
-                if not nombre_usuario or not contrasena:
-                    st.error("❌ El nombre de usuario y la contraseña son obligatorios.")
+                if not nombre_usuario or not contrasena or not rol_usuario:
+                    st.error("❌ El nombre de usuario, la contraseña y el rol son obligatorios.")
                 elif not empresa_seleccionada:
                     st.error("❌ Debes seleccionar una empresa para asociar al usuario.")
                 else:
@@ -1016,11 +1025,11 @@ def panel_administracion_firmas(conn):
                             INSERT INTO control_central.usuarios (usuario, clave_hash, rol, cliente_id) 
                             VALUES (%s, %s, %s, %s)
                         """
-                        cursor.execute(sql, (nombre_usuario.strip(), hashed_password, 'admin_firma', cliente_id_asociado))
+                        cursor.execute(sql, (nombre_usuario.strip(), hashed_password, rol_usuario.strip(), cliente_id_asociado))
                         conn.commit()
                         cursor.close()
                         
-                        st.success(f"✅ ¡Usuario '{nombre_usuario}' asociado correctamente a la empresa '{empresa_seleccionada}'!")
+                        st.success(f"✅ ¡Usuario '{nombre_usuario}' con rol '{rol_usuario}' asociado correctamente a '{empresa_seleccionada}'!")
                         st.balloons()
                         st.rerun()
                     except Exception as e:
