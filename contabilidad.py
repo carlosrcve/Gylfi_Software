@@ -795,100 +795,148 @@ def panel_gestion_clientes(conn):
         st.error(f"❌ Error al cargar la lista de empresas: {e}")
 
 
+
 def panel_administracion(conn):
-    st.header("⚙️ Gestión de Usuarios y Accesos Multi-Firma")
+    st.header("⚙️ Panel Central de Control - Ecosistema Multi-Firma")
     
-    # 1. FORMULARIO DE REGISTRO AVANZADO
-    with st.expander("➕ Registrar Nuevo Usuario o Administrador de Firma", expanded=True):
-        with st.form("registro_usuario_avanzado"):
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                nuevo_u = st.text_input("Nombre de Usuario", help="Ej: carlos_admin o firma_contable_zulia")
-                nueva_p = st.text_input("Contraseña", type="password")
-            
-            with col2:
-                # Ampliamos los roles para soportar tu visión de múltiples firmas contables
-                rol = st.selectbox(
-                    "Rol del Sistema", 
-                    ["cliente", "admin_firma", "admin"],
-                    help="cliente: Empresa final | admin_firma: Contador con cartera propia | admin: Superusuario global"
-                )
+    # Creamos las dos interfaces independientes mediante pestañas (Tabs)
+    tab_firmas, tab_usuarios, tab_logs = st.tabs([
+        "🏢 1. Gestión de Firmas y Clientes (Central)", 
+        "👥 2. Registro de Accesos y Credenciales", 
+        "🕵️‍♂️ 3. Auditoría y Logs"
+    ])
+    
+    # ==========================================
+    # INTERFAZ 1: GESTIÓN DE FIRMAS Y SUS CLIENTES
+    # ==========================================
+    with tab_firmas:
+        st.subheader("Directorio de Clientes / Empresas del Ecosistema")
+        st.info("Aquí puedes registrar las empresas o clientes que manejan contabilidad en el sistema.")
+        
+        with st.expander("➕ Registrar Nueva Empresa / Cliente en la BD Central"):
+            with st.form("form_nueva_empresa"):
+                c1, c2 = st.columns(2)
+                with c1:
+                    nom_empresa = st.text_input("Nombre de la Empresa", help="Ej: Distribuidora Rishon Leztion, C.A.")
+                    rif_empresa = st.text_input("RIF", help="Ej: J12345678")
+                with c2:
+                    db_empresa = st.text_input("Nombre de la Base de Datos", help="Ej: rishon_letzion_ca")
+                    tipo_contrib = st.selectbox("Tipo de Contribuyente", ["Contribuyente Ordinario", "Contribuyente Especial"])
                 
-                # Buscamos los clientes en la tabla real 'clientes' de control_central
-                try:
-                    query_cli = "SELECT id, nombre_empresa FROM control_central.clientes"
-                    df_cli = ejecutar_consulta(query_cli, conn)
-                    opciones_clientes = {row['nombre_empresa']: row['id'] for _, row in df_cli.iterrows()}
-                except Exception as e:
-                    opciones_clientes = {}
+                btn_add_empresa = st.form_submit_button("Guardar Empresa en Tabla 'clientes'")
+                
+                if btn_add_empresa:
+                    if not nom_empresa or not rif_empresa or not db_empresa:
+                        st.error("❌ Todos los campos son obligatorios.")
+                    else:
+                        try:
+                            cursor = conn.cursor()
+                            sql_emp = """INSERT INTO clientes (nombre_empresa, rif, db_nombre, estado, tipo_contribuyente) 
+                                         VALUES (%s, %s, %s, 'Activo', %s)"""
+                            cursor.execute(sql_emp, (nom_empresa, rif_empresa, db_empresa, tipo_contrib))
+                            conn.commit()
+                            cursor.close()
+                            st.success(f"✅ Empresa '{nom_empresa}' registrada con éxito.")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"❌ Error al registrar empresa: {e}")
+                            
+        # Mostrar tabla de clientes actual
+        try:
+            df_clientes_full = ejecutar_consulta("SELECT id, nombre_empresa, rif, db_nombre, estado, tipo_contribuyente FROM clientes", conn)
+            st.dataframe(df_clientes_full, width='stretch')
+        except Exception:
+            st.info("No hay empresas registradas.")
 
-                # Filtro dinámico según el rol
-                if rol == "cliente":
-                    nombre_sel = st.selectbox("Asociar Cliente Directo", ["Seleccione..."] + list(opciones_clientes.keys()))
-                elif rol == "admin_firma":
-                    st.info("💡 Este usuario gestionará una cartera de clientes asignada.")
-                    nombre_sel = "Ninguna / Firma Externa"
-                else:
-                    nombre_sel = "Ninguna / Acceso Total"
-
-            btn_crear = st.form_submit_button("Guardar en Base de Datos Central")
-            
-            if btn_crear:
-                if not nuevo_u or not nueva_p:
-                    st.error("❌ El usuario y la contraseña son obligatorios.")
-                else:
+    # ==========================================
+    # INTERFAZ 2: REGISTRO DE ACCESOS Y USUARIOS
+    # ==========================================
+    with tab_usuarios:
+        st.subheader("Gestión de Credenciales (Usuarios y Roles)")
+        
+        with st.expander("➕ Crear Nuevo Usuario de Acceso", expanded=True):
+            with st.form("registro_usuario_avanzado"):
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    nuevo_u = st.text_input("Nombre de Usuario", help="Ej: carlos_admin o el contador de la firma")
+                    nueva_p = st.text_input("Contraseña", type="password")
+                
+                with col2:
+                    rol = st.selectbox(
+                        "Rol del Sistema", 
+                        ["cliente", "admin_firma", "admin"],
+                        help="cliente: Acceso a su BD | admin_firma: Administra una firma | admin: Superusuario total"
+                    )
+                    
+                    # Cargamos las empresas reales de la tabla 'clientes'
                     try:
-                        import bcrypt
-                        salt = bcrypt.gensalt()
-                        hash_cifrado = bcrypt.hashpw(nueva_p.encode('utf-8'), salt)
-                        
-                        # Determinamos el cliente_id asociado
-                        c_id = opciones_clientes.get(nombre_sel) if rol == "cliente" and nombre_sel in opciones_clientes else None
-                        
-                        cursor = conn.cursor()
-                        sql = """INSERT INTO usuarios (usuario, clave_hash, rol, cliente_id) 
-                                 VALUES (%s, %s, %s, %s)"""
-                        
-                        cursor.execute(sql, (nuevo_u, hash_cifrado.decode('utf-8'), rol, c_id))
-                        conn.commit()
-                        cursor.close()
-                        
-                        st.success(f"✅ Usuario '{nuevo_u}' ({rol}) registrado exitosamente.")
-                        st.balloons()
-                    except Exception as e:
-                        st.error(f"❌ Error al registrar: {e}")
+                        df_cli = ejecutar_consulta("SELECT id, nombre_empresa FROM clientes", conn)
+                        opciones_clientes = {row['nombre_empresa']: row['id'] for _, row in df_cli.iterrows()}
+                    except Exception:
+                        opciones_clientes = {}
 
-    # 2. TABLA DE USUARIOS ACTUALES CON ROLES Y FIRMAS (Apuntando a 'clientes')
-    st.subheader("👥 Usuarios y Firmas Registradas en el Ecosistema")
-    try:
-        query_view = """
-            SELECT u.id, u.usuario, u.rol, c.nombre_empresa as empresa_asignada, u.db_nombre 
-            FROM control_central.usuarios u
-            LEFT JOIN control_central.clientes c ON u.cliente_id = c.id
-        """
-        df_usuarios = ejecutar_consulta(query_view, conn)
-        st.dataframe(df_usuarios, width='stretch')
-    except Exception:
-        st.info("No hay usuarios registrados todavía.")
+                    if rol == "cliente":
+                        nombre_sel = st.selectbox("Asociar Empresa Específica", ["Seleccione..."] + list(opciones_clientes.keys()))
+                    else:
+                        nombre_sel = "Ninguna / Acceso Global o de Firma"
 
-    # 3. VISOR DE AUDITORÍA INTEGRADO
-    st.divider()
-    st.subheader("🕵️‍♂️ Monitoreo de Interacciones (Logs)")
-    
-    if st.button("🔄 Refrescar Bitácora"):
-        st.rerun()
+                btn_crear = st.form_submit_button("Guardar Credencial de Usuario")
+                
+                if btn_crear:
+                    if not nuevo_u or not nueva_p:
+                        st.error("❌ El usuario y la contraseña son obligatorios.")
+                    else:
+                        try:
+                            salt = bcrypt.gensalt()
+                            hash_cifrado = bcrypt.hashpw(nueva_p.encode('utf-8'), salt)
+                            
+                            c_id = opciones_clientes.get(nombre_sel) if rol == "cliente" and nombre_sel in opciones_clientes else None
+                            
+                            cursor = conn.cursor()
+                            sql_usr = """INSERT INTO usuarios (usuario, clave_hash, rol, cliente_id) 
+                                     VALUES (%s, %s, %s, %s)"""
+                            cursor.execute(sql_usr, (nuevo_u, hash_cifrado.decode('utf-8'), rol, c_id))
+                            conn.commit()
+                            cursor.close()
+                            
+                            st.success(f"✅ Usuario '{nuevo_u}' con rol '{rol}' registrado exitosamente.")
+                            st.balloons()
+                        except Exception as e:
+                            st.error(f"❌ Error al registrar usuario: {e}")
+
+        # Tabla de usuarios actuales vinculada con la tabla 'clientes'
+        st.subheader("👥 Usuarios Registrados en el Sistema")
+        try:
+            query_view = """
+                SELECT u.id, u.usuario, u.rol, c.nombre_empresa as empresa_asignada, u.db_nombre 
+                FROM usuarios u
+                LEFT JOIN clientes c ON u.cliente_id = c.id
+            """
+            df_usuarios = ejecutar_consulta(query_view, conn)
+            st.dataframe(df_usuarios, width='stretch')
+        except Exception:
+            st.info("No hay usuarios registrados todavía.")
+
+    # ==========================================
+    # INTERFAZ 3: AUDITORÍA Y LOGS
+    # ==========================================
+    with tab_logs:
+        st.subheader("🕵️‍♂️ Monitoreo de Interacciones y Bitácora")
         
-    try:
-        query_logs = "SELECT * FROM logs_auditoria ORDER BY fecha DESC LIMIT 100"
-        df_logs = ejecutar_consulta(query_logs, conn)
-        
-        if not df_logs.empty:
-            st.dataframe(df_logs, width='stretch')
-        else:
-            st.info("No se han detectado interacciones todavía.")
-    except Exception as e:
-        st.error(f"Error cargando logs: {e}")
+        if st.button("🔄 Refrescar Bitácora de Logs"):
+            st.rerun()
+            
+        try:
+            query_logs = "SELECT * FROM logs_auditoria ORDER BY fecha DESC LIMIT 100"
+            df_logs = ejecutar_consulta(query_logs, conn)
+            
+            if not df_logs.empty:
+                st.dataframe(df_logs, width='stretch')
+            else:
+                st.info("No se han detectado interacciones todavía.")
+        except Exception as e:
+            st.error(f"Error cargando logs: {e}")
 
 
 def registrar_log_automatico(conn, accion, detalles):
