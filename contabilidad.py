@@ -11903,8 +11903,16 @@ elif opcion_menu == "📚 Libros Fiscales":
                         )
 
 
-    sub_opcion = st.sidebar.selectbox("Seleccione opción", ["Opciones...", "Comprobante de Retención IVA"])
+    # ✅ CÓDIGO CORRECTO Y LIMPIO CERCA DE LA LÍNEA 11916
 
+    # 1. Asegúrate de que la función anterior cierre bien su paréntesis:
+    mostrar_interfaz_retencion_iva(
+        EMPRESA, 
+        st.session_state.get('f_inicio_global', dt.date.today()), 
+        st.session_state.get('f_fin_global', dt.date.today())
+    )
+
+    # 2. El IF de la opción debe ir independiente, no metido entre los parámetros de arriba:
     if sub_opcion == "Comprobante de Retención IVA":
         # 🟢 AQUÍ VA LA VALIDACIÓN
         tipo_usuario = st.session_state.get('tipo_contribuyente', 'Contribuyente Ordinario')
