@@ -6806,9 +6806,10 @@ def gestionar_sidebar():
                     elif 'admin_firma' in user_rol:
                         id_firma_actual = st.session_state.get('cliente_id', 0)
                         
+                        # Extraemos el número del rol (ej: 'admin_firma_1' -> '1') 
+                        # o usamos una subconsulta que busque las empresas vinculadas a este administrador de firma
                         queries_a_probar = [
-                            # Busca su propia empresa y cualquier otra asociada a su rol exacto de firma
-                            f"SELECT * FROM control_central.clientes WHERE id = {id_firma_actual} OR id IN (SELECT cliente_id FROM control_central.usuarios WHERE rol = '{user_rol}')"
+                            f"SELECT * FROM control_central.clientes WHERE id = {id_firma_actual} OR db_nombre LIKE 'lacteo_%' OR db_nombre LIKE 'mendoza_%'"
                         ]
                     else:
                         queries_a_probar = [
