@@ -6732,6 +6732,16 @@ def gestionar_sidebar():
                 """, 
                 unsafe_allow_html=True
             )
+        elif 'admin_firma' in user_rol:
+            st.markdown(
+                f"""
+                <div style="background-color: #1e293b; padding: 10px; border-radius: 8px; text-align: center; margin-bottom: 15px; border: 1px solid #334155;">
+                    <span style="color: #38bdf8; font-weight: bold; font-size: 13px;">🏢 Administrador de Firma</span><br>
+                    <span style="color: #ffffff; font-size: 13px; font-weight: 600;">{nombre_usuario_actual}</span>
+                </div>
+                """, 
+                unsafe_allow_html=True
+            )
         else:
             st.markdown(
                 f"""
@@ -6751,9 +6761,19 @@ def gestionar_sidebar():
                 del st.session_state[key]
             st.rerun()
 
-        # --- Navegación ---
+        # --- Navegación adaptada por rol ---
         if user_rol == 'admin':
-            menu = st.radio("Navegación", ["📊 Auditoría Contable", "⚙️ Gestión de Usuarios", "🏢 Gestión de Empresas","🏢 Gestión de Firmas y Accesos","🏢 Gestión de Clientes de la Firma" ], key="menu_nav")
+            menu = st.radio(
+                "Navegación", 
+                ["📊 Auditoría Contable", "⚙️ Gestión de Usuarios", "🏢 Gestión de Empresas", "🏢 Gestión de Firmas y Accesos", "🏢 Gestión de Clientes de la Firma"], 
+                key="menu_nav"
+            )
+        elif 'admin_firma' in user_rol:
+            menu = st.radio(
+                "Navegación", 
+                ["📊 Auditoría Contable", "🏢 Gestión de Firmas y Accesos", "🏢 Gestión de Clientes de la Firma"], 
+                key="menu_nav"
+            )
         else:
             menu = "📊 Auditoría Contable"
 
@@ -6783,6 +6803,12 @@ def gestionar_sidebar():
                             "SELECT * FROM control_central.clientes",
                             "SELECT * FROM clientes"
                         ]
+                    elif 'admin_firma' in user_rol:
+                        # El administrador de firma ve sus clientes asociados por firma_id o su propio registro
+                        id_firma_actual = st.session_state.get('cliente_id')
+                        queries_a_probar = [
+                            f"SELECT * FROM control_central.clientes WHERE id = {id_firma_actual} OR firma_id = {id_firma_actual}"
+                        ]
                     else:
                         queries_a_probar = [
                             f"""
@@ -6790,7 +6816,7 @@ def gestionar_sidebar():
                             JOIN control_central.usuarios u ON c.id = u.cliente_id
                             WHERE LOWER(TRIM(u.usuario)) = '{user_limpio}'
                             """,
-                            f"""
+                            """
                             SELECT * FROM control_central.clientes WHERE id = 3
                             """
                         ]
@@ -6826,57 +6852,46 @@ def gestionar_sidebar():
 
             df_filtrado = df_sidebar
 
-            if user_rol != 'admin' and df_filtrado.empty:
+            if user_rol != 'admin' and 'admin_firma' not in user_rol and df_filtrado.empty:
                 st.error(f"❌ El usuario '{nombre_usuario_actual}' no tiene una empresa asignada en la base de datos.")
                 st.stop()
 
-            nombres_empresas = df_filtrado['nombre_empresa'].tolist()
+            nombres_empresas = df_filtrado['nombre_empresa'].tolist() if not df_filtrado.empty else []
 
-            # Mantenemos la selección anterior si ya existía en el session_state
-            idx_default = 0
-            if 'CLIENTE_NOMBRE' in st.session_state and st.session_state['CLIENTE_NOMBRE'] in nombres_empresas:
-                idx_default = nombres_empresas.index(st.session_state['CLIENTE_NOMBRE'])
+            if nombres_empresas:
+                idx_default = 0
+                if 'CLIENTE_NOMBRE' in st.session_state and st.session_state['CLIENTE_NOMBRE'] in nombres_empresas:
+                    idx_default = nombres_empresas.index(st.session_state['CLIENTE_NOMBRE'])
 
-            # CAMBIO: Usamos st.selectbox para que el admin pueda elegir la empresa de la lista
-            st.markdown(f"**🏢 Selección de Empresa:**")
-            nombre_seleccionado = st.selectbox(
-                "📂 SELECCIONE EMPRESA", 
-                nombres_empresas, 
-                index=idx_default,
-                key="selector_empresa_interactivo"
-            )
+                st.markdown(f"**🏢 Selección de Empresa:**")
+                nombre_seleccionado = st.selectbox(
+                    "📂 SELECCIONE EMPRESA", 
+                    nombres_empresas, 
+                    index=idx_default,
+                    key="selector_empresa_interactivo"
+                )
 
-            st.session_state['cliente_seleccionado_previo'] = nombre_seleccionado
+                st.session_state['cliente_seleccionado_previo'] = nombre_seleccionado
 
-            # ... (código existente donde obtienes la fila seleccionada)
-            fila_seleccionada = df_filtrado[df_filtrado['nombre_empresa'] == nombre_seleccionado]
-            if fila_seleccionada.empty:
-                fila_seleccionada = df_filtrado.iloc[[0]]
+                fila_seleccionada = df_filtrado[df_filtrado['nombre_empresa'] == nombre_seleccionado]
+                if fila_seleccionada.empty:
+                    fila_seleccionada = df_filtrado.iloc[[0]]
 
-            datos_sel = fila_seleccionada.iloc[0]
-            db_seleccionada = str(datos_sel['db_nombre']).strip()
-            
-            # Estas son las variables que el panel principal está buscando:
-            st.session_state['DB_ACTUAL'] = db_seleccionada
-            st.session_state['db_a_conectar'] = db_seleccionada
-            st.session_state['CLIENTE_NOMBRE'] = nombre_seleccionado
-            if 'id' in datos_sel:
-                st.session_state['cliente_id_seleccionado'] = int(datos_sel['id'])
+                datos_sel = fila_seleccionada.iloc[0]
+                db_seleccionada = str(datos_sel['db_nombre']).strip()
+                
+                st.session_state['DB_ACTUAL'] = db_seleccionada
+                st.session_state['db_a_conectar'] = db_seleccionada
+                st.session_state['CLIENTE_NOMBRE'] = nombre_seleccionado
+                if 'id' in datos_sel:
+                    st.session_state['cliente_id_seleccionado'] = int(datos_sel['id'])
 
-            # 🟢 GESTIÓN DEL TIPO DE CONTRIBUYENTE:
-            # Validamos si existe la columna en los datos seleccionados para actualizar el session_state
-            if 'tipo_contribuyente' in datos_sel and pd.notna(datos_sel['tipo_contribuyente']):
-                st.session_state['tipo_contribuyente'] = str(datos_sel['tipo_contribuyente']).strip()
-            else:
-                # Búsqueda alternativa por si el nombre de la empresa coincide directamente en el dataframe general
-                try:
-                    match_contribuyente = df_filtrado.loc[df_filtrado['nombre_empresa'] == nombre_seleccionado, 'tipo_contribuyente']
-                    if not match_contribuyente.empty and pd.notna(match_contribuyente.values[0]):
-                        st.session_state['tipo_contribuyente'] = str(match_contribuyente.values[0]).strip()
-                    else:
-                        st.session_state['tipo_contribuyente'] = 'Contribuyente Ordinario'
-                except Exception:
+                if 'tipo_contribuyente' in datos_sel and pd.notna(datos_sel['tipo_contribuyente']):
+                    st.session_state['tipo_contribuyente'] = str(datos_sel['tipo_contribuyente']).strip()
+                else:
                     st.session_state['tipo_contribuyente'] = 'Contribuyente Ordinario'
+            else:
+                st.info("ℹ️ No hay empresas disponibles para mostrar.")
 
     return menu
 
@@ -6895,8 +6910,9 @@ elif not st.session_state.get('bienvenida_completada', False):
 else:
     menu_lateral = gestionar_sidebar()
 
-# --- LÓGICA DE NAVEGACIÓN ---
-# Usamos una bandera para saber si entramos a un módulo exclusivo de admin
+# --- LÓGICA DE NAVEGACIÓN Y PERMISOS ---
+rol_actual = str(st.session_state.get('rol', '')).strip().lower()
+
 es_modulo_admin = menu_lateral in [
     "⚙️ Gestión de Usuarios", 
     "🏢 Gestión de Firmas y Accesos", 
@@ -6905,6 +6921,11 @@ es_modulo_admin = menu_lateral in [
 ]
 
 if es_modulo_admin:
+    # Doble seguridad: si intentan entrar por manipulación, validamos el rol
+    if rol_actual != 'admin' and 'admin_firma' not in rol_actual:
+        st.warning("⚠️ No tienes permisos para acceder a este módulo administrativo.")
+        st.stop()
+
     try:
         conn = conectar_db() # Conexión a la central
         if conn:
@@ -6922,8 +6943,7 @@ if es_modulo_admin:
     except Exception as e:
         st.error(f"Error al acceder a la gestión central: {e}")
     
-    # IMPORTANTE: Aquí sí detenemos, porque ya renderizamos el módulo admin
-    st.stop() 
+    st.stop()
 
 # --- SI NO ES ADMIN, CONTINUAMOS CON EL DASHBOARD CONTABLE ---
 # Sacamos los datos de la sesión
