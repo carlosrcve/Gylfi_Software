@@ -6635,6 +6635,9 @@ def renderizar_tab_asientos_ventas(db_connection):
             st.error(f"Error al leer el archivo Excel de ventas: {e}")
 
 
+import pandas as pd
+import streamlit as st
+
 def gestionar_sidebar():
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
     user_id = st.session_state.get('user_id', st.session_state.get('cliente_id', 'N/A'))
@@ -6766,6 +6769,12 @@ def gestionar_sidebar():
                             "SELECT * FROM control_central.clientes",
                             "SELECT * FROM clientes"
                         ]
+                    elif user_rol == 'admin_firma':
+                        # El Administrador de Firmas lista los clientes para supervisar/auditar su cartera
+                        queries_a_probar = [
+                            "SELECT * FROM control_central.clientes",
+                            "SELECT * FROM clientes"
+                        ]
                     else:
                         queries_a_probar = [
                             f"""
@@ -6809,7 +6818,7 @@ def gestionar_sidebar():
 
             df_filtrado = df_sidebar
 
-            if user_rol != 'admin' and df_filtrado.empty:
+            if user_rol != 'admin' and user_rol != 'admin_firma' and df_filtrado.empty:
                 st.error(f"❌ El usuario '{nombre_usuario_actual}' no tiene una empresa asignada en la base de datos.")
                 st.stop()
 
@@ -6855,7 +6864,6 @@ def gestionar_sidebar():
                     st.session_state['tipo_contribuyente'] = 'Contribuyente Ordinario'
 
     return menu
-
 
 # 0. Primero validamos si la sesión expiró por tiempo
 verificar_inactividad()
