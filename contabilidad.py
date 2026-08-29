@@ -883,7 +883,6 @@ def panel_gestion_clientes_firma(conn):
     st.header("🏢 Gestión de Clientes de la Firma")
     st.markdown("Administra las empresas clientes que atiende la firma y provisiona sus bases de datos en la nube de forma automatizada.")
     
-    # Capturamos el rol y el ID de la firma actual desde la sesión
     rol_actual = str(st.session_state.get('rol', '')).lower()
     id_firma_actual = st.session_state.get('cliente_id')
     
@@ -915,23 +914,22 @@ def panel_gestion_clientes_firma(conn):
                     try:
                         cursor = conn.cursor()
                         
-                        # Inserción adaptada para incluir el firma_id del usuario logueado actualmente
+                        # Inserción ajustada a las columnas base reales si aún no tienes firma_id
                         sql = """
-                            INSERT INTO control_central.clientes (nombre_empresa, rif, db_nombre, tipo_contribuyente, estado, firma_id) 
-                            VALUES (%s, %s, %s, %s, %s, %s)
+                            INSERT INTO control_central.clientes (nombre_empresa, rif, db_nombre, tipo_contribuyente, estado) 
+                            VALUES (%s, %s, %s, %s, %s)
                         """
                         cursor.execute(sql, (
                             nombre_empresa, 
                             rif, 
                             db_nombre, 
                             tipo_contribuyente, 
-                            estado, 
-                            id_firma_actual  # <--- Asocia automáticamente el ID de la firma matriz (ej: 420002 de Óscar)
+                            estado
                         ))
                         conn.commit()
                         cursor.close()
                         
-                        st.info(f"🚀 Provisionando base de datos y tablas para '{db_nombre}' en TiDB Cloud...")
+                        st.info(f"🚀 Provisionando base de datos y tablas para '{db_nombre}' in TiDB Cloud...")
                         conectar_db(db_nombre)
                         
                         st.success(f"✅ ¡Cliente de la firma '{nombre_empresa}' y su base de datos fueron configurados con éxito!")
@@ -942,17 +940,16 @@ def panel_gestion_clientes_firma(conn):
 
     st.divider()
 
-    # 2. TABLA DE CLIENTES DE LA FIRMA REGISTRADOS (CON FILTRO DE SEGURIDAD)
+    # 2. TABLA DE CLIENTES DE LA FIRMA REGISTRADOS
     st.subheader("📋 Listado de Clientes de la Firma")
     
     try:
-        # Aplicamos la misma lógica de aislamiento por roles
         if rol_actual in ['admin', 'superadmin']:
-            query_view = "SELECT id, nombre_empresa, rif, db_nombre, tipo_contribuyente, estado, firma_id FROM control_central.clientes"
+            query_view = "SELECT id, nombre_empresa, rif, db_nombre, tipo_contribuyente, estado FROM control_central.clientes"
             df_clientes = ejecutar_consulta(query_view, conn)
         else:
-            query_view = "SELECT id, nombre_empresa, rif, db_nombre, tipo_contribuyente, estado, firma_id FROM control_central.clientes WHERE id = %s OR firma_id = %s"
-            df_clientes = ejecutar_consulta(query_view, conn, params=(id_firma_actual, id_firma_actual))
+            query_view = "SELECT id, nombre_empresa, rif, db_nombre, tipo_contribuyente, estado FROM control_central.clientes WHERE id = %s"
+            df_clientes = ejecutar_consulta(query_view, conn, params=(id_firma_actual,))
         
         if df_clientes is not None and not df_clientes.empty:
             st.dataframe(
@@ -964,8 +961,7 @@ def panel_gestion_clientes_firma(conn):
                     "rif": st.column_config.TextColumn("RIF"),
                     "db_nombre": st.column_config.TextColumn("Base de Datos (TiDB)"),
                     "tipo_contribuyente": st.column_config.SelectboxColumn("Tipo de Contribuyente", options=["Contribuyente Ordinario", "Contribuyente Especial"]),
-                    "estado": st.column_config.SelectboxColumn("Estado", options=["Activo", "Inactivo"]),
-                    "firma_id": st.column_config.NumberColumn("ID Firma Matriz")
+                    "estado": st.column_config.SelectboxColumn("Estado", options=["Activo", "Inactivo"])
                 }
             )
         else:
