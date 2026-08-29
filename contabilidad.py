@@ -795,32 +795,32 @@ def panel_gestion_clientes(conn):
         st.error(f"❌ Error al cargar la lista de empresas: {e}")
 
 
+import streamlit as st
+import bcrypt
 
-def panel_administracion_firmas(conn):
-    st.header("⚙️ Gestión de Usuarios y Accesos del Administrador de firmas")
+def panel_administracion(conn):
+    st.header("⚙️ Gestión de Usuarios y Accesos")
     
-    # 1. FORMULARIO DE REGISTRO PARA ADMIN DE FIRMAS
-    with st.expander("➕ Registrar Nuevo Usuario (Admin de Firmas)", expanded=True):
-        with st.form("registro_usuario_admin_firma"):
+    # 1. FORMULARIO DE REGISTRO
+    with st.expander("➕ Registrar Nuevo Usuario del Sistema", expanded=True):
+        with st.form("registro_usuario"):
             col1, col2 = st.columns(2)
             
             with col1:
-                nuevo_u = st.text_input("Nombre de Usuario", help="Ej: gestor_firma o supervisor_firma")
+                nuevo_u = st.text_input("Nombre de Usuario", help="Ej: carlos_admin o king_gerente")
                 nueva_p = st.text_input("Contraseña", type="password")
             
             with col2:
-                # El rol queda fijo o predefinido para este panel específico
-                st.markdown("**Rol del Sistema:** `admin_firma`")
-                rol = "admin_firma"
+                rol = st.selectbox("Rol del Sistema", ["admin", "cliente"])
                 
-                # Buscamos todas las empresas (clientes de la firma) disponibles para asociar
+                # Buscamos las empresas disponibles para asociar
                 try:
                     query_cli = "SELECT id, nombre_empresa FROM control_central.clientes"
                     df_cli = ejecutar_consulta(query_cli, conn)
                     opciones_clientes = {row['nombre_empresa']: row['id'] for _, row in df_cli.iterrows()}
                     
-                    nombre_sel = st.selectbox("Asociar a Empresa (Solo para rol cliente/firma)", 
-                                                ["Ninguna / Acceso Total"] + list(opciones_clientes.keys()))
+                    nombre_sel = st.selectbox("Asociar a Empresa (Solo para rol cliente)", 
+                                             ["Ninguna / Acceso Total"] + list(opciones_clientes.keys()))
                 except Exception as e:
                     st.warning(f"⚠️ No se pudieron cargar las empresas de la base de datos: {e}")
                     opciones_clientes = {}
@@ -836,7 +836,7 @@ def panel_administracion_firmas(conn):
                         salt = bcrypt.gensalt()
                         hash_cifrado = bcrypt.hashpw(nueva_p.encode('utf-8'), salt)
                         
-                        c_id = opciones_clientes.get(nombre_sel) if nombre_sel != "Ninguna / Acceso Total" else None
+                        c_id = opciones_clientes.get(nombre_sel) if rol == "cliente" and nombre_sel != "Ninguna / Acceso Total" else None
                         
                         cursor = conn.cursor()
                         sql = """INSERT INTO usuarios (usuario, clave_hash, rol, cliente_id) 
@@ -846,7 +846,95 @@ def panel_administracion_firmas(conn):
                         conn.commit()
                         cursor.close()
                         
-                        st.success(f"✅ Usuario de firma '{nuevo_u}' registrado con éxito.")
+                        st.success(f"✅ Usuario '{nuevo_u}' registrado con seguridad profesional.")
+                        st.balloons()
+                    except Exception as e:
+                        st.error(f"❌ Error al registrar: Probablemente el usuario ya existe. ({e})")
+
+    # 2. TABLA DE USUARIOS ACTUALES
+    st.subheader("👥 Usuarios Registrados")
+    try:
+        query_view = """
+            SELECT u.usuario, u.rol, c.nombre_empresa as empresa_asignada 
+            FROM control_central.usuarios u
+            LEFT JOIN control_central.clientes c ON u.cliente_id = c.id
+        """
+        df_usuarios = ejecutar_consulta(query_view, conn)
+        st.dataframe(df_usuarios, width='stretch')
+    except Exception:
+        st.info("No hay usuarios registrados todavía.")
+
+    # 3. VISOR DE AUDITORÍA INTEGRADO
+    st.divider()
+    st.subheader("🕵️‍♂️ Monitoreo de Interacciones (Logs)")
+    
+    if st.button("🔄 Refrescar Bitácora", key="refresh_logs_admin"):
+        st.rerun()
+        
+    try:
+        query_logs = "SELECT * FROM logs_auditoria ORDER BY fecha DESC LIMIT 100"
+        df_logs = ejecutar_consulta(query_logs, conn)
+        
+        if not df_logs.empty:
+            st.dataframe(df_logs, width='stretch')
+        else:
+            st.info("No se han detectado interacciones todavía.")
+    except Exception as e:
+        st.error(f"Error cargando logs: {e}")
+
+
+def panel_administracion_firmas(conn):
+    st.header("⚙️ Gestión de Usuarios y Accesos del Administrador de firmas")
+    
+    # 1. FORMULARIO DE REGISTRO PARA ADMIN DE FIRMAS
+    with st.expander("➕ Registrar Nuevo Usuario (Admin de Firmas)", expanded=True):
+        with st.form("registro_usuario_admin_firma"):
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                nuevo_u_firma = st.text_input("Nombre de Usuario", help="Ej: gestor_firma o supervisor_firma", key="u_firma")
+                nueva_p_firma = st.text_input("Contraseña", type="password", key="p_firma")
+            
+            with col2:
+                # El rol queda fijo o predefinido para este panel específico
+                st.markdown("**Rol del Sistema:** `admin_firma`")
+                rol_firma = "admin_firma"
+                
+                # Buscamos todas las empresas (clientes de la firma) disponibles para asociar
+                try:
+                    query_cli_firma = "SELECT id, nombre_empresa FROM control_central.clientes"
+                    df_cli_firma = ejecutar_consulta(query_cli_firma, conn)
+                    opciones_clientes_firma = {row['nombre_empresa']: row['id'] for _, row in df_cli_firma.iterrows()}
+                    
+                    nombre_sel_firma = st.selectbox("Asociar a Empresa (Solo para rol cliente/firma)", 
+                                                    ["Ninguna / Acceso Total"] + list(opciones_clientes_firma.keys()),
+                                                    key="sel_firma_empresa")
+                except Exception as e:
+                    st.warning(f"⚠️ No se pudieron cargar las empresas de la base de datos: {e}")
+                    opciones_clientes_firma = {}
+                    nombre_sel_firma = "Ninguna / Acceso Total"
+
+            btn_crear_firma = st.form_submit_button("Guardar Usuario en Base de Datos")
+            
+            if btn_crear_firma:
+                if not nuevo_u_firma or not nueva_p_firma:
+                    st.error("❌ El usuario y la contraseña son obligatorios.")
+                else:
+                    try:
+                        salt_firma = bcrypt.gensalt()
+                        hash_cifrado_firma = bcrypt.hashpw(nueva_p_firma.encode('utf-8'), salt_firma)
+                        
+                        c_id_firma = opciones_clientes_firma.get(nombre_sel_firma) if nombre_sel_firma != "Ninguna / Acceso Total" else None
+                        
+                        cursor_firma = conn.cursor()
+                        sql_firma = """INSERT INTO usuarios (usuario, clave_hash, rol, cliente_id) 
+                                       VALUES (%s, %s, %s, %s)"""
+                        
+                        cursor_firma.execute(sql_firma, (nuevo_u_firma, hash_cifrado_firma.decode('utf-8'), rol_firma, c_id_firma))
+                        conn.commit()
+                        cursor_firma.close()
+                        
+                        st.success(f"✅ Usuario de firma '{nuevo_u_firma}' registrado con éxito.")
                         st.balloons()
                     except Exception as e:
                         st.error(f"❌ Error al registrar: Probablemente el usuario ya existe. ({e})")
@@ -854,15 +942,15 @@ def panel_administracion_firmas(conn):
     # 2. TABLA DE USUARIOS DE FIRMAS ACTUALES
     st.subheader("👥 Usuarios 'admin_firma' Registrados")
     try:
-        query_view = """
+        query_view_firma = """
             SELECT u.usuario, u.rol, c.nombre_empresa as empresa_asignada 
             FROM control_central.usuarios u
             LEFT JOIN control_central.clientes c ON u.cliente_id = c.id
             WHERE u.rol = 'admin_firma'
         """
-        df_usuarios = ejecutar_consulta(query_view, conn)
-        if not df_usuarios.empty:
-            st.dataframe(df_usuarios, width='stretch')
+        df_usuarios_firma = ejecutar_consulta(query_view_firma, conn)
+        if not df_usuarios_firma.empty:
+            st.dataframe(df_usuarios_firma, width='stretch')
         else:
             st.info("No hay usuarios con el rol 'admin_firma' registrados todavía.")
     except Exception:
@@ -876,11 +964,11 @@ def panel_administracion_firmas(conn):
         st.rerun()
         
     try:
-        query_logs = "SELECT * FROM logs_auditoria ORDER BY fecha DESC LIMIT 100"
-        df_logs = ejecutar_consulta(query_logs, conn)
+        query_logs_firma = "SELECT * FROM logs_auditoria ORDER BY fecha DESC LIMIT 100"
+        df_logs_firma = ejecutar_consulta(query_logs_firma, conn)
         
-        if not df_logs.empty:
-            st.dataframe(df_logs, width='stretch')
+        if not df_logs_firma.empty:
+            st.dataframe(df_logs_firma, width='stretch')
         else:
             st.info("No se han detectado interacciones todavía.")
     except Exception as e:
