@@ -1302,7 +1302,7 @@ def obtener_datos_barras(db, fecha_inicio, fecha_fin):
 @st.cache_data(ttl=300)
 def obtener_historico_utilidad(db, f_inicio=None, f_fin=None):
     conn = conectar_db(db)
-    df_default = pd.DataFrame(columns=['anio', 'mes', 'mes_nombre', 'utilidad_mensual'])
+    df_default = pd.DataFrame(columns=['anio', 'mes', 'mes_nombre', 'utilidad_mensual', 'utilidad_acumulada'])
     
     if not conn:
         st.warning("⚠️ No se pudo conectar a la base de datos en obtener_historico_utilidad.")
@@ -1326,8 +1326,6 @@ def obtener_historico_utilidad(db, f_inicio=None, f_fin=None):
         'mes': list(range(1, 13))
     })
 
-    # CORREGIDO: Se quitó la 'f' de la f-string y se usa .format() solo para el nombre de la BD 
-    # para que los '%Y' y los '%%' de SQL queden intactos y Python no los toque.
     query = """
         SELECT 
             YEAR(STR_TO_DATE(LEFT(fecha, 10), '%%Y-%%m-%%d')) as anio,
@@ -1359,13 +1357,23 @@ def obtener_historico_utilidad(db, f_inicio=None, f_fin=None):
         cursor.execute(query, (anio_base,))
         resultados = cursor.fetchall()
         
-        df_sql = pd.DataFrame(resultados) if resultados else pd.DataFrame(columns=['anio', 'mes'])
-
-        if not df_sql.empty and 'mes' in df_sql.columns:
-            df = pd.merge(meses_skeleton, df_sql, on=['anio', 'mes'], how='left')
+        # BLINDAJE: Definimos todas las columnas por si la consulta viene vacía
+        columnas_requeridas = [
+            'anio', 'mes', 'ing_haber', 'ing_debe', 'cos_debe', 'cos_haber',
+            'gas_debe', 'gas_haber', 'oing_haber', 'oing_debe', 'oeg_debe', 'oeg_haber'
+        ]
+        
+        if resultados:
+            df_sql = pd.DataFrame(resultados)
         else:
-            df = meses_skeleton
+            df_sql = pd.DataFrame(columns=columnas_requeridas)
 
+        # Nos aseguramos de que el DataFrame tenga todas las columnas de operaciones contables
+        for col in columnas_requeridas:
+            if col not in df_sql.columns:
+                df_sql[col] = 0
+
+        df = pd.merge(meses_skeleton, df_sql, on=['anio', 'mes'], how='left')
         df = df.fillna(0)
 
         ingresos = df['ing_haber'] - df['ing_debe']
@@ -1483,7 +1491,25 @@ def obtener_salud_fiscal(db, f_inicio=None, f_fin=None):
         cursor.execute(query, (str(f_inicio_anual), str(f_fin_anual)))
         resultados = cursor.fetchall()
         
-        df_sql = pd.DataFrame(resultados) if resultados else pd.DataFrame(columns=['anio', 'mes'])
+        # BLINDAJE: Definimos todas las columnas fiscales por si la consulta viene vacía
+        columnas_fiscales = [
+            'anio', 'mes', 'exentos_acum', 'gravados_acum', 'compras_exentas_acum', 'compras_16_acum',
+            'DPP_haber', 'DPP_debe', 'comisiones_bancarias_haber', 'comisiones_bancarias_debe',
+            'refrigerios_haber', 'refrigerios_debe', 'representacion_haber', 'representacion_debe',
+            'otros_ingresos_haber', 'otros_ingresos_debe', 'otros_egresos_haber', 'otros_egresos_debe',
+            'iva_debito_fiscal', 'iva_por_pagar', 'retencion_iva_compras', 'pagos_anticipados_islr',
+            'retencion_islr_proveedores', 'islr_pagar'
+        ]
+
+        if resultados:
+            df_sql = pd.DataFrame(resultados)
+        else:
+            df_sql = pd.DataFrame(columns=columnas_fiscales)
+
+        # Garantizamos que todas las columnas existan físicamente en el DataFrame
+        for col in columnas_fiscales:
+            if col not in df_sql.columns:
+                df_sql[col] = 0
 
         if not df_sql.empty and 'mes' in df_sql.columns:
             df = pd.merge(meses_skeleton, df_sql, on=['anio', 'mes'], how='left')
@@ -1538,7 +1564,6 @@ def obtener_salud_fiscal(db, f_inicio=None, f_fin=None):
         total_anticipo_islr = df_filtrado['pagos_anticipados_islr'].sum()
         total_ret_islr = df_filtrado['retencion_islr_proveedores'].sum()
         total_islr_pagar = df_filtrado['islr_pagar'].sum()
-
 
         kpis_fiscales = {
             'ingresos_exentos': total_exentos,
