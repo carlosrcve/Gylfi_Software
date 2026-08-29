@@ -1405,7 +1405,7 @@ def obtener_historico_utilidad(db, f_inicio=None, f_fin=None):
 
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=1) # O simplemente comentalo un momento: # @st.cache_data(ttl=300)
 def obtener_salud_fiscal(db, f_inicio=None, f_fin=None):
     if not isinstance(db, str):
         db = str(db) if db else "control_central"
