@@ -928,21 +928,24 @@ def panel_administracion_firmas(conn):
                     except Exception as e:
                         st.error(f"❌ Error al registrar: Probablemente el usuario ya existe. ({e})")
 
-    # 2. TABLA DE USUARIOS REGISTRADOS (Refleja el rol creado y los que ya existan)
+    # 2. TABLA DE USUARIOS REGISTRADOS (La empresa saldrá en blanco si no tiene asignada)
     st.subheader("👥 Usuarios y Roles Registrados en el Sistema")
     try:
         query_view_firma = """
-            SELECT u.usuario, u.rol, COALESCE(c.nombre_empresa, 'Sin empresa asignada') as empresa_asignada 
+            SELECT u.usuario, u.rol, c.nombre_empresa as empresa_asignada 
             FROM control_central.usuarios u
             LEFT JOIN control_central.clientes c ON u.cliente_id = c.id
         """
         df_usuarios_firma = ejecutar_consulta(query_view_firma, conn)
+        
         if not df_usuarios_firma.empty:
+            # Reemplazamos los valores nulos o vacíos para que visualmente se rendericen totalmente en blanco
+            df_usuarios_firma['empresa_asignada'] = df_usuarios_firma['empresa_asignada'].fillna("")
             st.dataframe(df_usuarios_firma, use_container_width=True)
         else:
             st.info("No hay usuarios registrados todavía.")
-    except Exception:
-        st.info("No se pudieron cargar los usuarios registrados.")
+    except Exception as e:
+        st.info(f"No se pudieron cargar los usuarios registrados: {e}")
 
     # 3. VISOR DE AUDITORÍA INTEGRADO
     st.divider()
