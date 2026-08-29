@@ -6635,8 +6635,6 @@ def renderizar_tab_asientos_ventas(db_connection):
             st.error(f"Error al leer el archivo Excel de ventas: {e}")
 
 
-import pandas as pd
-import streamlit as st
 
 def gestionar_sidebar():
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
