@@ -11903,21 +11903,28 @@ elif opcion_menu == "📚 Libros Fiscales":
                         )
 
 
-    # Dentro de tu enrutador de vistas o pestañas principales:
-    if sub_opcion == "Comprobante de Retención IVA":
+    elif sub_opcion == "Comprobante de Retención IVA":
+        # 1. Aseguramos que el módulo datetime esté disponible sin conflictos
+        import datetime as dt 
         
-        # 🟢 AQUÍ VA LA VALIDACIÓN
+        # 🟢 2. Validación de tipo de usuario
         tipo_usuario = st.session_state.get('tipo_contribuyente', 'Contribuyente Ordinario')
 
         if tipo_usuario == "Contribuyente Especial":
-            # Solo si es especial, ejecutamos la función que muestra la interfaz
-            mostrar_interfaz_retencion_iva(
-                EMPRESA, 
-                st.session_state.get('f_inicio_global', dt.date.today()), 
-                st.session_state.get('f_fin_global', dt.date.today())
-            )
+            # 3. Validamos la conexión antes de entrar a la interfaz pesada
+            db_actual = st.session_state.get('DB_ACTUAL', 'control_central')
+            conn_valida = conectar_db(db_actual)
+            
+            if conn_valida:
+                # Cerramos la conexión de validación para que la función la maneje o la use libremente
+                conn_valida.close()
+                
+                # Llamamos a la función de la interfaz
+                mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global)
+            else:
+                st.error("No se pudo restablecer la conexión para el módulo de IVA.")
         else:
-            # Bloqueamos el acceso para los ordinarios
+            # Bloqueamos el acceso para los contribuyentes ordinarios
             st.warning("⚠️ Este módulo es exclusivo para **Contribuyentes Especiales**.")
             st.info("Si cree que esto es un error, contacte a soporte para actualizar su clasificación fiscal.")
 
