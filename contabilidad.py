@@ -3671,6 +3671,12 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                 st.session_state['facturas_seleccionadas'] = None
 
         facturas_seleccionadas = st.session_state.get('facturas_seleccionadas')
+
+        if facturas_seleccionadas is not None and not isinstance(facturas_seleccionadas, pd.DataFrame):
+            # Por si acaso viene como lista u otro formato, lo convertimos
+            import pandas as pd
+            facturas_seleccionadas = pd.DataFrame(facturas_seleccionadas)
+
         if facturas_seleccionadas is not None and not facturas_seleccionadas.empty:
             total_base_agrupado = facturas_seleccionadas['base_imponible'].sum()
             total_iva_agrupado = facturas_seleccionadas['iva_monto'].sum()
@@ -3679,12 +3685,11 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
             
             factura_principal = facturas_seleccionadas.iloc[0]
             
-            # --- MEJORA: Obtención del correlativo automático desde la Base de Datos ---
+            # Obtención del correlativo automático desde la Base de Datos
             fecha_corta_base = str(factura_principal['fecha_operacion']).split(" ")[0]
             ano_str, mes_str = fecha_corta_base.split("-")[0], fecha_corta_base.split("-")[1]
-            prefijo_periodo = f"{ano_str}{mes_str}" # Ejemplo: "202608"
+            prefijo_periodo = f"{ano_str}{mes_str}"
             
-            # Consultar el último número de comprobante para este periodo en la BD
             db_nombre_corr = st.session_state.get('DB_ACTUAL')
             conn_corr = conectar_db(db_nombre_corr)
             siguiente_secuencial = 1
@@ -3692,7 +3697,6 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
             if conn_corr:
                 try:
                     cursor_corr = conn_corr.cursor()
-                    # Buscamos el comprobante más alto que empiece con el año y mes actual
                     query_ultimo = """
                         SELECT N_Comprobante1 
                         FROM retenciones_iva 
@@ -3705,7 +3709,6 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                     
                     if resultado_ultimo and resultado_ultimo[0]:
                         ultimo_nro = str(resultado_ultimo[0])
-                        # Extraemos la parte numérica final e incrementamos en 1
                         secuencial_texto = ultimo_nro[len(prefijo_periodo):]
                         if secuencial_texto.isdigit():
                             siguiente_secuencial = int(secuencial_texto) + 1
@@ -3717,13 +3720,12 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                     if conn_corr:
                         conn_corr.close()
                         
-            # Armamos el número de comprobante definitivo de 14 dígitos (YYYYMM + 8 dígitos secuenciales)
             val_sugerido = f"{prefijo_periodo}{str(siguiente_secuencial).zfill(8)}"
 
             st.write("### 📝 Datos del Comprobante (Grupo)")
 
             # --- CASO ÉXITO (PANTALLA LIMPIA TRAS GUARDAR) ---
-            if st.session_state.get('mostrar_exito'):
+            if st.session_state.get('mostrar_exito', False):
                 nro_generado = st.session_state.get('last_iva', {}).get('nro_comp', 'N/D')
                 st.success(f"🔥 ¡Proceso exitoso! El comprobante **`{nro_generado}`** ha sido generado y guardado en la base de datos.")
                 st.balloons()
@@ -3749,21 +3751,22 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                             'm_ret': monto_ret
                         })
 
-                # Botón para resetear (Este botón limpia las variables y recarga)
                 if st.button("🔄 Registrar otro grupo", key="btn_reset_retencion"):
                     st.session_state['facturas_seleccionadas'] = None
                     st.session_state['mostrar_exito'] = False
                     st.rerun()
             
-            # --- CASO FORMULARIO (CUÁNDO AÚN NO SE HA GUARDADO) ---
+            # --- CASO FORMULARIO ---
             else:
                 st.info(f"Agrupando {len(facturas_seleccionadas)} facturas de **{factura_principal['proveedor']}**")
                 
                 with st.form("form_retencion_iva"):
                     c1, c2, c3 = st.columns(3)
-                    razon_social_ret = c1.text_input("Sujeto Retenido", value=factura_principal['proveedor'])
-                    rif_ret = c2.text_input("RIF Retenido", value=factura_principal['rif'])
-                    nro_comp = c3.text_input("N° Comprobante (14 dígitos)", value=val_sugerido, key=f"nro_{val_sugerido}")
+                    razon_social_ret = c1.text_input("Sujeto Retenido", value=str(factura_principal['proveedor']))
+                    rif_ret = c2.text_input("RIF Retenido", value=str(factura_principal['rif']))
+                    
+                    # Clave estática o limpia para evitar que el input desaparezca al cambiar de selección
+                    nro_comp = c3.text_input("N° Comprobante (14 dígitos)", value=val_sugerido, key="input_nro_comprobante_iva_fijo")
                     
                     st.write("*(Los montos abajo representan la suma de todas las facturas seleccionadas)*")
                     
@@ -3774,7 +3777,7 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                     total_c = c9.number_input("Total Facturas", value=float(total_facturas_agrupado), format="%.2f")
                     
                     c10, c11 = st.columns(2)
-                    porcentaje_ret = c10.selectbox("Porcentaje de Retención", [75, 100])
+                    porcentaje_ret = c10.selectbox("Porcentaje de Retención", [75, 100], key="select_porcentaje_ret_iva_fijo")
                     iva_retenido = (float(iva_i) * porcentaje_ret) / 100
                     c11.metric("IVA a Retener Total", f"Bs. {iva_retenido:,.2f}")
 
@@ -3783,11 +3786,13 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
 
                     if not empresa_data:
                         st.error("⚠️ No se pudieron cargar los datos de la empresa.")
+                        empresa_seleccionada = None
                     else:
                         empresa_seleccionada = st.selectbox(
-                            "Empresa", 
+                            "Empresa Agente", 
                             options=[empresa_data], 
-                            format_func=lambda x: x['nombre_empresa']
+                            format_func=lambda x: x.get('nombre_empresa', 'Empresa'),
+                            key="select_empresa_agente_fijo"
                         )
                         st.session_state['id_empresa_seleccionada'] = empresa_seleccionada
 
@@ -3805,10 +3810,8 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                     if not conn_env:
                         conn_env = conectar_db(db_nombre)
 
-                    id_final = empresa_data_env.get('id') if isinstance(empresa_data_env, dict) else empresa_data_env
                     empresa_nombre = empresa_data_env.get('nombre_empresa') or empresa_data_env.get('razon_social') or "EMPRESA"
                     empresa_rif = empresa_data_env.get('rif') or "000000000"
-                    
                     domicilio_fiscal = empresa_data_env.get('direccion') or "DIRECCIÓN NO REGISTRADA"
 
                     cursor = None
