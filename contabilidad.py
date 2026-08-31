@@ -3682,7 +3682,7 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
 
             st.write("### 📝 Datos del Comprobante (Grupo)")
 
-            # Caso Éxito
+            # --- CASO ÉXITO (PANTALLA LIMPIA TRAS GUARDAR) ---
             if st.session_state.get('mostrar_exito'):
                 nro_generado = st.session_state.get('last_iva', {}).get('nro_comp', 'N/D')
                 st.success(f"🔥 ¡Proceso exitoso! El comprobante **`{nro_generado}`** ha sido generado y guardado en la base de datos.")
@@ -3709,16 +3709,14 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                             'm_ret': monto_ret
                         })
 
-                # Botón para resetear
+                # Botón para resetear (Este botón limpia las variables y recarga)
                 if st.button("🔄 Registrar otro grupo", key="btn_reset_retencion"):
                     st.session_state['facturas_seleccionadas'] = None
                     st.session_state['mostrar_exito'] = False
                     st.rerun()
+            
+            # --- CASO FORMULARIO (CUÁNDO AÚN NO SE HA GUARDADO) ---
             else:
-                # Formulario
-                factura_principal = facturas_seleccionadas.iloc[0]
-                val_sugerido = str(factura_principal['fecha_operacion']).replace("-", "")[:6] + str(factura_principal['id']).zfill(8)
-                
                 st.info(f"Agrupando {len(facturas_seleccionadas)} facturas de **{factura_principal['proveedor']}**")
                 
                 with st.form("form_retencion_iva"):
@@ -3771,7 +3769,6 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                     empresa_nombre = empresa_data_env.get('nombre_empresa') or empresa_data_env.get('razon_social') or "EMPRESA"
                     empresa_rif = empresa_data_env.get('rif') or "000000000"
                     
-                    # CORREGIDO: Se elimina 'domicilio_fiscal' porque no existe en la tabla clientes
                     domicilio_fiscal = empresa_data_env.get('direccion') or "DIRECCIÓN NO REGISTRADA"
 
                     cursor = None
@@ -3813,7 +3810,6 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                             )
                             cursor.execute(query_ins, params)
                             
-                            # --- NUEVO: MARCAR LA FACTURA COMO RETENIDA EN EL LIBRO DE COMPRAS ---
                             query_update = """
                                 UPDATE libro_compras 
                                 SET retencion_realizada = 1 
