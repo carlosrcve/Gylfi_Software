@@ -1070,11 +1070,18 @@ def panel_gestion_clientes_firma(conn):
             query_view = "SELECT id, nombre_empresa, rif, db_nombre, tipo_contribuyente, estado FROM control_central.clientes"
             df_clientes = ejecutar_consulta(query_view, conn)
         else:
-            query_view = "SELECT id, nombre_empresa, rif, db_nombre, tipo_contribuyente, estado FROM control_central.clientes WHERE id = %s"
-            df_clientes = ejecutar_consulta(query_view, conn, params=(id_firma_actual,))
+            # 🔍 CORRECCIÓN: Traemos tanto su propia empresa (id) como los clientes asociados a su firma
+            query_view = """
+                SELECT DISTINCT id, nombre_empresa, rif, db_nombre, tipo_contribuyente, estado 
+                FROM control_central.clientes 
+                WHERE id = %s OR id IN (
+                    SELECT cliente_id FROM control_central.usuarios WHERE cliente_id = %s
+                )
+            """
+            df_clientes = ejecutar_consulta(query_view, conn, params=(id_firma_actual, id_firma_actual))
         
         if df_clientes is not None and not df_clientes.empty:
-            # Mostramos un editor de datos para que el superadmin pueda cambiar el estado de Activo a Suspendido directamente
+            # Mostramos un editor de datos para cambiar los estados
             edit_df = st.data_editor(
                 df_clientes, 
                 use_container_width=True,
