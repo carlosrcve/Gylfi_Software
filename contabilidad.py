@@ -3024,17 +3024,21 @@ def cargar_libro_compras_db(df, nombre_db=None):
         return
 
     def clean_n(v):
+        if pd.isna(v): return 0.0
         if isinstance(v, (int, float)): return round(float(v), 2)
         s = str(v).strip().replace('.', '').replace(',', '.')
-        if s in ['nan', 'None', '', '-']: return 0.0
+        if s.lower() in ['nan', 'none', 'nat', '', '-']: return 0.0
         try: return round(float(s), 2)
         except: return 0.0
 
     def convertir_fecha(v):
         try:
+            if pd.isna(v): return "2026-06-06"
             if hasattr(v, 'strftime'): 
                 return v.strftime('%Y-%m-%d')
-            return pd.to_datetime(v).strftime('%Y-%m-%d')
+            parsed = pd.to_datetime(v, errors='coerce')
+            if pd.isna(parsed): return "2026-06-06"
+            return parsed.strftime('%Y-%m-%d')
         except Exception as e:
             st.error(f"Error convirtiendo fecha '{v}': {e}")
             return "2026-06-06"
@@ -3042,6 +3046,7 @@ def cargar_libro_compras_db(df, nombre_db=None):
     def limpiar_texto(val):
         if pd.isna(val): return ""
         s = str(val).strip()
+        if s.lower() in ['nan', 'none', 'nat']: return ""
         if s.endswith('.0'): s = s[:-2]
         return s
 
@@ -3063,7 +3068,6 @@ def cargar_libro_compras_db(df, nombre_db=None):
             st.error(f"❌ El archivo cargado tiene {len(cols)} columnas, se esperan al menos 11.")
             return
 
-        # SQL DEFINITIVA: Excluye retencion_iva_realizada y cliente_id (12 campos exactos)
         sql = """REPLACE INTO libro_compras 
                 (fecha_operacion, tipo_documento, n_factura, n_control, proveedor, rif, 
                  total_compras, importe_exento, base_imponible, iva_porcentaje, iva_monto,
@@ -3075,19 +3079,19 @@ def cargar_libro_compras_db(df, nombre_db=None):
             if not n_fact: continue
 
             valores = (
-                convertir_fecha(row[cols[0]]),                    # 0: Fecha de Operación
-                limpiar_texto(row[cols[1]]).zfill(2),             # 1: Tipo de Documento
-                n_fact,                                           # 2: Número de Factura
-                limpiar_texto(row[cols[3]]),                      # 3: Número de Control
-                limpiar_texto(row[cols[4]]).upper(),              # 4: Proveedor
+                convertir_fecha(row[cols[0]]),                # 0: Fecha de Operación
+                limpiar_texto(row[cols[1]]).zfill(2) if limpiar_texto(row[cols[1]]) else "01", # 1: Tipo de Documento
+                n_fact,                                       # 2: Número de Factura
+                limpiar_texto(row[cols[3]]),                  # 3: Número de Control
+                limpiar_texto(row[cols[4]]).upper(),          # 4: Proveedor
                 limpiar_texto(row[cols[5]]).replace('-', '').replace('.', ''), # 5: R.I.F.
-                clean_n(row[cols[6]]),                            # 6: Total Compra
-                clean_n(row[cols[7]]),                            # 7: Compras Exentas
-                clean_n(row[cols[8]]),                            # 8: Base Imponible
-                clean_n(row[cols[9]]),                            # 9: Alícuota (%)
-                clean_n(row[cols[10]]),                           # 10: Crédito Fiscal (IVA Monto)
-                0.00,                                             # 11: retencion_realizada
-                "C"                                               # 12: tipo_transaccion
+                clean_n(row[cols[6]]),                        # 6: Total Compra
+                clean_n(row[cols[7]]),                        # 7: Compras Exentas
+                clean_n(row[cols[8]]),                        # 8: Base Imponible
+                clean_n(row[cols[9]]),                        # 9: Alícuota (%)
+                clean_n(row[cols[10]]),                       # 10: Crédito Fiscal (IVA Monto)
+                0.00,                                         # 11: retencion_realizada
+                "C"                                           # 12: tipo_transaccion
             )
             registros_a_insertar.append(valores)
 
