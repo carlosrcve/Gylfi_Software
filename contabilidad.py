@@ -1115,7 +1115,7 @@ def panel_gestion_clientes_firma(conn):
     except Exception as e:
         st.error(f"❌ Error al cargar la lista de clientes de la firma: {e}")
 
-        
+
 def panel_administracion_firmas(conn):
     # 🔒 Blindaje de seguridad flexible: Permitimos Superadmin y también al Administrador de la Firma
     rol_actual = str(st.session_state.get('rol', '')).lower()
@@ -11809,10 +11809,7 @@ elif opcion_menu == "📚 Libros Fiscales":
             parsed = minidom.parseString(xml_str)
             return parsed.toprettyxml(indent="  ")
 
-        # --- 🔘 TABLA DE REFERENCIA ---
-        # --- 🔘 TABLA DE REFERENCIA ESTILO SENIAT ---
-        # --- 🔘 TABLA DE REFERENCIA ESTILO SENIAT (INTEGRADA Y CALCULADA) ---
-        # --- 🔘 TABLA DE REFERENCIA ESTILO SENIAT (CON UMBRALES CALCULADOS) ---
+        # --- 🔘 TABLA DE REFERENCIA ---#
         with st.expander("📊 Ver Tabla de Referencia de Sustraendos (Manual SENIAT)", expanded=False):
             
             # Calculamos el umbral legal para PNR (83.33 UT)
@@ -12035,6 +12032,19 @@ elif opcion_menu == "📚 Libros Fiscales":
                                 )
                                 
                                 if exito:
+                                    # --- BLOQUEO DE LA FACTURA EN BASE DE DATOS ---
+                                    if conn:
+                                        try:
+                                            cursor = conn.cursor()
+                                            query_bloqueo = "UPDATE libro_compras SET retencion_realizada = 1, n_comprob_islr = %s WHERE id = %s"
+                                            cursor.execute(query_bloqueo, (n_comprob_manual, int(id_seguro)))
+                                            conn.commit()
+                                            cursor.close()
+                                        except Exception as err_b:
+                                            st.warning(f"⚠️ La retención se guardó, pero hubo un detalle al bloquear la factura en el libro: {err_b}")
+                                        finally:
+                                            conn.close()
+
                                     st.session_state.datos_pdf = {
                                         "agente": DATOS_EMPRESA,
                                         "sujeto": {"rif": rif_r, "nombre": razon_r, "direccion": dir_r},
@@ -12049,7 +12059,23 @@ elif opcion_menu == "📚 Libros Fiscales":
                                         "n_comprobante": n_comprob_manual
                                     }
                                     st.session_state.pdf_listo = True
-                                    st.success(f"✅ Comprobante N° {n_comprob_manual} registrado.")
+                                    
+                                    # --- REMOVER LA FACTURA DEL DATAFRAME LOCAL DE LA SESIÓN ---
+                                    st.session_state.df_retencion = st.session_state.df_retencion[
+                                        st.session_state.df_retencion['id'] != id_seguro
+                                    ]
+
+                                    # --- EFECTOS VISUALES Y NOTIFICACIONES DE ÉXITO ---
+                                    st.balloons()  # Lanza los globos 🎈
+                                    
+                                    # Notificación grande y llamativa tipo éxito total
+                                    st.success(f"🎉 ¡FELICIDADES! Comprobante N° {n_comprob_manual} registrado y factura bloqueada con éxito.")
+                                    st.toast("🚀 ¡Todo procesado correctamente!", icon="✅")
+                                    
+                                    # Pequeño respiro visual para que el usuario alcance a disfrutar la animación antes del rerun
+                                    import time
+                                    time.sleep(1.5)
+                                    
                                     st.rerun()
 
             # Bloque de descarga
@@ -12074,6 +12100,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                     st.session_state.pdf_listo = False
                     st.session_state.datos_pdf = None
                     st.rerun()
+
             with tab3:
                 # --- SECCIÓN: EDITOR DE HISTORIAL ---
                 st.divider()
