@@ -7023,7 +7023,7 @@ def gestionar_sidebar():
         if user_rol == 'admin':
             menu = st.radio(
                 "Navegación", 
-                ["📊 Auditoría Contable", "⚙️ Gestión de Usuarios", "🏢 Gestión de Empresas", "🏢 Gestión de Firmas y Accesos", "🏢 Gestión de Clientes de la Firma"], 
+                ["📊 Auditoría Contable", "⚙️ Gestión de Usuarios","🔒 Bloqueo de Usuarios","🏢 Gestión de Empresas", "🏢 Gestión de Firmas y Accesos", "🏢 Gestión de Clientes de la Firma"], 
                 key="menu_nav"
             )
         elif 'admin_firma' in user_rol:
