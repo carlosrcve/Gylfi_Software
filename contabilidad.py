@@ -377,18 +377,36 @@ def login_screen():
                     st.session_state['user_id'] = res['id']         
                     st.session_state['cliente_id'] = res.get('cliente_id')  
                     
-                    # 🔑 AQUÍ ESTABA EL DETALLE: Guardamos la base de datos del cliente en la sesión
-                    # (Asegúrate de que 'nombre_base_de_datos' coincida con la columna que retorna tu función verificar_usuario)
+                    # 🔑 Guardamos la base de datos del cliente en la sesión
                     st.session_state['db_cliente'] = res.get('nombre_base_de_datos') 
                     
                     st.session_state['bienvenida_completada'] = False
                     
                     st.rerun()
                 else:
-                    st.error("❌ Credenciales incorrectas")
+                    # Si falló, revisamos si el usuario existe pero su firma está suspendida
+                    try:
+                        if not conexion_activa or not getattr(conexion_activa, 'open', False):
+                            conexion_activa = conectar_db()
+                            
+                        cursor_check = conexion_activa.cursor(pymysql.cursors.DictCursor)
+                        cursor_check.execute("""
+                            SELECT c.estado 
+                            FROM usuarios u 
+                            LEFT JOIN clientes c ON u.cliente_id = c.id 
+                            WHERE u.usuario = %s
+                        """, (user,))
+                        datos_cli = cursor_check.fetchone()
+                        cursor_check.close()
+                        
+                        if datos_cli and str(datos_cli.get('estado', '')).lower() in ['suspendido', 'inactivo', '0']:
+                            st.error("🚫 **Acceso Bloqueado:** La licencia de esta firma está suspendida por falta de pago.")
+                        else:
+                            st.error("❌ Credenciales incorrectas")
+                    except Exception:
+                        st.error("❌ Credenciales incorrectas")
             
             st.markdown('</div>', unsafe_allow_html=True)
-
 
 
 def mostrar_panel_superadmin(conn):
