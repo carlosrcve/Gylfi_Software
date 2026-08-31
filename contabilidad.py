@@ -3064,6 +3064,8 @@ def cargar_libro_compras_db(df, nombre_db=None):
         registros_a_insertar = []
         cols = list(df.columns)
         
+        st.write(f"📋 Columnas detectadas en el DataFrame: {cols}") # <-- DIAGNÓSTICO 1
+
         if len(cols) < 11:
             st.error(f"❌ El archivo cargado tiene {len(cols)} columnas, se esperan al menos 11.")
             return
@@ -3074,9 +3076,16 @@ def cargar_libro_compras_db(df, nombre_db=None):
                  retencion_realizada, tipo_transaccion) 
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"""
 
+        contador_filas = 0
         for i, row in df.iterrows():
+            contador_filas += 1
             n_fact = limpiar_texto(row[cols[2]])
-            if not n_fact: continue
+            
+            if contador_filas <= 3: # Muestra las primeras 3 filas para revisar qué lee
+                st.write(f"Row {i} -> Factura detectada en col[2] ('{cols[2]}'): '{n_fact}' | Fecha col[0]: {row[cols[0]]}")
+
+            if not n_fact: 
+                continue
 
             valores = (
                 convertir_fecha(row[cols[0]]),                # 0: Fecha de Operación
@@ -3095,12 +3104,14 @@ def cargar_libro_compras_db(df, nombre_db=None):
             )
             registros_a_insertar.append(valores)
 
+        st.write(f"🔢 Total de registros listos para insertar en MySQL: {len(registros_a_insertar)} de {contador_filas} filas leídas.")
+
         if registros_a_insertar:
             cursor.executemany(sql, registros_a_insertar)
             filas_afectadas = cursor.rowcount
             st.success(f"🔥 ¡Proceso exitoso! Se guardaron {len(registros_a_insertar)} registros correctamente (Filas afectadas: {filas_afectadas}).")
         else:
-            st.warning("⚠️ No se encontraron registros válidos con número de factura para insertar.")
+            st.warning("⚠️ No se encontraron registros válidos con número de factura para insertar. Revisa que la columna de factura sea la tercera (índice 2).")
             
     except Exception as e:
         if conn: conn.rollback()
