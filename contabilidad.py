@@ -391,6 +391,69 @@ def login_screen():
 
 
 
+def mostrar_panel_superadmin(conn):
+    st.subheader("🛡️ Panel de Control Global - Licencias y Firmas")
+    st.markdown("Gestión de estados, suscripciones y accesos de los dueños de firmas.")
+    
+    # 1. Consultar todos los clientes/firmas registradas
+    cursor = conn.cursor(pymysql.cursors.DictCursor)
+    cursor.execute("SELECT id, nombre_empresa, rif, db_nombre, estado FROM clientes")
+    clientes = cursor.fetchall()
+    cursor.close()
+    
+    if not clientes:
+        st.info("No hay firmas registradas en el sistema.")
+        return
+
+    import pandas as pd
+    df_clientes = pd.DataFrame(clientes)
+    
+    st.write("### Listado de Firmas Contables")
+    
+    # Recorremos cada cliente para mostrar una tarjeta o una tabla interactiva con controles
+    for index, row in df_clientes.iterrows():
+        with st.container():
+            col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
+            
+            with col1:
+                st.write(f"**{row['nombre_empresa']}**")
+                st.caption(f"RIF: {row['rif']} | BD: {row['db_nombre']}")
+                
+            with col2:
+                estado_actual = str(row['estado']).lower()
+                if estado_actual in ['activo', 'activa', '1']:
+                    st.success("🟢 ACTIVO")
+                else:
+                    st.error("🔴 SUSPENDIDO")
+                    
+            with col3:
+                # Selector rápido para cambiar el estado
+                nuevo_estado = st.selectbox(
+                    "Cambiar Estado", 
+                    options=["activo", "suspendido"], 
+                    index=0 if estado_actual in ['activo', 'activa', '1'] else 1,
+                    key=f"estado_cli_{row['id']}"
+                )
+                
+            with col4:
+                st.write("") # Espaciador visual
+                if st.button("💾 Actualizar", key=f"btn_upd_{row['id']}"):
+                    try:
+                        cursor_upd = conn.cursor()
+                        cursor_upd.execute(
+                            "UPDATE clientes SET estado = %s WHERE id = %s", 
+                            (nuevo_estado, row['id'])
+                        )
+                        conn.commit()
+                        cursor_upd.close()
+                        st.success(f"¡Actualizado a {nuevo_estado}!")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Error: {e}")
+            
+            st.divider()
+
+
 def obtener_calendario_seniat_2026(terminal_rif):
     """
     Retorna el diccionario con los cronogramas fiscales del SENIAT 2026 
