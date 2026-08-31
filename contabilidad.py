@@ -594,20 +594,19 @@ def mostrar_calendario_cliente(db_name):
     # Si no están en sesión, los consultamos a la BD principal de una vez
     if not rif_cliente or rif_cliente == "J-00000000-0" or terminal_rif is None:
         try:
-            conexion_admin = conectar_db_principal()
+            # ⚠️ CAMBIA 'tu_funcion_real_de_conexion' por el nombre exacto de tu función de conexión en Python
+            conexion_admin = tu_funcion_real_de_conexion() 
+            
             if conexion_admin:
                 cursor = conexion_admin.cursor(dictionary=True)
                 
-                # Consultamos el RIF y la nueva columna 'ultimo_digito'
                 cursor.execute("SELECT id, nombre_empresa, rif, db_nombre, ultimo_digito FROM clientes WHERE db_nombre = %s", (db_name,))
                 resultado = cursor.fetchone()
                 
-                # Búsqueda flexible por si acaso el nombre de la BD tiene variaciones
                 if not resultado:
                     cursor.execute("SELECT id, nombre_empresa, rif, db_nombre, ultimo_digito FROM clientes WHERE db_nombre LIKE %s", (f"%{db_name}%",))
                     resultado = cursor.fetchone()
                     
-                # DEPURACIÓN EN VIVO: Esto te dirá exactamente qué devolvió MySQL en pantalla
                 st.info(f"🔍 **Debug Base de Datos:** Buscando `db_name = '{db_name}'` -> Resultado obtenido: `{resultado}`")
                 
                 cursor.close()
