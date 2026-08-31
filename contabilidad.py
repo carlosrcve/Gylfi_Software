@@ -3110,6 +3110,13 @@ def cargar_libro_compras_db(df, nombre_db=None):
             cursor.executemany(sql, registros_a_insertar)
             filas_afectadas = cursor.rowcount
             st.success(f"🔥 ¡Proceso exitoso! Se guardaron {len(registros_a_insertar)} registros correctamente (Filas afectadas: {filas_afectadas}).")
+            
+            # --- COMPROBACIÓN INMEDIATA EN PANTALLA ---
+            cursor.execute("SELECT n_factura, proveedor, total_compras FROM libro_compras ORDER BY fecha_operacion DESC LIMIT 5;")
+            ultimos_registros = cursor.fetchall()
+            st.write("🔍 **Últimos 5 registros encontrados actualmente en la BD de este cliente:**")
+            st.dataframe(pd.DataFrame(ultimos_registros))
+            # ------------------------------------------
         else:
             st.warning("⚠️ No se encontraron registros válidos con número de factura para insertar. Revisa que la columna de factura sea la tercera (índice 2).")
             
