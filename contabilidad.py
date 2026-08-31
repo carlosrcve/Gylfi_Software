@@ -1470,7 +1470,7 @@ def obtener_salud_fiscal(db, f_inicio=None, f_fin=None):
             SUM(CASE WHEN plan_cuentas LIKE '7.1.1.01%%' THEN haber ELSE 0 END) as otros_ingresos_haber,
             SUM(CASE WHEN plan_cuentas LIKE '7.1.1.07%%' THEN debe ELSE 0 END) as otros_ingresos_debe,
             SUM(CASE WHEN plan_cuentas LIKE '8.1.1.01%%' THEN haber ELSE 0 END) as otros_egresos_haber,
-            SUM(CASE WHEN plan_cuentas LIKE '8.1.1.01%%' THEN debe ELSE 0 END) as outros_egresos_debe,
+            SUM(CASE WHEN plan_cuentas LIKE '8.1.1.01%%' THEN debe ELSE 0 END) as otros_egresos_debe,
             SUM(CASE WHEN plan_cuentas LIKE '2.1.2.01.001%%' THEN haber ELSE 0 END) as iva_debito_fiscal,
             SUM(CASE WHEN plan_cuentas LIKE '2.1.2.01.002%%' THEN haber ELSE 0 END) as iva_por_pagar,
             SUM(CASE WHEN plan_cuentas LIKE '2.1.2.01.003%%' THEN haber ELSE 0 END) as retencion_iva_compras,
@@ -1499,15 +1499,17 @@ def obtener_salud_fiscal(db, f_inicio=None, f_fin=None):
             'retencion_islr_proveedores', 'islr_pagar'
         ]
 
-        # CREACIÓN SEGURA: Creamos el DataFrame base con la estructura completa garantizada
         df_sql = pd.DataFrame(resultados) if resultados else pd.DataFrame(columns=columnas_fiscales)
 
         for col in columnas_fiscales:
             if col not in df_sql.columns:
-                df_sql[col] = 0
+                df_sql[col] = 0.0
+            else:
+                # CONVERSIÓN BLINDADA: Transformamos cualquier Decimal de MySQL a float limpio
+                df_sql[col] = pd.to_numeric(df_sql[col], errors='coerce').fillna(0.0)
 
         df = pd.merge(meses_skeleton, df_sql, on=['anio', 'mes'], how='left')
-        df = df.fillna(0)
+        df = df.fillna(0.0)
 
         df['ingresos_exentos'] = df['exentos_acum'].diff().fillna(df['exentos_acum'])
         df['ingresos_gravados'] = df['gravados_acum'].diff().fillna(df['gravados_acum'])
