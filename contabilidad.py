@@ -581,8 +581,6 @@ def obtener_calendario_seniat_2026(terminal_rif):
     }
 
 
-
-
 def mostrar_calendario_cliente(db_name):
     """
     Muestra el calendario fiscal consultando directamente el RIF y el 
@@ -601,14 +599,17 @@ def mostrar_calendario_cliente(db_name):
                 cursor = conexion_admin.cursor(dictionary=True)
                 
                 # Consultamos el RIF y la nueva columna 'ultimo_digito'
-                cursor.execute("SELECT rif, ultimo_digito FROM clientes WHERE db_nombre = %s", (db_name,))
+                cursor.execute("SELECT id, nombre_empresa, rif, db_nombre, ultimo_digito FROM clientes WHERE db_nombre = %s", (db_name,))
                 resultado = cursor.fetchone()
                 
                 # Búsqueda flexible por si acaso el nombre de la BD tiene variaciones
                 if not resultado:
-                    cursor.execute("SELECT rif, ultimo_digito FROM clientes WHERE db_nombre LIKE %s", (f"%{db_name}%",))
+                    cursor.execute("SELECT id, nombre_empresa, rif, db_nombre, ultimo_digito FROM clientes WHERE db_nombre LIKE %s", (f"%{db_name}%",))
                     resultado = cursor.fetchone()
                     
+                # DEPURACIÓN EN VIVO: Esto te dirá exactamente qué devolvió MySQL en pantalla
+                st.info(f"🔍 **Debug Base de Datos:** Buscando `db_name = '{db_name}'` -> Resultado obtenido: `{resultado}`")
+                
                 cursor.close()
                 conexion_admin.close()
                 
@@ -622,11 +623,11 @@ def mostrar_calendario_cliente(db_name):
                 st.session_state['rif_empresa_activa'] = rif_cliente
                 st.session_state['terminal_rif_activo'] = terminal_rif
         except Exception as e:
-            print(f"Error consultando datos en BD principal: {e}")
+            st.error(f"Error en consulta de depuración: {e}")
             rif_cliente = rif_cliente or "J-00000000-0"
             terminal_rif = terminal_rif if terminal_rif is not None else 0
 
-    # Aseguramos que terminal_rif sea entero válido
+    # Aseguramos que terminal_rif seja entero válido
     try:
         terminal_rif = int(terminal_rif)
     except:
@@ -849,7 +850,6 @@ def mostrar_calendario_cliente(db_name):
         <tr><td><b>{terminal_rif}</b></td>{"".join([f"<td>{val}</td>" for val in pensiones_vals])}</tr>
     </table>
     """, unsafe_allow_html=True)
-
 
 def panel_gestion_clientes(conn):
     st.header("🏢 Gestión de Clientes / Empresas")
