@@ -162,7 +162,16 @@ def verificar_usuario(conn, user, password):
                 
             # Cursor con diccionario nativo de PyMySQL
             cursor = conn.cursor(pymysql.cursors.DictCursor)
-            cursor.execute("SELECT * FROM usuarios WHERE usuario = %s", (user,))
+            
+            # 🔒 MODIFICACIÓN CLAVE: Consultamos al usuario y hacemos un LEFT JOIN con la tabla clientes 
+            # para traernos el estado de su firma y su base de datos asignada de un solo golpe.
+            query = """
+                SELECT u.*, c.estado as estado_cliente, c.db_nombre as db_cliente_nombre, c.nombre_empresa 
+                FROM usuarios u 
+                LEFT JOIN clientes c ON u.cliente_id = c.id 
+                WHERE u.usuario = %s
+            """
+            cursor.execute(query, (user,))
             user_data = cursor.fetchone()
             break 
         except Exception as e:
@@ -183,6 +192,22 @@ def verificar_usuario(conn, user, password):
             pass
         return None 
     
+    # 🚫 VALIDACIÓN DE LICENCIA / SUSCRIPCIÓN (BLOQUEO POR FALTA DE PAGO)
+    # Si el usuario pertenece a una firma (cliente_id no es nulo) y el estado de la firma NO es activo, se bloquea.
+    # (Los superadmins o cuentas maestras sin cliente_id asociado se salta esta regla).
+    rol_actual = str(user_data.get('rol', '')).upper()
+    if user_data.get('cliente_id') and rol_actual != 'SUPERADMIN':
+        estado_firma = str(user_data.get('estado_cliente', '')).lower()
+        if estado_firma not in ['activo', 'activa', '1']:
+            try:
+                if cursor:
+                    cursor.close()
+            except:
+                pass
+            # Devolvemos un diccionario especial o falso para que el login muestre el mensaje de suspensión
+            st.error("🚫 **Licencia Suspendida:** El acceso de esta firma se encuentra temporalmente suspendido por falta de pago. Comuníquese con el soporte técnico.")
+            return None
+
     # Obtenemos la clave de la base de datos de forma segura
     clave_en_bd = user_data.get('clave_hash') or user_data.get('password')
     login_exitoso = False
@@ -224,6 +249,10 @@ def verificar_usuario(conn, user, password):
             user_data['rol'] = 'admin'
         if 'cliente_id' not in user_data:
             user_data['cliente_id'] = None
+        
+        # Aseguramos que la base de datos del cliente viaje limpia en el diccionario
+        user_data['nombre_base_de_datos'] = user_data.get('db_cliente_nombre') or user_data.get('db_nombre')
+        
         return user_data
     else:
         return None
