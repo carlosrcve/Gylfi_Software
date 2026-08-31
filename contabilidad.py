@@ -3684,16 +3684,19 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
 
             # Caso Éxito
             if st.session_state.get('mostrar_exito'):
-                st.success(f"### ✅ Comprobante `{st.session_state.get('last_iva', {}).get('nro_comp')}` generado.")
+                nro_generado = st.session_state.get('last_iva', {}).get('nro_comp', 'N/D')
+                st.success(f"🔥 ¡Proceso exitoso! El comprobante **`{nro_generado}`** ha sido generado y guardado en la base de datos.")
                 st.balloons()
+                
                 if 'last_iva' in st.session_state:
                     st.divider()
-                    st.write("#### Detalle del grupo procesado:")
+                    st.write("#### Certificación del grupo procesado:")
+                    st.info("✅ Las retenciones se registraron correctamente en la BD y las facturas seleccionadas fueron actualizadas.")
                     porcentaje_actual = st.session_state.get('porcentaje_ret', 75)
 
                     lista_de_facturas = []
                     for _, fila in facturas_seleccionadas.iterrows():
-                        iva = float(fila.get('impuesto_iva', 0))
+                        iva = float(fila.get('iva_monto', 0) or 0)
                         monto_ret = (iva * porcentaje_actual) / 100
                         
                         lista_de_facturas.append({
