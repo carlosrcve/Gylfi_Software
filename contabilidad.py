@@ -3040,7 +3040,6 @@ def cargar_libro_compras_db(df, nombre_db=None):
             if pd.isna(parsed): return "2026-06-06"
             return parsed.strftime('%Y-%m-%d')
         except Exception as e:
-            st.error(f"Error convirtiendo fecha '{v}': {e}")
             return "2026-06-06"
 
     def limpiar_texto(val):
@@ -3052,7 +3051,8 @@ def cargar_libro_compras_db(df, nombre_db=None):
 
     cursor = None
     try:
-        conn.autocommit = True
+        # Desactivamos el autocommit para manejar la transacción de forma manual y segura
+        conn.autocommit = False
         cursor = conn.cursor()
         
         cursor.execute(f"USE `{nombre_db}`;")
@@ -3061,31 +3061,27 @@ def cargar_libro_compras_db(df, nombre_db=None):
         db_nombre_actual = db_conectada['DATABASE()'] if isinstance(db_conectada, dict) else db_conectada[0]
         st.info(f"🔍 Conectado y usando el esquema: **{db_nombre_actual}**")
 
-        registros_a_insertar = []
         cols = list(df.columns)
-        
-        st.write(f"📋 Columnas detectadas en el DataFrame: {cols}") # <-- DIAGNÓSTICO 1
-
         if len(cols) < 11:
             st.error(f"❌ El archivo cargado tiene {len(cols)} columnas, se esperan al menos 11.")
             return
 
-        sql = """REPLACE INTO libro_compras 
+        # Usamos INSERT con control de duplicados para evitar bloqueos por llaves
+        sql = """INSERT INTO libro_compras 
                 (fecha_operacion, tipo_documento, n_factura, n_control, proveedor, rif, 
                  total_compras, importe_exento, base_imponible, iva_porcentaje, iva_monto,
                  retencion_realizada, tipo_transaccion) 
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"""
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON DUPLICATE KEY UPDATE 
+                total_compras = VALUES(total_compras),
+                base_imponible = VALUES(base_imponible),
+                iva_monto = VALUES(iva_monto),
+                proveedor = VALUES(proveedor)"""
 
-        contador_filas = 0
+        registros_a_insertar = []
         for i, row in df.iterrows():
-            contador_filas += 1
             n_fact = limpiar_texto(row[cols[2]])
-            
-            if contador_filas <= 3: # Muestra las primeras 3 filas para revisar qué lee
-                st.write(f"Row {i} -> Factura detectada en col[2] ('{cols[2]}'): '{n_fact}' | Fecha col[0]: {row[cols[0]]}")
-
-            if not n_fact: 
-                continue
+            if not n_fact: continue
 
             valores = (
                 convertir_fecha(row[cols[0]]),                # 0: Fecha de Operación
@@ -3104,24 +3100,26 @@ def cargar_libro_compras_db(df, nombre_db=None):
             )
             registros_a_insertar.append(valores)
 
-        st.write(f"🔢 Total de registros listos para insertar en MySQL: {len(registros_a_insertar)} de {contador_filas} filas leídas.")
-
         if registros_a_insertar:
             cursor.executemany(sql, registros_a_insertar)
-            filas_afectadas = cursor.rowcount
-            st.success(f"🔥 ¡Proceso exitoso! Se guardaron {len(registros_a_insertar)} registros correctamente (Filas afectadas: {filas_afectadas}).")
             
-            # --- COMPROBACIÓN INMEDIATA EN PANTALLA ---
+            # ¡IMPORTANTE! Forzamos la confirmación de escritura en el servidor de BD
+            conn.commit()
+            
+            filas_afectadas = cursor.rowcount
+            st.success(f"🔥 ¡Proceso exitoso! Se guardaron/actualizaron registros correctamente (Filas afectadas: {filas_afectadas}).")
+            
+            # Verificación inmediata en pantalla para comprobar que ya existen
             cursor.execute("SELECT n_factura, proveedor, total_compras FROM libro_compras ORDER BY fecha_operacion DESC LIMIT 5;")
-            ultimos_registros = cursor.fetchall()
-            st.write("🔍 **Últimos 5 registros encontrados actualmente en la BD de este cliente:**")
-            st.dataframe(pd.DataFrame(ultimos_registros))
-            # ------------------------------------------
+            ultimos = cursor.fetchall()
+            st.write("🔍 **Comprobación en la BD:**")
+            st.dataframe(pd.DataFrame(ultimos))
         else:
-            st.warning("⚠️ No se encontraron registros válidos con número de factura para insertar. Revisa que la columna de factura sea la tercera (índice 2).")
+            st.warning("⚠️ No se encontraron registros válidos para insertar.")
             
     except Exception as e:
-        if conn: conn.rollback()
+        if conn: 
+            conn.rollback()
         st.error(f"❌ Error crítico de escritura en la BD del cliente: {e}")
     finally:
         if cursor: cursor.close()
