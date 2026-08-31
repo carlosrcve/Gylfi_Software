@@ -163,12 +163,12 @@ def verificar_usuario(conn, user, password):
             # Cursor con diccionario nativo de PyMySQL
             cursor = conn.cursor(pymysql.cursors.DictCursor)
             
-            # 🔒 MODIFICACIÓN CLAVE: Consultamos al usuario y hacemos un LEFT JOIN con la tabla clientes 
-            # para traernos el estado de su firma y su base de datos asignada de un solo golpe.
+            # Consultamos al usuario y hacemos un LEFT JOIN con la tabla clientes 
+            # para traernos el estado de su firma, su base de datos asignada y el estado del usuario individual.
             query = """
                 SELECT u.*, c.estado as estado_cliente, c.db_nombre as db_cliente_nombre, c.nombre_empresa 
-                FROM usuarios u 
-                LEFT JOIN clientes c ON u.cliente_id = c.id 
+                FROM control_central.usuarios u 
+                LEFT JOIN control_central.clientes c ON u.cliente_id = c.id 
                 WHERE u.usuario = %s
             """
             cursor.execute(query, (user,))
@@ -192,9 +192,7 @@ def verificar_usuario(conn, user, password):
             pass
         return None 
     
-    # 🚫 VALIDACIÓN DE LICENCIA / SUSCRIPCIÓN (BLOQUEO POR FALTA DE PAGO)
-    # Si el usuario pertenece a una firma (cliente_id no es nulo) y el estado de la firma NO es activo, se bloquea.
-    # (Los superadmins o cuentas maestras sin cliente_id asociado se salta esta regla).
+    # 🚫 VALIDACIÓN 1: LICENCIA / SUSCRIPCIÓN DE LA FIRMA (BLOQUEO GLOBAL DE EMPRESA)
     rol_actual = str(user_data.get('rol', '')).upper()
     if user_data.get('cliente_id') and rol_actual != 'SUPERADMIN':
         estado_firma = str(user_data.get('estado_cliente', '')).lower()
@@ -204,9 +202,19 @@ def verificar_usuario(conn, user, password):
                     cursor.close()
             except:
                 pass
-            # Devolvemos un diccionario especial o falso para que el login muestre el mensaje de suspensión
             st.error("🚫 **Licencia Suspendida:** El acceso de esta firma se encuentra temporalmente suspendido por falta de pago. Comuníquese con el soporte técnico.")
             return None
+
+    # 🚫 VALIDACIÓN 2: ESTADO DEL USUARIO INDIVIDUAL (BLOQUEO PERSONALIZADO)
+    estado_usuario = str(user_data.get('estado', 'activo')).lower()
+    if estado_usuario in ['suspendido', 'inactivo', '0']:
+        try:
+            if cursor:
+                cursor.close()
+        except:
+            pass
+        st.error("🚫 **Acceso Restringido:** Tu cuenta de usuario se encuentra suspendida o inactiva. Comuníquese con el administrador de la firma.")
+        return None
 
     # Obtenemos la clave de la base de datos de forma segura
     clave_en_bd = user_data.get('clave_hash') or user_data.get('password')
@@ -231,7 +239,7 @@ def verificar_usuario(conn, user, password):
                 try:
                     salt = bcrypt.gensalt()
                     nuevo_hash = bcrypt.hashpw(password_bytes, salt).decode('utf-8')
-                    cursor.execute("UPDATE usuarios SET clave_hash = %s WHERE id = %s", (nuevo_hash, user_data['id']))
+                    cursor.execute("UPDATE control_central.usuarios SET clave_hash = %s WHERE id = %s", (nuevo_hash, user_data['id']))
                     conn.commit()
                 except:
                     pass
@@ -256,7 +264,6 @@ def verificar_usuario(conn, user, password):
         return user_data
     else:
         return None
-
 def mostrar_plantilla_bienvenida():
     """Pantalla gigante de bienvenida tras iniciar sesión con éxito"""
     rol = str(st.session_state.get('rol', '')).upper()
@@ -1111,9 +1118,7 @@ def panel_administracion_firmas(conn):
         return  # Corta la ejecución para que no vea nada
 
     st.header("🏢 Gestión de Usuarios y Accesos del Administrador de Firmas")
-    st.markdown("Registra un nuevo usuario y asígnale su rol y empresa correspondiente de forma manual.")
-    st.header("🏢 Gestión de Usuarios y Accesos del Administrador de Firmas")
-    st.markdown("Registra un nuevo usuario y asígnale su rol y empresa correspondiente de forma manual.")
+    st.markdown("Registra un nuevo usuario, asígnale su rol, empresa correspondiente y controla su estado de acceso.")
     
     # 1. CARGAR LAS EMPRESAS YA CREADAS DESDE LA BASE DE DATOS
     try:
@@ -1135,6 +1140,13 @@ def panel_administracion_firmas(conn):
                     "Rol del Sistema (Creación Manual)", 
                     value="admin_firma", 
                     help="Escribe el rol correspondiente (ej: admin_firma)"
+                )
+                
+                # Selector de estado inicial del usuario
+                estado_usuario_nuevo = st.selectbox(
+                    "Estado Inicial de Acceso",
+                    ["Activo", "Suspendido", "Inactivo"],
+                    help="Define si el usuario podrá entrar al sistema desde el momento de su creación."
                 )
                 
                 # Selector de empresa ya creada
@@ -1169,7 +1181,6 @@ def panel_administracion_firmas(conn):
                         if fila_empresa.empty:
                             st.error(f"❌ No se encontró la empresa '{empresa_seleccionada}' en el DataFrame.")
                         else:
-                            # Capturamos tanto el ID como el db_nombre de la empresa
                             cliente_id_asociado = int(fila_empresa.iloc[0]['id'])
                             db_nombre_asociado = str(fila_empresa.iloc[0]['db_nombre'])
                             
@@ -1177,23 +1188,24 @@ def panel_administracion_firmas(conn):
                             hashed_password = bcrypt.hashpw(contrasena.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
                             
                             cursor = conn.cursor()
-                            # INSERTAMOS INCLUYENDO db_nombre PARA QUE NO QUEDE NULO EN LA TABLA DE USUARIOS
+                            # INSERTAMOS INCLUYENDO EL ESTADO Y EL db_nombre
                             sql = """
-                                INSERT INTO control_central.usuarios (usuario, clave_hash, rol, cliente_id, db_nombre) 
-                                VALUES (%s, %s, %s, %s, %s)
+                                INSERT INTO control_central.usuarios (usuario, clave_hash, rol, cliente_id, db_nombre, estado) 
+                                VALUES (%s, %s, %s, %s, %s, %s)
                             """
                             cursor.execute(sql, (
                                 nombre_usuario.strip(), 
                                 hashed_password, 
                                 rol_usuario.strip(), 
                                 cliente_id_asociado, 
-                                db_nombre_asociado
+                                db_nombre_asociado,
+                                estado_usuario_nuevo
                             ))
                             conn.commit()
                             cursor.close()
                             
                             st.toast("¡Usuario guardado con éxito!", icon="✅")
-                            st.success(f"✅ ¡Usuario '{nombre_usuario.strip()}' vinculado correctamente a '{empresa_seleccionada}' (DB: {db_nombre_asociado})!")
+                            st.success(f"✅ ¡Usuario '{nombre_usuario.strip()}' vinculado correctamente a '{empresa_seleccionada}' con estado **{estado_usuario_nuevo}**!")
                             st.balloons()
                             st.rerun()
                     except Exception as e:
@@ -1201,14 +1213,17 @@ def panel_administracion_firmas(conn):
 
     st.divider()
 
-    # Tabla para visualizar los usuarios registrados y su empresa asociada mediante JOIN
-    st.subheader("👥 Usuarios y Roles Registrados en el Sistema")
+    # 2. TABLA INTERACTIVA PARA VISUALIZAR Y SUSPENDER USUARIOS
+    st.subheader("👥 Usuarios, Roles y Control de Estados")
+    st.markdown("💡 *Modifica la columna 'estado' directamente en la tabla y presiona el botón inferior para suspender o reactivar el acceso de cualquier usuario de forma individual.*")
+    
     try:
         query_usuarios = """
             SELECT 
                 u.id AS id_usuario, 
                 u.usuario, 
                 u.rol, 
+                u.estado,
                 u.cliente_id, 
                 c.nombre_empresa AS empresa_asignada, 
                 c.db_nombre AS base_de_datos 
@@ -1216,8 +1231,40 @@ def panel_administracion_firmas(conn):
             LEFT JOIN control_central.clientes c ON u.cliente_id = c.id
         """
         df_usuarios = ejecutar_consulta(query_usuarios, conn)
+        
         if df_usuarios is not None and not df_usuarios.empty:
-            st.dataframe(df_usuarios, use_container_width=True)
+            # Convertimos la tabla en un editor interactivo
+            edit_df_usuarios = st.data_editor(
+                df_usuarios, 
+                use_container_width=True,
+                key="editor_usuarios_individuales_firma",
+                column_config={
+                    "id_usuario": "ID",
+                    "usuario": st.column_config.TextColumn("Usuario", disabled=True),
+                    "rol": st.column_config.TextColumn("Rol", disabled=True),
+                    "estado": st.column_config.SelectboxColumn("Estado de Acceso", options=["Activo", "Suspendido", "Inactivo"]),
+                    "cliente_id": None, # Ocultamos la columna técnica si deseas, o déjala visible
+                    "empresa_asignada": st.column_config.TextColumn("Empresa", disabled=True),
+                    "base_de_datos": st.column_config.TextColumn("Base de Datos", disabled=True)
+                },
+                disabled=["id_usuario", "usuario", "rol", "cliente_id", "empresa_asignada", "base_de_datos"]
+            )
+            
+            # Botón para guardar los cambios de estado en la base de datos
+            if st.button("💾 Guardar Cambios de Estados de Usuarios"):
+                try:
+                    cursor = conn.cursor()
+                    for _, row in edit_df_usuarios.iterrows():
+                        cursor.execute(
+                            "UPDATE control_central.usuarios SET estado = %s WHERE id = %s",
+                            (row['estado'], row['id_usuario'])
+                        )
+                    conn.commit()
+                    cursor.close()
+                    st.success("✅ ¡Estados de usuarios actualizados con éxito! Las restricciones entrarán en vigor de inmediato.")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"❌ Error al actualizar los estados de los usuarios: {e}")
         else:
             st.info("ℹ️ No hay usuarios registrados.")
     except Exception as e:
