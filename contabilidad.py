@@ -1111,84 +1111,86 @@ def panel_gestion_clientes_firma(conn):
         st.error(f"❌ Error al cargar la lista de clientes de la firma: {e}")
 
 def panel_administracion_firmas(conn):
-    # 🔒 Blindaje de seguridad: Solo el Superadministrador puede entrar aquí
+    # 🔒 Blindaje de seguridad flexible: Permitimos Superadmin y también al Administrador de la Firma
     rol_actual = str(st.session_state.get('rol', '')).lower()
-    if rol_actual not in ['admin', 'superadmin']:
-        st.error("⛔ Acceso denegado. No tienes permisos de Superadministrador para gestionar usuarios y accesos globales.")
-        return  # Corta la ejecución para que no vea ni haga nada
-
-    st.header("🏢 Gestión de Usuarios y Accesos del Administrador de Firmas")
-    st.markdown("Registra un nuevo usuario, asígnale su rol, empresa correspondiente y controla su estado de acceso.")
+    cliente_id_actual = st.session_state.get('cliente_id') # ID de la firma logueada (si es admin_firma)
     
-    # 1. CARGAR LAS EMPRESAS YA CREADAS DESDE LA BASE DE DATOS
+    # Roles permitidos
+    roles_permitidos = ['admin', 'superadmin', 'admin_firma']
+    
+    if rol_actual not in roles_permitidos:
+        st.error("⛔ Acceso denegado. No tienes permisos para gestionar usuarios y accesos.")
+        return  # Corta la ejecución
+
+    st.header("🏢 Gestión de Usuarios y Accesos de la Firma")
+    st.markdown("Registra un nuevo usuario para tu empresa, asígnale su rol y controla su estado de acceso.")
+    
+    # 1. CARGAR EMPRESAS (Si es superadmin ve todas, si es admin_firma solo ve la suya)
     try:
-        query_empresas = "SELECT id, nombre_empresa, rif, db_nombre FROM control_central.clientes"
-        df_empresas = ejecutar_consulta(query_empresas, conn)
+        if rol_actual in ['admin', 'superadmin']:
+            query_empresas = "SELECT id, nombre_empresa, rif, db_nombre FROM control_central.clientes"
+            df_empresas = ejecutar_consulta(query_empresas, conn)
+        else:
+            query_empresas = "SELECT id, nombre_empresa, rif, db_nombre FROM control_central.clientes WHERE id = %s"
+            df_empresas = ejecutar_consulta(query_empresas, conn, params=(cliente_id_actual,))
     except Exception:
         df_empresas = pd.DataFrame()
 
-    with st.expander("➕ Registrar Nuevo Usuario y Rol Manualmente", expanded=True):
+    with st.expander("➕ Registrar Nuevo Usuario", expanded=True):
         with st.form("registro_admin_firma"):
             col1, col2 = st.columns(2)
             
             with col1:
-                nombre_usuario = st.text_input("Nombre de Usuario", help="Ej: oscar_mendoza")
+                nombre_usuario = st.text_input("Nombre de Usuario", help="Ej: operador_nuevo")
                 contrasena = st.text_input("Contraseña", type="password", help="Contraseña de acceso")
             
             with col2:
-                rol_usuario = st.text_input(
-                    "Rol del Sistema (Creación Manual)", 
-                    value="admin_firma", 
-                    help="Escribe el rol correspondiente (ej: admin_firma)"
+                rol_usuario = st.selectbox(
+                    "Rol del Sistema", 
+                    ["contador", "asistente", "admin_firma"], 
+                    help="Selecciona el rol que tendrá este usuario dentro de la firma"
                 )
                 
-                # Selector de estado inicial del usuario
                 estado_usuario_nuevo = st.selectbox(
                     "Estado Inicial de Acceso",
-                    ["Activo", "Suspendido", "Inactivo"],
-                    help="Define si el usuario podrá entrar al sistema desde el momento de su creación."
+                    ["Activo", "Suspendido", "Inactivo"]
                 )
                 
-                # Selector de empresa ya creada
+                # Selector de empresa (Si es superadmin elige, si es admin_firma se asigna su propia empresa por defecto)
                 lista_nombres = []
                 if not df_empresas.empty and 'nombre_empresa' in df_empresas.columns:
                     lista_nombres = df_empresas['nombre_empresa'].dropna().tolist()
                 
                 if lista_nombres:
-                    empresa_seleccionada = st.selectbox(
-                        "Asociar a Empresa Existente", 
-                        options=lista_nombres,
-                        help="Selecciona la empresa o firma que este usuario va a administrar"
-                    )
+                    if rol_actual in ['admin', 'superadmin']:
+                        empresa_seleccionada = st.selectbox("Asociar a Empresa", options=lista_nombres)
+                    else:
+                        empresa_seleccionada = lista_nombres[0] # Su propia empresa fija
+                        st.info(f"📌 Empresa asignada automáticamente: **{empresa_seleccionada}**")
                 else:
                     empresa_seleccionada = None
-                    st.warning("⚠️ No hay empresas registradas. Debes crear una empresa primero.")
+                    st.warning("⚠️ No hay empresas disponibles.")
 
-            btn_guardar = st.form_submit_button("💾 Guardar Usuario en Base de Datos")
+            btn_guardar = st.form_submit_button("💾 Guardar Usuario")
             
             if btn_guardar:
-                st.toast("⏳ Procesando registro...", icon="🔄")
-                
                 if not nombre_usuario or not contrasena or not rol_usuario:
-                    st.error("❌ El nombre de usuario, la contraseña y el rol son obligatorios.")
+                    st.error("❌ Todos los campos obligatorios deben llenarse.")
                 elif not empresa_seleccionada:
-                    st.error("❌ Debes seleccionar una empresa para asociar al usuario.")
+                    st.error("❌ No se encontró una empresa válida para asociar.")
                 else:
                     try:
-                        # Extraer la fila exacta de la empresa seleccionada
                         fila_empresa = df_empresas[df_empresas['nombre_empresa'].astype(str).str.strip() == str(empresa_seleccionada).strip()]
                         
                         if fila_empresa.empty:
-                            st.error(f"❌ No se encontró la empresa '{empresa_seleccionada}' en el DataFrame.")
+                            st.error("❌ Error al identificar la empresa seleccionada.")
                         else:
                             cliente_id_asociado = int(fila_empresa.iloc[0]['id'])
                             db_nombre_asociado = str(fila_empresa.iloc[0]['db_nombre'])
                             
-                            # Hashear la contraseña
                             hashed_password = bcrypt.hashpw(contrasena.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
                             
                             cursor = conn.cursor()
-                            # INSERTAMOS INCLUYENDO EL ESTADO Y EL db_nombre
                             sql = """
                                 INSERT INTO control_central.usuarios (usuario, clave_hash, rol, cliente_id, db_nombre, estado) 
                                 VALUES (%s, %s, %s, %s, %s, %s)
@@ -1204,71 +1206,72 @@ def panel_administracion_firmas(conn):
                             conn.commit()
                             cursor.close()
                             
-                            st.toast("¡Usuario guardado con éxito!", icon="✅")
-                            st.success(f"✅ ¡Usuario '{nombre_usuario.strip()}' vinculado correctamente a '{empresa_seleccionada}' con estado **{estado_usuario_nuevo}**!")
-                            st.balloons()
+                            st.success(f"✅ ¡Usuario '{nombre_usuario.strip()}' creado con éxito para la empresa '{empresa_seleccionada}'!")
                             st.rerun()
                     except Exception as e:
-                        st.error(f"❌ Error crítico al registrar el usuario: {e}")
+                        st.error(f"❌ Error al registrar el usuario: {e}")
 
     st.divider()
 
-    # 2. TABLA INTERACTIVA PARA VISUALIZAR Y SUSPENDER USUARIOS
-    st.subheader("👥 Usuarios, Roles y Control de Estados")
-    st.markdown("💡 *Modifica la columna 'estado' directamente en la tabla y presiona el botón inferior para suspender o reactivar el acceso de cualquier usuario de forma individual.*")
+    # 2. TABLA INTERACTIVA DE USUARIOS (Filtrada según el rol)
+    st.subheader("👥 Usuarios y Control de Accesos")
+    st.markdown("💡 *Modifica el estado de los usuarios de tu firma en la tabla y guarda los cambios.*")
     
     try:
-        query_usuarios = """
-            SELECT 
-                u.id AS id_usuario, 
-                u.usuario, 
-                u.rol, 
-                u.estado,
-                u.cliente_id, 
-                c.nombre_empresa AS empresa_asignada, 
-                c.db_nombre AS base_de_datos 
-            FROM control_central.usuarios u 
-            LEFT JOIN control_central.clientes c ON u.cliente_id = c.id
-        """
-        df_usuarios = ejecutar_consulta(query_usuarios, conn)
+        if rol_actual in ['admin', 'superadmin']:
+            query_usuarios = """
+                SELECT u.id AS id_usuario, u.usuario, u.rol, u.estado, u.cliente_id, 
+                       c.nombre_empresa AS empresa_asignada, c.db_nombre AS base_de_datos 
+                FROM control_central.usuarios u 
+                LEFT JOIN control_central.clientes c ON u.cliente_id = c.id
+            """
+            df_usuarios = ejecutar_consulta(query_usuarios, conn)
+        else:
+            # El dueño de la firma solo ve los usuarios que pertenecen a su propio cliente_id
+            query_usuarios = """
+                SELECT u.id AS id_usuario, u.usuario, u.rol, u.estado, u.cliente_id, 
+                       c.nombre_empresa AS empresa_asignada, c.db_nombre AS base_de_datos 
+                FROM control_central.usuarios u 
+                LEFT JOIN control_central.clientes c ON u.cliente_id = c.id
+                WHERE u.cliente_id = %s
+            """
+            df_usuarios = ejecutar_consulta(query_usuarios, conn, params=(cliente_id_actual,))
         
         if df_usuarios is not None and not df_usuarios.empty:
-            # Convertimos la tabla en un editor interactivo
             edit_df_usuarios = st.data_editor(
                 df_usuarios, 
                 use_container_width=True,
-                key="editor_usuarios_individuales_firma",
+                key="editor_usuarios_firma_local",
                 column_config={
                     "id_usuario": "ID",
                     "usuario": st.column_config.TextColumn("Usuario", disabled=True),
-                    "rol": st.column_config.TextColumn("Rol", disabled=True),
-                    "estado": st.column_config.SelectboxColumn("Estado de Acceso", options=["Activo", "Suspendido", "Inactivo"]),
-                    "cliente_id": None, # Ocultamos la columna técnica
+                    "rol": st.column_config.SelectboxColumn("Rol", options=["contador", "asistente", "admin_firma"]),
+                    "estado": st.column_config.SelectboxColumn("Estado", options=["Activo", "Suspendido", "Inactivo"]),
+                    "cliente_id": None,
                     "empresa_asignada": st.column_config.TextColumn("Empresa", disabled=True),
                     "base_de_datos": st.column_config.TextColumn("Base de Datos", disabled=True)
                 },
-                disabled=["id_usuario", "usuario", "rol", "cliente_id", "empresa_asignada", "base_de_datos"]
+                disabled=["id_usuario", "usuario", "cliente_id", "empresa_asignada", "base_de_datos"]
             )
             
-            # Botón para guardar los cambios de estado en la base de datos
-            if st.button("💾 Guardar Cambios de Estados de Usuarios"):
+            if st.button("💾 Guardar Cambios de Usuarios"):
                 try:
                     cursor = conn.cursor()
                     for _, row in edit_df_usuarios.iterrows():
                         cursor.execute(
-                            "UPDATE control_central.usuarios SET estado = %s WHERE id = %s",
-                            (row['estado'], row['id_usuario'])
+                            "UPDATE control_central.usuarios SET estado = %s, rol = %s WHERE id = %s",
+                            (row['estado'], row['rol'], row['id_usuario'])
                         )
                     conn.commit()
                     cursor.close()
-                    st.success("✅ ¡Estados de usuarios actualizados con éxito! Las restricciones entrarán en vigor de inmediato.")
+                    st.success("✅ ¡Cambios guardados correctamente!")
                     st.rerun()
                 except Exception as e:
-                    st.error(f"❌ Error al actualizar los estados de los usuarios: {e}")
+                    st.error(f"❌ Error al actualizar: {e}")
         else:
-            st.info("ℹ️ No hay usuarios registrados.")
+            st.info("ℹ️ No hay usuarios registrados bajo tu administración.")
     except Exception as e:
-        st.error(f"❌ Error al cargar la lista de usuarios: {e}")
+        st.error(f"❌ Error al cargar los usuarios: {e}")
 
 def registrar_log_automatico(conn, accion, detalles):
     """Registra automáticamente las interacciones del usuario en la tabla logs_auditoria
