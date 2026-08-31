@@ -12038,8 +12038,9 @@ elif opcion_menu == "📚 Libros Fiscales":
                                     if conn_bloqueo:
                                         try:
                                             cursor = conn_bloqueo.cursor()
-                                            query_bloqueo = "UPDATE libro_compras SET retencion_realizada = 1, n_comprob_islr = %s WHERE id = %s"
-                                            cursor.execute(query_bloqueo, (n_comprob_manual, int(id_seguro)))
+                                            # Se elimina n_comprob_islr de la consulta para evitar el error de columna desconocida
+                                            query_bloqueo = "UPDATE libro_compras SET retencion_realizada = 1 WHERE id = %s"
+                                            cursor.execute(query_bloqueo, (int(id_seguro),))
                                             conn_bloqueo.commit()
                                             cursor.close()
                                         except Exception as err_b:
