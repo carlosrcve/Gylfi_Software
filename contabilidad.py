@@ -1070,15 +1070,13 @@ def panel_gestion_clientes_firma(conn):
             query_view = "SELECT id, nombre_empresa, rif, db_nombre, tipo_contribuyente, estado FROM control_central.clientes"
             df_clientes = ejecutar_consulta(query_view, conn)
         else:
-            # 🔍 CORRECCIÓN: Traemos tanto su propia empresa (id) como los clientes asociados a su firma
+            # 🔍 CORRECCIÓN: Trae su propia empresa y los clientes del mismo rango de la firma
             query_view = """
-                SELECT DISTINCT id, nombre_empresa, rif, db_nombre, tipo_contribuyente, estado 
+                SELECT id, nombre_empresa, rif, db_nombre, tipo_contribuyente, estado 
                 FROM control_central.clientes 
-                WHERE id = %s OR id IN (
-                    SELECT cliente_id FROM control_central.usuarios WHERE cliente_id = %s
-                )
+                WHERE id = %s OR id LIKE '4200%%'
             """
-            df_clientes = ejecutar_consulta(query_view, conn, params=(id_firma_actual, id_firma_actual))
+            df_clientes = ejecutar_consulta(query_view, conn, params=(id_firma_actual,))
         
         if df_clientes is not None and not df_clientes.empty:
             # Mostramos un editor de datos para cambiar los estados
@@ -1117,6 +1115,7 @@ def panel_gestion_clientes_firma(conn):
     except Exception as e:
         st.error(f"❌ Error al cargar la lista de clientes de la firma: {e}")
 
+        
 def panel_administracion_firmas(conn):
     # 🔒 Blindaje de seguridad flexible: Permitimos Superadmin y también al Administrador de la Firma
     rol_actual = str(st.session_state.get('rol', '')).lower()
