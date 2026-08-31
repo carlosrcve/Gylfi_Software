@@ -588,27 +588,62 @@ def mostrar_calendario_cliente(db_name):
     Muestra el calendario fiscal consultando dinámicamente el RIF desde MySQL 
     según la base de datos de la empresa actual y extrayendo el terminal de forma infalible.
     """
-    # 1. Obtener el RIF de forma dinámica desde la BD central (tabla 'clientes') si no está en sesión
+    # 1. Obtener el RIF de forma dinámica desde la sesión o consultando la BD principal
     rif_cliente = st.session_state.get('rif_empresa_activa')
     
-    if not rif_cliente:
+    print(f"DEBUG INICIAL -> db_name recibido: {db_name} | rif_empresa_activa en session: {rif_cliente}")
+
+    if not rif_cliente or rif_cliente == "J-00000000-0":
         try:
             conexion_admin = conectar_db_principal()
             if conexion_admin:
                 cursor = conexion_admin.cursor(dictionary=True)
+                
+                # Intento 1: Buscar por coincidencia exacta
                 cursor.execute("SELECT rif FROM clientes WHERE db_nombre = %s", (db_name,))
                 resultado = cursor.fetchone()
+                
+                # Intento 2 (Por si acaso): Buscar de forma flexible si el nombre contiene la cadena
+                if not resultado:
+                    cursor.execute("SELECT rif FROM clientes WHERE db_nombre LIKE %s", (f"%{db_name}%",))
+                    resultado = cursor.fetchone()
+                    
                 cursor.close()
                 conexion_admin.close()
+                
                 if resultado and resultado.get('rif'):
                     rif_cliente = str(resultado['rif']).strip()
-                    st.session_state['rif_empresa_activa'] = rif_cliente
+                    print(f"DEBUG -> RIF encontrado en BD Principal para {db_name}: {rif_cliente}")
         except Exception as e:
-            print(f"Error obteniendo RIF para el calendario: {e}")
+            print(f"Error consultando RIF en BD principal: {e}")
 
-    # Fallback por seguridad si ocurre algún problema de conexión puntual
-    if not rif_cliente:
-        rif_cliente = "J-00000000-0"
+        # Intento 3 de emergencia (Automático y seguro): Consultar la propia BD de la empresa 
+        # por si tiene una tabla de parámetros, empresa o configuracion que guarde el RIF.
+        if not rif_cliente or rif_cliente == "J-00000000-0":
+            try:
+                conexion_empresa = conectar_a_base_de_datos(db_name) 
+                if conexion_empresa:
+                    cursor_emp = conexion_empresa.cursor(dictionary=True)
+                    for tabla_candidata in ['configuracion', 'empresa', 'parametros', 'compania']:
+                        try:
+                            cursor_emp.execute(f"SELECT rif FROM {tabla_candidata} LIMIT 1")
+                            res_emp = cursor_emp.fetchone()
+                            if res_emp and res_emp.get('rif'):
+                                rif_cliente = str(res_emp['rif']).strip()
+                                break
+                        except:
+                            continue
+                    cursor_emp.close()
+                    conexion_empresa.close()
+            except Exception as ex_emp:
+                print(f"No se pudo extraer RIF de la BD interna de la empresa: {ex_emp}")
+
+        # Si agota todo y sigue vacío, asignamos el comodín
+        if not rif_cliente:
+            rif_cliente = "J-00000000-0"
+            print(f"ADVERTENCIA: No se encontró RIF para la empresa '{db_name}'. Se usará comodín.")
+            
+        st.session_state['rif_empresa_activa'] = rif_cliente
 
     # 2. Extracción blindada del terminal del RIF (ignora letras y guiones, toma el último número real)
     try:
