@@ -3670,11 +3670,12 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
             else:
                 st.session_state['facturas_seleccionadas'] = None
 
+        # Aseguramos que pandas esté disponible en este ámbito
+        import pandas as pd
+
         facturas_seleccionadas = st.session_state.get('facturas_seleccionadas')
 
         if facturas_seleccionadas is not None and not isinstance(facturas_seleccionadas, pd.DataFrame):
-            # Por si acaso viene como lista u otro formato, lo convertimos
-            import pandas as pd
             facturas_seleccionadas = pd.DataFrame(facturas_seleccionadas)
 
         if facturas_seleccionadas is not None and not facturas_seleccionadas.empty:
@@ -3764,8 +3765,6 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                     c1, c2, c3 = st.columns(3)
                     razon_social_ret = c1.text_input("Sujeto Retenido", value=str(factura_principal['proveedor']))
                     rif_ret = c2.text_input("RIF Retenido", value=str(factura_principal['rif']))
-                    
-                    # Clave estática o limpia para evitar que el input desaparezca al cambiar de selección
                     nro_comp = c3.text_input("N° Comprobante (14 dígitos)", value=val_sugerido, key="input_nro_comprobante_iva_fijo")
                     
                     st.write("*(Los montos abajo representan la suma de todas las facturas seleccionadas)*")
