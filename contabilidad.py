@@ -581,6 +581,11 @@ def obtener_calendario_seniat_2026(terminal_rif):
     }
 
 
+import os
+import json
+from datetime import date
+import streamlit as st
+
 def mostrar_calendario_cliente(db_name):
     """
     Muestra el calendario fiscal consultando directamente el RIF y el 
@@ -591,26 +596,32 @@ def mostrar_calendario_cliente(db_name):
     
     print(f"DEBUG INICIAL -> db_name: {db_name} | RIF session: {rif_cliente} | Terminal session: {terminal_rif}")
 
-    # Si no están en sesión, los consultamos a la BD principal de una vez
+    # Si no están en sesión, los consultamos a la BD principal (control_central) de una vez
     if not rif_cliente or rif_cliente == "J-00000000-0" or terminal_rif is None:
         try:
-            # ⚠️ CAMBIA 'tu_funcion_real_de_conexion' por el nombre exacto de tu función de conexión en Python
-            conexion_admin = tu_funcion_real_de_conexion() 
-            
+            # USAMOS TU FUNCIÓN REAL apuntando a control_central
+            conexion_admin = conectar_db("control_central")
             if conexion_admin:
-                cursor = conexion_admin.cursor(dictionary=True)
+                # Nota: como usas pymysql, pasamos cursor(pymysql.cursors.DictCursor) 
+                # o el cursor nativo de pymysql dependiendo de cómo lo tengas configurado.
+                import pymysql.cursors
+                cursor = conexion_admin.cursor(pymysql.cursors.DictCursor)
                 
+                # Consultamos el RIF y la columna 'ultimo_digito'
                 cursor.execute("SELECT id, nombre_empresa, rif, db_nombre, ultimo_digito FROM clientes WHERE db_nombre = %s", (db_name,))
                 resultado = cursor.fetchone()
                 
+                # Búsqueda flexible por si acaso el nombre de la BD tiene variaciones
                 if not resultado:
                     cursor.execute("SELECT id, nombre_empresa, rif, db_nombre, ultimo_digito FROM clientes WHERE db_nombre LIKE %s", (f"%{db_name}%",))
                     resultado = cursor.fetchone()
                     
+                # DEPURACIÓN EN VIVO: Esto te dirá exactamente qué devolvió MySQL en pantalla
                 st.info(f"🔍 **Debug Base de Datos:** Buscando `db_name = '{db_name}'` -> Resultado obtenido: `{resultado}`")
                 
                 cursor.close()
-                conexion_admin.close()
+                # Ojo: No cerramos conexion_admin aquí si es la que comparte st.session_state.conn, 
+                # pero si fue una nueva instancia, se maneja bien. En tu función controlas el session_state.
                 
                 if resultado:
                     rif_cliente = str(resultado.get('rif', 'J-00000000-0')).strip()
@@ -626,7 +637,7 @@ def mostrar_calendario_cliente(db_name):
             rif_cliente = rif_cliente or "J-00000000-0"
             terminal_rif = terminal_rif if terminal_rif is not None else 0
 
-    # Aseguramos que terminal_rif seja entero válido
+    # Aseguramos que terminal_rif sea entero válido
     try:
         terminal_rif = int(terminal_rif)
     except:
