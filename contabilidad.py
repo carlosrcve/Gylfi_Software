@@ -1123,7 +1123,7 @@ def panel_administracion_firmas(conn):
         return  # Corta la ejecución
 
     st.header("🏢 Gestión de Usuarios y Accesos de la Firma")
-    st.markdown("Registra un nuevo usuario para tu empresa, asígnale su rol y controla su estado de acceso.")
+    st.markdown("Registra un nuevo usuario para tu empresa, asígnale su rol y controla su estado de acceso inicial.")
     
     # 1. CARGAR EMPRESAS (Si es superadmin ve todas, si es admin_firma solo ve la suya)
     try:
@@ -1151,6 +1151,7 @@ def panel_administracion_firmas(conn):
                     help="Selecciona el rol que tendrá este usuario dentro de la firma"
                 )
                 
+                # Selector de estado inicial de acceso para el nuevo usuario
                 estado_usuario_nuevo = st.selectbox(
                     "Estado Inicial de Acceso",
                     ["Activo", "Suspendido", "Inactivo"]
@@ -1206,72 +1207,87 @@ def panel_administracion_firmas(conn):
                             conn.commit()
                             cursor.close()
                             
-                            st.success(f"✅ ¡Usuario '{nombre_usuario.strip()}' creado con éxito para la empresa '{empresa_seleccionada}'!")
+                            st.success(f"✅ ¡Usuario '{nombre_usuario.strip()}' creado con éxito para la empresa '{empresa_seleccionada}' con estado **{estado_usuario_nuevo}**!")
                             st.rerun()
                     except Exception as e:
                         st.error(f"❌ Error al registrar el usuario: {e}")
 
-    st.divider()
-
-    # 2. TABLA INTERACTIVA DE USUARIOS (Filtrada según el rol)
-    st.subheader("👥 Usuarios y Control de Accesos")
-    st.markdown("💡 *Modifica el estado de los usuarios de tu firma en la tabla y guarda los cambios.*")
+def panel_bloqueo_suspension_usuarios(conn):
+    # 🔒 Blindaje de seguridad: Solo Superadmin o Admin de Firma pueden entrar aquí
+    rol_actual = str(st.session_state.get('rol', '')).strip().lower()
+    cliente_id_actual = st.session_state.get('cliente_id')
     
+    if rol_actual not in ['admin', 'superadmin', 'admin_firma']:
+        st.error("⛔ Acceso denegado. No tienes permisos para gestionar bloqueos o suspensiones.")
+        return
+
+    st.header("🔒 Panel de Control, Bloqueo y Suspensión de Usuarios")
+    st.markdown("💡 *Modifica el estado de acceso de los usuarios directamente en la base de datos MySQL para suspender, activar o restringir su ingreso al sistema.*")
+
     try:
+        # Si es superadmin ve a todo el mundo; si es dueño de firma, solo ve a su personal
         if rol_actual in ['admin', 'superadmin']:
-            query_usuarios = """
-                SELECT u.id AS id_usuario, u.usuario, u.rol, u.estado, u.cliente_id, 
-                       c.nombre_empresa AS empresa_asignada, c.db_nombre AS base_de_datos 
+            query = """
+                SELECT 
+                    u.id AS id_usuario, 
+                    u.usuario, 
+                    u.rol, 
+                    u.estado, 
+                    c.nombre_empresa AS empresa_asignada 
                 FROM control_central.usuarios u 
                 LEFT JOIN control_central.clientes c ON u.cliente_id = c.id
             """
-            df_usuarios = ejecutar_consulta(query_usuarios, conn)
+            df_usuarios = ejecutar_consulta(query, conn)
         else:
-            # El dueño de la firma solo ve los usuarios que pertenecen a su propio cliente_id
-            query_usuarios = """
-                SELECT u.id AS id_usuario, u.usuario, u.rol, u.estado, u.cliente_id, 
-                       c.nombre_empresa AS empresa_asignada, c.db_nombre AS base_de_datos 
+            query = """
+                SELECT 
+                    u.id AS id_usuario, 
+                    u.usuario, 
+                    u.rol, 
+                    u.estado, 
+                    c.nombre_empresa AS empresa_asignada 
                 FROM control_central.usuarios u 
                 LEFT JOIN control_central.clientes c ON u.cliente_id = c.id
                 WHERE u.cliente_id = %s
             """
-            df_usuarios = ejecutar_consulta(query_usuarios, conn, params=(cliente_id_actual,))
-        
+            df_usuarios = ejecutar_consulta(query, conn, params=(cliente_id_actual,))
+
         if df_usuarios is not None and not df_usuarios.empty:
-            edit_df_usuarios = st.data_editor(
-                df_usuarios, 
+            # Editor interactivo para cambiar los estados de manera visual
+            edit_df = st.data_editor(
+                df_usuarios,
                 use_container_width=True,
-                key="editor_usuarios_firma_local",
+                key="editor_tabla_bloqueo_usuarios",
                 column_config={
                     "id_usuario": "ID",
                     "usuario": st.column_config.TextColumn("Usuario", disabled=True),
-                    "rol": st.column_config.SelectboxColumn("Rol", options=["contador", "asistente", "admin_firma"]),
-                    "estado": st.column_config.SelectboxColumn("Estado", options=["Activo", "Suspendido", "Inactivo"]),
-                    "cliente_id": None,
-                    "empresa_asignada": st.column_config.TextColumn("Empresa", disabled=True),
-                    "base_de_datos": st.column_config.TextColumn("Base de Datos", disabled=True)
+                    "rol": st.column_config.TextColumn("Rol", disabled=True),
+                    "estado": st.column_config.SelectboxColumn("Estado de Acceso", options=["Activo", "Suspendido", "Inactivo"]),
+                    "empresa_asignada": st.column_config.TextColumn("Empresa / Firma", disabled=True)
                 },
-                disabled=["id_usuario", "usuario", "cliente_id", "empresa_asignada", "base_de_datos"]
+                disabled=["id_usuario", "usuario", "rol", "empresa_asignada"]
             )
-            
-            if st.button("💾 Guardar Cambios de Usuarios"):
+
+            # Botón para guardar los cambios masivos directamente en la base de datos MySQL
+            if st.button("💾 Guardar Bloqueos / Cambios en MySQL"):
                 try:
                     cursor = conn.cursor()
-                    for _, row in edit_df_usuarios.iterrows():
+                    for _, row in edit_df.iterrows():
                         cursor.execute(
-                            "UPDATE control_central.usuarios SET estado = %s, rol = %s WHERE id = %s",
-                            (row['estado'], row['rol'], row['id_usuario'])
+                            "UPDATE control_central.usuarios SET estado = %s WHERE id = %s",
+                            (row['estado'], row['id_usuario'])
                         )
                     conn.commit()
                     cursor.close()
-                    st.success("✅ ¡Cambios guardados correctamente!")
+                    st.success("✅ ¡Estados de acceso actualizados en MySQL con éxito! Los bloqueos ya están aplicando.")
                     st.rerun()
                 except Exception as e:
-                    st.error(f"❌ Error al actualizar: {e}")
+                    st.error(f"❌ Error al actualizar los estados en la base de datos: {e}")
         else:
-            st.info("ℹ️ No hay usuarios registrados bajo tu administración.")
+            st.info("ℹ️ No hay usuarios registrados para gestionar.")
+
     except Exception as e:
-        st.error(f"❌ Error al cargar los usuarios: {e}")
+        st.error(f"❌ Error al consultar la base de datos: {e}")
 
 def registrar_log_automatico(conn, accion, detalles):
     """Registra automáticamente las interacciones del usuario en la tabla logs_auditoria
@@ -7172,6 +7188,8 @@ if es_modulo_admin:
     try:
         conn = conectar_db() # Conexión a la central
         if conn:
+            elif menu_lateral == "🔒 Bloqueo de Usuarios":
+                panel_bloqueo_suspension_usuarios(conn)
             if menu_lateral == "⚙️ Gestión de Usuarios":
                 panel_administracion(conn)
             elif menu_lateral == "🏢 Gestión de Firmas y Accesos":
