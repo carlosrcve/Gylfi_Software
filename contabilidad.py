@@ -12085,7 +12085,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                                     import time
                                     time.sleep(1.5)
                                     
-                                    st.rerun()
+                                    #st.rerun()
 
             # Bloque de descarga
             if st.session_state.pdf_listo and st.session_state.datos_pdf:
@@ -12108,7 +12108,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                 if st.button("➕ Registrar otra retención"):
                     st.session_state.pdf_listo = False
                     st.session_state.datos_pdf = None
-                    st.rerun()
+                    #st.rerun()
 
             with tab3:
                 # --- SECCIÓN: EDITOR DE HISTORIAL ---
