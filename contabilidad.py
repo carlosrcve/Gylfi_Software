@@ -479,13 +479,48 @@ def mostrar_panel_superadmin(conn):
             st.divider()
 
 
+
+def verificar_si_es_contribuyente_especial(db_name):
+    """
+    Verifica de forma dinámica en la base de datos central si la empresa actual 
+    está registrada como 'Contribuyente Especial' consultando la tabla 'clientes'.
+    """
+    # 1. Si ya lo tenemos guardado en la sesión del usuario, lo leemos directamente por velocidad:
+    if 'tipo_contribuyente' in st.session_state and st.session_state.get('db_activa') == db_name:
+        tipo = str(st.session_state['tipo_contribuyente']).strip()
+        return tipo == "Contribuyente Especial"
+
+    # 2. Si no está en sesión, consultamos tu tabla real 'clientes' en la BD central
+    try:
+        conexion_admin = conectar_db_principal() # Tu método de conexión global
+        if conexion_admin:
+            cursor = conexion_admin.cursor(dictionary=True)
+            # CONSULTA CORREGIDA A TU TABLA REAL 'clientes' (obteniendo RIF real)
+            cursor.execute("SELECT rif, estado FROM clientes WHERE db_nombre = %s", (db_name,))
+            resultado = cursor.fetchone()
+            cursor.close()
+            conexion_admin.close()
+            
+            if resultado and resultado.get('rif'):
+                rif_encontrado = str(resultado['rif']).strip()
+                
+                # Guardamos el RIF, la BD y el tipo en la sesión de Streamlit
+                st.session_state['db_activa'] = db_name
+                st.session_state['rif_empresa_activa'] = rif_encontrado
+                st.session_state['tipo_contribuyente'] = "Contribuyente Especial"
+                
+                return True
+    except Exception as e:
+        print(f"Error verificando tipo de contribuyente: {e}")
+    
+    return False
+
+
 def obtener_calendario_seniat_2026(terminal_rif):
     """
     Retorna el diccionario con los cronogramas fiscales del SENIAT 2026 
     según el terminal de RIF (0 al 9).
     """
-    
-    # 1. IVA Primera Quincena (01 al 15)
     iva_1_map = {
         0: ["28", "20", "25", "23", "20", "29", "27", "31", "29", "20", "27", "16"],
         1: ["19", "23", "20", "27", "18", "26", "21", "25", "18", "28", "26", "29"],
@@ -499,7 +534,6 @@ def obtener_calendario_seniat_2026(terminal_rif):
         9: ["29", "27", "17", "28", "25", "25", "29", "27", "23", "19", "30", "23"]
     }
 
-    # 2. IVA Segunda Quincena (16 al último)
     iva_2_map = {
         0: ["15", "09", "06", "01", "06", "12", "08", "14", "14", "05", "13", "03"],
         1: ["06", "10", "03", "14", "04", "11", "03", "13", "03", "14", "12", "15"],
@@ -513,7 +547,6 @@ def obtener_calendario_seniat_2026(terminal_rif):
         9: ["14", "06", "05", "15", "08", "09", "13", "11", "07", "01", "10", "14"]
     }
 
-    # Función auxiliar para manejar agrupaciones de RIF
     def obtener_grupo_islr(term):
         if term in [0, 8]: return 0
         elif term in [1, 4]: return 1
@@ -524,7 +557,6 @@ def obtener_calendario_seniat_2026(terminal_rif):
 
     idx_grupo = obtener_grupo_islr(terminal_rif)
 
-    # 3. Estimadas de ISLR
     estimadas_islr_matrix = [
         ["15", "09", "13", "10", "12", "12", "08", "14", "08", "09", "13", "09"], 
         ["09", "10", "11", "14", "13", "11", "10", "13", "09", "14", "12", "15"], 
@@ -533,7 +565,6 @@ def obtener_calendario_seniat_2026(terminal_rif):
         ["13", "11", "10", "13", "11", "15", "09", "10", "11", "13", "11", "08"]  
     ]
 
-    # 4. Retenciones de ISLR
     retenciones_islr_matrix = [
         ["15", "09", "06", "10", "12", "05", "08", "07", "08", "09", "06", "09"], 
         ["09", "10", "11", "07", "13", "11", "10", "06", "09", "06", "05", "07"], 
@@ -549,16 +580,45 @@ def obtener_calendario_seniat_2026(terminal_rif):
         "retenciones_islr": retenciones_islr_matrix[idx_grupo]
     }
 
-def mostrar_calendario_cliente(rif_cliente):
-    # 1. Extraer el terminal del RIF de forma robusta
+
+def mostrar_calendario_cliente(db_name):
+    """
+    Muestra el calendario fiscal consultando dinámicamente el RIF desde MySQL 
+    según la base de datos de la empresa actual.
+    """
+    # 1. Obtener el RIF de forma dinámica desde la BD central (tabla 'clientes') si no está en sesión
+    rif_cliente = st.session_state.get('rif_empresa_activa')
+    
+    if not rif_cliente:
+        try:
+            conexion_admin = conectar_db_principal()
+            if conexion_admin:
+                cursor = conexion_admin.cursor(dictionary=True)
+                cursor.execute("SELECT rif FROM clientes WHERE db_nombre = %s", (db_name,))
+                resultado = cursor.fetchone()
+                cursor.close()
+                conexion_admin.close()
+                if resultado and resultado.get('rif'):
+                    rif_cliente = str(resultado['rif']).strip()
+                    st.session_state['rif_empresa_activa'] = rif_cliente
+        except Exception as e:
+            print(f"Error obteniendo RIF para el calendario: {e}")
+
+    # Fallback por seguridad si ocurre algún problema de conexión puntual
+    if not rif_cliente:
+        rif_cliente = "J-00000000-0"
+
+    # 2. Extraer el terminal del RIF de forma robusta y 100% automatizada
     try:
         rif_str = str(rif_cliente).strip()
-        terminal_rif = int(rif_str[-1])
+        rif_limpio = "".join(filter(str.isdigit, rif_str))
+        terminal_rif = int(rif_limpio[-1]) if rif_limpio else 0
     except:
         terminal_rif = 0
+        rif_limpio = "00000000"
 
-    # 2. Manejo de persistencia de pagos mediante archivo JSON local
-    archivo_pagos = "pagos_pedacito.json"
+    # 3. Manejo de persistencia de pagos mediante archivo JSON dinámico basado en el RIF real
+    archivo_pagos = f"pagos_{rif_limpio}.json"
 
     def cargar_pagos_disco():
         if os.path.exists(archivo_pagos):
@@ -576,18 +636,21 @@ def mostrar_calendario_cliente(rif_cliente):
         except:
             pass
 
-    if 'pagos_realizados_pedacito' not in st.session_state:
-        st.session_state['pagos_realizados_pedacito'] = cargar_pagos_disco()
+    key_session_pagos = f"pagos_realizados_{rif_limpio}"
+    if key_session_pagos not in st.session_state:
+        st.session_state[key_session_pagos] = cargar_pagos_disco()
 
-    # Contenedor interactivo con casillas de verificación (checkbox)
-    st.markdown("##### 📝 Control de Pagos Realizados:")
+    pagos_realizados = st.session_state[key_session_pagos]
+
+    # Contenedor interactivo con casillas de verificación (checkbox) usando keys únicas por RIF
+    st.markdown(f"##### 📝 Control de Pagos Realizados (RIF: {rif_str}):")
     col_c1, col_c2 = st.columns(2)
     with col_c1:
-        val_iva_2 = st.checkbox("✅ IVA 2da Quincena Pagado", value=st.session_state['pagos_realizados_pedacito'].get("iva_2", False), key="chk_iva_2")
-        val_islr = st.checkbox("✅ Retenciones ISLR Pagadas", value=st.session_state['pagos_realizados_pedacito'].get("islr", False), key="chk_islr")
+        val_iva_2 = st.checkbox("✅ IVA 2da Quincena Pagado", value=pagos_realizados.get("iva_2", False), key=f"chk_iva_2_{rif_limpio}")
+        val_islr = st.checkbox("✅ Retenciones ISLR Pagadas", value=pagos_realizados.get("islr", False), key=f"chk_islr_{rif_limpio}")
     with col_c2:
-        val_pensiones = st.checkbox("✅ Ley de Pensiones Pagada", value=st.session_state['pagos_realizados_pedacito'].get("pensiones", False), key="chk_pensiones")
-        val_iva_1 = st.checkbox("✅ IVA 1era Quincena Pagado", value=st.session_state['pagos_realizados_pedacito'].get("iva_1", False), key="chk_iva_1")
+        val_pensiones = st.checkbox("✅ Ley de Pensiones Pagada", value=pagos_realizados.get("pensiones", False), key=f"chk_pensiones_{rif_limpio}")
+        val_iva_1 = st.checkbox("✅ IVA 1era Quincena Pagado", value=pagos_realizados.get("iva_1", False), key=f"chk_iva_1_{rif_limpio}")
 
     nuevos_pagos = {
         "iva_1": val_iva_1,
@@ -596,13 +659,12 @@ def mostrar_calendario_cliente(rif_cliente):
         "pensiones": val_pensiones
     }
 
-    if nuevos_pagos != st.session_state['pagos_realizados_pedacito']:
-        st.session_state['pagos_realizados_pedacito'] = nuevos_pagos
+    if nuevos_pagos != pagos_realizados:
+        st.session_state[key_session_pagos] = nuevos_pagos
         guardar_pagos_disco(nuevos_pagos)
+        st.rerun()
 
-    pagos_realizados = st.session_state['pagos_realizados_pedacito']
-
-    # 3. Obtener datos desde la lógica local según el terminal
+    # 4. Obtener datos desde la lógica local según el terminal extraído de la BD
     calendario = obtener_calendario_seniat_2026(terminal_rif)
     
     q1_vals = list(calendario['iva_1'])
@@ -615,9 +677,8 @@ def mostrar_calendario_cliente(rif_cliente):
     st.markdown("### 🔔 Estado de Alertas Fiscales Próximas")
 
     hoy = date.today()
-    mes_actual_idx = hoy.month - 1  # 0 a 11 (Ej. Agosto = 7)
+    mes_actual_idx = hoy.month - 1  # 0 a 11
 
-    # Fechas límite evaluadas para el mes actual en curso
     try:
         dia_iva_1 = int(q1_vals[mes_actual_idx])
         dia_iva_2 = int(q2_vals[mes_actual_idx])
@@ -648,7 +709,6 @@ def mostrar_calendario_cliente(rif_cliente):
             mensajes_urgentes.append(mensaje_alerta)
 
     if alerta_activa:
-        # Reproductor de audio oculto para alerta sonora
         audio_html = """
             <audio autoplay style="display:none;">
               <source src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3" type="audio/mpeg">
@@ -656,7 +716,6 @@ def mostrar_calendario_cliente(rif_cliente):
         """
         st.markdown(audio_html, unsafe_allow_html=True)
 
-        # Notificación flotante estilo bancario (toast superior con llaves duplicadas)
         texto_notificacion = "<br>".join(mensajes_urgentes)
         banco_notif_html = f"""
             <div id="banco-toast-alerta" style="
@@ -724,7 +783,6 @@ def mostrar_calendario_cliente(rif_cliente):
     st.subheader(f"📊 Calendario Fiscal 2026 - Contribuyente Especial (Terminal RIF: {terminal_rif})")
     st.markdown("### 🗓️ Cronograma de Declaraciones y Pagos")
 
-    # Estilos CSS modernos para las tablas
     st.markdown("""
     <style>
         .fiscal-table { width: 100%; border-collapse: collapse; margin-bottom: 20px; font-family: sans-serif; font-size: 14px; }
@@ -736,7 +794,6 @@ def mostrar_calendario_cliente(rif_cliente):
     </style>
     """, unsafe_allow_html=True)
 
-    # Renderizar Tablas
     st.markdown("#### 1. IVA, Anticipos de ISLR, IGTF y Retenciones de IVA")
     st.markdown(f"""
     <table class="fiscal-table">
@@ -6002,33 +6059,7 @@ def guardar_saldo_mensual(conn, banco, mes, ano, inicial, final, db_name=None):
         except:
             pass
 
-def verificar_si_es_contribuyente_especial(db_name):
-    """
-    Verifica de forma dinámica en la base de datos central si la empresa actual 
-    está registrada como 'Contribuyente Especial'.
-    """
-    # 1. Si ya lo tenemos guardado en la sesión del usuario, lo leemos directamente por velocidad:
-    if 'tipo_contribuyente' in st.session_state:
-        tipo = str(st.session_state['tipo_contribuyente']).strip()
-        return tipo == "Contribuyente Especial"
 
-    # 2. Si no está en sesión, hacemos una consulta rápida a tu conexión principal o tabla de control
-    try:
-        # Asumiendo que tienes una función para conectar a tu BD principal/gestor de clientes
-        conexion_admin = conectar_db_principal() # O tu método de conexión global
-        if conexion_admin:
-            cursor = conexion_admin.cursor(dictionary=True)
-            cursor.execute("SELECT tipo_contribuyente FROM empresas WHERE db_nombre = %s", (db_name,))
-            resultado = cursor.fetchone()
-            cursor.close()
-            conexion_admin.close()
-            
-            if resultado and resultado['tipo_contribuyente']:
-                return str(resultado['tipo_contribuyente']).strip() == "Contribuyente Especial"
-    except Exception as e:
-        print(f"Error verificando tipo de contribuyente: {e}")
-    
-    return False
 
 
 
@@ -8931,8 +8962,9 @@ if "🏠 Inicio" in opcion_menu:
     es_especial = (tipo_usuario == "Contribuyente Especial")
 
     if es_especial:
-        rif_actual = st.session_state.get('rif_empresa_activa') 
-        mostrar_calendario_cliente(rif_actual)
+        # Asegúrate de tener la variable con el nombre de la BD actual de la empresa (ej. db_name, empresa_db, etc.)
+        db_actual = st.session_state.get('db_nombre_actual') # O como lo manejes en tu app
+        mostrar_calendario_cliente(db_actual)
 
     
 
