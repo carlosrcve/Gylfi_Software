@@ -1115,7 +1115,7 @@ def panel_administracion_firmas(conn):
     rol_actual = str(st.session_state.get('rol', '')).lower()
     if rol_actual not in ['admin', 'superadmin']:
         st.error("⛔ Acceso denegado. No tienes permisos de Superadministrador para gestionar usuarios y accesos globales.")
-        return  # Corta la ejecución para que no vea nada
+        return  # Corta la ejecución para que no vea ni haga nada
 
     st.header("🏢 Gestión de Usuarios y Accesos del Administrador de Firmas")
     st.markdown("Registra un nuevo usuario, asígnale su rol, empresa correspondiente y controla su estado de acceso.")
@@ -1243,7 +1243,7 @@ def panel_administracion_firmas(conn):
                     "usuario": st.column_config.TextColumn("Usuario", disabled=True),
                     "rol": st.column_config.TextColumn("Rol", disabled=True),
                     "estado": st.column_config.SelectboxColumn("Estado de Acceso", options=["Activo", "Suspendido", "Inactivo"]),
-                    "cliente_id": None, # Ocultamos la columna técnica si deseas, o déjala visible
+                    "cliente_id": None, # Ocultamos la columna técnica
                     "empresa_asignada": st.column_config.TextColumn("Empresa", disabled=True),
                     "base_de_datos": st.column_config.TextColumn("Base de Datos", disabled=True)
                 },
