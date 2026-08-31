@@ -585,84 +585,58 @@ def obtener_calendario_seniat_2026(terminal_rif):
 
 def mostrar_calendario_cliente(db_name):
     """
-    Muestra el calendario fiscal consultando dinámicamente el RIF desde MySQL 
-    según la base de datos de la empresa actual y extrayendo el terminal de forma infalible.
+    Muestra el calendario fiscal consultando directamente el RIF y el 
+    último dígito desde la tabla 'clientes' de la base de datos principal.
     """
-    # 1. Obtener el RIF de forma dinámica desde la sesión o consultando la BD principal
     rif_cliente = st.session_state.get('rif_empresa_activa')
+    terminal_rif = st.session_state.get('terminal_rif_activo')
     
-    print(f"DEBUG INICIAL -> db_name recibido: {db_name} | rif_empresa_activa en session: {rif_cliente}")
+    print(f"DEBUG INICIAL -> db_name: {db_name} | RIF session: {rif_cliente} | Terminal session: {terminal_rif}")
 
-    if not rif_cliente or rif_cliente == "J-00000000-0":
+    # Si no están en sesión, los consultamos a la BD principal de una vez
+    if not rif_cliente or rif_cliente == "J-00000000-0" or terminal_rif is None:
         try:
             conexion_admin = conectar_db_principal()
             if conexion_admin:
                 cursor = conexion_admin.cursor(dictionary=True)
                 
-                # Intento 1: Buscar por coincidencia exacta
-                cursor.execute("SELECT rif FROM clientes WHERE db_nombre = %s", (db_name,))
+                # Consultamos el RIF y la nueva columna 'ultimo_digito'
+                cursor.execute("SELECT rif, ultimo_digito FROM clientes WHERE db_nombre = %s", (db_name,))
                 resultado = cursor.fetchone()
                 
-                # Intento 2 (Por si acaso): Buscar de forma flexible si el nombre contiene la cadena
+                # Búsqueda flexible por si acaso el nombre de la BD tiene variaciones
                 if not resultado:
-                    cursor.execute("SELECT rif FROM clientes WHERE db_nombre LIKE %s", (f"%{db_name}%",))
+                    cursor.execute("SELECT rif, ultimo_digito FROM clientes WHERE db_nombre LIKE %s", (f"%{db_name}%",))
                     resultado = cursor.fetchone()
                     
                 cursor.close()
                 conexion_admin.close()
                 
-                if resultado and resultado.get('rif'):
-                    rif_cliente = str(resultado['rif']).strip()
-                    print(f"DEBUG -> RIF encontrado en BD Principal para {db_name}: {rif_cliente}")
+                if resultado:
+                    rif_cliente = str(resultado.get('rif', 'J-00000000-0')).strip()
+                    terminal_rif = int(resultado.get('ultimo_digito', 0))
+                else:
+                    rif_cliente = "J-00000000-0"
+                    terminal_rif = 0
+                    
+                st.session_state['rif_empresa_activa'] = rif_cliente
+                st.session_state['terminal_rif_activo'] = terminal_rif
         except Exception as e:
-            print(f"Error consultando RIF en BD principal: {e}")
+            print(f"Error consultando datos en BD principal: {e}")
+            rif_cliente = rif_cliente or "J-00000000-0"
+            terminal_rif = terminal_rif if terminal_rif is not None else 0
 
-        # Intento 3 de emergencia (Automático y seguro): Consultar la propia BD de la empresa 
-        # por si tiene una tabla de parámetros, empresa o configuracion que guarde el RIF.
-        if not rif_cliente or rif_cliente == "J-00000000-0":
-            try:
-                conexion_empresa = conectar_a_base_de_datos(db_name) 
-                if conexion_empresa:
-                    cursor_emp = conexion_empresa.cursor(dictionary=True)
-                    for tabla_candidata in ['configuracion', 'empresa', 'parametros', 'compania']:
-                        try:
-                            cursor_emp.execute(f"SELECT rif FROM {tabla_candidata} LIMIT 1")
-                            res_emp = cursor_emp.fetchone()
-                            if res_emp and res_emp.get('rif'):
-                                rif_cliente = str(res_emp['rif']).strip()
-                                break
-                        except:
-                            continue
-                    cursor_emp.close()
-                    conexion_empresa.close()
-            except Exception as ex_emp:
-                print(f"No se pudo extraer RIF de la BD interna de la empresa: {ex_emp}")
-
-        # Si agota todo y sigue vacío, asignamos el comodín
-        if not rif_cliente:
-            rif_cliente = "J-00000000-0"
-            print(f"ADVERTENCIA: No se encontró RIF para la empresa '{db_name}'. Se usará comodín.")
-            
-        st.session_state['rif_empresa_activa'] = rif_cliente
-
-    # 2. Extracción blindada del terminal del RIF (ignora letras y guiones, toma el último número real)
+    # Aseguramos que terminal_rif sea entero válido
     try:
-        rif_str = str(rif_cliente).strip()
-        digitos_rif = "".join([c for c in rif_str if c.isdigit()])
-        
-        if digitos_rif:
-            terminal_rif = int(digitos_rif[-1]) # Toma el último dígito exacto (ej: el 4 de ...124)
-            rif_limpio = digitos_rif
-        else:
-            terminal_rif = 0
-            rif_limpio = "00000000"
-    except Exception as ex:
-        print(f"Error procesando terminal del RIF {rif_cliente}: {ex}")
+        terminal_rif = int(terminal_rif)
+    except:
         terminal_rif = 0
-        rif_limpio = "00000000"
 
-    # Depuración rápida en consola para verificar
-    print(f"DEBUG RIF -> Original: {rif_cliente} | Dígitos: {digitos_rif} | Terminal Detectado: {terminal_rif}")
+    rif_str = str(rif_cliente).strip()
+    digitos_rif = "".join([c for c in rif_str if c.isdigit()])
+    rif_limpio = digitos_rif if digitos_rif else "00000000"
+
+    print(f"DEBUG RIF -> Original: {rif_str} | Terminal Oficial (BD): {terminal_rif}")
 
     # 3. Manejo de persistencia de pagos mediante archivo JSON dinámico basado en el RIF real
     archivo_pagos = f"pagos_{rif_limpio}.json"
@@ -711,7 +685,7 @@ def mostrar_calendario_cliente(db_name):
         guardar_pagos_disco(nuevos_pagos)
         st.rerun()
 
-    # 4. Obtener datos desde la función global según el terminal extraído
+    # 4. Obtener datos desde la función global según el terminal extraído de la BD
     calendario = obtener_calendario_seniat_2026(terminal_rif)
     
     q1_vals = list(calendario['iva_1'])
