@@ -581,10 +581,12 @@ def obtener_calendario_seniat_2026(terminal_rif):
     }
 
 
+
+
 def mostrar_calendario_cliente(db_name):
     """
     Muestra el calendario fiscal consultando dinámicamente el RIF desde MySQL 
-    según la base de datos de la empresa actual.
+    según la base de datos de la empresa actual y extrayendo el terminal de forma infalible.
     """
     # 1. Obtener el RIF de forma dinámica desde la BD central (tabla 'clientes') si no está en sesión
     rif_cliente = st.session_state.get('rif_empresa_activa')
@@ -608,14 +610,24 @@ def mostrar_calendario_cliente(db_name):
     if not rif_cliente:
         rif_cliente = "J-00000000-0"
 
-    # 2. Extraer el terminal del RIF de forma robusta y 100% automatizada
+    # 2. Extracción blindada del terminal del RIF (ignora letras y guiones, toma el último número real)
     try:
         rif_str = str(rif_cliente).strip()
-        rif_limpio = "".join(filter(str.isdigit, rif_str))
-        terminal_rif = int(rif_limpio[-1]) if rif_limpio else 0
-    except:
+        digitos_rif = "".join([c for c in rif_str if c.isdigit()])
+        
+        if digitos_rif:
+            terminal_rif = int(digitos_rif[-1]) # Toma el último dígito exacto (ej: el 4 de ...124)
+            rif_limpio = digitos_rif
+        else:
+            terminal_rif = 0
+            rif_limpio = "00000000"
+    except Exception as ex:
+        print(f"Error procesando terminal del RIF {rif_cliente}: {ex}")
         terminal_rif = 0
         rif_limpio = "00000000"
+
+    # Depuración rápida en consola para verificar
+    print(f"DEBUG RIF -> Original: {rif_cliente} | Dígitos: {digitos_rif} | Terminal Detectado: {terminal_rif}")
 
     # 3. Manejo de persistencia de pagos mediante archivo JSON dinámico basado en el RIF real
     archivo_pagos = f"pagos_{rif_limpio}.json"
@@ -643,7 +655,7 @@ def mostrar_calendario_cliente(db_name):
     pagos_realizados = st.session_state[key_session_pagos]
 
     # Contenedor interactivo con casillas de verificación (checkbox) usando keys únicas por RIF
-    st.markdown(f"##### 📝 Control de Pagos Realizados (RIF: {rif_str}):")
+    st.markdown(f"##### 📝 Control de Pagos Realizados (RIF: {rif_str} - Terminal: {terminal_rif}):")
     col_c1, col_c2 = st.columns(2)
     with col_c1:
         val_iva_2 = st.checkbox("✅ IVA 2da Quincena Pagado", value=pagos_realizados.get("iva_2", False), key=f"chk_iva_2_{rif_limpio}")
@@ -664,7 +676,7 @@ def mostrar_calendario_cliente(db_name):
         guardar_pagos_disco(nuevos_pagos)
         st.rerun()
 
-    # 4. Obtener datos desde la lógica local según el terminal extraído de la BD
+    # 4. Obtener datos desde la función global según el terminal extraído
     calendario = obtener_calendario_seniat_2026(terminal_rif)
     
     q1_vals = list(calendario['iva_1'])
