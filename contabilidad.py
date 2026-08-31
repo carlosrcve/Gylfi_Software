@@ -3109,11 +3109,6 @@ def cargar_libro_compras_db(df, nombre_db=None):
             filas_afectadas = cursor.rowcount
             st.success(f"🔥 ¡Proceso exitoso! Se guardaron/actualizaron registros correctamente (Filas afectadas: {filas_afectadas}).")
             
-            # Verificación inmediata en pantalla para comprobar que ya existen
-            cursor.execute("SELECT n_factura, proveedor, total_compras FROM libro_compras ORDER BY fecha_operacion DESC LIMIT 5;")
-            ultimos = cursor.fetchall()
-            st.write("🔍 **Comprobación en la BD:**")
-            st.dataframe(pd.DataFrame(ultimos))
         else:
             st.warning("⚠️ No se encontraron registros válidos para insertar.")
             
