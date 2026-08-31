@@ -3670,8 +3670,6 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
             else:
                 st.session_state['facturas_seleccionadas'] = None
 
-        # Aseguramos que pandas esté disponible en este ámbito
-        import pandas as pd
 
         facturas_seleccionadas = st.session_state.get('facturas_seleccionadas')
 
@@ -3679,86 +3677,69 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
             facturas_seleccionadas = pd.DataFrame(facturas_seleccionadas)
 
         if facturas_seleccionadas is not None and not facturas_seleccionadas.empty:
-            total_base_agrupado = facturas_seleccionadas['base_imponible'].sum()
-            total_iva_agrupado = facturas_seleccionadas['iva_monto'].sum()
-            total_facturas_agrupado = facturas_seleccionadas['total_compras'].sum()
-            total_exento_agrupado = facturas_seleccionadas['importe_exento'].sum()
             
-            factura_principal = facturas_seleccionadas.iloc[0]
-            
-            # Obtención del correlativo automático desde la Base de Datos
-            fecha_corta_base = str(factura_principal['fecha_operacion']).split(" ")[0]
-            ano_str, mes_str = fecha_corta_base.split("-")[0], fecha_corta_base.split("-")[1]
-            prefijo_periodo = f"{ano_str}{mes_str}"
-            
-            db_nombre_corr = st.session_state.get('DB_ACTUAL')
-            conn_corr = conectar_db(db_nombre_corr)
-            siguiente_secuencial = 1
-            
-            if conn_corr:
-                try:
-                    cursor_corr = conn_corr.cursor()
-                    query_ultimo = """
-                        SELECT N_Comprobante1 
-                        FROM retenciones_iva 
-                        WHERE N_Comprobante1 LIKE %s 
-                        ORDER BY N_Comprobante1 DESC 
-                        LIMIT 1
-                    """
-                    cursor_corr.execute(query_ultimo, (f"{prefijo_periodo}%",))
-                    resultado_ultimo = cursor_corr.fetchone()
-                    
-                    if resultado_ultimo and resultado_ultimo[0]:
-                        ultimo_nro = str(resultado_ultimo[0])
-                        secuencial_texto = ultimo_nro[len(prefijo_periodo):]
-                        if secuencial_texto.isdigit():
-                            siguiente_secuencial = int(secuencial_texto) + 1
-                except Exception:
-                    siguiente_secuencial = 1
-                finally:
-                    if cursor_corr:
-                        cursor_corr.close()
-                    if conn_corr:
-                        conn_corr.close()
-                        
-            val_sugerido = f"{prefijo_periodo}{str(siguiente_secuencial).zfill(8)}"
-
-            st.write("### 📝 Datos del Comprobante (Grupo)")
-
-            # --- CASO ÉXITO (PANTALLA LIMPIA TRAS GUARDAR) ---
+            # --- 1. CASO ÉXITO (SE EVALÚE PRIMERO SI YA SE GUARDÓ) ---
             if st.session_state.get('mostrar_exito', False):
                 nro_generado = st.session_state.get('last_iva', {}).get('nro_comp', 'N/D')
                 st.success(f"🔥 ¡Proceso exitoso! El comprobante **`{nro_generado}`** ha sido generado y guardado en la base de datos.")
                 st.balloons()
                 
-                if 'last_iva' in st.session_state:
-                    st.divider()
-                    st.write("#### Certificación del grupo procesado:")
-                    st.info("✅ Las retenciones se registraron correctamente en la BD y las facturas seleccionadas fueron actualizadas.")
-                    porcentaje_actual = st.session_state.get('porcentaje_ret', 75)
-
-                    lista_de_facturas = []
-                    for _, fila in facturas_seleccionadas.iterrows():
-                        iva = float(fila.get('iva_monto', 0) or 0)
-                        monto_ret = (iva * porcentaje_actual) / 100
-                        
-                        lista_de_facturas.append({
-                            'fecha': fila['fecha_operacion'],
-                            'n_fact': fila['n_factura'],
-                            'n_cont': fila['n_control'],
-                            'total': fila['total_compras'],
-                            'base': fila['base_imponible'],
-                            'iva': iva,
-                            'm_ret': monto_ret
-                        })
-
+                st.divider()
+                st.write("#### Certificación del grupo procesado:")
+                st.info("✅ Las retenciones se registraron correctamente en la BD y las facturas seleccionadas fueron actualizadas.")
+                
                 if st.button("🔄 Registrar otro grupo", key="btn_reset_retencion"):
                     st.session_state['facturas_seleccionadas'] = None
                     st.session_state['mostrar_exito'] = False
                     st.rerun()
-            
-            # --- CASO FORMULARIO ---
+                    
+            # --- 2. CASO FORMULARIO (CUÁNDO AÚN NO SE HA GUARDADO) ---
             else:
+                total_base_agrupado = facturas_seleccionadas['base_imponible'].sum()
+                total_iva_agrupado = facturas_seleccionadas['iva_monto'].sum()
+                total_facturas_agrupado = facturas_seleccionadas['total_compras'].sum()
+                total_exento_agrupado = facturas_seleccionadas['importe_exento'].sum()
+                
+                factura_principal = facturas_seleccionadas.iloc[0]
+                
+                # Obtención del correlativo automático desde la Base de Datos
+                fecha_corta_base = str(factura_principal['fecha_operacion']).split(" ")[0]
+                ano_str, mes_str = fecha_corta_base.split("-")[0], fecha_corta_base.split("-")[1]
+                prefijo_periodo = f"{ano_str}{mes_str}"
+                
+                db_nombre_corr = st.session_state.get('DB_ACTUAL')
+                conn_corr = conectar_db(db_nombre_corr)
+                siguiente_secuencial = 1
+                
+                if conn_corr:
+                    try:
+                        cursor_corr = conn_corr.cursor()
+                        query_ultimo = """
+                            SELECT N_Comprobante1 
+                            FROM retenciones_iva 
+                            WHERE N_Comprobante1 LIKE %s 
+                            ORDER BY N_Comprobante1 DESC 
+                            LIMIT 1
+                        """
+                        cursor_corr.execute(query_ultimo, (f"{prefijo_periodo}%",))
+                        resultado_ultimo = cursor_corr.fetchone()
+                        
+                        if resultado_ultimo and resultado_ultimo[0]:
+                            ultimo_nro = str(resultado_ultimo[0])
+                            secuencial_texto = ultimo_nro[len(prefijo_periodo):]
+                            if secuencial_texto.isdigit():
+                                siguiente_secuencial = int(secuencial_texto) + 1
+                    except Exception:
+                        siguiente_secuencial = 1
+                    finally:
+                        if cursor_corr:
+                            cursor_corr.close()
+                        if conn_corr:
+                            conn_corr.close()
+                            
+                val_sugerido = f"{prefijo_periodo}{str(siguiente_secuencial).zfill(8)}"
+
+                st.write("### 📝 Datos del Comprobante (Grupo)")
                 st.info(f"Agrupando {len(facturas_seleccionadas)} facturas de **{factura_principal['proveedor']}**")
                 
                 with st.form("form_retencion_iva"):
