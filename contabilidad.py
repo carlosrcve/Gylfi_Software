@@ -7174,6 +7174,7 @@ rol_actual = str(st.session_state.get('rol', '')).strip().lower()
 
 es_modulo_admin = menu_lateral in [
     "⚙️ Gestión de Usuarios", 
+    "🔒 Bloqueo de Usuarios",
     "🏢 Gestión de Firmas y Accesos", 
     "🏢 Gestión de Empresas", 
     "🏢 Gestión de Clientes de la Firma"
