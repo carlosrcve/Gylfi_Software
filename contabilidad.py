@@ -7188,10 +7188,10 @@ if es_modulo_admin:
     try:
         conn = conectar_db() # Conexión a la central
         if conn:
-            elif menu_lateral == "🔒 Bloqueo de Usuarios":
-                panel_bloqueo_suspension_usuarios(conn)
             if menu_lateral == "⚙️ Gestión de Usuarios":
                 panel_administracion(conn)
+            elif menu_lateral == "🔒 Bloqueo de Usuarios":
+                panel_bloqueo_suspension_usuarios(conn)
             elif menu_lateral == "🏢 Gestión de Firmas y Accesos":
                 panel_administracion_firmas(conn)
             elif menu_lateral == "🏢 Gestión de Empresas":
