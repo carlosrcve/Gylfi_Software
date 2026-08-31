@@ -1013,7 +1013,12 @@ def panel_gestion_clientes_firma(conn):
                     ["Contribuyente Ordinario", "Contribuyente Especial"]
                 )
             
-            estado = st.selectbox("Estado Inicial", ["Activo", "Inactivo"])
+            # 🚫 CONTROL DE ESTADO / SUSPENSIÓN DE LICENCIA
+            estado = st.selectbox(
+                "Estado de la Licencia", 
+                ["Activo", "Suspendido", "Inactivo"],
+                help="Si se marca como 'Suspendido', los usuarios de esta firma no podrán iniciar sesión."
+            )
             
             btn_guardar = st.form_submit_button("💾 Crear Cliente y Base de Datos")
             
@@ -1024,7 +1029,6 @@ def panel_gestion_clientes_firma(conn):
                     try:
                         cursor = conn.cursor()
                         
-                        # Inserción ajustada a las columnas base reales si aún no tienes firma_id
                         sql = """
                             INSERT INTO control_central.clientes (nombre_empresa, rif, db_nombre, tipo_contribuyente, estado) 
                             VALUES (%s, %s, %s, %s, %s)
@@ -1039,7 +1043,7 @@ def panel_gestion_clientes_firma(conn):
                         conn.commit()
                         cursor.close()
                         
-                        st.info(f"🚀 Provisionando base de datos y tablas para '{db_nombre}' in TiDB Cloud...")
+                        st.info(f"🚀 Provisionando base de datos y tablas para '{db_nombre}' en TiDB Cloud...")
                         conectar_db(db_nombre)
                         
                         st.success(f"✅ ¡Cliente de la firma '{nombre_empresa}' y su base de datos fueron configurados con éxito!")
@@ -1050,8 +1054,9 @@ def panel_gestion_clientes_firma(conn):
 
     st.divider()
 
-    # 2. TABLA DE CLIENTES DE LA FIRMA REGISTRADOS
-    st.subheader("📋 Listado de Clientes de la Firma")
+    # 2. TABLA DE CLIENTES DE LA FIRMA REGISTRADOS (CON CONTROL DE ESTADOS)
+    st.subheader("📋 Listado de Clientes de la Firma y Estados de Licencia")
+    st.markdown("💡 *Puedes cambiar el estado de cualquier firma para bloquear o permitir el acceso a sus usuarios instantáneamente.*")
     
     try:
         if rol_actual in ['admin', 'superadmin']:
@@ -1062,18 +1067,37 @@ def panel_gestion_clientes_firma(conn):
             df_clientes = ejecutar_consulta(query_view, conn, params=(id_firma_actual,))
         
         if df_clientes is not None and not df_clientes.empty:
-            st.dataframe(
+            # Mostramos un editor de datos para que el superadmin pueda cambiar el estado de Activo a Suspendido directamente
+            edit_df = st.data_editor(
                 df_clientes, 
                 use_container_width=True,
+                key="editor_clientes_firma",
                 column_config={
                     "id": "ID",
-                    "nombre_empresa": st.column_config.TextColumn("Razón Social"),
-                    "rif": st.column_config.TextColumn("RIF"),
-                    "db_nombre": st.column_config.TextColumn("Base de Datos (TiDB)"),
+                    "nombre_empresa": st.column_config.TextColumn("Razón Social", disabled=True),
+                    "rif": st.column_config.TextColumn("RIF", disabled=True),
+                    "db_nombre": st.column_config.TextColumn("Base de Datos (TiDB)", disabled=True),
                     "tipo_contribuyente": st.column_config.SelectboxColumn("Tipo de Contribuyente", options=["Contribuyente Ordinario", "Contribuyente Especial"]),
-                    "estado": st.column_config.SelectboxColumn("Estado", options=["Activo", "Inactivo"])
-                }
+                    "estado": st.column_config.SelectboxColumn("Estado de Licencia", options=["Activo", "Suspendido", "Inactivo"])
+                },
+                disabled=["id", "nombre_empresa", "rif", "db_nombre"]
             )
+            
+            # Botón para guardar cambios de estado masivos desde la tabla
+            if st.button("💾 Actualizar Estados de Licencias"):
+                try:
+                    cursor = conn.cursor()
+                    for _, row in edit_df.iterrows():
+                        cursor.execute(
+                            "UPDATE control_central.clientes SET estado = %s WHERE id = %s",
+                            (row['estado'], row['id'])
+                        )
+                    conn.commit()
+                    cursor.close()
+                    st.success("✅ Estados de licencias actualizados correctamente. Los bloqueos entrarán en vigor de inmediato.")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"❌ Error al actualizar los estados en la base de datos: {e}")
         else:
             st.info("ℹ️ No hay clientes de la firma registrados todavía en el sistema.")
     except Exception as e:
