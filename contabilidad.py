@@ -12033,17 +12033,26 @@ elif opcion_menu == "📚 Libros Fiscales":
                                 
                                 if exito:
                                     # --- BLOQUEO DE LA FACTURA EN BASE DE DATOS ---
-                                    if conn:
+                                    # Abrimos una conexión independiente y segura solo para este UPDATE del libro
+                                    conn_bloqueo = conectar_db(st.session_state.get('DB_ACTUAL'))
+                                    if conn_bloqueo:
                                         try:
-                                            cursor = conn.cursor()
+                                            cursor = conn_bloqueo.cursor()
                                             query_bloqueo = "UPDATE libro_compras SET retencion_realizada = 1, n_comprob_islr = %s WHERE id = %s"
                                             cursor.execute(query_bloqueo, (n_comprob_manual, int(id_seguro)))
-                                            conn.commit()
+                                            conn_bloqueo.commit()
                                             cursor.close()
                                         except Exception as err_b:
                                             st.warning(f"⚠️ La retención se guardó, pero hubo un detalle al bloquear la factura en el libro: {err_b}")
                                         finally:
-                                            conn.close()
+                                            # Cierre seguro condicional para evitar el error "Already closed"
+                                            try:
+                                                if hasattr(conn_bloqueo, 'open') and conn_bloqueo.open:
+                                                    conn_bloqueo.close()
+                                                elif not hasattr(conn_bloqueo, 'open'):
+                                                    conn_bloqueo.close()
+                                            except Exception:
+                                                pass
 
                                     st.session_state.datos_pdf = {
                                         "agente": DATOS_EMPRESA,
