@@ -8852,37 +8852,52 @@ if "🏠 Inicio" in opcion_menu:
         st.code(traceback.format_exc())
     
 
-    # --- FILA 11: DIAGNÓSTICO Y CALENDARIO FISCAL ---
-    st.markdown("### 🔍 Depuración de la Sesión Actual")
+    # --- FILA 11: CALENDARIO FISCAL AUTOMATIZADO ---
+    # --- FILA 11: CALENDARIO FISCAL AUTOMATIZADO CON TUS FUNCIONES ---
     
-    # Mostramos todas las llaves que existen guardadas en Streamlit en este momento
-    keys_en_sesion = list(st.session_state.keys())
-    st.write(f"Llaves disponibles en st.session_state: `{keys_en_sesion}`")
-
-    # Intentamos buscar el valor de la empresa imprimiendo las variables clave si existen
-    for k in keys_en_sesion:
-        if any(term in k.lower() for term in ['db', 'empresa', 'name', 'client', 'actual']):
-            st.write(f"👉 Posible clave de empresa encontrada -> **`{k}`**: `{st.session_state[k]}`")
-
-    st.divider()
-
-    # --- INTENTO DE CARGA AUTOMÁTICA ---
-    # Cambia 'nombre_de_la_llave_real' por la que veas en la lista de arriba si ninguna de estas coincide
+    # 1. Atrapamos la base de datos activa usando la clave real de tu sesión
     db_actual = (
-        st.session_state.get('db_nombre_actual') or 
-        st.session_state.get('empresa') or 
-        st.session_state.get('db_activa') or 
-        st.session_state.get('empresa_seleccionada')
+        st.session_state.get('DB_ACTUAL') or 
+        st.session_state.get('db_cliente') or 
+        st.session_state.get('db_a_conectar') or
+        st.session_state.get('ultima_db_conectada')
     )
 
     if db_actual:
-        es_especial = verificar_si_es_contribuyente_especial(db_actual)
-        if es_especial:
-            mostrar_calendario_cliente(db_actual)
+        nombre_comercial = st.session_state.get('CLIENTE_NOMBRE', db_actual)
+        st.markdown(f"### 📅 Calendario Fiscal SENIAT 2026 - {nombre_comercial}")
+
+        # 2. Ejecutamos tu función para verificar/cargar el RIF y la sesión
+        verificar_si_es_contribuyente_especial(db_actual)
+
+        # 3. Leemos el RIF que tu función guardó en la sesión
+        rif_actual = st.session_state.get('rif_empresa_activa')
+
+        if rif_actual:
+            st.success(f"📌 RIF Detectado: **{rif_actual}**")
+            
+            # Extraemos el último número del RIF (terminal del 0 al 9)
+            digitos = "".join([c for c in rif_actual if c.isdigit()])
+            if digitos:
+                terminal_rif = int(digitos[-1])
+                st.info(f"🔢 Terminal de RIF calculado: **{terminal_rif}**")
+                
+                # 4. LLAMADA DIRECTA A TU FUNCIÓN DE CALENDARIO
+                cronograma = obtener_calendario_seniat_2026(terminal_rif)
+                
+                # 5. Si tienes una función visual como mostrar_calendario_cliente, se la pasas:
+                # (O puedes desplegar el diccionario 'cronograma' como lo necesites en tu app)
+                if 'mostrar_calendario_cliente' in globals():
+                    mostrar_calendario_cliente(db_actual)
+                else:
+                    # Vista rápida de comprobación usando tu diccionario
+                    st.write("Cronograma cargado con éxito:", cronograma)
+            else:
+                st.warning("⚠️ El RIF no contiene números válidos.")
         else:
-            st.info(f"ℹ️ La empresa actual (`{db_actual}`) está registrada como Contribuyente Ordinario.")
+            st.warning("⚠️ No se pudo obtener el RIF de esta empresa para calcular el terminal.")
     else:
-        st.warning("⚠️ No se detectó ninguna empresa activa en la sesión. Selecciona una empresa en el menú lateral o verifica cómo se guarda en tu login.")
+        st.warning("⚠️ Por favor, seleccione una empresa primero para visualizar el calendario fiscal.")
 
     
 
