@@ -6934,7 +6934,7 @@ def gestionar_sidebar():
                 del st.session_state[key]
             st.rerun()
 
-        # --- Navegación adaptada por rol (AQUÍ ESTABA EL BLOQUEO DEL ADMIN DE FIRMA) ---
+        # --- Navegación adaptada por rol ---
         if user_rol == 'admin':
             menu = st.radio(
                 "Navegación", 
