@@ -581,73 +581,65 @@ def obtener_calendario_seniat_2026(terminal_rif):
     }
 
 
-import os
-import json
-from datetime import date
-import streamlit as st
+
 
 def mostrar_calendario_cliente(db_name):
     """
-    Muestra el calendario fiscal consultando directamente el RIF y el 
-    último dígito desde la tabla 'clientes' de la base de datos principal.
+    Muestra el calendario fiscal utilizando los datos de la sesión o consultando
+    de forma segura y directa la tabla 'clientes' en la base de datos principal.
     """
+    # 1. Intentar rescatar primero desde las variables de sesión del Login
     rif_cliente = st.session_state.get('rif_empresa_activa')
     terminal_rif = st.session_state.get('terminal_rif_activo')
     
-    print(f"DEBUG INICIAL -> db_name: {db_name} | RIF session: {rif_cliente} | Terminal session: {terminal_rif}")
-
-    # Si no están en sesión, los consultamos a la BD principal (control_central) de una vez
-    if not rif_cliente or rif_cliente == "J-00000000-0" or terminal_rif is None:
+    # Si alguna variable clave falta o es inválida, consultamos la BD central
+    if not rif_cliente or rif_cliente == "J-00000000-0" or terminal_rif is None or terminal_rif == "":
         try:
-            # USAMOS TU FUNCIÓN REAL apuntando a control_central
             conexion_admin = conectar_db("control_central")
             if conexion_admin:
-                # Nota: como usas pymysql, pasamos cursor(pymysql.cursors.DictCursor) 
-                # o el cursor nativo de pymysql dependiendo de cómo lo tengas configurado.
-                import pymysql.cursors
-                cursor = conexion_admin.cursor(pymysql.cursors.DictCursor)
-                
-                # Consultamos el RIF y la columna 'ultimo_digito'
-                cursor.execute("SELECT id, nombre_empresa, rif, db_nombre, ultimo_digito FROM clientes WHERE db_nombre = %s", (db_name,))
-                resultado = cursor.fetchone()
-                
-                # Búsqueda flexible por si acaso el nombre de la BD tiene variaciones
-                if not resultado:
-                    cursor.execute("SELECT id, nombre_empresa, rif, db_nombre, ultimo_digito FROM clientes WHERE db_nombre LIKE %s", (f"%{db_name}%",))
+                with conexion_admin.cursor(pymysql.cursors.DictCursor) as cursor:
+                    # Normalizamos el nombre que entra por parámetro
+                    db_busqueda = str(db_name).strip() if db_name else ""
+                    
+                    # Consulta robusta ignorando espacios en blanco (TRIM)
+                    sql = """
+                        SELECT id, nombre_empresa, rif, db_nombre, ultimo_digito 
+                        FROM clientes 
+                        WHERE TRIM(db_nombre) = TRIM(%s) 
+                           OR TRIM(db_nombre) LIKE TRIM(%s)
+                    """
+                    cursor.execute(sql, (db_busqueda, f"%{db_busqueda}%"))
                     resultado = cursor.fetchone()
                     
-                # DEPURACIÓN EN VIVO: Esto te dirá exactamente qué devolvió MySQL en pantalla
-                st.info(f"🔍 **Debug Base de Datos:** Buscando `db_name = '{db_name}'` -> Resultado obtenido: `{resultado}`")
-                
-                cursor.close()
-                # Ojo: No cerramos conexion_admin aquí si es la que comparte st.session_state.conn, 
-                # pero si fue una nueva instancia, se maneja bien. En tu función controlas el session_state.
-                
-                if resultado:
-                    rif_cliente = str(resultado.get('rif', 'J-00000000-0')).strip()
-                    terminal_rif = int(resultado.get('ultimo_digito', 0))
-                else:
-                    rif_cliente = "J-00000000-0"
-                    terminal_rif = 0
+                    # Depuración visual en pantalla para ver qué encontró exactamente
+                    st.info(f"🔍 **Debug Login/BD:** Buscando BD: `{db_busqueda}` --> Resultado: `{resultado}`")
                     
+                    if resultado:
+                        rif_cliente = str(resultado.get('rif', 'J-00000000-0')).strip()
+                        terminal_rif = int(resultado.get('ultimo_digito', 0))
+                    else:
+                        rif_cliente = "J-00000000-0"
+                        terminal_rif = 0
+                        
+                conexion_admin.close()
+                
+                # Guardamos en sesión para que las próximas pantallas no tengan que reconsultar
                 st.session_state['rif_empresa_activa'] = rif_cliente
                 st.session_state['terminal_rif_activo'] = terminal_rif
         except Exception as e:
-            st.error(f"Error en consulta de depuración: {e}")
-            rif_cliente = rif_cliente or "J-00000000-0"
-            terminal_rif = terminal_rif if terminal_rif is not None else 0
+            st.error(f"Error crítico consultando cliente en control_central: {e}")
+            rif_cliente = "J-00000000-0"
+            terminal_rif = 0
 
-    # Aseguramos que terminal_rif sea entero válido
+    # Aseguramos que terminal_rif sea un número entero válido (0 al 9)
     try:
         terminal_rif = int(terminal_rif)
-    except:
+    except (TypeError, ValueError):
         terminal_rif = 0
 
     rif_str = str(rif_cliente).strip()
     digitos_rif = "".join([c for c in rif_str if c.isdigit()])
     rif_limpio = digitos_rif if digitos_rif else "00000000"
-
-    print(f"DEBUG RIF -> Original: {rif_str} | Terminal Oficial (BD): {terminal_rif}")
 
     # 3. Manejo de persistencia de pagos mediante archivo JSON dinámico basado en el RIF real
     archivo_pagos = f"pagos_{rif_limpio}.json"
