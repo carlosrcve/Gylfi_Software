@@ -480,36 +480,45 @@ def mostrar_panel_superadmin(conn):
 
 
 
-def verificar_si_es_contribuyente_especial(db_name):
+def verificar_si_es_contribuyente_especial(db_name_o_comercial):
     """
-    Verifica de forma dinámica en la base de datos central si la empresa actual 
-    está registrada como 'Contribuyente Especial' consultando la tabla 'clientes'.
+    Verifica en la BD central buscando de forma flexible por el nombre técnico (db_nombre) 
+    o por el nombre comercial, actualizando siempre el RIF correcto en la sesión.
     """
-    # 1. Si ya lo tenemos guardado en la sesión del usuario, lo leemos directamente por velocidad:
-    if 'tipo_contribuyente' in st.session_state and st.session_state.get('db_activa') == db_name:
-        tipo = str(st.session_state['tipo_contribuyente']).strip()
-        return tipo == "Contribuyente Especial"
+    if not db_name_o_comercial:
+        return False
+        
+    parametro_limpio = str(db_name_o_comercial).strip()
 
-    # 2. Si no está en sesión, consultamos tu tabla real 'clientes' en la BD central
     try:
         conexion_admin = conectar_db_principal() # Tu método de conexión global
         if conexion_admin:
-            cursor = conexion_admin.cursor(dictionary=True)
-            # CONSULTA CORREGIDA A TU TABLA REAL 'clientes' (obteniendo RIF real)
-            cursor.execute("SELECT rif, estado FROM clientes WHERE db_nombre = %s", (db_name,))
-            resultado = cursor.fetchone()
-            cursor.close()
+            with conexion_admin.cursor(dictionary=True) as cursor:
+                # Consulta flexible: busca si coincide con la BD técnica o con el nombre comercial
+                sql = """
+                    SELECT db_nombre, rif, tipo_contribuyente, estado 
+                    FROM clientes 
+                    WHERE TRIM(db_nombre) = TRIM(%s) 
+                       OR TRIM(nombre_empresa) = TRIM(%s)
+                """
+                cursor.execute(sql, (parametro_limpio, parametro_limpio))
+                resultado = cursor.fetchone()
+            
             conexion_admin.close()
             
             if resultado and resultado.get('rif'):
                 rif_encontrado = str(resultado['rif']).strip()
+                db_tecnica = str(resultado.get('db_nombre', parametro_limpio)).strip()
+                tipo_bd = str(resultado.get('tipo_contribuyente', 'Contribuyente Especial')).strip()
                 
-                # Guardamos el RIF, la BD y el tipo en la sesión de Streamlit
-                st.session_state['db_activa'] = db_name
+                # ACTUALIZAMOS LA SESIÓN DE FORMA LIMPIA (Evita que se quede pegado el RIF anterior)
+                st.session_state['db_activa'] = db_tecnica
+                st.session_state['DB_ACTUAL'] = db_tecnica  # Sincronizamos la clave principal
                 st.session_state['rif_empresa_activa'] = rif_encontrado
-                st.session_state['tipo_contribuyente'] = "Contribuyente Especial"
+                st.session_state['tipo_contribuyente'] = tipo_bd
                 
                 return True
+                
     except Exception as e:
         print(f"Error verificando tipo de contribuyente: {e}")
     
@@ -7068,12 +7077,24 @@ def gestionar_sidebar():
                 if fila_seleccionada.empty:
                     fila_seleccionada = df_filtrado.iloc[[0]]
 
+
                 datos_sel = fila_seleccionada.iloc[0]
                 db_seleccionada = str(datos_sel['db_nombre']).strip()
                 
+                # Guardamos todas las credenciales clave en la sesión de forma unificada
                 st.session_state['DB_ACTUAL'] = db_seleccionada
                 st.session_state['db_a_conectar'] = db_seleccionada
                 st.session_state['CLIENTE_NOMBRE'] = nombre_seleccionado
+                
+                # --- ¡AQUÍ ESTABA FALTANDO GUARDAR EL RIF! ---
+                if 'rif' in datos_sel and pd.notna(datos_sel['rif']):
+                    rif_encontrado = str(datos_sel['rif']).strip()
+                    st.session_state['rif_empresa_activa'] = rif_encontrado
+                    st.session_state['rif_empresa_seleccionada'] = rif_encontrado
+                else:
+                    st.session_state['rif_empresa_activa'] = "J-00000000-0"
+                    st.session_state['rif_empresa_seleccionada'] = "J-00000000-0`"
+
                 if 'id' in datos_sel:
                     st.session_state['cliente_id_seleccionado'] = int(datos_sel['id'])
 
@@ -7081,6 +7102,7 @@ def gestionar_sidebar():
                     st.session_state['tipo_contribuyente'] = str(datos_sel['tipo_contribuyente']).strip()
                 else:
                     st.session_state['tipo_contribuyente'] = 'Contribuyente Ordinario'
+
             else:
                 st.info("ℹ️ No hay empresas disponibles para mostrar.")
 
@@ -8853,27 +8875,20 @@ if "🏠 Inicio" in opcion_menu:
     
 
     # --- FILA 11: CALENDARIO FISCAL AUTOMATIZADO ---
-    # 1. Atrapamos la base de datos activa usando la clave real de tu sesión
-    db_actual = (
-        st.session_state.get('DB_ACTUAL') or 
-        st.session_state.get('db_cliente') or 
-        st.session_state.get('db_a_conectar') or
-        st.session_state.get('ultima_db_conectada')
-    )
+    db_actual = st.session_state.get('DB_ACTUAL')
 
     if db_actual:
         nombre_comercial = st.session_state.get('CLIENTE_NOMBRE', db_actual)
-        st.markdown(f"### 📅 Módulo Fiscal - {nombre_comercial}")
+        st.markdown(f"### 📅 Calendario Fiscal SENIAT 2026 - {nombre_comercial}")
 
-        # 2. Nos aseguramos de ejecutar tu función para que guarde el RIF en la sesión
+        # Ejecutamos tu función para asegurar la consistencia del contribuyente
         verificar_si_es_contribuyente_especial(db_actual)
 
-        # 3. Llamamos DIRECTAMENTE a tu función maestra que dibuja el calendario completo 
-        # (Esta función ya tiene toda la lógica de las tablas, los terminales, las alertas y los colores)
+        # Invocamos directamente tu función visual que dibuja las tablas y los días de pago según el RIF
         mostrar_calendario_cliente(db_actual)
         
     else:
-        st.warning("⚠️ No se detectó ninguna base de datos activa. Por favor, seleccione una empresa en el menú lateral para ver el calendario.")
+        st.warning("⚠️ Por favor, seleccione una empresa en el menú lateral para visualizar el calendario fiscal.")
 
     
 
