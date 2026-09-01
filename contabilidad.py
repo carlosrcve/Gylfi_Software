@@ -8853,8 +8853,6 @@ if "🏠 Inicio" in opcion_menu:
     
 
     # --- FILA 11: CALENDARIO FISCAL AUTOMATIZADO ---
-    # --- FILA 11: CALENDARIO FISCAL AUTOMATIZADO CON TUS FUNCIONES ---
-    
     # 1. Atrapamos la base de datos activa usando la clave real de tu sesión
     db_actual = (
         st.session_state.get('DB_ACTUAL') or 
@@ -8865,39 +8863,17 @@ if "🏠 Inicio" in opcion_menu:
 
     if db_actual:
         nombre_comercial = st.session_state.get('CLIENTE_NOMBRE', db_actual)
-        st.markdown(f"### 📅 Calendario Fiscal SENIAT 2026 - {nombre_comercial}")
+        st.markdown(f"### 📅 Módulo Fiscal - {nombre_comercial}")
 
-        # 2. Ejecutamos tu función para verificar/cargar el RIF y la sesión
+        # 2. Nos aseguramos de ejecutar tu función para que guarde el RIF en la sesión
         verificar_si_es_contribuyente_especial(db_actual)
 
-        # 3. Leemos el RIF que tu función guardó en la sesión
-        rif_actual = st.session_state.get('rif_empresa_activa')
-
-        if rif_actual:
-            st.success(f"📌 RIF Detectado: **{rif_actual}**")
-            
-            # Extraemos el último número del RIF (terminal del 0 al 9)
-            digitos = "".join([c for c in rif_actual if c.isdigit()])
-            if digitos:
-                terminal_rif = int(digitos[-1])
-                st.info(f"🔢 Terminal de RIF calculado: **{terminal_rif}**")
-                
-                # 4. LLAMADA DIRECTA A TU FUNCIÓN DE CALENDARIO
-                cronograma = obtener_calendario_seniat_2026(terminal_rif)
-                
-                # 5. Si tienes una función visual como mostrar_calendario_cliente, se la pasas:
-                # (O puedes desplegar el diccionario 'cronograma' como lo necesites en tu app)
-                if 'mostrar_calendario_cliente' in globals():
-                    mostrar_calendario_cliente(db_actual)
-                else:
-                    # Vista rápida de comprobación usando tu diccionario
-                    st.write("Cronograma cargado con éxito:", cronograma)
-            else:
-                st.warning("⚠️ El RIF no contiene números válidos.")
-        else:
-            st.warning("⚠️ No se pudo obtener el RIF de esta empresa para calcular el terminal.")
+        # 3. Llamamos DIRECTAMENTE a tu función maestra que dibuja el calendario completo 
+        # (Esta función ya tiene toda la lógica de las tablas, los terminales, las alertas y los colores)
+        mostrar_calendario_cliente(db_actual)
+        
     else:
-        st.warning("⚠️ Por favor, seleccione una empresa primero para visualizar el calendario fiscal.")
+        st.warning("⚠️ No se detectó ninguna base de datos activa. Por favor, seleccione una empresa en el menú lateral para ver el calendario.")
 
     
 
