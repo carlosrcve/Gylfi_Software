@@ -1152,10 +1152,19 @@ def panel_administracion_firmas(conn):
                             conn.commit()
                             cursor.close()
                             
-                            st.success(f"✅ ¡Usuario '{nombre_usuario.strip()}' creado con éxito para la empresa '{empresa_seleccionada}' con estado **{estado_usuario_nuevo}**!")
-                            st.rerun()
+                            # 🟢 Mensaje de éxito directo y claro antes del rerun
+                            st.success(f"¡Información guardada con éxito! El usuario '{nombre_usuario.strip()}' ha sido registrado correctamente.")
+                            st.balloons()
+                            
+                            # Opcional: un pequeño delay visual o forzar la actualización limpia
+                            st.stop() # Detiene la ejecución momentáneamente para que el usuario lea el mensaje de éxito
+                            
                     except Exception as e:
-                        st.error(f"❌ Error al registrar el usuario: {e}")
+                        # Si ocurre un error de duplicado (1062), se lo informamos claramente al usuario
+                        if "1062" in str(e):
+                            st.error(f"❌ El nombre de usuario '{nombre_usuario.strip()}' ya existe en el sistema. Por favor, elige uno diferente.")
+                        else:
+                            st.error(f"❌ Error al registrar el usuario: {e}")
 
 def panel_bloqueo_suspension_usuarios(conn):
     # 🔒 Blindaje de seguridad flexible para evitar bloqueos por nombres de roles
