@@ -585,25 +585,25 @@ def obtener_calendario_seniat_2026(terminal_rif):
 
 def mostrar_calendario_cliente(db_name):
     """
-    Muestra el calendario fiscal utilizando los datos de la sesión o consultando
-    de forma segura y directa la tabla 'clientes' en la base de datos principal.
+    Muestra el calendario fiscal consultando dinámicamente el True Center (control_central)
+    según la base de datos de la empresa activa, extrayendo el último dígito real del RIF.
     """
-    # 1. Intentar rescatar primero desde las variables de sesión del Login
-    rif_cliente = st.session_state.get('rif_empresa_activa')
-    terminal_rif = st.session_state.get('terminal_rif_activo')
+    db_busqueda = str(db_name).strip() if db_name else ""
     
-    # Si alguna variable clave falta o es inválida, consultamos la BD central
-    if not rif_cliente or rif_cliente == "J-00000000-0" or terminal_rif is None or terminal_rif == "":
+    # Control estricto de sesión: Si cambia la base de datos en pantalla, forzamos la recarga desde el True Center
+    db_en_sesion = st.session_state.get('db_actual_empresa')
+    
+    if db_en_sesion != db_busqueda or 'rif_empresa_activa' not in st.session_state or 'terminal_rif_activo' not in st.session_state:
+        rif_cliente = "J-00000000-0"
+        terminal_rif = 0
+        
         try:
             conexion_admin = conectar_db("control_central")
             if conexion_admin:
                 with conexion_admin.cursor(pymysql.cursors.DictCursor) as cursor:
-                    # Normalizamos el nombre que entra por parámetro
-                    db_busqueda = str(db_name).strip() if db_name else ""
-                    
-                    # Consulta robusta ignorando espacios en blanco (TRIM)
+                    # Consulta directa al True Center (control_central.clientes)
                     sql = """
-                        SELECT id, nombre_empresa, rif, db_nombre, ultimo_digito 
+                        SELECT id, nombre_empresa, rif, db_nombre, ultimo_digito, tipo_contribuyente 
                         FROM clientes 
                         WHERE TRIM(db_nombre) = TRIM(%s) 
                            OR TRIM(db_nombre) LIKE TRIM(%s)
@@ -611,37 +611,39 @@ def mostrar_calendario_cliente(db_name):
                     cursor.execute(sql, (db_busqueda, f"%{db_busqueda}%"))
                     resultado = cursor.fetchone()
                     
-                    # Depuración visual en pantalla para ver qué encontró exactamente
-                    st.info(f"🔍 **Debug Login/BD:** Buscando BD: `{db_busqueda}` --> Resultado: `{resultado}`")
+                    st.info(f"🔍 **True Center Debug:** Consultando BD `{db_busqueda}` --> Resultado: `{resultado}`")
                     
                     if resultado:
                         rif_cliente = str(resultado.get('rif', 'J-00000000-0')).strip()
-                        terminal_rif = int(resultado.get('ultimo_digito', 0))
-                    else:
-                        rif_cliente = "J-00000000-0"
-                        terminal_rif = 0
                         
+                        # VERIFICACIÓN RIGUROSA: Extraemos el último dígito numérico del RIF real de la base de datos
+                        digitos_rif = "".join([c for c in rif_cliente if c.isdigit()])
+                        if digitos_rif:
+                            # True Center: El terminal es obligatoriamente el último dígito del RIF almacenado
+                            terminal_rif = int(digitos_rif[-1])
+                        else:
+                            terminal_rif = int(resultado.get('ultimo_digito', 0))
+                            
                 conexion_admin.close()
                 
-                # Guardamos en sesión para que las próximas pantallas no tengan que reconsultar
+                # Actualizamos las variables en la sesión actual
+                st.session_state['db_actual_empresa'] = db_busqueda
                 st.session_state['rif_empresa_activa'] = rif_cliente
                 st.session_state['terminal_rif_activo'] = terminal_rif
         except Exception as e:
-            st.error(f"Error crítico consultando cliente en control_central: {e}")
+            st.error(f"❌ Error crítico consultando el True Center (control_central): {e}")
             rif_cliente = "J-00000000-0"
             terminal_rif = 0
 
-    # Aseguramos que terminal_rif sea un número entero válido (0 al 9)
-    try:
-        terminal_rif = int(terminal_rif)
-    except (TypeError, ValueError):
-        terminal_rif = 0
+    # Rescatamos los valores oficiales validados desde la sesión
+    rif_cliente = st.session_state.get('rif_empresa_activa', 'J-00000000-0')
+    terminal_rif = int(st.session_state.get('terminal_rif_activo', 0))
 
     rif_str = str(rif_cliente).strip()
     digitos_rif = "".join([c for c in rif_str if c.isdigit()])
     rif_limpio = digitos_rif if digitos_rif else "00000000"
 
-    # 3. Manejo de persistencia de pagos mediante archivo JSON dinámico basado en el RIF real
+    # Manejo de persistencia de pagos mediante archivo JSON dinámico basado en el RIF real
     archivo_pagos = f"pagos_{rif_limpio}.json"
 
     def cargar_pagos_disco():
@@ -667,7 +669,7 @@ def mostrar_calendario_cliente(db_name):
     pagos_realizados = st.session_state[key_session_pagos]
 
     # Contenedor interactivo con casillas de verificación (checkbox) usando keys únicas por RIF
-    st.markdown(f"##### 📝 Control de Pagos Realizados (RIF: {rif_str} - Terminal: {terminal_rif}):")
+    st.markdown(f"##### 📝 Control de Pagos Realizados (RIF: {rif_str} - Terminal True Center: {terminal_rif}):")
     col_c1, col_c2 = st.columns(2)
     with col_c1:
         val_iva_2 = st.checkbox("✅ IVA 2da Quincena Pagado", value=pagos_realizados.get("iva_2", False), key=f"chk_iva_2_{rif_limpio}")
@@ -688,7 +690,7 @@ def mostrar_calendario_cliente(db_name):
         guardar_pagos_disco(nuevos_pagos)
         st.rerun()
 
-    # 4. Obtener datos desde la función global según el terminal extraído de la BD
+    # Obtener datos desde la función global utilizando estrictamente el terminal extraído del True Center
     calendario = obtener_calendario_seniat_2026(terminal_rif)
     
     q1_vals = list(calendario['iva_1'])
@@ -701,7 +703,7 @@ def mostrar_calendario_cliente(db_name):
     st.markdown("### 🔔 Estado de Alertas Fiscales Próximas")
 
     hoy = date.today()
-    mes_actual_idx = hoy.month - 1  # 0 a 11
+    mes_actual_idx = hoy.month - 1  # 0 al 11
 
     try:
         dia_iva_1 = int(q1_vals[mes_actual_idx])
@@ -852,144 +854,6 @@ def mostrar_calendario_cliente(db_name):
         <tr><td><b>{terminal_rif}</b></td>{"".join([f"<td>{val}</td>" for val in pensiones_vals])}</tr>
     </table>
     """, unsafe_allow_html=True)
-
-def panel_gestion_clientes(conn):
-    st.header("🏢 Gestión de Clientes / Empresas")
-    st.markdown("Administra las empresas suscritas al sistema y provisiona nuevas bases de datos en la nube de forma automatizada.")
-    
-    # 1. FORMULARIO DE REGISTRO DE EMPRESA
-    with st.expander("➕ Registrar Nueva Empresa en el Sistema", expanded=False):
-        with st.form("registro_empresa"):
-            col1, col2 = st.columns(2)
-            with col1:
-                nombre_empresa = st.text_input("Nombre de la Empresa (Razón Social)", help="Ej: Inversiones Globales, C.A.")
-                rif = st.text_input("RIF", help="Ej: J-12345678-9")
-            with col2:
-                db_nombre = st.text_input(
-                    "Nombre de la BD (Sin espacios ni caracteres raros)", 
-                    help="Ej: inversiones_globales_ca"
-                )
-                # NUEVO: Selector de Tipo de Contribuyente
-                tipo_contribuyente = st.selectbox(
-                    "Tipo de Contribuyente", 
-                    ["Contribuyente Ordinario", "Contribuyente Especial"]
-                )
-            
-            estado = st.selectbox("Estado Inicial", ["Activo", "Inactivo"])
-            
-            btn_guardar = st.form_submit_button("💾 Crear Nueva Empresa y Base de Datos")
-            
-            if btn_guardar:
-                if not nombre_empresa or not db_nombre:
-                    st.error("❌ El nombre de la empresa y el nombre de la BD son obligatorios.")
-                else:
-                    try:
-                        # A. Guardar el registro principal en la tabla central 'clientes' incluyendo el tipo de contribuyente
-                        cursor = conn.cursor()
-                        sql = """
-                            INSERT INTO control_central.clientes (nombre_empresa, rif, db_nombre, tipo_contribuyente, estado) 
-                            VALUES (%s, %s, %s, %s, %s)
-                        """
-                        cursor.execute(sql, (nombre_empresa, rif, db_nombre, tipo_contribuyente, estado))
-                        conn.commit()
-                        cursor.close()
-                        
-                        # B. Disparar tu función multi-tenant para crear la BD y las tablas físicas en TiDB Cloud
-                        st.info(f"🚀 Provisionando base de datos y tablas para '{db_nombre}' en TiDB Cloud...")
-                        conectar_db(db_nombre) 
-                        
-                        st.success(f"✅ ¡Empresa '{nombre_empresa}' y su base de datos fueron configuradas con éxito!")
-                        st.balloons()
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"❌ Error al crear la empresa: {e}")
-
-    st.divider()
-
-    # --- SECCIÓN DE ADMINISTRACIÓN: GESTIÓN DE CALENDARIO SENIAT ---
-    with st.expander("📅 Cargar / Actualizar Calendario de Contribuyentes Especiales (SENIAT)"):
-        st.markdown("""
-        Sube el archivo oficial (CSV o Excel) con las fechas del calendario de Sujetos Pasivos Especiales. 
-        Esto actualizará las fechas para todos los terminales de RIF y protegerá a las empresas especiales de multas.
-        """)
-        
-        archivo_seniat = st.file_uploader("Selecciona el archivo oficial del SENIAT", type=["csv", "xlsx"], key="upload_seniat_admin")
-        
-        if archivo_seniat is not None:
-            import pandas as pd
-            
-            try:
-                if archivo_seniat.name.endswith('.csv'):
-                    df_seniat = pd.read_csv(archivo_seniat)
-                else:
-                    df_seniat = pd.read_excel(archivo_seniat)
-                    
-                st.write("🔍 **Vista previa del calendario a cargar:**", df_seniat.head())
-                
-                if st.button("🚀 Sincronizar Calendario para todas las Bases de Datos"):
-                    # Extraemos de forma dinámica todas las bases de datos registradas en control_central.clientes
-                    cursor_dbs = conn.cursor()
-                    cursor_dbs.execute("SELECT db_nombre FROM control_central.clientes WHERE tipo_contribuyente = 'Contribuyente Especial'")
-                    empresas_especiales = [row[0] for row in cursor_dbs.fetchall()]
-                    cursor_dbs.close()
-                    
-                    if not empresas_especiales:
-                        st.warning("⚠️ No hay empresas marcadas como 'Contribuyente Especial' en el sistema.")
-                    else:
-                        for db_name in empresas_especiales:
-                            conexion_temp = conectar_db(db_name)
-                            if conexion_temp:
-                                cursor = conexion_temp.cursor()
-                                
-                                # Bucle de inserción o actualización masiva con REPLACE INTO
-                                for _, row in df_seniat.iterrows():
-                                    cursor.execute("""
-                                        REPLACE INTO calendario_fiscal_2026 (impuesto_id, concepto, mes_idx, fecha_vencimiento, terminal_rif)
-                                        VALUES (%s, %s, %s, %s, %s)
-                                    """, (
-                                        row['impuesto_id'], 
-                                        row['concepto'], 
-                                        int(row['mes_idx']), 
-                                        row['fecha_vencimiento'], 
-                                        int(row['terminal_rif'])
-                                    ))
-                                
-                                conexion_temp.commit()
-                                cursor.close()
-                                conexion_temp.close()
-                                
-                        st.success("✅ ¡Calendario del SENIAT sincronizado correctamente para todas las bases de datos de contribuyentes especiales!")
-                    
-            except Exception as e:
-                st.error(f"❌ Error al procesar el archivo del SENIAT: {e}")
-
-    st.divider()
-
-    # 2. TABLA DE EMPRESAS REGISTRADAS
-    st.subheader("📋 Listado de Empresas Registradas")
-    
-    try:
-        # Añadido 'tipo_contribuyente' a la consulta SQL
-        query_view = "SELECT id, nombre_empresa, rif, db_nombre, tipo_contribuyente, estado FROM control_central.clientes"
-        df_clientes = ejecutar_consulta(query_view, conn)
-        
-        if df_clientes is not None and not df_clientes.empty:
-            st.dataframe(
-                df_clientes, 
-                use_container_width=True,
-                column_config={
-                    "id": "ID",
-                    "nombre_empresa": st.column_config.TextColumn("Razón Social"),
-                    "rif": st.column_config.TextColumn("RIF"),
-                    "db_nombre": st.column_config.TextColumn("Base de Datos (TiDB)"),
-                    "tipo_contribuyente": st.column_config.SelectboxColumn("Tipo de Contribuyente", options=["Contribuyente Ordinario", "Contribuyente Especial"]),
-                    "estado": st.column_config.SelectboxColumn("Estado", options=["Activo", "Inactivo"])
-                }
-            )
-        else:
-            st.info("ℹ️ No hay empresas registradas todavía en el sistema.")
-    except Exception as e:
-        st.error(f"❌ Error al cargar la lista de empresas: {e}")
 
 
 def panel_administracion(conn):
