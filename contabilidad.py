@@ -583,24 +583,19 @@ def obtener_calendario_seniat_2026(terminal_rif):
 
 
 
-import os
-import json
-from datetime import date
-import streamlit as st
-import pymysql.cursors
-
 def mostrar_calendario_cliente(db_name):
     """
-    Muestra el calendario fiscal consultando estrictamente el True Center (control_central)
-    relacionando la empresa y extrayendo de forma precisa el último dígito del RIF.
+    Muestra el calendario fiscal conectando la empresa seleccionada en sesión 
+    con su RIF y último dígito correspondiente en el True Center (control_central).
     """
-    db_busqueda = str(db_name).strip() if db_name else ""
+    # Limpiamos y normalizamos el parámetro recibido (puede ser db_nombre o nombre_empresa)
+    parametro_seleccionado = str(db_name).strip() if db_name else ""
     
-    # Verificamos la empresa actual en la sesión
+    # Verificamos la empresa actual guardada en la sesión de Streamlit
     db_en_sesion = st.session_state.get('db_actual_empresa')
     
-    # Si la base de datos cambió o faltan los datos clave en la sesión, consultamos de inmediato al True Center
-    if db_en_sesion != db_busqueda or 'rif_empresa_activa' not in st.session_state or 'terminal_rif_activo' not in st.session_state:
+    # Si el usuario cambió de empresa en el selector lateral o falta información en sesión:
+    if db_en_sesion != parametro_seleccionado or 'rif_empresa_activa' not in st.session_state or 'terminal_rif_activo' not in st.session_state:
         rif_cliente = "J-00000000-0"
         terminal_rif = 0
         
@@ -608,22 +603,26 @@ def mostrar_calendario_cliente(db_name):
             conexion_admin = conectar_db("control_central")
             if conexion_admin:
                 with conexion_admin.cursor(pymysql.cursors.DictCursor) as cursor:
-                    # True Center: Consulta directa y robusta para asegurar que traemos el RIF y último dígito exacto de la empresa
+                    # TRUE CENTER CONEXIÓN HÍBRIDA: Buscamos coincidencia exacta o parcial 
+                    # tanto en el nombre de la base de datos como en el nombre comercial de la empresa.
                     sql = """
                         SELECT id, nombre_empresa, rif, db_nombre, ultimo_digito, tipo_contribuyente 
                         FROM clientes 
                         WHERE TRIM(db_nombre) = TRIM(%s) 
+                           OR TRIM(nombre_empresa) = TRIM(%s)
                            OR TRIM(db_nombre) LIKE TRIM(%s)
+                           OR TRIM(nombre_empresa) LIKE TRIM(%s)
                     """
-                    cursor.execute(sql, (db_busqueda, f"%{db_busqueda}%"))
+                    patron = f"%{parametro_seleccionado}%"
+                    cursor.execute(sql, (parametro_seleccionado, parametro_seleccionado, patron, patron))
                     resultado = cursor.fetchone()
                     
-                    st.info(f"🔍 **True Center Debug Conexión:** BD Buscada: `{db_busqueda}` --> Resultado obtenido: `{resultado}`")
+                    st.info(f"🔍 **True Center Sincronización:** Empresa/BD Seleccionada: `{parametro_seleccionado}` --> Registro hallado: `{resultado}`")
                     
                     if resultado:
                         rif_cliente = str(resultado.get('rif', 'J-00000000-0')).strip()
                         
-                        # EXTRACCIÓN MATEMÁTICA Y RIGUROSA DEL ÚLTIMO DÍGITO DEL RIF (Ej: Si termina en 0, toma el 0)
+                        # EXTRACCIÓN MATEMÁTICA Y RIGUROSA: Aislar el último dígito numérico del RIF real
                         digitos_rif = "".join([c for c in rif_cliente if c.isdigit()])
                         if digitos_rif:
                             terminal_rif = int(digitos_rif[-1])
@@ -635,16 +634,16 @@ def mostrar_calendario_cliente(db_name):
                             
                 conexion_admin.close()
                 
-                # Actualizamos los estados de la sesión con los valores reales y exclusivos de esta empresa
-                st.session_state['db_actual_empresa'] = db_busqueda
+                # Sincronizamos la sesión de forma persistente para esta empresa
+                st.session_state['db_actual_empresa'] = parametro_seleccionado
                 st.session_state['rif_empresa_activa'] = rif_cliente
                 st.session_state['terminal_rif_activo'] = terminal_rif
         except Exception as e:
-            st.error(f"❌ Error crítico en True Center consultando la empresa: {e}")
+            st.error(f"❌ Error crítico conectando con el True Center: {e}")
             rif_cliente = "J-00000000-0"
             terminal_rif = 0
 
-    # Rescatamos los valores oficiales sincronizados
+    # Recuperamos los valores oficiales sincronizados de la sesión
     rif_cliente = st.session_state.get('rif_empresa_activa', 'J-00000000-0')
     terminal_rif = int(st.session_state.get('terminal_rif_activo', 0))
 
@@ -652,9 +651,7 @@ def mostrar_calendario_cliente(db_name):
     digitos_rif = "".join([c for c in rif_str if c.isdigit()])
     rif_limpio = digitos_rif if digitos_rif else "00000000"
 
-    print(f"DEBUG TRUE CENTER -> Empresa: {db_busqueda} | RIF Oficial: {rif_str} | Terminal Calculado: {terminal_rif}")
-
-    # 3. Manejo de persistencia de pagos mediante archivo JSON dinámico basado en el RIF real del cliente
+    # Manejo de persistencia de pagos mediante archivo JSON dinámico basado en el RIF real del cliente
     archivo_pagos = f"pagos_{rif_limpio}.json"
 
     def cargar_pagos_disco():
@@ -680,7 +677,7 @@ def mostrar_calendario_cliente(db_name):
     pagos_realizados = st.session_state[key_session_pagos]
 
     # Contenedor interactivo con casillas de verificación (checkbox) usando keys únicas por RIF
-    st.markdown(f"##### 📝 Control de Pagos Realizados (Empresa BD: `{db_busqueda}` | RIF: {rif_str} - Terminal: {terminal_rif}):")
+    st.markdown(f"##### 📝 Control de Pagos Realizados (Empresa: `{parametro_seleccionado}` | RIF: {rif_str} - Terminal: {terminal_rif}):")
     col_c1, col_c2 = st.columns(2)
     with col_c1:
         val_iva_2 = st.checkbox("✅ IVA 2da Quincena Pagado", value=pagos_realizados.get("iva_2", False), key=f"chk_iva_2_{rif_limpio}")
