@@ -597,14 +597,22 @@ def mostrar_calendario_cliente(db_name):
     Muestra el calendario fiscal conectando la empresa seleccionada en sesión 
     con su RIF y último dígito correspondiente en el True Center (control_central).
     """
-    # Limpiamos y normalizamos el parámetro recibido (puede ser db_nombre o nombre_empresa)
     parametro_seleccionado = str(db_name).strip() if db_name else ""
     
     # Verificamos la empresa actual guardada en la sesión de Streamlit
     db_en_sesion = st.session_state.get('db_actual_empresa')
     
-    # Si el usuario cambió de empresa en el selector lateral o falta información en sesión:
-    if db_en_sesion != parametro_seleccionado or 'rif_empresa_activa' not in st.session_state or 'terminal_rif_activo' not in st.session_state:
+    # FORZAMOS LA ACTUALIZACIÓN: Si el parámetro seleccionado es diferente al de la sesión,
+    # invalidamos las variables guardadas para obligar a una nueva consulta al True Center.
+    if db_en_sesion != parametro_seleccionado:
+        st.session_state['db_actual_empresa'] = parametro_seleccionado
+        if 'rif_empresa_activa' in st.session_state:
+            del st.session_state['rif_empresa_activa']
+        if 'terminal_rif_activo' in st.session_state:
+            del st.session_state['terminal_rif_activo']
+
+    # Si falta información en sesión, consultamos estrictamente al True Center
+    if 'rif_empresa_activa' not in st.session_state or 'terminal_rif_activo' not in st.session_state:
         rif_cliente = "J-00000000-0"
         terminal_rif = 0
         
@@ -612,19 +620,27 @@ def mostrar_calendario_cliente(db_name):
             conexion_admin = conectar_db("control_central")
             if conexion_admin:
                 with conexion_admin.cursor(pymysql.cursors.DictCursor) as cursor:
-                    # TRUE CENTER CONEXIÓN HÍBRIDA: Buscamos coincidencia exacta o parcial 
-                    # tanto en el nombre de la base de datos como en el nombre comercial de la empresa.
+                    # Búsqueda exacta y limpia priorizando el nombre de la empresa o base de datos
                     sql = """
                         SELECT id, nombre_empresa, rif, db_nombre, ultimo_digito, tipo_contribuyente 
                         FROM clientes 
                         WHERE TRIM(db_nombre) = TRIM(%s) 
                            OR TRIM(nombre_empresa) = TRIM(%s)
-                           OR TRIM(db_nombre) LIKE TRIM(%s)
-                           OR TRIM(nombre_empresa) LIKE TRIM(%s)
                     """
-                    patron = f"%{parametro_seleccionado}%"
-                    cursor.execute(sql, (parametro_seleccionado, parametro_seleccionado, patron, patron))
+                    cursor.execute(sql, (parametro_seleccionado, parametro_seleccionado))
                     resultado = cursor.fetchone()
+                    
+                    # Si no encuentra coincidencia exacta, probamos con búsqueda parcial segura
+                    if not resultado:
+                        sql_like = """
+                            SELECT id, nombre_empresa, rif, db_nombre, ultimo_digito, tipo_contribuyente 
+                            FROM clientes 
+                            WHERE TRIM(db_nombre) LIKE TRIM(%s) 
+                               OR TRIM(nombre_empresa) LIKE TRIM(%s)
+                        """
+                        patron = f"%{parametro_seleccionado}%"
+                        cursor.execute(sql_like, (patron, patron))
+                        resultado = cursor.fetchone()
                     
                     st.info(f"🔍 **True Center Sincronización:** Empresa/BD Seleccionada: `{parametro_seleccionado}` --> Registro hallado: `{resultado}`")
                     
@@ -643,16 +659,15 @@ def mostrar_calendario_cliente(db_name):
                             
                 conexion_admin.close()
                 
-                # Sincronizamos la sesión de forma persistente para esta empresa
-                st.session_state['db_actual_empresa'] = parametro_seleccionado
+                # Guardamos los valores limpios y oficiales en la sesión
                 st.session_state['rif_empresa_activa'] = rif_cliente
                 st.session_state['terminal_rif_activo'] = terminal_rif
         except Exception as e:
             st.error(f"❌ Error crítico conectando con el True Center: {e}")
-            rif_cliente = "J-00000000-0"
-            terminal_rif = 0
+            st.session_state['rif_empresa_activa'] = "J-00000000-0"
+            st.session_state['terminal_rif_activo'] = 0
 
-    # Recuperamos los valores oficiales sincronizados de la sesión
+    # Recuperamos los valores oficiales y frescos de la sesión
     rif_cliente = st.session_state.get('rif_empresa_activa', 'J-00000000-0')
     terminal_rif = int(st.session_state.get('terminal_rif_activo', 0))
 
