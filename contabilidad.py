@@ -629,7 +629,8 @@ def mostrar_calendario_cliente(db_name):
                            OR TRIM(nombre_empresa) = TRIM(%s)
                     """
                     cursor.execute(sql, (parametro_seleccionado, parametro_seleccionado))
-                    resultado = cursor.fetchone()
+                    resultado = cursor.fetchone()# Coloca esto dentro de la función, justo después de ejecutar el cursor.execute:
+                    st.write(f"Buscando en BD el parámetro: '{parametro_seleccionado}'")
                     
                     # Si no hay exacta, probamos búsqueda parcial segura (LIKE)
                     if not resultado:
