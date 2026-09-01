@@ -8852,8 +8852,22 @@ if "🏠 Inicio" in opcion_menu:
         st.code(traceback.format_exc())
     
 
-    # --- FILA 11: CALENDARIO FISCAL AUTOMATIZADO ---
-    # Búsqueda inteligente: revisamos las llaves más comunes en st.session_state
+    # --- FILA 11: DIAGNÓSTICO Y CALENDARIO FISCAL ---
+    st.markdown("### 🔍 Depuración de la Sesión Actual")
+    
+    # Mostramos todas las llaves que existen guardadas en Streamlit en este momento
+    keys_en_sesion = list(st.session_state.keys())
+    st.write(f"Llaves disponibles en st.session_state: `{keys_en_sesion}`")
+
+    # Intentamos buscar el valor de la empresa imprimiendo las variables clave si existen
+    for k in keys_en_sesion:
+        if any(term in k.lower() for term in ['db', 'empresa', 'name', 'client', 'actual']):
+            st.write(f"👉 Posible clave de empresa encontrada -> **`{k}`**: `{st.session_state[k]}`")
+
+    st.divider()
+
+    # --- INTENTO DE CARGA AUTOMÁTICA ---
+    # Cambia 'nombre_de_la_llave_real' por la que veas en la lista de arriba si ninguna de estas coincide
     db_actual = (
         st.session_state.get('db_nombre_actual') or 
         st.session_state.get('empresa') or 
@@ -8862,16 +8876,13 @@ if "🏠 Inicio" in opcion_menu:
     )
 
     if db_actual:
-        # 2. VINCULACIÓN DIRECTA: Llamamos a la función aquí mismo.
         es_especial = verificar_si_es_contribuyente_especial(db_actual)
-
         if es_especial:
-            # 3. Si es contribuyente especial, lanzamos el calendario automatizado
             mostrar_calendario_cliente(db_actual)
         else:
-            st.info(f"ℹ️ La empresa actual (`{db_actual}`) está registrada como Contribuyente Ordinario. El calendario fiscal automatizado aplica para Contribuyentes Especiales.")
+            st.info(f"ℹ️ La empresa actual (`{db_actual}`) está registrada como Contribuyente Ordinario.")
     else:
-        st.warning("⚠️ Por favor, seleccione una empresa primero para visualizar el calendario fiscal.")
+        st.warning("⚠️ No se detectó ninguna empresa activa en la sesión. Selecciona una empresa en el menú lateral o verifica cómo se guarda en tu login.")
 
     
 
