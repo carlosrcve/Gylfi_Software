@@ -592,20 +592,18 @@ def obtener_calendario_seniat_2026(terminal_rif):
 
 
 
-def mostrar_calendario_cliente(id_empresa=None):
+def mostrar_calendario_cliente(db_name):
     """
-    Muestra el calendario fiscal conectando la empresa seleccionada por su ID único 
-    con su RIF y último dígito correspondiente en el True Center (control_central).
+    Muestra el calendario fiscal consultando el True Center por nombre de empresa o base de datos (texto).
     """
-    # Si no se pasa por argumento, lo recuperamos de la sesión de Streamlit
-    if id_empresa is None:
-        id_empresa = st.session_state.get('id_empresa_activa')
-        
-    id_en_sesion = st.session_state.get('id_empresa_activa_id')
+    parametro_seleccionado = str(db_name).strip() if db_name else ""
     
-    # FORZAMOS LA ACTUALIZACIÓN: Si el ID seleccionado cambia, invalidamos la caché anterior
-    if id_en_sesion != id_empresa:
-        st.session_state['id_empresa_activa_id'] = id_empresa
+    # Verificamos la empresa actual guardada en la sesión
+    db_en_sesion = st.session_state.get('db_actual_empresa')
+    
+    # FORZAMOS LA ACTUALIZACIÓN si cambia de empresa en el selectbox
+    if db_en_sesion != parametro_seleccionado:
+        st.session_state['db_actual_empresa'] = parametro_seleccionado
         if 'rif_empresa_activa' in st.session_state:
             del st.session_state['rif_empresa_activa']
         if 'terminal_rif_activo' in st.session_state:
@@ -613,64 +611,71 @@ def mostrar_calendario_cliente(id_empresa=None):
         if 'nombre_empresa_activa' in st.session_state:
             del st.session_state['nombre_empresa_activa']
 
-    # Si falta información en sesión, consultamos estrictamente al True Center por ID único
+    # Si no está en sesión, consultamos al True Center usando texto
     if 'rif_empresa_activa' not in st.session_state or 'terminal_rif_activo' not in st.session_state:
         rif_cliente = "J-00000000-0"
         terminal_rif = 0
-        nombre_empresa_str = "Empresa no seleccionada"
+        nombre_empresa_str = parametro_seleccionado
         
         try:
             conexion_admin = conectar_db("control_central")
             if conexion_admin:
                 with conexion_admin.cursor(pymysql.cursors.DictCursor) as cursor:
-                    # CONSULTA POR ID ÚNICO: Blindaje total contra solapamiento de nombres
+                    # Búsqueda exacta por texto (db_nombre o nombre_empresa)
                     sql = """
                         SELECT id, nombre_empresa, rif, db_nombre, ultimo_digito, tipo_contribuyente 
                         FROM clientes 
-                        WHERE id = %s
+                        WHERE TRIM(db_nombre) = TRIM(%s) 
+                           OR TRIM(nombre_empresa) = TRIM(%s)
                     """
-                    cursor.execute(sql, (id_empresa,))
+                    cursor.execute(sql, (parametro_seleccionado, parametro_seleccionado))
                     resultado = cursor.fetchone()
                     
-                    st.info(f"🔍 **True Center Sincronización (ID: {id_empresa}):** Registro hallado: `{resultado}`")
+                    # Si no hay exacta, probamos búsqueda parcial segura (LIKE)
+                    if not resultado:
+                        sql_like = """
+                            SELECT id, nombre_empresa, rif, db_nombre, ultimo_digito, tipo_contribuyente 
+                            FROM clientes 
+                            WHERE TRIM(db_nombre) LIKE TRIM(%s) 
+                               OR TRIM(nombre_empresa) LIKE TRIM(%s)
+                        """
+                        patron = f"%{parametro_seleccionado}%"
+                        cursor.execute(sql_like, (patron, patron))
+                        resultado = cursor.fetchone()
                     
                     if resultado:
-                        nombre_empresa_str = str(resultado.get('nombre_empresa', '')).strip()
+                        nombre_empresa_str = str(resultado.get('nombre_empresa', parametro_seleccionado)).strip()
                         rif_cliente = str(resultado.get('rif', 'J-00000000-0')).strip()
                         
-                        # EXTRACCIÓN MATEMÁTICA Y RIGUROSA: Aislar el último dígito numérico del RIF real
+                        # Extracción matemática del último dígito del RIF
                         digitos_rif = "".join([c for c in rif_cliente if c.isdigit()])
                         if digitos_rif:
                             terminal_rif = int(digitos_rif[-1])
                         else:
                             terminal_rif = int(resultado.get('ultimo_digito', 0))
-                    else:
-                        rif_cliente = "J-00000000-0"
-                        terminal_rif = 0
-                        nombre_empresa_str = "Desconocida"
                             
                 conexion_admin.close()
                 
-                # Guardamos los valores limpios y oficiales en la sesión
+                # Guardamos en sesión para evitar consultas repetidas innecesarias
                 st.session_state['rif_empresa_activa'] = rif_cliente
                 st.session_state['terminal_rif_activo'] = terminal_rif
                 st.session_state['nombre_empresa_activa'] = nombre_empresa_str
         except Exception as e:
-            st.error(f"❌ Error crítico conectando con el True Center: {e}")
+            st.error(f"❌ Error al conectar con el True Center: {e}")
             st.session_state['rif_empresa_activa'] = "J-00000000-0"
             st.session_state['terminal_rif_activo'] = 0
-            st.session_state['nombre_empresa_activa'] = "Error"
+            st.session_state['nombre_empresa_activa'] = parametro_seleccionado
 
-    # Recuperamos los valores oficiales y frescos de la sesión
+    # Recuperamos de la sesión
     rif_cliente = st.session_state.get('rif_empresa_activa', 'J-00000000-0')
     terminal_rif = int(st.session_state.get('terminal_rif_activo', 0))
-    nombre_empresa_str = st.session_state.get('nombre_empresa_activa', 'Empresa')
+    nombre_empresa_str = st.session_state.get('nombre_empresa_activa', parametro_seleccionado)
 
     rif_str = str(rif_cliente).strip()
     digitos_rif = "".join([c for c in rif_str if c.isdigit()])
     rif_limpio = digitos_rif if digitos_rif else "00000000"
 
-    # Manejo de persistencia de pagos mediante archivo JSON dinámico basado en el RIF real del cliente
+    # Manejo de persistencia de pagos mediante archivo JSON dinámico
     archivo_pagos = f"pagos_{rif_limpio}.json"
 
     def cargar_pagos_disco():
@@ -695,7 +700,7 @@ def mostrar_calendario_cliente(id_empresa=None):
 
     pagos_realizados = st.session_state[key_session_pagos]
 
-    # Contenedor interactivo con casillas de verificación (checkbox) usando keys únicas por RIF
+    # Contenedor interactivo con casillas de verificación
     st.markdown(f"##### 📝 Control de Pagos Realizados (Empresa: `{nombre_empresa_str}` | RIF: {rif_str} - Terminal: {terminal_rif}):")
     col_c1, col_c2 = st.columns(2)
     with col_c1:
@@ -717,7 +722,6 @@ def mostrar_calendario_cliente(id_empresa=None):
         guardar_pagos_disco(nuevos_pagos)
         st.rerun()
 
-    # Obtener datos desde la función global utilizando estrictamente el terminal extraído del True Center
     calendario = obtener_calendario_seniat_2026(terminal_rif)
     
     q1_vals = list(calendario['iva_1'])
@@ -725,12 +729,12 @@ def mostrar_calendario_cliente(id_empresa=None):
     islr_vals = list(calendario['retenciones_islr'])
     pensiones_vals = ["17", "29", "20", "27", "16", "15", "15", "17", "29", "20", "27", "16"]
 
-    # --- SISTEMA DE ALERTAS INTELIGENTES ---
+    # --- ALERTAS INTELIGENTES ---
     st.divider()
     st.markdown("### 🔔 Estado de Alertas Fiscales Próximas")
 
     hoy = date.today()
-    mes_actual_idx = hoy.month - 1  # 0 al 11
+    mes_actual_idx = hoy.month - 1
 
     try:
         dia_iva_1 = int(q1_vals[mes_actual_idx])
@@ -758,8 +762,7 @@ def mostrar_calendario_cliente(id_empresa=None):
             st.info(f"✔️ **{evento['concepto']}**: Declarado y pagado a tiempo. ¡Sin deudas pendientes para esta fecha!")
         elif 0 <= dias_restantes <= 3:
             alerta_activa = True
-            mensaje_alerta = f"⚠️ **¡ATENCIÓN!** Se acerca la declaración y pago de **{evento['concepto']}** programada para el **{evento['fecha'].strftime('%d/%m/%Y')}** (Faltan {dias_restantes} días)."
-            mensajes_urgentes.append(mensaje_alerta)
+            mensajes_urgentes.append(f"⚠️ **¡ATENCIÓN!** Se acerca la declaración y pago de **{evento['concepto']}** programada para el **{evento['fecha'].strftime('%d/%m/%Y')}** (Faltan {dias_restantes} días).")
 
     if alerta_activa:
         audio_html = """
@@ -768,68 +771,28 @@ def mostrar_calendario_cliente(id_empresa=None):
             </audio>
         """
         st.markdown(audio_html, unsafe_allow_html=True)
-
         texto_notificacion = "<br>".join(mensajes_urgentes)
-        banco_notif_html = f"""
+        st.markdown(f"""
             <div id="banco-toast-alerta" style="
-                position: fixed;
-                top: 20px;
-                right: 20px;
-                z-index: 999999;
-                background-color: #fff3cd;
-                color: #856404;
-                padding: 16px 20px;
-                border-radius: 8px;
-                border-left: 6px solid #ffeeba;
-                border: 1px solid #ffeeba;
-                box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-                font-family: sans-serif;
-                max-width: 400px;
-                animation: slideIn 0.5s ease-out;
+                position: fixed; top: 20px; right: 20px; z-index: 999999;
+                background-color: #fff3cd; color: #856404; padding: 16px 20px;
+                border-radius: 8px; border-left: 6px solid #ffeeba; border: 1px solid #ffeeba;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.15); font-family: sans-serif; max-width: 400px;
             ">
                 <div style="font-weight: bold; margin-bottom: 5px; font-size: 15px;">🔔 Notificación Fiscal Urgente</div>
                 <div style="font-size: 13px; line-height: 1.4;">{texto_notificacion}</div>
             </div>
-
-            <style>
-            @keyframes slideIn {{
-                from {{ transform: translateX(100%); opacity: 0; }}
-                to {{ transform: translateX(0); opacity: 1; }}
-            }}
-            @keyframes fadeOut {{
-                from {{ opacity: 1; }}
-                to {{ opacity: 0; }}
-            }}
-            </style>
-
-            <script>
-                setTimeout(function() {{
-                    var toast = document.getElementById('banco-toast-alerta');
-                    if (toast) {{
-                        toast.style.animation = 'fadeOut 0.5s ease-out forwards';
-                        setTimeout(function() {{
-                            toast.remove();
-                        }}, 500);
-                    }}
-                }}, 5000);
-            </script>
-        """
-        st.markdown(banco_notif_html, unsafe_allow_html=True)
+        """, unsafe_allow_html=True)
     else:
         if not any(pagos_realizados.values()) and not any(0 <= (e["fecha"] - hoy).days <= 3 for e in eventos_fiscales):
             st.success("✅ No hay obligaciones fiscales críticas a menos de 3 días de vencimiento en este momento.")
 
     st.divider()
 
-    # Actualizar visualmente si el pago fue marcado para reflejarlo en la tabla del mes actual
-    if pagos_realizados["iva_1"]:
-        q1_vals[mes_actual_idx] = "✅ Pagado"
-    if pagos_realizados["iva_2"]:
-        q2_vals[mes_actual_idx] = "✅ Pagado"
-    if pagos_realizados["islr"]:
-        islr_vals[mes_actual_idx] = "✅ Pagado"
-    if pagos_realizados["pensiones"]:
-        pensiones_vals[mes_actual_idx] = "✅ Pagado"
+    if pagos_realizados["iva_1"]: q1_vals[mes_actual_idx] = "✅ Pagado"
+    if pagos_realizados["iva_2"]: q2_vals[mes_actual_idx] = "✅ Pagado"
+    if pagos_realizados["islr"]: islr_vals[mes_actual_idx] = "✅ Pagado"
+    if pagos_realizados["pensiones"]: pensiones_vals[mes_actual_idx] = "✅ Pagado"
 
     meses = ["ENE", "FEB", "MAR", "ABR", "MAY", "JUN", "JUL", "AGO", "SEPT", "OCT", "NOV", "DIC"]
 
