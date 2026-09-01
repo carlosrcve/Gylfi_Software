@@ -8853,13 +8853,16 @@ if "🏠 Inicio" in opcion_menu:
     
 
     # --- FILA 11: CALENDARIO FISCAL AUTOMATIZADO ---
-    # 1. Obtenemos el identificador de la empresa actual desde la sesión 
-    # (Asegúrate de que la clave sea la misma que usas al seleccionar la empresa, ej: 'db_nombre_actual' o 'empresa_seleccionada')
-    db_actual = st.session_state.get('db_nombre_actual') 
+    # Búsqueda inteligente: revisamos las llaves más comunes en st.session_state
+    db_actual = (
+        st.session_state.get('db_nombre_actual') or 
+        st.session_state.get('empresa') or 
+        st.session_state.get('db_activa') or 
+        st.session_state.get('empresa_seleccionada')
+    )
 
     if db_actual:
-        # 2. VINCULACIÓN DIRECTA: Llamamos a la función aquí mismo. 
-        # Ella consultará la base de datos central, actualizará la sesión y retornará True si es Especial.
+        # 2. VINCULACIÓN DIRECTA: Llamamos a la función aquí mismo.
         es_especial = verificar_si_es_contribuyente_especial(db_actual)
 
         if es_especial:
