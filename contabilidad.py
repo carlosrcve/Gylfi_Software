@@ -1052,15 +1052,19 @@ def panel_gestion_clientes_firma(conn):
 
 
 def panel_administracion_firmas(conn):
-    # 🔒 Blindaje de seguridad flexible: Permitimos Superadmin y también al Administrador de la Firma
-    rol_actual = str(st.session_state.get('rol', '')).lower()
-    cliente_id_actual = st.session_state.get('cliente_id') # ID de la firma logueada (si es admin_firma)
+    # 🔒 Blindaje de seguridad flexible
+    rol_actual = str(st.session_state.get('rol', '')).strip().lower()
+    cliente_id_actual = st.session_state.get('cliente_id')
     
-    # Roles permitidos
-    roles_permitidos = ['admin', 'superadmin', 'admin_firma']
+    # Permitimos si es admin, superadmin, o si el texto contiene 'admin_firma' o 'firma'
+    es_permitido = (
+        rol_actual in ['admin', 'superadmin', 'admin_firma'] or
+        'admin_firma' in rol_actual or
+        'firma' in rol_actual
+    )
     
-    if rol_actual not in roles_permitidos:
-        st.error("⛔ Acceso denegado. No tienes permisos para gestionar usuarios y accesos.")
+    if not es_permitido:
+        st.error(f"⛔ Acceso denegado. Tu rol actual ('{rol_actual}') no tiene permisos para gestionar usuarios y accesos.")
         return  # Corta la ejecución
 
     st.header("🏢 Gestión de Usuarios y Accesos de la Firma")
@@ -1068,7 +1072,7 @@ def panel_administracion_firmas(conn):
     
     # 1. CARGAR EMPRESAS (Si es superadmin ve todas, si es admin_firma solo ve la suya)
     try:
-        if rol_actual in ['admin', 'superadmin']:
+        if 'admin' in rol_actual or 'superadmin' in rol_actual:
             query_empresas = "SELECT id, nombre_empresa, rif, db_nombre FROM control_central.clientes"
             df_empresas = ejecutar_consulta(query_empresas, conn)
         else:
@@ -1104,7 +1108,7 @@ def panel_administracion_firmas(conn):
                     lista_nombres = df_empresas['nombre_empresa'].dropna().tolist()
                 
                 if lista_nombres:
-                    if rol_actual in ['admin', 'superadmin']:
+                    if 'admin' in rol_actual or 'superadmin' in rol_actual:
                         empresa_seleccionada = st.selectbox("Asociar a Empresa", options=lista_nombres)
                     else:
                         empresa_seleccionada = lista_nombres[0] # Su propia empresa fija
