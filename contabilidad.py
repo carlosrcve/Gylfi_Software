@@ -8853,13 +8853,22 @@ if "🏠 Inicio" in opcion_menu:
     
 
     # --- FILA 11: CALENDARIO FISCAL AUTOMATIZADO ---
-    tipo_usuario = st.session_state.get('tipo_contribuyente', 'Contribuyente Ordinario')
-    es_especial = (tipo_usuario == "Contribuyente Especial")
+    # 1. Obtenemos el identificador de la empresa actual desde la sesión 
+    # (Asegúrate de que la clave sea la misma que usas al seleccionar la empresa, ej: 'db_nombre_actual' o 'empresa_seleccionada')
+    db_actual = st.session_state.get('db_nombre_actual') 
 
-    if es_especial:
-        # Asegúrate de tener la variable con el nombre de la BD actual de la empresa (ej. db_name, empresa_db, etc.)
-        db_actual = st.session_state.get('db_nombre_actual') # O como lo manejes en tu app
-        mostrar_calendario_cliente(db_actual)
+    if db_actual:
+        # 2. VINCULACIÓN DIRECTA: Llamamos a la función aquí mismo. 
+        # Ella consultará la base de datos central, actualizará la sesión y retornará True si es Especial.
+        es_especial = verificar_si_es_contribuyente_especial(db_actual)
+
+        if es_especial:
+            # 3. Si es contribuyente especial, lanzamos el calendario automatizado
+            mostrar_calendario_cliente(db_actual)
+        else:
+            st.info(f"ℹ️ La empresa actual (`{db_actual}`) está registrada como Contribuyente Ordinario. El calendario fiscal automatizado aplica para Contribuyentes Especiales.")
+    else:
+        st.warning("⚠️ Por favor, seleccione una empresa primero para visualizar el calendario fiscal.")
 
     
 
