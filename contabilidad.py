@@ -6934,17 +6934,17 @@ def gestionar_sidebar():
                 del st.session_state[key]
             st.rerun()
 
-        # --- Navegación adaptada por rol ---
+        # --- Navegación adaptada por rol (AQUÍ ESTABA EL BLOQUEO DEL ADMIN DE FIRMA) ---
         if user_rol == 'admin':
             menu = st.radio(
                 "Navegación", 
-                ["📊 Auditoría Contable", "⚙️ Gestión de Usuarios","🔒 Bloqueo de Usuarios","🏢 Gestión de Empresas", "🏢 Gestión de Firmas y Accesos", "🏢 Gestión de Clientes de la Firma"], 
+                ["📊 Auditoría Contable", "⚙️ Gestión de Usuarios", "🔒 Bloqueo de Usuarios", "🏢 Gestión de Empresas", "🏢 Gestión de Firmas y Accesos", "🏢 Gestión de Clientes de la Firma"], 
                 key="menu_nav"
             )
         elif 'admin_firma' in user_rol:
             menu = st.radio(
                 "Navegación", 
-                ["📊 Auditoría Contable", "🏢 Gestión de Firmas y Accesos", "🏢 Gestión de Clientes de la Firma"], 
+                ["📊 Auditoría Contable", "⚙️ Gestión de Usuarios", "🏢 Gestión de Firmas y Accesos", "🏢 Gestión de Clientes de la Firma"], 
                 key="menu_nav"
             )
         else:
@@ -6978,9 +6978,7 @@ def gestionar_sidebar():
                         ]
                     elif 'admin_firma' in user_rol:
                         id_firma_actual = st.session_state.get('cliente_id', 0)
-                        
                         queries_a_probar = [
-                            # Se duplica el %% para que Python lo lea literal y no como error de formato
                             f"SELECT * FROM control_central.clientes WHERE id = {id_firma_actual} OR db_nombre LIKE 'lacteo_%%' OR db_nombre LIKE 'mendoza_%%'"
                         ]
                     else:
@@ -7051,23 +7049,20 @@ def gestionar_sidebar():
                 if fila_seleccionada.empty:
                     fila_seleccionada = df_filtrado.iloc[[0]]
 
-
                 datos_sel = fila_seleccionada.iloc[0]
                 db_seleccionada = str(datos_sel['db_nombre']).strip()
                 
-                # Guardamos todas las credenciales clave en la sesión de forma unificada
                 st.session_state['DB_ACTUAL'] = db_seleccionada
                 st.session_state['db_a_conectar'] = db_seleccionada
                 st.session_state['CLIENTE_NOMBRE'] = nombre_seleccionado
                 
-                # --- ¡AQUÍ ESTABA FALTANDO GUARDAR EL RIF! ---
                 if 'rif' in datos_sel and pd.notna(datos_sel['rif']):
                     rif_encontrado = str(datos_sel['rif']).strip()
                     st.session_state['rif_empresa_activa'] = rif_encontrado
                     st.session_state['rif_empresa_seleccionada'] = rif_encontrado
                 else:
                     st.session_state['rif_empresa_activa'] = "J-00000000-0"
-                    st.session_state['rif_empresa_seleccionada'] = "J-00000000-0`"
+                    st.session_state['rif_empresa_seleccionada'] = "J-00000000-0"
 
                 if 'id' in datos_sel:
                     st.session_state['cliente_id_seleccionado'] = int(datos_sel['id'])
