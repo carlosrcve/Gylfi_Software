@@ -583,16 +583,23 @@ def obtener_calendario_seniat_2026(terminal_rif):
 
 
 
+import os
+import json
+from datetime import date
+import streamlit as st
+import pymysql.cursors
+
 def mostrar_calendario_cliente(db_name):
     """
-    Muestra el calendario fiscal consultando dinámicamente el True Center (control_central)
-    según la base de datos de la empresa activa, extrayendo el último dígito real del RIF.
+    Muestra el calendario fiscal consultando estrictamente el True Center (control_central)
+    relacionando la empresa y extrayendo de forma precisa el último dígito del RIF.
     """
     db_busqueda = str(db_name).strip() if db_name else ""
     
-    # Control estricto de sesión: Si cambia la base de datos en pantalla, forzamos la recarga desde el True Center
+    # Verificamos la empresa actual en la sesión
     db_en_sesion = st.session_state.get('db_actual_empresa')
     
+    # Si la base de datos cambió o faltan los datos clave en la sesión, consultamos de inmediato al True Center
     if db_en_sesion != db_busqueda or 'rif_empresa_activa' not in st.session_state or 'terminal_rif_activo' not in st.session_state:
         rif_cliente = "J-00000000-0"
         terminal_rif = 0
@@ -601,7 +608,7 @@ def mostrar_calendario_cliente(db_name):
             conexion_admin = conectar_db("control_central")
             if conexion_admin:
                 with conexion_admin.cursor(pymysql.cursors.DictCursor) as cursor:
-                    # Consulta directa al True Center (control_central.clientes)
+                    # True Center: Consulta directa y robusta para asegurar que traemos el RIF y último dígito exacto de la empresa
                     sql = """
                         SELECT id, nombre_empresa, rif, db_nombre, ultimo_digito, tipo_contribuyente 
                         FROM clientes 
@@ -611,31 +618,33 @@ def mostrar_calendario_cliente(db_name):
                     cursor.execute(sql, (db_busqueda, f"%{db_busqueda}%"))
                     resultado = cursor.fetchone()
                     
-                    st.info(f"🔍 **True Center Debug:** Consultando BD `{db_busqueda}` --> Resultado: `{resultado}`")
+                    st.info(f"🔍 **True Center Debug Conexión:** BD Buscada: `{db_busqueda}` --> Resultado obtenido: `{resultado}`")
                     
                     if resultado:
                         rif_cliente = str(resultado.get('rif', 'J-00000000-0')).strip()
                         
-                        # VERIFICACIÓN RIGUROSA: Extraemos el último dígito numérico del RIF real de la base de datos
+                        # EXTRACCIÓN MATEMÁTICA Y RIGUROSA DEL ÚLTIMO DÍGITO DEL RIF (Ej: Si termina en 0, toma el 0)
                         digitos_rif = "".join([c for c in rif_cliente if c.isdigit()])
                         if digitos_rif:
-                            # True Center: El terminal es obligatoriamente el último dígito del RIF almacenado
                             terminal_rif = int(digitos_rif[-1])
                         else:
                             terminal_rif = int(resultado.get('ultimo_digito', 0))
+                    else:
+                        rif_cliente = "J-00000000-0"
+                        terminal_rif = 0
                             
                 conexion_admin.close()
                 
-                # Actualizamos las variables en la sesión actual
+                # Actualizamos los estados de la sesión con los valores reales y exclusivos de esta empresa
                 st.session_state['db_actual_empresa'] = db_busqueda
                 st.session_state['rif_empresa_activa'] = rif_cliente
                 st.session_state['terminal_rif_activo'] = terminal_rif
         except Exception as e:
-            st.error(f"❌ Error crítico consultando el True Center (control_central): {e}")
+            st.error(f"❌ Error crítico en True Center consultando la empresa: {e}")
             rif_cliente = "J-00000000-0"
             terminal_rif = 0
 
-    # Rescatamos los valores oficiales validados desde la sesión
+    # Rescatamos los valores oficiales sincronizados
     rif_cliente = st.session_state.get('rif_empresa_activa', 'J-00000000-0')
     terminal_rif = int(st.session_state.get('terminal_rif_activo', 0))
 
@@ -643,7 +652,9 @@ def mostrar_calendario_cliente(db_name):
     digitos_rif = "".join([c for c in rif_str if c.isdigit()])
     rif_limpio = digitos_rif if digitos_rif else "00000000"
 
-    # Manejo de persistencia de pagos mediante archivo JSON dinámico basado en el RIF real
+    print(f"DEBUG TRUE CENTER -> Empresa: {db_busqueda} | RIF Oficial: {rif_str} | Terminal Calculado: {terminal_rif}")
+
+    # 3. Manejo de persistencia de pagos mediante archivo JSON dinámico basado en el RIF real del cliente
     archivo_pagos = f"pagos_{rif_limpio}.json"
 
     def cargar_pagos_disco():
@@ -669,7 +680,7 @@ def mostrar_calendario_cliente(db_name):
     pagos_realizados = st.session_state[key_session_pagos]
 
     # Contenedor interactivo con casillas de verificación (checkbox) usando keys únicas por RIF
-    st.markdown(f"##### 📝 Control de Pagos Realizados (RIF: {rif_str} - Terminal True Center: {terminal_rif}):")
+    st.markdown(f"##### 📝 Control de Pagos Realizados (Empresa BD: `{db_busqueda}` | RIF: {rif_str} - Terminal: {terminal_rif}):")
     col_c1, col_c2 = st.columns(2)
     with col_c1:
         val_iva_2 = st.checkbox("✅ IVA 2da Quincena Pagado", value=pagos_realizados.get("iva_2", False), key=f"chk_iva_2_{rif_limpio}")
