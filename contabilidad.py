@@ -592,59 +592,50 @@ def obtener_calendario_seniat_2026(terminal_rif):
 
 
 
-def mostrar_calendario_cliente(db_name):
+def mostrar_calendario_cliente(id_empresa=None):
     """
-    Muestra el calendario fiscal conectando la empresa seleccionada en sesión 
+    Muestra el calendario fiscal conectando la empresa seleccionada por su ID único 
     con su RIF y último dígito correspondiente en el True Center (control_central).
     """
-    parametro_seleccionado = str(db_name).strip() if db_name else ""
+    # Si no se pasa por argumento, lo recuperamos de la sesión de Streamlit
+    if id_empresa is None:
+        id_empresa = st.session_state.get('id_empresa_activa')
+        
+    id_en_sesion = st.session_state.get('id_empresa_activa_id')
     
-    # Verificamos la empresa actual guardada en la sesión de Streamlit
-    db_en_sesion = st.session_state.get('db_actual_empresa')
-    
-    # FORZAMOS LA ACTUALIZACIÓN: Si el parámetro seleccionado es diferente al de la sesión,
-    # invalidamos las variables guardadas para obligar a una nueva consulta al True Center.
-    if db_en_sesion != parametro_seleccionado:
-        st.session_state['db_actual_empresa'] = parametro_seleccionado
+    # FORZAMOS LA ACTUALIZACIÓN: Si el ID seleccionado cambia, invalidamos la caché anterior
+    if id_en_sesion != id_empresa:
+        st.session_state['id_empresa_activa_id'] = id_empresa
         if 'rif_empresa_activa' in st.session_state:
             del st.session_state['rif_empresa_activa']
         if 'terminal_rif_activo' in st.session_state:
             del st.session_state['terminal_rif_activo']
+        if 'nombre_empresa_activa' in st.session_state:
+            del st.session_state['nombre_empresa_activa']
 
-    # Si falta información en sesión, consultamos estrictamente al True Center
+    # Si falta información en sesión, consultamos estrictamente al True Center por ID único
     if 'rif_empresa_activa' not in st.session_state or 'terminal_rif_activo' not in st.session_state:
         rif_cliente = "J-00000000-0"
         terminal_rif = 0
+        nombre_empresa_str = "Empresa no seleccionada"
         
         try:
             conexion_admin = conectar_db("control_central")
             if conexion_admin:
                 with conexion_admin.cursor(pymysql.cursors.DictCursor) as cursor:
-                    # Búsqueda exacta y limpia priorizando el nombre de la empresa o base de datos
+                    # CONSULTA POR ID ÚNICO: Blindaje total contra solapamiento de nombres
                     sql = """
                         SELECT id, nombre_empresa, rif, db_nombre, ultimo_digito, tipo_contribuyente 
                         FROM clientes 
-                        WHERE TRIM(db_nombre) = TRIM(%s) 
-                           OR TRIM(nombre_empresa) = TRIM(%s)
+                        WHERE id = %s
                     """
-                    cursor.execute(sql, (parametro_seleccionado, parametro_seleccionado))
+                    cursor.execute(sql, (id_empresa,))
                     resultado = cursor.fetchone()
                     
-                    # Si no encuentra coincidencia exacta, probamos con búsqueda parcial segura
-                    if not resultado:
-                        sql_like = """
-                            SELECT id, nombre_empresa, rif, db_nombre, ultimo_digito, tipo_contribuyente 
-                            FROM clientes 
-                            WHERE TRIM(db_nombre) LIKE TRIM(%s) 
-                               OR TRIM(nombre_empresa) LIKE TRIM(%s)
-                        """
-                        patron = f"%{parametro_seleccionado}%"
-                        cursor.execute(sql_like, (patron, patron))
-                        resultado = cursor.fetchone()
-                    
-                    st.info(f"🔍 **True Center Sincronización:** Empresa/BD Seleccionada: `{parametro_seleccionado}` --> Registro hallado: `{resultado}`")
+                    st.info(f"🔍 **True Center Sincronización (ID: {id_empresa}):** Registro hallado: `{resultado}`")
                     
                     if resultado:
+                        nombre_empresa_str = str(resultado.get('nombre_empresa', '')).strip()
                         rif_cliente = str(resultado.get('rif', 'J-00000000-0')).strip()
                         
                         # EXTRACCIÓN MATEMÁTICA Y RIGUROSA: Aislar el último dígito numérico del RIF real
@@ -656,20 +647,24 @@ def mostrar_calendario_cliente(db_name):
                     else:
                         rif_cliente = "J-00000000-0"
                         terminal_rif = 0
+                        nombre_empresa_str = "Desconocida"
                             
                 conexion_admin.close()
                 
                 # Guardamos los valores limpios y oficiales en la sesión
                 st.session_state['rif_empresa_activa'] = rif_cliente
                 st.session_state['terminal_rif_activo'] = terminal_rif
+                st.session_state['nombre_empresa_activa'] = nombre_empresa_str
         except Exception as e:
             st.error(f"❌ Error crítico conectando con el True Center: {e}")
             st.session_state['rif_empresa_activa'] = "J-00000000-0"
             st.session_state['terminal_rif_activo'] = 0
+            st.session_state['nombre_empresa_activa'] = "Error"
 
     # Recuperamos los valores oficiales y frescos de la sesión
     rif_cliente = st.session_state.get('rif_empresa_activa', 'J-00000000-0')
     terminal_rif = int(st.session_state.get('terminal_rif_activo', 0))
+    nombre_empresa_str = st.session_state.get('nombre_empresa_activa', 'Empresa')
 
     rif_str = str(rif_cliente).strip()
     digitos_rif = "".join([c for c in rif_str if c.isdigit()])
@@ -701,7 +696,7 @@ def mostrar_calendario_cliente(db_name):
     pagos_realizados = st.session_state[key_session_pagos]
 
     # Contenedor interactivo con casillas de verificación (checkbox) usando keys únicas por RIF
-    st.markdown(f"##### 📝 Control de Pagos Realizados (Empresa: `{parametro_seleccionado}` | RIF: {rif_str} - Terminal: {terminal_rif}):")
+    st.markdown(f"##### 📝 Control de Pagos Realizados (Empresa: `{nombre_empresa_str}` | RIF: {rif_str} - Terminal: {terminal_rif}):")
     col_c1, col_c2 = st.columns(2)
     with col_c1:
         val_iva_2 = st.checkbox("✅ IVA 2da Quincena Pagado", value=pagos_realizados.get("iva_2", False), key=f"chk_iva_2_{rif_limpio}")
@@ -838,7 +833,7 @@ def mostrar_calendario_cliente(db_name):
 
     meses = ["ENE", "FEB", "MAR", "ABR", "MAY", "JUN", "JUL", "AGO", "SEPT", "OCT", "NOV", "DIC"]
 
-    st.subheader(f"📊 Calendario Fiscal 2026 - Contribuyente Especial (Terminal RIF: {terminal_rif})")
+    st.subheader(f"📊 Calendario Fiscal 2026 - {nombre_empresa_str} (Terminal RIF: {terminal_rif})")
     st.markdown("### 🗓️ Cronograma de Declaraciones y Pagos")
 
     st.markdown("""
