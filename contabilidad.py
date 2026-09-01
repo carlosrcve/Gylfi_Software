@@ -1154,12 +1154,19 @@ def panel_administracion_firmas(conn):
                         st.error(f"❌ Error al registrar el usuario: {e}")
 
 def panel_bloqueo_suspension_usuarios(conn):
-    # 🔒 Blindaje de seguridad: Solo Superadmin o Admin de Firma pueden entrar aquí
+    # 🔒 Blindaje de seguridad flexible para evitar bloqueos por nombres de roles
     rol_actual = str(st.session_state.get('rol', '')).strip().lower()
     cliente_id_actual = st.session_state.get('cliente_id')
     
-    if rol_actual not in ['admin', 'superadmin', 'admin_firma']:
-        st.error("⛔ Acceso denegado. No tienes permisos para gestionar bloqueos o suspensiones.")
+    # Permitimos acceso si es admin, superadmin, o si el rol contiene 'admin_firma' o 'firma'
+    es_autorizado = (
+        rol_actual in ['admin', 'superadmin', 'admin_firma'] or 
+        'admin_firma' in rol_actual or 
+        'firma' in rol_actual
+    )
+    
+    if not es_autorizado:
+        st.error(f"⛔ Acceso denegado. Tu rol actual ('{rol_actual}') no tiene permisos para gestionar bloqueos o suspensiones.")
         return
 
     st.header("🔒 Panel de Control, Bloqueo y Suspensión de Usuarios")
