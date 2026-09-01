@@ -7093,6 +7093,10 @@ else:
     menu_lateral = gestionar_sidebar()
 
 # --- LÓGICA DE NAVEGACIÓN Y PERMISOS ---
+# Nos aseguramos de que menu_lateral exista para evitar errores
+if 'menu_lateral' not in locals():
+    menu_lateral = "📊 Auditoría Contable"
+
 rol_actual = str(st.session_state.get('rol', '')).strip().lower()
 
 es_modulo_admin = menu_lateral in [
