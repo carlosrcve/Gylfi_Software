@@ -3582,6 +3582,53 @@ def comprobar_existencia_comprobante(n_comprobante):
                 
     return existe
 
+def borrar_compras_por_rango(desde, hasta):
+    db_actual = st.session_state.get('DB_ACTUAL')
+    conexion = conectar_db(db_actual)
+    
+    # CORRECCIÓN: Usamos 'conexion' en lugar de 'conn'
+    registrar_log_automatico(conexion, "BORRAR_COMPRAS", f"Usuario {st.session_state.usuario} eliminó compras desde {desde} hasta {hasta} para {st.session_state.cliente_id}")
+    
+    if conexion:
+        try:
+            cursor = conexion.cursor()
+            
+            # --- AJUSTA 'id_compra' AQUÍ ---
+            # Lógica corregida usando 'id_sec' como el vínculo hacia 'libro_compras'
+            sql_islr = """
+                DELETE FROM retenciones_islr 
+                WHERE id_sec IN ( 
+                    SELECT id FROM libro_compras 
+                    WHERE fecha_operacion BETWEEN %s AND %s
+                )
+            """
+            cursor.execute(sql_islr, (desde, hasta))
+            filas_islr = cursor.rowcount
+
+            sql_compras = "DELETE FROM libro_compras WHERE fecha_operacion BETWEEN %s AND %s"
+            cursor.execute(sql_compras, (desde, hasta))
+            filas_compras = cursor.rowcount
+            
+            conexion.commit()
+            
+            if filas_compras > 0:
+                st.success(f"✅ Limpieza profunda completada en {db_actual}:")
+                st.write(f"* Compras eliminadas: {filas_compras}")
+                st.write(f"* Retenciones ISLR eliminadas: {filas_islr}")
+            else:
+                st.warning("No se encontraron registros para borrar en ese rango.")
+                
+        except Exception as e:
+            st.error(f"Error de Integridad: {e}")
+        finally:
+            # AQUÍ ESTÁ EL SECRETO:
+            if 'cursor' in locals() and cursor:
+                cursor.close() 
+            # NO cierres conn. 
+            # En su lugar, haz un 'ping' para decirle a MySQL que sigues ahí:
+            if conexion and conexion.is_connected():
+                conexion.ping(reconnect=True)
+
 def obtener_facturas_pendientes(conn, f_desde, f_hasta):
     try:
         query = """
