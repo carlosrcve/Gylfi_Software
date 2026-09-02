@@ -4633,10 +4633,17 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                 else:
                     conn = conectar_db(db_nombre)
                     try:
-                        cursor = conn.cursor(dictionary=True)
+                        # 🟢 Cambiamos a cursor normal para evitar el error de argumentos
+                        cursor = conn.cursor()
                         query_txt = "SELECT * FROM retenciones_iva WHERE E_Emision BETWEEN %s AND %s"
                         cursor.execute(query_txt, (fecha_inicio.strftime('%Y-%m-%d'), fecha_fin.strftime('%Y-%m-%d')))
-                        registros_txt = cursor.fetchall()
+                        
+                        # Obtenemos los nombres de las columnas y los datos
+                        columns = [col[0] for col in cursor.description]
+                        filas = cursor.fetchall()
+                        
+                        # Convertimos las filas a una lista de diccionarios de forma limpia
+                        registros_txt = [dict(zip(columns, row)) for row in filas]
                         cursor.close()
                         
                         if registros_txt:
