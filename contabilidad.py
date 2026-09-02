@@ -3621,13 +3621,12 @@ def borrar_compras_por_rango(desde, hasta):
         except Exception as e:
             st.error(f"Error de Integridad: {e}")
         finally:
-            # AQUÍ ESTÁ EL SECRETO:
             if 'cursor' in locals() and cursor:
                 cursor.close() 
-            # NO cierres conn. 
-            # En su lugar, haz un 'ping' para decirle a MySQL que sigues ahí:
-            if conexion and conexion.is_connected():
-                conexion.ping(reconnect=True)
+            
+            # Si el objeto conexion existe, lo dejamos intacto para evitar el AttributeError
+            if conexion is not None:
+                pass
 
 def obtener_facturas_pendientes(conn, f_desde, f_hasta):
     try:
