@@ -115,11 +115,6 @@ def conectar_db(nombre_db=None):
         return None
 
 def ejecutar_consulta(query, conn, params=None):
-    # 🛡️ PROTECCIÓN: Si la conexión es nula, evitamos que la app explote con AttributeError
-    if conn is None:
-        st.error("❌ No se pudo ejecutar la consulta porque la conexión a la base de datos está inactiva o es nula.")
-        return pd.DataFrame()
-
     cursor = None
     try:
         # Usamos DictCursor de PyMySQL
@@ -128,6 +123,7 @@ def ejecutar_consulta(query, conn, params=None):
         resultados = cursor.fetchall()
         return pd.DataFrame(resultados) if resultados else pd.DataFrame()
     except Exception as e:
+        # ACTIVADO: Esto te mostrará el error exacto en la app si algo falla en SQL
         st.error(f"❌ Error crítico en ejecutar_consulta: {e} | Query: {query}")
         return pd.DataFrame()
     finally:
@@ -5073,12 +5069,8 @@ def gestionar_sidebar():
         'Usuario'
     )
 
-    # 🛡️ INICIALIZACIÓN SEGURA DE VARIABLES PARA EVITAR Errores de Ámbito
-    df_filtrado = pd.DataFrame()
-    menu = "📊 Auditoría Contable"
-
     with st.sidebar:
-        # --- ESTILOS CSS ---
+        # --- ESTILOS CSS PARA CORREGIR EL EFECTO BORROSO EN LOS SELECTBOX ---
         st.markdown(
             """
             <style>
@@ -5107,7 +5099,7 @@ def gestionar_sidebar():
         st.image("https://cdn-icons-png.flaticon.com/512/2645/2645328.png", width=100)
         st.header("Panel de Auditoría")
 
-        # --- ETIQUETA DE USUARIO LOGUEADO ---
+        # --- ETIQUETA / INSIGNIA DE USUARIO LOGUEADO ---
         if user_rol == 'admin':
             st.markdown(
                 """
@@ -5148,10 +5140,9 @@ def gestionar_sidebar():
         # --- Selección de Empresa ---
         # --- Selección de Empresa ---
         if menu == "📊 Auditoría Contable":
-            # 💡 AQUÍ ESTÁ EL CAMBIO CRUCIAL: Forzamos la conexión inicial directo a "control_central" 
-            # para evitar usar comandos USE en caliente que invalidan el contexto de TiDB Cloud.
-            conn_sidebar = conectar_db("control_central")
+            conn_sidebar = conectar_db()
             df_sidebar = pd.DataFrame()
+
             user_limpio = str(nombre_usuario_actual).strip().lower()
 
             if conn_sidebar is not None:
@@ -5159,8 +5150,12 @@ def gestionar_sidebar():
                     if hasattr(conn_sidebar, 'ping') and callable(conn_sidebar.ping):
                         conn_sidebar.ping(reconnect=True)
                     
-                    # (Ya no necesitamos el bloque USE control_central aquí, 
-                    # porque la conexión ya nació apuntando directamente a control_central)
+                    cursor_tmp = conn_sidebar.cursor()
+                    try:
+                        cursor_tmp.execute("USE control_central;")
+                    except Exception:
+                        pass 
+                    cursor_tmp.close()
 
                     if user_rol == 'admin':
                         queries_a_probar = [
@@ -5210,49 +5205,26 @@ def gestionar_sidebar():
 
             df_filtrado = df_sidebar
 
-            # --- 🛡️ PROTECCIÓN CONTRA DATAFRAME VACÍO ---
-            if df_filtrado.empty:
-                st.warning("⚠️ No se encontraron registros en la base de datos central. Usando base de datos de respaldo predeterminada.")
-                df_filtrado = pd.DataFrame([{
-                    'id': 3,
-                    'nombre_empresa': 'Distribuidora Rishon Leztion, C.A.',
-                    'rif': 'J-XXXXXXXX-X',
-                    'db_nombre': 'rishon_letzion_ca'
-                }])
-
-            if user_rol != 'admin' and len(df_filtrado) == 1 and df_filtrado.iloc[0].get('nombre_empresa', '') == 'Empresa por Defecto':
-                st.error(f"❌ El usuario '{nombre_usuario_actual}' no tiene una empresa asignada válida en la base de datos.")
+            if user_rol != 'admin' and df_filtrado.empty:
+                st.error(f"❌ El usuario '{nombre_usuario_actual}' no tiene una empresa asignada en la base de datos.")
                 st.stop()
 
-            # 🔍 BÚSQUEDA DINÁMICA DE COLUMNAS
-            cols_disponibles = [str(c).lower() for c in df_filtrado.columns]
-            
-            posibles_nombres = ['nombre_empresa', 'nombre', 'empresa', 'cliente', 'razon_social']
-            col_empresa = next((df_filtrado.columns[cols_disponibles.index(p)] for p in posibles_nombres if p in cols_disponibles), None)
-            if not col_empresa and len(df_filtrado.columns) > 0:
-                col_empresa = df_filtrado.columns[0]
-
-            posibles_dbs = ['db_nombre', 'database', 'base_datos', 'db']
-            col_db = next((df_filtrado.columns[cols_disponibles.index(p)] for p in posibles_dbs if p in cols_disponibles), None)
-            if not col_db and len(df_filtrado.columns) > 1:
-                col_db = df_filtrado.columns[1]
-
-            nombres_empresas = df_filtrado[col_empresa].tolist() if col_empresa else []
-            nombre_seleccionado = nombres_empresas[0] if nombres_empresas else "Empresa Desconocida"
+            nombres_empresas = df_filtrado['nombre_empresa'].tolist()
+            nombre_seleccionado = nombres_empresas[0]
 
             st.markdown(f"**🏢 Empresa Asignada:**")
             st.info(f"{str(nombre_seleccionado).upper()}")
 
             st.session_state['cliente_seleccionado_previo'] = nombre_seleccionado
 
-            fila_seleccionada = df_filtrado[df_filtrado[col_empresa] == nombre_seleccionado] if col_empresa else pd.DataFrame()
+            fila_seleccionada = df_filtrado[df_filtrado['nombre_empresa'] == nombre_seleccionado]
             if fila_seleccionada.empty:
                 fila_seleccionada = df_filtrado.iloc[[0]]
 
             datos_sel = fila_seleccionada.iloc[0]
-            db_seleccionada = str(datos_sel[col_db]).strip() if col_db else "rishon_letzion_ca"
+            db_seleccionada = str(datos_sel['db_nombre']).strip()
             
-            # Variables de sesión para la aplicación principal:
+            # Estas son las variables que el panel principal está buscando:
             st.session_state['DB_ACTUAL'] = db_seleccionada
             st.session_state['db_a_conectar'] = db_seleccionada
             st.session_state['CLIENTE_NOMBRE'] = nombre_seleccionado
@@ -5260,6 +5232,7 @@ def gestionar_sidebar():
                 st.session_state['cliente_id_seleccionado'] = int(datos_sel['id'])
 
     return menu
+
 
 # 0. Primero validamos si la sesión expiró por tiempo
 verificar_inactividad()
@@ -9445,7 +9418,7 @@ elif opcion_menu == "📚 Libros Fiscales":
             st.session_state.active_tab = "🔍 Consultar y Editar"
 
         # --- ESTRUCTURA DE TABS ---
-        tab_titles = ["🔍 Consultar y Editar", "📸 Escaneo Inteligente", "🚨 Vaciado de Rango", "📊 Cargar desde Excel","PDFs POR LOTES"]
+        tab_titles = ["🔍 Consultar y Editar", "📸 Escaneo Inteligente", "🚨 Vaciado de Rango", "📊 Cargar desde Excel"]
         
         # Creamos las pestañas
         tabs = st.tabs(tab_titles)
@@ -9455,7 +9428,7 @@ elif opcion_menu == "📚 Libros Fiscales":
         # Nota: Streamlit maneja el click de las tabs internamente, 
         # pero para forzar el foco, validamos el estado:
         
-        tab1, tab2, tab3, tab4,tab5 = tabs
+        tab1, tab2, tab3, tab4 = tabs
 
         # --- LÓGICA DE NAVEGACIÓN ---
 
@@ -9962,110 +9935,8 @@ elif opcion_menu == "📚 Libros Fiscales":
                             st.error(f"❌ Error al guardar en DB: {e}")
                 else:
                     st.warning("⚠️ No hay datos cargados para guardar.")
-        # --- TAB 5: BANDEJA DE ENTRADA INTELIGENTE (PDFs POR LOTES) ---
-        with tab5:
-            st.subheader("📥 Bandeja de Entrada - Procesamiento Inteligente de Facturas (PDF)")
-            st.info("Arrastra o selecciona múltiples archivos PDF de facturas. Se acumularán en cola y podrás procesarlos de forma segura sin congelar el sistema.")
 
-            # 1. Subida múltiple de archivos a la sesión (Cola de espera)
-            archivos_pdf = st.file_uploader(
-                "Sube tus facturas en PDF", 
-                type=['pdf'], 
-                accept_multiple_files=True,
-                key="uploader_pdf_cola"
-            )
 
-            # Inicializamos la cola en session_state si no existe
-            if "cola_pdfs" not in st.session_state:
-                st.session_state.cola_pdfs = []
-
-            # Si el usuario selecciona nuevos archivos, los añadimos a la cola de forma persistente
-            if archivos_pdf:
-                nombres_existentes = [item['nombre'] for item in st.session_state.cola_pdfs]
-                for archivo in archivos_pdf:
-                    if archivo.name not in nombres_existentes:
-                        st.session_state.cola_pdfs.append({
-                            "nombre": archivo.name,
-                            "objeto": archivo,
-                            "estado": "Pendiente"
-                        })
-
-            # 2. Visualización de la cola actual
-            if st.session_state.cola_pdfs:
-                st.markdown(f"### 📋 Cola de Documentos ({len(st.session_state.cola_pdfs)} en espera)")
-                
-                # Botón para limpiar toda la cola
-                if st.button("🗑️ Vaciar Cola"):
-                    st.session_state.cola_pdfs = []
-                    st.rerun()
-
-                # Mostrar listado rápido de pendientes
-                import pandas as pd
-                df_cola = pd.DataFrame([{
-                    "Archivo": item["nombre"], 
-                    "Estado": item["estado"]
-                } for item in st.session_state.cola_pdfs])
-                
-                st.dataframe(df_cola, use_container_width=True)
-
-                st.markdown("---")
-
-                # 3. Botón de Procesamiento por Lotes (CORREGIDO PARA EVITAR CONFLICTOS DE CONEXIÓN)
-                if st.button("🚀 Procesar Cola de Documentos (Pendientes)", type="primary"):
-                    db_nombre = st.session_state.get('DB_ACTUAL')
-                    if not db_nombre:
-                        st.error("Error: No se ha seleccionado una base de datos activa.")
-                    else:
-                        barra_progreso = st.progress(0)
-                        status_text = st.empty()
-                        
-                        total_archivos = len(st.session_state.cola_pdfs)
-                        procesados_exito = 0
-                        errores = 0
-
-                        # Usamos la función de conexión limpia estándar
-                        conn = conectar_db(db_nombre)
-                        
-                        if conn is None:
-                            st.error(f"❌ No se pudo establecer conexión con la base de datos '{db_nombre}'.")
-                        else:
-                            try:
-                                cursor = conn.cursor()
-                                for i, item in enumerate(st.session_state.cola_pdfs):
-                                    if item["estado"] == "Procesado":
-                                        continue 
-
-                                    status_text.text(f"⚙️ Procesando archivo {i+1} de {total_archivos}: {item['nombre']}...")
-                                    
-                                    try:
-                                        # --- LÓGICA DE PROCESAMIENTO / OCR ---
-                                        # (Aquí irá tu inserción a base de datos de forma limpia)
-                                        
-                                        item["estado"] = "Procesado"
-                                        procesados_exito += 1
-                                    except Exception as err:
-                                        item["estado"] = f"Error: {str(err)}"
-                                        errores += 1
-
-                                    porcentaje = (i + 1) / total_archivos
-                                    barra_progreso.progress(porcentaje)
-
-                                conn.commit()
-                                cursor.close()
-                            except Exception as e:
-                                st.error(f"Error general en el lote: {e}")
-                            finally:
-                                try:
-                                    if conn and hasattr(conn, 'close'):
-                                        conn.close()
-                                except:
-                                    pass
-
-                            status_text.text("✅ ¡Proceso de lote finalizado!")
-                            st.success(f"Resumen: {procesados_exito} facturas procesadas con éxito. {errores} errores.")
-                            st.rerun()
-            else:
-                st.info("No hay archivos en la cola de espera. Sube algunos PDFs arriba para comenzar.")
 
     # 2. El sub-menú DINÁMICO
     if sub_opcion == "Comprobante de Retención ISLR":
