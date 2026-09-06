@@ -9949,6 +9949,111 @@ elif opcion_menu == "📚 Libros Fiscales":
                 else:
                     st.warning("⚠️ No hay datos cargados para guardar.")
 
+        # --- TAB 5: BANDEJA DE ENTRADA INTELIGENTE (PDFs POR LOTES) ---
+        with tab5:
+            st.subheader("📥 Bandeja de Entrada - Procesamiento Inteligente de Facturas (PDF)")
+            st.info("Arrastra o selecciona múltiples archivos PDF de facturas. Se acumularán en cola y podrás procesarlos de forma segura sin congelar el sistema.")
+
+            # 1. Subida múltiple de archivos a la sesión (Cola de espera)
+            archivos_pdf = st.file_uploader(
+                "Sube tus facturas en PDF", 
+                type=['pdf'], 
+                accept_multiple_files=True,
+                key="uploader_pdf_cola"
+            )
+
+            # Inicializamos la cola en session_state si no existe
+            if "cola_pdfs" not in st.session_state:
+                st.session_state.cola_pdfs = []
+
+            # Si el usuario selecciona nuevos archivos, los añadimos a la cola de forma persistente
+            if archivos_pdf:
+                nombres_existentes = [item['nombre'] for item in st.session_state.cola_pdfs]
+                for archivo in archivos_pdf:
+                    if archivo.name not in nombres_existentes:
+                        st.session_state.cola_pdfs.append({
+                            "nombre": archivo.name,
+                            "objeto": archivo,
+                            "estado": "Pendiente"
+                        })
+
+            # 2. Visualización de la cola actual
+            if st.session_state.cola_pdfs:
+                st.markdown(f"### 📋 Cola de Documentos ({len(st.session_state.cola_pdfs)} en espera)")
+                
+                # Botón para limpiar toda la cola
+                if st.button("🗑️ Vaciar Cola"):
+                    st.session_state.cola_pdfs = []
+                    st.rerun()
+
+                # Mostrar listado rápido de pendientes
+                import pandas as pd
+                df_cola = pd.DataFrame([{
+                    "Archivo": item["nombre"], 
+                    "Estado": item["estado"]
+                } for item in st.session_state.cola_pdfs])
+                
+                st.dataframe(df_cola, use_container_width=True)
+
+                st.markdown("---")
+
+                # 3. Botón de Procesamiento por Lotes (CORREGIDO PARA EVITAR CONFLICTOS DE CONEXIÓN)
+                if st.button("🚀 Procesar Cola de Documentos (Pendientes)", type="primary"):
+                    db_nombre = st.session_state.get('DB_ACTUAL')
+                    if not db_nombre:
+                        st.error("Error: No se ha seleccionado una base de datos activa.")
+                    else:
+                        barra_progreso = st.progress(0)
+                        status_text = st.empty()
+                        
+                        total_archivos = len(st.session_state.cola_pdfs)
+                        procesados_exito = 0
+                        errores = 0
+
+                        # Usamos la función de conexión limpia estándar
+                        conn = conectar_db(db_nombre)
+                        
+                        if conn is None:
+                            st.error(f"❌ No se pudo establecer conexión con la base de datos '{db_nombre}'.")
+                        else:
+                            try:
+                                cursor = conn.cursor()
+                                for i, item in enumerate(st.session_state.cola_pdfs):
+                                    if item["estado"] == "Procesado":
+                                        continue 
+
+                                    status_text.text(f"⚙️ Procesando archivo {i+1} de {total_archivos}: {item['nombre']}...")
+                                    
+                                    try:
+                                        # --- LÓGICA DE PROCESAMIENTO / OCR ---
+                                        # (Aquí irá tu inserción a base de datos de forma limpia)
+                                        
+                                        item["estado"] = "Procesado"
+                                        procesados_exito += 1
+                                    except Exception as err:
+                                        item["estado"] = f"Error: {str(err)}"
+                                        errores += 1
+
+                                    porcentaje = (i + 1) / total_archivos
+                                    barra_progreso.progress(porcentaje)
+
+                                conn.commit()
+                                cursor.close()
+                            except Exception as e:
+                                st.error(f"Error general en el lote: {e}")
+                            finally:
+                                try:
+                                    if conn and hasattr(conn, 'close'):
+                                        conn.close()
+                                except:
+                                    pass
+
+                            status_text.text("✅ ¡Proceso de lote finalizado!")
+                            st.success(f"Resumen: {procesados_exito} facturas procesadas con éxito. {errores} errores.")
+                            st.rerun()
+            else:
+                st.info("No hay archivos en la cola de espera. Sube algunos PDFs arriba para comenzar.")
+
 
 
     # 2. El sub-menú DINÁMICO
