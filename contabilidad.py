@@ -9111,7 +9111,7 @@ elif opcion_menu == "📚 Libros Fiscales":
             "📁 PDFs POR LOTES"
         ]
         
-        # Creamos las pestañas y desempaquetamos las 5 variables exactas
+        # 1. Asegúrate de que estén las 5 variables aquí:
         tab1, tab2, tab3, tab4, tab5 = st.tabs(tab_titles)
 
 
