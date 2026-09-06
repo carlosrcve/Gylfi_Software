@@ -9103,10 +9103,12 @@ elif opcion_menu == "📚 Libros Fiscales":
             st.session_state.active_tab = "🔍 Consultar y Editar"
 
         # --- ESTRUCTURA DE TABS ---
-        tab_titles = ["📊 Cargar desde Excel", "🔍 Consultar y Editar", "🚨 Vaciado de Rango"]
+        tab_titles = ["🔍 Consultar y Editar", "📸 Escaneo Inteligente", "🚨 Vaciado de Rango", "📊 Cargar desde Excel","PDFs POR LOTES"]
         
-        # Mapeamos los índices para asegurar que la pestaña activa se mantenga
-        tab1, tab2, tab3 = st.tabs(tab_titles)
+        # Creamos las pestañas
+        tabs = st.tabs(tab_titles)
+        
+        tab1, tab2, tab3, tab4,tab5 = tabs
 
 
         # --- EN TU PESTAÑA 1 ---
