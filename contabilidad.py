@@ -5142,8 +5142,11 @@ def gestionar_sidebar():
         st.divider()
 
         # --- Selección de Empresa ---
+        # --- Selección de Empresa ---
         if menu == "📊 Auditoría Contable":
-            conn_sidebar = conectar_db()
+            # 💡 AQUÍ ESTÁ EL CAMBIO CRUCIAL: Forzamos la conexión inicial directo a "control_central" 
+            # para evitar usar comandos USE en caliente que invalidan el contexto de TiDB Cloud.
+            conn_sidebar = conectar_db("control_central")
             df_sidebar = pd.DataFrame()
             user_limpio = str(nombre_usuario_actual).strip().lower()
 
@@ -5152,12 +5155,8 @@ def gestionar_sidebar():
                     if hasattr(conn_sidebar, 'ping') and callable(conn_sidebar.ping):
                         conn_sidebar.ping(reconnect=True)
                     
-                    cursor_tmp = conn_sidebar.cursor()
-                    try:
-                        cursor_tmp.execute("USE control_central;")
-                    except Exception:
-                        pass 
-                    cursor_tmp.close()
+                    # (Ya no necesitamos el bloque USE control_central aquí, 
+                    # porque la conexión ya nació apuntando directamente a control_central)
 
                     if user_rol == 'admin':
                         queries_a_probar = [
