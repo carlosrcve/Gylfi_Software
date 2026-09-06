@@ -9102,13 +9102,17 @@ elif opcion_menu == "📚 Libros Fiscales":
         if 'active_tab' not in st.session_state:
             st.session_state.active_tab = "🔍 Consultar y Editar"
 
-        # --- ESTRUCTURA DE TABS ---
-        tab_titles = ["🔍 Consultar y Editar", "📸 Escaneo Inteligente", "🚨 Vaciado de Rango", "📊 Cargar desde Excel","PDFs POR LOTES"]
+       # --- ESTRUCTURA DE TABS ---
+        tab_titles = [
+            "🔍 Consultar y Editar", 
+            "📸 Escaneo Inteligente", 
+            "🚨 Vaciado de Rango", 
+            "📊 Cargar desde Excel", 
+            "📁 PDFs POR LOTES"
+        ]
         
-        # Creamos las pestañas
-        tabs = st.tabs(tab_titles)
-        
-        tab1, tab2, tab3, tab4,tab5 = tabs
+        # Creamos las pestañas y desempaquetamos las 5 variables exactas
+        tab1, tab2, tab3, tab4, tab5 = st.tabs(tab_titles)
 
 
         # --- EN TU PESTAÑA 1 ---
