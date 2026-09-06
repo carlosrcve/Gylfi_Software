@@ -5138,7 +5138,6 @@ def gestionar_sidebar():
         st.divider()
 
         # --- Selección de Empresa ---
-        # --- Selección de Empresa ---
         if menu == "📊 Auditoría Contable":
             conn_sidebar = conectar_db()
             df_sidebar = pd.DataFrame()
@@ -5209,30 +5208,44 @@ def gestionar_sidebar():
                 st.error(f"❌ El usuario '{nombre_usuario_actual}' no tiene una empresa asignada en la base de datos.")
                 st.stop()
 
-            nombres_empresas = df_filtrado['nombre_empresa'].tolist()
-            nombre_seleccionado = nombres_empresas[0]
+            # 🔍 BÚSQUEDA DINÁMICA DE COLUMNAS (Evita KeyError si cambia el nombre en la BD)
+            cols_disponibles = [c.lower() for c in df_filtrado.columns]
+            
+            # Buscar columna de nombre de empresa
+            posibles_nombres = ['nombre_empresa', 'nombre', 'empresa', 'cliente', 'razon_social']
+            col_empresa = next((df_filtrado.columns[cols_disponibles.index(p)] for p in posibles_nombres if p in cols_disponibles), None)
+            if not col_empresa and len(df_filtrado.columns) > 0:
+                col_empresa = df_filtrado.columns[0]
+
+            # Buscar columna de base de datos
+            posibles_dbs = ['db_nombre', 'database', 'base_datos', 'db']
+            col_db = next((df_filtrado.columns[cols_disponibles.index(p)] for p in posibles_dbs if p in cols_disponibles), None)
+            if not col_db and len(df_filtrado.columns) > 1:
+                col_db = df_filtrado.columns[1]
+
+            nombres_empresas = df_filtrado[col_empresa].tolist() if col_empresa else []
+            nombre_seleccionado = nombres_empresas[0] if nombres_empresas else "Empresa Desconocida"
 
             st.markdown(f"**🏢 Empresa Asignada:**")
             st.info(f"{str(nombre_seleccionado).upper()}")
 
             st.session_state['cliente_seleccionado_previo'] = nombre_seleccionado
 
-            fila_seleccionada = df_filtrado[df_filtrado['nombre_empresa'] == nombre_seleccionado]
+            fila_seleccionada = df_filtrado[df_filtrado[col_empresa] == nombre_seleccionado] if col_empresa else pd.DataFrame()
             if fila_seleccionada.empty:
                 fila_seleccionada = df_filtrado.iloc[[0]]
 
             datos_sel = fila_seleccionada.iloc[0]
-            db_seleccionada = str(datos_sel['db_nombre']).strip()
+            db_seleccionada = str(datos_sel[col_db]).strip() if col_db else "rishon_letzion_ca"
             
-            # Estas son las variables que el panel principal está buscando:
+            # Variables de sesión que el panel principal y la bandeja de entrada necesitan:
             st.session_state['DB_ACTUAL'] = db_seleccionada
             st.session_state['db_a_conectar'] = db_seleccionada
             st.session_state['CLIENTE_NOMBRE'] = nombre_seleccionado
             if 'id' in datos_sel:
-                st.session_state['cliente_id_seleccionado'] = int(datos_sel['id'])
+                st.session_state['cliente_id_seleccionado']  = int(datos_sel['id'])
 
     return menu
-
 
 # 0. Primero validamos si la sesión expiró por tiempo
 verificar_inactividad()
