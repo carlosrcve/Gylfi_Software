@@ -9103,19 +9103,10 @@ elif opcion_menu == "📚 Libros Fiscales":
             st.session_state.active_tab = "🔍 Consultar y Editar"
 
        # --- ESTRUCTURA DE TABS ---
-        tab_titles = [
-            "🔍 Consultar y Editar", 
-            "📸 Escaneo Inteligente", 
-            "🚨 Vaciado de Rango", 
-            "📊 Cargar desde Excel", 
-            "📁 PDFs POR LOTES"
-        ]
+        tab_titles = ["📊 Cargar desde Excel", "🔍 Consultar y Editar", "🚨 Vaciado de Rango"]
         
-        # 1. Primero creamos las pestañas
-        tabs = st.tabs(tab_titles)
-
-        # 2. SEGUNDO: Desempaquetamos inmediatamente aquí mismo
-        tab1, tab2, tab3, tab4, tab5 = tabs
+        # Mapeamos los índices para asegurar que la pestaña activa se mantenga
+        tab1, tab2, tab3 = st.tabs(tab_titles)
 
 
         # --- EN TU PESTAÑA 1 ---
@@ -9439,18 +9430,18 @@ elif opcion_menu == "📚 Libros Fiscales":
         if 'active_tab' not in st.session_state:
             st.session_state.active_tab = "🔍 Consultar y Editar"
 
-        # --- ESTRUCTURA DE TABS ---
-        tab_titles = ["🔍 Consultar y Editar", "📸 Escaneo Inteligente", "🚨 Vaciado de Rango", "📊 Cargar desde Excel"]
-        
-        # Creamos las pestañas
-        tabs = st.tabs(tab_titles)
+        # --- ESTRUCTURA DE TABS (A NIVEL PRINCIPAL, SIN SANGRÍA) ---
+        tab_titles = [
+            "🔍 Consultar y Editar", 
+            "📸 Escaneo Inteligente", 
+            "🚨 Vaciado de Rango", 
+            "📊 Cargar desde Excel", 
+            "📁 PDFs POR LOTES"
+        ]
 
-        # --- LÓGICA DE PERSISTENCIA ---
-        # Si el usuario hace clic en una tab, actualizamos el estado
-        # Nota: Streamlit maneja el click de las tabs internamente, 
-        # pero para forzar el foco, validamos el estado:
-        
-        tab1, tab2, tab3, tab4 = tabs
+        # Creamos las pestañas y desempaquetamos inmediatamente
+        tabs = st.tabs(tab_titles)
+        tab1, tab2, tab3, tab4, tab5 = tabs
 
         # --- LÓGICA DE NAVEGACIÓN ---
 
