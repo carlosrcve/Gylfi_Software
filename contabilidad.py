@@ -5069,8 +5069,12 @@ def gestionar_sidebar():
         'Usuario'
     )
 
+    # 🛡️ INICIALIZACIÓN SEGURA DE VARIABLES PARA EVITAR Errores de Ámbito
+    df_filtrado = pd.DataFrame()
+    menu = "📊 Auditoría Contable"
+
     with st.sidebar:
-        # --- ESTILOS CSS PARA CORREGIR EL EFECTO BORROSO EN LOS SELECTBOX ---
+        # --- ESTILOS CSS ---
         st.markdown(
             """
             <style>
@@ -5099,7 +5103,7 @@ def gestionar_sidebar():
         st.image("https://cdn-icons-png.flaticon.com/512/2645/2645328.png", width=100)
         st.header("Panel de Auditoría")
 
-        # --- ETIQUETA / INSIGNIA DE USUARIO LOGUEADO ---
+        # --- ETIQUETA DE USUARIO LOGUEADO ---
         if user_rol == 'admin':
             st.markdown(
                 """
@@ -5141,7 +5145,6 @@ def gestionar_sidebar():
         if menu == "📊 Auditoría Contable":
             conn_sidebar = conectar_db()
             df_sidebar = pd.DataFrame()
-
             user_limpio = str(nombre_usuario_actual).strip().lower()
 
             if conn_sidebar is not None:
@@ -5190,14 +5193,13 @@ def gestionar_sidebar():
                     except:
                         pass
 
-            # --- 🛡️ PROTECCIÓN CONTRA DATAFRAME VACÍO ---
-            if df_filtrado.empty:
-                st.warning("⚠️ No se encontraron registros en la base de datos central. Usando base de datos de respaldo predeterminada.")
-                df_filtrado = pd.DataFrame([{
+            # --- RESPALDO OBLIGATORIO PARA ALIX ---
+            if df_sidebar.empty and user_limpio == 'alix_maria':
+                df_sidebar = pd.DataFrame([{
                     'id': 3,
                     'nombre_empresa': 'Distribuidora Rishon Leztion, C.A.',
                     'rif': 'J-XXXXXXXX-X',
-                    'db_nombre': 'rishon_letzion_ca'  # 👈 AQUÍ PONEMOS UNA BD QUE SÍ EXISTA EN TIDB
+                    'db_nombre': 'rishon_letzion_ca'
                 }])
 
             if not df_sidebar.empty:
@@ -5207,28 +5209,26 @@ def gestionar_sidebar():
 
             # --- 🛡️ PROTECCIÓN CONTRA DATAFRAME VACÍO ---
             if df_filtrado.empty:
-                st.warning("⚠️ No se encontraron registros en la base de datos central. Usando configuración temporal de respaldo.")
+                st.warning("⚠️ No se encontraron registros en la base de datos central. Usando base de datos de respaldo predeterminada.")
                 df_filtrado = pd.DataFrame([{
-                    'id': 1,
-                    'nombre_empresa': 'Empresa por Defecto',
-                    'rif': 'J-00000000-0',
-                    'db_nombre': 'default_db'
+                    'id': 3,
+                    'nombre_empresa': 'Distribuidora Rishon Leztion, C.A.',
+                    'rif': 'J-XXXXXXXX-X',
+                    'db_nombre': 'rishon_letzion_ca'
                 }])
 
-            if user_rol != 'admin' and len(df_filtrado) == 1 and df_filtrado.iloc[0]['nombre_empresa'] == 'Empresa por Defecto':
+            if user_rol != 'admin' and len(df_filtrado) == 1 and df_filtrado.iloc[0].get('nombre_empresa', '') == 'Empresa por Defecto':
                 st.error(f"❌ El usuario '{nombre_usuario_actual}' no tiene una empresa asignada válida en la base de datos.")
                 st.stop()
 
             # 🔍 BÚSQUEDA DINÁMICA DE COLUMNAS
-            cols_disponibles = [c.lower() for c in df_filtrado.columns]
+            cols_disponibles = [str(c).lower() for c in df_filtrado.columns]
             
-            # Buscar columna de nombre de empresa
             posibles_nombres = ['nombre_empresa', 'nombre', 'empresa', 'cliente', 'razon_social']
             col_empresa = next((df_filtrado.columns[cols_disponibles.index(p)] for p in posibles_nombres if p in cols_disponibles), None)
             if not col_empresa and len(df_filtrado.columns) > 0:
                 col_empresa = df_filtrado.columns[0]
 
-            # Buscar columna de base de datos
             posibles_dbs = ['db_nombre', 'database', 'base_datos', 'db']
             col_db = next((df_filtrado.columns[cols_disponibles.index(p)] for p in posibles_dbs if p in cols_disponibles), None)
             if not col_db and len(df_filtrado.columns) > 1:
@@ -5249,7 +5249,7 @@ def gestionar_sidebar():
             datos_sel = fila_seleccionada.iloc[0]
             db_seleccionada = str(datos_sel[col_db]).strip() if col_db else "rishon_letzion_ca"
             
-            # Variables de sesión para el panel principal y la bandeja de entrada:
+            # Variables de sesión para la aplicación principal:
             st.session_state['DB_ACTUAL'] = db_seleccionada
             st.session_state['db_a_conectar'] = db_seleccionada
             st.session_state['CLIENTE_NOMBRE'] = nombre_seleccionado
