@@ -5204,11 +5204,21 @@ def gestionar_sidebar():
 
             df_filtrado = df_sidebar
 
-            if user_rol != 'admin' and df_filtrado.empty:
-                st.error(f"❌ El usuario '{nombre_usuario_actual}' no tiene una empresa asignada en la base de datos.")
+            # --- 🛡️ PROTECCIÓN CONTRA DATAFRAME VACÍO ---
+            if df_filtrado.empty:
+                st.warning("⚠️ No se encontraron registros en la base de datos central. Usando configuración temporal de respaldo.")
+                df_filtrado = pd.DataFrame([{
+                    'id': 1,
+                    'nombre_empresa': 'Empresa por Defecto',
+                    'rif': 'J-00000000-0',
+                    'db_nombre': 'default_db'
+                }])
+
+            if user_rol != 'admin' and len(df_filtrado) == 1 and df_filtrado.iloc[0]['nombre_empresa'] == 'Empresa por Defecto':
+                st.error(f"❌ El usuario '{nombre_usuario_actual}' no tiene una empresa asignada válida en la base de datos.")
                 st.stop()
 
-            # 🔍 BÚSQUEDA DINÁMICA DE COLUMNAS (Evita KeyError si cambia el nombre en la BD)
+            # 🔍 BÚSQUEDA DINÁMICA DE COLUMNAS
             cols_disponibles = [c.lower() for c in df_filtrado.columns]
             
             # Buscar columna de nombre de empresa
@@ -5238,12 +5248,12 @@ def gestionar_sidebar():
             datos_sel = fila_seleccionada.iloc[0]
             db_seleccionada = str(datos_sel[col_db]).strip() if col_db else "rishon_letzion_ca"
             
-            # Variables de sesión que el panel principal y la bandeja de entrada necesitan:
+            # Variables de sesión para el panel principal y la bandeja de entrada:
             st.session_state['DB_ACTUAL'] = db_seleccionada
             st.session_state['db_a_conectar'] = db_seleccionada
             st.session_state['CLIENTE_NOMBRE'] = nombre_seleccionado
             if 'id' in datos_sel:
-                st.session_state['cliente_id_seleccionado']  = int(datos_sel['id'])
+                st.session_state['cliente_id_seleccionado'] = int(datos_sel['id'])
 
     return menu
 
