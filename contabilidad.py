@@ -9978,7 +9978,6 @@ elif opcion_menu == "📚 Libros Fiscales":
 
             # Si el usuario selecciona nuevos archivos, los añadimos a la cola de forma persistente
             if archivos_pdf:
-                # Evitamos duplicados comparando nombres de archivo
                 nombres_existentes = [item['nombre'] for item in st.session_state.cola_pdfs]
                 for archivo in archivos_pdf:
                     if archivo.name not in nombres_existentes:
@@ -10008,7 +10007,7 @@ elif opcion_menu == "📚 Libros Fiscales":
 
                 st.markdown("---")
 
-                # 3. Botón de Procesamiento por Lotes
+                # 3. Botón de Procesamiento por Lotes (CORREGIDO PARA EVITAR CONFLICTOS DE CONEXIÓN)
                 if st.button("🚀 Procesar Cola de Documentos (Pendientes)", type="primary"):
                     db_nombre = st.session_state.get('DB_ACTUAL')
                     if not db_nombre:
@@ -10021,52 +10020,49 @@ elif opcion_menu == "📚 Libros Fiscales":
                         procesados_exito = 0
                         errores = 0
 
+                        # Usamos la función de conexión limpia estándar
                         conn = conectar_db(db_nombre)
                         
-                        try:
-                            cursor = conn.cursor()
-                            for i, item in enumerate(st.session_state.cola_pdfs):
-                                if item["estado"] == "Procesado":
-                                    continue # Salta los que ya se procesaron antes
+                        if conn is None:
+                            st.error(f"❌ No se pudo establecer conexión con la base de datos '{db_nombre}'.")
+                        else:
+                            try:
+                                cursor = conn.cursor()
+                                for i, item in enumerate(st.session_state.cola_pdfs):
+                                    if item["estado"] == "Procesado":
+                                        continue 
 
-                                status_text.text(f"⚙️ Procesando archivo {i+1} de {total_archivos}: {item['nombre']}...")
-                                
-                                try:
-                                    # --- AQUí LLAMAS A TU ESCÁNER / OCR / IA ACTUAL ---
-                                    # Ejemplo: datos_extraidos = tu_funcion_ocr(item['objeto'])
-                                    # Y luego haces el INSERT en tu base de datos (libro_compras / retenciones)
+                                    status_text.text(f"⚙️ Procesando archivo {i+1} de {total_archivos}: {item['nombre']}...")
                                     
-                                    # Simulamos el procesamiento exitoso por ahora:
-                                    # cursor.execute("INSERT INTO libro_compras ...", (...))
-                                    
-                                    item["estado"] = "Procesado"
-                                    procesados_exito += 1
-                                except Exception as err:
-                                    item["estado"] = f"Error: {str(err)}"
-                                    errores += 1
+                                    try:
+                                        # --- LÓGICA DE PROCESAMIENTO / OCR ---
+                                        # (Aquí irá tu inserción a base de datos de forma limpia)
+                                        
+                                        item["estado"] = "Procesado"
+                                        procesados_exito += 1
+                                    except Exception as err:
+                                        item["estado"] = f"Error: {str(err)}"
+                                        errores += 1
 
-                                # Actualizar barra de progreso fluidamente
-                                porcentaje = (i + 1) / total_archivos
-                                barra_progreso.progress(porcentaje)
+                                    porcentaje = (i + 1) / total_archivos
+                                    barra_progreso.progress(porcentaje)
 
-                            conn.commit()
-                            cursor.close()
-                        except Exception as e:
-                            st.error(f"Error general en el lote: {e}")
-                        finally:
-                            if conn:
+                                conn.commit()
+                                cursor.close()
+                            except Exception as e:
+                                st.error(f"Error general en el lote: {e}")
+                            finally:
                                 try:
-                                    conn.close()
+                                    if conn and hasattr(conn, 'close'):
+                                        conn.close()
                                 except:
                                     pass
 
-                        status_text.text("✅ ¡Proceso de lote finalizado!")
-                        st.success(f"Resumen: {procesados_exito} facturas procesadas con éxito. {errores} errores.")
-                        st.rerun()
+                            status_text.text("✅ ¡Proceso de lote finalizado!")
+                            st.success(f"Resumen: {procesados_exito} facturas procesadas con éxito. {errores} errores.")
+                            st.rerun()
             else:
                 st.info("No hay archivos en la cola de espera. Sube algunos PDFs arriba para comenzar.")
-
-
 
     # 2. El sub-menú DINÁMICO
     if sub_opcion == "Comprobante de Retención ISLR":
