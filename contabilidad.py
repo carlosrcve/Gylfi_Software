@@ -115,6 +115,11 @@ def conectar_db(nombre_db=None):
         return None
 
 def ejecutar_consulta(query, conn, params=None):
+    # 🛡️ PROTECCIÓN: Si la conexión es nula, evitamos que la app explote con AttributeError
+    if conn is None:
+        st.error("❌ No se pudo ejecutar la consulta porque la conexión a la base de datos está inactiva o es nula.")
+        return pd.DataFrame()
+
     cursor = None
     try:
         # Usamos DictCursor de PyMySQL
@@ -123,7 +128,6 @@ def ejecutar_consulta(query, conn, params=None):
         resultados = cursor.fetchall()
         return pd.DataFrame(resultados) if resultados else pd.DataFrame()
     except Exception as e:
-        # ACTIVADO: Esto te mostrará el error exacto en la app si algo falla en SQL
         st.error(f"❌ Error crítico en ejecutar_consulta: {e} | Query: {query}")
         return pd.DataFrame()
     finally:
