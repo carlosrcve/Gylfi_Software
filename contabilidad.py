@@ -1,4 +1,4 @@
-#contabilidad.py
+# contabilidad.py
 import os
 import streamlit as st
 import pymysql
@@ -45,6 +45,7 @@ try:
 except ImportError:
     HAS_TESSERACT = False
 
+
 def conectar_db(nombre_db=None):
     db_a_usar = nombre_db if nombre_db else "control_central"
     
@@ -62,7 +63,7 @@ def conectar_db(nombre_db=None):
                     host="gateway01.us-east-1.prod.aws.tidbcloud.com",
                     port=4000,
                     user="4K4VAw4t4ZPFUTF.root",
-                    password="I1lVZQDq2d4KJbQA",
+                    password="OhAcM2lizBMDXDgD",
                     database="control_central", # Conectamos primero a central para asegurarnos de poder crearla si falta
                     connect_timeout=20,
                     charset='utf8mb4',
@@ -70,19 +71,6 @@ def conectar_db(nombre_db=None):
                 )
                 with conn.cursor() as cursor_temp:
                     cursor_temp.execute(f"CREATE DATABASE IF NOT EXISTS `{db_a_usar}`;")
-                    
-                    # SELECCIONAMOS LA BD Y CREAMOS LA TABLA AUTOMÁTICAMENTE
-                    cursor_temp.execute(f"USE `{db_a_usar}`;")
-                    cursor_temp.execute("""
-                        CREATE TABLE IF NOT EXISTS documentos_cloud (
-                            id INT AUTO_INCREMENT PRIMARY KEY,
-                            empresa_db VARCHAR(100) NOT NULL,
-                            categoria VARCHAR(50) NOT NULL,
-                            nombre_archivo VARCHAR(255) NOT NULL,
-                            ruta_archivo VARCHAR(500) NOT NULL,
-                            fecha_subida TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                        );
-                    """)
                 conn.close()
             except Exception as ex:
                 print(f"Aviso al asegurar BD de cliente: {ex}")
@@ -113,7 +101,7 @@ def conectar_db(nombre_db=None):
             host="gateway01.us-east-1.prod.aws.tidbcloud.com",
             port=4000,
             user="4K4VAw4t4ZPFUTF.root",
-            password="I1lVZQDq2d4KJbQA",
+            password="OhAcM2lizBMDXDgD",
             database=db_a_usar,
             connect_timeout=15,
             charset='utf8mb4',
@@ -162,16 +150,7 @@ def verificar_usuario(conn, user, password):
                 
             # Cursor con diccionario nativo de PyMySQL
             cursor = conn.cursor(pymysql.cursors.DictCursor)
-            
-            # Consultamos al usuario y hacemos un LEFT JOIN con la tabla clientes 
-            # para traernos el estado de su firma, su base de datos asignada y el estado del usuario individual.
-            query = """
-                SELECT u.*, c.estado as estado_cliente, c.db_nombre as db_cliente_nombre, c.nombre_empresa 
-                FROM control_central.usuarios u 
-                LEFT JOIN control_central.clientes c ON u.cliente_id = c.id 
-                WHERE u.usuario = %s
-            """
-            cursor.execute(query, (user,))
+            cursor.execute("SELECT * FROM usuarios WHERE usuario = %s", (user,))
             user_data = cursor.fetchone()
             break 
         except Exception as e:
@@ -192,30 +171,6 @@ def verificar_usuario(conn, user, password):
             pass
         return None 
     
-    # 🚫 VALIDACIÓN 1: LICENCIA / SUSCRIPCIÓN DE LA FIRMA (BLOQUEO GLOBAL DE EMPRESA)
-    rol_actual = str(user_data.get('rol', '')).upper()
-    if user_data.get('cliente_id') and rol_actual != 'SUPERADMIN':
-        estado_firma = str(user_data.get('estado_cliente', '')).lower()
-        if estado_firma not in ['activo', 'activa', '1']:
-            try:
-                if cursor:
-                    cursor.close()
-            except:
-                pass
-            st.error("🚫 **Licencia Suspendida:** El acceso de esta firma se encuentra temporalmente suspendido por falta de pago. Comuníquese con el soporte técnico.")
-            return None
-
-    # 🚫 VALIDACIÓN 2: ESTADO DEL USUARIO INDIVIDUAL (BLOQUEO PERSONALIZADO)
-    estado_usuario = str(user_data.get('estado', 'activo')).lower()
-    if estado_usuario in ['suspendido', 'inactivo', '0']:
-        try:
-            if cursor:
-                cursor.close()
-        except:
-            pass
-        st.error("🚫 **Acceso Restringido:** Tu cuenta de usuario se encuentra suspendida o inactiva. Comuníquese con el administrador de la firma.")
-        return None
-
     # Obtenemos la clave de la base de datos de forma segura
     clave_en_bd = user_data.get('clave_hash') or user_data.get('password')
     login_exitoso = False
@@ -239,7 +194,7 @@ def verificar_usuario(conn, user, password):
                 try:
                     salt = bcrypt.gensalt()
                     nuevo_hash = bcrypt.hashpw(password_bytes, salt).decode('utf-8')
-                    cursor.execute("UPDATE control_central.usuarios SET clave_hash = %s WHERE id = %s", (nuevo_hash, user_data['id']))
+                    cursor.execute("UPDATE usuarios SET clave_hash = %s WHERE id = %s", (nuevo_hash, user_data['id']))
                     conn.commit()
                 except:
                     pass
@@ -257,13 +212,10 @@ def verificar_usuario(conn, user, password):
             user_data['rol'] = 'admin'
         if 'cliente_id' not in user_data:
             user_data['cliente_id'] = None
-        
-        # Aseguramos que la base de datos del cliente viaje limpia en el diccionario
-        user_data['nombre_base_de_datos'] = user_data.get('db_cliente_nombre') or user_data.get('db_nombre')
-        
         return user_data
     else:
         return None
+
 def mostrar_plantilla_bienvenida():
     """Pantalla gigante de bienvenida tras iniciar sesión con éxito"""
     rol = str(st.session_state.get('rol', '')).upper()
@@ -384,467 +336,18 @@ def login_screen():
                     st.session_state['user_id'] = res['id']         
                     st.session_state['cliente_id'] = res.get('cliente_id')  
                     
-                    # 🔑 Guardamos la base de datos del cliente en la sesión
+                    # 🔑 AQUÍ ESTABA EL DETALLE: Guardamos la base de datos del cliente en la sesión
+                    # (Asegúrate de que 'nombre_base_de_datos' coincida con la columna que retorna tu función verificar_usuario)
                     st.session_state['db_cliente'] = res.get('nombre_base_de_datos') 
                     
                     st.session_state['bienvenida_completada'] = False
                     
                     st.rerun()
                 else:
-                    # Si falló, revisamos si el usuario existe pero su firma está suspendida
-                    try:
-                        if not conexion_activa or not getattr(conexion_activa, 'open', False):
-                            conexion_activa = conectar_db()
-                            
-                        cursor_check = conexion_activa.cursor(pymysql.cursors.DictCursor)
-                        cursor_check.execute("""
-                            SELECT c.estado 
-                            FROM usuarios u 
-                            LEFT JOIN clientes c ON u.cliente_id = c.id 
-                            WHERE u.usuario = %s
-                        """, (user,))
-                        datos_cli = cursor_check.fetchone()
-                        cursor_check.close()
-                        
-                        if datos_cli and str(datos_cli.get('estado', '')).lower() in ['suspendido', 'inactivo', '0']:
-                            st.error("🚫 **Acceso Bloqueado:** La licencia de esta firma está suspendida por falta de pago.")
-                        else:
-                            st.error("❌ Credenciales incorrectas")
-                    except Exception:
-                        st.error("❌ Credenciales incorrectas")
+                    st.error("❌ Credenciales incorrectas")
             
             st.markdown('</div>', unsafe_allow_html=True)
 
-
-def mostrar_panel_superadmin(conn):
-    st.subheader("🛡️ Panel de Control Global - Licencias y Firmas")
-    st.markdown("Gestión de estados, suscripciones y accesos de los dueños de firmas.")
-    
-    # 1. Consultar todos los clientes/firmas registradas
-    cursor = conn.cursor(pymysql.cursors.DictCursor)
-    cursor.execute("SELECT id, nombre_empresa, rif, db_nombre, estado FROM clientes")
-    clientes = cursor.fetchall()
-    cursor.close()
-    
-    if not clientes:
-        st.info("No hay firmas registradas en el sistema.")
-        return
-
-    import pandas as pd
-    df_clientes = pd.DataFrame(clientes)
-    
-    st.write("### Listado de Firmas Contables")
-    
-    # Recorremos cada cliente para mostrar una tarjeta o una tabla interactiva con controles
-    for index, row in df_clientes.iterrows():
-        with st.container():
-            col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
-            
-            with col1:
-                st.write(f"**{row['nombre_empresa']}**")
-                st.caption(f"RIF: {row['rif']} | BD: {row['db_nombre']}")
-                
-            with col2:
-                estado_actual = str(row['estado']).lower()
-                if estado_actual in ['activo', 'activa', '1']:
-                    st.success("🟢 ACTIVO")
-                else:
-                    st.error("🔴 SUSPENDIDO")
-                    
-            with col3:
-                # Selector rápido para cambiar el estado
-                nuevo_estado = st.selectbox(
-                    "Cambiar Estado", 
-                    options=["activo", "suspendido"], 
-                    index=0 if estado_actual in ['activo', 'activa', '1'] else 1,
-                    key=f"estado_cli_{row['id']}"
-                )
-                
-            with col4:
-                st.write("") # Espaciador visual
-                if st.button("💾 Actualizar", key=f"btn_upd_{row['id']}"):
-                    try:
-                        cursor_upd = conn.cursor()
-                        cursor_upd.execute(
-                            "UPDATE clientes SET estado = %s WHERE id = %s", 
-                            (nuevo_estado, row['id'])
-                        )
-                        conn.commit()
-                        cursor_upd.close()
-                        st.success(f"¡Actualizado a {nuevo_estado}!")
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Error: {e}")
-            
-            st.divider()
-
-
-
-def verificar_si_es_contribuyente_especial(db_name_o_comercial):
-    """
-    Verifica en la BD central buscando de forma flexible por el nombre técnico (db_nombre) 
-    o por el nombre comercial, actualizando siempre el RIF correcto en la sesión.
-    """
-    if not db_name_o_comercial:
-        return False
-        
-    parametro_limpio = str(db_name_o_comercial).strip()
-
-    try:
-        conexion_admin = conectar_db_principal() # Tu método de conexión global
-        if conexion_admin:
-            with conexion_admin.cursor(dictionary=True) as cursor:
-                # Consulta flexible: busca si coincide con la BD técnica o con el nombre comercial
-                sql = """
-                    SELECT db_nombre, rif, tipo_contribuyente, estado 
-                    FROM clientes 
-                    WHERE TRIM(db_nombre) = TRIM(%s) 
-                       OR TRIM(nombre_empresa) = TRIM(%s)
-                """
-                cursor.execute(sql, (parametro_limpio, parametro_limpio))
-                resultado = cursor.fetchone()
-            
-            conexion_admin.close()
-            
-            if resultado and resultado.get('rif'):
-                rif_encontrado = str(resultado['rif']).strip()
-                db_tecnica = str(resultado.get('db_nombre', parametro_limpio)).strip()
-                tipo_bd = str(resultado.get('tipo_contribuyente', 'Contribuyente Especial')).strip()
-                
-                # ACTUALIZAMOS LA SESIÓN DE FORMA LIMPIA (Evita que se quede pegado el RIF anterior)
-                st.session_state['db_activa'] = db_tecnica
-                st.session_state['DB_ACTUAL'] = db_tecnica  # Sincronizamos la clave principal
-                st.session_state['rif_empresa_activa'] = rif_encontrado
-                st.session_state['tipo_contribuyente'] = tipo_bd
-                
-                return True
-                
-    except Exception as e:
-        print(f"Error verificando tipo de contribuyente: {e}")
-    
-    return False
-
-
-def obtener_calendario_seniat_2026(terminal_rif):
-    """
-    Retorna el diccionario con los cronogramas fiscales del SENIAT 2026 
-    según el terminal de RIF (0 al 9).
-    """
-    iva_1_map = {
-        0: ["28", "20", "25", "23", "20", "29", "27", "31", "29", "20", "27", "16"],
-        1: ["19", "23", "20", "27", "18", "26", "21", "25", "18", "28", "26", "29"],
-        2: ["21", "18", "24", "21", "29", "16", "30", "24", "24", "29", "17", "21"],
-        3: ["30", "18", "23", "30", "22", "18", "23", "18", "21", "23", "23", "28"],
-        4: ["23", "25", "26", "20", "21", "19", "28", "19", "30", "22", "20", "22"],
-        5: ["22", "27", "30", "22", "28", "17", "22", "21", "25", "30", "18", "17"],
-        6: ["20", "19", "27", "24", "19", "30", "20", "28", "28", "21", "25", "18"],
-        7: ["27", "24", "18", "17", "26", "22", "31", "20", "22", "27", "19", "18"],
-        8: ["26", "26", "31", "29", "27", "23", "17", "26", "17", "26", "24", "30"],
-        9: ["29", "27", "17", "28", "25", "25", "29", "27", "23", "19", "30", "23"]
-    }
-
-    iva_2_map = {
-        0: ["15", "09", "06", "01", "06", "12", "08", "14", "14", "05", "13", "03"],
-        1: ["06", "10", "03", "14", "04", "11", "03", "13", "03", "14", "12", "15"],
-        2: ["08", "05", "09", "08", "14", "03", "14", "12", "10", "15", "02", "04"],
-        3: ["16", "12", "04", "16", "07", "10", "07", "05", "02", "07", "09", "11"],
-        4: ["09", "02", "11", "07", "13", "02", "10", "06", "09", "06", "05", "07"],
-        5: ["05", "13", "12", "09", "15", "08", "06", "03", "15", "08", "04", "10"],
-        6: ["13", "04", "10", "13", "05", "15", "09", "04", "11", "02", "11", "08"],
-        7: ["12", "11", "02", "06", "11", "04", "15", "10", "04", "13", "03", "02"],
-        8: ["07", "03", "13", "10", "12", "05", "02", "07", "08", "09", "06", "09"],
-        9: ["14", "06", "05", "15", "08", "09", "13", "11", "07", "01", "10", "14"]
-    }
-
-    def obtener_grupo_islr(term):
-        if term in [0, 8]: return 0
-        elif term in [1, 4]: return 1
-        elif term in [2, 3]: return 2
-        elif term in [5, 9]: return 3
-        elif term in [6, 7]: return 4
-        return 0
-
-    idx_grupo = obtener_grupo_islr(terminal_rif)
-
-    estimadas_islr_matrix = [
-        ["15", "09", "13", "10", "12", "12", "08", "14", "08", "09", "13", "09"], 
-        ["09", "10", "11", "14", "13", "11", "10", "13", "09", "14", "12", "15"], 
-        ["08", "12", "09", "08", "14", "10", "14", "12", "10", "15", "09", "11"], 
-        ["14", "13", "12", "09", "15", "09", "13", "11", "15", "08", "10", "10"], 
-        ["13", "11", "10", "13", "11", "15", "09", "10", "11", "13", "11", "08"]  
-    ]
-
-    retenciones_islr_matrix = [
-        ["15", "09", "06", "10", "12", "05", "08", "07", "08", "09", "06", "09"], 
-        ["09", "10", "11", "07", "13", "11", "10", "06", "09", "06", "05", "07"], 
-        ["08", "05", "09", "08", "07", "10", "07", "12", "10", "07", "09", "04"], 
-        ["14", "06", "05", "09", "08", "09", "06", "11", "07", "08", "10", "10"], 
-        ["13", "11", "10", "06", "11", "04", "09", "10", "04", "13", "11", "08"]  
-    ]
-
-    return {
-        "iva_1": iva_1_map.get(terminal_rif, iva_1_map[0]),
-        "iva_2": iva_2_map.get(terminal_rif, iva_2_map[0]),
-        "estimadas_islr": estimadas_islr_matrix[idx_grupo],
-        "retenciones_islr": retenciones_islr_matrix[idx_grupo]
-    }
-
-
-
-
-def mostrar_calendario_cliente(db_name):
-    """
-    Muestra el calendario fiscal consultando el True Center por nombre de empresa o base de datos (texto).
-    """
-    parametro_seleccionado = str(db_name).strip() if db_name else ""
-    
-    # Verificamos la empresa actual guardada en la sesión
-    db_en_sesion = st.session_state.get('db_actual_empresa')
-    
-    # FORZAMOS LA ACTUALIZACIÓN si cambia de empresa en el selectbox
-    if db_en_sesion != parametro_seleccionado:
-        st.session_state['db_actual_empresa'] = parametro_seleccionado
-        if 'rif_empresa_activa' in st.session_state:
-            del st.session_state['rif_empresa_activa']
-        if 'terminal_rif_activo' in st.session_state:
-            del st.session_state['terminal_rif_activo']
-        if 'nombre_empresa_activa' in st.session_state:
-            del st.session_state['nombre_empresa_activa']
-
-    # Si no está en sesión, consultamos al True Center usando texto
-    if 'rif_empresa_activa' not in st.session_state or 'terminal_rif_activo' not in st.session_state:
-        rif_cliente = "J-00000000-0"
-        terminal_rif = 0
-        nombre_empresa_str = parametro_seleccionado
-        
-        try:
-            conexion_admin = conectar_db("control_central")
-            if conexion_admin:
-                with conexion_admin.cursor(pymysql.cursors.DictCursor) as cursor:
-                    # Búsqueda exacta por texto (db_nombre o nombre_empresa)
-                    sql = """
-                        SELECT id, nombre_empresa, rif, db_nombre, ultimo_digito, tipo_contribuyente 
-                        FROM clientes 
-                        WHERE TRIM(db_nombre) = TRIM(%s) 
-                           OR TRIM(nombre_empresa) = TRIM(%s)
-                    """
-                    cursor.execute(sql, (parametro_seleccionado, parametro_seleccionado))
-                    resultado = cursor.fetchone()# Coloca esto dentro de la función, justo después de ejecutar el cursor.execute:
-                    st.write(f"Buscando en BD el parámetro: '{parametro_seleccionado}'")
-                    
-                    # Si no hay exacta, probamos búsqueda parcial segura (LIKE)
-                    if not resultado:
-                        sql_like = """
-                            SELECT id, nombre_empresa, rif, db_nombre, ultimo_digito, tipo_contribuyente 
-                            FROM clientes 
-                            WHERE TRIM(db_nombre) LIKE TRIM(%s) 
-                               OR TRIM(nombre_empresa) LIKE TRIM(%s)
-                        """
-                        patron = f"%{parametro_seleccionado}%"
-                        cursor.execute(sql_like, (patron, patron))
-                        resultado = cursor.fetchone()
-                    
-                    if resultado:
-                        nombre_empresa_str = str(resultado.get('nombre_empresa', parametro_seleccionado)).strip()
-                        rif_cliente = str(resultado.get('rif', 'J-00000000-0')).strip()
-                        
-                        # Extracción matemática del último dígito del RIF
-                        digitos_rif = "".join([c for c in rif_cliente if c.isdigit()])
-                        if digitos_rif:
-                            terminal_rif = int(digitos_rif[-1])
-                        else:
-                            terminal_rif = int(resultado.get('ultimo_digito', 0))
-                            
-                conexion_admin.close()
-                
-                # Guardamos en sesión para evitar consultas repetidas innecesarias
-                st.session_state['rif_empresa_activa'] = rif_cliente
-                st.session_state['terminal_rif_activo'] = terminal_rif
-                st.session_state['nombre_empresa_activa'] = nombre_empresa_str
-        except Exception as e:
-            st.error(f"❌ Error al conectar con el True Center: {e}")
-            st.session_state['rif_empresa_activa'] = "J-00000000-0"
-            st.session_state['terminal_rif_activo'] = 0
-            st.session_state['nombre_empresa_activa'] = parametro_seleccionado
-
-    # Recuperamos de la sesión
-    rif_cliente = st.session_state.get('rif_empresa_activa', 'J-00000000-0')
-    terminal_rif = int(st.session_state.get('terminal_rif_activo', 0))
-    nombre_empresa_str = st.session_state.get('nombre_empresa_activa', parametro_seleccionado)
-
-    rif_str = str(rif_cliente).strip()
-    digitos_rif = "".join([c for c in rif_str if c.isdigit()])
-    rif_limpio = digitos_rif if digitos_rif else "00000000"
-
-    # Manejo de persistencia de pagos mediante archivo JSON dinámico
-    archivo_pagos = f"pagos_{rif_limpio}.json"
-
-    def cargar_pagos_disco():
-        if os.path.exists(archivo_pagos):
-            try:
-                with open(archivo_pagos, "r") as f:
-                    return json.load(f)
-            except:
-                pass
-        return {"iva_1": False, "iva_2": False, "islr": False, "pensiones": False}
-
-    def guardar_pagos_disco(datos):
-        try:
-            with open(archivo_pagos, "w") as f:
-                json.dump(datos, f)
-        except:
-            pass
-
-    key_session_pagos = f"pagos_realizados_{rif_limpio}"
-    if key_session_pagos not in st.session_state:
-        st.session_state[key_session_pagos] = cargar_pagos_disco()
-
-    pagos_realizados = st.session_state[key_session_pagos]
-
-    # Contenedor interactivo con casillas de verificación
-    st.markdown(f"##### 📝 Control de Pagos Realizados (Empresa: `{nombre_empresa_str}` | RIF: {rif_str} - Terminal: {terminal_rif}):")
-    col_c1, col_c2 = st.columns(2)
-    with col_c1:
-        val_iva_2 = st.checkbox("✅ IVA 2da Quincena Pagado", value=pagos_realizados.get("iva_2", False), key=f"chk_iva_2_{rif_limpio}")
-        val_islr = st.checkbox("✅ Retenciones ISLR Pagadas", value=pagos_realizados.get("islr", False), key=f"chk_islr_{rif_limpio}")
-    with col_c2:
-        val_pensiones = st.checkbox("✅ Ley de Pensiones Pagada", value=pagos_realizados.get("pensiones", False), key=f"chk_pensiones_{rif_limpio}")
-        val_iva_1 = st.checkbox("✅ IVA 1era Quincena Pagado", value=pagos_realizados.get("iva_1", False), key=f"chk_iva_1_{rif_limpio}")
-
-    nuevos_pagos = {
-        "iva_1": val_iva_1,
-        "iva_2": val_iva_2,
-        "islr": val_islr,
-        "pensiones": val_pensiones
-    }
-
-    if nuevos_pagos != pagos_realizados:
-        st.session_state[key_session_pagos] = nuevos_pagos
-        guardar_pagos_disco(nuevos_pagos)
-        st.rerun()
-
-    calendario = obtener_calendario_seniat_2026(terminal_rif)
-    
-    q1_vals = list(calendario['iva_1'])
-    q2_vals = list(calendario['iva_2'])
-    islr_vals = list(calendario['retenciones_islr'])
-    pensiones_vals = ["17", "29", "20", "27", "16", "15", "15", "17", "29", "20", "27", "16"]
-
-    # --- ALERTAS INTELIGENTES ---
-    st.divider()
-    st.markdown("### 🔔 Estado de Alertas Fiscales Próximas")
-
-    hoy = date.today()
-    mes_actual_idx = hoy.month - 1
-
-    try:
-        dia_iva_1 = int(q1_vals[mes_actual_idx])
-        dia_iva_2 = int(q2_vals[mes_actual_idx])
-        dia_islr = int(islr_vals[mes_actual_idx])
-        dia_pensiones = int(pensiones_vals[mes_actual_idx])
-    except:
-        dia_iva_1, dia_iva_2, dia_islr, dia_pensiones = 15, 30, 15, 17
-
-    eventos_fiscales = [
-        {"id": "iva_1", "concepto": "IVA / Anticipos (1era Quincena)", "fecha": date(hoy.year, hoy.month, dia_iva_1)},
-        {"id": "iva_2", "concepto": "IVA / Anticipos (2da Quincena)", "fecha": date(hoy.year, hoy.month, dia_iva_2)},
-        {"id": "islr", "concepto": "Retenciones de ISLR", "fecha": date(hoy.year, hoy.month, dia_islr)},
-        {"id": "pensiones", "concepto": "Ley de Protección de Pensiones", "fecha": date(hoy.year, hoy.month, dia_pensiones)},
-    ]
-
-    alerta_activa = False
-    mensajes_urgentes = []
-
-    for evento in eventos_fiscales:
-        dias_restantes = (evento["fecha"] - hoy).days
-        pagado = pagos_realizados.get(evento["id"], False)
-        
-        if pagado:
-            st.info(f"✔️ **{evento['concepto']}**: Declarado y pagado a tiempo. ¡Sin deudas pendientes para esta fecha!")
-        elif 0 <= dias_restantes <= 3:
-            alerta_activa = True
-            mensajes_urgentes.append(f"⚠️ **¡ATENCIÓN!** Se acerca la declaración y pago de **{evento['concepto']}** programada para el **{evento['fecha'].strftime('%d/%m/%Y')}** (Faltan {dias_restantes} días).")
-
-    if alerta_activa:
-        audio_html = """
-            <audio autoplay style="display:none;">
-              <source src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3" type="audio/mpeg">
-            </audio>
-        """
-        st.markdown(audio_html, unsafe_allow_html=True)
-        texto_notificacion = "<br>".join(mensajes_urgentes)
-        st.markdown(f"""
-            <div id="banco-toast-alerta" style="
-                position: fixed; top: 20px; right: 20px; z-index: 999999;
-                background-color: #fff3cd; color: #856404; padding: 16px 20px;
-                border-radius: 8px; border-left: 6px solid #ffeeba; border: 1px solid #ffeeba;
-                box-shadow: 0 4px 12px rgba(0,0,0,0.15); font-family: sans-serif; max-width: 400px;
-            ">
-                <div style="font-weight: bold; margin-bottom: 5px; font-size: 15px;">🔔 Notificación Fiscal Urgente</div>
-                <div style="font-size: 13px; line-height: 1.4;">{texto_notificacion}</div>
-            </div>
-        """, unsafe_allow_html=True)
-    else:
-        if not any(pagos_realizados.values()) and not any(0 <= (e["fecha"] - hoy).days <= 3 for e in eventos_fiscales):
-            st.success("✅ No hay obligaciones fiscales críticas a menos de 3 días de vencimiento en este momento.")
-
-    st.divider()
-
-    if pagos_realizados["iva_1"]: q1_vals[mes_actual_idx] = "✅ Pagado"
-    if pagos_realizados["iva_2"]: q2_vals[mes_actual_idx] = "✅ Pagado"
-    if pagos_realizados["islr"]: islr_vals[mes_actual_idx] = "✅ Pagado"
-    if pagos_realizados["pensiones"]: pensiones_vals[mes_actual_idx] = "✅ Pagado"
-
-    meses = ["ENE", "FEB", "MAR", "ABR", "MAY", "JUN", "JUL", "AGO", "SEPT", "OCT", "NOV", "DIC"]
-
-    st.subheader(f"📊 Calendario Fiscal 2026 - {nombre_empresa_str} (Terminal RIF: {terminal_rif})")
-    st.markdown("### 🗓️ Cronograma de Declaraciones y Pagos")
-
-    st.markdown("""
-    <style>
-        .fiscal-table { width: 100%; border-collapse: collapse; margin-bottom: 20px; font-family: sans-serif; font-size: 14px; }
-        .fiscal-table th { background-color: #2b313e; color: white; text-align: center; padding: 8px; border: 1px solid #ddd; }
-        .fiscal-table td { text-align: center; padding: 8px; border: 1px solid #ddd; }
-        .header-iva { background-color: #d4edda; color: #155724; font-weight: bold; text-align: left; padding: 8px; }
-        .header-islr { background-color: #fff3cd; color: #856404; font-weight: bold; text-align: left; padding: 8px; }
-        .header-pensiones { background-color: #cce5ff; color: #004085; font-weight: bold; text-align: left; padding: 8px; }
-    </style>
-    """, unsafe_allow_html=True)
-
-    st.markdown("#### 1. IVA, Anticipos de ISLR, IGTF y Retenciones de IVA")
-    st.markdown(f"""
-    <table class="fiscal-table">
-        <tr><th colspan="13" class="header-iva">Primera Quincena (01 al 15) - R.I.F. Terminado en {terminal_rif}</th></tr>
-        <tr><th>R.I.F.</th>{"".join([f"<th>{m}</th>" for m in meses])}</tr>
-        <tr><td><b>{terminal_rif}</b></td>{"".join([f"<td>{val}</td>" for val in q1_vals])}</tr>
-    </table>
-    """, unsafe_allow_html=True)
-
-    st.markdown(f"""
-    <table class="fiscal-table">
-        <tr><th colspan="13" class="header-iva" style="background-color: #e2f0d9;">Segunda Quincena (16 al último) - R.I.F. Terminado en {terminal_rif}</th></tr>
-        <tr><th>R.I.F.</th>{"".join([f"<th>{m}</th>" for m in meses])}</tr>
-        <tr><td><b>{terminal_rif}</b></td>{"".join([f"<td>{val}</td>" for val in q2_vals])}</tr>
-    </table>
-    """, unsafe_allow_html=True)
-
-    st.markdown("#### 2. Retenciones de Impuesto Sobre la Renta")
-    st.markdown(f"""
-    <table class="fiscal-table">
-        <tr><th colspan="13" class="header-islr">Retenciones de Impuesto Sobre la Renta - R.I.F. Terminado en {terminal_rif}</th></tr>
-        <tr><th>R.I.F.</th>{"".join([f"<th>{m}</th>" for m in meses])}</tr>
-        <tr><td><b>{terminal_rif}</b></td>{"".join([f"<td>{val}</td>" for val in islr_vals])}</tr>
-    </table>
-    """, unsafe_allow_html=True)
-
-    st.markdown("#### 3. Ley de Protección de las Pensiones de Seguridad Social")
-    st.markdown(f"""
-    <table class="fiscal-table">
-        <tr><th colspan="13" class="header-pensiones">Ley de Pensiones - R.I.F. Terminado en {terminal_rif}</th></tr>
-        <tr><th>R.I.F.</th>{"".join([f"<th>{m}</th>" for m in meses])}</tr>
-        <tr><td><b>{terminal_rif}</b></td>{"".join([f"<td>{val}</td>" for val in pensiones_vals])}</tr>
-    </table>
-    """, unsafe_allow_html=True)
 
 
 def panel_administracion(conn):
@@ -930,325 +433,6 @@ def panel_administracion(conn):
     except Exception as e:
         st.error(f"Error cargando logs: {e}")
 
-
-def panel_gestion_clientes_firma(conn):
-    st.header("🏢 Gestión de Clientes de la Firma")
-    st.markdown("Administra las empresas clientes que atiende la firma y provisiona sus bases de datos en la nube de forma automatizada.")
-    
-    rol_actual = str(st.session_state.get('rol', '')).lower()
-    id_firma_actual = st.session_state.get('cliente_id')
-    
-    # 1. FORMULARIO DE REGISTRO DE CLIENTE DE LA FIRMA
-    with st.expander("➕ Registrar Nuevo Cliente de la Firma", expanded=False):
-        with st.form("registro_cliente_firma"):
-            col1, col2 = st.columns(2)
-            with col1:
-                nombre_empresa = st.text_input("Nombre del Cliente / Razón Social", help="Ej: Inversiones Globales, C.A.")
-                rif = st.text_input("RIF del Cliente", help="Ej: J-12345678-9")
-            with col2:
-                db_nombre = st.text_input(
-                    "Nombre de la BD (Sin espacios ni caracteres raros)", 
-                    help="Ej: inversiones_globales_ca"
-                )
-                tipo_contribuyente = st.selectbox(
-                    "Tipo de Contribuyente", 
-                    ["Contribuyente Ordinario", "Contribuyente Especial"]
-                )
-            
-            # 🚫 CONTROL DE ESTADO / SUSPENSIÓN DE LICENCIA
-            estado = st.selectbox(
-                "Estado de la Licencia", 
-                ["Activo", "Suspendido", "Inactivo"],
-                help="Si se marca como 'Suspendido', los usuarios de esta firma no podrán iniciar sesión."
-            )
-            
-            btn_guardar = st.form_submit_button("💾 Crear Cliente y Base de Datos")
-            
-            if btn_guardar:
-                if not nombre_empresa or not db_nombre:
-                    st.error("❌ El nombre del cliente y el nombre de la BD son obligatorios.")
-                else:
-                    try:
-                        cursor = conn.cursor()
-                        
-                        sql = """
-                            INSERT INTO control_central.clientes (nombre_empresa, rif, db_nombre, tipo_contribuyente, estado) 
-                            VALUES (%s, %s, %s, %s, %s)
-                        """
-                        cursor.execute(sql, (
-                            nombre_empresa, 
-                            rif, 
-                            db_nombre, 
-                            tipo_contribuyente, 
-                            estado
-                        ))
-                        conn.commit()
-                        cursor.close()
-                        
-                        st.info(f"🚀 Provisionando base de datos y tablas para '{db_nombre}' en TiDB Cloud...")
-                        conectar_db(db_nombre)
-                        
-                        st.success(f"✅ ¡Cliente de la firma '{nombre_empresa}' y su base de datos fueron configurados con éxito!")
-                        st.balloons()
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"❌ Error al registrar el cliente: {e}")
-
-    st.divider()
-
-    # 2. TABLA DE CLIENTES DE LA FIRMA REGISTRADOS (CON CONTROL DE ESTADOS)
-    st.subheader("📋 Listado de Clientes de la Firma y Estados de Licencia")
-    st.markdown("💡 *Puedes cambiar el estado de cualquier firma para bloquear o permitir el acceso a sus usuarios instantáneamente.*")
-    
-    try:
-        if rol_actual in ['admin', 'superadmin']:
-            query_view = "SELECT id, nombre_empresa, rif, db_nombre, tipo_contribuyente, estado FROM control_central.clientes"
-            df_clientes = ejecutar_consulta(query_view, conn)
-        else:
-            # 🔍 CORRECCIÓN: Trae su propia empresa y los clientes del mismo rango de la firma
-            query_view = """
-                SELECT id, nombre_empresa, rif, db_nombre, tipo_contribuyente, estado 
-                FROM control_central.clientes 
-                WHERE id = %s OR id LIKE '4200%%'
-            """
-            df_clientes = ejecutar_consulta(query_view, conn, params=(id_firma_actual,))
-        
-        if df_clientes is not None and not df_clientes.empty:
-            # Mostramos un editor de datos para cambiar los estados
-            edit_df = st.data_editor(
-                df_clientes, 
-                use_container_width=True,
-                key="editor_clientes_firma",
-                column_config={
-                    "id": "ID",
-                    "nombre_empresa": st.column_config.TextColumn("Razón Social", disabled=True),
-                    "rif": st.column_config.TextColumn("RIF", disabled=True),
-                    "db_nombre": st.column_config.TextColumn("Base de Datos (TiDB)", disabled=True),
-                    "tipo_contribuyente": st.column_config.SelectboxColumn("Tipo de Contribuyente", options=["Contribuyente Ordinario", "Contribuyente Especial"]),
-                    "estado": st.column_config.SelectboxColumn("Estado de Licencia", options=["Activo", "Suspendido", "Inactivo"])
-                },
-                disabled=["id", "nombre_empresa", "rif", "db_nombre"]
-            )
-            
-            # Botón para guardar cambios de estado masivos desde la tabla
-            if st.button("💾 Actualizar Estados de Licencias"):
-                try:
-                    cursor = conn.cursor()
-                    for _, row in edit_df.iterrows():
-                        cursor.execute(
-                            "UPDATE control_central.clientes SET estado = %s WHERE id = %s",
-                            (row['estado'], row['id'])
-                        )
-                    conn.commit()
-                    cursor.close()
-                    st.success("✅ Estados de licencias actualizados correctamente. Los bloqueos entrarán en vigor de inmediato.")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"❌ Error al actualizar los estados en la base de datos: {e}")
-        else:
-            st.info("ℹ️ No hay clientes de la firma registrados todavía en el sistema.")
-    except Exception as e:
-        st.error(f"❌ Error al cargar la lista de clientes de la firma: {e}")
-
-
-def panel_administracion_firmas(conn):
-    # 🔒 Blindaje de seguridad flexible
-    rol_actual = str(st.session_state.get('rol', '')).strip().lower()
-    cliente_id_actual = st.session_state.get('cliente_id')
-    
-    # Permitimos si es admin, superadmin, o si el texto contiene 'admin_firma' o 'firma'
-    es_permitido = (
-        rol_actual in ['admin', 'superadmin', 'admin_firma'] or
-        'admin_firma' in rol_actual or
-        'firma' in rol_actual
-    )
-    
-    if not es_permitido:
-        st.error(f"⛔ Acceso denegado. Tu rol actual ('{rol_actual}') no tiene permisos para gestionar usuarios y accesos.")
-        return  # Corta la ejecución
-
-    st.header("🏢 Gestión de Usuarios y Accesos de la Firma")
-    st.markdown("Registra un nuevo usuario para tu empresa, asígnale su rol y controla su estado de acceso inicial.")
-    
-    # 1. CARGAR EMPRESAS (Si es superadmin ve todas, si es admin_firma solo ve la suya)
-    try:
-        if 'admin' in rol_actual or 'superadmin' in rol_actual:
-            query_empresas = "SELECT id, nombre_empresa, rif, db_nombre FROM control_central.clientes"
-            df_empresas = ejecutar_consulta(query_empresas, conn)
-        else:
-            query_empresas = "SELECT id, nombre_empresa, rif, db_nombre FROM control_central.clientes WHERE id = %s"
-            df_empresas = ejecutar_consulta(query_empresas, conn, params=(cliente_id_actual,))
-    except Exception:
-        df_empresas = pd.DataFrame()
-
-    with st.expander("➕ Registrar Nuevo Usuario", expanded=True):
-        with st.form("registro_admin_firma"):
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                nombre_usuario = st.text_input("Nombre de Usuario", help="Ej: operador_nuevo")
-                contrasena = st.text_input("Contraseña", type="password", help="Contraseña de acceso")
-            
-            with col2:
-                rol_usuario = st.selectbox(
-                    "Rol del Sistema", 
-                    ["contador", "asistente", "admin_firma"], 
-                    help="Selecciona el rol que tendrá este usuario dentro de la firma"
-                )
-                
-                # Selector de estado inicial de acceso para el nuevo usuario
-                estado_usuario_nuevo = st.selectbox(
-                    "Estado Inicial de Acceso",
-                    ["Activo", "Suspendido", "Inactivo"]
-                )
-                
-                # Selector de empresa (Si es superadmin elige, si es admin_firma se asigna su propia empresa por defecto)
-                lista_nombres = []
-                if not df_empresas.empty and 'nombre_empresa' in df_empresas.columns:
-                    lista_nombres = df_empresas['nombre_empresa'].dropna().tolist()
-                
-                if lista_nombres:
-                    if 'admin' in rol_actual or 'superadmin' in rol_actual:
-                        empresa_seleccionada = st.selectbox("Asociar a Empresa", options=lista_nombres)
-                    else:
-                        empresa_seleccionada = lista_nombres[0] # Su propia empresa fija
-                        st.info(f"📌 Empresa asignada automáticamente: **{empresa_seleccionada}**")
-                else:
-                    empresa_seleccionada = None
-                    st.warning("⚠️ No hay empresas disponibles.")
-
-            btn_guardar = st.form_submit_button("💾 Guardar Usuario")
-            
-            if btn_guardar:
-                if not nombre_usuario or not contrasena or not rol_usuario:
-                    st.error("❌ Todos los campos obligatorios deben llenarse.")
-                elif not empresa_seleccionada:
-                    st.error("❌ No se encontró una empresa válida para asociar.")
-                else:
-                    try:
-                        fila_empresa = df_empresas[df_empresas['nombre_empresa'].astype(str).str.strip() == str(empresa_seleccionada).strip()]
-                        
-                        if fila_empresa.empty:
-                            st.error("❌ Error al identificar la empresa seleccionada.")
-                        else:
-                            cliente_id_asociado = int(fila_empresa.iloc[0]['id'])
-                            db_nombre_asociado = str(fila_empresa.iloc[0]['db_nombre'])
-                            
-                            hashed_password = bcrypt.hashpw(contrasena.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
-                            
-                            cursor = conn.cursor()
-                            sql = """
-                                INSERT INTO control_central.usuarios (usuario, clave_hash, rol, cliente_id, db_nombre, estado) 
-                                VALUES (%s, %s, %s, %s, %s, %s)
-                            """
-                            cursor.execute(sql, (
-                                nombre_usuario.strip(), 
-                                hashed_password, 
-                                rol_usuario.strip(), 
-                                cliente_id_asociado, 
-                                db_nombre_asociado,
-                                estado_usuario_nuevo
-                            ))
-                            conn.commit()
-                            cursor.close()
-                            
-                            # 🟢 Mensaje de éxito directo y claro antes del rerun
-                            st.success(f"¡Información guardada con éxito! El usuario '{nombre_usuario.strip()}' ha sido registrado correctamente.")
-                            st.balloons()
-                            
-                            # Opcional: un pequeño delay visual o forzar la actualización limpia
-                            st.stop() # Detiene la ejecución momentáneamente para que el usuario lea el mensaje de éxito
-                            
-                    except Exception as e:
-                        # Si ocurre un error de duplicado (1062), se lo informamos claramente al usuario
-                        if "1062" in str(e):
-                            st.error(f"❌ El nombre de usuario '{nombre_usuario.strip()}' ya existe en el sistema. Por favor, elige uno diferente.")
-                        else:
-                            st.error(f"❌ Error al registrar el usuario: {e}")
-
-def panel_bloqueo_suspension_usuarios(conn):
-    # 🔒 Blindaje de seguridad flexible para evitar bloqueos por nombres de roles
-    rol_actual = str(st.session_state.get('rol', '')).strip().lower()
-    cliente_id_actual = st.session_state.get('cliente_id')
-    
-    # Permitimos acceso si es admin, superadmin, o si el rol contiene 'admin_firma' o 'firma'
-    es_autorizado = (
-        rol_actual in ['admin', 'superadmin', 'admin_firma'] or 
-        'admin_firma' in rol_actual or 
-        'firma' in rol_actual
-    )
-    
-    if not es_autorizado:
-        st.error(f"⛔ Acceso denegado. Tu rol actual ('{rol_actual}') no tiene permisos para gestionar bloqueos o suspensiones.")
-        return
-
-    st.header("🔒 Panel de Control, Bloqueo y Suspensión de Usuarios")
-    st.markdown("💡 *Modifica el estado de acceso de los usuarios directamente en la base de datos MySQL para suspender, activar o restringir su ingreso al sistema.*")
-
-    try:
-        # Si es superadmin ve a todo el mundo; si es dueño de firma, solo ve a su personal
-        if rol_actual in ['admin', 'superadmin']:
-            query = """
-                SELECT 
-                    u.id AS id_usuario, 
-                    u.usuario, 
-                    u.rol, 
-                    u.estado, 
-                    c.nombre_empresa AS empresa_asignada 
-                FROM control_central.usuarios u 
-                LEFT JOIN control_central.clientes c ON u.cliente_id = c.id
-            """
-            df_usuarios = ejecutar_consulta(query, conn)
-        else:
-            query = """
-                SELECT 
-                    u.id AS id_usuario, 
-                    u.usuario, 
-                    u.rol, 
-                    u.estado, 
-                    c.nombre_empresa AS empresa_asignada 
-                FROM control_central.usuarios u 
-                LEFT JOIN control_central.clientes c ON u.cliente_id = c.id
-                WHERE u.cliente_id = %s
-            """
-            df_usuarios = ejecutar_consulta(query, conn, params=(cliente_id_actual,))
-
-        if df_usuarios is not None and not df_usuarios.empty:
-            # Editor interactivo para cambiar los estados de manera visual
-            edit_df = st.data_editor(
-                df_usuarios,
-                use_container_width=True,
-                key="editor_tabla_bloqueo_usuarios",
-                column_config={
-                    "id_usuario": "ID",
-                    "usuario": st.column_config.TextColumn("Usuario", disabled=True),
-                    "rol": st.column_config.TextColumn("Rol", disabled=True),
-                    "estado": st.column_config.SelectboxColumn("Estado de Acceso", options=["Activo", "Suspendido", "Inactivo"]),
-                    "empresa_asignada": st.column_config.TextColumn("Empresa / Firma", disabled=True)
-                },
-                disabled=["id_usuario", "usuario", "rol", "empresa_asignada"]
-            )
-
-            # Botón para guardar los cambios masivos directamente en la base de datos MySQL
-            if st.button("💾 Guardar Bloqueos / Cambios en MySQL"):
-                try:
-                    cursor = conn.cursor()
-                    for _, row in edit_df.iterrows():
-                        cursor.execute(
-                            "UPDATE control_central.usuarios SET estado = %s WHERE id = %s",
-                            (row['estado'], row['id_usuario'])
-                        )
-                    conn.commit()
-                    cursor.close()
-                    st.success("✅ ¡Estados de acceso actualizados en MySQL con éxito! Los bloqueos ya están aplicando.")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"❌ Error al actualizar los estados en la base de datos: {e}")
-        else:
-            st.info("ℹ️ No hay usuarios registrados para gestionar.")
-
-    except Exception as e:
-        st.error(f"❌ Error al consultar la base de datos: {e}")
 
 def registrar_log_automatico(conn, accion, detalles):
     """Registra automáticamente las interacciones del usuario en la tabla logs_auditoria
@@ -1357,14 +541,13 @@ def obtener_saldos_acumulados(conexion, fecha_corte, nombre_db):
     if not conexion: 
         return {"activo": 0, "pasivo": 0, "patrimonio": 0}
     
-    # Limpiamos directamente el nombre que viene de la sesión o del selector
     db_segura = str(nombre_db).strip()
     cur = conexion.cursor(pymysql.cursors.DictCursor)
     
     try:
-        # Se conecta de forma limpia a la base de datos que toque (sea admin, firma o cliente final)
         cur.execute(f"USE `{db_segura}`")
         
+        # IMPORTANTE: Se usa LIKE '1%%' con doble porcentaje para que Python no lo confunda con formato
         query = """
             SELECT 
                 COALESCE(SUM(CASE WHEN plan_cuentas LIKE '1%%' THEN (debe - haber) ELSE 0 END), 0) as activo,
@@ -1463,7 +646,7 @@ def obtener_datos_barras(db, fecha_inicio, fecha_fin):
 @st.cache_data(ttl=300)
 def obtener_historico_utilidad(db, f_inicio=None, f_fin=None):
     conn = conectar_db(db)
-    df_default = pd.DataFrame(columns=['anio', 'mes', 'mes_nombre', 'utilidad_mensual', 'utilidad_acumulada'])
+    df_default = pd.DataFrame(columns=['anio', 'mes', 'mes_nombre', 'utilidad_mensual'])
     
     if not conn:
         st.warning("⚠️ No se pudo conectar a la base de datos en obtener_historico_utilidad.")
@@ -1487,6 +670,8 @@ def obtener_historico_utilidad(db, f_inicio=None, f_fin=None):
         'mes': list(range(1, 13))
     })
 
+    # CORREGIDO: Se quitó la 'f' de la f-string y se usa .format() solo para el nombre de la BD 
+    # para que los '%Y' y los '%%' de SQL queden intactos y Python no los toque.
     query = """
         SELECT 
             YEAR(STR_TO_DATE(LEFT(fecha, 10), '%%Y-%%m-%%d')) as anio,
@@ -1518,23 +703,13 @@ def obtener_historico_utilidad(db, f_inicio=None, f_fin=None):
         cursor.execute(query, (anio_base,))
         resultados = cursor.fetchall()
         
-        # BLINDAJE: Definimos todas las columnas por si la consulta viene vacía
-        columnas_requeridas = [
-            'anio', 'mes', 'ing_haber', 'ing_debe', 'cos_debe', 'cos_haber',
-            'gas_debe', 'gas_haber', 'oing_haber', 'oing_debe', 'oeg_debe', 'oeg_haber'
-        ]
-        
-        if resultados:
-            df_sql = pd.DataFrame(resultados)
+        df_sql = pd.DataFrame(resultados) if resultados else pd.DataFrame(columns=['anio', 'mes'])
+
+        if not df_sql.empty and 'mes' in df_sql.columns:
+            df = pd.merge(meses_skeleton, df_sql, on=['anio', 'mes'], how='left')
         else:
-            df_sql = pd.DataFrame(columns=columnas_requeridas)
+            df = meses_skeleton
 
-        # Nos aseguramos de que el DataFrame tenga todas las columnas de operaciones contables
-        for col in columnas_requeridas:
-            if col not in df_sql.columns:
-                df_sql[col] = 0
-
-        df = pd.merge(meses_skeleton, df_sql, on=['anio', 'mes'], how='left')
         df = df.fillna(0)
 
         ingresos = df['ing_haber'] - df['ing_debe']
@@ -1566,7 +741,7 @@ def obtener_historico_utilidad(db, f_inicio=None, f_fin=None):
 
 
 
-@st.cache_data(ttl=1)
+@st.cache_data(ttl=300)
 def obtener_salud_fiscal(db, f_inicio=None, f_fin=None):
     if not isinstance(db, str):
         db = str(db) if db else "control_central"
@@ -1605,13 +780,14 @@ def obtener_salud_fiscal(db, f_inicio=None, f_fin=None):
     f_fin_anual = datetime.date(anio_base, 12, 31)
     db_segura = str(db).strip()
 
+    # Construcción dinámica de la query para DPP
     if db == 'kingdriver_ca':
         dpp_query = "SUM(CASE WHEN plan_cuentas LIKE '6.1.1.03.020%%' THEN haber ELSE 0 END) as DPP_haber, SUM(CASE WHEN plan_cuentas LIKE '6.1.1.03.020%%' THEN debe ELSE 0 END) as DPP_debe"
     else:
         dpp_query = """SUM(CASE WHEN plan_cuentas LIKE '6.1.1.03%%' AND plan_cuentas NOT LIKE '6.1.1.03.013%%' AND plan_cuentas NOT LIKE '6.1.1.03.021%%' AND plan_cuentas NOT LIKE '6.1.1.03.022%%' THEN haber ELSE 0 END) as DPP_haber,
                     SUM(CASE WHEN plan_cuentas LIKE '6.1.1.03%%' AND plan_cuentas NOT LIKE '6.1.1.03.013%%' AND plan_cuentas NOT LIKE '6.1.1.03.021%%' AND plan_cuentas NOT LIKE '6.1.1.03.022%%' THEN debe ELSE 0 END) as DPP_debe"""
 
-    query = f"""
+    query = """
         SELECT 
             YEAR(CAST(fecha AS DATE)) as anio,
             MONTH(CAST(fecha AS DATE)) as mes,
@@ -1643,7 +819,7 @@ def obtener_salud_fiscal(db, f_inicio=None, f_fin=None):
         WHERE CAST(fecha AS DATE) BETWEEN %s AND %s
         GROUP BY anio, mes
         ORDER BY anio ASC, mes ASC
-    """
+    """.format(db_segura=db_segura, dpp_query=dpp_query)
     
     cursor = None
     try:
@@ -1651,27 +827,16 @@ def obtener_salud_fiscal(db, f_inicio=None, f_fin=None):
         cursor.execute(query, (str(f_inicio_anual), str(f_fin_anual)))
         resultados = cursor.fetchall()
         
-        columnas_fiscales = [
-            'anio', 'mes', 'exentos_acum', 'gravados_acum', 'compras_exentas_acum', 'compras_16_acum',
-            'DPP_haber', 'DPP_debe', 'comisiones_bancarias_haber', 'comisiones_bancarias_debe',
-            'refrigerios_haber', 'refrigerios_debe', 'representacion_haber', 'representacion_debe',
-            'otros_ingresos_haber', 'otros_ingresos_debe', 'otros_egresos_haber', 'otros_egresos_debe',
-            'iva_debito_fiscal', 'iva_por_pagar', 'retencion_iva_compras', 'pagos_anticipados_islr',
-            'retencion_islr_proveedores', 'islr_pagar'
-        ]
+        df_sql = pd.DataFrame(resultados) if resultados else pd.DataFrame(columns=['anio', 'mes'])
 
-        df_sql = pd.DataFrame(resultados) if resultados else pd.DataFrame(columns=columnas_fiscales)
+        if not df_sql.empty and 'mes' in df_sql.columns:
+            df = pd.merge(meses_skeleton, df_sql, on=['anio', 'mes'], how='left')
+        else:
+            df = meses_skeleton
 
-        for col in columnas_fiscales:
-            if col not in df_sql.columns:
-                df_sql[col] = 0.0
-            else:
-                # CONVERSIÓN BLINDADA: Transformamos cualquier Decimal de MySQL a float limpio
-                df_sql[col] = pd.to_numeric(df_sql[col], errors='coerce').fillna(0.0)
+        df = df.fillna(0)
 
-        df = pd.merge(meses_skeleton, df_sql, on=['anio', 'mes'], how='left')
-        df = df.fillna(0.0)
-
+        # Des-acumulación mes a mes para los acumulados
         df['ingresos_exentos'] = df['exentos_acum'].diff().fillna(df['exentos_acum'])
         df['ingresos_gravados'] = df['gravados_acum'].diff().fillna(df['gravados_acum'])
         df['compras_exentas'] = df['compras_exentas_acum'].diff().fillna(df['compras_exentas_acum'])
@@ -1690,6 +855,7 @@ def obtener_salud_fiscal(db, f_inicio=None, f_fin=None):
         }
         df['mes_nombre'] = df['mes'].map(dic_meses_nombres)
 
+        import calendar
         df['primer_dia_mes'] = df.apply(lambda row: datetime.date(int(row['anio']), int(row['mes']), 1), axis=1)
 
         df_filtrado = df[(df['primer_dia_mes'] >= datetime.date(f_inicio.year, f_inicio.month, 1)) & 
@@ -1698,6 +864,7 @@ def obtener_salud_fiscal(db, f_inicio=None, f_fin=None):
         if df_filtrado.empty:
             df_filtrado = df.copy()
 
+        # Sumatorias totales para el periodo filtrado
         total_exentos = df_filtrado['ingresos_exentos'].sum()
         total_gravados = df_filtrado['ingresos_gravados'].sum()
         total_compras_exentas = df_filtrado['compras_exentas'].sum()
@@ -1715,6 +882,7 @@ def obtener_salud_fiscal(db, f_inicio=None, f_fin=None):
         total_anticipo_islr = df_filtrado['pagos_anticipados_islr'].sum()
         total_ret_islr = df_filtrado['retencion_islr_proveedores'].sum()
         total_islr_pagar = df_filtrado['islr_pagar'].sum()
+
 
         kpis_fiscales = {
             'ingresos_exentos': total_exentos,
@@ -1864,24 +1032,24 @@ def obtener_historico_utilidad_acumulada(db, año=2026, mes_limite=6):
         año = 2026
         mes_limite = 6
 
-    # 3. Consulta 100% Segura usando Parámetros (%s) y caracteres escapados (%%)
+    # 3. Consulta 100% Segura usando Parámetros (%s)
     query = f"""
         SELECT 
-            MONTH(STR_TO_DATE(fecha, '%%Y-%%m-%%d')) as mes,
-            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '4%%' THEN haber ELSE 0 END) as ingresos_haber,
-            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '4%%' THEN debe ELSE 0 END) as ingresos_debe,
-            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '5%%' THEN haber ELSE 0 END) as costos_haber,
-            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '5%%' THEN debe ELSE 0 END) as costos_debe,
-            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '6%%' THEN haber ELSE 0 END) as gastos_haber,
-            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '6%%' THEN debe ELSE 0 END) as gastos_debe,
-            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '7%%' THEN haber ELSE 0 END) as otros_ingresos_haber,
-            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '7%%' THEN debe ELSE 0 END) as otros_ingresos_debe,
-            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '8%%' THEN haber ELSE 0 END) as otros_haber,
-            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '8%%' THEN debe ELSE 0 END) as oitros_debe
+            MONTH(STR_TO_DATE(fecha, '%Y-%m-%d')) as mes,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '4%' THEN haber ELSE 0 END) as ingresos_haber,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '4%' THEN debe ELSE 0 END) as ingresos_debe,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '5%' THEN haber ELSE 0 END) as costos_haber,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '5%' THEN debe ELSE 0 END) as costos_debe,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '6%' THEN haber ELSE 0 END) as gastos_haber,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '6%' THEN debe ELSE 0 END) as gastos_debe,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '7%' THEN haber ELSE 0 END) as otros_ingresos_haber,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '7%' THEN debe ELSE 0 END) as otros_ingresos_debe,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '8%' THEN haber ELSE 0 END) as otros_haber,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '8%' THEN debe ELSE 0 END) as oitros_debe
         FROM `{db}`.asientos_contables 
-        WHERE YEAR(STR_TO_DATE(fecha, '%%Y-%%m-%%d')) = %s 
-          AND MONTH(STR_TO_DATE(fecha, '%%Y-%%m-%%d')) <= %s
-        GROUP BY MONTH(STR_TO_DATE(fecha, '%%Y-%%m-%%d'))
+        WHERE YEAR(STR_TO_DATE(fecha, '%Y-%m-%d')) = %s 
+          AND MONTH(STR_TO_DATE(fecha, '%Y-%m-%d')) <= %s
+        GROUP BY MONTH(STR_TO_DATE(fecha, '%Y-%m-%d'))
         ORDER BY mes ASC
     """
     
@@ -2917,29 +2085,15 @@ def generar_balance_profesional(conn, f_i, f_f, sucursal):
         # Recalcular saldo final global de cada fila por seguridad
         df['Saldo Final'] = df['Saldo Inicial'] + df['Debe'] - df['Haber']
 
-        # 6. Fila Total Global aplicando la ecuación patrimonial exacta
-        # 6. Fila Total Global asegurando la balanza patrimonial en cero
+        # 6. Fila Total Global replicando exactamente la suma de las cuentas de Nivel 1 del Excel
         df_nivel_1 = df[df['nivel'] == 1]
         
         total_debe = float(df_nivel_1['Debe'].sum())
         total_haber = float(df_nivel_1['Haber'].sum())
 
-        total_saldo_inicial_neto = 0.0
-        total_saldo_final_neto = 0.0
-
-        for _, row in df_nivel_1.iterrows():
-            digito = str(row['codigo']).strip()[0]
-            s_ini = float(row['Saldo Inicial'])
-            s_fin = float(row['Saldo Final'])
-            
-            # Cuentas de naturaleza deudora (1, 4, 5, 8) vs Acreedora (2, 3, 6, 7)
-            # Para que la balanza neta dé cero, las acreedoras deben restar al sumarse algebraicamente con las deudoras
-            if digito in ['1', '4', '5', '8']:
-                total_saldo_inicial_neto += s_ini
-                total_saldo_final_neto += s_fin
-            else:
-                total_saldo_inicial_neto -= s_ini
-                total_saldo_final_neto -= s_fin
+        # Suma directa de las filas principales de nivel 1 tal cual como en el Excel
+        total_saldo_inicial_neto = float(df_nivel_1['Saldo Inicial'].sum())
+        total_saldo_final_neto = float(df_nivel_1['Saldo Final'].sum())
 
         fila_total = pd.DataFrame([{
             'codigo': 'Σ', 
@@ -2947,10 +2101,10 @@ def generar_balance_profesional(conn, f_i, f_f, sucursal):
             'nivel': 0, 
             'tipo': 'Total', 
             'padre': None,
-            'Saldo Inicial': round(total_saldo_inicial_neto, 2), # Cierra en 0.00
-            'Debe': total_debe,                               # Suma real de movimientos
-            'Haber': total_haber,                             # Suma real de movimientos
-            'Saldo Final': round(total_saldo_final_neto, 2)     # Cierra en 0.00
+            'Saldo Inicial': round(total_saldo_inicial_neto, 2), # Cierra en 0.00 exacto
+            'Debe': total_debe,                                 # Suma total de movimientos del Debe
+            'Haber': total_haber,                               # Suma total de movimientos del Haber
+            'Saldo Final': round(total_saldo_final_neto, 2)     # Cierra en 0.00 exacto
         }])
         
         cols_salida = ['codigo', 'nombre', 'nivel', 'tipo', 'padre', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final']
@@ -3185,35 +2339,30 @@ def cargar_libro_compras_db(df, nombre_db=None):
         return
 
     def clean_n(v):
-        if pd.isna(v): return 0.0
         if isinstance(v, (int, float)): return round(float(v), 2)
         s = str(v).strip().replace('.', '').replace(',', '.')
-        if s.lower() in ['nan', 'none', 'nat', '', '-']: return 0.0
+        if s in ['nan', 'None', '', '-']: return 0.0
         try: return round(float(s), 2)
         except: return 0.0
 
     def convertir_fecha(v):
         try:
-            if pd.isna(v): return "2026-06-06"
             if hasattr(v, 'strftime'): 
                 return v.strftime('%Y-%m-%d')
-            parsed = pd.to_datetime(v, errors='coerce')
-            if pd.isna(parsed): return "2026-06-06"
-            return parsed.strftime('%Y-%m-%d')
+            return pd.to_datetime(v).strftime('%Y-%m-%d')
         except Exception as e:
+            st.error(f"Error convirtiendo fecha '{v}': {e}")
             return "2026-06-06"
 
     def limpiar_texto(val):
         if pd.isna(val): return ""
         s = str(val).strip()
-        if s.lower() in ['nan', 'none', 'nat']: return ""
         if s.endswith('.0'): s = s[:-2]
         return s
 
     cursor = None
     try:
-        # Desactivamos el autocommit para manejar la transacción de forma manual y segura
-        conn.autocommit = False
+        conn.autocommit = True
         cursor = conn.cursor()
         
         cursor.execute(f"USE `{nombre_db}`;")
@@ -3222,60 +2371,50 @@ def cargar_libro_compras_db(df, nombre_db=None):
         db_nombre_actual = db_conectada['DATABASE()'] if isinstance(db_conectada, dict) else db_conectada[0]
         st.info(f"🔍 Conectado y usando el esquema: **{db_nombre_actual}**")
 
+        registros_a_insertar = []
         cols = list(df.columns)
+        
         if len(cols) < 11:
             st.error(f"❌ El archivo cargado tiene {len(cols)} columnas, se esperan al menos 11.")
             return
 
-        # Usamos INSERT con control de duplicados para evitar bloqueos por llaves
-        sql = """INSERT INTO libro_compras 
+        # SQL DEFINITIVA: Excluye retencion_iva_realizada y cliente_id (12 campos exactos)
+        sql = """REPLACE INTO libro_compras 
                 (fecha_operacion, tipo_documento, n_factura, n_control, proveedor, rif, 
                  total_compras, importe_exento, base_imponible, iva_porcentaje, iva_monto,
                  retencion_realizada, tipo_transaccion) 
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                ON DUPLICATE KEY UPDATE 
-                total_compras = VALUES(total_compras),
-                base_imponible = VALUES(base_imponible),
-                iva_monto = VALUES(iva_monto),
-                proveedor = VALUES(proveedor)"""
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"""
 
-        registros_a_insertar = []
         for i, row in df.iterrows():
             n_fact = limpiar_texto(row[cols[2]])
             if not n_fact: continue
 
             valores = (
-                convertir_fecha(row[cols[0]]),                # 0: Fecha de Operación
-                limpiar_texto(row[cols[1]]).zfill(2) if limpiar_texto(row[cols[1]]) else "01", # 1: Tipo de Documento
-                n_fact,                                       # 2: Número de Factura
-                limpiar_texto(row[cols[3]]),                  # 3: Número de Control
-                limpiar_texto(row[cols[4]]).upper(),          # 4: Proveedor
+                convertir_fecha(row[cols[0]]),                    # 0: Fecha de Operación
+                limpiar_texto(row[cols[1]]).zfill(2),             # 1: Tipo de Documento
+                n_fact,                                           # 2: Número de Factura
+                limpiar_texto(row[cols[3]]),                      # 3: Número de Control
+                limpiar_texto(row[cols[4]]).upper(),              # 4: Proveedor
                 limpiar_texto(row[cols[5]]).replace('-', '').replace('.', ''), # 5: R.I.F.
-                clean_n(row[cols[6]]),                        # 6: Total Compra
-                clean_n(row[cols[7]]),                        # 7: Compras Exentas
-                clean_n(row[cols[8]]),                        # 8: Base Imponible
-                clean_n(row[cols[9]]),                        # 9: Alícuota (%)
-                clean_n(row[cols[10]]),                       # 10: Crédito Fiscal (IVA Monto)
-                0.00,                                         # 11: retencion_realizada
-                "C"                                           # 12: tipo_transaccion
+                clean_n(row[cols[6]]),                            # 6: Total Compra
+                clean_n(row[cols[7]]),                            # 7: Compras Exentas
+                clean_n(row[cols[8]]),                            # 8: Base Imponible
+                clean_n(row[cols[9]]),                            # 9: Alícuota (%)
+                clean_n(row[cols[10]]),                           # 10: Crédito Fiscal (IVA Monto)
+                0.00,                                             # 11: retencion_realizada
+                "C"                                               # 12: tipo_transaccion
             )
             registros_a_insertar.append(valores)
 
         if registros_a_insertar:
             cursor.executemany(sql, registros_a_insertar)
-            
-            # ¡IMPORTANTE! Forzamos la confirmación de escritura en el servidor de BD
-            conn.commit()
-            
             filas_afectadas = cursor.rowcount
-            st.success(f"🔥 ¡Proceso exitoso! Se guardaron/actualizaron registros correctamente (Filas afectadas: {filas_afectadas}).")
-            
+            st.success(f"🔥 ¡Proceso exitoso! Se guardaron {len(registros_a_insertar)} registros correctamente (Filas afectadas: {filas_afectadas}).")
         else:
-            st.warning("⚠️ No se encontraron registros válidos para insertar.")
+            st.warning("⚠️ No se encontraron registros válidos con número de factura para insertar.")
             
     except Exception as e:
-        if conn: 
-            conn.rollback()
+        if conn: conn.rollback()
         st.error(f"❌ Error crítico de escritura en la BD del cliente: {e}")
     finally:
         if cursor: cursor.close()
@@ -3582,52 +2721,6 @@ def comprobar_existencia_comprobante(n_comprobante):
                 
     return existe
 
-def borrar_compras_por_rango(desde, hasta):
-    db_actual = st.session_state.get('DB_ACTUAL')
-    conexion = conectar_db(db_actual)
-    
-    # CORRECCIÓN: Usamos 'conexion' en lugar de 'conn'
-    registrar_log_automatico(conexion, "BORRAR_COMPRAS", f"Usuario {st.session_state.usuario} eliminó compras desde {desde} hasta {hasta} para {st.session_state.cliente_id}")
-    
-    if conexion:
-        try:
-            cursor = conexion.cursor()
-            
-            # --- AJUSTA 'id_compra' AQUÍ ---
-            # Lógica corregida usando 'id_sec' como el vínculo hacia 'libro_compras'
-            sql_islr = """
-                DELETE FROM retenciones_islr 
-                WHERE id_sec IN ( 
-                    SELECT id FROM libro_compras 
-                    WHERE fecha_operacion BETWEEN %s AND %s
-                )
-            """
-            cursor.execute(sql_islr, (desde, hasta))
-            filas_islr = cursor.rowcount
-
-            sql_compras = "DELETE FROM libro_compras WHERE fecha_operacion BETWEEN %s AND %s"
-            cursor.execute(sql_compras, (desde, hasta))
-            filas_compras = cursor.rowcount
-            
-            conexion.commit()
-            
-            if filas_compras > 0:
-                st.success(f"✅ Limpieza profunda completada en {db_actual}:")
-                st.write(f"* Compras eliminadas: {filas_compras}")
-                st.write(f"* Retenciones ISLR eliminadas: {filas_islr}")
-            else:
-                st.warning("No se encontraron registros para borrar en ese rango.")
-                
-        except Exception as e:
-            st.error(f"Error de Integridad: {e}")
-        finally:
-            if 'cursor' in locals() and cursor:
-                cursor.close() 
-            
-            # Si el objeto conexion existe, lo dejamos intacto para evitar el AttributeError
-            if conexion is not None:
-                pass
-
 def obtener_facturas_pendientes(conn, f_desde, f_hasta):
     try:
         query = """
@@ -3636,8 +2729,11 @@ def obtener_facturas_pendientes(conn, f_desde, f_hasta):
             AND fecha_operacion BETWEEN %s AND %s
         """
         df = ejecutar_consulta(query, conn, params=(f_desde, f_hasta))
-        return df if df is not None else pd.DataFrame()
         
+        if df.empty:
+            st.info(f"ℹ️ No hay facturas pendientes de retención entre {f_desde} y {f_hasta}.")
+            
+        return df
     except Exception as e:
         st.error(f"Error al cargar facturas pendientes: {e}")
         return pd.DataFrame()
@@ -3815,10 +2911,10 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
 
 
 
-    # --- 2. VALIDACIÓN DE CONEXIÓN Y CARGA ---
+# --- 2. VALIDACIÓN DE CONEXIÓN Y CARGA ---
     with tab1:
         st.write("Cargando Generar Nueva...")
-        st.subheader("📝 Generar Nueva Retención de IVA")
+        st.subheader("📝 Generar Nueva Retención")
         db_actual = st.session_state.get("DB_ACTUAL")
 
         if not db_actual:
@@ -3843,33 +2939,20 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
         df_facturas = obtener_facturas_pendientes(conn, f_desde, f_hasta)
 
         if not df_facturas.empty:
-            # Aseguramos que la columna de control exista en el DataFrame cargado
+            # Agregamos una columna de checkbox para seleccionar
             if 'Seleccionar' not in df_facturas.columns:
                 df_facturas.insert(0, "Seleccionar", False)
-
-            # Si tu tabla de base de datos incluye una columna 'retencion_realizada', 
-            # podemos bloquear visualmente esas filas en el editor de Streamlit:
-            column_configs = {
-                "Seleccionar": st.column_config.CheckboxColumn(required=True)
-            }
-            
-            # Si la columna existe en el DF, deshabilitamos la edición en las ya retenidas
-            if 'retencion_realizada' in df_facturas.columns:
-                column_configs["retencion_realizada"] = st.column_config.NumberColumn("Retenida", disabled=True)
 
             # Muestra el editor y captura los cambios
             df_editado = st.data_editor(
                 df_facturas,
-                column_config=column_configs,
+                column_config={"Seleccionar": st.column_config.CheckboxColumn(required=True)},
                 hide_index=True,
-                width="stretch"
+                width="stretch"  # <-- Actualizado de use_container_width=True
             )
 
-            # Filtramos solo las marcadas que NO estén retenidas previamente
-            if 'retencion_realizada' in df_editado.columns:
-                seleccion = df_editado[(df_editado["Seleccionar"] == True) & (df_editado["retencion_realizada"] != 1)]
-            else:
-                seleccion = df_editado[df_editado["Seleccionar"] == True]
+            # Filtramos solo las marcadas
+            seleccion = df_editado[df_editado["Seleccionar"] == True]
             
             if not seleccion.empty:
                 st.session_state['facturas_seleccionadas'] = seleccion
@@ -3877,195 +2960,168 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
             else:
                 st.session_state['facturas_seleccionadas'] = None
 
-
         facturas_seleccionadas = st.session_state.get('facturas_seleccionadas')
-
-        if facturas_seleccionadas is not None and not isinstance(facturas_seleccionadas, pd.DataFrame):
-            facturas_seleccionadas = pd.DataFrame(facturas_seleccionadas)
-
-        # --- 1. CASO ÉXITO (SE EVALÚE PRIMERO SI YA SE GUARDÓ) ---
-        if st.session_state.get('mostrar_exito', False):
-            nro_generado = st.session_state.get('last_iva', {}).get('nro_comp', 'N/D')
-            st.success(f"🔥 ¡Proceso exitoso! El comprobante **`{nro_generado}`** ha sido generado y guardado en la base de datos.")
-            st.balloons()
-            
-            st.divider()
-            st.write("#### Certificación del grupo procesado:")
-            st.info("✅ Las retenciones se registraron correctamente en la BD y las facturas seleccionadas fueron actualizadas.")
-            
-            if st.button("🔄 Registrar otro grupo", key="btn_reset_retencion"):
-                st.session_state['facturas_seleccionadas'] = None
-                st.session_state['mostrar_exito'] = False
-                st.rerun()
-                
-        # --- 2. CASO FORMULARIO (CUÁNDO HAY FACTURAS SELECCIONADAS Y NO SE HA GUARDADO) ---
-        elif facturas_seleccionadas is not None and not facturas_seleccionadas.empty:
-            
+        if facturas_seleccionadas is not None and not facturas_seleccionadas.empty:
             total_base_agrupado = facturas_seleccionadas['base_imponible'].sum()
             total_iva_agrupado = facturas_seleccionadas['iva_monto'].sum()
             total_facturas_agrupado = facturas_seleccionadas['total_compras'].sum()
             total_exento_agrupado = facturas_seleccionadas['importe_exento'].sum()
             
             factura_principal = facturas_seleccionadas.iloc[0]
-            
-            # Obtención del correlativo automático desde la Base de Datos
-            fecha_corta_base = str(factura_principal['fecha_operacion']).split(" ")[0]
-            ano_str, mes_str = fecha_corta_base.split("-")[0], fecha_corta_base.split("-")[1]
-            prefijo_periodo = f"{ano_str}{mes_str}"
-            
-            db_nombre_corr = st.session_state.get('DB_ACTUAL')
-            conn_corr = conectar_db(db_nombre_corr)
-            siguiente_secuencial = 1
-            
-            if conn_corr:
-                try:
-                    cursor_corr = conn_corr.cursor()
-                    query_ultimo = """
-                        SELECT N_Comprobante1 
-                        FROM retenciones_iva 
-                        WHERE N_Comprobante1 LIKE %s 
-                        ORDER BY N_Comprobante1 DESC 
-                        LIMIT 1
-                    """
-                    cursor_corr.execute(query_ultimo, (f"{prefijo_periodo}%",))
-                    resultado_ultimo = cursor_corr.fetchone()
-                    
-                    if resultado_ultimo and resultado_ultimo[0]:
-                        ultimo_nro = str(resultado_ultimo[0])
-                        secuencial_texto = ultimo_nro[len(prefijo_periodo):]
-                        if secuencial_texto.isdigit():
-                            siguiente_secuencial = int(secuencial_texto) + 1
-                except Exception:
-                    siguiente_secuencial = 1
-                finally:
-                    if cursor_corr:
-                        cursor_corr.close()
-                    if conn_corr:
-                        conn_corr.close()
-                        
-            val_sugerido = f"{prefijo_periodo}{str(siguiente_secuencial).zfill(8)}"
+            val_sugerido = str(factura_principal['fecha_operacion']).replace("-", "")[:6] + str(factura_principal['id']).zfill(8)
 
             st.write("### 📝 Datos del Comprobante (Grupo)")
-            st.info(f"Agrupando {len(facturas_seleccionadas)} facturas de **{factura_principal['proveedor']}**")
-            
-            with st.form("form_retencion_iva"):
-                c1, c2, c3 = st.columns(3)
-                razon_social_ret = c1.text_input("Sujeto Retenido", value=str(factura_principal['proveedor']))
-                rif_ret = c2.text_input("RIF Retenido", value=str(factura_principal['rif']))
-                nro_comp = c3.text_input("N° Comprobante (14 dígitos)", value=val_sugerido, key="input_nro_comprobante_iva_fijo")
-                
-                st.write("*(Los montos abajo representan la suma de todas las facturas seleccionadas)*")
-                
-                c7, c8, c9, c_ex = st.columns(4)
-                base_i = c7.number_input("Base Imponible Total", value=float(total_base_agrupado), format="%.2f")
-                iva_i = c8.number_input("Impuesto IVA Total", value=float(total_iva_agrupado), format="%.2f")
-                monto_exento_val = c_ex.number_input("Monto Exento Total", value=float(total_exento_agrupado), format="%.2f")
-                total_c = c9.number_input("Total Facturas", value=float(total_facturas_agrupado), format="%.2f")
-                
-                c10, c11 = st.columns(2)
-                porcentaje_ret = c10.selectbox("Porcentaje de Retención", [75, 100], key="select_porcentaje_ret_iva_fijo")
-                iva_retenido = (float(iva_i) * porcentaje_ret) / 100
-                c11.metric("IVA a Retener Total", f"Bs. {iva_retenido:,.2f}")
 
-                db_actual_form = st.session_state.get('DB_ACTUAL')
-                empresa_data = obtener_datos_agente_db(db_actual_form)
+            # Caso Éxito
+            if st.session_state.get('mostrar_exito'):
+                st.success(f"### ✅ Comprobante `{st.session_state.get('last_iva', {}).get('nro_comp')}` generado.")
+                st.balloons()
+                if 'last_iva' in st.session_state:
+                    st.divider()
+                    st.write("#### Detalle del grupo procesado:")
+                    porcentaje_actual = st.session_state.get('porcentaje_ret', 75)
 
-                if not empresa_data:
-                    st.error("⚠️ No se pudieron cargar los datos de la empresa.")
-                    empresa_seleccionada = None
-                else:
-                    empresa_seleccionada = st.selectbox(
-                        "Empresa Agente", 
-                        options=[empresa_data], 
-                        format_func=lambda x: x.get('nombre_empresa', 'Empresa'),
-                        key="select_empresa_agente_fijo"
-                    )
-                    st.session_state['id_empresa_seleccionada'] = empresa_seleccionada
-
-                enviado = st.form_submit_button("💾 Guardar y Generar Documentos")
-
-            if enviado:
-                empresa_data_env = st.session_state.get('id_empresa_seleccionada') or st.session_state.get('id_empresa_actual')
-                db_nombre = st.session_state.get('DB_ACTUAL')
-                
-                if not empresa_data_env or not db_nombre:
-                    st.error("❌ Faltan datos de empresa o base de datos.")
-                    st.stop()
-
-                conn_env = conectar_db(db_nombre)
-                if not conn_env:
-                    conn_env = conectar_db(db_nombre)
-
-                empresa_nombre = empresa_data_env.get('nombre_empresa') or empresa_data_env.get('razon_social') or "EMPRESA"
-                empresa_rif = empresa_data_env.get('rif') or "000000000"
-                domicilio_fiscal = empresa_data_env.get('direccion') or "DIRECCIÓN NO REGISTRADA"
-
-                cursor = None
-                try:
-                    cursor = conn_env.cursor()
-                    
+                    lista_de_facturas = []
                     for _, fila in facturas_seleccionadas.iterrows():
-                        base = float(fila.get('base_imponible', 0) or 0)
-                        impuesto = float(fila.get('iva_monto', 0) or 0)
-                        ratio = round(impuesto / base, 2) if base > 0 else 0
-                        es_8 = ratio <= 0.08
-                        iva_retenido_fila = (impuesto * porcentaje_ret) / 100
+                        iva = float(fila.get('impuesto_iva', 0))
+                        monto_ret = (iva * porcentaje_actual) / 100
                         
-                        b16, i16, r16 = (base, impuesto, iva_retenido_fila) if not es_8 else (0.0, 0.0, 0.0)
-                        b8, i8, r8 = (base, impuesto, iva_retenido_fila) if es_8 else (0.0, 0.0, 0.0)
-                        
-                        fecha_corta = str(fila['fecha_operacion']).split(" ")[0]
-                        ano_f, mes_f = fecha_corta.split("-")[0], fecha_corta.split("-")[1]
+                        lista_de_facturas.append({
+                            'fecha': fila['fecha_operacion'],
+                            'n_fact': fila['n_factura'],
+                            'n_cont': fila['n_control'],
+                            'total': fila['total_compras'],
+                            'base': fila['base_imponible'],
+                            'iva': iva,
+                            'm_ret': monto_ret
+                        })
 
-                        query_ins = """
-                            INSERT INTO retenciones_iva (
-                                Razon_Social_del_Agente_de_Retencion, RIF_Agente_Retencion, 
-                                Direccion_FiscalAgente_Retencion, E_Emision, F_Entrega, Razon_Social_Sujeto_Retenido, 
-                                RIF_Sujeto_Retenido, Ano, Mes, N_Comprobante1, Fecha_Factura, Numero_Factura, 
-                                Numero_Contro, Total_Comrpas, Compras_Excentas, Base_Imponible, Impuesto_Iva, 
-                                IVA_Retenido, Base_Imponible_8, IVA_8, RET_IVA_8, Alicuota, Alicuota_75, N_Nota_Debito
-                            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                        """
-
-                        params = (
-                            empresa_nombre, empresa_rif, domicilio_fiscal,
-                            fecha_corta, fecha_corta, razon_social_ret, rif_ret, ano_f, mes_f,
-                            nro_comp, fecha_corta, str(fila['n_factura']), str(fila['n_control']),
-                            round(float(fila.get('total_compras', 0)), 2),
-                            round(float(fila.get('importe_exento', 0)), 2),
-                            round(b16, 2), round(i16, 2), round(iva_retenido_fila, 2),
-                            round(b8, 2), round(i8, 2), round(r8, 2),
-                            "16%", "75%", None
-                        )
-                        cursor.execute(query_ins, params)
-                        
-                        query_update = """
-                            UPDATE libro_compras 
-                            SET retencion_realizada = 1 
-                            WHERE id = %s
-                        """
-                        cursor.execute(query_update, (fila['id'],))
-
-                    conn_env.commit()
-                    
-                    # Guardamos los estados para mostrar el éxito limpio
-                    st.session_state['last_iva'] = {'nro_comp': nro_comp}
-                    st.session_state['mostrar_exito'] = True
-                    
-                    # IMPORTANTE: Vaciamos las facturas seleccionadas para que el formulario desaparezca al instante
+                # Botón para resetear
+                if st.button("🔄 Registrar otro grupo", key="btn_reset_retencion"):
                     st.session_state['facturas_seleccionadas'] = None
-                    
+                    st.session_state['mostrar_exito'] = False
                     st.rerun()
+            else:
+                # Formulario
+                factura_principal = facturas_seleccionadas.iloc[0]
+                val_sugerido = str(factura_principal['fecha_operacion']).replace("-", "")[:6] + str(factura_principal['id']).zfill(8)
+                
+                st.info(f"Agrupando {len(facturas_seleccionadas)} facturas de **{factura_principal['proveedor']}**")
+                
+                with st.form("form_retencion_iva"):
+                    c1, c2, c3 = st.columns(3)
+                    razon_social_ret = c1.text_input("Sujeto Retenido", value=factura_principal['proveedor'])
+                    rif_ret = c2.text_input("RIF Retenido", value=factura_principal['rif'])
+                    nro_comp = c3.text_input("N° Comprobante (14 dígitos)", value=val_sugerido, key=f"nro_{val_sugerido}")
+                    
+                    st.write("*(Los montos abajo representan la suma de todas las facturas seleccionadas)*")
+                    
+                    c7, c8, c9, c_ex = st.columns(4)
+                    base_i = c7.number_input("Base Imponible Total", value=float(total_base_agrupado), format="%.2f")
+                    iva_i = c8.number_input("Impuesto IVA Total", value=float(total_iva_agrupado), format="%.2f")
+                    monto_exento_val = c_ex.number_input("Monto Exento Total", value=float(total_exento_agrupado), format="%.2f")
+                    total_c = c9.number_input("Total Facturas", value=float(total_facturas_agrupado), format="%.2f")
+                    
+                    c10, c11 = st.columns(2)
+                    porcentaje_ret = c10.selectbox("Porcentaje de Retención", [75, 100])
+                    iva_retenido = (float(iva_i) * porcentaje_ret) / 100
+                    c11.metric("IVA a Retener Total", f"Bs. {iva_retenido:,.2f}")
 
-                except Exception as e:
-                    if conn_env: 
-                        conn_env.rollback()
-                    st.error(f"❌ Error al procesar: {e}")
-                finally:
-                    if cursor: 
-                        cursor.close()
-                    if conn_env: 
-                        conn_env.close()
+                    db_actual_form = st.session_state.get('DB_ACTUAL')
+                    empresa_data = obtener_datos_agente_db(db_actual_form)
+
+                    if not empresa_data:
+                        st.error("⚠️ No se pudieron cargar los datos de la empresa.")
+                    else:
+                        empresa_seleccionada = st.selectbox(
+                            "Empresa", 
+                            options=[empresa_data], 
+                            format_func=lambda x: x['nombre_empresa']
+                        )
+                        st.session_state['id_empresa_seleccionada'] = empresa_seleccionada
+
+                    enviado = st.form_submit_button("💾 Guardar y Generar Documentos")
+
+                if enviado:
+                    empresa_data_env = st.session_state.get('id_empresa_seleccionada') or st.session_state.get('id_empresa_actual')
+                    db_nombre = st.session_state.get('DB_ACTUAL')
+                    
+                    if not empresa_data_env or not db_nombre:
+                        st.error("❌ Faltan datos de empresa o base de datos.")
+                        st.stop()
+
+                    conn_env = conectar_db(db_nombre)
+                    if not conn_env:
+                        conn_env = conectar_db(db_nombre)
+
+                    id_final = empresa_data_env.get('id') if isinstance(empresa_data_env, dict) else empresa_data_env
+                    empresa_nombre = empresa_data_env.get('nombre_empresa') or empresa_data_env.get('razon_social') or "EMPRESA"
+                    empresa_rif = empresa_data_env.get('rif') or "000000000"
+                    
+                    # CORREGIDO: Se elimina 'domicilio_fiscal' porque no existe en la tabla clientes
+                    domicilio_fiscal = empresa_data_env.get('direccion') or "DIRECCIÓN NO REGISTRADA"
+
+                    cursor = None
+                    try:
+                        cursor = conn_env.cursor()
+                        
+                        for _, fila in facturas_seleccionadas.iterrows():
+                            base = float(fila.get('base_imponible', 0) or 0)
+                            impuesto = float(fila.get('iva_monto', 0) or 0)
+                            ratio = round(impuesto / base, 2) if base > 0 else 0
+                            es_8 = ratio <= 0.08
+                            iva_retenido_fila = (impuesto * porcentaje_ret) / 100
+                            
+                            b16, i16, r16 = (base, impuesto, iva_retenido_fila) if not es_8 else (0.0, 0.0, 0.0)
+                            b8, i8, r8 = (base, impuesto, iva_retenido_fila) if es_8 else (0.0, 0.0, 0.0)
+                            
+                            fecha_corta = str(fila['fecha_operacion']).split(" ")[0]
+                            ano_f, mes_f = fecha_corta.split("-")[0], fecha_corta.split("-")[1]
+
+                            query_ins = """
+                                INSERT INTO retenciones_iva (
+                                    Razon_Social_del_Agente_de_Retencion, RIF_Agente_Retencion,  
+                                    Direccion_FiscalAgente_Retencion, E_Emision, F_Entrega, Razon_Social_Sujeto_Retenido, 
+                                    RIF_Sujeto_Retenido, Ano, Mes, N_Comprobante1, Fecha_Factura, Numero_Factura, 
+                                    Numero_Contro, Total_Comrpas, Compras_Excentas, Base_Imponible, Impuesto_Iva, 
+                                    IVA_Retenido, Base_Imponible_8, IVA_8, RET_IVA_8, Alicuota, Alicuota_75, N_Nota_Debito
+                                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                            """
+
+                            params = (
+                                empresa_nombre, empresa_rif, domicilio_fiscal,
+                                fecha_corta, fecha_corta, razon_social_ret, rif_ret, ano_f, mes_f,
+                                nro_comp, fecha_corta, str(fila['n_factura']), str(fila['n_control']),
+                                round(float(fila.get('total_compras', 0)), 2),
+                                round(float(fila.get('importe_exento', 0)), 2),
+                                round(b16, 2), round(i16, 2), round(iva_retenido_fila, 2),
+                                round(b8, 2), round(i8, 2), round(r8, 2),
+                                "16%", "75%", None
+                            )
+                            cursor.execute(query_ins, params)
+                            
+                            # --- NUEVO: MARCAR LA FACTURA COMO RETENIDA EN EL LIBRO DE COMPRAS ---
+                            query_update = """
+                                UPDATE libro_compras 
+                                SET retencion_realizada = 1 
+                                WHERE id = %s
+                            """
+                            cursor.execute(query_update, (fila['id'],))
+
+                        conn_env.commit()
+                        st.session_state['last_iva'] = {'nro_comp': nro_comp}
+                        st.session_state['mostrar_exito'] = True
+                        st.rerun()
+
+                    except Exception as e:
+                        if conn_env: 
+                            conn_env.rollback()
+                        st.error(f"❌ Error al procesar: {e}")
+                    finally:
+                        if cursor: 
+                            cursor.close()
+                        if conn_env: 
+                            conn_env.close()
 
                 
         with tab2:
@@ -4633,17 +3689,10 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                 else:
                     conn = conectar_db(db_nombre)
                     try:
-                        # 🟢 Cambiamos a cursor normal para evitar el error de argumentos
-                        cursor = conn.cursor()
+                        cursor = conn.cursor(dictionary=True)
                         query_txt = "SELECT * FROM retenciones_iva WHERE E_Emision BETWEEN %s AND %s"
                         cursor.execute(query_txt, (fecha_inicio.strftime('%Y-%m-%d'), fecha_fin.strftime('%Y-%m-%d')))
-                        
-                        # Obtenemos los nombres de las columnas y los datos
-                        columns = [col[0] for col in cursor.description]
-                        filas = cursor.fetchall()
-                        
-                        # Convertimos las filas a una lista de diccionarios de forma limpia
-                        registros_txt = [dict(zip(columns, row)) for row in filas]
+                        registros_txt = cursor.fetchall()
                         cursor.close()
                         
                         if registros_txt:
@@ -6010,923 +5059,6 @@ def guardar_saldo_mensual(conn, banco, mes, ano, inicial, final, db_name=None):
         except:
             pass
 
-
-
-
-
-def renderizar_tab_asientos_automatizados(db_connection):
-    st.subheader("🤖 Asientos Automatizados (Comprobantes Contables)")
-    st.markdown("""
-    Sube tu **Libro de Compras** en Excel. El sistema procesará los datos y aplicará las reglas contables según la empresa activa.
-    """)
-
-    # ----------------------------------------------------
-    # VALIDACIÓN DE ROL Y FILTRADO DE EMPRESAS (CONECTADO A `usuarios` Y `clientes`)
-    # ----------------------------------------------------
-    usuario_actual = str(st.session_state.get("user", st.session_state.get("usuario", "norbe"))).strip()
-    
-    rol_usuario = "cliente"
-    es_admin = False
-    db_asignada_usuario = ""
-
-    dbs_filtradas = []
-    mapa_nombres_empresas = {}
-    
-    try:
-        with db_connection.cursor(pymysql.cursors.DictCursor) as cursor_temp:
-            cursor_temp.execute(
-                "SELECT rol, db_nombre FROM control_central.usuarios WHERE usuario = %s", 
-                (usuario_actual,)
-            )
-            res_usuario = cursor_temp.fetchone()
-            
-            if res_usuario:
-                rol_usuario = str(res_usuario.get("rol", "cliente")).strip().lower()
-                db_asignada_usuario = str(res_usuario.get("db_nombre", "")).strip()
-            
-            es_admin = rol_usuario in ["admin", "administrador"] or st.session_state.get("es_admin", False)
-
-            cursor_temp.execute("SELECT * FROM control_central.clientes")
-            clientes_db = cursor_temp.fetchall()
-        
-        for cli in clientes_db:
-            db_name = str(cli.get("db_nombre", "")).strip()
-            nombre_comercial = str(cli.get("nombre_empresa", db_name)).strip()
-            
-            if db_name:
-                if es_admin:
-                    dbs_filtradas.append(db_name)
-                    mapa_nombres_empresas[db_name] = nombre_comercial
-                else:
-                    if db_asignada_usuario and db_name.lower() == db_asignada_usuario.lower():
-                        dbs_filtradas.append(db_name)
-                        mapa_nombres_empresas[db_name] = nombre_comercial
-                        
-    except Exception as e:
-        st.warning(f"⚠️ Error consultando `control_central`: {e}")
-        if es_admin:
-            dbs_filtradas = ["kingdriver_ca"]
-        else:
-            dbs_filtradas = [db_asignada_usuario if db_asignada_usuario else "kingdriver_ca"]
-
-    if not dbs_filtradas:
-        if db_asignada_usuario:
-            dbs_filtradas = [db_asignada_usuario]
-        else:
-            dbs_filtradas = ["kingdriver_ca"]
-
-    if not dbs_filtradas:
-        st.error("⚠️ No se encontró una empresa asignada a tu usuario en la tabla `usuarios`.")
-        return
-
-    # ----------------------------------------------------
-    # INTERFAZ SEGÚN EL ROL (ADMIN VS CLIENTE)
-    # ----------------------------------------------------
-    if es_admin:
-        st.markdown("### 🏢 Contexto de Empresa (Modo Administrador)")
-        
-        index_default = 0
-        for i, db_name in enumerate(dbs_filtradas):
-            if any(k in str(st.session_state).lower() and db_name.lower() in str(st.session_state[k]).lower() for k in st.session_state):
-                index_default = i
-                break
-            if "driver" in db_name.lower() or "king" in db_name.lower():
-                index_default = i
-
-        format_func = lambda db: f"{mapa_nombres_empresas.get(db, db)} ({db})" if db in mapa_nombres_empresas else db
-        
-        nombre_db_cliente = st.selectbox(
-            "Selecciona la Base de Datos de la Empresa Activa:", 
-            dbs_filtradas, 
-            index=index_default,
-            format_func=format_func,
-            key="select_db_admin_asientos"
-        )
-    else:
-        nombre_db_cliente = dbs_filtradas[0]
-        nombre_amigable = mapa_nombres_empresas.get(nombre_db_cliente, nombre_db_cliente)
-        st.info(f"🏢 **Empresa Activa:** {nombre_amigable} (`{nombre_db_cliente}`)")
-
-    if not nombre_db_cliente:
-        st.error("⚠️ Debes seleccionar una base de datos.")
-        return
-
-    db_segura = str(nombre_db_cliente).strip()
-    es_king_driver = any(term in db_segura.lower() for term in ["kindriver", "king_driver", "driver", "king"])
-
-    mapa_descripciones = {}
-    opciones_desplegable = []
-    mapa_proveedores_cuentas = {}  
-
-    # ----------------------------------------------------
-    # CARGA SEGURA DE TABLAS: PLAN_CUENTAS Y PROVEEDORES
-    # ----------------------------------------------------
-    if db_connection:
-        try:
-            with db_connection.cursor(pymysql.cursors.DictCursor) as cursor_opt:
-                cursor_opt.execute(f"""
-                    CREATE TABLE IF NOT EXISTS `{db_segura}`.plan_cuentas (
-                        codigo VARCHAR(50) PRIMARY KEY,
-                        nombre VARCHAR(255),
-                        tipo VARCHAR(50)
-                    );
-                """)
-                db_connection.commit()
-
-                cursor_opt.execute(f"SELECT codigo, nombre, tipo FROM `{db_segura}`.plan_cuentas ORDER BY codigo ASC")
-                cuentas_opt = cursor_opt.fetchall()
-                
-                cuentas_detalle = [c for c in cuentas_opt if str(c.get("tipo", "")).strip().lower() == 'detalle']
-                lista_cuentas = cuentas_detalle if cuentas_detalle else cuentas_opt
-                
-                for c in lista_cuentas:
-                    codigo = str(c.get("codigo", "")).strip()
-                    nombre = str(c.get("nombre", "")).strip()
-                    if codigo:
-                        mapa_descripciones[codigo] = nombre
-                        opciones_desplegable.append(codigo)  # Guardamos solo el código puro
-
-                try:
-                    cursor_opt.execute(f"SELECT * FROM `{db_segura}`.proveedores")
-                    proveedores_db = cursor_opt.fetchall()
-                    
-                    for prov in proveedores_db:
-                        p_nombre = str(prov.get("nombre", prov.get("razon_social", ""))).strip().upper()
-                        p_rif = str(prov.get("rif", prov.get("RIF", ""))).strip().upper()
-                        
-                        p_codigo = str(prov.get("codigo_cuenta", prov.get("codigo", prov.get("cuenta_gasto", "")))).strip()
-                        p_desc = str(prov.get("descripcion_cuenta", prov.get("descripcion", ""))).strip()
-                        p_cod_pagar = str(prov.get("codigo_cuenta_pagar", "")).strip()
-                        p_desc_pagar = str(prov.get("descripcion_cuenta_pagar", "")).strip()
-                        
-                        info_prov = {
-                            "codigo_cuenta": p_codigo,
-                            "descripcion_cuenta": p_desc,
-                            "codigo_cuenta_pagar": p_cod_pagar,
-                            "descripcion_cuenta_pagar": p_desc_pagar
-                        }
-                        if p_rif: mapa_proveedores_cuentas[p_rif] = info_prov
-                        if p_nombre: mapa_proveedores_cuentas[p_nombre] = info_prov
-                except Exception:
-                    pass
-
-                if not opciones_desplegable:
-                    st.warning(f"⚠️ La tabla 'plan_cuentas' en `{db_segura}` está vacía. Se cargaron cuentas temporales de respaldo.")
-                    opciones_desplegable = ["5.1.1.01.001", "5.1.1.01.002", "1.1.4.01.001", "2.1.1.01.001"]
-                    mapa_descripciones = {
-                        "5.1.1.01.001": "Compras Generales",
-                        "5.1.1.01.002": "IVA al Costo",
-                        "1.1.4.01.001": "IVA Crédito Fiscal",
-                        "2.1.1.01.001": "Cuentas por Pagar Comerciales"
-                    }
-                
-        except Exception as e:
-            st.warning(f"⚠️ Advertencia al consultar tablas en `{db_segura}`: {e}. Usando plan de cuentas de emergencia.")
-            opciones_desplegable = ["5.1.1.01.001", "5.1.1.01.002", "1.1.4.01.001", "2.1.1.01.001"]
-            mapa_descripciones = {
-                "5.1.1.01.001": "Compras Generales",
-                "5.1.1.01.002": "IVA al Costo",
-                "1.1.4.01.001": "IVA Crédito Fiscal",
-                "2.1.1.01.001": "Cuentas por Pagar Comerciales"
-            }
-
-    default_opcion = opciones_desplegable[0] if opciones_desplegable else "5.1.1.01.001"
-
-    def obtener_opcion_valida(codigo_buscado, fallback):
-        if codigo_buscado in opciones_desplegable:
-            return codigo_buscado
-        return fallback
-
-    # ----------------------------------------------------
-    # PRIMER FRAME: CARGA Y VISTA PREVIA DEL EXCEL
-    # ----------------------------------------------------
-    st.markdown("---")
-    st.markdown("### 📋 Primer Frame: Libro de Compras Subido")
-    
-    if es_king_driver:
-        st.success("🚗 **Modo King Driver Detectado:** El sistema aplicará automáticamente el IVA al costo utilizando la cuenta `5.1.1.01.002`.")
-    else:
-        st.info("🏢 **Modo Empresa Regular:** El sistema aplicará Crédito Fiscal estándar.")
-
-    archivo_excel = st.file_uploader("Subir Libro de Compras (Excel)", type=["xlsx", "xls"], key="uploader_libro_compras")
-
-    if archivo_excel is not None:
-        try:
-            df_compras = pd.read_excel(archivo_excel)
-            df_compras.columns = df_compras.columns.str.strip()
-            
-            st.dataframe(df_compras, use_container_width=True)
-
-            st.markdown("---")
-            st.markdown("### ⚙️ Configuración de Asientos")
-            
-            col_cfg1, col_cfg2 = st.columns(2)
-            with col_cfg1:
-                n_comprobante_base = st.text_input("Prefijo de Comprobante:", value="050001")
-            with col_cfg2:
-                st.markdown("<br>", unsafe_allow_html=True)
-            
-            if st.button("🔄 Generar Estructura del Segundo Frame", key="btn_generar_segundo_frame"):
-                try:
-                    filas_asiento_temporal = []
-
-                    for idx, row in df_compras.iterrows():
-                        # CORRECCIÓN: Se evita pasar 'default' a sí mismo en su valor por defecto
-                        def buscar_valor(posibles_nombres, default_val=0.0):
-                            for col in df_compras.columns:
-                                c_clean = str(col).strip().lower()
-                                for pos in posibles_nombres:
-                                    if pos.lower() in c_clean:
-                                        val = row[col]
-                                        if pd.notna(val):
-                                            return val
-                            return default_val
-
-                        raw_fecha = buscar_valor(["Fecha de Operación", "Fecha de Operacion", "Fecha"], "")
-                        if hasattr(raw_fecha, "strftime"):
-                            fecha_op = raw_fecha.strftime("%Y-%m-%d")
-                        else:
-                            val_str = str(raw_fecha).strip().split(" ")[0]
-                            try:
-                                fecha_op = pd.to_datetime(val_str).strftime("%Y-%m-%d")
-                            except Exception:
-                                fecha_op = val_str[:10] if val_str else ""
-
-                        razon_social = str(buscar_valor(["Nombre o Razón Social", "Nombre o Razon Social", "Razon Social", "Proveedor"], "Sin Nombre")).strip()
-                        rif_val = str(buscar_valor(["R.I.F.", "RIF", "Cedula"], "")).strip().upper()
-                        nro_doc = str(buscar_valor(["Número de Documento", "Numero de Documento", "Nro Documento", "Factura"], f"{idx+1}")).strip()
-
-                        try:
-                            base_imponible = float(buscar_valor(["Base Imponible"], 0.0))
-                        except Exception:
-                            base_imponible = 0.0
-
-                        try:
-                            compras_exentas = float(buscar_valor(["Compras Exentas", "Exentas", "Sin Derecho a Crédito", "Sin Derecho a Credito"], 0.0))
-                        except Exception:
-                            compras_exentas = 0.0
-
-                        try:
-                            credito_fiscal = float(buscar_valor(["Credito Fiscales", "Crédito Fiscales", "Credito Fiscal", "IVA"], 0.0))
-                        except Exception:
-                            credito_fiscal = 0.0
-
-                        try:
-                            total_compras = float(buscar_valor(["Total Compras"], base_imponible + compras_exentas + credito_fiscal))
-                        except Exception:
-                            total_compras = base_imponible + compras_exentas + credito_fiscal
-
-                        n_comprobante_actual = f"{n_comprobante_base}-{nro_doc}"
-
-                        opcion_gasto = None
-                        opcion_contrapartida = None
-                        
-                        datos_prov = mapa_proveedores_cuentas.get(rif_val) or mapa_proveedores_cuentas.get(razon_social.upper())
-                        if datos_prov:
-                            p_cod_gasto = str(datos_prov.get("codigo_cuenta", "")).strip()
-                            if p_cod_gasto:
-                                opcion_gasto = obtener_opcion_valida(p_cod_gasto, None)
-
-                            p_cod_pagar = str(datos_prov.get("codigo_cuenta_pagar", "")).strip()
-                            if p_cod_pagar:
-                                opcion_contrapartida = obtener_opcion_valida(p_cod_pagar, None)
-
-                        if not opcion_gasto:
-                            for opt in opciones_desplegable:
-                                if opt.startswith("5") and "iva" not in opt.lower():
-                                    opcion_gasto = opt
-                                    break
-                        if not opcion_gasto: 
-                            opcion_gasto = default_opcion
-
-                        if not opcion_contrapartida:
-                            for opt in opciones_desplegable:
-                                if opt.startswith("2.1.1") or opt.startswith("2"):
-                                    opcion_contrapartida = opt
-                                    break
-                        if not opcion_contrapartida: 
-                            opcion_contrapartida = default_opcion
-
-                        monto_costo_debe = base_imponible + compras_exentas
-
-                        if es_king_driver:
-                            filas_asiento_temporal.append({
-                                "n_comprobante": n_comprobante_actual,
-                                "descripcion": f"Factura {nro_doc} - {razon_social}",
-                                "fecha": fecha_op,
-                                "plan_cuentas": opcion_gasto,
-                                "cuenta_contable": mapa_descripciones.get(opcion_gasto, ""),
-                                "referencia": nro_doc,
-                                "debe": monto_costo_debe,
-                                "haber": 0.0
-                            })
-
-                            monto_iva_linea = 0.0
-                            if credito_fiscal > 0:
-                                monto_iva_linea = credito_fiscal
-                                opcion_iva_kd = default_opcion
-                                for opt in opciones_desplegable:
-                                    if opt.startswith("5.1.1.01.002"):
-                                        opcion_iva_kd = opt
-                                        break
-                                
-                                filas_asiento_temporal.append({
-                                    "n_comprobante": n_comprobante_actual,
-                                    "descripcion": f"IVA al Costo Factura {nro_doc} - {razon_social}",
-                                    "fecha": fecha_op,
-                                    "plan_cuentas": opcion_iva_kd,
-                                    "cuenta_contable": mapa_descripciones.get(opcion_iva_kd, ""),
-                                    "referencia": nro_doc,
-                                    "debe": credito_fiscal,
-                                    "haber": 0.0
-                                })
-                            
-                            monto_haber_total = monto_costo_debe + monto_iva_linea
-                        else:
-                            filas_asiento_temporal.append({
-                                "n_comprobante": n_comprobante_actual,
-                                "descripcion": f"Factura {nro_doc} - {razon_social}",
-                                "fecha": fecha_op,
-                                "plan_cuentas": opcion_gasto,
-                                "cuenta_contable": mapa_descripciones.get(opcion_gasto, ""),
-                                "referencia": nro_doc,
-                                "debe": monto_costo_debe,
-                                "haber": 0.0
-                            })
-
-                            monto_iva_linea = 0.0
-                            if credito_fiscal > 0:
-                                monto_iva_linea = credito_fiscal
-                                opcion_iva = default_opcion
-                                for opt in opciones_desplegable:
-                                    if opt.startswith("1.1.4.01.001"):
-                                        opcion_iva = opt
-                                        break
-                                
-                                filas_asiento_temporal.append({
-                                    "n_comprobante": n_comprobante_actual,
-                                    "descripcion": f"IVA Crédito Fiscal Factura {nro_doc} - {razon_social}",
-                                    "fecha": fecha_op,
-                                    "plan_cuentas": opcion_iva,
-                                    "cuenta_contable": mapa_descripciones.get(opcion_iva, ""),
-                                    "referencia": nro_doc,
-                                    "debe": credito_fiscal,
-                                    "haber": 0.0
-                                })
-                            
-                            monto_haber_total = monto_costo_debe + monto_iva_linea
-
-                        filas_asiento_temporal.append({
-                            "n_comprobante": n_comprobante_actual,
-                            "descripcion": f"Cuentas por Pagar Factura {nro_doc} - {razon_social}",
-                            "fecha": fecha_op,
-                            "plan_cuentas": opcion_contrapartida,
-                            "cuenta_contable": mapa_descripciones.get(opcion_contrapartida, ""),
-                            "referencia": nro_doc,
-                            "debe": 0.0,
-                            "haber": monto_haber_total
-                        })
-
-                    st.session_state['df_asientos_proceso'] = pd.DataFrame(filas_asiento_temporal)
-                    st.rerun()
-
-                except Exception as proc_err:
-                    st.error(f"Error procesando los datos: {proc_err}")
-
-            # ----------------------------------------------------
-            # SEGUNDO FRAME: ESTRUCTURA COMPLETA
-            # ----------------------------------------------------
-            if 'df_asientos_proceso' in st.session_state and not st.session_state['df_asientos_proceso'].empty:
-                df_a_procesar = st.session_state['df_asientos_proceso']
-                
-                st.markdown(f"### 📋 Segundo Frame: Estructura Completa del Asiento Contable ({len(df_a_procesar)} registros)")
-                
-                def extraer_solo_codigo(val):
-                    val_str = str(val).strip()
-                    if " - " in val_str:
-                        return val_str.split(" - ")[0].strip()
-                    return val_str
-
-                for idx in df_a_procesar.index:
-                    codigo_puro = extraer_solo_codigo(df_a_procesar.at[idx, "plan_cuentas"])
-                    df_a_procesar.at[idx, "plan_cuentas"] = codigo_puro
-                    df_a_procesar.at[idx, "cuenta_contable"] = mapa_descripciones.get(codigo_puro, "")
-
-                opciones_codigos_puros = list(mapa_descripciones.keys())
-                if not opciones_codigos_puros:
-                    opciones_codigos_puros = ["5.1.1.01.001", "5.1.1.01.002", "1.1.4.01.001", "2.1.1.01.001"]
-
-                df_editado = st.data_editor(
-                    df_a_procesar,
-                    num_rows="dynamic",
-                    use_container_width=True,
-                    column_config={
-                        "n_comprobante": st.column_config.TextColumn("n_comprobante"),
-                        "descripcion": st.column_config.TextColumn("Descripción"),
-                        "fecha": st.column_config.TextColumn("Fecha"),
-                        "plan_cuentas": st.column_config.SelectboxColumn(
-                            "Plan de Cuentas (Código)",
-                            options=opciones_codigos_puros,
-                            required=True
-                        ),
-                        "cuenta_contable": st.column_config.TextColumn("Descripción Cuenta", disabled=True),
-                        "referencia": st.column_config.TextColumn("Referencia"),
-                        "debe": st.column_config.NumberColumn("Debe", format="%,.2f"),
-                        "haber": st.column_config.NumberColumn("Haber", format="%,.2f"),
-                    },
-                    key="editor_segundo_frame"
-                )
-                
-                for idx in df_editado.index:
-                    codigo_puro = extraer_solo_codigo(df_editado.at[idx, "plan_cuentas"])
-                    df_editado.at[idx, "plan_cuentas"] = codigo_puro
-                    df_editado.at[idx, "cuenta_contable"] = mapa_descripciones.get(codigo_puro, "")
-
-                st.session_state['df_asientos_proceso'] = df_editado
-
-                tot_debe = df_editado['debe'].sum()
-                tot_haber = df_editado['haber'].sum()
-                col_m1, col_m2 = st.columns(2)
-                col_m1.metric("Total Debe (General)", f"{tot_debe:,.2f}")
-                col_m2.metric("Total Haber (General)", f"{tot_haber:,.2f}")
-
-                buffer_excel = io.BytesIO()
-                with pd.ExcelWriter(buffer_excel, engine='openpyxl') as writer:
-                    df_editado.to_excel(writer, index=False, sheet_name='Asientos_Contables')
-                buffer_excel.seek(0)
-
-                st.download_button(
-                    label="📥 Descargar Estructura en Excel",
-                    data=buffer_excel,
-                    file_name=f"asientos_contables_{db_segura}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    key="btn_descargar_excel_asientos",
-                    use_container_width=True
-                )
-
-                if st.button("💾 Guardar Todo el Asiento en el Libro Diario", key="btn_guardar_asientos_finales", use_container_width=True):
-                    try:
-                        with db_connection.cursor() as cursor:
-                            cursor.execute(f"""
-                                CREATE TABLE IF NOT EXISTS `{db_segura}`.asientos_contables (
-                                    id INT AUTO_INCREMENT PRIMARY KEY,
-                                    n_comprobante VARCHAR(50),
-                                    descripcion TEXT,
-                                    fecha DATE,
-                                    plan_cuentas VARCHAR(100),
-                                    cuenta_contable VARCHAR(255),
-                                    referencia VARCHAR(100),
-                                    debe DECIMAL(15, 2) DEFAULT 0.00,
-                                    haber DECIMAL(15, 2) DEFAULT 0.00
-                                );
-                            """)
-                            
-                            for _, row in df_editado.iterrows():
-                                codigo_limpio = extraer_solo_codigo(row["plan_cuentas"])
-                                cursor.execute(f"""
-                                    INSERT INTO `{db_segura}`.asientos_contables 
-                                    (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber)
-                                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                                """, (
-                                    row["n_comprobante"],
-                                    row["descripcion"],
-                                    row["fecha"],
-                                    codigo_limpio,
-                                    row["cuenta_contable"],
-                                    row["referencia"],
-                                    row["debe"],
-                                    row["haber"]
-                                ))
-                            db_connection.commit()
-                            st.success("✅ ¡Asientos contables guardados exitosamente en el Libro Diario!")
-                    except Exception as db_err:
-                        st.error(f"Error al guardar en la base de datos: {db_err}")
-        except Exception as e:
-            st.error(f"Error al leer el archivo Excel: {e}")
-
-def renderizar_tab_asientos_ventas(db_connection):
-    st.subheader("🤖 Asientos Automatizados - Libro de Ventas")
-    st.markdown("""
-    Sube tu **Libro de Ventas** en Excel. El sistema procesará los datos, consultará la tabla de clientes comerciales por RIF y generará los asientos contables correspondientes.
-    """)
-
-    # ----------------------------------------------------
-    # VALIDACIÓN DE ROL Y FILTRADO DE EMPRESAS
-    # ----------------------------------------------------
-    usuario_actual = str(st.session_state.get("user", st.session_state.get("usuario", "norbe"))).strip()
-    
-    rol_usuario = "cliente"
-    es_admin = False
-    db_asignada_usuario = ""
-
-    dbs_filtradas = []
-    mapa_nombres_empresas = {}
-    
-    try:
-        with db_connection.cursor(pymysql.cursors.DictCursor) as cursor_temp:
-            cursor_temp.execute(
-                "SELECT rol, db_nombre FROM control_central.usuarios WHERE usuario = %s", 
-                (usuario_actual,)
-            )
-            res_usuario = cursor_temp.fetchone()
-            
-            if res_usuario:
-                rol_usuario = str(res_usuario.get("rol", "cliente")).strip().lower()
-                db_asignada_usuario = str(res_usuario.get("db_nombre", "")).strip()
-            
-            es_admin = rol_usuario in ["admin", "administrador"] or st.session_state.get("es_admin", False)
-
-            cursor_temp.execute("SELECT * FROM control_central.clientes")
-            clientes_db = cursor_temp.fetchall()
-        
-        for cli in clientes_db:
-            db_name = str(cli.get("db_nombre", "")).strip()
-            nombre_comercial = str(cli.get("nombre_empresa", db_name)).strip()
-            
-            if db_name:
-                if es_admin:
-                    dbs_filtradas.append(db_name)
-                    mapa_nombres_empresas[db_name] = nombre_comercial
-                else:
-                    if db_asignada_usuario and db_name.lower() == db_asignada_usuario.lower():
-                        dbs_filtradas.append(db_name)
-                        mapa_nombres_empresas[db_name] = nombre_comercial
-                        
-    except Exception as e:
-        st.warning(f"⚠️ Error consultando `control_central`: {e}")
-        if es_admin:
-            dbs_filtradas = ["kingdriver_ca"]
-        else:
-            dbs_filtradas = [db_asignada_usuario if db_asignada_usuario else "kingdriver_ca"]
-
-    if not dbs_filtradas:
-        if db_asignada_usuario:
-            dbs_filtradas = [db_asignada_usuario]
-        else:
-            dbs_filtradas = ["kingdriver_ca"]
-
-    if not dbs_filtradas:
-        st.error("⚠️ No se encontró una empresa asignada a tu usuario en la tabla `usuarios`.")
-        return
-
-    # ----------------------------------------------------
-    # INTERFAZ SEGÚN EL ROL (ADMIN VS CLIENTE)
-    # ----------------------------------------------------
-    if es_admin:
-        st.markdown("### 🏢 Contexto de Empresa (Modo Administrador)")
-        
-        index_default = 0
-        for i, db_name in enumerate(dbs_filtradas):
-            if any(k in str(st.session_state).lower() and db_name.lower() in str(st.session_state[k]).lower() for k in st.session_state):
-                index_default = i
-                break
-            if "driver" in db_name.lower() or "king" in db_name.lower():
-                index_default = i
-
-        format_func = lambda db: f"{mapa_nombres_empresas.get(db, db)} ({db})" if db in mapa_nombres_empresas else db
-        
-        nombre_db_cliente = st.selectbox(
-            "Selecciona la Base de Datos de la Empresa Activa:", 
-            dbs_filtradas, 
-            index=index_default,
-            format_func=format_func,
-            key="select_db_admin_asientos_ventas"
-        )
-    else:
-        nombre_db_cliente = dbs_filtradas[0]
-        nombre_amigable = mapa_nombres_empresas.get(nombre_db_cliente, nombre_db_cliente)
-        st.info(f"🏢 **Empresa Activa:** {nombre_amigable} (`{nombre_db_cliente}`)")
-
-    if not nombre_db_cliente:
-        st.error("⚠️ Debes seleccionar una base de datos.")
-        return
-
-    db_segura = str(nombre_db_cliente).strip()
-
-    mapa_descripciones = {}
-    opciones_desplegable = []
-
-    # ----------------------------------------------------
-    # CARGA SEGURA DE TABLA: PLAN_CUENTAS
-    # ----------------------------------------------------
-    if db_connection:
-        try:
-            with db_connection.cursor(pymysql.cursors.DictCursor) as cursor_opt:
-                cursor_opt.execute(f"SELECT codigo, nombre, tipo FROM `{db_segura}`.plan_cuentas ORDER BY codigo ASC")
-                cuentas_opt = cursor_opt.fetchall()
-                
-                cuentas_detalle = [c for c in cuentas_opt if str(c.get("tipo", "")).strip().lower() == 'detalle']
-                lista_cuentas = cuentas_detalle if cuentas_detalle else cuentas_opt
-                
-                for c in lista_cuentas:
-                    codigo = str(c.get("codigo", "")).strip()
-                    nombre = str(c.get("nombre", "")).strip()
-                    if codigo:
-                        mapa_descripciones[codigo] = nombre
-                        opciones_desplegable.append(codigo)
-
-                if not opciones_desplegable:
-                    opciones_desplegable = ["1.1.2.01.001", "4.1.1.01.001", "2.1.2.01.001"]
-                    mapa_descripciones = {
-                        "1.1.2.01.001": "Cuentas por Cobrar Comerciales",
-                        "4.1.1.01.001": "Ventas de Servicios / Ingresos",
-                        "2.1.2.01.001": "IVA Débito Fiscal"
-                    }
-        except Exception as e:
-            st.warning(f"⚠️ Advertencia al consultar plan de cuentas: {e}. Usando cuentas predeterminadas.")
-            opciones_desplegable = ["1.1.2.01.001", "4.1.1.01.001", "2.1.2.01.001"]
-            mapa_descripciones = {
-                "1.1.2.01.001": "Cuentas por Cobrar Comerciales",
-                "4.1.1.01.001": "Ventas de Servicios / Ingresos",
-                "2.1.2.01.001": "IVA Débito Fiscal"
-            }
-
-    default_opcion = opciones_desplegable[0] if opciones_desplegable else "1.1.2.01.001"
-
-    # ----------------------------------------------------
-    # CARGAR CLIENTES COMERCIALES DESDE LA BASE DE DATOS
-    # ----------------------------------------------------
-    mapa_clientes_rif = {}
-    try:
-        with db_connection.cursor(pymysql.cursors.DictCursor) as cursor_cli:
-            cursor_cli.execute(f"SELECT rif, codigo_cuenta, descripcion_cuenta FROM `{db_segura}`.clientes_comerciales")
-            clientes_registrados = cursor_cli.fetchall()
-            for cli in clientes_registrados:
-                rif_limpio = str(cli.get("rif", "")).strip().upper()
-                mapa_clientes_rif[rif_limpio] = {
-                    "codigo_cuenta": str(cli.get("codigo_cuenta", "")).strip(),
-                    "descripcion_cuenta": str(cli.get("descripcion_cuenta", "")).strip()
-                }
-    except Exception as e:
-        st.warning(f"⚠️ No se pudo consultar la tabla `clientes_comerciales`: {e}")
-
-    # ----------------------------------------------------
-    # CARGA Y VISTA PREVIA DEL EXCEL (LIBRO DE VENTAS)
-    # ----------------------------------------------------
-    st.markdown("---")
-    st.markdown("### 📋 Primer Frame: Libro de Ventas Subido")
-
-    archivo_excel = st.file_uploader("Subir Libro de Ventas (Excel)", type=["xlsx", "xls"], key="uploader_libro_ventas")
-
-    if archivo_excel is not None:
-        try:
-            df_ventas = pd.read_excel(archivo_excel)
-            df_ventas.columns = df_ventas.columns.str.strip()
-            
-            st.dataframe(df_ventas, use_container_width=True)
-
-            st.markdown("---")
-            st.markdown("### ⚙️ Configuración de Asientos de Ventas")
-            
-            col_cfg1, col_cfg2 = st.columns(2)
-            with col_cfg1:
-                n_comprobante_base = st.text_input("Número de Comprobante (Fijo para todas las líneas):", value="060001", key="prefijo_ventas")
-            
-            if st.button("🔄 Generar Estructura del Segundo Frame (Ventas)", key="btn_generar_frame_ventas"):
-                try:
-                    filas_asiento_temporal = []
-
-                    for idx, row in df_ventas.iterrows():
-                        def buscar_valor(posibles_nombres, default_val=0.0):
-                            for col in df_ventas.columns:
-                                c_clean = str(col).strip().lower()
-                                for pos in posibles_nombres:
-                                    if pos.lower() in c_clean:
-                                        val = row[col]
-                                        if pd.notna(val):
-                                            return val
-                            return default_val
-
-                        # Búsqueda exclusiva para la fecha
-                        raw_fecha = buscar_valor(["Fecha de Factura", "Fecha"], "")
-                        if hasattr(raw_fecha, "strftime"):
-                            fecha_op = raw_fecha.strftime("%Y-%m-%d")
-                        else:
-                            val_str = str(raw_fecha).strip().split(" ")[0]
-                            try:
-                                fecha_op = pd.to_datetime(val_str).strftime("%Y-%m-%d")
-                            except Exception:
-                                fecha_op = val_str[:10] if val_str else ""
-
-                        razon_social = str(buscar_valor(["Nombre y Apellido o Razón Social", "Razon Social", "Cliente"], "Sin Nombre")).strip()
-                        rif_cliente = str(buscar_valor(["R.I.F.", "RIF", "Rif"], "")).strip().upper()
-                        
-                        # Búsqueda exacta y segura del Número de Factura para que vaya a Referencia
-                        nro_doc = ""
-                        for col in df_ventas.columns:
-                            c_clean = str(col).strip().lower()
-                            if ("factura" in c_clean or "nro" in c_clean or "num" in c_clean) and "fecha" not in c_clean:
-                                val = row[col]
-                                if pd.notna(val) and str(val).strip() != "":
-                                    nro_doc = str(val).strip()
-                                    break
-                        if not nro_doc:
-                            nro_doc = str(idx + 1)
-
-                        try:
-                            ventas_exentas = float(buscar_valor(["Ventas Exentas", "Exentas"], 0.0))
-                        except Exception:
-                            ventas_exentas = 0.0
-
-                        try:
-                            base_imponible = float(buscar_valor(["Base Imponible"], 0.0))
-                        except Exception:
-                            base_imponible = 0.0
-
-                        try:
-                            debito_fiscal = float(buscar_valor(["Débito Fiscal", "Debito Fiscal"], 0.0))
-                        except Exception:
-                            debito_fiscal = 0.0
-
-                        try:
-                            total_ventas = float(buscar_valor(["Total Ventas Incluyendo el IVA", "Total Ventas"], base_imponible + ventas_exentas + debito_fiscal))
-                        except Exception:
-                            total_ventas = base_imponible + ventas_exentas + debito_fiscal
-
-                        n_comprobante_actual = str(n_comprobante_base).strip()
-
-                        # ----------------------------------------------------
-                        # CRUCE CON LA TABLA `clientes_comerciales` SEGÚN EL RIF
-                        # ----------------------------------------------------
-                        opcion_cxc = default_opcion
-                        descripcion_personalizada = f"Factura Venta {nro_doc} - {razon_social}"
-
-                        if rif_cliente in mapa_clientes_rif:
-                            info_cli = mapa_clientes_rif[rif_cliente]
-                            if info_cli["codigo_cuenta"]:
-                                opcion_cxc = info_cli["codigo_cuenta"]
-                            if info_cli["descripcion_cuenta"]:
-                                descripcion_personalizada = info_cli["descripcion_cuenta"]
-
-                        opcion_ingreso = default_opcion
-                        opcion_iva_debito = default_opcion
-
-                        for opt in opciones_desplegable:
-                            if opt.startswith("4"):
-                                opcion_ingreso = opt
-                                break
-                        for opt in opciones_desplegable:
-                            if "2.1.2" in opt or "debito" in mapa_descripciones.get(opt, "").lower():
-                                opcion_iva_debito = opt
-                                break
-
-                        # 1. Cuentas por Cobrar (DEBE)
-                        filas_asiento_temporal.append({
-                            "n_comprobante": n_comprobante_actual,
-                            "descripcion": descripcion_personalizada,
-                            "fecha": fecha_op,
-                            "plan_cuentas": opcion_cxc,
-                            "cuenta_contable": mapa_descripciones.get(opcion_cxc, ""),
-                            "referencia": nro_doc,  # <--- Número de factura exacto aquí
-                            "debe": total_ventas,
-                            "haber": 0.0
-                        })
-
-                        # 2. Ingresos (HABER)
-                        monto_ingreso = base_imponible + ventas_exentas
-                        if monto_ingreso > 0:
-                            filas_asiento_temporal.append({
-                                "n_comprobante": n_comprobante_actual,
-                                "descripcion": f"Ingresos por Ventas Factura {nro_doc} - {razon_social}",
-                                "fecha": fecha_op,
-                                "plan_cuentas": opcion_ingreso,
-                                "cuenta_contable": mapa_descripciones.get(opcion_ingreso, ""),
-                                "referencia": nro_doc,  # <--- Número de factura exacto aquí
-                                "debe": 0.0,
-                                "haber": monto_ingreso
-                            })
-
-                        # 3. IVA Débito Fiscal (HABER)
-                        if debito_fiscal > 0:
-                            filas_asiento_temporal.append({
-                                "n_comprobante": n_comprobante_actual,
-                                "descripcion": f"IVA Débito Fiscal Factura {nro_doc} - {razon_social}",
-                                "fecha": fecha_op,
-                                "plan_cuentas": opcion_iva_debito,
-                                "cuenta_contable": mapa_descripciones.get(opcion_iva_debito, ""),
-                                "referencia": nro_doc,  # <--- Número de factura exacto aquí
-                                "debe": 0.0,
-                                "haber": debito_fiscal
-                            })
-
-                    st.session_state['df_asientos_ventas_proceso'] = pd.DataFrame(filas_asiento_temporal)
-                    st.rerun()
-
-                except Exception as proc_err:
-                    st.error(f"Error procesando los datos de ventas: {proc_err}")
-
-            # ----------------------------------------------------
-            # SEGUNDO FRAME: ESTRUCTURA COMPLETA DE VENTAS
-            # ----------------------------------------------------
-            if 'df_asientos_ventas_proceso' in st.session_state and not st.session_state['df_asientos_ventas_proceso'].empty:
-                df_a_procesar = st.session_state['df_asientos_ventas_proceso']
-                
-                st.markdown(f"### 📋 Segundo Frame: Estructura del Asiento de Ventas ({len(df_a_procesar)} registros)")
-                
-                def extraer_solo_codigo(val):
-                    val_str = str(val).strip()
-                    if " - " in val_str:
-                        return val_str.split(" - ")[0].strip()
-                    return val_str
-
-                for idx in df_a_procesar.index:
-                    codigo_puro = extraer_solo_codigo(df_a_procesar.at[idx, "plan_cuentas"])
-                    df_a_procesar.at[idx, "plan_cuentas"] = codigo_puro
-                    df_a_procesar.at[idx, "cuenta_contable"] = mapa_descripciones.get(codigo_puro, "")
-
-                opciones_codigos_puros = list(mapa_descripciones.keys())
-                if not opciones_codigos_puros:
-                    opciones_codigos_puros = ["1.1.2.01.001", "4.1.1.01.001", "2.1.2.01.001"]
-
-                df_editado = st.data_editor(
-                    df_a_procesar,
-                    num_rows="dynamic",
-                    use_container_width=True,
-                    column_config={
-                        "n_comprobante": st.column_config.TextColumn("n_comprobante"),
-                        "descripcion": st.column_config.TextColumn("Descripción"),
-                        "fecha": st.column_config.TextColumn("Fecha"),
-                        "plan_cuentas": st.column_config.SelectboxColumn(
-                            "Plan de Cuentas (Código)",
-                            options=opciones_codigos_puros,
-                            required=True
-                        ),
-                        "cuenta_contable": st.column_config.TextColumn("Descripción Cuenta", disabled=True),
-                        "referencia": st.column_config.TextColumn("Referencia"),
-                        "debe": st.column_config.NumberColumn("Debe", format="%,.2f"),
-                        "haber": st.column_config.NumberColumn("Haber", format="%,.2f"),
-                    },
-                    key="editor_segundo_frame_ventas"
-                )
-                
-                for idx in df_editado.index:
-                    codigo_puro = extraer_solo_codigo(df_editado.at[idx, "plan_cuentas"])
-                    df_editado.at[idx, "plan_cuentas"] = codigo_puro
-                    df_editado.at[idx, "cuenta_contable"] = mapa_descripciones.get(codigo_puro, "")
-
-                st.session_state['df_asientos_ventas_proceso'] = df_editado
-
-                tot_debe = df_editado['debe'].sum()
-                tot_haber = df_editado['haber'].sum()
-                col_m1, col_m2 = st.columns(2)
-                col_m1.metric("Total Debe (Ventas)", f"{tot_debe:,.2f}")
-                col_m2.metric("Total Haber (Ventas)", f"{tot_haber:,.2f}")
-
-                buffer_excel = io.BytesIO()
-                with pd.ExcelWriter(buffer_excel, engine='openpyxl') as writer:
-                    df_editado.to_excel(writer, index=False, sheet_name='Asientos_Ventas')
-                buffer_excel.seek(0)
-
-                st.download_button(
-                    label="📥 Descargar Estructura de Ventas en Excel",
-                    data=buffer_excel,
-                    file_name=f"asientos_ventas_{db_segura}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    key="btn_descargar_excel_ventas",
-                    use_container_width=True
-                )
-
-                if st.button("💾 Guardar Asientos de Ventas en el Libro Diario", key="btn_guardar_ventas_finales", use_container_width=True):
-                    try:
-                        with db_connection.cursor() as cursor:
-                            cursor.execute(f"""
-                                CREATE TABLE IF NOT EXISTS `{db_segura}`.asientos_contables (
-                                    id INT AUTO_INCREMENT PRIMARY KEY,
-                                    n_comprobante VARCHAR(50),
-                                    descripcion TEXT,
-                                    fecha DATE,
-                                    plan_cuentas VARCHAR(100),
-                                    cuenta_contable VARCHAR(255),
-                                    referencia VARCHAR(100),
-                                    debe DECIMAL(15, 2) DEFAULT 0.00,
-                                    haber DECIMAL(15, 2) DEFAULT 0.00
-                                );
-                            """)
-                            
-                            for _, row in df_editado.iterrows():
-                                codigo_limpio = extraer_solo_codigo(row["plan_cuentas"])
-                                cursor.execute(f"""
-                                    INSERT INTO `{db_segura}`.asientos_contables 
-                                    (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber)
-                                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                                """, (
-                                    row["n_comprobante"],
-                                    row["descripcion"],
-                                    row["fecha"],
-                                    codigo_limpio,
-                                    row["cuenta_contable"],
-                                    row["referencia"],
-                                    row["debe"],
-                                    row["haber"]
-                                ))
-                            db_connection.commit()
-                            st.success("✅ ¡Asientos de ventas guardados exitosamente en el Libro Diario!")
-                    except Exception as db_err:
-                        st.error(f"Error al guardar los asientos de ventas: {db_err}")
-        except Exception as e:
-            st.error(f"Error al leer el archivo Excel de ventas: {e}")
-
-
 def gestionar_sidebar():
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
     user_id = st.session_state.get('user_id', st.session_state.get('cliente_id', 'N/A'))
@@ -6978,16 +5110,6 @@ def gestionar_sidebar():
                 """, 
                 unsafe_allow_html=True
             )
-        elif 'admin_firma' in user_rol:
-            st.markdown(
-                f"""
-                <div style="background-color: #1e293b; padding: 10px; border-radius: 8px; text-align: center; margin-bottom: 15px; border: 1px solid #334155;">
-                    <span style="color: #38bdf8; font-weight: bold; font-size: 13px;">🏢 Administrador de Firma</span><br>
-                    <span style="color: #ffffff; font-size: 13px; font-weight: 600;">{nombre_usuario_actual}</span>
-                </div>
-                """, 
-                unsafe_allow_html=True
-            )
         else:
             st.markdown(
                 f"""
@@ -7007,24 +5129,15 @@ def gestionar_sidebar():
                 del st.session_state[key]
             st.rerun()
 
-        # --- Navegación adaptada por rol ---
+        # --- Navegación ---
         if user_rol == 'admin':
-            menu = st.radio(
-                "Navegación", 
-                ["📊 Auditoría Contable", "⚙️ Gestión de Usuarios", "🔒 Bloqueo de Usuarios", "🏢 Gestión de Empresas", "🏢 Gestión de Firmas y Accesos", "🏢 Gestión de Clientes de la Firma"], 
-                key="menu_nav"
-            )
-        elif 'admin_firma' in user_rol:
-            menu = st.radio(
-                "Navegación", 
-                ["📊 Auditoría Contable", "🏢 Gestión de Firmas y Accesos", "🏢 Gestión de Clientes de la Firma"], 
-                key="menu_nav"
-            )
+            menu = st.radio("Navegación", ["📊 Auditoría Contable", "⚙️ Gestión de Usuarios"], key="menu_nav")
         else:
             menu = "📊 Auditoría Contable"
 
         st.divider()
 
+        # --- Selección de Empresa ---
         # --- Selección de Empresa ---
         if menu == "📊 Auditoría Contable":
             conn_sidebar = conectar_db()
@@ -7049,11 +5162,6 @@ def gestionar_sidebar():
                             "SELECT * FROM control_central.clientes",
                             "SELECT * FROM clientes"
                         ]
-                    elif 'admin_firma' in user_rol:
-                        id_firma_actual = st.session_state.get('cliente_id', 0)
-                        queries_a_probar = [
-                            f"SELECT * FROM control_central.clientes WHERE id = {id_firma_actual} OR db_nombre LIKE 'lacteo_%%' OR db_nombre LIKE 'mendoza_%%'"
-                        ]
                     else:
                         queries_a_probar = [
                             f"""
@@ -7061,7 +5169,7 @@ def gestionar_sidebar():
                             JOIN control_central.usuarios u ON c.id = u.cliente_id
                             WHERE LOWER(TRIM(u.usuario)) = '{user_limpio}'
                             """,
-                            """
+                            f"""
                             SELECT * FROM control_central.clientes WHERE id = 3
                             """
                         ]
@@ -7097,56 +5205,31 @@ def gestionar_sidebar():
 
             df_filtrado = df_sidebar
 
-            if user_rol != 'admin' and 'admin_firma' not in user_rol and df_filtrado.empty:
+            if user_rol != 'admin' and df_filtrado.empty:
                 st.error(f"❌ El usuario '{nombre_usuario_actual}' no tiene una empresa asignada en la base de datos.")
                 st.stop()
 
-            nombres_empresas = df_filtrado['nombre_empresa'].tolist() if not df_filtrado.empty else []
+            nombres_empresas = df_filtrado['nombre_empresa'].tolist()
+            nombre_seleccionado = nombres_empresas[0]
 
-            if nombres_empresas:
-                idx_default = 0
-                if 'CLIENTE_NOMBRE' in st.session_state and st.session_state['CLIENTE_NOMBRE'] in nombres_empresas:
-                    idx_default = nombres_empresas.index(st.session_state['CLIENTE_NOMBRE'])
+            st.markdown(f"**🏢 Empresa Asignada:**")
+            st.info(f"{str(nombre_seleccionado).upper()}")
 
-                st.markdown(f"**🏢 Selección de Empresa:**")
-                nombre_seleccionado = st.selectbox(
-                    "📂 SELECCIONE EMPRESA", 
-                    nombres_empresas, 
-                    index=idx_default,
-                    key="selector_empresa_interactivo"
-                )
+            st.session_state['cliente_seleccionado_previo'] = nombre_seleccionado
 
-                st.session_state['cliente_seleccionado_previo'] = nombre_seleccionado
+            fila_seleccionada = df_filtrado[df_filtrado['nombre_empresa'] == nombre_seleccionado]
+            if fila_seleccionada.empty:
+                fila_seleccionada = df_filtrado.iloc[[0]]
 
-                fila_seleccionada = df_filtrado[df_filtrado['nombre_empresa'] == nombre_seleccionado]
-                if fila_seleccionada.empty:
-                    fila_seleccionada = df_filtrado.iloc[[0]]
-
-                datos_sel = fila_seleccionada.iloc[0]
-                db_seleccionada = str(datos_sel['db_nombre']).strip()
-                
-                st.session_state['DB_ACTUAL'] = db_seleccionada
-                st.session_state['db_a_conectar'] = db_seleccionada
-                st.session_state['CLIENTE_NOMBRE'] = nombre_seleccionado
-                
-                if 'rif' in datos_sel and pd.notna(datos_sel['rif']):
-                    rif_encontrado = str(datos_sel['rif']).strip()
-                    st.session_state['rif_empresa_activa'] = rif_encontrado
-                    st.session_state['rif_empresa_seleccionada'] = rif_encontrado
-                else:
-                    st.session_state['rif_empresa_activa'] = "J-00000000-0"
-                    st.session_state['rif_empresa_seleccionada'] = "J-00000000-0"
-
-                if 'id' in datos_sel:
-                    st.session_state['cliente_id_seleccionado'] = int(datos_sel['id'])
-
-                if 'tipo_contribuyente' in datos_sel and pd.notna(datos_sel['tipo_contribuyente']):
-                    st.session_state['tipo_contribuyente'] = str(datos_sel['tipo_contribuyente']).strip()
-                else:
-                    st.session_state['tipo_contribuyente'] = 'Contribuyente Ordinario'
-
-            else:
-                st.info("ℹ️ No hay empresas disponibles para mostrar.")
+            datos_sel = fila_seleccionada.iloc[0]
+            db_seleccionada = str(datos_sel['db_nombre']).strip()
+            
+            # Estas son las variables que el panel principal está buscando:
+            st.session_state['DB_ACTUAL'] = db_seleccionada
+            st.session_state['db_a_conectar'] = db_seleccionada
+            st.session_state['CLIENTE_NOMBRE'] = nombre_seleccionado
+            if 'id' in datos_sel:
+                st.session_state['cliente_id_seleccionado'] = int(datos_sel['id'])
 
     return menu
 
@@ -7155,66 +5238,47 @@ def gestionar_sidebar():
 verificar_inactividad()
 
 if 'logueado' not in st.session_state or not st.session_state['logueado']:
+    # 1. Si no está logueado, muestra la pantalla de acceso
     login_screen()
     st.stop()
 
 elif not st.session_state.get('bienvenida_completada', False):
+    # 2. Si acaba de loguearse, muestra la plantilla grande con la barra de carga
     mostrar_plantilla_bienvenida()
     st.stop()
 
 else:
+    # 3. Si ya pasó la bienvenida, carga el menú lateral y la aplicación normal
     menu_lateral = gestionar_sidebar()
 
-# --- LÓGICA DE NAVEGACIÓN Y PERMISOS ---
-# Nos aseguramos de que menu_lateral exista para evitar errores
-if 'menu_lateral' not in locals():
-    menu_lateral = "📊 Auditoría Contable"
 
-rol_actual = str(st.session_state.get('rol', '')).strip().lower()
-
-es_modulo_admin = menu_lateral in [
-    "⚙️ Gestión de Usuarios", 
-    "🔒 Bloqueo de Usuarios",
-    "🏢 Gestión de Firmas y Accesos", 
-    "🏢 Gestión de Empresas", 
-    "🏢 Gestión de Clientes de la Firma"
-]
-
-if es_modulo_admin:
-    # Doble seguridad: si intentan entrar por manipulación, validamos el rol
-    if rol_actual != 'admin' and 'admin_firma' not in rol_actual:
-        st.warning("⚠️ No tienes permisos para acceder a este módulo administrativo.")
-        st.stop()
-
+if menu_lateral == "⚙️ Gestión de Usuarios":    
     try:
-        conn = conectar_db() # Conexión a la central
+        conn = conectar_db() 
         if conn:
-            if menu_lateral == "⚙️ Gestión de Usuarios":
-                panel_administracion(conn)
-            elif menu_lateral == "🔒 Bloqueo de Usuarios":
-                panel_bloqueo_suspension_usuarios(conn)
-            elif menu_lateral == "🏢 Gestión de Firmas y Accesos":
-                panel_administracion_firmas(conn)
-            elif menu_lateral == "🏢 Gestión de Empresas":
-                panel_gestion_clientes(conn)
-            elif menu_lateral == "🏢 Gestión de Clientes de la Firma":
-                panel_gestion_clientes_firma(conn)
-            conn.close()
+            panel_administracion(conn)
+            try:
+                conn.close()
+            except Exception:
+                pass
         else:
             st.error("🔌 No se pudo establecer conexión con el servidor MySQL.")
     except Exception as e:
         st.error(f"Error al acceder a la gestión central: {e}")
-    
     st.stop()
 
-# --- SI NO ES ADMIN, CONTINUAMOS CON EL DASHBOARD CONTABLE ---
-# Sacamos los datos de la sesión
-EMPRESA = st.session_state.get('CLIENTE_NOMBRE', "Empresa Seleccionada")
-RIF = st.session_state.get('rif_empresa_seleccionada', "J-00000000-0")
+# Sacamos los datos directamente de lo que ya se seleccionó en el Sidebar
+if 'DB_ACTUAL' in st.session_state and st.session_state.get('DB_ACTUAL'):
+    EMPRESA = st.session_state.get('CLIENTE_NOMBRE', "Empresa Seleccionada")
+    # Si también guardas el RIF en el session_state, lo buscas aquí:
+    RIF = st.session_state.get('rif_empresa_seleccionada', "J-00000000-0")
+else:
+    EMPRESA = "Seleccione Cliente"
+    RIF = "J-00000000-0"
+
 DATOS_EMPRESA = {"nombre": EMPRESA, "rif": RIF}
 
 if menu_lateral == "📊 Auditoría Contable":
-    # Tu lógica de módulos existente...
     with st.sidebar:
         st.divider()
         st.subheader("Módulos")
@@ -7232,7 +5296,7 @@ if menu_lateral == "📊 Auditoría Contable":
         st.session_state['opcion_menu_auditoria'] = opcion_menu
 
         if opcion_menu == "📝 Asientos Contables":
-            sub_opcion = st.radio("Acciones:", ["Subir Datos", "Conciliación Bancaria", "Consultar Comprobante", "Consultar Saldos Iniciales", "Consultar Cierre Contable","Gestor Documental",], key="sub_asientos")
+            sub_opcion = st.radio("Acciones:", ["Subir Datos", "Conciliación Bancaria", "Consultar Comprobante", "Consultar Saldos Iniciales", "Consultar Cierre Contable"], key="sub_asientos")
         elif opcion_menu == "📊 Estados Financieros":
             st.markdown("---")
             sub_opcion = st.radio("Reportes Financieros:", ["Balance de Comprobación", "Balance General", "Estado de Resultados"], key="sub_estados")
@@ -8920,23 +6984,273 @@ if "🏠 Inicio" in opcion_menu:
         st.code(traceback.format_exc())
     
 
-    # --- FILA 11: CALENDARIO FISCAL AUTOMATIZADO ---
-    db_actual = st.session_state.get('DB_ACTUAL')
+    # --- FILA 11: CALENDARIO ESPECIAL PEDACITO DE CIELO ---
+    # CALENDARIO FSICAL DE CONTRIBUYENTE ESPECIAL
+    # FORZAMOS el nombre correcto de tu BD en TiDB Cloud
+    db_objetivo = "pedacito_de_cielo_ca"
 
-    if db_actual:
-        nombre_comercial = st.session_state.get('CLIENTE_NOMBRE', db_actual)
-        st.markdown(f"### 📅 Calendario Fiscal SENIAT 2026 - {nombre_comercial}")
-
-        # Ejecutamos tu función para asegurar la consistencia del contribuyente
-        verificar_si_es_contribuyente_especial(db_actual)
-
-        # Invocamos directamente tu función visual que dibuja las tablas y los días de pago según el RIF
-        mostrar_calendario_cliente(db_actual)
+    if db == db_objetivo or "pedacito" in str(db).lower():
         
-    else:
-        st.warning("⚠️ Por favor, seleccione una empresa en el menú lateral para visualizar el calendario fiscal.")
+        # 1. Conexión segura a TiDB Cloud
+        conexion_activa = conectar_db(db_objetivo)
+        
+        if conexion_activa is not None:
+            try:
+                # Solución al error 'Unread result found': consumimos o cerramos limpiamente
+                cursor = conexion_activa.cursor()
+                cursor.execute("SELECT 1") 
+                cursor.fetchall() # Consumimos los resultados pendientes del buffer
+                cursor.close()
+            except Exception as e:
+                st.error(f"❌ Error al ejecutar en la base de datos: {e}")
+                st.stop()
+        else:
+            st.error(f"❌ No se pudo establecer la conexión con '{db_objetivo}'.")
+            st.stop()
+                
+        with tab1:
+            # ==========================================
+            # 1. LÍNEA DIVISORIA ANTES DE LAS ALERTAS
+            # ==========================================
+            st.divider()
 
-    
+            # ==========================================
+            # 2. SISTEMA DE ALERTAS Y CONTROL DE PAGOS
+            # ==========================================
+            st.markdown("### 🔔 Estado de Alertas Fiscales Próximas")
+
+            hoy = date.today()
+            
+            eventos_fiscales = [
+                {"id": "iva_1", "concepto": "IVA / Anticipos (1era Quincena)", "fecha": date(2026, 8, 31), "mes_idx": 7},
+                {"id": "iva_2", "concepto": "IVA / Anticipos (2da Quincena)", "fecha": date(2026, 8, 14), "mes_idx": 7},
+                {"id": "islr", "concepto": "Retenciones de ISLR", "fecha": date(2026, 8, 7), "mes_idx": 7},
+                {"id": "pensiones", "concepto": "Ley de Protección de Pensiones", "fecha": date(2026, 8, 17), "mes_idx": 7},
+            ]
+
+            # Archivo local para persistencia de pagos
+            archivo_pagos = "pagos_pedacito.json"
+
+            def cargar_pagos_disco():
+                if os.path.exists(archivo_pagos):
+                    try:
+                        with open(archivo_pagos, "r") as f:
+                            return json.load(f)
+                    except:
+                        pass
+                return {"iva_1": False, "iva_2": False, "islr": False, "pensiones": False}
+
+            def guardar_pagos_disco(datos):
+                try:
+                    with open(archivo_pagos, "w") as f:
+                        json.dump(datos, f)
+                except:
+                    pass
+
+            # Inicializamos en session_state cargando desde el archivo si no existe
+            if 'pagos_realizados_pedacito' not in st.session_state:
+                st.session_state['pagos_realizados_pedacito'] = cargar_pagos_disco()
+
+            # Contenedor para que el cliente pueda marcar si ya pagó
+            st.markdown("##### 📝 Control de Pagos Realizados:")
+            
+            col_c1, col_c2 = st.columns(2)
+            with col_c1:
+                val_iva_2 = st.checkbox("✅ IVA 2da Quincena Pagado", value=st.session_state['pagos_realizados_pedacito'].get("iva_2", False), key="chk_iva_2")
+                val_islr = st.checkbox("✅ Retenciones ISLR Pagadas", value=st.session_state['pagos_realizados_pedacito'].get("islr", False), key="chk_islr")
+            with col_c2:
+                val_pensiones = st.checkbox("✅ Ley de Pensiones Pagada", value=st.session_state['pagos_realizados_pedacito'].get("pensiones", False), key="chk_pensiones")
+                val_iva_1 = st.checkbox("✅ IVA 1era Quincena Pagado", value=st.session_state['pagos_realizados_pedacito'].get("iva_1", False), key="chk_iva_1")
+
+            # Actualizar diccionario y guardar en disco si hubo cambios
+            nuevos_pagos = {
+                "iva_1": val_iva_1,
+                "iva_2": val_iva_2,
+                "islr": val_islr,
+                "pensiones": val_pensiones
+            }
+
+            if nuevos_pagos != st.session_state['pagos_realizados_pedacito']:
+                st.session_state['pagos_realizados_pedacito'] = nuevos_pagos
+                guardar_pagos_disco(nuevos_pagos)
+
+            pagos_realizados = st.session_state['pagos_realizados_pedacito']
+
+            # Evaluador de Alertas y Sonido
+            alerta_activa = False
+            mensajes_urgentes = []
+            
+            for evento in eventos_fiscales:
+                dias_restantes = (evento["fecha"] - hoy).days
+                pagado = pagos_realizados.get(evento["id"], False)
+                
+                if pagado:
+                    st.info(f"✔️ **{evento['concepto']}**: Declarado y pagado a tiempo. ¡Sin deudas pendientes para esta fecha!")
+                elif 0 <= dias_restantes <= 3:
+                    alerta_activa = True
+                    mensaje_alerta = f"⚠️ **¡ATENCIÓN!** Se acerca la declaración y pago de **{evento['concepto']}** programada para la fecha **{evento['fecha'].strftime('%d/%m/%Y')}** (Faltan {dias_restantes} días)."
+                    mensajes_urgentes.append(mensaje_alerta)
+
+            if alerta_activa:
+                # Reproductor de audio oculto
+                audio_html = """
+                    <audio autoplay style="display:none;">
+                      <source src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3" type="audio/mpeg">
+                    </audio>
+                """
+                st.markdown(audio_html, unsafe_allow_html=True)
+
+                # Notificación flotante estilo bancario (toast superior) que desaparece en 5 segundos
+                texto_notificacion = "<br>".join(mensajes_urgentes)
+                banco_notif_html = f"""
+                    <div id="banco-toast-alerta" style="
+                        position: fixed;
+                        top: 20px;
+                        right: 20px;
+                        z-index: 999999;
+                        background-color: #fff3cd;
+                        color: #856404;
+                        padding: 16px 20px;
+                        border-radius: 8px;
+                        border-left: 6px solid #ffeeba;
+                        border: 1px solid #ffeeba;
+                        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+                        font-family: sans-serif;
+                        max-width: 400px;
+                        animation: slideIn 0.5s ease-out;
+                    ">
+                        <div style="font-weight: bold; margin-bottom: 5px; font-size: 15px;">🔔 Notificación Fiscal Urgente</div>
+                        <div style="font-size: 13px; line-height: 1.4;">{texto_notificacion}</div>
+                    </div>
+
+                    <style>
+                    @keyframes slideIn {{
+                        from {{ transform: translateX(100%); opacity: 0; }}
+                        to {{ transform: translateX(0); opacity: 1; }}
+                    }}
+                    @keyframes fadeOut {{
+                        from {{ opacity: 1; }}
+                        to {{ opacity: 0; }}
+                    }}
+                    </style>
+
+                    <script>
+                        setTimeout(function() {{
+                            var toast = document.getElementById('banco-toast-alerta');
+                            if (toast) {{
+                                toast.style.animation = 'fadeOut 0.5s ease-out forwards';
+                                setTimeout(function() {{
+                                    toast.remove();
+                                }}, 500);
+                            }}
+                        }}, 5000);
+                    </script>
+                """
+                st.markdown(banco_notif_html, unsafe_allow_html=True)
+                
+            else:
+                if not any(pagos_realizados.values()) and not any(0 <= (e["fecha"] - hoy).days <= 3 for e in eventos_fiscales):
+                    st.success("✅ No hay obligaciones fiscales críticas a menos de 3 días de vencimiento en este momento.")
+
+            # ==========================================
+            # 3. LÍNEA DIVISORIA ANTES DEL CALENDARIO FISCAL
+            # ==========================================
+            st.divider()
+
+            # ==========================================
+            # 4. TÍTULOS Y TABLAS DEL CALENDARIO FISCAL
+            # ==========================================
+            st.subheader("📊 Calendario Fiscal 2026 - Sujeto Especial (SENIAT)")
+            st.markdown("### 🗓️ Cronograma de Declaraciones y Pagos")
+            
+            # Estilo visual moderno para las tablas
+            st.markdown("""
+            <style>
+                .fiscal-table {
+                    width: 100%;
+                    border-collapse: collapse;
+                    margin-bottom: 20px;
+                    font-family: sans-serif;
+                    font-size: 14px;
+                }
+                .fiscal-table th {
+                    background-color: #2b313e;
+                    color: white;
+                    text-align: center;
+                    padding: 8px;
+                    border: 1px solid #ddd;
+                }
+                .fiscal-table td {
+                    text-align: center;
+                    padding: 8px;
+                    border: 1px solid #ddd;
+                }
+                .header-iva { background-color: #d4edda; color: #155724; font-weight: bold; text-align: left; padding: 8px; }
+                .header-islr { background-color: #fff3cd; color: #856404; font-weight: bold; text-align: left; padding: 8px; }
+                .header-pensiones { background-color: #cce5ff; color: #004085; font-weight: bold; text-align: left; padding: 8px; }
+            </style>
+            """, unsafe_allow_html=True)
+
+            meses = ["ENE", "FEB", "MAR", "ABR", "MAY", "JUN", "JUL", "AGO", "SEPT", "OCT", "NOV", "DIC"]
+            
+            q1_vals = ["❌", "❌", "❌", "❌", "❌", "❌", "❌", "31", "29", "20", "27", "16"]
+            q2_vals = ["❌", "❌", "❌", "❌", "❌", "❌", "❌", "14", "14", "05", "13", "03"]
+            islr_vals = ["❌", "❌", "❌", "❌", "❌", "❌", "❌", "07", "08", "09", "06", "09"]
+            pensiones_vals = ["❌", "❌", "❌", "❌", "❌", "❌", "❌", "17", "29", "20", "27", "16"]
+
+            if pagos_realizados["iva_1"]:
+                q1_vals[7] = "✅ Pagado"
+            if pagos_realizados["iva_2"]:
+                q2_vals[7] = "✅ Pagado"
+            if pagos_realizados["islr"]:
+                islr_vals[7] = "✅ Pagado"
+            if pagos_realizados["pensiones"]:
+                pensiones_vals[7] = "✅ Pagado"
+
+            # Renderizar Tabla 1: IVA 1era Quincena
+            st.markdown("#### 1. IVA, Anticipos de ISLR, IGTF y Retenciones de IVA")
+            html_iva_1 = f"""
+            <table class="fiscal-table">
+                <tr><th colspan="13" class="header-iva">Primera Quincena (01 al 15) - R.I.F. Terminado en 0</th></tr>
+                <tr><th>R.I.F.</th>{"".join([f"<th>{m}</th>" for m in meses])}</tr>
+                <tr><td><b>0</b></td>{"".join([f"<td>{val}</td>" for val in q1_vals])}</tr>
+            </table>
+            """
+            st.markdown(html_iva_1, unsafe_allow_html=True)
+
+            # Renderizar Tabla 2: IVA 2da Quincena
+            html_iva_2 = f"""
+            <table class="fiscal-table">
+                <tr><th colspan="13" class="header-iva" style="background-color: #e2f0d9;">Segunda Quincena (16 al último) - R.I.F. Terminado en 0</th></tr>
+                <tr><th>R.I.F.</th>{"".join([f"<th>{m}</th>" for m in meses])}</tr>
+                <tr><td><b>0</b></td>{"".join([f"<td>{val}</td>" for val in q2_vals])}</tr>
+            </table>
+            """
+            st.markdown(html_iva_2, unsafe_allow_html=True)
+
+            # Renderizar Retenciones ISLR
+            st.markdown("#### 2. Retenciones de Impuesto Sobre la Renta")
+            html_islr = f"""
+            <table class="fiscal-table">
+                <tr><th>R.I.F.</th>{"".join([f"<th>{m}</th>" for m in meses])}</tr>
+                <tr><td><b>0</b></td>{"".join([f"<td>{val}</td>" for val in islr_vals])}</tr>
+            </table>
+            """
+            st.markdown(html_islr, unsafe_allow_html=True)
+
+            # Renderizar Ley de Pensiones
+            st.markdown("#### 3. Ley de Protección de las Pensiones de Seguridad Social")
+            html_pensiones = f"""
+            <table class="fiscal-table">
+                <tr><th>R.I.F.</th>{"".join([f"<th>{m}</th>" for m in meses])}</tr>
+                <tr><td><b>0</b></td>{"".join([f"<td>{val}</td>" for val in pensiones_vals])}</tr>
+            </table>
+            """
+            st.markdown(html_pensiones, unsafe_allow_html=True)
+
+    else:
+        pass
+
 
 elif opcion_menu == "📂 Plan de Cuentas":
     st.subheader("Gestión de Plan de Cuentas")
@@ -9114,13 +7428,7 @@ elif opcion_menu == "📝 Asientos Contables":
         # 1. Validación de Seguridad: ¿Hay base de datos?
         if 'DB_ACTUAL' in st.session_state and st.session_state['DB_ACTUAL']:
             db_nombre = st.session_state['DB_ACTUAL']
-            tab1, tab2, tab3, tab4, tab5 = st.tabs([
-                "📖 Ver Libro Diario", 
-                "📤 Importar Excel", 
-                "🗑️ Vaciar Asiento de Diarios",
-                "🤖 Asientos Costos Automatizados",
-                "📈 Asientos Ingresos Automatizados"  # Icono cambiado aquí
-            ])
+            tab1, tab2, tab3 = st.tabs(["📖 Ver Libro Diario", "📤 Importar Excel", "🗑️ Vaciar Asiento de Diarios"])
 
             def exportar_a_excel(df):
                 output = io.BytesIO()
@@ -9295,33 +7603,6 @@ elif opcion_menu == "📝 Asientos Contables":
                                     pass
                             else:
                                 st.error("❌ Error de conexión.")
-            with tab4:
-                # 1. Recuperamos de la sesión el nombre o ID de la base de datos de la empresa actual 
-                # (Ajusta la clave 'empresa_actual' por la variable exacta que uses en tu app para el cliente)
-                nombre_bd_cliente = st.session_state.get('empresa_actual') 
-                
-                # 2. Llamamos a la conexión inyectándole la base de datos del cliente
-                conexion_actual = conectar_db(nombre_bd_cliente) 
-                
-                # 3. Validamos y renderizamos
-                if conexion_actual:
-                    renderizar_tab_asientos_automatizados(conexion_actual)
-                else:
-                    st.error("No se pudo establecer la conexión con la base de datos de la empresa para los asientos automatizados.")
-
-            with tab5:
-                # 1. Recuperamos de la sesión el nombre o ID de la base de datos de la empresa actual 
-                nombre_bd_cliente = st.session_state.get('empresa_actual') 
-                
-                # 2. Llamamos a la conexión inyectándole la base de datos del cliente
-                conexion_actual = conectar_db(nombre_bd_cliente) 
-                
-                # 3. Validamos y renderizamos
-                if conexion_actual:
-                    renderizar_tab_asientos_ventas(conexion_actual)
-                else:
-                    st.error("No se pudo establecer la conexión con la base de datos de la empresa para los asientos automatizados.")
-
         else:
             st.warning("⚠️ Por favor, seleccione una empresa en el panel lateral para gestionar sus asientos.")
 
@@ -10057,127 +8338,9 @@ elif opcion_menu == "📝 Asientos Contables":
                         else:
                             st.info("💡 Debe marcar la casilla de arriba para habilitar el botón de borrado.")
 
-    elif sub_opcion == "Gestor Documental":
-        st.subheader("📁 Gestor Documental en la Nube")
-        st.markdown("Sube y administra comprobantes, transferencias, PDFs o archivos de Office de forma organizada.")
-
-        db_actual = st.session_state.get('DB_ACTUAL')
-        if not db_actual or db_actual == 'none':
-            st.warning("⚠️ Por favor, selecciona un Cliente/Empresa primero.")
-            st.stop()
-
-        import os
-        from datetime import datetime
-
-        # Directorio base para almacenar los archivos de forma local o persistente en el servidor
-        DIRECTORIO_SUBIDAS = "documentos_clientes"
-        dir_empresa = os.path.join(DIRECTORIO_SUBIDAS, str(db_actual))
-        os.makedirs(dir_empresa, exist_ok=True)
-
-        # --- FORMULARIO DE SUBIDA ---
-        with st.expander("📤 Subir Nuevo Documento", expanded=True):
-            col1, col2 = st.columns(2)
-            with col1:
-                categoria = st.selectbox(
-                    "Categoría del Documento", 
-                    ["Transferencia Bancaria", "Factura PDF", "Documento Legal", "Excel / Reporte", "Otro"]
-                )
-            with col2:
-                archivos_subidos = st.file_uploader(
-                    "Selecciona los archivos", 
-                    type=["pdf", "docx", "xlsx", "xls", "png", "jpg", "jpeg", "txt"], 
-                    accept_multiple_files=True
-                )
-
-            if st.button("💾 Guardar Documentos en la Nube", type="primary"):
-                if archivos_subidos:
-                    conn_doc = conectar_db(db_actual)
-                    cursor = conn_doc.cursor() if conn_doc else None
-                    
-                    try:
-                        for archivo in archivos_subidos:
-                            # Evitar colisiones de nombres usando marca de tiempo
-                            timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
-                            nombre_limpio = f"{timestamp_str}_{archivo.name}"
-                            ruta_completa = os.path.join(dir_empresa, nombre_limpio)
-                            
-                            # Guardar el archivo físicamente en el servidor
-                            with open(ruta_completa, "wb") as f:
-                                f.write(archivo.getbuffer())
-                            
-                            # Registrar en la base de datos MySQL
-                            query_insert = """
-                                INSERT INTO documentos_cloud (empresa_db, categoria, nombre_archivo, ruta_archivo) 
-                                VALUES (%s, %s, %s, %s)
-                            """
-                            cursor.execute(query_insert, (str(db_actual), categoria, archivo.name, ruta_completa))
-                        
-                        conn_doc.commit()
-                        st.success(f"✅ ¡{len(archivos_subidos)} archivo(s) subido(s) y guardado(s) con éxito!")
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"❌ Error al guardar los documentos: {e}")
-                    finally:
-                        if conn_doc:
-                            conn_doc.close()
-                else:
-                    st.warning("⚠️ Debes seleccionar al menos un archivo antes de guardar.")
-
-        st.divider()
-
-        # --- LISTADO, DESCARGA Y ELIMINACIÓN DE DOCUMENTOS EXISTENTES ---
-        st.markdown("### 🗂️ Documentos Almacenados")
-        
-        conn_doc = conectar_db(db_actual)
-        if conn_doc:
-            try:
-                query_select = "SELECT id, categoria, nombre_archivo, ruta_archivo, fecha_subida FROM documentos_cloud WHERE empresa_db = %s ORDER BY fecha_subida DESC"
-                df_docs = ejecutar_consulta(query_select, conn_doc, params=(str(db_actual),))
-                
-                if df_docs is not None and not df_docs.empty:
-                    for _, row in df_docs.iterrows():
-                        cols = st.columns([3, 2, 2, 1, 1])
-                        cols[0].text(f"📄 {row['nombre_archivo']}")
-                        cols[1].text(f"📂 {row['categoria']}")
-                        cols[2].text(str(row['fecha_subida'])[:10])
-                        
-                        # Botón de descarga directa
-                        if os.path.exists(row['ruta_archivo']):
-                            with open(row['ruta_archivo'], "rb") as file_to_download:
-                                cols[3].download_button(
-                                    label="⬇️",
-                                    data=file_to_download,
-                                    file_name=row['nombre_archivo'],
-                                    mime="application/octet-stream",
-                                    key=f"down_{row['id']}"
-                                )
-                        else:
-                            cols[3].text("⚠️ No hallado")
-                            
-                        # Botón de eliminación
-                        if cols[4].button("🗑️", key=f"del_{row['id']}"):
-                            try:
-                                # 1. Borrar archivo físico si existe
-                                if os.path.exists(row['ruta_archivo']):
-                                    os.remove(row['ruta_archivo'])
-                                
-                                # 2. Borrar registro de la base de datos MySQL
-                                cursor_del = conn_doc.cursor()
-                                cursor_del.execute("DELETE FROM documentos_cloud WHERE id = %s", (row['id'],))
-                                conn_doc.commit()
-                                cursor_del.close()
-                                
-                                st.success(f"🗑️ Archivo '{row['nombre_archivo']}' eliminado con éxito.")
-                                st.rerun()
-                            except Exception as ex_del:
-                                st.error(f"❌ Error al eliminar el documento: {ex_del}")
-                else:
-                    st.info("ℹ️ No hay documentos subidos para esta empresa todavía.")
-            except Exception as e:
-                st.error(f"Error al cargar la lista de documentos: {e}")
-            finally:
-                conn_doc.close()
-
+    elif sub_opcion == "Consultar Cierre Contable":
+        st.subheader("🔒 Asientos de Cierre")
+        st.info("Aquí puedes programar la consulta a la tabla de cierres (similar a la de apertura).")
 
 
 # D. MAYOR ANALÍTICO
@@ -10506,10 +8669,13 @@ elif sub_opcion == "Balance General":
 
                 df_bg['es_hoja'] = df_bg['codigo'].apply(es_hoja)
 
-                # 3. Cálculo de Totales (usando solo las cuentas hoja y valor absoluto)
-                # Esto evita la duplicación al sumar padres e hijos
+                # 3. Cálculo de Totales (Activos y Patrimonio por hojas, Pasivo tomado directo del Nivel 1)
                 act = df_bg[df_bg['es_hoja'] & df_bg['codigo'].astype(str).str.startswith('1')]['Saldo Final'].abs().sum()
-                pas = df_bg[df_bg['es_hoja'] & df_bg['codigo'].astype(str).str.startswith('2')]['Saldo Final'].abs().sum()
+                
+                # Pasivo: Lo tomamos directamente de la cuenta de nivel 1 (código '2') para respetar el saldo global exacto
+                pas_n1 = df_bg[(df_bg['nivel'] == 1) & (df_bg['codigo'].astype(str).str.startswith('2'))]['Saldo Final']
+                pas = abs(pas_n1.values[0]) if not pas_n1.empty else df_bg[df_bg['es_hoja'] & df_bg['codigo'].astype(str).str.startswith('2')]['Saldo Final'].abs().sum()
+
                 pat = df_bg[df_bg['es_hoja'] & df_bg['codigo'].astype(str).str.startswith('3')]['Saldo Final'].abs().sum()
 
                 # 4. Renderizado del Reporte
@@ -10519,24 +8685,52 @@ elif sub_opcion == "Balance General":
                     width='stretch', height=500, hide_index=True
                 )
                 
-                # 5. Obtención de utilidad y cierre de balance
+                # 5. Obtención o cálculo automático de la utilidad para el cierre del Balance
                 utilidad_ejercicio = st.session_state.get('utilidad_ejercicio', 0.0)
-                patrimonio_total = pat + utilidad_ejercicio
                 
+                # Si no se ha visitado el Estado de Resultados, la calculamos aquí mismo al vuelo
+                if utilidad_ejercicio == 0.0 and 'df_datos' in locals() and not df_datos.empty:
+                    df_n1_er = df_datos[df_datos['nivel'] == 1].copy()
+                    if df_n1_er.empty:
+                        df_n1_er = df_datos[df_datos['codigo'].astype(str).str.strip().str.replace(r'[^0-9]', '', regex=True).str.len() == 1]
+                    
+                    df_n1_er['c_limpio'] = df_n1_er['codigo'].astype(str).str.strip().str.replace(r'[^0-9]', '', regex=True)
+                    
+                    ing_b = df_n1_er[df_n1_er['c_limpio'].str.startswith('4')]['Saldo Final'].sum()
+                    cos_b = df_n1_er[df_n1_er['c_limpio'].str.startswith('5')]['Saldo Final'].sum()
+                    gas_b = df_n1_er[df_n1_er['c_limpio'].str.startswith('6')]['Saldo Final'].sum()
+                    otros_ing_b = df_n1_er[df_n1_er['c_limpio'].str.startswith('7')]['Saldo Final'].sum()
+                    otros_egr_b = df_n1_er[df_n1_er['c_limpio'].str.startswith('8')]['Saldo Final'].sum()
+                    
+                    utilidad_ejercicio = abs(ing_b) + abs(otros_ing_b) - (abs(cos_b) + abs(gas_b) + abs(otros_egr_b))
+                    st.session_state['utilidad_ejercicio'] = utilidad_ejercicio
 
-                if utilidad_ejercicio == 0.0:
-                    st.sidebar.warning("⚠️ Nota: La utilidad del ejercicio no está cargada. El balance podría mostrar descuadre.")
-                
-                # Ecuación ajustada para visualización: Patrimonio + Utilidad
+                # Ecuación ajustada para visualización: Patrimonio + Utilidad del Ejercicio
                 patrimonio_ajustado = abs(pat) + utilidad_ejercicio
-                descuadre = act - (abs(pas) + patrimonio_ajustado)
+                descuadre = act - (pas + patrimonio_ajustado)
                 
                 st.divider()
-                c1, c2, c3 = st.columns(3)
+                
+                # Mostramos 4 columnas detallando la ecuación patrimonial completa
+                c1, c2, c3, c4 = st.columns(4)
                 c1.metric("ACTIVOS", formato_contable(act))
-                c2.metric("PASIVOS", formato_contable(abs(pas)))
-                # Mostramos el patrimonio ajustado
-                c3.metric("PATRIMONIO + UTILIDAD", formato_contable(patrimonio_ajustado))
+                c2.metric("PASIVOS", formato_contable(pas))
+                c3.metric("PATRIMONIO", formato_contable(abs(pat)))
+                c4.metric("UTILIDAD EJERCICIO", formato_contable(utilidad_ejercicio), 
+                          delta=f"{formato_contable(utilidad_ejercicio)}",
+                          delta_color="normal" if utilidad_ejercicio >= 0 else "inverse")
+
+                # Comprobación final en pantalla del balance exacto
+                if abs(descuadre) < 0.01:
+                    st.success("✅ ¡Balance General Cuadrado Perfectamente!")
+                else:
+                    st.error(f"❌ Descuadre contable detectado: {formato_contable(descuadre)}")
+
+                # Comprobación final en pantalla del balance exacto
+                if abs(descuadre) < 0.01:
+                    st.success("✅ ¡Balance General Cuadrado Perfectamente!")
+                else:
+                    st.error(f"❌ Descuadre contable detectado: {formato_contable(descuadre)}")
                 
                 # VALIDACIÓN INTELIGENTE
                 st.subheader("Estado de Validación")
@@ -10616,10 +8810,12 @@ elif sub_opcion == "Balance General":
                         st.error(f"Error al generar el PDF: {e_pdf}")
 
                 # VALIDACIÓN EN PANTALLA
-                if abs(act - (abs(pas) + abs(pat))) < 0.01:
+                descuadre_final = act - (pas + patrimonio_ajustado)
+                
+                if abs(descuadre_final) < 0.01:
                     st.success("✅ Ecuación Patrimonial Cuadrada")
                 else:
-                    st.error(f"❌ Ecuación Patrimonial Descuadrada: {formato_contable(act - (abs(pas) + abs(pat)))}")
+                    st.error(f"❌ Ecuación Patrimonial Descuadrada: {formato_contable(descuadre_final)}")
             else:
                 st.info("No se encontraron datos para generar el balance.")
 
@@ -10663,7 +8859,7 @@ elif sub_opcion == "Estado de Resultados":
     # 3. INTERFAZ DEL REPORTE
     st.subheader(f"📈 Estado de Resultados: {EMPRESA}")
     
-    # --- BLINDAJE LOCAL DE FECHAS (Evita conflicto con from datetime import datetime) ---
+    # --- BLINDAJE LOCAL DE FECHAS ---
     from datetime import date as d_type, datetime as dt_type
 
     def obtener_fecha_segura(key_sesion):
@@ -10690,110 +8886,104 @@ elif sub_opcion == "Estado de Resultados":
             conn_er.ping(reconnect=True)
             df_datos = generar_balance_profesional(conn_er, f_er_desde, f_er_hasta, sucursal)
             
-            if not df_datos.empty:
-                # 1. Filtramos cuentas de resultados (4 al 8)
-                df_er = df_datos[df_datos['codigo'].astype(str).str.startswith(('4', '5', '6', '7', '8'))].copy()
+            if df_datos is not None and not df_datos.empty:
+                # Limpiamos el código para asegurarnos de evaluar el primer dígito correctamente sin importar espacios o puntos
+                df_datos['codigo_limpio'] = df_datos['codigo'].astype(str).str.strip().str.replace(r'[^0-9]', '', regex=True)
+                
+                # 1. Filtramos cuentas de resultados (4 al 8) usando el código limpio
+                df_er = df_datos[df_datos['codigo_limpio'].str.startswith(('4', '5', '6', '7', '8'))].copy()
                 df_er['Cuenta'] = df_er.apply(lambda x: f"{'    ' * (int(x['nivel'])-1)}{x['nombre']}", axis=1)
                 
-                # 2. RENDERIZADO EN PANTALLA
-                st.dataframe(
-                    df_er.style.format({'Saldo Final': formato_contable}).apply(estilo_balance, axis=1),
-                    column_order=['codigo', 'Cuenta', 'Saldo Final'],
-                    width='stretch', 
-                    height=400, 
-                    hide_index=True
-                )
-                
-                # 3. CÁLCULO DE UTILIDAD (Usando Nivel 1)
-                df_n1 = df_er[df_er['nivel'] == 1]
-                ing = df_n1[df_n1['codigo'].astype(str).str.startswith('4')]['Saldo Final'].sum()
-                cos = df_n1[df_n1['codigo'].astype(str).str.startswith('5')]['Saldo Final'].sum()
-                gas = df_n1[df_n1['codigo'].astype(str).str.startswith('6')]['Saldo Final'].sum()
-                # Utilidad = Ingresos (abs porque suelen ser acreedores) - Costos - Gastos
-                utilidad = abs(ing) - (abs(cos) + abs(gas))
-                col1, col2, col3 = st.columns(3)
-
-                with col1:
-                    st.metric("Ingresos Totales", f"Bs. {ing:,.2f}")
-
-                with col2:
-                    st.metric("Costos Totales", f"Bs. {cos:,.2f}") # <--- AQUÍ LA NUEVA MÉTRICA
-
-                with col3:
-                    st.metric("Utilidad / Pérdida", f"Bs. {formato_contable(utilidad)}", 
-                          delta=f"{formato_contable(utilidad)}",
-                          delta_color="normal" if utilidad >= 0 else "inverse")
-
-
-                # 1. GESTIÓN DE TASA BCV
-                if 'tasa_bcv' not in st.session_state:
-                    tasa, _ = obtener_tasa_bcv_hoy(conn_er) # Cambiado a conn_er
-                    st.session_state.tasa_bcv = tasa
-
-                if st.button("🔄 Actualizar Tasa BCV"):
-                    tasa, _ = obtener_tasa_bcv_hoy(conn_er) # Cambiado a conn_er
-                    st.session_state.tasa_bcv = tasa
-                    st.rerun()
-
-                tasa = st.session_state.tasa_bcv if st.session_state.tasa_bcv > 0 else 1.0
-
-                # 2. CÁLCULO UNIFICADO (Usando df_er, la misma fuente que tu tabla)
-                # Asegúrate de que df_er sea la variable que contiene tu reporte completo
-                if 'df_er' in locals() and not df_er.empty:
+                if df_er.empty:
+                    st.warning("⚠️ No se encontraron registros para las cuentas de Resultados (4, 5, 6, 7, 8) en el período seleccionado.")
+                else:
+                    # 2. RENDERIZADO EN PANTALLA
+                    st.dataframe(
+                        df_er.style.format({'Saldo Final': formato_contable}).apply(estilo_balance, axis=1),
+                        column_order=['codigo', 'Cuenta', 'Saldo Final'],
+                        width='stretch', 
+                        height=400, 
+                        hide_index=True
+                    )
+                    
+                    # 3. CÁLCULO DE UTILIDAD / PÉRDIDA GLOBAL (Cuentas 4 a 8)
                     df_n1 = df_er[df_er['nivel'] == 1]
+                    if df_n1.empty:
+                        df_n1 = df_er[df_er['codigo_limpio'].str.len() == 1]
+
+                    # Extracción de saldos por categoría principal
+                    ing = df_n1[df_n1['codigo_limpio'].str.startswith('4')]['Saldo Final'].sum()
+                    cos = df_n1[df_n1['codigo_limpio'].str.startswith('5')]['Saldo Final'].sum()
+                    gas = df_n1[df_n1['codigo_limpio'].str.startswith('6')]['Saldo Final'].sum()
+                    otros_ing = df_n1[df_n1['codigo_limpio'].str.startswith('7')]['Saldo Final'].sum()
+                    otros_egr = df_n1[df_n1['codigo_limpio'].str.startswith('8')]['Saldo Final'].sum()
+
+                    # Fórmula contable completa para la utilidad real
+                    utilidad = abs(ing) + abs(otros_ing) - (abs(cos) + abs(gas) + abs(otros_egr))
                     
-                    # Cálculos en Bolívares
-                    ing = df_n1[df_n1['codigo'].astype(str).str.startswith('4')]['Saldo Final'].sum()
-                    cos = df_n1[df_n1['codigo'].astype(str).str.startswith('5')]['Saldo Final'].sum()
-                    gas = df_n1[df_n1['codigo'].astype(str).str.startswith('6')]['Saldo Final'].sum()
-                    utilidad = abs(ing) - (abs(cos) + abs(gas))
-                    
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        # Muestra exclusivamente los ingresos de la cuenta 4
+                        st.metric("Ingresos Totales", f"Bs. {abs(ing):,.2f}")
+                    with col2:
+                        st.metric("Costos y Gastos", f"Bs. {(abs(cos) + abs(gas) + abs(otros_egr)):,.2f}")
+                    with col3:
+                        st.metric("Utilidad / Pérdida", f"Bs. {formato_contable(utilidad)}", 
+                            delta=f"{formato_contable(utilidad)}",
+                            delta_color="normal" if utilidad >= 0 else "inverse")
+
+                    # 1. GESTIÓN DE TASA BCV
+                    if 'tasa_bcv' not in st.session_state:
+                        tasa, _ = obtener_tasa_bcv_hoy(conn_er)
+                        st.session_state.tasa_bcv = tasa
+
+                    if st.button("🔄 Actualizar Tasa BCV"):
+                        tasa, _ = obtener_tasa_bcv_hoy(conn_er)
+                        st.session_state.tasa_bcv = tasa
+                        st.rerun()
+
+                    tasa = st.session_state.tasa_bcv if st.session_state.tasa_bcv > 0 else 1.0
+
                     # Cálculos en USD
                     ing_usd, cos_usd, gas_usd, util_usd = [x / tasa for x in [abs(ing), abs(cos), abs(gas), utilidad]]
                     costos_gastos_usd = cos_usd + gas_usd
-                else:
-                    # Si df_er no existe aquí, significa que el cálculo debe ir DENTRO del bloque que genera el reporte
-                    st.warning("El reporte principal aún no se ha generado.")
-                    ing, cos, gas, utilidad, ing_usd, costos_gastos_usd, util_usd = [0.0]*7
 
-                # 3. VISUALIZACIÓN
-                c1, c2, c3 = st.columns(3)
+                    # 3. VISUALIZACIÓN EN USD
+                    c1, c2, c3 = st.columns(3)
+                    with c1:
+                        st.metric("Ingresos (USD)", f"$ {formato_contable(ing_usd)}")
+                    with c2:
+                        st.metric("Costos/Gastos (USD)", f"$ {formato_contable(costos_gastos_usd)}")
+                    with c3:
+                        st.metric("Utilidad (USD)", f"$ {formato_contable(util_usd)}", 
+                                    delta=f"{formato_contable(util_usd)} USD",
+                                    delta_color="normal" if utilidad >= 0 else "inverse")
 
-                with c1:
-                    st.metric("Ingresos (USD)", f"$ {formato_contable(ing_usd)}")
+                    # Contenedor estético para la Tasa BCV
+                    with st.container():
+                        st.markdown(
+                            f"""
+                            <div style="
+                                background-color: #f0f2f6; 
+                                padding: 10px; 
+                                border-radius: 10px; 
+                                border-left: 5px solid #0081C9;
+                                max-width: 300px; 
+                                display: flex; 
+                                justify-content: space-between; 
+                                align-items: center;
+                            ">
+                                <span style="color: #31333F; font-weight: bold; font-size: 14px;">
+                                    🔄 Tasa de Referencia BCV
+                                </span>
+                                <span style="color: #0081C9; font-weight: 900; font-size: 16px;">
+                                    {tasa:,.2f} <span style="font-size: 12px; color: #808495;">Bs/USD</span>
+                                </span>
+                            </div>
+                            """,
+                            unsafe_allow_html=True
+                        )
 
-                with c2:
-                    st.metric("Costos/Gastos (USD)", f"$ {formato_contable(costos_gastos_usd)}")
-
-                with c3:
-                    st.metric("Utilidad (USD)", f"$ {formato_contable(util_usd)}", 
-                              delta=f"{formato_contable(util_usd)} USD",
-                              delta_color="normal" if utilidad >= 0 else "inverse")
-
-                # Contenedor estético para la Tasa BCV
-                with st.container():
-                    st.markdown(
-                        f"""
-                        <div style="
-                            background-color: #f0f2f6; 
-                            padding: 10px; 
-                            border-radius: 10px; 
-                            border-left: 5px solid #0081C9;
-                            max-width: 300px;  /* <--- ESTA ES LA CLAVE */ 
-                            display: flex; 
-                            justify-content: space-between; 
-                            align-items: center;
-                        ">
-                            <span style="color: #31333F; font-weight: bold; font-size: 14px;">
-                                🔄 Tasa de Referencia BCV
-                            </span>
-                            <span style="color: #0081C9; font-weight: 900; font-size: 16px;">
-                                {tasa:,.2f} <span style="font-size: 12px; color: #808495;">Bs/USD</span>
-                            </span>
-                        </div>
-                        """,
-                        unsafe_allow_html=True
-                    )
                 
                 st.divider()
 
@@ -11228,7 +9418,7 @@ elif opcion_menu == "📚 Libros Fiscales":
             st.session_state.active_tab = "🔍 Consultar y Editar"
 
         # --- ESTRUCTURA DE TABS ---
-        tab_titles = ["🔍 Consultar y Editar", "📸 Escaneo Inteligente", "🚨 Vaciado de Rango", "📊 Cargar desde Excel"]
+        tab_titles = ["🔍 Consultar y Editar", "📸 Escaneo Inteligente", "🚨 Vaciado de Rango", "📊 Cargar desde Excel","PDFs POR LOTES"]
         
         # Creamos las pestañas
         tabs = st.tabs(tab_titles)
@@ -11238,7 +9428,7 @@ elif opcion_menu == "📚 Libros Fiscales":
         # Nota: Streamlit maneja el click de las tabs internamente, 
         # pero para forzar el foco, validamos el estado:
         
-        tab1, tab2, tab3, tab4 = tabs
+        tab1, tab2, tab3, tab4,tab5 = tabs
 
         # --- LÓGICA DE NAVEGACIÓN ---
 
@@ -11745,6 +9935,112 @@ elif opcion_menu == "📚 Libros Fiscales":
                             st.error(f"❌ Error al guardar en DB: {e}")
                 else:
                     st.warning("⚠️ No hay datos cargados para guardar.")
+        # --- TAB 5: BANDEJA DE ENTRADA INTELIGENTE (PDFs POR LOTES) ---
+        with tab5:
+            st.subheader("📥 Bandeja de Entrada - Procesamiento Inteligente de Facturas (PDF)")
+            st.info("Arrastra o selecciona múltiples archivos PDF de facturas. Se acumularán en cola y podrás procesarlos de forma segura sin congelar el sistema.")
+
+            # 1. Subida múltiple de archivos a la sesión (Cola de espera)
+            archivos_pdf = st.file_uploader(
+                "Sube tus facturas en PDF", 
+                type=['pdf'], 
+                accept_multiple_files=True,
+                key="uploader_pdf_cola"
+            )
+
+            # Inicializamos la cola en session_state si no existe
+            if "cola_pdfs" not in st.session_state:
+                st.session_state.cola_pdfs = []
+
+            # Si el usuario selecciona nuevos archivos, los añadimos a la cola de forma persistente
+            if archivos_pdf:
+                # Evitamos duplicados comparando nombres de archivo
+                nombres_existentes = [item['nombre'] for item in st.session_state.cola_pdfs]
+                for archivo in archivos_pdf:
+                    if archivo.name not in nombres_existentes:
+                        st.session_state.cola_pdfs.append({
+                            "nombre": archivo.name,
+                            "objeto": archivo,
+                            "estado": "Pendiente"
+                        })
+
+            # 2. Visualización de la cola actual
+            if st.session_state.cola_pdfs:
+                st.markdown(f"### 📋 Cola de Documentos ({len(st.session_state.cola_pdfs)} en espera)")
+                
+                # Botón para limpiar toda la cola
+                if st.button("🗑️ Vaciar Cola"):
+                    st.session_state.cola_pdfs = []
+                    st.rerun()
+
+                # Mostrar listado rápido de pendientes
+                import pandas as pd
+                df_cola = pd.DataFrame([{
+                    "Archivo": item["nombre"], 
+                    "Estado": item["estado"]
+                } for item in st.session_state.cola_pdfs])
+                
+                st.dataframe(df_cola, use_container_width=True)
+
+                st.markdown("---")
+
+                # 3. Botón de Procesamiento por Lotes
+                if st.button("🚀 Procesar Cola de Documentos (Pendientes)", type="primary"):
+                    db_nombre = st.session_state.get('DB_ACTUAL')
+                    if not db_nombre:
+                        st.error("Error: No se ha seleccionado una base de datos activa.")
+                    else:
+                        barra_progreso = st.progress(0)
+                        status_text = st.empty()
+                        
+                        total_archivos = len(st.session_state.cola_pdfs)
+                        procesados_exito = 0
+                        errores = 0
+
+                        conn = conectar_db(db_nombre)
+                        
+                        try:
+                            cursor = conn.cursor()
+                            for i, item in enumerate(st.session_state.cola_pdfs):
+                                if item["estado"] == "Procesado":
+                                    continue # Salta los que ya se procesaron antes
+
+                                status_text.text(f"⚙️ Procesando archivo {i+1} de {total_archivos}: {item['nombre']}...")
+                                
+                                try:
+                                    # --- AQUí LLAMAS A TU ESCÁNER / OCR / IA ACTUAL ---
+                                    # Ejemplo: datos_extraidos = tu_funcion_ocr(item['objeto'])
+                                    # Y luego haces el INSERT en tu base de datos (libro_compras / retenciones)
+                                    
+                                    # Simulamos el procesamiento exitoso por ahora:
+                                    # cursor.execute("INSERT INTO libro_compras ...", (...))
+                                    
+                                    item["estado"] = "Procesado"
+                                    procesados_exito += 1
+                                except Exception as err:
+                                    item["estado"] = f"Error: {str(err)}"
+                                    errores += 1
+
+                                # Actualizar barra de progreso fluidamente
+                                porcentaje = (i + 1) / total_archivos
+                                barra_progreso.progress(porcentaje)
+
+                            conn.commit()
+                            cursor.close()
+                        except Exception as e:
+                            st.error(f"Error general en el lote: {e}")
+                        finally:
+                            if conn:
+                                try:
+                                    conn.close()
+                                except:
+                                    pass
+
+                        status_text.text("✅ ¡Proceso de lote finalizado!")
+                        st.success(f"Resumen: {procesados_exito} facturas procesadas con éxito. {errores} errores.")
+                        st.rerun()
+            else:
+                st.info("No hay archivos en la cola de espera. Sube algunos PDFs arriba para comenzar.")
 
 
 
@@ -11811,7 +10107,10 @@ elif opcion_menu == "📚 Libros Fiscales":
             parsed = minidom.parseString(xml_str)
             return parsed.toprettyxml(indent="  ")
 
-        # --- 🔘 TABLA DE REFERENCIA ---#
+        # --- 🔘 TABLA DE REFERENCIA ---
+        # --- 🔘 TABLA DE REFERENCIA ESTILO SENIAT ---
+        # --- 🔘 TABLA DE REFERENCIA ESTILO SENIAT (INTEGRADA Y CALCULADA) ---
+        # --- 🔘 TABLA DE REFERENCIA ESTILO SENIAT (CON UMBRALES CALCULADOS) ---
         with st.expander("📊 Ver Tabla de Referencia de Sustraendos (Manual SENIAT)", expanded=False):
             
             # Calculamos el umbral legal para PNR (83.33 UT)
@@ -12034,29 +10333,6 @@ elif opcion_menu == "📚 Libros Fiscales":
                                 )
                                 
                                 if exito:
-                                    # --- BLOQUEO DE LA FACTURA EN BASE DE DATOS ---
-                                    # Abrimos una conexión independiente y segura solo para este UPDATE del libro
-                                    conn_bloqueo = conectar_db(st.session_state.get('DB_ACTUAL'))
-                                    if conn_bloqueo:
-                                        try:
-                                            cursor = conn_bloqueo.cursor()
-                                            # Se elimina n_comprob_islr de la consulta para evitar el error de columna desconocida
-                                            query_bloqueo = "UPDATE libro_compras SET retencion_realizada = 1 WHERE id = %s"
-                                            cursor.execute(query_bloqueo, (int(id_seguro),))
-                                            conn_bloqueo.commit()
-                                            cursor.close()
-                                        except Exception as err_b:
-                                            st.warning(f"⚠️ La retención se guardó, pero hubo un detalle al bloquear la factura en el libro: {err_b}")
-                                        finally:
-                                            # Cierre seguro condicional para evitar el error "Already closed"
-                                            try:
-                                                if hasattr(conn_bloqueo, 'open') and conn_bloqueo.open:
-                                                    conn_bloqueo.close()
-                                                elif not hasattr(conn_bloqueo, 'open'):
-                                                    conn_bloqueo.close()
-                                            except Exception:
-                                                pass
-
                                     st.session_state.datos_pdf = {
                                         "agente": DATOS_EMPRESA,
                                         "sujeto": {"rif": rif_r, "nombre": razon_r, "direccion": dir_r},
@@ -12071,24 +10347,8 @@ elif opcion_menu == "📚 Libros Fiscales":
                                         "n_comprobante": n_comprob_manual
                                     }
                                     st.session_state.pdf_listo = True
-                                    
-                                    # --- REMOVER LA FACTURA DEL DATAFRAME LOCAL DE LA SESIÓN ---
-                                    st.session_state.df_retencion = st.session_state.df_retencion[
-                                        st.session_state.df_retencion['id'] != id_seguro
-                                    ]
-
-                                    # --- EFECTOS VISUALES Y NOTIFICACIONES DE ÉXITO ---
-                                    st.balloons()  # Lanza los globos 🎈
-                                    
-                                    # Notificación grande y llamativa tipo éxito total
-                                    st.success(f"🎉 ¡FELICIDADES! Comprobante N° {n_comprob_manual} registrado y factura bloqueada con éxito.")
-                                    st.toast("🚀 ¡Todo procesado correctamente!", icon="✅")
-                                    
-                                    # Pequeño respiro visual para que el usuario alcance a disfrutar la animación antes del rerun
-                                    import time
-                                    time.sleep(1.5)
-                                    
-                                    #st.rerun()
+                                    st.success(f"✅ Comprobante N° {n_comprob_manual} registrado.")
+                                    st.rerun()
 
             # Bloque de descarga
             if st.session_state.pdf_listo and st.session_state.datos_pdf:
@@ -12111,8 +10371,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                 if st.button("➕ Registrar otra retención"):
                     st.session_state.pdf_listo = False
                     st.session_state.datos_pdf = None
-                    #st.rerun()
-
+                    st.rerun()
             with tab3:
                 # --- SECCIÓN: EDITOR DE HISTORIAL ---
                 st.divider()
@@ -12460,32 +10719,27 @@ elif opcion_menu == "📚 Libros Fiscales":
 
 
     elif sub_opcion == "Comprobante de Retención IVA":
-        # 1. Aseguramos que el módulo datetime esté disponible sin conflictos
+        # 1. Aseguramos que el módulo datetime esté disponible con su alias correcto
         import datetime as dt 
-        
-        # 🟢 2. Validación de tipo de usuario
-        tipo_usuario = st.session_state.get('tipo_contribuyente', 'Contribuyente Ordinario')
 
-        if tipo_usuario == "Contribuyente Especial":
-            # 3. Validamos la conexión antes de entrar a la interfaz pesada
-            db_actual = st.session_state.get('DB_ACTUAL', 'control_central')
-            conn_valida = conectar_db(db_actual)
+       
+        
+        # 2. Validamos la conexión antes de entrar a la interfaz pesada
+        db_actual = st.session_state.get('DB_ACTUAL', 'railway')
+        conn_valida = conectar_db(db_actual)
+        
+        if conn_valida:
+            # Pasamos 'conn_valida' como primer parámetro
+            mostrar_interfaz_retencion_iva(
+                EMPRESA, 
+                st.session_state.get('f_inicio_global', dt.date.today()), 
+                st.session_state.get('f_fin_global', dt.date.today())
+            )
             
-            if conn_valida:
-                conn_valida.close()
-                
-                # Obtenemos las fechas de manera segura desde el session_state
-                f_ini = st.session_state.get('f_inicio_global', dt.date.today())
-                f_fin = st.session_state.get('f_fin_global', dt.date.today())
-                
-                # Llamamos a la función con las variables seguras
-                mostrar_interfaz_retencion_iva(EMPRESA, f_ini, f_fin)
-            else:
-                st.error("No se pudo restablecer la conexión para el módulo de IVA.")
+            # Es recomendable cerrar la conexión al salir de la interfaz si ya no se usa aquí
+            conn_valida.close()
         else:
-            # Bloqueamos el acceso para los contribuyentes ordinarios
-            st.warning("⚠️ Este módulo es exclusivo para **Contribuyentes Especiales**.")
-            st.info("Si cree que esto es un error, contacte a soporte para actualizar su clasificación fiscal.")
+            st.error("No se pudo restablecer la conexión para el módulo de IVA.")
 
 # --- USAMOS "IN" PARA QUE NO IMPORTE EL EMOJI QUE PONGAS EN EL SIDEBAR ---
 elif "Proveedores" in opcion_menu:
@@ -12501,18 +10755,6 @@ elif "Proveedores" in opcion_menu:
     # 1. Obtenemos la conexión
     conn_empresa = conectar_db(db_actual)
     
-    # 🆕 1.1 OBTENER PLAN DE CUENTAS PARA LOS SELECTORES DE LA TABLA PROVEEDORES
-    opciones_cuentas_prov = [""]
-    try:
-        cursor_pc = conn_empresa.cursor(pymysql.cursors.DictCursor)
-        cursor_pc.execute(f"SELECT codigo, nombre FROM `{db_actual}`.plan_cuentas ORDER BY codigo ASC")
-        cuentas_db = cursor_pc.fetchall()
-        cursor_pc.close()
-        for c in cuentas_db:
-            opciones_cuentas_prov.append(f"{str(c.get('codigo')).strip()} - {str(c.get('nombre')).strip()}")
-    except Exception:
-        pass # Si falla o la tabla no existe aún, se mantiene vacío para permitir texto libre
-    
     try:
         # 2. Definición estricta de tabs
         tab1, tab2 = st.tabs(["📥 Cargar desde Excel", "📋 Directorio Actual"])
@@ -12520,7 +10762,6 @@ elif "Proveedores" in opcion_menu:
         # 3. Lógica de Pestaña 1
         with tab1:
             st.markdown("### Subir Archivo Masivo")
-            st.markdown("Asegúrate de que tu Excel contenga las columnas de identificación fiscal, razón social y opcionalmente los campos de parametrización contable (`codigo_cuenta`).")
             file_p = st.file_uploader("Seleccione el archivo Excel", type=["xlsx"], key="file_prov_up")
                 
             if file_p:
@@ -12534,28 +10775,20 @@ elif "Proveedores" in opcion_menu:
 
         # 4. Lógica de Pestaña 2
         with tab2:
-            st.markdown("### 📋 Directorio Actual y Parametrización Contable")
+            st.markdown("### 📋 Directorio Actual")
             
-            # 1. Inicializamos los datos en session_state asegurando las columnas nuevas de cuentas
+            # 1. Inicializamos los datos en session_state solo si no existen
             if "df_proveedores_cache" not in st.session_state:
                 df_temp = consultar_tabla_db(conn_empresa, "proveedores")
-                
-                columnas_necesarias = ["rif", "tipo_persona", "razon_social", "direccion_fiscal", "codigo_cuenta", "descripcion_cuenta"]
-                
                 if df_temp is None or not isinstance(df_temp, pd.DataFrame) or df_temp.empty:
-                    df_temp = pd.DataFrame(columns=columnas_necesarias)
-                else:
-                    # Garantizar que existan las columnas nuevas si la tabla en BD es antigua
-                    for col in columnas_necesarias:
-                        if col not in df_temp.columns:
-                            df_temp[col] = ""
+                    df_temp = pd.DataFrame(columns=["rif", "tipo_persona", "razon_social", "direccion_fiscal"])
                 
                 for col in df_temp.columns:
                     df_temp[col] = df_temp[col].astype(str).replace(['None', 'nan', 'NAT'], '')
                 
                 st.session_state.df_proveedores_cache = df_temp
 
-            # 2. El data_editor con las columnas de cuentas integradas
+            # 2. El data_editor ahora lee y escribe directamente sobre el session_state
             df_editado = st.data_editor(
                 st.session_state.df_proveedores_cache, 
                 key="editor_proveedores_dinamico", 
@@ -12566,16 +10799,7 @@ elif "Proveedores" in opcion_menu:
                     "rif": st.column_config.TextColumn("RIF (Llave Primaria)", required=True),
                     "tipo_persona": st.column_config.SelectboxColumn("Tipo", options=["PN", "PJ"], required=True),
                     "razon_social": st.column_config.TextColumn("Razón Social", required=True),
-                    "direccion_fiscal": st.column_config.TextColumn("Dirección Fiscal", required=True),
-                    "codigo_cuenta": st.column_config.TextColumn(
-                        "Código Cuenta por Defecto", 
-                        help="Código contable predeterminado para este proveedor al procesar compras"
-                    ),
-                    "descripcion_cuenta": st.column_config.TextColumn(
-                        "Descripción Cuenta", 
-                        help="Nombre o descripción asociada a la cuenta contable",
-                        disabled=False
-                    )
+                    "direccion_fiscal": st.column_config.TextColumn("Dirección Fiscal", required=True)
                 }
             )
             
@@ -12624,6 +10848,7 @@ elif "Proveedores" in opcion_menu:
                 conn_empresa.close()
             except Exception:
                 pass
+
 
 
 elif "Inventarios" in opcion_menu:
