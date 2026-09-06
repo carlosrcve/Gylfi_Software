@@ -5190,13 +5190,14 @@ def gestionar_sidebar():
                     except:
                         pass
 
-            # --- RESPALDO OBLIGATORIO PARA ALIX ---
-            if df_sidebar.empty and user_limpio == 'alix_maria':
-                df_sidebar = pd.DataFrame([{
+            # --- 🛡️ PROTECCIÓN CONTRA DATAFRAME VACÍO ---
+            if df_filtrado.empty:
+                st.warning("⚠️ No se encontraron registros en la base de datos central. Usando base de datos de respaldo predeterminada.")
+                df_filtrado = pd.DataFrame([{
                     'id': 3,
                     'nombre_empresa': 'Distribuidora Rishon Leztion, C.A.',
                     'rif': 'J-XXXXXXXX-X',
-                    'db_nombre': 'rishon_letzion_ca'
+                    'db_nombre': 'rishon_letzion_ca'  # 👈 AQUÍ PONEMOS UNA BD QUE SÍ EXISTA EN TIDB
                 }])
 
             if not df_sidebar.empty:
