@@ -9995,7 +9995,7 @@ elif opcion_menu == "📚 Libros Fiscales":
 
         # --- TAB 5: BANDEJA DE ENTRADA INTELIGENTE (PDFs POR LOTES) ---
         with tab5:
-            st.subheader("📥 Bandeja de Entrada - Procesamiento Inteligente de Facturas (PDF)")
+            st.subheader("📥 Bandeja de Entrada - Procesamiento Local de Facturas (PDF)")
             st.info("Arrastra o selecciona múltiples archivos PDF de facturas. Se acumularán en cola para su posterior revisión y registro.")
 
             # Inicializamos la cola y el registro de IDs en session_state si no existen
@@ -10051,7 +10051,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                 # ==========================================
                 # 3. SECCIÓN DE AUDITORÍA Y REGISTRO INDIVIDUAL
                 # ==========================================
-                st.markdown("### 📝 Auditoría, Lectura con IA y Registro al Libro de Compras")
+                st.markdown("### 📝 Auditoría, Extracción Local Rápida y Registro al Libro de Compras")
                 
                 documentos_pendientes = [item for item in st.session_state.cola_pdfs if item["estado"] == "Pendiente"]
                 
@@ -10069,44 +10069,36 @@ elif opcion_menu == "📚 Libros Fiscales":
                     if doc_obj:
                         col_ia1, col_ia2 = st.columns([1, 3])
                         with col_ia1:
-                            # Botón para disparar tu función de IA
-                            if st.button("🤖 Procesar con IA"):
-                                with st.spinner("Analizando factura visualmente con IA..."):
-                                    # Convertimos el PDF a imagen bytes para que tu función lo procese idénticamente
-                                    img_bytes = convertir_pdf_a_imagen_bytes(doc_obj["objeto"])
+                            # Botón para disparar la extracción local por Regex
+                            if st.button("⚡ Procesar Factura (Local)"):
+                                with st.spinner("Leyendo estructura del PDF localmente..."):
+                                    # Llamada directa a la función de expresiones regulares
+                                    datos_extraidos = extraer_datos_con_regex(doc_obj["objeto"])
                                     
-                                    if img_bytes:
-                                        # Creamos un objeto temporal mock para pasarlo a tu función original o adaptada
-                                        class MockFile:
-                                            def __init__(self, data):
-                                                self.data = data
-                                            def getvalue(self):
-                                                return self.data
-
-                                        mock_archivo = MockFile(img_bytes)
-                                        
-                                        # LLAMADA A TU FUNCIÓN ORIGINAL
-                                        datos_ia = extraer_datos_factura(mock_archivo)
-                                        
-                                        if datos_ia:
-                                            st.session_state.datos_extraidos_ia[doc_obj["nombre"]] = datos_ia
-                                            st.success("¡Datos extraídos y blindados con éxito!")
-                                            st.rerun()
-                                        else:
-                                            st.error("La IA no devolvió datos válidos.")
+                                    if datos_extraidos:
+                                        st.session_state.datos_extraidos_ia[doc_obj["nombre"]] = datos_extraidos
+                                        st.success("¡Datos extraídos con éxito de forma local!")
+                                        st.rerun()
                                     else:
-                                        st.error("No se pudo convertir el PDF a imagen para el análisis visual.")
+                                        st.error("No se pudieron extraer datos automáticos de este PDF.")
 
-                        # Recuperamos los datos precargados si la IA ya los leyó
+                        # Recuperamos los datos precargados si ya se procesaron
                         datos_pre = st.session_state.datos_extraidos_ia.get(doc_obj["nombre"], {})
 
                         with st.form("form_registro_libro_compras"):
                             st.info(f"Registrando datos para el archivo: **{doc_obj['nombre']}**")
                             
-                            # Campos basados en tu tabla SQL, autocompletados con la IA si existen
+                            # Campos basados en tu tabla SQL, autocompletados con la extracción local
                             col1, col2 = st.columns(2)
                             with col1:
-                                fecha_operacion = st.date_input("Fecha de Operación") # Podrías parsear datos_pre.get("fecha_operacion") si deseas
+                                # Parsear fecha si viene en texto, de lo contrario usar hoy
+                                f_val = datos_pre.get("fecha_operacion", "")
+                                try:
+                                    f_default = datetime.strptime(f_val, '%Y-%m-%d').date() if f_val else datetime.today().date()
+                                except:
+                                    f_default = datetime.today().date()
+                                    
+                                fecha_operacion = st.date_input("Fecha de Operación", value=f_default)
                                 tipo_documento = st.text_input("Tipo de Documento", value="01")
                                 n_factura = st.text_input("Nº de Factura", value=str(datos_pre.get("n_factura", "")))
                                 n_control = st.text_input("Nº de Control", value=str(datos_pre.get("n_control", "")))
@@ -10117,7 +10109,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                                 rif = st.text_input("RIF del Proveedor", value=str(datos_pre.get("rif", "")))
                                 tipo_transaccion = st.text_input("Tipo de Transacción", value="01")
                                 base_imponible = st.number_input("Base Imponible", format="%.2f", value=float(datos_pre.get("base_imponible", 0.00)))
-                                iva_porcentaje = st.number_input("% IVA", value=16.00, format="%.2f")
+                                iva_porcentaje = st.number_input("% IVA", value=float(datos_pre.get("iva_porcentaje", 16.00)), format="%.2f")
                                 iva_monto = st.number_input("Monto IVA", format="%.2f", value=float(datos_pre.get("iva_monto", 0.00)))
                                 total_compras = st.number_input("Total Compras", format="%.2f", value=float(datos_pre.get("total_compras", 0.00)))
 
