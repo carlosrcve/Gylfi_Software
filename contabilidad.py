@@ -27,6 +27,7 @@ import time
 import ssl
 import pymysql.cursors
 import streamlit.components.v1 as components
+import fitz # PyMuPDF (asegúrate de tenerla instalada o usa pdf2image)
 
 st.set_page_config(
     page_title="Mi App Contable",
@@ -2450,6 +2451,19 @@ def obtener_lista_proveedores():
     except:
         return ["Error al cargar proveedores"]
 
+
+def convertir_pdf_a_imagen_bytes(pdf_file_obj):
+    """Convierte la primera página de un PDF subido en Streamlit a bytes de imagen JPEG"""
+    try:
+        pdf_file_obj.seek(0)
+        doc = fitz.open(stream=pdf_file_obj.read(), filetype="pdf")
+        page = doc[0] # Tomamos la primera página de la factura
+        pix = page.get_pixmap(dpi=150) # 150 dpi es suficiente para que la IA lea nítido sin pesar mucho
+        img_bytes = pix.tobytes("jpeg")
+        return img_bytes
+    except Exception as e:
+        # Si prefieres usar pypdf y tienes otra alternativa, aquí puedes manejarlo
+        return None
 
 def extraer_datos_factura(archivo):
     model = obtener_modelo_valido()
@@ -9958,13 +9972,15 @@ elif opcion_menu == "📚 Libros Fiscales":
         # --- TAB 5: BANDEJA DE ENTRADA INTELIGENTE (PDFs POR LOTES) ---
         with tab5:
             st.subheader("📥 Bandeja de Entrada - Procesamiento Inteligente de Facturas (PDF)")
-            st.info("Arrastra o selecciona múltiples archivos PDF de facturas. Se acumularán en cola y podrás procesarlos de forma segura sin congelar el sistema.")
+            st.info("Arrastra o selecciona múltiples archivos PDF de facturas. Se acumularán en cola para su posterior revisión y registro.")
 
-            # Inicializamos la cola y un registro de IDs procesados en session_state si no existen
+            # Inicializamos la cola y el registro de IDs en session_state si no existen
             if "cola_pdfs" not in st.session_state:
                 st.session_state.cola_pdfs = []
             if "archivos_procesados_ids" not in st.session_state:
                 st.session_state.archivos_procesados_ids = set()
+            if "datos_extraidos_ia" not in st.session_state:
+                st.session_state.datos_extraidos_ia = {}
 
             # 1. Subida múltiple de archivos a la sesión (Cola de espera)
             archivos_pdf = st.file_uploader(
@@ -9974,11 +9990,10 @@ elif opcion_menu == "📚 Libros Fiscales":
                 key="uploader_pdf_cola"
             )
 
-            # Si el usuario selecciona nuevos archivos, los añadimos solo si no están ya en la cola ni fueron descartados
+            # Si el usuario selecciona nuevos archivos, los añadimos evitando duplicados
             if archivos_pdf:
                 nombres_existentes = [item['nombre'] for item in st.session_state.cola_pdfs]
                 for archivo in archivos_pdf:
-                    # Usamos el file_id único que provee Streamlit para evitar duplicados exactos
                     file_id = getattr(archivo, "file_id", archivo.name)
                     if archivo.name not in nombres_existentes and file_id not in st.session_state.archivos_procesados_ids:
                         st.session_state.cola_pdfs.append({
@@ -9992,13 +10007,14 @@ elif opcion_menu == "📚 Libros Fiscales":
             if st.session_state.cola_pdfs:
                 st.markdown(f"### 📋 Cola de Documentos ({len(st.session_state.cola_pdfs)} en espera)")
                 
-                # Botón para limpiar toda la cola correctamente
+                # Botón para limpiar toda la cola
                 if st.button("🗑️ Vaciar Cola"):
                     st.session_state.cola_pdfs = []
                     st.session_state.archivos_procesados_ids = set()
+                    st.session_state.datos_extraidos_ia = {}
                     st.rerun()
 
-                # Mostrar listado rápido de pendientes
+                # Mostrar listado rápido en tabla
                 import pandas as pd
                 df_cola = pd.DataFrame([{
                     "Archivo": item["nombre"], 
@@ -10006,63 +10022,137 @@ elif opcion_menu == "📚 Libros Fiscales":
                 } for item in st.session_state.cola_pdfs])
                 
                 st.dataframe(df_cola, use_container_width=True)
-
                 st.markdown("---")
 
-                # 3. Botón de Procesamiento por Lotes
-                if st.button("🚀 Procesar Cola de Documentos (Pendientes)", type="primary"):
-                    db_nombre = st.session_state.get('DB_ACTUAL')
-                    if not db_nombre:
-                        st.error("Error: No se ha seleccionado una base de datos activa.")
-                    else:
-                        barra_progreso = st.progress(0)
-                        status_text = st.empty()
-                        
-                        total_archivos = len(st.session_state.cola_pdfs)
-                        procesados_exito = 0
-                        errores = 0
+                # ==========================================
+                # 3. SECCIÓN DE AUDITORÍA Y REGISTRO INDIVIDUAL
+                # ==========================================
+                st.markdown("### 📝 Auditoría, Lectura con IA y Registro al Libro de Compras")
+                
+                documentos_pendientes = [item for item in st.session_state.cola_pdfs if item["estado"] == "Pendiente"]
+                
+                if documentos_pendientes:
+                    nombres_pendientes = [item["nombre"] for item in documentos_pendientes]
+                    documento_seleccionado_nombre = st.selectbox(
+                        "Selecciona un documento pendiente para revisar y registrar:", 
+                        nombres_pendientes,
+                        key="select_doc_auditoria"
+                    )
 
-                        conn = conectar_db(db_nombre)
-                        
-                        if conn is None:
-                            st.error(f"❌ No se pudo establecer conexión con la base de datos '{db_nombre}'.")
-                        else:
-                            try:
-                                cursor = conn.cursor()
-                                for i, item in enumerate(st.session_state.cola_pdfs):
-                                    if item["estado"] == "Procesado":
-                                        continue 
+                    # Encontrar el objeto correspondiente
+                    doc_obj = next((item for item in documentos_pendientes if item["nombre"] == documento_seleccionado_nombre), None)
 
-                                    status_text.text(f"⚙️ Procesando archivo {i+1} de {total_archivos}: {item['nombre']}...")
+                    if doc_obj:
+                        col_ia1, col_ia2 = st.columns([1, 3])
+                        with col_ia1:
+                            # Botón para disparar tu función de IA
+                            if st.button("🤖 Procesar con IA"):
+                                with st.spinner("Analizando factura visualmente con IA..."):
+                                    # Convertimos el PDF a imagen bytes para que tu función lo procese idénticamente
+                                    img_bytes = convertir_pdf_a_imagen_bytes(doc_obj["objeto"])
                                     
-                                    try:
-                                        # --- LÓGICA DE PROCESAMIENTO / OCR ---
-                                        # (Aquí irá tu inserción a base de datos de forma limpia)
+                                    if img_bytes:
+                                        # Creamos un objeto temporal mock para pasarlo a tu función original o adaptada
+                                        class MockFile:
+                                            def __init__(self, data):
+                                                self.data = data
+                                            def getvalue(self):
+                                                return self.data
+
+                                        mock_archivo = MockFile(img_bytes)
                                         
-                                        item["estado"] = "Procesado"
-                                        st.session_state.archivos_procesados_ids.add(item["id"])
-                                        procesados_exito += 1
-                                    except Exception as err:
-                                        item["estado"] = f"Error: {str(err)}"
-                                        errores += 1
+                                        # LLAMADA A TU FUNCIÓN ORIGINAL
+                                        datos_ia = extraer_datos_factura(mock_archivo)
+                                        
+                                        if datos_ia:
+                                            st.session_state.datos_extraidos_ia[doc_obj["nombre"]] = datos_ia
+                                            st.success("¡Datos extraídos y blindados con éxito!")
+                                            st.rerun()
+                                        else:
+                                            st.error("La IA no devolvió datos válidos.")
+                                    else:
+                                        st.error("No se pudo convertir el PDF a imagen para el análisis visual.")
 
-                                    porcentaje = (i + 1) / total_archivos
-                                    barra_progreso.progress(porcentaje)
+                        # Recuperamos los datos precargados si la IA ya los leyó
+                        datos_pre = st.session_state.datos_extraidos_ia.get(doc_obj["nombre"], {})
 
-                                conn.commit()
-                                cursor.close()
-                            except Exception as e:
-                                st.error(f"Error general en el lote: {e}")
-                            finally:
-                                try:
-                                    if conn and hasattr(conn, 'close'):
-                                        conn.close()
-                                except:
-                                    pass
+                        with st.form("form_registro_libro_compras"):
+                            st.info(f"Registrando datos para el archivo: **{doc_obj['nombre']}**")
+                            
+                            # Campos basados en tu tabla SQL, autocompletados con la IA si existen
+                            col1, col2 = st.columns(2)
+                            with col1:
+                                fecha_operacion = st.date_input("Fecha de Operación") # Podrías parsear datos_pre.get("fecha_operacion") si deseas
+                                tipo_documento = st.text_input("Tipo de Documento", value="01")
+                                n_factura = st.text_input("Nº de Factura", value=str(datos_pre.get("n_factura", "")))
+                                n_control = st.text_input("Nº de Control", value=str(datos_pre.get("n_control", "")))
+                                n_factura_afectada = st.text_input("Nº Factura Afectada (Opcional)", value="")
+                                
+                            with col2:
+                                proveedor = st.text_input("Nombre del Proveedor", value=str(datos_pre.get("proveedor", "")))
+                                rif = st.text_input("RIF del Proveedor", value=str(datos_pre.get("rif", "")))
+                                tipo_transaccion = st.text_input("Tipo de Transacción", value="01")
+                                base_imponible = st.number_input("Base Imponible", format="%.2f", value=float(datos_pre.get("base_imponible", 0.00)))
+                                iva_porcentaje = st.number_input("% IVA", value=16.00, format="%.2f")
+                                iva_monto = st.number_input("Monto IVA", format="%.2f", value=float(datos_pre.get("iva_monto", 0.00)))
+                                total_compras = st.number_input("Total Compras", format="%.2f", value=float(datos_pre.get("total_compras", 0.00)))
 
-                            status_text.text("✅ ¡Proceso de lote finalizado!")
-                            st.success(f"Resumen: {procesados_exito} facturas procesadas con éxito. {errores} errores.")
-                            st.rerun()
+                            # Botón final para insertar en tu tabla SQL
+                            submitted = st.form_submit_button("💾 Guardar Definitivamente en Libro de Compras", type="primary")
+                            
+                            if submitted:
+                                db_nombre = st.session_state.get('DB_ACTUAL')
+                                if not db_nombre:
+                                    st.error("Error: No se ha seleccionado una base de datos activa.")
+                                else:
+                                    conn = conectar_db(db_nombre)
+                                    if conn is None:
+                                        st.error(f"❌ No se pudo conectar a la base de datos '{db_nombre}'.")
+                                    else:
+                                        try:
+                                            cursor = conn.cursor()
+                                            
+                                            query = """
+                                                INSERT INTO libro_compras (
+                                                    fecha_operacion, tipo_documento, n_factura, n_control, 
+                                                    n_factura_afectada, proveedor, rif, tipo_transaccion, 
+                                                    total_compras, importe_exento, base_imponible, 
+                                                    iva_porcentaje, iva_monto
+                                                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                            """
+                                            
+                                            importe_exento = float(datos_pre.get("importe_exento", 0.00))
+                                            
+                                            valores = (
+                                                fecha_operacion, tipo_documento, n_factura, n_control,
+                                                n_factura_afectada if n_factura_afectada else None,
+                                                proveedor, rif, tipo_transaccion,
+                                                total_compras, importe_exento, base_imponible,
+                                                iva_porcentaje, iva_monto
+                                            )
+                                            
+                                            cursor.execute(query, valores)
+                                            conn.commit()
+                                            cursor.close()
+                                            
+                                            # Actualizamos el estado del documento en la cola local
+                                            for item in st.session_state.cola_pdfs:
+                                                if item["nombre"] == doc_obj["nombre"]:
+                                                    item["estado"] = "Procesado"
+                                                    st.session_state.archivos_procesados_ids.add(item["id"])
+                                                    break
+                                                    
+                                            st.success(f"¡Factura {n_factura} registrada exitosamente en el Libro de Compras!")
+                                            st.rerun()
+                                            
+                                        except Exception as e:
+                                            st.error(f"Error al registrar la factura en la base de datos: {e}")
+                                        finally:
+                                            if conn and hasattr(conn, 'close'):
+                                                conn.close()
+                else:
+                    st.success("🎉 ¡Todos los documentos en la cola ya han sido procesados y registrados!")
+
             else:
                 st.info("No hay archivos en la cola de espera. Sube algunos PDFs arriba para comenzar.")
 
