@@ -2490,7 +2490,6 @@ def obtener_modelo_valido():
         return None
 
 
-
 def extraer_datos_con_regex(pdf_file_obj):
     pdf_file_obj.seek(0)
     doc = fitz.open(stream=pdf_file_obj.read(), filetype="pdf")
@@ -2524,7 +2523,6 @@ def extraer_datos_con_regex(pdf_file_obj):
         
     # 2. Intentar deducir el Proveedor (usualmente las primeras líneas del texto fiscal traen la Razón Social)
     if len(lineas) > 0:
-        # Ignorar palabras comunes de cabecera si aparecen arriba
         candidato = lineas[0]
         if "RIF" in candidato.upper() or len(candidato) < 4:
             if len(lineas) > 1:
@@ -2547,7 +2545,6 @@ def extraer_datos_con_regex(pdf_file_obj):
     if match_fecha:
         f_str = match_fecha.group(1).replace('/', '-')
         try:
-            # Normalizar a YYYY-MM-DD para MySQL
             partes = f_str.split('-')
             if len(partes[0]) == 2: # Viene como DD-MM-YYYY
                 datos["fecha_operacion"] = f"{partes[2]}-{partes[1]}-{partes[0]}"
@@ -2556,31 +2553,127 @@ def extraer_datos_con_regex(pdf_file_obj):
         except:
             pass
 
-    # Función auxiliar para limpiar montos en formato venezolano (ej. 1.234,56 -> 1234.56)
+    # Función auxiliar para limpiar montos en formato venezolano (ej. 65.710,49 -> 65710.49)
     def limpiar_monto(texto_monto):
         try:
+            # Quitamos los puntos de miles y sustituimos la coma decimal por punto
             limpio = texto_monto.replace('.', '').replace(',', '.')
             return float(limpio)
         except:
             return 0.0
 
-    # 6. Buscar Base Imponible y Total (Búsqueda genérica por etiquetas comunes en facturas SENIAT)
-    match_base = re.search(r'(?:base\s*imponible|bi)[:\s#]*([\d\.,]+)', texto_completo, re.IGNORECASE)
-    if match_base:
-        datos["base_imponible"] = limpiar_monto(match_base.group(1))
+    # 6. Extracción quirúrgica de montos en Bs. (Bloque de totales inferior)
+    # Recorremos las líneas buscando las etiquetas clave y extrayendo el monto que está justo antes de 'Bs.'
+    for i, linea in enumerate(lineas):
+        linea_lower = linea.lower()
+        
+        # Buscar Base Imponible (ej: "Base imponible 16,00%: 131,30 USD 65.710,49 Bs.")
+        if "base imponible" in linea_lower or "base imponible 16" in linea_lower:
+            # Si el monto está en la misma línea o en la siguiente
+            texto_a_buscar = linea
+            if "bs" not in linea_lower and i + 1 < len(lineas):
+                texto_a_buscar += " " + lineas[i + 1]
+            
+            m_val = re.search(r'([\d\.,]+)\s*Bs\.?', texto_a_buscar, re.IGNORECASE)
+            if m_val:
+                datos["base_imponible"] = limpiar_monto(m_val.group(1))
 
-    match_iva = re.search(r'(?:iva\s*16%?|16%|monto\s*iva)[:\s#]*([\d\.,]+)', texto_completo, re.IGNORECASE)
-    if match_iva:
-        datos["iva_monto"] = limpiar_monto(match_iva.group(1))
+        # Buscar IVA (ej: "IVA 16,00%: 21,01 USD 10.513,68 Bs.")
+        elif "iva" in linea_lower and ("16" in linea_lower or "monto iva" in linea_lower):
+            texto_a_buscar = linea
+            if "bs" not in linea_lower and i + 1 < len(lineas):
+                texto_a_buscar += " " + lineas[i + 1]
+                
+            m_val = re.search(r'([\d\.,]+)\s*Bs\.?', texto_a_buscar, re.IGNORECASE)
+            if m_val:
+                datos["iva_monto"] = limpiar_monto(m_val.group(1))
 
-    match_total = re.search(r'(?:total\s*(?:a\s*pagar|factura|general)?|total\s*bs\.?)[:\s#]*([\d\.,]+)', texto_completo, re.IGNORECASE)
-    if match_total:
-        datos["total_compras"] = limpiar_monto(match_total.group(1))
-    elif datos["base_imponible"] > 0:
-        # Si no encontró el total exacto pero hay base e iva, calcular un estimado preliminar
+        # Buscar Total (ej: "Total: 152,31 USD 76.224,17 Bs.")
+        elif linea_lower.startswith("total:") or linea_lower == "total":
+            texto_a_buscar = linea
+            if "bs" not in linea_lower and i + 1 < len(lineas):
+                texto_a_buscar += " " + lineas[i + 1]
+                
+            m_val = re.search(r'([\d\.,]+)\s*Bs\.?', texto_a_buscar, re.IGNORECASE)
+            if m_val:
+                datos["total_compras"] = limpiar_monto(m_val.group(1))
+
+    # Respaldo matemático: Si por alguna razón no halló el total pero tiene base e IVA, los suma
+    if datos["total_compras"] == 0.0 and datos["base_imponible"] > 0:
         datos["total_compras"] = round(datos["base_imponible"] + datos["iva_monto"], 2)
 
     return datos
+
+
+def extraer_datos_factura(archivo):
+    model = obtener_modelo_valido()
+    if not model:
+        st.error("No se encontró ningún modelo compatible en tu cuenta.")
+        return None
+        
+    try:
+        img_data = archivo.getvalue()
+        
+        prompt_instrucciones = """
+            Eres un asistente contable experto en OCR. Tu tarea es extraer datos de facturas fiscales.
+            Extrae la información basándote únicamente en las etiquetas visibles en el documento.
+
+            REGLAS DE ORO:
+            1. 'n_factura': Busca etiquetas como "N° Documento", "Número de Factura" o "Factura N°". Extrae el valor alfanumérico exacto.
+            2. 'n_control': Busca la etiqueta "N° de Control". Es crucial extraer el formato completo (ej. 00-000000).
+            3. 'rif': Busca el RIF del emisor (ej. J-XXXXXXXXX). Elimina guiones y espacios.
+            4. 'fecha_operacion': Busca la fecha de emisión. Conviértela a formato YYYY-MM-DD.
+            5. Montos: Extrae los valores monetarios de la moneda local (Bs.). Ignora montos en otras divisas.
+            6. Si un dato no existe, devuelve el valor en blanco o 0 según corresponda. NO inventes datos.
+            7. Devuelve SOLO un JSON puro.
+
+            Formato requerido:
+            {
+                "n_factura": "string",
+                "n_control": "string",
+                "fecha_operacion": "YYYY-MM-DD",
+                "rif": "string",
+                "total_compras": float,
+                "importe_exento": float,
+                "base_imponible": float,
+                "iva_porcentaje": float,
+                "iva_monto": float
+            }
+        """
+        
+        response = model.generate_content([
+            prompt_instrucciones,
+            {"mime_type": "image/jpeg", "data": img_data}
+        ])
+        
+        texto_limpio = response.text.replace('```json', '').replace('```', '').strip()
+        start = texto_limpio.find('{')
+        end = texto_limpio.rfind('}') + 1
+        texto_limpio = texto_limpio[start:end]
+        
+        # --- NUEVO: BLOQUE DE BLINDAJE Y LIMPIEZA ---
+        datos = json.loads(texto_limpio)
+        
+        # 1. Limpieza de RIF (Quitar guiones y espacios)
+        datos['rif'] = str(datos['rif']).replace('-', '').replace(' ', '').strip().upper()
+        
+        # 2. Validación de Control (Forzar formato estándar si el OCR falló)
+        if len(str(datos['n_control'])) < 5:
+            datos['n_control'] = "REVISAR_OCR"
+            
+        # 3. Asegurar que los montos sean numéricos
+        for campo in ['total_compras', 'importe_exento', 'base_imponible', 'iva_monto']:
+            try:
+                datos[campo] = float(datos[campo])
+            except:
+                datos[campo] = 0.0
+        
+        return datos
+        # --------------------------------------------
+        
+    except Exception as e:
+        st.error(f"Error procesando con el modelo encontrado: {e}")
+        return None
 
 def generar_comprobante_pdf(datos, conn):
     """
