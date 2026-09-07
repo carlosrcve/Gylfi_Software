@@ -26,6 +26,7 @@ import bcrypt
 import time
 import ssl
 import pymysql.cursors
+import streamlit.components.v1 as components
 
 st.set_page_config(
     page_title="Mi App Contable",
@@ -265,8 +266,13 @@ def mostrar_plantilla_bienvenida():
         st.rerun()
 
 def play_success_sound():
-    audio_url = "https://www.myinstants.com/media/sounds/ding-sound-effect_1.mp3"
-    st.audio(audio_url, format="audio/mp3", autoplay=True)
+    # Inyectamos un pequeño reproductor HTML5 oculto que ejecuta el sonido mediante JS de forma independiente al ciclo de Streamlit
+    sound_html = """
+        <audio autoplay style="display:none;">
+            <source src="https://www.myinstants.com/media/sounds/ding-sound-effect_1.mp3" type="audio/mp3">
+        </audio>
+    """
+    components.html(sound_html, height=0, width=0)
 
 
 def login_screen():
