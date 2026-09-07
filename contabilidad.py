@@ -2489,78 +2489,92 @@ def obtener_modelo_valido():
     except:
         return None
 
-def extraer_datos_factura(archivo):
+
+def extraer_datos_factura(archivo, max_reintentos=3):
     model = obtener_modelo_valido()
     if not model:
         st.error("No se encontró ningún modelo compatible en tu cuenta.")
         return None
         
-    try:
-        img_data = archivo.getvalue()
-        
-        prompt_instrucciones = """
-            Eres un asistente contable experto en OCR. Tu tarea es extraer datos de facturas fiscales.
-            Extrae la información basándote únicamente en las etiquetas visibles en el documento.
+    img_data = archivo.getvalue()
+    
+    prompt_instrucciones = """
+        Eres un asistente contable experto en OCR. Tu tarea es extraer datos de facturas fiscales.
+        Extrae la información basándote únicamente en las etiquetas visibles en el documento.
 
-            REGLAS DE ORO:
-            1. 'n_factura': Busca etiquetas como "N° Documento", "Número de Factura" o "Factura N°". Extrae el valor alfanumérico exacto.
-            2. 'n_control': Busca la etiqueta "N° de Control". Es crucial extraer el formato completo (ej. 00-000000).
-            3. 'rif': Busca el RIF del emisor (ej. J-XXXXXXXXX). Elimina guiones y espacios.
-            4. 'fecha_operacion': Busca la fecha de emisión. Conviértela a formato YYYY-MM-DD.
-            5. Montos: Extrae los valores monetarios de la moneda local (Bs.). Ignora montos en otras divisas.
-            6. Si un dato no existe, devuelve el valor en blanco o 0 según corresponda. NO inventes datos.
-            7. Devuelve SOLO un JSON puro.
+        REGLAS DE ORO:
+        1. 'n_factura': Busca etiquetas como "N° Documento", "Número de Factura" o "Factura N°". Extrae el valor alfanumérico exacto.
+        2. 'n_control': Busca la etiqueta "N° de Control". Es crucial extraer el formato completo (ej. 00-000000).
+        3. 'rif': Busca el RIF del emisor (ej. J-XXXXXXXXX). Elimina guiones y espacios.
+        4. 'fecha_operacion': Busca la fecha de emisión. Conviértela a formato YYYY-MM-DD.
+        5. Montos: Extrae los valores monetarios de la moneda local (Bs.). Ignora montos en otras divisas.
+        6. Si un dato no existe, devuelve el valor en blanco o 0 según corresponda. NO inventes datos.
+        7. Devuelve SOLO un JSON puro.
 
-            Formato requerido:
-            {
-                "n_factura": "string",
-                "n_control": "string",
-                "fecha_operacion": "YYYY-MM-DD",
-                "rif": "string",
-                "total_compras": 0.0,
-                "importe_exento": 0.0,
-                "base_imponible": 0.0,
-                "iva_porcentaje": 16.0,
-                "iva_monto": 0.0
-            }
-        """
-        
-        response = model.generate_content([
-            prompt_instrucciones,
-            {"mime_type": "image/jpeg", "data": img_data}
-        ])
-        
-        if not response or not response.text:
-            st.error("La IA no devolvió ninguna respuesta.")
-            return None
+        Formato requerido:
+        {
+            "n_factura": "string",
+            "n_control": "string",
+            "fecha_operacion": "YYYY-MM-DD",
+            "rif": "string",
+            "total_compras": 0.0,
+            "importe_exento": 0.0,
+            "base_imponible": 0.0,
+            "iva_porcentaje": 16.0,
+            "iva_monto": 0.0
+        }
+    """
 
-        texto_limpio = response.text.replace('```json', '').replace('```', '').strip()
-        start = texto_limpio.find('{')
-        end = texto_limpio.rfind('}') + 1
-        texto_limpio = texto_limpio[start:end]
-        
-        # --- BLOQUE DE BLINDAJE Y LIMPIEZA ---
-        datos = json.loads(texto_limpio)
-        
-        # 1. Limpieza de RIF (Quitar guiones y espacios)
-        datos['rif'] = str(datos.get('rif', '')).replace('-', '').replace(' ', '').strip().upper()
-        
-        # 2. Validación de Control (Forzar formato estándar si el OCR falló)
-        if len(str(datos.get('n_control', ''))) < 5:
-            datos['n_control'] = "REVISAR_OCR"
+    for intento in range(max_reintentos):
+        try:
+            response = model.generate_content([
+                prompt_instrucciones,
+                {"mime_type": "image/jpeg", "data": img_data}
+            ])
             
-        # 3. Asegurar que los montos sean numéricos
-        for campo in ['total_compras', 'importe_exento', 'base_imponible', 'iva_monto', 'iva_porcentaje']:
-            try:
-                datos[campo] = float(datos.get(campo, 0.0))
-            except:
-                datos[campo] = 0.0
-        
-        return datos
-        
-    except Exception as e:
-        st.error(f"Error procesando con el modelo encontrado: {e}")
-        return None
+            if not response or not response.text:
+                st.error("La IA no devolvió ninguna respuesta.")
+                return None
+
+            texto_limpio = response.text.replace('```json', '').replace('```', '').strip()
+            start = texto_limpio.find('{')
+            end = texto_limpio.rfind('}') + 1
+            texto_limpio = texto_limpio[start:end]
+            
+            # --- BLOQUE DE BLINDAJE Y LIMPIEZA ---
+            datos = json.loads(texto_limpio)
+            
+            # 1. Limpieza de RIF (Quitar guiones y espacios)
+            datos['rif'] = str(datos.get('rif', '')).replace('-', '').replace(' ', '').strip().upper()
+            
+            # 2. Validación de Control
+            if len(str(datos.get('n_control', ''))) < 5:
+                datos['n_control'] = "REVISAR_OCR"
+                
+            # 3. Asegurar que los montos sean numéricos
+            for campo in ['total_compras', 'importe_exento', 'base_imponible', 'iva_monto', 'iva_porcentaje']:
+                try:
+                    datos[campo] = float(datos.get(campo, 0.0))
+                except:
+                    datos[campo] = 0.0
+            
+            return datos
+            
+        except Exception as e:
+            error_str = str(e)
+            # Si detectamos que es un error de cuota (429), esperamos automáticamente
+            if "429" in error_str or "Quota exceeded" in error_str:
+                if intento < max_reintentos - 1:
+                    tiempo_espera = 7 * (intento + 1) # Espera progresiva (7s, 14s...)
+                    st.warning(f"Límite de velocidad de la API alcanzado (Cuota gratuita). Pausando {tiempo_espera}s antes de reintentar automáticamente...")
+                    time.sleep(tiempo_espera)
+                    continue
+            
+            st.error(f"Error procesando con el modelo: {e}")
+            return None
+            
+    st.error("Se agotaron los reintentos debido al límite de la cuota gratuita de la API. Por favor, espera un minuto e inténtalo de nuevo.")
+    return None
 
 
 def generar_comprobante_pdf(datos, conn):
