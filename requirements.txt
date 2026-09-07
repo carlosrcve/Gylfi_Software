@@ -14,3 +14,4 @@ pytesseract
 numpy
 openpyxl
 xlsxwriter
+PyMuPDF
