@@ -9960,6 +9960,12 @@ elif opcion_menu == "📚 Libros Fiscales":
             st.subheader("📥 Bandeja de Entrada - Procesamiento Inteligente de Facturas (PDF)")
             st.info("Arrastra o selecciona múltiples archivos PDF de facturas. Se acumularán en cola y podrás procesarlos de forma segura sin congelar el sistema.")
 
+            # Inicializamos la cola y un registro de IDs procesados en session_state si no existen
+            if "cola_pdfs" not in st.session_state:
+                st.session_state.cola_pdfs = []
+            if "archivos_procesados_ids" not in st.session_state:
+                st.session_state.archivos_procesados_ids = set()
+
             # 1. Subida múltiple de archivos a la sesión (Cola de espera)
             archivos_pdf = st.file_uploader(
                 "Sube tus facturas en PDF", 
@@ -9968,16 +9974,15 @@ elif opcion_menu == "📚 Libros Fiscales":
                 key="uploader_pdf_cola"
             )
 
-            # Inicializamos la cola en session_state si no existe
-            if "cola_pdfs" not in st.session_state:
-                st.session_state.cola_pdfs = []
-
-            # Si el usuario selecciona nuevos archivos, los añadimos a la cola de forma persistente
+            # Si el usuario selecciona nuevos archivos, los añadimos solo si no están ya en la cola ni fueron descartados
             if archivos_pdf:
                 nombres_existentes = [item['nombre'] for item in st.session_state.cola_pdfs]
                 for archivo in archivos_pdf:
-                    if archivo.name not in nombres_existentes:
+                    # Usamos el file_id único que provee Streamlit para evitar duplicados exactos
+                    file_id = getattr(archivo, "file_id", archivo.name)
+                    if archivo.name not in nombres_existentes and file_id not in st.session_state.archivos_procesados_ids:
                         st.session_state.cola_pdfs.append({
+                            "id": file_id,
                             "nombre": archivo.name,
                             "objeto": archivo,
                             "estado": "Pendiente"
@@ -9987,9 +9992,10 @@ elif opcion_menu == "📚 Libros Fiscales":
             if st.session_state.cola_pdfs:
                 st.markdown(f"### 📋 Cola de Documentos ({len(st.session_state.cola_pdfs)} en espera)")
                 
-                # Botón para limpiar toda la cola
+                # Botón para limpiar toda la cola correctamente
                 if st.button("🗑️ Vaciar Cola"):
                     st.session_state.cola_pdfs = []
+                    st.session_state.archivos_procesados_ids = set()
                     st.rerun()
 
                 # Mostrar listado rápido de pendientes
@@ -10003,7 +10009,7 @@ elif opcion_menu == "📚 Libros Fiscales":
 
                 st.markdown("---")
 
-                # 3. Botón de Procesamiento por Lotes (CORREGIDO PARA EVITAR CONFLICTOS DE CONEXIÓN)
+                # 3. Botón de Procesamiento por Lotes
                 if st.button("🚀 Procesar Cola de Documentos (Pendientes)", type="primary"):
                     db_nombre = st.session_state.get('DB_ACTUAL')
                     if not db_nombre:
@@ -10016,7 +10022,6 @@ elif opcion_menu == "📚 Libros Fiscales":
                         procesados_exito = 0
                         errores = 0
 
-                        # Usamos la función de conexión limpia estándar
                         conn = conectar_db(db_nombre)
                         
                         if conn is None:
@@ -10035,6 +10040,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                                         # (Aquí irá tu inserción a base de datos de forma limpia)
                                         
                                         item["estado"] = "Procesado"
+                                        st.session_state.archivos_procesados_ids.add(item["id"])
                                         procesados_exito += 1
                                     except Exception as err:
                                         item["estado"] = f"Error: {str(err)}"
