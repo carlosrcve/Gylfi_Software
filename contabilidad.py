@@ -28,7 +28,7 @@ import ssl
 import pymysql.cursors
 import streamlit.components.v1 as components
 import fitz # PyMuPDF (asegúrate de tenerla instalada o usa pdf2image)
-
+import google.generativeai as genai
 st.set_page_config(
     page_title="Mi App Contable",
     layout="wide",
@@ -2464,6 +2464,38 @@ def convertir_pdf_a_imagen_bytes(pdf_file_obj):
     except Exception as e:
         # Si prefieres usar pypdf y tienes otra alternativa, aquí puedes manejarlo
         return None
+
+
+
+
+def obtener_modelo_valido():
+    """Busca y retorna un modelo de Gemini compatible disponible en la cuenta."""
+    try:
+        # Lista de modelos preferidos en orden de prioridad
+        modelos_preferidos = ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-1.5-pro"]
+        
+        # Consultar modelos disponibles que soporten generación de contenido
+        modelos_disponibles = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+        
+        # Buscar coincidencia con los preferidos
+        for pref in modelos_preferidos:
+            for m in modelos_disponibles:
+                if pref in m:
+                    return genai.GenerativeModel(m)
+        
+        # Si hay alguno disponible genérico, usar el primero
+        if modelos_disponibles:
+            return genai.GenerativeModel(modelos_disponibles[0])
+            
+        # Fallback por defecto
+        return genai.GenerativeModel('gemini-1.5-flash')
+        
+    except Exception as e:
+        # Fallback de emergencia si falla la consulta de modelos
+        try:
+            return genai.GenerativeModel('gemini-1.5-flash')
+        except:
+            return None
 
 def extraer_datos_factura(archivo):
     model = obtener_modelo_valido()
