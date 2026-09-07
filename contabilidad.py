@@ -2455,15 +2455,15 @@ def obtener_lista_proveedores():
 # Configura tu clave (asegúrate de que tu api_key esté configurada correctamente)
 genai.configure(api_key="AQ.Ab8RN6KiWY-x727nF8PFCerZu-EDtlkEbT5CJDBzFp188mx2Tw")
 
+
 def convertir_pdf_a_imagen_bytes(pdf_file_obj):
-    """Convierte la primera página de un PDF subido en Streamlit a bytes de imagen JPEG de forma segura y rápida"""
+    """Convierte la primera página de un PDF subido en Streamlit a bytes de imagen JPEG de forma segura"""
     try:
         pdf_file_obj.seek(0)
         doc = fitz.open(stream=pdf_file_obj.read(), filetype="pdf")
         if len(doc) == 0:
             return None
-        page = doc[0]  # Tomamos la primera página de la factura
-        # Usamos 100-120 DPI para que la imagen sea nítida para la IA pero ligera y fluida en la nube
+        page = doc[0] 
         pix = page.get_pixmap(dpi=120) 
         img_bytes = pix.tobytes("jpeg")
         return img_bytes
@@ -2472,13 +2472,31 @@ def convertir_pdf_a_imagen_bytes(pdf_file_obj):
         return None
 
 def obtener_modelo_valido():
-    """Retorna un modelo de Gemini estable directamente, evitando bloqueos de red por consultas dinámicas."""
+    """Busca dinámicamente un modelo compatible en la cuenta para evitar errores 404."""
     try:
-        # Usar directamente gemini-1.5-flash garantiza velocidad, estabilidad y soporte multimodal nativo
+        # Intentar listar los modelos que soportan generación de contenido en tu API Key
+        modelos_disponibles = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+        
+        # Si hay modelos disponibles, filtramos uno que sirva para visión/texto (flash o pro)
+        for modelo in modelos_disponibles:
+            if 'flash' in modelo or 'pro' in modelo:
+                return genai.GenerativeModel(modelo)
+                
+        # Si la lista está vacía por alguna razón, usamos un nombre genérico sin prefijo estricto
+        if modelos_disponibles:
+            return genai.GenerativeModel(modelos_disponibles[0])
+            
+    except Exception:
+        pass
+        
+    # Fallback directo por si falla el listado en la nube
+    try:
         return genai.GenerativeModel('gemini-1.5-flash')
-    except Exception as e:
-        st.error(f"Error al inicializar el modelo de IA: {e}")
-        return None
+    except Exception:
+        try:
+            return genai.GenerativeModel('gemini-pro')
+        except:
+            return None
 
 def extraer_datos_factura(archivo):
     model = obtener_modelo_valido()
@@ -2548,32 +2566,10 @@ def extraer_datos_factura(archivo):
                 datos[campo] = 0.0
         
         return datos
-        # --------------------------------------------
         
     except Exception as e:
         st.error(f"Error procesando con el modelo encontrado: {e}")
         return None
-
-
-def resetear_estado_retencion(numero_factura):
-    try:
-        conn = conectar_db()
-        cursor = conn.cursor()
-        
-        # Limpiamos los campos que indican que la factura ya fue procesada
-        # Ponemos monto_retenido y porcentaje_retencion en 0
-        sql = """
-            UPDATE retenciones_islr 
-            SET monto_retenido = 0.00, 
-                porcentaje_retencion = 0.00 
-            WHERE numero_factura = %s
-        """
-        cursor.execute(sql, (numero_factura,))
-        conn.commit()
-        conn.close()
-        return True
-    except:
-        return False
 
 
 
