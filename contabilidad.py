@@ -2490,92 +2490,97 @@ def obtener_modelo_valido():
         return None
 
 
-def extraer_datos_factura(archivo, max_reintentos=3):
-    model = obtener_modelo_valido()
-    if not model:
-        st.error("No se encontró ningún modelo compatible en tu cuenta.")
-        return None
+
+def extraer_datos_con_regex(pdf_file_obj):
+    pdf_file_obj.seek(0)
+    doc = fitz.open(stream=pdf_file_obj.read(), filetype="pdf")
+    texto_completo = ""
+    for pagina in doc:
+        texto_completo += pagina.get_text("text") + "\n"
         
-    img_data = archivo.getvalue()
+    # Estructura alineada 100% con tu tabla libro_compras
+    datos = {
+        "fecha_operacion": datetime.today().strftime('%Y-%m-%d'), # Por defecto hoy si no la halla
+        "tipo_documento": "01",
+        "n_factura": "",
+        "n_control": "",
+        "n_factura_afectada": None,
+        "proveedor": "PROVEEDOR NO IDENTIFICADO",
+        "rif": "",
+        "tipo_transaccion": "01",
+        "total_compras": 0.0,
+        "importe_exento": 0.0,
+        "base_imponible": 0.0,
+        "iva_porcentaje": 16.0,
+        "iva_monto": 0.0
+    }
     
-    prompt_instrucciones = """
-        Eres un asistente contable experto en OCR. Tu tarea es extraer datos de facturas fiscales.
-        Extrae la información basándote únicamente en las etiquetas visibles en el documento.
+    lineas = [l.strip() for l in texto_completo.split('\n') if l.strip()]
+    
+    # 1. Buscar RIF del emisor (ej. J-12345678-9 o J123456789)
+    match_rif = re.search(r'\b([JVEG]\s*-?\s*\d{8}\s*-?\s*\d)\b', texto_completo, re.IGNORECASE)
+    if match_rif:
+        datos["rif"] = re.sub(r'[^0-9JVEG]', '', match_rif.group(1)).upper()
+        
+    # 2. Intentar deducir el Proveedor (usualmente las primeras líneas del texto fiscal traen la Razón Social)
+    if len(lineas) > 0:
+        # Ignorar palabras comunes de cabecera si aparecen arriba
+        candidato = lineas[0]
+        if "RIF" in candidato.upper() or len(candidato) < 4:
+            if len(lineas) > 1:
+                datos["proveedor"] = lineas[1][:255]
+        else:
+            datos["proveedor"] = candidato[:255]
 
-        REGLAS DE ORO:
-        1. 'n_factura': Busca etiquetas como "N° Documento", "Número de Factura" o "Factura N°". Extrae el valor alfanumérico exacto.
-        2. 'n_control': Busca la etiqueta "N° de Control". Es crucial extraer el formato completo (ej. 00-000000).
-        3. 'rif': Busca el RIF del emisor (ej. J-XXXXXXXXX). Elimina guiones y espacios.
-        4. 'fecha_operacion': Busca la fecha de emisión. Conviértela a formato YYYY-MM-DD.
-        5. Montos: Extrae los valores monetarios de la moneda local (Bs.). Ignora montos en otras divisas.
-        6. Si un dato no existe, devuelve el valor en blanco o 0 según corresponda. NO inventes datos.
-        7. Devuelve SOLO un JSON puro.
+    # 3. Buscar Número de Control (ej. N° Control: 00-001234 o Control: 001234)
+    match_control = re.search(r'(?:control|n[°º]\s*control)[:\s#]*([0-9\-]{5,15})', texto_completo, re.IGNORECASE)
+    if match_control:
+        datos["n_control"] = match_control.group(1).strip()
+        
+    # 4. Buscar Factura N°
+    match_fac = re.search(r'(?:factura|n[°º]\s*factura|documento)[:\s#]*([0-9A-Za-z\-]{3,15})', texto_completo, re.IGNORECASE)
+    if match_fac:
+        datos["n_factura"] = match_fac.group(1).strip()
 
-        Formato requerido:
-        {
-            "n_factura": "string",
-            "n_control": "string",
-            "fecha_operacion": "YYYY-MM-DD",
-            "rif": "string",
-            "total_compras": 0.0,
-            "importe_exento": 0.0,
-            "base_imponible": 0.0,
-            "iva_porcentaje": 16.0,
-            "iva_monto": 0.0
-        }
-    """
-
-    for intento in range(max_reintentos):
+    # 5. Buscar Fecha (Formato DD/MM/YYYY o YYYY-MM-DD)
+    match_fecha = re.search(r'\b(\d{2}[-/]\d{2}[-/]\d{4})\b', texto_completo)
+    if match_fecha:
+        f_str = match_fecha.group(1).replace('/', '-')
         try:
-            response = model.generate_content([
-                prompt_instrucciones,
-                {"mime_type": "image/jpeg", "data": img_data}
-            ])
-            
-            if not response or not response.text:
-                st.error("La IA no devolvió ninguna respuesta.")
-                return None
+            # Normalizar a YYYY-MM-DD para MySQL
+            partes = f_str.split('-')
+            if len(partes[0]) == 2: # Viene como DD-MM-YYYY
+                datos["fecha_operacion"] = f"{partes[2]}-{partes[1]}-{partes[0]}"
+            else:
+                datos["fecha_operacion"] = f_str
+        except:
+            pass
 
-            texto_limpio = response.text.replace('```json', '').replace('```', '').strip()
-            start = texto_limpio.find('{')
-            end = texto_limpio.rfind('}') + 1
-            texto_limpio = texto_limpio[start:end]
-            
-            # --- BLOQUE DE BLINDAJE Y LIMPIEZA ---
-            datos = json.loads(texto_limpio)
-            
-            # 1. Limpieza de RIF (Quitar guiones y espacios)
-            datos['rif'] = str(datos.get('rif', '')).replace('-', '').replace(' ', '').strip().upper()
-            
-            # 2. Validación de Control
-            if len(str(datos.get('n_control', ''))) < 5:
-                datos['n_control'] = "REVISAR_OCR"
-                
-            # 3. Asegurar que los montos sean numéricos
-            for campo in ['total_compras', 'importe_exento', 'base_imponible', 'iva_monto', 'iva_porcentaje']:
-                try:
-                    datos[campo] = float(datos.get(campo, 0.0))
-                except:
-                    datos[campo] = 0.0
-            
-            return datos
-            
-        except Exception as e:
-            error_str = str(e)
-            # Si detectamos que es un error de cuota (429), esperamos automáticamente
-            if "429" in error_str or "Quota exceeded" in error_str:
-                if intento < max_reintentos - 1:
-                    tiempo_espera = 7 * (intento + 1) # Espera progresiva (7s, 14s...)
-                    st.warning(f"Límite de velocidad de la API alcanzado (Cuota gratuita). Pausando {tiempo_espera}s antes de reintentar automáticamente...")
-                    time.sleep(tiempo_espera)
-                    continue
-            
-            st.error(f"Error procesando con el modelo: {e}")
-            return None
-            
-    st.error("Se agotaron los reintentos debido al límite de la cuota gratuita de la API. Por favor, espera un minuto e inténtalo de nuevo.")
-    return None
+    # Función auxiliar para limpiar montos en formato venezolano (ej. 1.234,56 -> 1234.56)
+    def limpiar_monto(texto_monto):
+        try:
+            limpio = texto_monto.replace('.', '').replace(',', '.')
+            return float(limpio)
+        except:
+            return 0.0
 
+    # 6. Buscar Base Imponible y Total (Búsqueda genérica por etiquetas comunes en facturas SENIAT)
+    match_base = re.search(r'(?:base\s*imponible|bi)[:\s#]*([\d\.,]+)', texto_completo, re.IGNORECASE)
+    if match_base:
+        datos["base_imponible"] = limpiar_monto(match_base.group(1))
+
+    match_iva = re.search(r'(?:iva\s*16%?|16%|monto\s*iva)[:\s#]*([\d\.,]+)', texto_completo, re.IGNORECASE)
+    if match_iva:
+        datos["iva_monto"] = limpiar_monto(match_iva.group(1))
+
+    match_total = re.search(r'(?:total\s*(?:a\s*pagar|factura|general)?|total\s*bs\.?)[:\s#]*([\d\.,]+)', texto_completo, re.IGNORECASE)
+    if match_total:
+        datos["total_compras"] = limpiar_monto(match_total.group(1))
+    elif datos["base_imponible"] > 0:
+        # Si no encontró el total exacto pero hay base e iva, calcular un estimado preliminar
+        datos["total_compras"] = round(datos["base_imponible"] + datos["iva_monto"], 2)
+
+    return datos
 
 def generar_comprobante_pdf(datos, conn):
     """
