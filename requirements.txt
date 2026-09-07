@@ -15,3 +15,5 @@ numpy
 openpyxl
 xlsxwriter
 PyMuPDF
+google-generativeai
+
