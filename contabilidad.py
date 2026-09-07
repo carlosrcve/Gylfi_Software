@@ -2452,50 +2452,33 @@ def obtener_lista_proveedores():
         return ["Error al cargar proveedores"]
 
 
+# Configura tu clave (asegúrate de que tu api_key esté configurada correctamente)
+genai.configure(api_key="AQ.Ab8RN6KiWY-x727nF8PFCerZu-EDtlkEbT5CJDBzFp188mx2Tw")
+
 def convertir_pdf_a_imagen_bytes(pdf_file_obj):
-    """Convierte la primera página de un PDF subido en Streamlit a bytes de imagen JPEG"""
+    """Convierte la primera página de un PDF subido en Streamlit a bytes de imagen JPEG de forma segura y rápida"""
     try:
         pdf_file_obj.seek(0)
         doc = fitz.open(stream=pdf_file_obj.read(), filetype="pdf")
-        page = doc[0] # Tomamos la primera página de la factura
-        pix = page.get_pixmap(dpi=150) # 150 dpi es suficiente para que la IA lea nítido sin pesar mucho
+        if len(doc) == 0:
+            return None
+        page = doc[0]  # Tomamos la primera página de la factura
+        # Usamos 100-120 DPI para que la imagen sea nítida para la IA pero ligera y fluida en la nube
+        pix = page.get_pixmap(dpi=120) 
         img_bytes = pix.tobytes("jpeg")
         return img_bytes
     except Exception as e:
-        # Si prefieres usar pypdf y tienes otra alternativa, aquí puedes manejarlo
+        st.error(f"Error convirtiendo el PDF a imagen: {e}")
         return None
 
-
-
-
 def obtener_modelo_valido():
-    """Busca y retorna un modelo de Gemini compatible disponible en la cuenta."""
+    """Retorna un modelo de Gemini estable directamente, evitando bloqueos de red por consultas dinámicas."""
     try:
-        # Lista de modelos preferidos en orden de prioridad
-        modelos_preferidos = ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-1.5-pro"]
-        
-        # Consultar modelos disponibles que soporten generación de contenido
-        modelos_disponibles = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-        
-        # Buscar coincidencia con los preferidos
-        for pref in modelos_preferidos:
-            for m in modelos_disponibles:
-                if pref in m:
-                    return genai.GenerativeModel(m)
-        
-        # Si hay alguno disponible genérico, usar el primero
-        if modelos_disponibles:
-            return genai.GenerativeModel(modelos_disponibles[0])
-            
-        # Fallback por defecto
+        # Usar directamente gemini-1.5-flash garantiza velocidad, estabilidad y soporte multimodal nativo
         return genai.GenerativeModel('gemini-1.5-flash')
-        
     except Exception as e:
-        # Fallback de emergencia si falla la consulta de modelos
-        try:
-            return genai.GenerativeModel('gemini-1.5-flash')
-        except:
-            return None
+        st.error(f"Error al inicializar el modelo de IA: {e}")
+        return None
 
 def extraer_datos_factura(archivo):
     model = obtener_modelo_valido()
@@ -2525,11 +2508,11 @@ def extraer_datos_factura(archivo):
                 "n_control": "string",
                 "fecha_operacion": "YYYY-MM-DD",
                 "rif": "string",
-                "total_compras": float,
-                "importe_exento": float,
-                "base_imponible": float,
-                "iva_porcentaje": float,
-                "iva_monto": float
+                "total_compras": 0.0,
+                "importe_exento": 0.0,
+                "base_imponible": 0.0,
+                "iva_porcentaje": 16.0,
+                "iva_monto": 0.0
             }
         """
         
@@ -2538,25 +2521,29 @@ def extraer_datos_factura(archivo):
             {"mime_type": "image/jpeg", "data": img_data}
         ])
         
+        if not response or not response.text:
+            st.error("La IA no devolvió ninguna respuesta.")
+            return None
+
         texto_limpio = response.text.replace('```json', '').replace('```', '').strip()
         start = texto_limpio.find('{')
         end = texto_limpio.rfind('}') + 1
         texto_limpio = texto_limpio[start:end]
         
-        # --- NUEVO: BLOQUE DE BLINDAJE Y LIMPIEZA ---
+        # --- BLOQUE DE BLINDAJE Y LIMPIEZA ---
         datos = json.loads(texto_limpio)
         
         # 1. Limpieza de RIF (Quitar guiones y espacios)
-        datos['rif'] = str(datos['rif']).replace('-', '').replace(' ', '').strip().upper()
+        datos['rif'] = str(datos.get('rif', '')).replace('-', '').replace(' ', '').strip().upper()
         
         # 2. Validación de Control (Forzar formato estándar si el OCR falló)
-        if len(str(datos['n_control'])) < 5:
+        if len(str(datos.get('n_control', ''))) < 5:
             datos['n_control'] = "REVISAR_OCR"
             
         # 3. Asegurar que los montos sean numéricos
-        for campo in ['total_compras', 'importe_exento', 'base_imponible', 'iva_monto']:
+        for campo in ['total_compras', 'importe_exento', 'base_imponible', 'iva_monto', 'iva_porcentaje']:
             try:
-                datos[campo] = float(datos[campo])
+                datos[campo] = float(datos.get(campo, 0.0))
             except:
                 datos[campo] = 0.0
         
