@@ -11370,23 +11370,30 @@ elif "Proveedores" in opcion_menu:
                                 if hasattr(archivo_pdf, "seek"):
                                     archivo_pdf.seek(0)
                                     
-                                # LLAMADA A LA FUNCIÓN DEDICADA DE PROVEEDORES
-                                datos_prov = extraer_datos_proveedor_pdf(archivo_pdf)
-                                
-                                if datos_prov and isinstance(datos_prov, dict):
-                                    st.session_state.datos_prov_extraidos[sufijo_prov] = datos_prov
-                                    
-                                    # Inyectar directamente al session_state de los inputs
-                                    st.session_state[f"rif_{sufijo_prov}"] = str(datos_prov.get("rif", ""))
-                                    st.session_state[f"razon_{sufijo_prov}"] = str(datos_prov.get("proveedor", datos_prov.get("razon_social", "")))
-                                    st.session_state[f"dir_{sufijo_prov}"] = str(datos_prov.get("direccion_fiscal", ""))
-                                    
-                                    st.success("¡Datos extraídos con éxito! Recargando...")
-                                    st.rerun()
-                                else:
-                                    st.error("❌ La función `extraer_datos_proveedor_pdf` devolvió vacío o None. El PDF puede ser una imagen escaneada sin texto seleccionable.")
+                                # 1. Intentas extraer los datos automáticamente del PDF
+                                datos_proveedor = extraer_datos_proveedor_pdf(archivo_subido)
 
-                        st.info(f"Completando información para el archivo: **{sufijo_prov}**")
+                                # 2. Si es una imagen escaneada y devuelve None, abrimos campos manuales
+                                if datos_proveedor is None:
+                                    st.warning("⚠️ Este PDF es una imagen escaneada y no tiene texto digital. Por favor, completa los datos del proveedor:")
+                                    
+                                    with st.form("form_proveedor_manual"):
+                                        rif_manual = st.text_input("RIF del Proveedor (ej. J-12345678-9)")
+                                        nombre_manual = st.text_input("Razón Social / Nombre del Proveedor")
+                                        dir_manual = st.text_input("Dirección Fiscal")
+                                        
+                                        submitted = st.form_submit_button("Guardar y Continuar")
+                                        if submitted:
+                                            datos_proveedor = {
+                                                "rif": rif_manual,
+                                                "proveedor": nombre_manual,
+                                                "direccion_fiscal": dir_manual
+                                            }
+                                            st.success("¡Datos del proveedor cargados manualmente con éxito!")
+                                else:
+                                    # Si el PDF sí tenía texto digital, los muestra o usa directamente
+                                    st.success(f"¡Proveedor detectado automáticamente: {datos_proveedor['proveedor']}!")
+                                                        st.info(f"Completando información para el archivo: **{sufijo_prov}**")
                         
                         # Campos de entrada estructurados fuera de st.form para mantener reactividad total
                         col_i1, col_i2 = st.columns(2)
