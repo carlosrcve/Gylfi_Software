@@ -11157,29 +11157,32 @@ elif "Proveedores" in opcion_menu:
                             st.session_state[f"dir_{sufijo}"] = ""
 
                         # Botón para disparar la extracción local por Regex
+                        # Botón para disparar la extracción local por Regex con depuración
                         if st.button("⚡ Extraer Datos del Proveedor", key=f"btn_extraer_{sufijo}"):
                             with st.spinner("Leyendo RIF, Razón Social y Dirección del PDF..."):
                                 archivo_pdf = doc_prov_obj["objeto"]
                                 
-                                # MUY IMPORTANTE: Reiniciar el puntero del archivo por si ya fue leído antes
+                                # Reiniciar el puntero del archivo
                                 if hasattr(archivo_pdf, "seek"):
                                     archivo_pdf.seek(0)
                                     
+                                # Ejecutamos la extracción
                                 datos_prov = extraer_datos_con_regex(archivo_pdf)
                                 
+                                # --- DEPURACIÓN VISUAL ---
+                                st.write("🔍 **Resultado crudo de la función de extracción:**", datos_prov)
+                                
                                 if datos_prov and isinstance(datos_prov, dict):
-                                    # Guardar en el diccionario global y actualizar las keys directamente
                                     st.session_state.datos_prov_extraidos[sufijo] = datos_prov
                                     
                                     st.session_state[f"rif_{sufijo}"] = str(datos_prov.get("rif", ""))
                                     st.session_state[f"razon_{sufijo}"] = str(datos_prov.get("proveedor", datos_prov.get("razon_social", "")))
                                     st.session_state[f"dir_{sufijo}"] = str(datos_prov.get("direccion_fiscal", ""))
                                     
-                                    st.success("¡Datos del proveedor extraídos con éxito!")
+                                    st.success("¡Datos extraídos con éxito! Recargando...")
                                     st.rerun()
                                 else:
-                                    st.warning("⚠️ La función no devolvió datos. Revisa si el PDF contiene texto seleccionable o el formato de las expresiones regulares.")
-
+                                    st.error("❌ La función `extraer_datos_con_regex` devolvió vacío o None. El PDF puede ser una imagen escaneada sin texto seleccionable.")
                         st.info(f"Completando información para el archivo: **{sufijo}**")
                         
                         # Campos de entrada ligados al session_state mediante sus keys dinámicas
