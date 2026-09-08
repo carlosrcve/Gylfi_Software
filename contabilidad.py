@@ -11196,13 +11196,12 @@ elif "Proveedores" in opcion_menu:
     conn_empresa = conectar_db(db_actual)
     
     try:
-        # ==========================================
-        # DEFINICIÓN ESTRICTA DE TABS (3 PESTAÑAS)
-        # ==========================================
-        tab1, tab2, tab3 = st.tabs([
+        # DEFINICIÓN ESTRICTA DE TABS (4 PESTAÑAS)
+        tab1, tab2, tab3, tab4 = st.tabs([
             "📥 Cargar desde Excel", 
             "📋 Directorio Actual", 
-            "📥 Bandeja Proveedores PDF"
+            "📥 Bandeja Proveedores PDF",
+            "🗑️ Gestión / Eliminar Tabla"
         ])
         
         # 3. Lógica de Pestaña 1
@@ -11409,7 +11408,7 @@ elif "Proveedores" in opcion_menu:
                             rif = st.text_input("RIF", key=f"rif_{sufijo_prov}")
                             tipo_persona = st.selectbox(
                                 "Tipo de Persona", 
-                                options=["Natural", "Jurídica", "No Residente", "Gobierno"],
+                                options=["PN", "PJ", "No Residente", "Gobierno"],
                                 index=1,
                                 key=f"tipo_{sufijo_prov}"
                             )
@@ -11475,6 +11474,32 @@ elif "Proveedores" in opcion_menu:
 
             else:
                 st.info("No hay archivos en la cola de proveedores. Sube algunos PDFs arriba para comenzar.")
+        # 5. Lógica de Pestaña 4 (Nueva pestaña para eliminar/gestionar)
+        with tab4:
+            st.subheader("⚠️ Zona de Peligro: Gestión de la Tabla Proveedores")
+            st.warning("Acciones avanzadas para vaciar o eliminar registros de la tabla de proveedores en la base de datos.")
+            
+            # Ejemplo de botón para vaciar la tabla o borrar registros seleccionados
+            if st.button("🗑️ Vaciar / Borrar Tabla Proveedores", type="primary", key="btn_drop_tabla_prov"):
+                confirmacion = st.checkbox("Confirmo que deseo eliminar todos los datos de esta tabla", key="check_confirm_drop_prov")
+                if confirmacion:
+                    try:
+                        cursor = conn_empresa.cursor()
+                        # Opción A: Vaciar registros (DELETE) o Borrar tabla entera (DROP)
+                        cursor.execute("DELETE FROM proveedores;")
+                        conn_empresa.commit()
+                        cursor.close()
+                        
+                        # Limpiar caché local si existe
+                        if "df_proveedores_cache" in st.session_state:
+                            del st.session_state.df_proveedores_cache
+                            
+                        st.success("✅ ¡Se han eliminado todos los registros de la tabla de proveedores con éxito!")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"❌ Error al intentar vaciar la tabla: {e}")
+                else:
+                    st.info("Por favor, marque la casilla de confirmación para habilitar el borrado.")
             
     finally:
         # 6. Cierre de conexión garantizado
