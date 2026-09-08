@@ -2609,7 +2609,6 @@ def extraer_datos_con_regex(pdf_file_obj):
     return datos
 
 
-
 def extraer_datos_proveedor_pdf(archivo_pdf):
     """
     Extrae RIF, Razón Social y Dirección Fiscal de forma genérica y nativa,
@@ -2619,7 +2618,6 @@ def extraer_datos_proveedor_pdf(archivo_pdf):
         return None
         
     try:
-        # Obtener los bytes de forma segura sin romper el puntero de Streamlit
         if hasattr(archivo_pdf, "getvalue"):
             pdf_bytes = archivo_pdf.getvalue()
         elif hasattr(archivo_pdf, "read"):
