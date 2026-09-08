@@ -1233,13 +1233,21 @@ def obtener_comprobantes_ingresos(db, f_inicio, f_fin):
     finally:
         if conn: conn.close()
 
-
 def actualizar_tabla_completa_db(conn, nombre_tabla, df_nuevo):
     """
     Actualización genérica segura: hace TRUNCATE y luego inserta el DF completo.
     """
     if not conn or not conn.is_connected():
         raise Exception("No hay conexión activa a la base de datos.")
+
+    # 🛡️ Si la tabla es proveedores, nos aseguramos de que tenga las 6 columnas exactas obligatorias
+    if nombre_tabla == "proveedores":
+        columnas_obligatorias = ["rif", "tipo_persona", "razon_social", "direccion_fiscal", "codigo_cuenta", "descripcion_cuenta"]
+        for col in columnas_obligatorias:
+            if col not in df_nuevo.columns:
+                df_nuevo[col] = "" # Si falta alguna, se crea vacía para no romper la BD
+        # Reordenamos el DataFrame para que coincida exactamente con el orden de las columnas de MySQL
+        df_nuevo = df_nuevo[columnas_obligatorias]
 
     # 🛡️ SEGURIDAD: Validar que el nombre de la tabla contenga solo caracteres alfanuméricos y guiones bajos
     if not re.match(r"^[a-zA-Z0-9_]+$", nombre_tabla):
