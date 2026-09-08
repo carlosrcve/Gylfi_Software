@@ -11474,32 +11474,65 @@ elif "Proveedores" in opcion_menu:
 
             else:
                 st.info("No hay archivos en la cola de proveedores. Sube algunos PDFs arriba para comenzar.")
-        # 5. Lógica de Pestaña 4 (Nueva pestaña para eliminar/gestionar)
+        # 5. Lógica de Pestaña 4 (Gestión y borrado seguro conectado al control central)
         with tab4:
             st.subheader("⚠️ Zona de Peligro: Gestión de la Tabla Proveedores")
-            st.warning("Acciones avanzadas para vaciar o eliminar registros de la tabla de proveedores en la base de datos.")
+            st.warning("Esta acción eliminará por completo los registros de la tabla de proveedores para la empresa seleccionada actualmente.")
             
-            # Ejemplo de botón para vaciar la tabla o borrar registros seleccionados
-            if st.button("🗑️ Vaciar / Borrar Tabla Proveedores", type="primary", key="btn_drop_tabla_prov"):
-                confirmacion = st.checkbox("Confirmo que deseo eliminar todos los datos de esta tabla", key="check_confirm_drop_prov")
-                if confirmacion:
-                    try:
-                        cursor = conn_empresa.cursor()
-                        # Opción A: Vaciar registros (DELETE) o Borrar tabla entera (DROP)
-                        cursor.execute("DELETE FROM proveedores;")
-                        conn_empresa.commit()
-                        cursor.close()
-                        
-                        # Limpiar caché local si existe
-                        if "df_proveedores_cache" in st.session_state:
-                            del st.session_state.df_proveedores_cache
+            # Checkbox de confirmación fuera del botón para que no se pierda el estado al hacer clic
+            confirmacion_borrado = st.checkbox(
+                "Confirmo que deseo vaciar/eliminar la tabla de proveedores de esta empresa", 
+                key="check_confirm_drop_prov_seguro"
+            )
+            
+            if st.button("🗑️ Ejecutar Borrado de Proveedores", type="primary", key="btn_ejecutar_borrado_prov"):
+                if confirmacion_borrado:
+                    db_seleccionada = st.session_state.get('DB_ACTUAL')
+                    
+                    if not db_seleccionada or db_seleccionada == 'none':
+                        st.error("❌ No hay ninguna empresa/base de datos activa seleccionada en el panel lateral.")
+                    else:
+                        conn_gestion = None
+                        try:
+                            # Conexión directa y explícita a la BD actual del cliente
+                            conn_gestion = conectar_db(db_seleccionada)
                             
-                        st.success("✅ ¡Se han eliminado todos los registros de la tabla de proveedores con éxito!")
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"❌ Error al intentar vaciar la tabla: {e}")
+                            if conn_gestion is None:
+                                st.error(f"❌ No se pudo establecer conexión con la base de datos: {db_seleccionada}")
+                            else:
+                                cursor = conn_gestion.cursor()
+                                
+                                # Si quieres vaciar registros: DELETE FROM proveedores;
+                                # Si quieres eliminar la estructura completa y recrearla:
+                                cursor.execute("DROP TABLE IF EXISTS proveedores;")
+                                cursor.execute("""
+                                    CREATE TABLE proveedores (
+                                        rif VARCHAR(50) NOT NULL PRIMARY KEY,
+                                        tipo_persona VARCHAR(50) NOT NULL,
+                                        razon_social VARCHAR(255) NOT NULL,
+                                        direccion_fiscal TEXT NOT NULL,
+                                        codigo_cuenta VARCHAR(100) DEFAULT '',
+                                        descripcion_cuenta VARCHAR(255) DEFAULT ''
+                                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+                                """)
+                                
+                                conn_gestion.commit()
+                                cursor.close()
+                                
+                                # Limpiar caché local de proveedores para obligar a recargar desde la BD limpia
+                                if "df_proveedores_cache" in st.session_state:
+                                    del st.session_state.df_proveedores_cache
+                                    
+                                st.success(f"✅ ¡La tabla de proveedores en la base de datos '{db_seleccionada}' fue reiniciada con éxito!")
+                                st.rerun()
+                                
+                        except Exception as e:
+                            st.error(f"❌ Error crítico al procesar la BD '{db_seleccionada}': {e}")
+                        finally:
+                            if conn_gestion and hasattr(conn_gestion, 'close'):
+                                conn_gestion.close()
                 else:
-                    st.info("Por favor, marque la casilla de confirmación para habilitar el borrado.")
+                    st.warning("⚠️ Debes marcar la casilla de confirmación antes de ejecutar el borrado.")
             
     finally:
         # 6. Cierre de conexión garantizado
