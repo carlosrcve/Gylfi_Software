@@ -1293,14 +1293,39 @@ def consultar_tabla_db(conn, nombre_tabla, limite=None):
         return None
 
     try:
-        # 2. Construcción directa de la consulta para la tabla exacta (ej. 'plan_cuentas')
+        # 2. Construcción directa de la consulta
         query = f"SELECT * FROM `{nombre_tabla}`"
         
         if limite and isinstance(limite, int):
             query += f" LIMIT {limite}"
             
-        # 3. Ejecutar a través de tu gestor de consultas
-        df = ejecutar_consulta(query, conn)
+        # 3. Ejecutamos la consulta
+        resultado = ejecutar_consulta(query, conn)
+        
+        # 4. GARANTÍA DE DATOS: Aseguramos que el resultado sea siempre un DataFrame de Pandas
+        if isinstance(resultado, pd.DataFrame):
+            df = resultado
+        elif isinstance(resultado, list):
+            # Si viene como lista de diccionarios o tuplas
+            df = pd.DataFrame(resultado)
+        else:
+            # Si 'ejecutar_consulta' devuelve cursor directo
+            try:
+                cursor = conn.cursor(dictionary=True) # O el equivalente en tu conector
+                cursor.execute(query)
+                datos = cursor.fetchall()
+                df = pd.DataFrame(datos)
+            except Exception:
+                df = pd.DataFrame()
+
+        # Si el DataFrame está vacío, al menos devolvemos un DataFrame sin filas pero con las columnas de la BD
+        if df.empty:
+            # Intentamos obtener las columnas directamente si el df está totalmente vacío
+            cursor = conn.cursor()
+            cursor.execute(f"SHOW COLUMNS FROM `{nombre_tabla}`")
+            columnas = [row[0] for row in cursor.fetchall()]
+            df = pd.DataFrame(columns=columnas)
+
         return df
 
     except Exception as e:
