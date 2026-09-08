@@ -2666,64 +2666,67 @@ def extraer_texto_pdf(uploaded_file):
 
 def extraer_datos_proveedor_pdf(archivo_pdf):
     """
-    Función principal que VINCULA la extracción de texto con las Regex 
-    para devolver el diccionario listo para la contabilidad.
+    Extracción segura: si el PDF no se deja leer, devuelve los campos 
+    vacíos sin mostrar errores ni bloquear la interfaz.
     """
-    texto_completo = extraer_texto_pdf(archivo_pdf)
-
-    if not texto_completo.strip():
-        return None
-
     datos = {
         "rif": "",
         "proveedor": "",
         "direccion_fiscal": ""
     }
 
-    lineas = [l.strip() for l in texto_completo.split('\n') if l.strip()]
+    try:
+        texto_completo = extraer_texto_pdf(archivo_pdf)
+        if not texto_completo.strip():
+            return datos  # Devuelve campos vacíos en lugar de None
 
-    # 1. Búsqueda exacta del RIF del emisor
-    match_rif = re.search(r'RIF\s*([JVEG]\-?\d+)', texto_completo, re.IGNORECASE)
-    if match_rif:
-        rif_bruto = match_rif.group(1).upper()
-        rif_limpio = re.sub(r'[\s-]', '', rif_bruto)
-        if len(rif_limpio) >= 8:
-            datos["rif"] = f"{rif_limpio[0]}-{rif_limpio[1:-1]}-{rif_limpio[-1]}"
-        else:
-            datos["rif"] = rif_bruto
-    else:
-        match_rif_gen = re.search(r'\b([JVEG]\s*-?\s*\d{7,10}\s*-?\s*\d?)\b', texto_completo, re.IGNORECASE)
-        if match_rif_gen:
-            rif_bruto = match_rif_gen.group(1).upper()
+        lineas = [l.strip() for l in texto_completo.split('\n') if l.strip()]
+
+        # 1. Búsqueda de RIF
+        match_rif = re.search(r'RIF\s*([JVEG]\-?\d+)', texto_completo, re.IGNORECASE)
+        if match_rif:
+            rif_bruto = match_rif.group(1).upper()
             rif_limpio = re.sub(r'[\s-]', '', rif_bruto)
             if len(rif_limpio) >= 8:
                 datos["rif"] = f"{rif_limpio[0]}-{rif_limpio[1:-1]}-{rif_limpio[-1]}"
             else:
                 datos["rif"] = rif_bruto
+        else:
+            match_rif_gen = re.search(r'\b([JVEG]\s*-?\s*\d{7,10}\s*-?\s*\d?)\b', texto_completo, re.IGNORECASE)
+            if match_rif_gen:
+                rif_bruto = match_rif_gen.group(1).upper()
+                rif_limpio = re.sub(r'[\s-]', '', rif_bruto)
+                if len(rif_limpio) >= 8:
+                    datos["rif"] = f"{rif_limpio[0]}-{rif_limpio[1:-1]}-{rif_limpio[-1]}"
+                else:
+                    datos["rif"] = rif_bruto
 
-    # 2. Extracción de la Razón Social del Proveedor
-    for l in lineas[:6]:
-        l_up = l.upper()
-        if "SENIAT" not in l_up and "RIF" not in l_up and len(l) > 4:
-            datos["proveedor"] = l[:255]
-            break
-
-    # 3. Extracción de Dirección Fiscal
-    dir_partes = []
-    capturar = False
-    for l in lineas:
-        l_up = l.upper()
-        if any(term in l_up for term in ["AV", "CALLE", "URB", "TORKE", "AVENIDA"]) or capturar:
-            if "RIF/C.I" in l_up or "RAZON SOCIAL" in l_up or "FACTURA" in l_up:
+        # 2. Razón Social
+        for l in lineas[:6]:
+            l_up = l.upper()
+            if "SENIAT" not in l_up and "RIF" not in l_up and len(l) > 4:
+                datos["proveedor"] = l[:255]
                 break
-            capturar = True
-            dir_partes.append(l)
 
-    if dir_partes:
-        dir_limpia = [p for p in dir_partes if datos["proveedor"] not in p]
-        datos["direccion_fiscal"] = " ".join(dir_limpia)[:255]
-    else:
-        datos["direccion_fiscal"] = "CARACAS DISTRITO CAPITAL"
+        # 3. Dirección Fiscal
+        dir_partes = []
+        capturar = False
+        for l in lineas:
+            l_up = l.upper()
+            if any(term in l_up for term in ["AV", "CALLE", "URB", "TORKE", "AVENIDA"]) or capturar:
+                if "RIF/C.I" in l_up or "RAZON SOCIAL" in l_up or "FACTURA" in l_up:
+                    break
+                capturar = True
+                dir_partes.append(l)
+
+        if dir_partes:
+            dir_limpia = [p for p in dir_partes if datos["proveedor"] not in p]
+            datos["direccion_fiscal"] = " ".join(dir_limpia)[:255]
+        else:
+            datos["direccion_fiscal"] = "CARACAS DISTRITO CAPITAL"
+
+    except Exception:
+        pass  # Si ocurre cualquier error interno, lo ignora silenciosamente
 
     return datos
 
