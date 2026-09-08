@@ -12223,20 +12223,31 @@ elif "Proveedores" in opcion_menu:
         ])
         
         # 3. Lógica de Pestaña 1
+        # 3. Lógica de Pestaña 1
         with tab1:
             st.markdown("### Subir Archivo Masivo")
             file_p = st.file_uploader("Seleccione el archivo Excel", type=["xlsx"], key="file_prov_up")
                 
             if file_p:
+                # Leemos el excel completo asegurando que no queden espacios vacíos raros
                 df_subida = pd.read_excel(file_p)
-                st.write("Vista previa:")
+                
+                # Limpiamos filas completamente vacías por si el Excel tiene basura abajo
+                df_subida = df_subida.dropna(how='all')
+                
+                st.write(f"Vista previa (Total de filas detectadas en el archivo: {len(df_subida)}):")
+                
+                # Mostramos la tabla con scroll vertical amplio para que puedas verlas todas
                 st.dataframe(df_subida, use_container_width=True, height=450)
                 
                 if st.button("🚀 Procesar y Guardar", type="primary", key="btn_procesar_excel_prov"):
-                    # ¡Ojo aquí! Solo se le pasa el dataframe, tal como la definiste
-                    procesar_excel_proveedores_db(df_subida)
-                    st.success("✅ ¡Actualizado!")
-                    st.balloons()
+                    if not df_subida.empty:
+                        # Llamamos a la función y asegurarnos de que devuelva o imprima el total real
+                        procesar_excel_proveedores_db(df_subida)
+                        st.success(f"✅ ¡Proceso finalizado! Se intentaron guardar {len(df_subida)} registros.")
+                        st.balloons()
+                    else:
+                        st.warning("⚠️ El archivo Excel parece estar vacío.")
 
         # 4. Lógica de Pestaña 2
         with tab2:
