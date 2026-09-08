@@ -2609,52 +2609,67 @@ def extraer_datos_con_regex(pdf_file_obj):
     return datos
 
 
-def extraer_datos_proveedor_pdf(archivo_pdf):
+import fitz  # PyMuPDF
+import pytesseract
+from PIL import Image
+import io
+import re
+
+def extraer_texto_pdf(uploaded_file):
     """
-    Extrae RIF, Razón Social y Dirección Fiscal de un PDF de forma inteligente.
-    Si el PDF es una imagen escaneada o no tiene texto vectorial, activa OCR automáticamente.
+    Se encarga exclusivamente de obtener el texto del PDF.
+    Si es digital nativo, lo lee directo; si es escaneado, aplica Tesseract OCR.
     """
-    if archivo_pdf is None:
-        return None
+    if uploaded_file is None:
+        return ""
         
     try:
-        if hasattr(archivo_pdf, "getvalue"):
-            pdf_bytes = archivo_pdf.getvalue()
-        elif hasattr(archivo_pdf, "read"):
-            archivo_pdf.seek(0)
-            pdf_bytes = archivo_pdf.read()
+        if hasattr(uploaded_file, "getvalue"):
+            bytes_pdf = uploaded_file.getvalue()
+        elif hasattr(uploaded_file, "read"):
+            uploaded_file.seek(0)
+            bytes_pdf = uploaded_file.read()
         else:
-            return None
+            return ""
 
-        if not pdf_bytes:
-            return None
-            
-        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-        texto_completo = ""
+        if not bytes_pdf:
+            return ""
+    
+        texto_extraido = ""
         
-        # 1. Intentar extracción de texto nativo primero
-        for pagina in doc:
-            texto_extraido = pagina.get_text("text")
-            if texto_extraido:
-                texto_completo += texto_extraido + "\n"
-                
-        # 2. Si el texto está vacío o es muy pobre (PDF escaneado / foto), aplicamos OCR
-        if len(texto_completo.strip()) < 15:
-            texto_completo = ""
+        # 1. Intentar extraer texto digital directo con PyMuPDF (fitz)
+        with fitz.open(stream=bytes_pdf, filetype="pdf") as doc:
             for pagina in doc:
-                # Renderizar página a imagen de alta calidad (300 DPI)
-                pix = pagina.get_pixmap(dpi=300)
-                img_bytes = pix.tobytes("png")
-                imagen = Image.open(io.BytesIO(img_bytes))
+                texto_extraido += pagina.get_text("text")
                 
-                # Ejecutar Tesseract OCR (soporte en español)
-                texto_ocr = pytesseract.image_to_string(imagen, lang='spa')
-                texto_completo += texto_ocr + "\n"
-                
-        doc.close()
+        # 2. Si el texto extraído es muy pobre o vacío, aplicamos OCR
+        if len(texto_extraido.strip()) < 50:
+            print("⚠️ PDF escaneado detectado o sin capa de texto. Aplicando Tesseract OCR...")
+            texto_extraido = ""
+            
+            with fitz.open(stream=bytes_pdf, filetype="pdf") as doc:
+                for pagina in doc:
+                    pix = pagina.get_pixmap(dpi=300)
+                    img_data = pix.tobytes("png")
+                    
+                    imagen = Image.open(io.BytesIO(img_data))
+                    texto_pagina = pytesseract.image_to_string(imagen, lang='spa')
+                    texto_extraido += texto_pagina + "\n"
+                    
+        return texto_extraido
+
     except Exception as e:
-        print(f"Error procesando el PDF con OCR: {e}")
-        return None
+        print(f"Error extrayendo texto del PDF: {e}")
+        return ""
+
+
+def extraer_datos_proveedor_pdf(archivo_pdf):
+    """
+    Función principal que VINCULA la extracción de texto con las Regex 
+    para devolver el diccionario listo para la contabilidad.
+    """
+    # AQUÍ SE VINCULA: Llamamos a la función de arriba para obtener el texto
+    texto_completo = extraer_texto_pdf(archivo_pdf)
 
     if not texto_completo.strip():
         return None
@@ -2677,7 +2692,6 @@ def extraer_datos_proveedor_pdf(archivo_pdf):
         else:
             datos["rif"] = rif_bruto
     else:
-        # Respaldo genérico si la etiqueta RIF viene separada
         match_rif_gen = re.search(r'\b([JVEG]\s*-?\s*\d{7,10}\s*-?\s*\d?)\b', texto_completo, re.IGNORECASE)
         if match_rif_gen:
             rif_bruto = match_rif_gen.group(1).upper()
