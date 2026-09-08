@@ -30,7 +30,7 @@ import streamlit.components.v1 as components
 import fitz # PyMuPDF (asegúrate de tenerla instalada o usa pdf2image)
 import google.generativeai as genai
 import pdfplumber
-import tempfiler
+import tempfile
 
 
 st.set_page_config(
