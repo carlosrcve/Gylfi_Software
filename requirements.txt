@@ -17,3 +17,4 @@ xlsxwriter
 PyMuPDF
 google-generativeai
 pdfplumber
+tempfiler
