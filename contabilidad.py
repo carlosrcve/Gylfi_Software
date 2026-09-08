@@ -2687,10 +2687,15 @@ def extraer_datos_proveedor_pdf(archivo_pdf):
 
 def extraer_datos_factura_pdf(archivo_pdf):
     """
-    Extrae datos de la factura, montos y RIF para el Libro de Compras (Tab 5).
+    Extrae datos de la factura, montos y RIF para el Libro de Compras (Tab 5)
+    adaptado a los formatos de facturación fiscal en Venezuela.
     """
     texto_completo = ""
     try:
+        # Asegurar que el puntero del archivo esté al inicio si viene de Streamlit uploader
+        if hasattr(archivo_pdf, "seek"):
+            archivo_pdf.seek(0)
+            
         with pdfplumber.open(archivo_pdf) as pdf:
             for pagina in pdf.pages:
                 texto_extraido = pagina.extract_text()
@@ -2703,32 +2708,67 @@ def extraer_datos_factura_pdf(archivo_pdf):
     if not texto_completo.strip():
         return None
 
-    datos = {}
+    # Estructura base alineada con tu tabla del libro de compras
+    datos = {
+        "fecha_operacion": datetime.today().strftime('%Y-%m-%d'),
+        "tipo_documento": "01",
+        "n_factura": "",
+        "n_control": "",
+        "n_factura_afectada": None,
+        "proveedor": "PROVEEDOR NO IDENTIFICADO",
+        "rif": "",
+        "tipo_transaccion": "01",
+        "total_compras": 0.0,
+        "importe_exento": 0.0,
+        "base_imponible": 0.0,
+        "iva_porcentaje": 16.0,
+        "iva_monto": 0.0
+    }
 
-    # 1. RIF
+    # 1. RIF del emisor
     match_rif = re.search(r'\b([JVEGPC]-?\d{7,10}-?\d?)\b', texto_completo, re.IGNORECASE)
     if match_rif:
         datos["rif"] = match_rif.group(1).upper()
 
-    # 2. Proveedor
+    # 2. Proveedor (Razón Social)
     linhas = [l.strip() for l in texto_completo.split('\n') if l.strip()]
     if linhas:
-        datos["proveedor"] = linhas[0]
+        datos["proveedor"] = linhas[0][:255]
 
-    # 3. Factura y Control
-    match_fac = re.search(r'(?:Factura|N[º°]\.?)\s*[:#]?\s*(\d+)', texto_completo, re.IGNORECASE)
+    # 3. Búsqueda tolerante de Factura N° (permite saltos de línea o símbolos intermedios)
+    match_fac = re.search(r'FACTURA[:\s\|\-]*([0-9A-Za-z\-]{3,15})', texto_completo, re.IGNORECASE)
     if match_fac:
-        datos["n_factura"] = match_fac.group(1)
+        datos["n_factura"] = match_fac.group(1).strip()
 
+    # 4. Número de Control
     match_ctrl = re.search(r'(?:Control|N[º°]\s*Ctrl)\s*[:#]?\s*(\d+)', texto_completo, re.IGNORECASE)
     if match_ctrl:
-        datos["n_control"] = match_ctrl.group(1)
+        datos["n_control"] = match_ctrl.group(1).strip()
 
-    # (Opcional) Puedes agregar aquí lógica con regex para base imponible o iva si lo requieres
-    datos["base_imponible"] = 0.00
-    datos["iva_monto"] = 0.00
-    datos["total_compras"] = 0.00
-    datos["importe_exento"] = 0.00
+    # Función auxiliar para limpiar montos en formato venezolano (ej. 57.175,61 -> 57175.61)
+    def limpiar_monto(texto_monto):
+        try:
+            limpio = texto_monto.replace('.', '').replace(',', '.')
+            return float(limpio)
+        except:
+            return 0.0
+
+    # 5. Búsqueda de Base Imponible y Totales con formato venezolano
+    match_base = re.search(r'(?:BI\s*G16[,\.]00%|Base\s*Imponible)[:\s]*Bs\.?\s*([\d\.,]+)', texto_completo, re.IGNORECASE)
+    if match_base:
+        datos["base_imponible"] = limpiar_monto(match_base.group(1))
+
+    match_iva = re.search(r'(?:IVA\s*G16[,\.]00%)[:\s]*Bs\.?\s*([\d\.,]+)', texto_completo, re.IGNORECASE)
+    if match_iva:
+        datos["iva_monto"] = limpiar_monto(match_iva.group(1))
+
+    match_total = re.search(r'TOTAL[:\s]*Bs\.?\s*([\d\.,]+)', texto_completo, re.IGNORECASE)
+    if match_total:
+        datos["total_compras"] = limpiar_monto(match_total.group(1))
+
+    # Respaldo matemático por si el total viene representado de otra forma
+    if datos["total_compras"] == 0.0 and datos["base_imponible"] > 0:
+        datos["total_compras"] = round(datos["base_imponible"] + datos["iva_monto"], 2)
 
     return datos
 
