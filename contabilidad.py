@@ -11393,7 +11393,7 @@ elif "Proveedores" in opcion_menu:
                                 else:
                                     # Si el PDF sí tenía texto digital, los muestra o usa directamente
                                     st.success(f"¡Proveedor detectado automáticamente: {datos_proveedor['proveedor']}!")
-                                                        st.info(f"Completando información para el archivo: **{sufijo_prov}**")
+                        st.info(f"Completando información para el archivo: **{sufijo_prov}**")
                         
                         # Campos de entrada estructurados fuera de st.form para mantener reactividad total
                         col_i1, col_i2 = st.columns(2)
