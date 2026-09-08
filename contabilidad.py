@@ -11212,8 +11212,12 @@ elif "Proveedores" in opcion_menu:
             if file_p:
                 df_subida = pd.read_excel(file_p)
                 st.write("Vista previa:")
-                st.dataframe(df_subida.head())
-                if st.button("🚀 Procesar y Guardar", type="primary"):
+                
+                # Usamos height para que la tabla sea más alta y muestre más filas sin necesidad
+                # de pelear con un scroll interno tan reducido. (Ej: 400 píxeles o más)
+                st.dataframe(df_subida, use_container_width=True, height=450)
+                
+                if st.button("🚀 Procesar y Guardar", type="primary", key="btn_procesar_excel_prov"):
                     procesar_excel_proveedores_db(conn_empresa, df_subida)
                     st.success("✅ ¡Actualizado!")
                     st.balloons()
