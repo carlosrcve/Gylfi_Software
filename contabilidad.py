@@ -11148,15 +11148,29 @@ elif "Proveedores" in opcion_menu:
                     if doc_prov_obj:
                         sufijo = doc_prov_obj['nombre']
 
-                        # Botón para disparar la extracción local por Regex orientada a proveedores
+                        # Asegurar que las keys existan en session_state desde el inicio
+                        if f"rif_{sufijo}" not in st.session_state:
+                            st.session_state[f"rif_{sufijo}"] = ""
+                        if f"razon_{sufijo}" not in st.session_state:
+                            st.session_state[f"razon_{sufijo}"] = ""
+                        if f"dir_{sufijo}" not in st.session_state:
+                            st.session_state[f"dir_{sufijo}"] = ""
+
+                        # Botón para disparar la extracción local por Regex
                         if st.button("⚡ Extraer Datos del Proveedor", key=f"btn_extraer_{sufijo}"):
                             with st.spinner("Leyendo RIF, Razón Social y Dirección del PDF..."):
-                                datos_prov = extraer_datos_con_regex(doc_prov_obj["objeto"])
+                                archivo_pdf = doc_prov_obj["objeto"]
                                 
-                                if datos_prov:
+                                # MUY IMPORTANTE: Reiniciar el puntero del archivo por si ya fue leído antes
+                                if hasattr(archivo_pdf, "seek"):
+                                    archivo_pdf.seek(0)
+                                    
+                                datos_prov = extraer_datos_con_regex(archivo_pdf)
+                                
+                                if datos_prov and isinstance(datos_prov, dict):
+                                    # Guardar en el diccionario global y actualizar las keys directamente
                                     st.session_state.datos_prov_extraidos[sufijo] = datos_prov
                                     
-                                    # Actualizamos directamente las llaves del session_state de los inputs
                                     st.session_state[f"rif_{sufijo}"] = str(datos_prov.get("rif", ""))
                                     st.session_state[f"razon_{sufijo}"] = str(datos_prov.get("proveedor", datos_prov.get("razon_social", "")))
                                     st.session_state[f"dir_{sufijo}"] = str(datos_prov.get("direccion_fiscal", ""))
@@ -11164,11 +11178,11 @@ elif "Proveedores" in opcion_menu:
                                     st.success("¡Datos del proveedor extraídos con éxito!")
                                     st.rerun()
                                 else:
-                                    st.error("No se pudieron extraer automáticamente los datos del proveedor.")
+                                    st.warning("⚠️ La función no devolvió datos. Revisa si el PDF contiene texto seleccionable o el formato de las expresiones regulares.")
 
                         st.info(f"Completando información para el archivo: **{sufijo}**")
                         
-                        # Campos basados en tu estructura SQL de 'proveedores' (sin st.form para permitir actualización fluida)
+                        # Campos de entrada ligados al session_state mediante sus keys dinámicas
                         col_i1, col_i2 = st.columns(2)
                         
                         with col_i1:
