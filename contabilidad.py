@@ -12252,37 +12252,48 @@ elif "Proveedores" in opcion_menu:
 
         # 4. Lógica de Pestaña 2
         with tab2:
-            st.markdown("### 📋 Directorio Actual")
+            st.markdown("### 📋 Directorio Actual de Proveedores")
             
-            # 1. Validación de conexión para evitar que falle si conn_empresa no está definida en este ámbito
+            # 1. Validación de conexión
             if 'conn_empresa' not in locals() or conn_empresa is None:
                 db_actual = st.session_state.get('DB_ACTUAL')
                 conn_empresa = conectar_db(db_actual)
 
-            # 2. Inicializamos o refrescamos los datos en session_state si no existen o están vacíos
+            # 2. Inicializamos o refrescamos los datos en session_state usando la estructura completa de la BD
             if "df_proveedores_cache" not in st.session_state or st.session_state.df_proveedores_cache is None:
                 df_temp = consultar_tabla_db(conn_empresa, "proveedores")
-                if df_temp is None or not isinstance(df_temp, pd.DataFrame) or df_temp.empty:
-                    df_temp = pd.DataFrame(columns=["rif", "tipo_persona", "razon_social", "direccion_fiscal"])
                 
+                # Definimos el esquema completo exacto según tu tabla de MySQL
+                columnas_reales = ["rif", "tipo_persona", "razon_social", "direccion_fiscal", "codigo_cuenta", "descripcion_cuenta"]
+                
+                if df_temp is None or not isinstance(df_temp, pd.DataFrame) or df_temp.empty:
+                    df_temp = pd.DataFrame(columns=columnas_reales)
+                else:
+                    # Aseguramos que existan todas las columnas por si acaso falta alguna
+                    for col in columnas_reales:
+                        if col not in df_temp.columns:
+                            df_temp[col] = ""
+
                 for col in df_temp.columns:
                     df_temp[col] = df_temp[col].astype(str).replace(['None', 'nan', 'NAT'], '')
                 
                 st.session_state.df_proveedores_cache = df_temp
 
-            # 3. El data_editor lee y escribe directamente sobre el session_state
+            # 3. El data_editor con la configuración de columnas completa
             df_editado = st.data_editor(
                 st.session_state.df_proveedores_cache, 
                 key="editor_proveedores_dinamico", 
                 num_rows="dynamic",
                 use_container_width=True,
                 hide_index=True,
-                height=450, # Agregamos altura cómoda para ver todas las líneas
+                height=450,
                 column_config={
-                    "rif": st.column_config.TextColumn("RIF (Llave Primaria)", required=True),
+                    "rif": st.column_config.TextColumn("RIF", required=True),
                     "tipo_persona": st.column_config.SelectboxColumn("Tipo", options=["PN", "PJ"], required=True),
                     "razon_social": st.column_config.TextColumn("Razón Social", required=True),
-                    "direccion_fiscal": st.column_config.TextColumn("Dirección Fiscal", required=True)
+                    "direccion_fiscal": st.column_config.TextColumn("Dirección Fiscal", required=True),
+                    "codigo_cuenta": st.column_config.TextColumn("Código Cuenta"),
+                    "descripcion_cuenta": st.column_config.TextColumn("Descripción Cuenta")
                 }
             )
             
@@ -12308,7 +12319,7 @@ elif "Proveedores" in opcion_menu:
                         del st.session_state.df_proveedores_cache
                     st.rerun()
 
-        # 4. Zona de respaldo usando el caché actual
+        # 4. Zona de respaldo
         st.markdown("---") 
         df_para_respaldo = st.session_state.get("df_proveedores_cache", pd.DataFrame())
         if not df_para_respaldo.empty:
