@@ -11291,7 +11291,7 @@ elif "Proveedores" in opcion_menu:
         # ------------------------------------------
         with tab3:
             st.subheader("📥 Bandeja de Entrada - Registro Masivo de Proveedores (PDF)")
-            st.info("Arrastra o selecciona múltiples facturas de proveedores en PDF. El sistema extraerá automáticamente el RIF, la Razón Social y la Dirección Fiscal.")
+            st.info("Arrastra o selecciona múltiples facturas de proveedores en PDF para llevar el control de registro.")
 
             # Inicializamos la cola y el registro de IDs en session_state si no existen
             if "cola_proveedores_pdfs" not in st.session_state:
@@ -11344,9 +11344,9 @@ elif "Proveedores" in opcion_menu:
                 st.markdown("---")
 
                 # ==========================================
-                # 3. AUDITORÍA Y REGISTRO INDIVIDUAL DE PROVEEDOR
+                # 3. REGISTRO MANUAL E INDIVIDUAL DE PROVEEDOR
                 # ==========================================
-                st.markdown("### 📝 Auditoría, Extracción y Registro en la Tabla de Proveedores")
+                st.markdown("### 📝 Registro Manual y Auditoría de Proveedor")
                 
                 docs_prov_pendientes = [item for item in st.session_state.cola_proveedores_pdfs if item["estado"] == "Pendiente"]
                 
@@ -11377,32 +11377,9 @@ elif "Proveedores" in opcion_menu:
                             if k not in st.session_state:
                                 st.session_state[k] = v
 
-                        # Botón para disparar la extracción local llamando a la función específica
-                        if st.button("⚡ Extraer Datos del Proveedor", key=f"btn_extraer_{sufijo_prov}"):
-                            with st.spinner("Leyendo RIF, Razón Social y Dirección del PDF..."):
-                                archivo_pdf = doc_prov_obj["objeto"]
-                                
-                                if hasattr(archivo_pdf, "seek"):
-                                    archivo_pdf.seek(0)
-                                    
-                                # Extracción usando la función inteligente (Fitz + Tesseract OCR)
-                                datos_proveedor = extraer_datos_proveedor_pdf(archivo_pdf)
-
-                                if datos_proveedor is None:
-                                    st.warning("⚠️ El documento no pudo ser leído correctamente ni por texto nativo ni por OCR. Por favor, completa los datos manualmente.")
-                                    st.session_state[f"rif_{sufijo_prov}"] = ""
-                                    st.session_state[f"razon_{sufijo_prov}"] = ""
-                                    st.session_state[f"dir_{sufijo_prov}"] = ""
-                                else:
-                                    st.session_state[f"rif_{sufijo_prov}"] = datos_proveedor.get("rif", "")
-                                    st.session_state[f"razon_{sufijo_prov}"] = datos_proveedor.get("proveedor", "")
-                                    st.session_state[f"dir_{sufijo_prov}"] = datos_proveedor.get("direccion_fiscal", "")
-                                    st.success(f"¡Datos extraídos con éxito para: {datos_proveedor['proveedor']}!")
-                                    st.rerun()
-
                         st.info(f"Completando información para el archivo: **{sufijo_prov}**")
                         
-                        # Campos de entrada estructurados fuera de st.form para mantener reactividad total
+                        # Campos de entrada estructurados para llenado directo al vuelo
                         col_i1, col_i2 = st.columns(2)
                         
                         with col_i1:
@@ -11422,54 +11399,57 @@ elif "Proveedores" in opcion_menu:
 
                         # Botón final para insertar en la tabla 'proveedores'
                         if st.button("💾 Guardar Proveedor en Base de Datos", type="primary", key=f"btn_guardar_prov_{sufijo_prov}"):
-                            db_nombre = st.session_state.get('DB_ACTUAL')
-                            if not db_nombre:
-                                st.error("Error: No se ha seleccionado una base de datos activa.")
+                            if not rif or not razon_social:
+                                st.warning("⚠️ Por favor completa al menos el RIF y la Razón Social.")
                             else:
-                                conn = conectar_db(db_nombre)
-                                if conn is None:
-                                    st.error(f"❌ No se pudo conectar a la base de datos '{db_nombre}'.")
+                                db_nombre = st.session_state.get('DB_ACTUAL')
+                                if not db_nombre:
+                                    st.error("Error: No se ha seleccionado una base de datos activa.")
                                 else:
-                                    try:
-                                        cursor = conn.cursor()
-                                        
-                                        query_prov = """
-                                            INSERT INTO proveedores (
-                                                rif, tipo_persona, razon_social, 
+                                    conn = conectar_db(db_nombre)
+                                    if conn is None:
+                                        st.error(f"❌ No se pudo conectar a la base de datos '{db_nombre}'.")
+                                    else:
+                                        try:
+                                            cursor = conn.cursor()
+                                            
+                                            query_prov = """
+                                                INSERT INTO proveedores (
+                                                    rif, tipo_persona, razon_social, 
+                                                    direccion_fiscal, codigo_cuenta, descripcion_cuenta
+                                                ) VALUES (%s, %s, %s, %s, %s, %s)
+                                                ON DUPLICATE KEY UPDATE
+                                                    tipo_persona = VALUES(tipo_persona),
+                                                    razon_social = VALUES(razon_social),
+                                                    direccion_fiscal = VALUES(direccion_fiscal),
+                                                    codigo_cuenta = VALUES(codigo_cuenta),
+                                                    descripcion_cuenta = VALUES(descripcion_cuenta)
+                                            """
+                                            
+                                            valores_prov = (
+                                                rif, tipo_persona, razon_social,
                                                 direccion_fiscal, codigo_cuenta, descripcion_cuenta
-                                            ) VALUES (%s, %s, %s, %s, %s, %s)
-                                            ON DUPLICATE KEY UPDATE
-                                                tipo_persona = VALUES(tipo_persona),
-                                                razon_social = VALUES(razon_social),
-                                                direccion_fiscal = VALUES(direccion_fiscal),
-                                                codigo_cuenta = VALUES(codigo_cuenta),
-                                                descripcion_cuenta = VALUES(descripcion_cuenta)
-                                        """
-                                        
-                                        valores_prov = (
-                                            rif, tipo_persona, razon_social,
-                                            direccion_fiscal, codigo_cuenta, descripcion_cuenta
-                                        )
-                                        
-                                        cursor.execute(query_prov, valores_prov)
-                                        conn.commit()
-                                        cursor.close()
-                                        
-                                        # Actualizar estado en la cola local
-                                        for item in st.session_state.cola_proveedores_pdfs:
-                                            if item["nombre"] == doc_prov_obj["nombre"]:
-                                                item["estado"] = "Registrado"
-                                                st.session_state.prov_procesados_ids.add(item["id"])
-                                                break
+                                            )
+                                            
+                                            cursor.execute(query_prov, valores_prov)
+                                            conn.commit()
+                                            cursor.close()
+                                            
+                                            # Actualizar estado en la cola local
+                                            for item in st.session_state.cola_proveedores_pdfs:
+                                                if item["nombre"] == doc_prov_obj["nombre"]:
+                                                    item["estado"] = "Registrado"
+                                                    st.session_state.prov_procesados_ids.add(item["id"])
+                                                    break
                                                 
-                                        st.success(f"¡Proveedor '{razon_social}' (RIF: {rif}) guardado correctamente!")
-                                        st.rerun()
-                                        
-                                    except Exception as e:
-                                        st.error(f"Error al registrar el proveedor en la base de datos: {e}")
-                                    finally:
-                                        if conn and hasattr(conn, 'close'):
-                                            conn.close()
+                                            st.success(f"¡Proveedor '{razon_social}' (RIF: {rif}) guardado correctamente!")
+                                            st.rerun()
+                                            
+                                        except Exception as e:
+                                            st.error(f"Error al registrar el proveedor en la base de datos: {e}")
+                                        finally:
+                                            if conn and hasattr(conn, 'close'):
+                                                conn.close()
                 else:
                     st.success("🎉 ¡Todos los proveedores en la cola ya han sido procesados y registrados!")
 
