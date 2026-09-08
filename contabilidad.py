@@ -10979,8 +10979,14 @@ elif "Proveedores" in opcion_menu:
     conn_empresa = conectar_db(db_actual)
     
     try:
-        # 2. Definición estricta de tabs
-        tab1, tab2 = st.tabs(["📥 Cargar desde Excel", "📋 Directorio Actual"])
+        # ==========================================
+        # DEFINICIÓN ESTRICTA DE TABS (3 PESTAÑAS)
+        # ==========================================
+        tab1, tab2, tab3 = st.tabs([
+            "📥 Cargar desde Excel", 
+            "📋 Directorio Actual", 
+            "📥 Bandeja Proveedores PDF"
+        ])
         
         # 3. Lógica de Pestaña 1
         with tab1:
