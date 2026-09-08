@@ -5747,17 +5747,27 @@ def renderizar_tab_asientos_automatizados(db_connection):
                         if datos_prov:
                             p_cod_gasto = str(datos_prov.get("codigo_cuenta", "")).strip()
                             if p_cod_gasto:
+                                # Verificamos si existe en las opciones reales del plan de cuentas
                                 opcion_gasto = obtener_opcion_valida(p_cod_gasto, None)
 
                             p_cod_pagar = str(datos_prov.get("codigo_cuenta_pagar", "")).strip()
                             if p_cod_pagar:
                                 opcion_contrapartida = obtener_opcion_valida(p_cod_pagar, None)
 
+                        # CORRECCIÓN: Si no tiene cuenta asignada, buscamos primero si hay alguna cuenta 6 o 5 disponible de forma inteligente
                         if not opcion_gasto:
                             for opt in opciones_desplegable:
-                                if opt.startswith("5") and "iva" not in opt.lower():
+                                # Buscamos prioritariamente cuentas de gastos/costos (que suelen empezar por 5 o 6)
+                                if (opt.startswith("5") or opt.startswith("6")) and "iva" not in opt.lower():
                                     opcion_gasto = opt
                                     break
+                        
+                        if not opcion_gasto: 
+                            for opt in opciones_desplegable:
+                                if opt.startswith("6"): # Respaldo específico para cuentas 6
+                                    opcion_gasto = opt
+                                    break
+
                         if not opcion_gasto: 
                             opcion_gasto = default_opcion
 
