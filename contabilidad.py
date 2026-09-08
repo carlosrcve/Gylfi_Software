@@ -12300,14 +12300,20 @@ elif "Proveedores" in opcion_menu:
                     st.balloons()
 
         # 4. Lógica de Pestaña 2
-        # 4. Lógica de Pestaña 2 - Versión Blindada
+        # 4. Lógica de Pestaña 2 - Versión Corregida para PyMySQL
         with tab2:
             st.markdown("### 📋 Directorio Actual de Proveedores")
             
-            # 1. Asegurar conexión activa y fresca
+            # 1. Asegurar conexión activa y fresca de forma segura para PyMySQL
             db_actual = st.session_state.get('DB_ACTUAL')
-            if 'conn_empresa' not in locals() or conn_empresa is None or not conn_empresa.is_connected():
+            
+            if 'conn_empresa' not in locals() or conn_empresa is None:
                 conn_empresa = conectar_db(db_actual)
+            else:
+                # Verificamos si la conexión sigue abierta usando .open (propiedad de PyMySQL)
+                is_open = getattr(conn_empresa, 'open', False)
+                if not is_open:
+                    conn_empresa = conectar_db(db_actual)
 
             # 2. Autoverificación de columnas de manera independiente y segura
             if conn_empresa:
