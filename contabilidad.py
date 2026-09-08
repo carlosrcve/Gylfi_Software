@@ -11155,6 +11155,13 @@ elif "Proveedores" in opcion_menu:
                                     
                                     if datos_prov:
                                         st.session_state.datos_prov_extraidos[doc_prov_obj["nombre"]] = datos_prov
+                                        
+                                        # Actualizamos de inmediato las keys del session_state para que los inputs se refresquen
+                                        sufijo = doc_prov_obj['nombre']
+                                        st.session_state[f"rif_{sufijo}"] = str(datos_prov.get("rif", ""))
+                                        st.session_state[f"razon_{sufijo}"] = str(datos_prov.get("proveedor", datos_prov.get("razon_social", "")))
+                                        st.session_state[f"dir_{sufijo}"] = str(datos_prov.get("direccion_fiscal", ""))
+                                        
                                         st.success("¡Datos del proveedor extraídos con éxito!")
                                         st.rerun()
                                     else:
@@ -11162,26 +11169,28 @@ elif "Proveedores" in opcion_menu:
 
                         # Recuperar datos precargados si ya se procesaron
                         d_prev = st.session_state.datos_prov_extraidos.get(doc_prov_obj["nombre"], {})
+                        sufijo = doc_prov_obj['nombre']
 
                         with st.form("form_registro_tabla_proveedores"):
                             st.info(f"Completando información para el archivo: **{doc_prov_obj['nombre']}**")
                             
-                            # Campos basados en tu estructura SQL de 'proveedores'
+                            # Campos basados en tu estructura SQL de 'proveedores' con llaves dinámicas
                             col_i1, col_i2 = st.columns(2)
                             
                             with col_i1:
-                                rif = st.text_input("RIF", value=str(d_prev.get("rif", "")))
+                                rif = st.text_input("RIF", value=str(d_prev.get("rif", "")), key=f"rif_{sufijo}")
                                 tipo_persona = st.selectbox(
                                     "Tipo de Persona", 
                                     options=["Natural", "Jurídica", "No Residente", "Gobierno"],
-                                    index=1 # Por defecto Jurídica u otra opción común
+                                    index=1,
+                                    key=f"tipo_{sufijo}"
                                 )
-                                razon_social = st.text_input("Razón Social", value=str(d_prev.get("proveedor", d_prev.get("razon_social", ""))))
+                                razon_social = st.text_input("Razón Social", value=str(d_prev.get("proveedor", d_prev.get("razon_social", ""))), key=f"razon_{sufijo}")
                             
                             with col_i2:
-                                direccion_fiscal = st.text_area("Dirección Fiscal", value=str(d_prev.get("direccion_fiscal", "")))
-                                codigo_cuenta = st.text_input("Código de Cuenta Contable", value="")
-                                descripcion_cuenta = st.text_input("Descripción de Cuenta", value="")
+                                direccion_fiscal = st.text_area("Dirección Fiscal", value=str(d_prev.get("direccion_fiscal", "")), key=f"dir_{sufijo}")
+                                codigo_cuenta = st.text_input("Código de Cuenta Contable", value="", key=f"cc_{sufijo}")
+                                descripcion_cuenta = st.text_input("Descripción de Cuenta", value="", key=f"dc_{sufijo}")
 
                             # Botón final para insertar en la tabla 'proveedores'
                             submitted_prov = st.form_submit_button("💾 Guardar Proveedor en Base de Datos", type="primary")
