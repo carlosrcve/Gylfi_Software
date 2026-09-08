@@ -2612,14 +2612,14 @@ def extraer_datos_con_regex(pdf_file_obj):
 
 def extraer_datos_proveedor_pdf(archivo_pdf):
     """
-    Extrae RIF, Razón Social y Dirección Fiscal de forma genérica.
-    Incluye manejo seguro con getvalue() y respaldo de OCR automático 
-    si el PDF es una imagen escaneada o no tiene texto seleccionable.
+    Extrae RIF, Razón Social y Dirección Fiscal de forma genérica y nativa,
+    usando PyMuPDF (fitz) y getvalue() para máxima compatibilidad en Streamlit.
     """
     if archivo_pdf is None:
         return None
         
     try:
+        # Obtener los bytes de forma segura sin romper el puntero de Streamlit
         if hasattr(archivo_pdf, "getvalue"):
             pdf_bytes = archivo_pdf.getvalue()
         elif hasattr(archivo_pdf, "read"):
@@ -2634,29 +2634,14 @@ def extraer_datos_proveedor_pdf(archivo_pdf):
         doc = fitz.open(stream=pdf_bytes, filetype="pdf")
         texto_completo = ""
         
-        # 1. Intentar extraer texto nativo digital
         for pagina in doc:
             texto_extraido = pagina.get_text("text")
             if texto_extraido:
                 texto_completo += texto_extraido + "\n"
-        
-        # 2. Si el texto está vacío (PDF escaneado / imagen), activar OCR automático con Tesseract
-        if not texto_completo.strip():
-            import pytesseract
-            from PIL import Image
-            
-            for pagina in doc:
-                pix = pagina.get_pixmap(dpi=200) # Alta resolución para el OCR
-                img_bytes = pix.tobytes("png")
-                imagen = Image.open(io.BytesIO(img_bytes))
                 
-                texto_ocr = pytesseract.image_to_string(imagen, lang='spa')
-                if texto_ocr:
-                    texto_completo += texto_ocr + "\n"
-                    
         doc.close()
     except Exception as e:
-        print(f"Error procesando el PDF del proveedor (OCR/fitz): {e}")
+        print(f"Error procesando el PDF del proveedor: {e}")
         return None
 
     if not texto_completo.strip():
