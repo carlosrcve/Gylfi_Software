@@ -2617,8 +2617,8 @@ import re
 
 def extraer_texto_pdf(uploaded_file):
     """
-    Extrae el texto nativo del PDF o aplica Tesseract OCR con preprocesamiento 
-    de contraste si el documento es una imagen escaneada.
+    Extrae el texto intentando primero lo digital y aplicando OCR directo 
+    si el documento no trae texto plano estructurado.
     """
     if uploaded_file is None:
         return ""
@@ -2637,22 +2637,19 @@ def extraer_texto_pdf(uploaded_file):
     
         texto_extraido = ""
         
-        # 1. Intentar extraer texto digital directo con PyMuPDF (fitz)
         with fitz.open(stream=bytes_pdf, filetype="pdf") as doc:
+            # 1. Intentamos leer texto nativo de todas las páginas
             for pagina in doc:
                 texto_extraido += pagina.get_text("text")
                 
-        # 2. Si el texto es muy pobre o vacío, aplicamos OCR con mejora de contraste
-        if len(texto_extraido.strip()) < 50:
-            print("⚠️ PDF escaneado detectado. Aplicando OCR con filtro de contraste...")
-            texto_extraido = ""
-            
-            with fitz.open(stream=bytes_pdf, filetype="pdf") as doc:
+            # 2. Si el texto nativo es casi nulo (lo que pasa con las escaneadas de Tap Scanner)
+            if len(texto_extraido.strip()) < 10:
+                texto_extraido = "" # Limpiamos para asegurarnos de usar solo OCR
                 for pagina in doc:
                     pix = pagina.get_pixmap(dpi=300)
                     img_bytes = pix.tobytes("png")
                     
-                    # Convertimos a escala de grises y aumentamos contraste para ayudar a Tesseract
+                    # Preprocesamiento con PIL para garantizar lectura
                     imagen = Image.open(io.BytesIO(img_bytes)).convert("L")
                     enhancer = ImageEnhance.Contrast(imagen)
                     imagen_filtrada = enhancer.enhance(2.0)
