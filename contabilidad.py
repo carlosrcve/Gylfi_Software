@@ -2611,14 +2611,14 @@ def extraer_datos_con_regex(pdf_file_obj):
 
 import fitz  # PyMuPDF
 import pytesseract
-from PIL import Image
+from PIL import Image, ImageEnhance
 import io
 import re
 
 def extraer_texto_pdf(uploaded_file):
     """
-    Se encarga exclusivamente de obtener el texto del PDF.
-    Si es digital nativo, lo lee directo; si es escaneado, aplica Tesseract OCR.
+    Extrae el texto nativo del PDF o aplica Tesseract OCR con preprocesamiento 
+    de contraste si el documento es una imagen escaneada.
     """
     if uploaded_file is None:
         return ""
@@ -2642,24 +2642,28 @@ def extraer_texto_pdf(uploaded_file):
             for pagina in doc:
                 texto_extraido += pagina.get_text("text")
                 
-        # 2. Si el texto extraído es muy pobre o vacío, aplicamos OCR
+        # 2. Si el texto es muy pobre o vacío, aplicamos OCR con mejora de contraste
         if len(texto_extraido.strip()) < 50:
-            print("⚠️ PDF escaneado detectado o sin capa de texto. Aplicando Tesseract OCR...")
+            print("⚠️ PDF escaneado detectado. Aplicando OCR con filtro de contraste...")
             texto_extraido = ""
             
             with fitz.open(stream=bytes_pdf, filetype="pdf") as doc:
                 for pagina in doc:
                     pix = pagina.get_pixmap(dpi=300)
-                    img_data = pix.tobytes("png")
+                    img_bytes = pix.tobytes("png")
                     
-                    imagen = Image.open(io.BytesIO(img_data))
-                    texto_pagina = pytesseract.image_to_string(imagen, lang='spa')
+                    # Convertimos a escala de grises y aumentamos contraste para ayudar a Tesseract
+                    imagen = Image.open(io.BytesIO(img_bytes)).convert("L")
+                    enhancer = ImageEnhance.Contrast(imagen)
+                    imagen_filtrada = enhancer.enhance(2.0)
+                    
+                    texto_pagina = pytesseract.image_to_string(imagen_filtrada, lang='spa')
                     texto_extraido += texto_pagina + "\n"
                     
         return texto_extraido
 
     except Exception as e:
-        print(f"Error extrayendo texto del PDF: {e}")
+        print(f"Error procesando el PDF: {e}")
         return ""
 
 
@@ -2668,7 +2672,6 @@ def extraer_datos_proveedor_pdf(archivo_pdf):
     Función principal que VINCULA la extracción de texto con las Regex 
     para devolver el diccionario listo para la contabilidad.
     """
-    # AQUÍ SE VINCULA: Llamamos a la función de arriba para obtener el texto
     texto_completo = extraer_texto_pdf(archivo_pdf)
 
     if not texto_completo.strip():
