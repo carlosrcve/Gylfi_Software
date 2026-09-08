@@ -11069,7 +11069,9 @@ elif "Proveedores" in opcion_menu:
                 file_name="Respaldo_Proveedores.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
-        # LOTES PROVEEDORES
+        # ------------------------------------------
+        # TAB 3: Bandeja Proveedores PDF (Cola masiva)
+        # ------------------------------------------
         with tab3:
             # --- BANDEJA DE ENTRADA INTELIGENTE: REGISTRO DE PROVEEDORES DESDE PDFs ---
             st.subheader("📥 Bandeja de Entrada - Registro Masivo de Proveedores (PDF)")
@@ -11109,7 +11111,7 @@ elif "Proveedores" in opcion_menu:
                 st.markdown(f"### 📋 Cola de Proveedores ({len(st.session_state.cola_proveedores_pdfs)} en espera)")
                 
                 # Botón para limpiar toda la cola de proveedores
-                if st.button("🗑️ Vaciar Cola de Proveedores"):
+                if st.button("🗑️ Vaciar Cola de Proveedores", key="btn_vaciar_cola_prov"):
                     st.session_state.cola_proveedores_pdfs = []
                     st.session_state.prov_procesados_ids = set()
                     st.session_state.datos_prov_extraidos = {}
@@ -11147,11 +11149,8 @@ elif "Proveedores" in opcion_menu:
                         col_p1, col_p2 = st.columns([1, 3])
                         with col_p1:
                             # Botón para disparar la extracción local por Regex orientada a proveedores
-                            if st.button("⚡ Extraer Datos del Proveedor"):
+                            if st.button("⚡ Extraer Datos del Proveedor", key="btn_extraer_datos_prov"):
                                 with st.spinner("Leyendo RIF, Razón Social y Dirección del PDF..."):
-                                    # Aquí puedes llamar a tu función de regex adaptada para extraer estos campos
-                                    # Ejemplo: datos_prov = extraer_datos_proveedor_regex(doc_prov_obj["objeto"])
-                                    # O usando tu función base ajustada:
                                     datos_prov = extraer_datos_con_regex(doc_prov_obj["objeto"])
                                     
                                     if datos_prov:
