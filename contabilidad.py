@@ -11063,6 +11063,178 @@ elif "Proveedores" in opcion_menu:
                 file_name="Respaldo_Proveedores.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
+        # LOTES PROVEEDORES
+        with tab3:
+            # --- BANDEJA DE ENTRADA INTELIGENTE: REGISTRO DE PROVEEDORES DESDE PDFs ---
+            st.subheader("📥 Bandeja de Entrada - Registro Masivo de Proveedores (PDF)")
+            st.info("Arrastra o selecciona múltiples facturas PDF. El sistema extraerá automáticamente el RIF, la Razón Social y la Dirección Fiscal para que completes los campos contables.")
+
+            # Inicializamos la cola y el registro de IDs en session_state si no existen
+            if "cola_proveedores_pdfs" not in st.session_state:
+                st.session_state.cola_proveedores_pdfs = []
+            if "prov_procesados_ids" not in st.session_state:
+                st.session_state.prov_procesados_ids = set()
+            if "datos_prov_extraidos" not in st.session_state:
+                st.session_state.datos_prov_extraidos = {}
+
+            # 1. Subida múltiple de archivos PDF para proveedores
+            archivos_prov_pdf = st.file_uploader(
+                "Sube tus facturas de proveedores en PDF", 
+                type=['pdf'], 
+                accept_multiple_files=True,
+                key="uploader_prov_pdf_cola"
+            )
+
+            # Añadir a la cola evitando duplicados
+            if archivos_prov_pdf:
+                nombres_existentes_prov = [item['nombre'] for item in st.session_state.cola_proveedores_pdfs]
+                for archivo in archivos_prov_pdf:
+                    file_id = getattr(archivo, "file_id", archivo.name)
+                    if archivo.name not in nombres_existentes_prov and file_id not in st.session_state.prov_procesados_ids:
+                        st.session_state.cola_proveedores_pdfs.append({
+                            "id": file_id,
+                            "nombre": archivo.name,
+                            "objeto": archivo,
+                            "estado": "Pendiente"
+                        })
+
+            # 2. Visualización de la cola actual de proveedores
+            if st.session_state.cola_proveedores_pdfs:
+                st.markdown(f"### 📋 Cola de Proveedores ({len(st.session_state.cola_proveedores_pdfs)} en espera)")
+                
+                # Botón para limpiar toda la cola de proveedores
+                if st.button("🗑️ Vaciar Cola de Proveedores"):
+                    st.session_state.cola_proveedores_pdfs = []
+                    st.session_state.prov_procesados_ids = set()
+                    st.session_state.datos_prov_extraidos = {}
+                    st.rerun()
+
+                # Mostrar listado rápido en tabla
+                import pandas as pd
+                df_cola_prov = pd.DataFrame([{
+                    "Archivo": item["nombre"], 
+                    "Estado": item["estado"]
+                } for item in st.session_state.cola_proveedores_pdfs])
+                
+                st.dataframe(df_cola_prov, use_container_width=True)
+                st.markdown("---")
+
+                # ==========================================
+                # 3. AUDITORÍA Y REGISTRO INDIVIDUAL DE PROVEEDOR
+                # ==========================================
+                st.markdown("### 📝 Auditoría, Extracción y Registro en la Tabla de Proveedores")
+                
+                docs_prov_pendientes = [item for item in st.session_state.cola_proveedores_pdfs if item["estado"] == "Pendiente"]
+                
+                if docs_prov_pendientes:
+                    nombres_prov_pendientes = [item["nombre"] for item in docs_prov_pendientes]
+                    doc_prov_seleccionado = st.selectbox(
+                        "Selecciona un proveedor pendiente para revisar y registrar:", 
+                        nombres_prov_pendientes,
+                        key="select_doc_prov_auditoria"
+                    )
+
+                    # Encontrar el objeto correspondiente
+                    doc_prov_obj = next((item for item in docs_prov_pendientes if item["nombre"] == doc_prov_seleccionado), None)
+
+                    if doc_prov_obj:
+                        col_p1, col_p2 = st.columns([1, 3])
+                        with col_p1:
+                            # Botón para disparar la extracción local por Regex orientada a proveedores
+                            if st.button("⚡ Extraer Datos del Proveedor"):
+                                with st.spinner("Leyendo RIF, Razón Social y Dirección del PDF..."):
+                                    # Aquí puedes llamar a tu función de regex adaptada para extraer estos campos
+                                    # Ejemplo: datos_prov = extraer_datos_proveedor_regex(doc_prov_obj["objeto"])
+                                    # O usando tu función base ajustada:
+                                    datos_prov = extraer_datos_con_regex(doc_prov_obj["objeto"])
+                                    
+                                    if datos_prov:
+                                        st.session_state.datos_prov_extraidos[doc_prov_obj["nombre"]] = datos_prov
+                                        st.success("¡Datos del proveedor extraídos con éxito!")
+                                        st.rerun()
+                                    else:
+                                        st.error("No se pudieron extraer automáticamente los datos del proveedor.")
+
+                        # Recuperar datos precargados si ya se procesaron
+                        d_prev = st.session_state.datos_prov_extraidos.get(doc_prov_obj["nombre"], {})
+
+                        with st.form("form_registro_tabla_proveedores"):
+                            st.info(f"Completando información para el archivo: **{doc_prov_obj['nombre']}**")
+                            
+                            # Campos basados en tu estructura SQL de 'proveedores'
+                            col_i1, col_i2 = st.columns(2)
+                            
+                            with col_i1:
+                                rif = st.text_input("RIF", value=str(d_prev.get("rif", "")))
+                                tipo_persona = st.selectbox(
+                                    "Tipo de Persona", 
+                                    options=["Natural", "Jurídica", "No Residente", "Gobierno"],
+                                    index=1 # Por defecto Jurídica u otra opción común
+                                )
+                                razon_social = st.text_input("Razón Social", value=str(d_prev.get("proveedor", d_prev.get("razon_social", ""))))
+                            
+                            with col_i2:
+                                direccion_fiscal = st.text_area("Dirección Fiscal", value=str(d_prev.get("direccion_fiscal", "")))
+                                codigo_cuenta = st.text_input("Código de Cuenta Contable", value="")
+                                descripcion_cuenta = st.text_input("Descripción de Cuenta", value="")
+
+                            # Botón final para insertar en la tabla 'proveedores'
+                            submitted_prov = st.form_submit_button("💾 Guardar Proveedor en Base de Datos", type="primary")
+                            
+                            if submitted_prov:
+                                db_nombre = st.session_state.get('DB_ACTUAL')
+                                if not db_nombre:
+                                    st.error("Error: No se ha seleccionado una base de datos activa.")
+                                else:
+                                    conn = conectar_db(db_nombre)
+                                    if conn is None:
+                                        st.error(f"❌ No se pudo conectar a la base de datos '{db_nombre}'.")
+                                    else:
+                                        try:
+                                            cursor = conn.cursor()
+                                            
+                                            query_prov = """
+                                                INSERT INTO proveedores (
+                                                    rif, tipo_persona, razon_social, 
+                                                    direccion_fiscal, codigo_cuenta, descripcion_cuenta
+                                                ) VALUES (%s, %s, %s, %s, %s, %s)
+                                                ON DUPLICATE KEY UPDATE
+                                                    tipo_persona = VALUES(tipo_persona),
+                                                    razon_social = VALUES(razon_social),
+                                                    direccion_fiscal = VALUES(direccion_fiscal),
+                                                    codigo_cuenta = VALUES(codigo_cuenta),
+                                                    descripcion_cuenta = VALUES(descripcion_cuenta)
+                                            """
+                                            
+                                            valores_prov = (
+                                                rif, tipo_persona, razon_social,
+                                                direccion_fiscal, codigo_cuenta, descripcion_cuenta
+                                            )
+                                            
+                                            cursor.execute(query_prov, valores_prov)
+                                            conn.commit()
+                                            cursor.close()
+                                            
+                                            # Actualizar estado en la cola local
+                                            for item in st.session_state.cola_proveedores_pdfs:
+                                                if item["nombre"] == doc_prov_obj["nombre"]:
+                                                    item["estado"] = "Registrado"
+                                                    st.session_state.prov_procesados_ids.add(item["id"])
+                                                    break
+                                                    
+                                            st.success(f"¡Proveedor '{razon_social}' (RIF: {rif}) guardado correctamente!")
+                                            st.rerun()
+                                            
+                                        except Exception as e:
+                                            st.error(f"Error al registrar el proveedor en la base de datos: {e}")
+                                        finally:
+                                            if conn and hasattr(conn, 'close'):
+                                                conn.close()
+                else:
+                    st.success("🎉 ¡Todos los proveedores en la cola ya han sido procesados y registrados!")
+
+            else:
+                st.info("No hay archivos en la cola de proveedores. Sube algunos PDFs arriba para comenzar.")
             
     finally:
         # 6. Cierre de conexión garantizado
