@@ -5448,7 +5448,7 @@ def guardar_saldo_mensual(conn, banco, mes, ano, inicial, final, db_name=None):
 
 def procesar_excel_proveedores_db(df):
     """
-    Limpia y carga los proveedores a MySQL manejando automáticamente el tipo de persona.
+    Limpieza y carga los proveedores a MySQL manejando automáticamente el tipo de persona y las cuentas contables.
     """
     import pymysql
     import pandas as pd
@@ -5460,6 +5460,17 @@ def procesar_excel_proveedores_db(df):
     df['rif'] = df['rif'].astype(str).str.strip().str.upper()
     df['razon_social'] = df['razon_social'].astype(str).str.strip().str.upper()
     df['direccion_fiscal'] = df['direccion_fiscal'].astype(str).str.strip()
+    
+    # Manejo seguro por si el Excel viene sin las columnas de cuenta o tienen espacios en los nombres
+    if 'codigo_cuenta' in df.columns:
+        df['codigo_cuenta'] = df['codigo_cuenta'].astype(str).str.strip()
+    else:
+        df['codigo_cuenta'] = ""
+        
+    if 'descripcion_cuenta' in df.columns:
+        df['descripcion_cuenta'] = df['descripcion_cuenta'].astype(str).str.strip()
+    else:
+        df['descripcion_cuenta'] = ""
 
     db_actual = st.session_state.get('DB_ACTUAL')
     conn = conectar_db(db_actual)
@@ -5470,7 +5481,7 @@ def procesar_excel_proveedores_db(df):
 
     # Registro de actividad (protegido por si falla el log)
     try:
-        registrar_log_automatico(conn, "CARGA_PROVEEDORES", f"Usuario procesó excel de proveedores")
+        registrar_log_automatico(conn, "CARGA_PROVEEDORES", f"Usuario procesó excel de proveedores con cuentas")
     except Exception:
         pass
     
@@ -5485,19 +5496,24 @@ def procesar_excel_proveedores_db(df):
             tipo = "PN" if rif.startswith(('V', 'E')) else "PJ"
             razon = row['razon_social']
             direccion = row['direccion_fiscal']
+            cod_cuenta = row['codigo_cuenta']
+            desc_cuenta = row['descripcion_cuenta']
 
+            # Sentencia SQL actualizada para incluir las 6 columnas reales
             sql = """
-                INSERT INTO proveedores (rif, tipo_persona, razon_social, direccion_fiscal)
-                VALUES (%s, %s, %s, %s)
+                INSERT INTO proveedores (rif, tipo_persona, razon_social, direccion_fiscal, codigo_cuenta, descripcion_cuenta)
+                VALUES (%s, %s, %s, %s, %s, %s)
                 ON DUPLICATE KEY UPDATE 
                 tipo_persona = VALUES(tipo_persona),
                 razon_social = VALUES(razon_social),
-                direccion_fiscal = VALUES(direccion_fiscal)
+                direccion_fiscal = VALUES(direccion_fiscal),
+                codigo_cuenta = VALUES(codigo_cuenta),
+                descripcion_cuenta = VALUES(descripcion_cuenta)
             """
-            cursor.execute(sql, (rif, tipo, razon, direccion))
+            cursor.execute(sql, (rif, tipo, razon, direccion, cod_cuenta, desc_cuenta))
         
         conn.commit()
-        st.success(f"✅ Se han procesado {len(df)} proveedores correctamente.")
+        st.success(f"✅ Se han procesado {len(df)} proveedores con sus cuentas contables correctamente.")
         
     except Exception as e:
         conn.rollback()
