@@ -2605,6 +2605,93 @@ def extraer_datos_con_regex(pdf_file_obj):
     return datos
 
 
+def extraer_datos_proveedor_pdf(archivo_pdf):
+    """
+    Extrae específicamente RIF, Razón Social y Dirección Fiscal para la Tab 3.
+    """
+    texto_completo = ""
+    try:
+        with pdfplumber.open(archivo_pdf) as pdf:
+            for pagina in pdf.pages:
+                texto_extraido = pagina.extract_text()
+                if texto_extraido:
+                    texto_completo += texto_extraido + "\n"
+    except Exception as e:
+        print(f"Error leyendo el PDF de proveedor: {e}")
+        return None
+
+    if not texto_completo.strip():
+        return None
+
+    datos = {}
+
+    # 1. Buscar RIF venezolano (Ej: J-12345678-9, G-00000000-0, V-12345678, E-...)
+    match_rif = re.search(r'\b([JVEGPC]-?\d{7,10}-?\d?)\b', texto_completo, re.IGNORECASE)
+    if match_rif:
+        datos["rif"] = match_rif.group(1).upper()
+
+    # 2. Capturar la Razón Social / Proveedor de las primeras líneas o etiquetas
+    linhas = [l.strip() for l in texto_completo.split('\n') if l.strip()]
+    if linhas:
+        datos["proveedor"] = linhas[0] 
+
+    # 3. Buscar Dirección Fiscal
+    match_dir = re.search(r'(?:Dirección|Dir)[:\s]+([^\n]+(?:\n[^\n]+)?)', texto_completo, re.IGNORECASE)
+    if match_dir:
+        datos["direccion_fiscal"] = match_dir.group(1).strip()
+    else:
+        datos["direccion_fiscal"] = ""
+
+    return datos
+
+
+def extraer_datos_factura_pdf(archivo_pdf):
+    """
+    Extrae datos de la factura, montos y RIF para el Libro de Compras (Tab 5).
+    """
+    texto_completo = ""
+    try:
+        with pdfplumber.open(archivo_pdf) as pdf:
+            for pagina in pdf.pages:
+                texto_extraido = pagina.extract_text()
+                if texto_extraido:
+                    texto_completo += texto_extraido + "\n"
+    except Exception as e:
+        print(f"Error leyendo el PDF de factura: {e}")
+        return None
+
+    if not texto_completo.strip():
+        return None
+
+    datos = {}
+
+    # 1. RIF
+    match_rif = re.search(r'\b([JVEGPC]-?\d{7,10}-?\d?)\b', texto_completo, re.IGNORECASE)
+    if match_rif:
+        datos["rif"] = match_rif.group(1).upper()
+
+    # 2. Proveedor
+    linhas = [l.strip() for l in texto_completo.split('\n') if l.strip()]
+    if linhas:
+        datos["proveedor"] = linhas[0]
+
+    # 3. Factura y Control
+    match_fac = re.search(r'(?:Factura|N[º°]\.?)\s*[:#]?\s*(\d+)', texto_completo, re.IGNORECASE)
+    if match_fac:
+        datos["n_factura"] = match_fac.group(1)
+
+    match_ctrl = re.search(r'(?:Control|N[º°]\s*Ctrl)\s*[:#]?\s*(\d+)', texto_completo, re.IGNORECASE)
+    if match_ctrl:
+        datos["n_control"] = match_ctrl.group(1)
+
+    # (Opcional) Puedes agregar aquí lógica con regex para base imponible o iva si lo requieres
+    datos["base_imponible"] = 0.00
+    datos["iva_monto"] = 0.00
+    datos["total_compras"] = 0.00
+    datos["importe_exento"] = 0.00
+
+    return datos
+
 def extraer_datos_factura(archivo):
     model = obtener_modelo_valido()
     if not model:
@@ -11160,7 +11247,7 @@ elif "Proveedores" in opcion_menu:
                             if k not in st.session_state:
                                 st.session_state[k] = v
 
-                        # Botón para disparar la extracción local por Regex
+                        # Botón para disparar la extracción local llamando a la función específica
                         if st.button("⚡ Extraer Datos del Proveedor", key=f"btn_extraer_{sufijo_prov}"):
                             with st.spinner("Leyendo RIF, Razón Social y Dirección del PDF..."):
                                 archivo_pdf = doc_prov_obj["objeto"]
@@ -11168,7 +11255,8 @@ elif "Proveedores" in opcion_menu:
                                 if hasattr(archivo_pdf, "seek"):
                                     archivo_pdf.seek(0)
                                     
-                                datos_prov = extraer_datos_con_regex(archivo_pdf)
+                                # LLAMADA A LA FUNCIÓN DEDICADA DE PROVEEDORES
+                                datos_prov = extraer_datos_proveedor_pdf(archivo_pdf)
                                 
                                 if datos_prov and isinstance(datos_prov, dict):
                                     st.session_state.datos_prov_extraidos[sufijo_prov] = datos_prov
@@ -11181,7 +11269,7 @@ elif "Proveedores" in opcion_menu:
                                     st.success("¡Datos extraídos con éxito! Recargando...")
                                     st.rerun()
                                 else:
-                                    st.error("❌ La función `extraer_datos_con_regex` devolvió vacío o None. El PDF puede ser una imagen escaneada sin texto seleccionable.")
+                                    st.error("❌ La función `extraer_datos_proveedor_pdf` devolvió vacío o None. El PDF puede ser una imagen escaneada sin texto seleccionable.")
 
                         st.info(f"Completando información para el archivo: **{sufijo_prov}**")
                         
