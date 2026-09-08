@@ -2612,56 +2612,49 @@ def extraer_datos_con_regex(pdf_file_obj):
 
 def extraer_datos_proveedor_pdf(archivo_pdf):
     """
-    Extrae RIF, Razón Social y Dirección Fiscal de forma ultra robusta 
-    creando un archivo temporal seguro compatible al 100% con Streamlit Cloud.
+    Extrae RIF, Razón Social y Dirección Fiscal usando el mismo motor fitz
+    para garantizar compatibilidad 100% con los streams en Streamlit Cloud.
     """
-    texto_completo = ""
-    
+    if hasattr(archivo_pdf, "seek"):
+        archivo_pdf.seek(0)
+        
     try:
-        # Asegurar que el puntero del archivo esté al inicio
-        if hasattr(archivo_pdf, "seek"):
-            archivo_pdf.seek(0)
-            
-        # Crear un archivo temporal físico para que pdfplumber lo lea sin errores de memoria
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as temp_file:
-            temp_file.write(archivo_pdf.read())
-            temp_path = temp_file.name
-
-        # Abrir el PDF temporal con pdfplumber
-        with pdfplumber.open(temp_path) as pdf:
-            for pagina in pdf.pages:
-                texto_extraido = pagina.extract_text()
-                if texto_extraido:
-                    texto_completo += texto_extraido + "\n"
-                    
+        doc = fitz.open(stream=archivo_pdf.read(), filetype="pdf")
     except Exception as e:
-        print(f"Error procesando el PDF temporal: {e}")
+        print(f"Error al abrir el PDF con fitz: {e}")
         return None
+
+    texto_completo = ""
+    for pagina in doc:
+        texto_extraido = pagina.get_text("text")
+        if texto_extraido:
+            texto_completo += texto_extraido + "\n"
+    doc.close()
 
     if not texto_completo.strip():
         return None
 
-    datos = {}
+    datos = {
+        "rif": "",
+        "proveedor": "PROVEEDOR NO IDENTIFICADO",
+        "direccion_fiscal": ""
+    }
+
     lineas = [l.strip() for l in texto_completo.split('\n') if l.strip()]
 
-    # 1. Búsqueda flexible de RIF venezolano (J, V, G, E, P, C con o sin guiones/espacios)
+    # 1. Búsqueda de RIF (J, V, G, E, P, C)
     match_rif = re.search(r'(?:R\.?I\.?F\.?[:\s]*)?\b([JVEGPC]\s*-?\s*\d{7,10}\s*-?\s*\d?)\b', texto_completo, re.IGNORECASE)
     if match_rif:
         rif_bruto = match_rif.group(1).upper()
         rif_limpio = re.sub(r'[\s-]', '', rif_bruto)
         if len(rif_limpio) >= 8:
-            prefijo = rif_limpio[0]
-            cuerpo = rif_limpio[1:-1]
-            dv = rif_limpio[-1]
-            datos["rif"] = f"{prefijo}-{cuerpo}-{dv}"
+            datos["rif"] = f"{rif_limpio[0]}-{rif_limpio[1:-1]}-{rif_limpio[-1]}"
         else:
             datos["rif"] = rif_bruto
-    else:
-        datos["rif"] = ""
 
     # 2. Captura inteligente de Razón Social
     razon_encontrada = ""
-    for l in lineas[:8]:  # Buscar en las primeras 8 líneas
+    for l in lineas[:8]:
         l_upper = l.upper()
         if any(term in l_upper for term in ["C.A.", "S.A.", "SRL", "COMPAÑIA", "INVERSIONES", "CA", "SA", "FARMACIA", "COMERCIAL", "DISTRIBUIDORA", "CORPORACION"]):
             razon_encontrada = l
@@ -2669,24 +2662,25 @@ def extraer_datos_proveedor_pdf(archivo_pdf):
     
     if not razon_encontrada and lineas:
         for l in lineas:
-            if not re.search(r'[JVEGPC]-\d+', l) and len(l) > 4:
+            if not re.search(r'[JVEGPC]-\d+', l) and len(l) > 4 and "RIF" not in l.upper():
                 razon_encontrada = l
                 break
 
-    datos["proveedor"] = razon_encontrada if razon_encontrada else (lineas[0] if lineas else "")
+    if razon_encontrada:
+        datos["proveedor"] = razon_encontrada[:255]
+    elif lineas:
+        datos["proveedor"] = lineas[0][:255]
 
     # 3. Buscar Dirección Fiscal
     match_dir = re.search(r'(?:Direcci[oó]n\s*(?:Fiscal|Principal)?|Dir\.?)[:\s]+([^\n]+(?:\n[^\n]+)?)', texto_completo, re.IGNORECASE)
     if match_dir:
         datos["direccion_fiscal"] = match_dir.group(1).strip()
     else:
-        dir_alternativa = ""
         for l in lineas:
             l_up = l.upper()
             if any(w in l_up for w in ["AV.", "AVENIDA", "CALLE", "URB.", "URBANIZACION", "EDIF.", "LOCAL", "SECTOR", "ZONA INDUSTRIAL", "PISO"]):
-                dir_alternativa = l
+                datos["direccion_fiscal"] = l.strip()
                 break
-        datos["direccion_fiscal"] = dir_alternativa
 
     return datos
 
