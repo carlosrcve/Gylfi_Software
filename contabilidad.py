@@ -5418,8 +5418,12 @@ def procesar_excel_proveedores_db(df):
     Limpia y carga los proveedores a MySQL manejando automáticamente el tipo de persona.
     """
     import pymysql
+    import pandas as pd
     
-    # 1. Limpieza de datos
+    # 0. Rellenar celdas vacías (NaN) con string vacío para evitar que explote MySQL
+    df = df.fillna("")
+
+    # 1. Limpieza de datos asegurando que sean texto
     df['rif'] = df['rif'].astype(str).str.strip().str.upper()
     df['razon_social'] = df['razon_social'].astype(str).str.strip().str.upper()
     df['direccion_fiscal'] = df['direccion_fiscal'].astype(str).str.strip()
@@ -5427,17 +5431,27 @@ def procesar_excel_proveedores_db(df):
     db_actual = st.session_state.get('DB_ACTUAL')
     conn = conectar_db(db_actual)
     
-    # Registro de actividad
-    registrar_log_automatico(conn, "CARGA_PROVEEDORES", f"Usuario {st.session_state.usuario} procesó excel de proveedores para {st.session_state.cliente_id}")
+    if conn is None:
+        st.error("❌ No se pudo conectar a la base de datos.")
+        return
+
+    # Registro de actividad (protegido por si falla el log)
+    try:
+        registrar_log_automatico(conn, "CARGA_PROVEEDORES", f"Usuario procesó excel de proveedores")
+    except Exception:
+        pass
     
     cursor = conn.cursor()
     
     try:
         for _, row in df.iterrows():
-            # --- LÓGICA DE DETECCIÓN DE TIPO ---
-            # Si empieza por V o E es Persona Natural (PN), de lo contrario Jurídica (PJ)
             rif = row['rif']
+            if not rif or rif == 'NAN' or rif == '':
+                continue
+                
             tipo = "PN" if rif.startswith(('V', 'E')) else "PJ"
+            razon = row['razon_social']
+            direccion = row['direccion_fiscal']
 
             sql = """
                 INSERT INTO proveedores (rif, tipo_persona, razon_social, direccion_fiscal)
@@ -5447,24 +5461,20 @@ def procesar_excel_proveedores_db(df):
                 razon_social = VALUES(razon_social),
                 direccion_fiscal = VALUES(direccion_fiscal)
             """
-            # Pasamos los 4 valores necesarios
-            cursor.execute(sql, (rif, tipo, row['razon_social'], row['direccion_fiscal']))
+            cursor.execute(sql, (rif, tipo, razon, direccion))
         
         conn.commit()
         st.success(f"✅ Se han procesado {len(df)} proveedores correctamente.")
         
     except Exception as e:
+        conn.rollback()
         st.error(f"❌ Error al procesar proveedores: {e}")
         
     finally:
-        # AQUÍ ESTÁ EL SECRETO:
         if cursor:
-            cursor.close() 
-            
-        # NO cierres conn. 
-        # En su lugar, haz un 'ping' para decirle a MySQL que sigues ahí:
-        if conn and conn.is_connected():
-            conn.ping(reconnect=True)
+            cursor.close()
+        if conn:
+            conn.close()
 
 
 def gestionar_sidebar():
