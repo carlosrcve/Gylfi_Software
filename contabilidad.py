@@ -12275,7 +12275,7 @@ elif "Proveedores" in opcion_menu:
                     st.success("✅ ¡Actualizado y sincronizado!")
                     st.balloons()
 
-        # 4. Lógica de Pestaña 2
+        # 4. Lógica de Pestaña 2 - Versión corregida sin bloqueos de caché ciegos
         with tab2:
             st.markdown("### 📋 Directorio Actual de Proveedores")
             
@@ -12284,29 +12284,27 @@ elif "Proveedores" in opcion_menu:
                 db_actual = st.session_state.get('DB_ACTUAL')
                 conn_empresa = conectar_db(db_actual)
 
-            # 2. Inicializamos o refrescamos los datos en session_state usando la estructura completa de la BD
-            if "df_proveedores_cache" not in st.session_state or st.session_state.df_proveedores_cache is None:
-                df_temp = consultar_tabla_db(conn_empresa, "proveedores")
-                
-                # Definimos el esquema completo exacto según tu tabla de MySQL
-                columnas_reales = ["rif", "tipo_persona", "razon_social", "direccion_fiscal", "codigo_cuenta", "descripcion_cuenta"]
-                
-                if df_temp is None or not isinstance(df_temp, pd.DataFrame) or df_temp.empty:
-                    df_temp = pd.DataFrame(columns=columnas_reales)
-                else:
-                    # Aseguramos que existan todas las columnas por si acaso falta alguna
-                    for col in columnas_reales:
-                        if col not in df_temp.columns:
-                            df_temp[col] = ""
+            # 2. Consultamos SIEMPRE la base de datos para traer los datos frescos
+            # (Eliminamos la trampa del caché que atrapaba datos vacíos)
+            columnas_reales = ["rif", "tipo_persona", "razon_social", "direccion_fiscal", "codigo_cuenta", "descripcion_cuenta"]
+            
+            df_temp = consultar_tabla_db(conn_empresa, "proveedores")
+            
+            if df_temp is None or not isinstance(df_temp, pd.DataFrame) or df_temp.empty:
+                df_para_mostrar = pd.DataFrame(columns=columnas_reales)
+            else:
+                df_para_mostrar = df_temp.copy()
+                for col in columnas_reales:
+                    if col not in df_para_mostrar.columns:
+                        df_para_mostrar[col] = ""
 
-                for col in df_temp.columns:
-                    df_temp[col] = df_temp[col].astype(str).replace(['None', 'nan', 'NAT'], '')
-                
-                st.session_state.df_proveedores_cache = df_temp
+            # Limpiamos nulos o valores extraños
+            for col in df_para_mostrar.columns:
+                df_para_mostrar[col] = df_para_mostrar[col].astype(str).replace(['None', 'nan', 'NAT', 'None'], '')
 
-            # 3. El data_editor con la configuración de columnas completa
+            # 3. El data_editor directo con los datos frescos de la BD
             df_editado = st.data_editor(
-                st.session_state.df_proveedores_cache, 
+                df_para_mostrar, 
                 key="editor_proveedores_dinamico", 
                 num_rows="dynamic",
                 use_container_width=True,
@@ -12321,9 +12319,6 @@ elif "Proveedores" in opcion_menu:
                     "descripcion_cuenta": st.column_config.TextColumn("Descripción Cuenta")
                 }
             )
-            
-            # Actualizamos el caché local
-            st.session_state.df_proveedores_cache = df_editado
 
             col_b1, col_b2 = st.columns(2)
             
@@ -12331,27 +12326,22 @@ elif "Proveedores" in opcion_menu:
                 if st.button("💾 Guardar Todo en BD", key="btn_guardar_proveedores", use_container_width=True):
                     try:
                         actualizar_tabla_completa_db(conn_empresa, "proveedores", df_editado)
-                        st.success("¡Directorio actualizado con éxito!")
-                        if "df_proveedores_cache" in st.session_state:
-                            del st.session_state.df_proveedores_cache
+                        st.success("¡Directorio actualizado con éxito en la base de datos!")
                         st.rerun()
                     except Exception as e:
                         st.error(f"❌ Error al guardar los cambios en la base de datos: {e}")
 
             with col_b2:
                 if st.button("🔄 Recargar desde BD", key="btn_recargar_proveedores", use_container_width=True):
-                    if "df_proveedores_cache" in st.session_state:
-                        del st.session_state.df_proveedores_cache
                     st.rerun()
 
         # 4. Zona de respaldo
         st.markdown("---") 
-        df_para_respaldo = st.session_state.get("df_proveedores_cache", pd.DataFrame())
-        if not df_para_respaldo.empty:
+        if not df_para_mostrar.empty:
             import io
             output = io.BytesIO()
             with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                df_para_respaldo.to_excel(writer, index=False, sheet_name='Proveedores')
+                df_para_mostrar.to_excel(writer, index=False, sheet_name='Proveedores')
             st.download_button(
                 "📥 Descargar Respaldo de Proveedores", 
                 data=output.getvalue(), 
