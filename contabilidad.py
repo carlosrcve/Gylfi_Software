@@ -2616,51 +2616,55 @@ import io
 import re
 
 def extraer_texto_pdf(uploaded_file):
-    """
-    Extrae el texto intentando primero lo digital y aplicando OCR directo 
-    si el documento no trae texto plano estructurado.
-    """
     if uploaded_file is None:
+        st.error("El archivo recibido es None.")
         return ""
         
     try:
-        if hasattr(uploaded_file, "getvalue"):
-            bytes_pdf = uploaded_file.getvalue()
-        elif hasattr(uploaded_file, "read"):
+        # Asegurarnos de rebobinar el archivo siempre
+        if hasattr(uploaded_file, "seek"):
             uploaded_file.seek(0)
-            bytes_pdf = uploaded_file.read()
-        else:
-            return ""
+            
+        bytes_pdf = uploaded_file.getvalue() if hasattr(uploaded_file, "getvalue") else uploaded_file.read()
 
         if not bytes_pdf:
+            st.error("El archivo PDF está vacío (0 bytes).")
             return ""
     
         texto_extraido = ""
         
         with fitz.open(stream=bytes_pdf, filetype="pdf") as doc:
-            # 1. Intentamos leer texto nativo de todas las páginas
-            for pagina in doc:
-                texto_extraido += pagina.get_text("text")
+            st.info(f"📄 El PDF tiene {len(doc)} página(s).")
+            for i, pagina in enumerate(doc):
+                txt_pagina = pagina.get_text("text")
+                texto_extraido += txt_pagina
+                st.write(f"Página {i+1} - Texto nativo extraído: {len(txt_pagina)} caracteres.")
                 
-            # 2. Si el texto nativo es casi nulo (lo que pasa con las escaneadas de Tap Scanner)
-            if len(texto_extraido.strip()) < 10:
-                texto_extraido = "" # Limpiamos para asegurarnos de usar solo OCR
-                for pagina in doc:
+        # Si no hay texto nativo, intentamos OCR
+        if len(texto_extraido.strip()) < 10:
+            st.warning("⚠️ Texto nativo muy corto. Intentando forzar OCR...")
+            texto_extraido = ""
+            with fitz.open(stream=bytes_pdf, filetype="pdf") as doc:
+                for i, pagina in enumerate(doc):
                     pix = pagina.get_pixmap(dpi=300)
                     img_bytes = pix.tobytes("png")
                     
-                    # Preprocesamiento con PIL para garantizar lectura
                     imagen = Image.open(io.BytesIO(img_bytes)).convert("L")
                     enhancer = ImageEnhance.Contrast(imagen)
                     imagen_filtrada = enhancer.enhance(2.0)
                     
-                    texto_pagina = pytesseract.image_to_string(imagen_filtrada, lang='spa')
-                    texto_extraido += texto_pagina + "\n"
-                    
+                    try:
+                        texto_pagina = pytesseract.image_to_string(imagen_filtrada, lang='spa')
+                        texto_extraido += texto_pagina + "\n"
+                        st.write(f"OCR Página {i+1}: {len(texto_pagina)} caracteres leídos.")
+                    except Exception as err_tess:
+                        st.error(f"❌ Error crítico de Tesseract OCR: {err_tess}")
+                        st.info("💡 Asegúrate de tener Tesseract instalado en tu PC y que la ruta esté bien configurada.")
+                        
         return texto_extraido
 
     except Exception as e:
-        print(f"Error procesando el PDF: {e}")
+        st.error(f"❌ Error general en extraer_texto_pdf: {e}")
         return ""
 
 
