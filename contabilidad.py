@@ -11073,9 +11073,8 @@ elif "Proveedores" in opcion_menu:
         # TAB 3: Bandeja Proveedores PDF (Cola masiva)
         # ------------------------------------------
         with tab3:
-            # --- BANDEJA DE ENTRADA INTELIGENTE: REGISTRO DE PROVEEDORES DESDE PDFs ---
             st.subheader("📥 Bandeja de Entrada - Registro Masivo de Proveedores (PDF)")
-            st.info("Arrastra o selecciona múltiples facturas PDF. El sistema extraerá automáticamente el RIF, la Razón Social y la Dirección Fiscal para que completes los campos contables.")
+            st.info("Arrastra o selecciona múltiples facturas de proveedores en PDF. El sistema extraerá automáticamente el RIF, la Razón Social y la Dirección Fiscal.")
 
             # Inicializamos la cola y el registro de IDs en session_state si no existen
             if "cola_proveedores_pdfs" not in st.session_state:
@@ -11146,65 +11145,66 @@ elif "Proveedores" in opcion_menu:
                     doc_prov_obj = next((item for item in docs_prov_pendientes if item["nombre"] == doc_prov_seleccionado), None)
 
                     if doc_prov_obj:
-                        sufijo = doc_prov_obj['nombre']
+                        sufijo_prov = doc_prov_obj['nombre']
 
-                        # Asegurar que las keys existan en session_state desde el inicio
-                        if f"rif_{sufijo}" not in st.session_state:
-                            st.session_state[f"rif_{sufijo}"] = ""
-                        if f"razon_{sufijo}" not in st.session_state:
-                            st.session_state[f"razon_{sufijo}"] = ""
-                        if f"dir_{sufijo}" not in st.session_state:
-                            st.session_state[f"dir_{sufijo}"] = ""
+                        # Asegurar que las keys dinámicas existan en session_state desde el inicio
+                        keys_defaults_prov = {
+                            f"rif_{sufijo_prov}": "",
+                            f"razon_{sufijo_prov}": "",
+                            f"dir_{sufijo_prov}": "",
+                            f"tipo_{sufijo_prov}": "Jurídica",
+                            f"cc_{sufijo_prov}": "",
+                            f"dc_{sufijo_prov}": ""
+                        }
+                        for k, v in keys_defaults_prov.items():
+                            if k not in st.session_state:
+                                st.session_state[k] = v
 
                         # Botón para disparar la extracción local por Regex
-                        # Botón para disparar la extracción local por Regex con depuración
-                        if st.button("⚡ Extraer Datos del Proveedor", key=f"btn_extraer_{sufijo}"):
+                        if st.button("⚡ Extraer Datos del Proveedor", key=f"btn_extraer_{sufijo_prov}"):
                             with st.spinner("Leyendo RIF, Razón Social y Dirección del PDF..."):
                                 archivo_pdf = doc_prov_obj["objeto"]
                                 
-                                # Reiniciar el puntero del archivo
                                 if hasattr(archivo_pdf, "seek"):
                                     archivo_pdf.seek(0)
                                     
-                                # Ejecutamos la extracción
                                 datos_prov = extraer_datos_con_regex(archivo_pdf)
                                 
-                                # --- DEPURACIÓN VISUAL ---
-                                st.write("🔍 **Resultado crudo de la función de extracción:**", datos_prov)
-                                
                                 if datos_prov and isinstance(datos_prov, dict):
-                                    st.session_state.datos_prov_extraidos[sufijo] = datos_prov
+                                    st.session_state.datos_prov_extraidos[sufijo_prov] = datos_prov
                                     
-                                    st.session_state[f"rif_{sufijo}"] = str(datos_prov.get("rif", ""))
-                                    st.session_state[f"razon_{sufijo}"] = str(datos_prov.get("proveedor", datos_prov.get("razon_social", "")))
-                                    st.session_state[f"dir_{sufijo}"] = str(datos_prov.get("direccion_fiscal", ""))
+                                    # Inyectar directamente al session_state de los inputs
+                                    st.session_state[f"rif_{sufijo_prov}"] = str(datos_prov.get("rif", ""))
+                                    st.session_state[f"razon_{sufijo_prov}"] = str(datos_prov.get("proveedor", datos_prov.get("razon_social", "")))
+                                    st.session_state[f"dir_{sufijo_prov}"] = str(datos_prov.get("direccion_fiscal", ""))
                                     
                                     st.success("¡Datos extraídos con éxito! Recargando...")
                                     st.rerun()
                                 else:
                                     st.error("❌ La función `extraer_datos_con_regex` devolvió vacío o None. El PDF puede ser una imagen escaneada sin texto seleccionable.")
-                        st.info(f"Completando información para el archivo: **{sufijo}**")
+
+                        st.info(f"Completando información para el archivo: **{sufijo_prov}**")
                         
-                        # Campos de entrada ligados al session_state mediante sus keys dinámicas
+                        # Campos de entrada estructurados fuera de st.form para mantener reactividad total
                         col_i1, col_i2 = st.columns(2)
                         
                         with col_i1:
-                            rif = st.text_input("RIF", key=f"rif_{sufijo}")
+                            rif = st.text_input("RIF", key=f"rif_{sufijo_prov}")
                             tipo_persona = st.selectbox(
                                 "Tipo de Persona", 
                                 options=["Natural", "Jurídica", "No Residente", "Gobierno"],
                                 index=1,
-                                key=f"tipo_{sufijo}"
+                                key=f"tipo_{sufijo_prov}"
                             )
-                            razon_social = st.text_input("Razón Social", key=f"razon_{sufijo}")
+                            razon_social = st.text_input("Razón Social", key=f"razon_{sufijo_prov}")
                         
                         with col_i2:
-                            direccion_fiscal = st.text_area("Dirección Fiscal", key=f"dir_{sufijo}")
-                            codigo_cuenta = st.text_input("Código de Cuenta Contable", key=f"cc_{sufijo}")
-                            descripcion_cuenta = st.text_input("Descripción de Cuenta", key=f"dc_{sufijo}")
+                            direccion_fiscal = st.text_area("Dirección Fiscal", key=f"dir_{sufijo_prov}")
+                            codigo_cuenta = st.text_input("Código de Cuenta Contable", key=f"cc_{sufijo_prov}")
+                            descripcion_cuenta = st.text_input("Descripción de Cuenta", key=f"dc_{sufijo_prov}")
 
                         # Botón final para insertar en la tabla 'proveedores'
-                        if st.button("💾 Guardar Proveedor en Base de Datos", type="primary", key=f"btn_guardar_{sufijo}"):
+                        if st.button("💾 Guardar Proveedor en Base de Datos", type="primary", key=f"btn_guardar_prov_{sufijo_prov}"):
                             db_nombre = st.session_state.get('DB_ACTUAL')
                             if not db_nombre:
                                 st.error("Error: No se ha seleccionado una base de datos activa.")
