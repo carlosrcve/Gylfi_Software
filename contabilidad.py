@@ -2612,14 +2612,22 @@ def extraer_datos_con_regex(pdf_file_obj):
 
 def extraer_datos_proveedor_pdf(archivo_pdf):
     """
-    Extrae RIF, Razón Social y Dirección Fiscal de forma 100% genérica,
-    adaptándose a cualquier modelo de factura fiscal en Venezuela.
+    Extrae RIF, Razón Social y Dirección Fiscal de forma genérica,
+    utilizando getvalue() para evitar problemas de punteros vacíos en Streamlit.
     """
-    if hasattr(archivo_pdf, "seek"):
-        archivo_pdf.seek(0)
+    if archivo_pdf is None:
+        return None
         
     try:
-        pdf_bytes = archivo_pdf.read()
+        # getvalue() obtiene los bytes de forma segura sin consumir el puntero de Streamlit
+        if hasattr(archivo_pdf, "getvalue"):
+            pdf_bytes = archivo_pdf.getvalue()
+        elif hasattr(archivo_pdf, "read"):
+            archivo_pdf.seek(0)
+            pdf_bytes = archivo_pdf.read()
+        else:
+            return None
+
         if not pdf_bytes:
             return None
             
@@ -2645,13 +2653,9 @@ def extraer_datos_proveedor_pdf(archivo_pdf):
 
     lineas = [l.strip() for l in texto_completo.split('\n') if l.strip()]
 
-    # -------------------------------------------------------------
-    # 1. BÚSQUEDA GENÉRICA DE RIF DEL EMISOR (El primer RIF que aparece suele ser el del proveedor)
-    # -------------------------------------------------------------
-    # Buscamos todos los RIFs en el documento para tomar el del emisor (evitando el del cliente si aparece abajo)
+    # 1. Búsqueda genérica del RIF del emisor (ej. J-317213963)
     coincidencias_rif = re.findall(r'\b([JVEGPC]\s*-?\s*\d{7,10}\s*-?\s*\d?)\b', texto_completo, re.IGNORECASE)
     if coincidencias_rif:
-        # Por lo general, el primer RIF del texto fiscal superior corresponde al proveedor
         rif_bruto = coincidencias_rif[0].upper()
         rif_limpio = re.sub(r'[\s-]', '', rif_bruto)
         if len(rif_limpio) >= 8:
@@ -2659,46 +2663,36 @@ def extraer_datos_proveedor_pdf(archivo_pdf):
         else:
             datos["rif"] = rif_bruto
 
-    # -------------------------------------------------------------
-    # 2. CAPTURA GENÉRICA DE LA RAZÓN SOCIAL DEL PROVEEDOR
-    # -------------------------------------------------------------
+    # 2. Captura genérica de la Razón Social del Proveedor
     razon_encontrada = ""
-    
-    # Estrategia A: Buscar en las primeras líneas una que contenga sufijos mercantiles estándar en Venezuela
     sufijos_mercantiles = ["C.A", "S.A", "S.R.L", "SRL", "COMPAÑIA", "INVERSIONES", "CORPORACION", "SOCIEDAD", "F.P", "FARMACIA", "SUCR", "COMERCIAL", "DISTRIBUIDORA"]
     
-    for l in lineas[:8]:  # Las razones sociales del emisor siempre están arriba
+    for l in lineas[:8]:
         l_up = l.upper()
-        # Evitamos agarrar la línea si es la del cliente (que suele tener etiquetas como "RAZON SOCIAL:" o "CLIENTE:")
         if "RAZON SOCIAL:" in l_up or "CLIENTE:" in l_up:
             break
         if any(term in l_up for term in sufijos_mercantiles):
             razon_encontrada = l
             break
             
-    # Estrategia B: Si no tiene sufijo explícito, tomar la línea más representativa de las primeras (excluyendo SENIAT y RIF)
     if not razon_encontrada and len(lineas) > 1:
         for l in lineas[:5]:
             l_up = l.upper()
-            if "SENIAT" not in l_up and "RIF" not in l_up and "AUTOPINTURA" not in l_up and len(l) > 5:
-                # Asegurar que no sea una dirección o zona postal
+            if "SENIAT" not in l_up and "RIF" not in l_up and len(l) > 5:
                 if not any(w in l_up for w in ["AV.", "AVENIDA", "CALLE", "ZONA", "URB", "EDIF"]):
                     razon_encontrada = l
                     break
 
     datos["proveedor"] = razon_encontrada[:255] if razon_encontrada else (lineas[0][:255] if lineas else "PROVEEDOR NO IDENTIFICADO")
 
-    # -------------------------------------------------------------
-    # 3. CAPTURA GENÉRICA DE DIRECCIÓN FISCAL
-    # -------------------------------------------------------------
+    # 3. Captura genérica de Dirección Fiscal
     dir_partes = []
-    palabras_direccion = ["AV.", "AVENIDA", "CALLE", "URB.", "URBANIZACION", "EDIF.", "LOCAL", "SECTOR", "ZONA", "VEREDA", "VER."]
+    palabras_direccion = ["AV.", "AVENIDA", "CALLE", "URB.", "URBANIZACION", "EDIF.", "LOCAL", "SECTOR", "ZONA"]
     
     capturando = False
     for l in lineas:
         l_up = l.upper()
-        # Si topamos con etiquetas de cierre de encabezado o datos del cliente, paramos de recolectar la dirección del proveedor
-        if any(lbl in l_up for lbl in ["RAZON SOCIAL:", "CLIENTE:", "FACTURA:", "N_FACTURA", "CONTROL:", "FECHA:"]):
+        if any(lbl in l_up for lbl in ["RAZON SOCIAL:", "CLIENTE:", "FACTURA:", "CONTROL:", "FECHA:"]):
             if capturando:
                 break
         
@@ -2706,18 +2700,15 @@ def extraer_datos_proveedor_pdf(archivo_pdf):
             capturando = True
             
         if capturando:
-            # Evitar agregar líneas que pertenezcan a datos fiscales o de control internos
             if "RIF" in l_up and "J-" in l_up:
                 continue
             dir_partes.append(l)
-            # Limitar a un bloque razonable de dirección (máximo 3 líneas consecutivas)
             if len(dir_partes) >= 3:
                 break
 
     if dir_partes:
         datos["direccion_fiscal"] = " ".join(dir_partes)[:255]
     else:
-        # Respaldo genérico buscando cualquier línea que parezca dirección
         for l in lineas:
             l_up = l.upper()
             if any(w in l_up for w in ["AV.", "CALLE", "URB", "SECTOR"]):
