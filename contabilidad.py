@@ -11368,7 +11368,10 @@ elif "Proveedores" in opcion_menu:
                                 if hasattr(archivo_pdf, "seek"):
                                     archivo_pdf.seek(0)
                                     
-                                # 1. Intentas extraer los datos automáticamente del PDF
+                                # Asegúrate de que esta línea exista ANTES de la línea 11372:
+                                archivo_subido = st.file_uploader("Sube la factura del proveedor", type=["pdf"])
+
+                                # Justo debajo de eso ya puedes usarla sin que dé error:
                                 datos_proveedor = extraer_datos_proveedor_pdf(archivo_subido)
 
                                 # 2. Si es una imagen escaneada y devuelve None, abrimos campos manuales
