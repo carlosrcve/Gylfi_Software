@@ -11368,32 +11368,21 @@ elif "Proveedores" in opcion_menu:
                                 if hasattr(archivo_pdf, "seek"):
                                     archivo_pdf.seek(0)
                                     
-                                # Asegúrate de que esta línea exista ANTES de la línea 11372:
-                                archivo_subido = st.file_uploader("Sube la factura del proveedor", type=["pdf"])
+                                # Extracción usando la función nativa con PyMuPDF
+                                datos_proveedor = extraer_datos_proveedor_pdf(archivo_pdf)
 
-                                # Justo debajo de eso ya puedes usarla sin que dé error:
-                                datos_proveedor = extraer_datos_proveedor_pdf(archivo_subido)
-
-                                # 2. Si es una imagen escaneada y devuelve None, abrimos campos manuales
                                 if datos_proveedor is None:
-                                    st.warning("⚠️ Este PDF es una imagen escaneada y no tiene texto digital. Por favor, completa los datos del proveedor:")
-                                    
-                                    with st.form("form_proveedor_manual"):
-                                        rif_manual = st.text_input("RIF del Proveedor (ej. J-12345678-9)")
-                                        nombre_manual = st.text_input("Razón Social / Nombre del Proveedor")
-                                        dir_manual = st.text_input("Dirección Fiscal")
-                                        
-                                        submitted = st.form_submit_button("Guardar y Continuar")
-                                        if submitted:
-                                            datos_proveedor = {
-                                                "rif": rif_manual,
-                                                "proveedor": nombre_manual,
-                                                "direccion_fiscal": dir_manual
-                                            }
-                                            st.success("¡Datos del proveedor cargados manualmente con éxito!")
+                                    st.warning("⚠️ Este PDF es una imagen escaneada o no tiene texto digital. Por favor, completa los datos del proveedor manualmente en los campos de abajo.")
+                                    st.session_state[f"rif_{sufijo_prov}"] = ""
+                                    st.session_state[f"razon_{sufijo_prov}"] = ""
+                                    st.session_state[f"dir_{sufijo_prov}"] = ""
                                 else:
-                                    # Si el PDF sí tenía texto digital, los muestra o usa directamente
-                                    st.success(f"¡Proveedor detectado automáticamente: {datos_proveedor['proveedor']}!")
+                                    st.session_state[f"rif_{sufijo_prov}"] = datos_proveedor.get("rif", "")
+                                    st.session_state[f"razon_{sufijo_prov}"] = datos_proveedor.get("proveedor", "")
+                                    st.session_state[f"dir_{sufijo_prov}"] = datos_proveedor.get("direccion_fiscal", "")
+                                    st.success(f"¡Datos extraídos con éxito para: {datos_proveedor['proveedor']}!")
+                                    st.rerun()
+
                         st.info(f"Completando información para el archivo: **{sufijo_prov}**")
                         
                         # Campos de entrada estructurados fuera de st.form para mantener reactividad total
