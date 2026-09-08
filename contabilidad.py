@@ -12300,30 +12300,32 @@ elif "Proveedores" in opcion_menu:
                     st.balloons()
 
         # 4. Lógica de Pestaña 2
+        # 4. Lógica de Pestaña 2 - Versión Blindada
         with tab2:
             st.markdown("### 📋 Directorio Actual de Proveedores")
             
-            if 'conn_empresa' not in locals() or conn_empresa is None:
-                db_actual = st.session_state.get('DB_ACTUAL')
+            # 1. Asegurar conexión activa y fresca
+            db_actual = st.session_state.get('DB_ACTUAL')
+            if 'conn_empresa' not in locals() or conn_empresa is None or not conn_empresa.is_connected():
                 conn_empresa = conectar_db(db_actual)
 
-            # 🛡️ Autoverificación: Asegurar que las columnas existan físicamente en la BD de MySQL
-            try:
-                cursor_check = conn_empresa.cursor()
-                cursor_check.execute("SHOW COLUMNS FROM proveedores LIKE 'codigo_cuenta'")
-                if not cursor_check.fetchone():
-                    cursor_check.execute("ALTER TABLE proveedores ADD COLUMN codigo_cuenta VARCHAR(50) DEFAULT ''")
-                    conn_empresa.commit()
-                
-                cursor_check.execute("SHOW COLUMNS FROM proveedores LIKE 'descripcion_cuenta'")
-                if not cursor_check.fetchone():
-                    cursor_check.execute("ALTER TABLE proveedores ADD COLUMN descripcion_cuenta VARCHAR(255) DEFAULT ''")
-                    conn_empresa.commit()
-                cursor_check.close()
-            except Exception as e:
-                st.warning(f"Nota sobre verificación de columnas: {e}")
+            # 2. Autoverificación de columnas de manera independiente y segura
+            if conn_empresa:
+                try:
+                    with conn_empresa.cursor() as cursor_check:
+                        cursor_check.execute("SHOW COLUMNS FROM proveedores LIKE 'codigo_cuenta'")
+                        if not cursor_check.fetchone():
+                            cursor_check.execute("ALTER TABLE proveedores ADD COLUMN codigo_cuenta VARCHAR(50) DEFAULT ''")
+                            conn_empresa.commit()
+                        
+                        cursor_check.execute("SHOW COLUMNS FROM proveedores LIKE 'descripcion_cuenta'")
+                        if not cursor_check.fetchone():
+                            cursor_check.execute("ALTER TABLE proveedores ADD COLUMN descripcion_cuenta VARCHAR(255) DEFAULT ''")
+                            conn_empresa.commit()
+                except Exception as ex_alter:
+                    st.warning(f"Aviso de estructura: {ex_alter}")
 
-            # Resto de tu carga normal...
+            # 3. Consulta de datos fresca
             columnas_reales = ["rif", "tipo_persona", "razon_social", "direccion_fiscal", "codigo_cuenta", "descripcion_cuenta"]
             df_temp = consultar_tabla_db(conn_empresa, "proveedores")
             
@@ -12338,6 +12340,7 @@ elif "Proveedores" in opcion_menu:
             for col in df_para_mostrar.columns:
                 df_para_mostrar[col] = df_para_mostrar[col].astype(str).replace(['None', 'nan', 'NAT'], '')
 
+            # 4. Editor de datos interactivo
             df_editado = st.data_editor(
                 df_para_mostrar, 
                 key="editor_proveedores_dinamico", 
@@ -12355,7 +12358,7 @@ elif "Proveedores" in opcion_menu:
                 }
             )
             
-            # Botones de guardar y recargar...
+            # Botones de acción
             col_b1, col_b2 = st.columns(2)
             with col_b1:
                 if st.button("💾 Guardar Todo en BD", key="btn_guardar_proveedores", use_container_width=True):
@@ -12370,7 +12373,7 @@ elif "Proveedores" in opcion_menu:
                 if st.button("🔄 Recargar desde BD", key="btn_recargar_proveedores", use_container_width=True):
                     st.rerun()
 
-        # 4. Zona de respaldo
+        # 5. Zona de respaldo
         st.markdown("---") 
         if not df_para_mostrar.empty:
             import io
