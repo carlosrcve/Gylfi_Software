@@ -11378,11 +11378,11 @@ elif "Proveedores" in opcion_menu:
                                 if hasattr(archivo_pdf, "seek"):
                                     archivo_pdf.seek(0)
                                     
-                                # Extracción usando la función nativa con PyMuPDF
+                                # Extracción usando la función inteligente (Fitz + Tesseract OCR)
                                 datos_proveedor = extraer_datos_proveedor_pdf(archivo_pdf)
 
                                 if datos_proveedor is None:
-                                    st.warning("⚠️ Este PDF es una imagen escaneada o no tiene texto digital. Por favor, completa los datos del proveedor manualmente en los campos de abajo.")
+                                    st.warning("⚠️ El documento no pudo ser leído correctamente ni por texto nativo ni por OCR. Por favor, completa los datos manualmente.")
                                     st.session_state[f"rif_{sufijo_prov}"] = ""
                                     st.session_state[f"razon_{sufijo_prov}"] = ""
                                     st.session_state[f"dir_{sufijo_prov}"] = ""
