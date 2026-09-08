@@ -31,7 +31,7 @@ import fitz # PyMuPDF (asegúrate de tenerla instalada o usa pdf2image)
 import google.generativeai as genai
 import pdfplumber
 import tempfile
-
+import pytesseract
 
 st.set_page_config(
     page_title="Mi App Contable",
@@ -2609,14 +2609,10 @@ def extraer_datos_con_regex(pdf_file_obj):
     return datos
 
 
-
-import re
-import fitz
-
 def extraer_datos_proveedor_pdf(archivo_pdf):
     """
-    Extrae RIF, Razón Social y Dirección Fiscal adaptado a las facturas
-    fiscales venezolanas con el formato exacto del membrete y emisor.
+    Extrae RIF, Razón Social y Dirección Fiscal de un PDF de forma inteligente.
+    Si el PDF es una imagen escaneada o no tiene texto vectorial, activa OCR automáticamente.
     """
     if archivo_pdf is None:
         return None
@@ -2636,14 +2632,28 @@ def extraer_datos_proveedor_pdf(archivo_pdf):
         doc = fitz.open(stream=pdf_bytes, filetype="pdf")
         texto_completo = ""
         
+        # 1. Intentar extracción de texto nativo primero
         for pagina in doc:
             texto_extraido = pagina.get_text("text")
             if texto_extraido:
                 texto_completo += texto_extraido + "\n"
                 
+        # 2. Si el texto está vacío o es muy pobre (PDF escaneado / foto), aplicamos OCR
+        if len(texto_completo.strip()) < 15:
+            texto_completo = ""
+            for pagina in doc:
+                # Renderizar página a imagen de alta calidad (300 DPI)
+                pix = pagina.get_pixmap(dpi=300)
+                img_bytes = pix.tobytes("png")
+                imagen = Image.open(io.BytesIO(img_bytes))
+                
+                # Ejecutar Tesseract OCR (soporte en español)
+                texto_ocr = pytesseract.image_to_string(imagen, lang='spa')
+                texto_completo += texto_ocr + "\n"
+                
         doc.close()
     except Exception as e:
-        print(f"Error procesando el PDF del proveedor: {e}")
+        print(f"Error procesando el PDF con OCR: {e}")
         return None
 
     if not texto_completo.strip():
@@ -2657,7 +2667,7 @@ def extraer_datos_proveedor_pdf(archivo_pdf):
 
     lineas = [l.strip() for l in texto_completo.split('\n') if l.strip()]
 
-    # 1. Búsqueda exacta del RIF del emisor (viene justo después de SENIAT)
+    # 1. Búsqueda exacta del RIF del emisor
     match_rif = re.search(r'RIF\s*([JVEG]\-?\d+)', texto_completo, re.IGNORECASE)
     if match_rif:
         rif_bruto = match_rif.group(1).upper()
@@ -2666,30 +2676,36 @@ def extraer_datos_proveedor_pdf(archivo_pdf):
             datos["rif"] = f"{rif_limpio[0]}-{rif_limpio[1:-1]}-{rif_limpio[-1]}"
         else:
             datos["rif"] = rif_bruto
+    else:
+        # Respaldo genérico si la etiqueta RIF viene separada
+        match_rif_gen = re.search(r'\b([JVEG]\s*-?\s*\d{7,10}\s*-?\s*\d?)\b', texto_completo, re.IGNORECASE)
+        if match_rif_gen:
+            rif_bruto = match_rif_gen.group(1).upper()
+            rif_limpio = re.sub(r'[\s-]', '', rif_bruto)
+            if len(rif_limpio) >= 8:
+                datos["rif"] = f"{rif_limpio[0]}-{rif_limpio[1:-1]}-{rif_limpio[-1]}"
+            else:
+                datos["rif"] = rif_bruto
 
-    # 2. Extracción de la Razón Social del Proveedor (Nombre comercial en el membrete)
-    # Por lo general está en las primeras líneas después de SENIAT y el RIF
-    for l in lineas[:5]:
+    # 2. Extracción de la Razón Social del Proveedor
+    for l in lineas[:6]:
         l_up = l.upper()
         if "SENIAT" not in l_up and "RIF" not in l_up and len(l) > 4:
             datos["proveedor"] = l[:255]
             break
 
-    # 3. Extracción de Dirección Fiscal (Busca las líneas entre el RIF y los datos del cliente)
+    # 3. Extracción de Dirección Fiscal
     dir_partes = []
     capturar = False
     for l in lineas:
         l_up = l.upper()
-        if "AUTOPARTES Y SERVICIOS" in l_up or ("AV" in l_up and not capturar):
-            capturar = True
-        
-        if capturar:
+        if any(term in l_up for term in ["AV", "CALLE", "URB", "TORKE", "AVENIDA"]) or capturar:
             if "RIF/C.I" in l_up or "RAZON SOCIAL" in l_up or "FACTURA" in l_up:
                 break
+            capturar = True
             dir_partes.append(l)
 
     if dir_partes:
-        # Limpiamos posibles repeticiones del nombre del proveedor si se coló
         dir_limpia = [p for p in dir_partes if datos["proveedor"] not in p]
         datos["direccion_fiscal"] = " ".join(dir_limpia)[:255]
     else:
