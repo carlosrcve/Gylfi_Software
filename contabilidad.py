@@ -12241,20 +12241,26 @@ elif "Proveedores" in opcion_menu:
                 st.dataframe(df_subida, use_container_width=True, height=450)
                 
                 if st.button("🚀 Procesar y Guardar", type="primary", key="btn_procesar_excel_prov"):
-                    if not df_subida.empty:
-                        # Llamamos a la función y asegurarnos de que devuelva o imprima el total real
-                        procesar_excel_proveedores_db(df_subida)
-                        st.success(f"✅ ¡Proceso finalizado! Se intentaron guardar {len(df_subida)} registros.")
-                        st.balloons()
-                    else:
-                        st.warning("⚠️ El archivo Excel parece estar vacío.")
+                    procesar_excel_proveedores_db(df_subida)
+                    
+                    # 💡 IMPORTANTE: Borramos el caché para forzar que la pestaña 2 recargue de la BD
+                    if "df_proveedores_cache" in st.session_state:
+                        del st.session_state.df_proveedores_cache
+                        
+                    st.success("✅ ¡Actualizado y sincronizado!")
+                    st.balloons()
 
         # 4. Lógica de Pestaña 2
         with tab2:
             st.markdown("### 📋 Directorio Actual")
             
-            # 1. Inicializamos los datos en session_state solo si no existen
-            if "df_proveedores_cache" not in st.session_state:
+            # 1. Validación de conexión para evitar que falle si conn_empresa no está definida en este ámbito
+            if 'conn_empresa' not in locals() or conn_empresa is None:
+                db_actual = st.session_state.get('DB_ACTUAL')
+                conn_empresa = conectar_db(db_actual)
+
+            # 2. Inicializamos o refrescamos los datos en session_state si no existen o están vacíos
+            if "df_proveedores_cache" not in st.session_state or st.session_state.df_proveedores_cache is None:
                 df_temp = consultar_tabla_db(conn_empresa, "proveedores")
                 if df_temp is None or not isinstance(df_temp, pd.DataFrame) or df_temp.empty:
                     df_temp = pd.DataFrame(columns=["rif", "tipo_persona", "razon_social", "direccion_fiscal"])
@@ -12264,13 +12270,14 @@ elif "Proveedores" in opcion_menu:
                 
                 st.session_state.df_proveedores_cache = df_temp
 
-            # 2. El data_editor ahora lee y escribe directamente sobre el session_state
+            # 3. El data_editor lee y escribe directamente sobre el session_state
             df_editado = st.data_editor(
                 st.session_state.df_proveedores_cache, 
                 key="editor_proveedores_dinamico", 
                 num_rows="dynamic",
                 use_container_width=True,
                 hide_index=True,
+                height=450, # Agregamos altura cómoda para ver todas las líneas
                 column_config={
                     "rif": st.column_config.TextColumn("RIF (Llave Primaria)", required=True),
                     "tipo_persona": st.column_config.SelectboxColumn("Tipo", options=["PN", "PJ"], required=True),
@@ -12279,7 +12286,7 @@ elif "Proveedores" in opcion_menu:
                 }
             )
             
-            # 3. Actualizamos el caché local con lo que el usuario modificó/agregó visualmente
+            # Actualizamos el caché local
             st.session_state.df_proveedores_cache = df_editado
 
             col_b1, col_b2 = st.columns(2)
@@ -12287,11 +12294,10 @@ elif "Proveedores" in opcion_menu:
             with col_b1:
                 if st.button("💾 Guardar Todo en BD", key="btn_guardar_proveedores", use_container_width=True):
                     try:
-                        # Enviamos a la base de datos lo que está en el editor
                         actualizar_tabla_completa_db(conn_empresa, "proveedores", df_editado)
                         st.success("¡Directorio actualizado con éxito!")
-                        # Forzamos una recarga limpia desde la BD para sincronizar
-                        del st.session_state.df_proveedores_cache
+                        if "df_proveedores_cache" in st.session_state:
+                            del st.session_state.df_proveedores_cache
                         st.rerun()
                     except Exception as e:
                         st.error(f"❌ Error al guardar los cambios en la base de datos: {e}")
