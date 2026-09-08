@@ -29,6 +29,10 @@ import pymysql.cursors
 import streamlit.components.v1 as components
 import fitz # PyMuPDF (asegúrate de tenerla instalada o usa pdf2image)
 import google.generativeai as genai
+import pdfplumber
+import tempfiler
+
+
 st.set_page_config(
     page_title="Mi App Contable",
     layout="wide",
@@ -2605,44 +2609,34 @@ def extraer_datos_con_regex(pdf_file_obj):
     return datos
 
 
-import re
-import pdfplumber
 
 def extraer_datos_proveedor_pdf(archivo_pdf):
     """
-    Extrae RIF, Razón Social y Dirección Fiscal de forma robusta, 
-    con soporte para PDFs de texto y respaldo por OCR si es una imagen escaneada.
+    Extrae RIF, Razón Social y Dirección Fiscal de forma ultra robusta 
+    creando un archivo temporal seguro compatible al 100% con Streamlit Cloud.
     """
     texto_completo = ""
     
-    # 1. Intentar lectura tradicional de texto con pdfplumber
     try:
-        with pdfplumber.open(archivo_pdf) as pdf:
+        # Asegurar que el puntero del archivo esté al inicio
+        if hasattr(archivo_pdf, "seek"):
+            archivo_pdf.seek(0)
+            
+        # Crear un archivo temporal físico para que pdfplumber lo lea sin errores de memoria
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as temp_file:
+            temp_file.write(archivo_pdf.read())
+            temp_path = temp_file.name
+
+        # Abrir el PDF temporal con pdfplumber
+        with pdfplumber.open(temp_path) as pdf:
             for pagina in pdf.pages:
                 texto_extraido = pagina.extract_text()
                 if texto_extraido:
                     texto_completo += texto_extraido + "\n"
+                    
     except Exception as e:
-        print(f"Error en lectura de texto PDF: {e}")
-
-    # 2. Si el texto viene vacío (PDF escaneado), intentar extraer usando OCR (si está disponible)
-    if not texto_completo.strip():
-        try:
-            from pdf2image import convert_from_bytes
-            import pytesseract
-            
-            if hasattr(archivo_pdf, "seek"):
-                archivo_pdf.seek(0)
-            bytes_pdf = archivo_pdf.read()
-            
-            # Convertir PDF a imágenes
-            imagenes = convert_from_bytes(bytes_pdf)
-            for img in imagenes:
-                texto_ocr = pytesseract.image_to_string(img, lang='spa')
-                if texto_ocr:
-                    texto_completo += texto_ocr + "\n"
-        except Exception as ocr_err:
-            print(f"Aviso: OCR no disponible o falló: {ocr_err}")
+        print(f"Error procesando el PDF temporal: {e}")
+        return None
 
     if not texto_completo.strip():
         return None
@@ -2650,15 +2644,13 @@ def extraer_datos_proveedor_pdf(archivo_pdf):
     datos = {}
     lineas = [l.strip() for l in texto_completo.split('\n') if l.strip()]
 
-    # 3. Búsqueda ultra flexible de RIF venezolano (acepta guiones opcionales, espacios y prefijos J, V, G, E, P, C)
+    # 1. Búsqueda flexible de RIF venezolano (J, V, G, E, P, C con o sin guiones/espacios)
     match_rif = re.search(r'(?:R\.?I\.?F\.?[:\s]*)?\b([JVEGPC]\s*-?\s*\d{7,10}\s*-?\s*\d?)\b', texto_completo, re.IGNORECASE)
     if match_rif:
-        # Limpiar espacios y guiones intermedios para dejarlo estandarizado (Ej: J-12345678-9)
         rif_bruto = match_rif.group(1).upper()
         rif_limpio = re.sub(r'[\s-]', '', rif_bruto)
         if len(rif_limpio) >= 8:
-            # Reconstruir formato estándar venezolano tipo J-########-#
-            prefijo = rif_rif_letra = rif_limpio[0]
+            prefijo = rif_limpio[0]
             cuerpo = rif_limpio[1:-1]
             dv = rif_limpio[-1]
             datos["rif"] = f"{prefijo}-{cuerpo}-{dv}"
@@ -2667,16 +2659,15 @@ def extraer_datos_proveedor_pdf(archivo_pdf):
     else:
         datos["rif"] = ""
 
-    # 4. Capturar Razón Social (Busca líneas que suenen a compañía o toma las primeras líneas válidas)
+    # 2. Captura inteligente de Razón Social
     razon_encontrada = ""
-    for l in lineas[:8]: # Revisar las primeras 8 líneas
+    for l in lineas[:8]:  # Buscar en las primeras 8 líneas
         l_upper = l.upper()
-        if any(term in l_upper for term in ["C.A.", "S.A.", "SRL", "COMPAÑIA", "INVERSIONES", "CA", "SA", "FARMACIA", "COMERCIAL", "DISTRIBUIDORA"]):
+        if any(term in l_upper for term in ["C.A.", "S.A.", "SRL", "COMPAÑIA", "INVERSIONES", "CA", "SA", "FARMACIA", "COMERCIAL", "DISTRIBUIDORA", "CORPORACION"]):
             razon_encontrada = l
             break
     
     if not razon_encontrada and lineas:
-        # Si no encontró etiqueta jurídica, agarra la primera línea que no sea un RIF ni una fecha
         for l in lineas:
             if not re.search(r'[JVEGPC]-\d+', l) and len(l) > 4:
                 razon_encontrada = l
@@ -2684,16 +2675,15 @@ def extraer_datos_proveedor_pdf(archivo_pdf):
 
     datos["proveedor"] = razon_encontrada if razon_encontrada else (lineas[0] if lineas else "")
 
-    # 5. Buscar Dirección Fiscal de forma avanzada
+    # 3. Buscar Dirección Fiscal
     match_dir = re.search(r'(?:Direcci[oó]n\s*(?:Fiscal|Principal)?|Dir\.?)[:\s]+([^\n]+(?:\n[^\n]+)?)', texto_completo, re.IGNORECASE)
     if match_dir:
         datos["direccion_fiscal"] = match_dir.group(1).strip()
     else:
-        # Buscar líneas que contengan palabras típicas de direcciones si la etiqueta falló
         dir_alternativa = ""
         for l in lineas:
             l_up = l.upper()
-            if any(w in l_up for w in ["AV.", "AVENIDA", "CALLE", "URB.", "URBANIZACION", "EDIF.", "LOCAL", "SECTOR", "ZONA INDUSTRIAL"]):
+            if any(w in l_up for w in ["AV.", "AVENIDA", "CALLE", "URB.", "URBANIZACION", "EDIF.", "LOCAL", "SECTOR", "ZONA INDUSTRIAL", "PISO"]):
                 dir_alternativa = l
                 break
         datos["direccion_fiscal"] = dir_alternativa
