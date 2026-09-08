@@ -16,4 +16,4 @@ openpyxl
 xlsxwriter
 PyMuPDF
 google-generativeai
-
+pdfplumber
