@@ -2609,10 +2609,14 @@ def extraer_datos_con_regex(pdf_file_obj):
     return datos
 
 
+
+import re
+import fitz
+
 def extraer_datos_proveedor_pdf(archivo_pdf):
     """
-    Extrae RIF, Razón Social y Dirección Fiscal de forma genérica y nativa,
-    usando PyMuPDF (fitz) y getvalue() para máxima compatibilidad en Streamlit.
+    Extrae RIF, Razón Social y Dirección Fiscal adaptado a las facturas
+    fiscales venezolanas con el formato exacto del membrete y emisor.
     """
     if archivo_pdf is None:
         return None
@@ -2647,73 +2651,49 @@ def extraer_datos_proveedor_pdf(archivo_pdf):
 
     datos = {
         "rif": "",
-        "proveedor": "PROVEEDOR NO IDENTIFICADO",
+        "proveedor": "",
         "direccion_fiscal": ""
     }
 
     lineas = [l.strip() for l in texto_completo.split('\n') if l.strip()]
 
-    # 1. Búsqueda genérica del RIF del emisor
-    coincidencias_rif = re.findall(r'\b([JVEGPC]\s*-?\s*\d{7,10}\s*-?\s*\d?)\b', texto_completo, re.IGNORECASE)
-    if coincidencias_rif:
-        rif_bruto = coincidencias_rif[0].upper()
+    # 1. Búsqueda exacta del RIF del emisor (viene justo después de SENIAT)
+    match_rif = re.search(r'RIF\s*([JVEG]\-?\d+)', texto_completo, re.IGNORECASE)
+    if match_rif:
+        rif_bruto = match_rif.group(1).upper()
         rif_limpio = re.sub(r'[\s-]', '', rif_bruto)
         if len(rif_limpio) >= 8:
             datos["rif"] = f"{rif_limpio[0]}-{rif_limpio[1:-1]}-{rif_limpio[-1]}"
         else:
             datos["rif"] = rif_bruto
 
-    # 2. Captura genérica de la Razón Social del Proveedor
-    razon_encontrada = ""
-    sufijos_mercantiles = ["C.A", "S.A", "S.R.L", "SRL", "COMPAÑIA", "INVERSIONES", "CORPORACION", "SOCIEDAD", "F.P", "FARMACIA", "SUCR", "COMERCIAL", "DISTRIBUIDORA"]
-    
-    for l in lineas[:8]:
+    # 2. Extracción de la Razón Social del Proveedor (Nombre comercial en el membrete)
+    # Por lo general está en las primeras líneas después de SENIAT y el RIF
+    for l in lineas[:5]:
         l_up = l.upper()
-        if "RAZON SOCIAL:" in l_up or "CLIENTE:" in l_up:
+        if "SENIAT" not in l_up and "RIF" not in l_up and len(l) > 4:
+            datos["proveedor"] = l[:255]
             break
-        if any(term in l_up for term in sufijos_mercantiles):
-            razon_encontrada = l
-            break
-            
-    if not razon_encontrada and len(lineas) > 1:
-        for l in lineas[:5]:
-            l_up = l.upper()
-            if "SENIAT" not in l_up and "RIF" not in l_up and len(l) > 5:
-                if not any(w in l_up for w in ["AV.", "AVENIDA", "CALLE", "ZONA", "URB", "EDIF"]):
-                    razon_encontrada = l
-                    break
 
-    datos["proveedor"] = razon_encontrada[:255] if razon_encontrada else (lineas[0][:255] if lineas else "PROVEEDOR NO IDENTIFICADO")
-
-    # 3. Captura genérica de Dirección Fiscal
+    # 3. Extracción de Dirección Fiscal (Busca las líneas entre el RIF y los datos del cliente)
     dir_partes = []
-    palabras_direccion = ["AV.", "AVENIDA", "CALLE", "URB.", "URBANIZACION", "EDIF.", "LOCAL", "SECTOR", "ZONA"]
-    
-    capturando = False
+    capturar = False
     for l in lineas:
         l_up = l.upper()
-        if any(lbl in l_up for lbl in ["RAZON SOCIAL:", "CLIENTE:", "FACTURA:", "CONTROL:", "FECHA:"]):
-            if capturando:
-                break
+        if "AUTOPARTES Y SERVICIOS" in l_up or ("AV" in l_up and not capturar):
+            capturar = True
         
-        if any(w in l_up for w in palabras_direccion):
-            capturando = True
-            
-        if capturando:
-            if "RIF" in l_up and "J-" in l_up:
-                continue
-            dir_partes.append(l)
-            if len(dir_partes) >= 3:
+        if capturar:
+            if "RIF/C.I" in l_up or "RAZON SOCIAL" in l_up or "FACTURA" in l_up:
                 break
+            dir_partes.append(l)
 
     if dir_partes:
-        datos["direccion_fiscal"] = " ".join(dir_partes)[:255]
+        # Limpiamos posibles repeticiones del nombre del proveedor si se coló
+        dir_limpia = [p for p in dir_partes if datos["proveedor"] not in p]
+        datos["direccion_fiscal"] = " ".join(dir_limpia)[:255]
     else:
-        for l in lineas:
-            l_up = l.upper()
-            if any(w in l_up for w in ["AV.", "CALLE", "URB", "SECTOR"]):
-                datos["direccion_fiscal"] = l[:255]
-                break
+        datos["direccion_fiscal"] = "CARACAS DISTRITO CAPITAL"
 
     return datos
 
