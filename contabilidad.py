@@ -12283,19 +12283,32 @@ elif "Proveedores" in opcion_menu:
                     st.success("✅ ¡Actualizado y sincronizado!")
                     st.balloons()
 
-        # 4. Lógica de Pestaña 2 - Versión corregida sin bloqueos de caché ciegos
+        # 4. Lógica de Pestaña 2
         with tab2:
             st.markdown("### 📋 Directorio Actual de Proveedores")
             
-            # 1. Validación de conexión
             if 'conn_empresa' not in locals() or conn_empresa is None:
                 db_actual = st.session_state.get('DB_ACTUAL')
                 conn_empresa = conectar_db(db_actual)
 
-            # 2. Consultamos SIEMPRE la base de datos para traer los datos frescos
-            # (Eliminamos la trampa del caché que atrapaba datos vacíos)
+            # 🛡️ Autoverificación: Asegurar que las columnas existan físicamente en la BD de MySQL
+            try:
+                cursor_check = conn_empresa.cursor()
+                cursor_check.execute("SHOW COLUMNS FROM proveedores LIKE 'codigo_cuenta'")
+                if not cursor_check.fetchone():
+                    cursor_check.execute("ALTER TABLE proveedores ADD COLUMN codigo_cuenta VARCHAR(50) DEFAULT ''")
+                    conn_empresa.commit()
+                
+                cursor_check.execute("SHOW COLUMNS FROM proveedores LIKE 'descripcion_cuenta'")
+                if not cursor_check.fetchone():
+                    cursor_check.execute("ALTER TABLE proveedores ADD COLUMN descripcion_cuenta VARCHAR(255) DEFAULT ''")
+                    conn_empresa.commit()
+                cursor_check.close()
+            except Exception as e:
+                st.warning(f"Nota sobre verificación de columnas: {e}")
+
+            # Resto de tu carga normal...
             columnas_reales = ["rif", "tipo_persona", "razon_social", "direccion_fiscal", "codigo_cuenta", "descripcion_cuenta"]
-            
             df_temp = consultar_tabla_db(conn_empresa, "proveedores")
             
             if df_temp is None or not isinstance(df_temp, pd.DataFrame) or df_temp.empty:
@@ -12306,11 +12319,9 @@ elif "Proveedores" in opcion_menu:
                     if col not in df_para_mostrar.columns:
                         df_para_mostrar[col] = ""
 
-            # Limpiamos nulos o valores extraños
             for col in df_para_mostrar.columns:
-                df_para_mostrar[col] = df_para_mostrar[col].astype(str).replace(['None', 'nan', 'NAT', 'None'], '')
+                df_para_mostrar[col] = df_para_mostrar[col].astype(str).replace(['None', 'nan', 'NAT'], '')
 
-            # 3. El data_editor directo con los datos frescos de la BD
             df_editado = st.data_editor(
                 df_para_mostrar, 
                 key="editor_proveedores_dinamico", 
@@ -12327,17 +12338,17 @@ elif "Proveedores" in opcion_menu:
                     "descripcion_cuenta": st.column_config.TextColumn("Descripción Cuenta")
                 }
             )
-
-            col_b1, col_b2 = st.columns(2)
             
+            # Botones de guardar y recargar...
+            col_b1, col_b2 = st.columns(2)
             with col_b1:
                 if st.button("💾 Guardar Todo en BD", key="btn_guardar_proveedores", use_container_width=True):
                     try:
                         actualizar_tabla_completa_db(conn_empresa, "proveedores", df_editado)
-                        st.success("¡Directorio actualizado con éxito en la base de datos!")
+                        st.success("¡Directorio actualizado con éxito!")
                         st.rerun()
                     except Exception as e:
-                        st.error(f"❌ Error al guardar los cambios en la base de datos: {e}")
+                        st.error(f"❌ Error al guardar: {e}")
 
             with col_b2:
                 if st.button("🔄 Recargar desde BD", key="btn_recargar_proveedores", use_container_width=True):
