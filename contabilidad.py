@@ -6139,14 +6139,25 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
     """
     st.markdown("---")
     st.markdown("### 🏦 Tercer Frame: Conciliación y Pagos Bancarios (Match por RIF)")
-    st.info("Este módulo procesa los movimientos del estado de cuenta bancario previamente importados. El sistema buscará el número de RIF del proveedor en la columna `descripcion` para realizar el match automático y conciliar los registros.")
+    
+    # 🔍 PROTECCIÓN CONTRA 'none': Forzar la lectura correcta de la BD activa si viene 'none'
+    if not db_segura or db_segura == 'none':
+        db_segura = st.session_state.get('DB_ACTUAL')
+        
+    if not db_segura or db_segura == 'none':
+        st.error("❌ No hay ninguna base de datos de empresa seleccionada correctamente en la sesión.")
+        return
 
-    # 1. Asegurar la creación de la tabla banco_movimientos por seguridad si no existe
+    st.info(f"Empresa activa en este frame: **{db_segura}**. Este módulo procesa los movimientos del estado de cuenta bancario previamente importados.")
+
+    # 1. Asegurar la creación de la tabla banco_movimientos utilizando la base de datos segura y limpia
     if db_connection:
         try:
             with db_connection.cursor() as cursor_tabla:
-                cursor_tabla.execute(f"""
-                    CREATE TABLE IF NOT EXISTS `{db_segura}`.banco_movimientos (
+                # Nos aseguramos de usar USE o la sintaxis explícita con la base de datos correcta
+                cursor_tabla.execute(f"USE `{db_segura}`;")
+                cursor_tabla.execute("""
+                    CREATE TABLE IF NOT EXISTS banco_movimientos (
                         id INT AUTO_INCREMENT PRIMARY KEY,
                         banco_nombre VARCHAR(50) NOT NULL,
                         cuenta_numero VARCHAR(20) NOT NULL,
@@ -6163,7 +6174,7 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
         except Exception as err_tabla:
             st.warning(f"⚠️ No se pudo verificar/crear la tabla `banco_movimientos`: {err_tabla}")
 
-    # Consultar los movimientos bancarios actuales pendientes o cargados en la BD
+    # Consultar los movimientos bancarios actuales usando la base de datos correcta
     df_movs_bd = pd.DataFrame()
     if db_connection:
         try:
@@ -6203,19 +6214,15 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
                     for _, row in df_movs_bd.iterrows():
                         mov_id = row["id"]
                         descripcion = str(row["descripcion"] or "").strip()
-                        estado_actual = row["estado_conciliacion"]
 
-                        # Si ya está conciliado, podemos omitirlo o reevaluarlo
-                        # Expresión regular para buscar patrones de RIF venezolanos (ej: J-12345678-9, V12345678, G-...)
+                        # Expresión regular para buscar patrones de RIF venezolanos (ej: J-12345678-9, V12345678)
                         match_rif = re.search(r'([VEEJPG][-]?\d{6,10}[-]?[0-9]?)', descripcion, re.IGNORECASE)
                         
                         if match_rif:
                             rif_encontrado = match_rif.group(1).upper().replace("-", "")
-                            # Normalizar búsqueda contra el mapa de proveedores
                             for prov_rif_db, info_p in mapa_proveedores_por_rif.items():
                                 if prov_rif_db.replace("-", "") in rif_encontrado:
                                     matches_exitosos += 1
-                                    # Actualizar el estado de conciliación a Conciliado en la BD
                                     cursor_cursor.execute(f"""
                                         UPDATE `{db_segura}`.banco_movimientos 
                                         SET estado_conciliacion = 'Conciliado' 
