@@ -9258,7 +9258,7 @@ elif opcion_menu == "📝 Asientos Contables":
                 else:
                     st.error("No se pudo establecer la conexión con la base de datos de la empresa para los asientos automatizados.")
 
-             with tab6:
+            with tab6:
                 # 1. Recuperamos de la sesión el nombre o ID de la base de datos de la empresa actual 
                 # (Ajusta la clave 'empresa_actual' por la variable exacta que uses en tu app para el cliente)
                 nombre_bd_cliente = st.session_state.get('empresa_actual') 
