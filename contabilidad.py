@@ -9630,6 +9630,7 @@ elif opcion_menu == "📝 Asientos Contables":
                                 st.error(f"Error crítico procesando {banco_sel}: {e}")
     
         # --- TAB 3: ESTADO DE CUENTA BANCARIO ---
+        # --- TAB 3: ESTADO DE CUENTA BANCARIO ---
         with tab3:
             st.subheader("📂 Estado de Cuenta Bancario")
 
@@ -9688,29 +9689,23 @@ elif opcion_menu == "📝 Asientos Contables":
                     if not df_cuenta.empty:
                         df_mostrar = df_cuenta.copy()
                         
-                        # Aplicamos el formato idéntico al de la Tab 2 buscando columnas de montos
-                        columnas_a_formatear = ['debito', 'credito', 'saldo', 'monto', 'débito', 'crédito']
-                        
-                        for col in df_mostrar.columns:
-                            col_limpia = str(col).strip().lower()
-                            if any(c in col_limpia for c in columnas_a_formatear):
-                                def limpiar_y_formatear(val):
-                                    if pd.isna(val):
-                                        return ""
-                                    if isinstance(val, (int, float)):
-                                        num = float(val)
-                                    else:
-                                        try:
-                                            val_str = str(val).strip().replace('.', '').replace(',', '.')
-                                            num = float(val_str)
-                                        except:
-                                            return val 
-                                    return f"{num:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-                                
-                                df_mostrar[col] = df_mostrar[col].apply(limpiar_y_formatear).astype(str)
+                        # Aseguramos que la columna monto sea numérica para que el Styler funcione perfecto
+                        if 'monto' in df_mostrar.columns:
+                            df_mostrar['monto'] = pd.to_numeric(df_mostrar['monto'], errors='coerce').fillna(0.0)
 
-                        # Mostramos la tabla con altura fija para mantener fluidez
-                        st.dataframe(df_mostrar, use_container_width=True, height=450)
+                        # Función para aplicar formato venezolano (puntos para miles, comas para decimales)
+                        def formato_venezolano(val):
+                            if pd.isna(val):
+                                return ""
+                            return f"{val:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+                        # Aplicamos el formato visual mediante Styler sin romper el DataFrame original
+                        df_estilizado = df_mostrar.style.format({
+                            'monto': formato_venezolano
+                        })
+
+                        # Mostramos la tabla estilizada
+                        st.dataframe(df_estilizado, use_container_width=True, height=450)
                         st.write(f"**Total movimientos encontrados:** {len(df_cuenta)}")
                     else:
                         st.info(f"No hay movimientos para {empresa_data['nombre_empresa']} en {mes_sel} {ano_sel}.")
