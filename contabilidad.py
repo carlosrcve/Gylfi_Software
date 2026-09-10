@@ -9842,7 +9842,9 @@ elif opcion_menu == "📝 Asientos Contables":
                             # Ya no pasamos cliente_id porque la BD ya pertenece exclusivamente a dicha empresa
                             exito = vaciar_estado_cuenta_por_rango(conn, db_actual, fecha_desde, fecha_hasta)
                             if exito:
-                                st.success(f"✅ Estado de cuenta del {fecha_desde} al {fecha_hasta} vaciado exitosamente.")
+                                # ¡Lanzamos los globos y la buena noticia!
+                                st.balloons()
+                                st.success(f"🎉 ¡Listo mi pana! Los movimientos del {fecha_desde} al {fecha_hasta} se borraron a la perfección. ¡A limpiar cochino se ha dicho! 🚀")
                                 st.rerun()
                             else:
                                 st.error("❌ No se pudo completar la operación de borrado.")
