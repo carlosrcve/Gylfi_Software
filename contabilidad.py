@@ -9419,12 +9419,13 @@ elif opcion_menu == "📝 Asientos Contables":
 
 
         # Pestañas del Módulo
-        tab1, tab2, tab3, tab4, tab5 = st.tabs([
+        tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
             "⚙️ Configuración Saldos", 
             "📂 Importar Movimientos", 
             "📜 Estado de Cuenta", 
             "📊 Conciliación Bancaria", 
-            "🔒 Cierre de Mes"
+            "🔒 Cierre de Mes",
+            "🗑️ Vaciar Estado de Cuenta"
         ])
 
         with tab1:
@@ -9705,8 +9706,6 @@ elif opcion_menu == "📝 Asientos Contables":
                 except Exception as e:
                     st.error(f"❌ Error al conectar con el tablero: {e}")
 
-
-        # --- TAB 5: CIERRE DE MES (CANDADO DE SEGURIDAD) ---
         # ==========================================
         # --- TAB 5: CIERRE Y BLOQUEO DE MES ---
         # ==========================================
@@ -9779,6 +9778,64 @@ elif opcion_menu == "📝 Asientos Contables":
                         finally:
                             if 'cursor' in locals() and cursor:
                                 cursor.close()
+
+        with tab6:
+            st.subheader("🗑️ Vaciar Estado de Cuenta Bancario")
+            
+            db_actual = st.session_state.get('DB_ACTUAL')
+            cliente_id = st.session_state.get('cliente_id')
+            rol = st.session_state.get('rol')
+
+            if not db_actual:
+                st.error("No se ha seleccionado una base de datos de empresa.")
+                st.stop()
+
+            empresa_data = obtener_datos_agente_db(db_actual)
+
+            if empresa_data and rol != 'admin':
+                if empresa_data['id'] != cliente_id:
+                    st.error("⚠️ Acceso denegado: No tienes permisos para esta empresa.")
+                    st.stop()
+
+            st.warning("⚠️ **¡Atención!** Esta acción eliminará todos los registros de movimientos bancarios (`banco_movimientos`) asociados a esta empresa de forma permanente.")
+
+            # Función para vaciar la tabla de la base de datos
+            def vaciar_estado_cuenta(conexion, nombre_db, id_empresa):
+                try:
+                    cursor = conexion.cursor()
+                    # Borra todos los movimientos de la tabla banco_movimientos para la empresa actual
+                    query_delete = f"DELETE FROM `{nombre_db}`.banco_movimientos WHERE empresa_id = %s"
+                    cursor.execute(query_delete, (id_empresa,))
+                    conexion.commit()
+                    cursor.close()
+                    return True
+                except Exception as e:
+                    conexion.rollback()
+                    st.error(f"Error técnico al vaciar la tabla: {e}")
+                    return False
+
+            # Doble confirmación por seguridad
+            confirmar_checkbox = st.checkbox("Confirmo que deseo vaciar todo el estado de cuenta de esta empresa", key="chk_vaciar_movimientos")
+            
+            if confirmar_checkbox:
+                if st.button("🚨 Ejecutar Vaciado de Movimientos", type="primary"):
+                    try:
+                        if 'conn' in locals() and conn:
+                            conn.ping(reconnect=True)
+                        else:
+                            conn = conectar_db(db_actual)
+                        
+                        if conn:
+                            exito = vaciar_estado_cuenta(conn, db_actual, cliente_id)
+                            if exito:
+                                st.success("✅ El estado de cuenta ha sido vaciado exitosamente.")
+                                st.rerun()
+                            else:
+                                st.error("❌ No se pudo completar la operación de vaciado.")
+                        else:
+                            st.error("❌ Error de conexión con la base de datos.")
+                    except Exception as e:
+                        st.error(f"❌ Error crítico al procesar la solicitud: {e}")
 
 
     elif sub_opcion == "Consultar Comprobante":
