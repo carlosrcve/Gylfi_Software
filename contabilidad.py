@@ -6135,10 +6135,15 @@ def renderizar_tab_asientos_automatizados(db_connection):
 def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
     """
     Tercer Frame: Lee los movimientos bancarios ya importados en la tabla `banco_movimientos`,
-    extrae/compara el RIF en la descripción y concilia cancelando el pasivo contra el banco.
+    clasifica y concilia mediante un árbol de decisiones inteligente:
+    1. Match por RIF para proveedores.
+    2. Comisiones bancarias automáticas.
+    3. Impuestos y tributos SENIAT.
+    4. Pagos de créditos o financiamientos.
+    5. Red de seguridad para descripciones no reconocidas (Pendiente Manual).
     """
     st.markdown("---")
-    st.markdown("### 🏦 Tercer Frame: Conciliación y Pagos Bancarios (Match por RIF)")
+    st.markdown("### 🏦 Tercer Frame: Conciliación y Asientos Automatizados (Árbol de Decisiones)")
     
     # 🔍 PROTECCIÓN CONTRA 'none': Forzar la lectura correcta de la BD activa si viene 'none'
     if not db_segura or db_segura == 'none':
@@ -6148,13 +6153,12 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
         st.error("❌ No hay ninguna base de datos de empresa seleccionada correctamente en la sesión.")
         return
 
-    st.info(f"Empresa activa en este frame: **{db_segura}**. Este módulo procesa los movimientos del estado de cuenta bancario previamente importados.")
+    st.info(f"Empresa activa en este frame: **{db_segura}**. Este módulo procesa, clasifica y aísla los movimientos del estado de cuenta.")
 
     # 1. Asegurar la creación de la tabla banco_movimientos utilizando la base de datos segura y limpia
     if db_connection:
         try:
             with db_connection.cursor() as cursor_tabla:
-                # Nos aseguramos de usar USE o la sintaxis explícita con la base de datos correcta
                 cursor_tabla.execute(f"USE `{db_segura}`;")
                 cursor_tabla.execute("""
                     CREATE TABLE IF NOT EXISTS banco_movimientos (
@@ -6165,7 +6169,7 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
                         referencia VARCHAR(50) NOT NULL,
                         descripcion TEXT,
                         monto DECIMAL(18,2) NOT NULL,
-                        estado_conciliacion VARCHAR(20) DEFAULT 'Pendiente',
+                        estado_conciliacion VARCHAR(50) DEFAULT 'Pendiente',
                         asiento_id INT NULL,
                         fecha_importacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     );
@@ -6191,10 +6195,14 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
 
         col_acc1, col_acc2 = st.columns([1, 3])
         with col_acc1:
-            btn_ejecutar = st.button("🚀 Ejecutar Match por RIF y Conciliar", type="primary", key="btn_ejecutar_match_rif_bd")
+            btn_ejecutar = st.button("🚀 Ejecutar Árbol de Conciliación", type="primary", key="btn_ejecutar_match_rif_bd")
 
         if btn_ejecutar:
-            matches_exitosos = 0
+            matches_proveedores = 0
+            matches_comisiones = 0
+            matches_impuestos = 0
+            matches_creditos = 0
+            pendientes_manuales = 0
             total_procesados = len(df_movs_bd)
 
             # Cargar proveedores y sus RIFs desde la base de datos para el cruce
@@ -6213,31 +6221,109 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
                 with db_connection.cursor(pymysql.cursors.DictCursor) as cursor_cursor:
                     for _, row in df_movs_bd.iterrows():
                         mov_id = row["id"]
-                        descripcion = str(row["descripcion"] or "").strip()
+                        descripcion = str(row["descripcion"] or "").strip().upper()
+                        monto_mov = float(row["monto"] or 0.0)
+                        estado_actual = str(row["estado_conciliacion"] or "")
 
-                        # Expresión regular para buscar patrones de RIF venezolanos (ej: J-12345678-9, V12345678)
+                        # Omitir los que ya estén firmemente conciliados
+                        if "CONCILIADO" in estado_actual.upper() and "PENDIENTE" not in estado_actual.upper():
+                            continue
+
+                        conciliado_exitoso = False
+
+                        # -----------------------------------------------------------------
+                        # RUTA 1: Buscar RIF de proveedor en la descripción (Pago Pasivo)
+                        # -----------------------------------------------------------------
                         match_rif = re.search(r'([VEEJPG][-]?\d{6,10}[-]?[0-9]?)', descripcion, re.IGNORECASE)
-                        
                         if match_rif:
                             rif_encontrado = match_rif.group(1).upper().replace("-", "")
                             for prov_rif_db, info_p in mapa_proveedores_por_rif.items():
                                 if prov_rif_db.replace("-", "") in rif_encontrado:
-                                    matches_exitosos += 1
+                                    matches_proveedores += 1
+                                    conciliado_exitoso = True
+                                    
                                     cursor_cursor.execute(f"""
                                         UPDATE `{db_segura}`.banco_movimientos 
-                                        SET estado_conciliacion = 'Conciliado' 
+                                        SET estado_conciliacion = 'Conciliado (Proveedor)' 
                                         WHERE id = %s
                                     """, (mov_id,))
                                     break
+                        
+                        if conciliado_exitoso:
+                            continue
+
+                        # -----------------------------------------------------------------
+                        # RUTA 2: Comisiones Bancarias (Cuenta 6.1.1.03.013)
+                        # -----------------------------------------------------------------
+                        palabras_comision = ["COMISION", "COMIS", "PORTES", "GASTOS BANCARIOS", "SERV BANCARIO", "IVA SOBRE COMISION"]
+                        if any(palabra in descripcion for palabra in palabras_comision):
+                            matches_comisiones += 1
+                            conciliado_exitoso = True
+                            
+                            cursor_cursor.execute(f"""
+                                UPDATE `{db_segura}`.banco_movimientos 
+                                SET estado_conciliacion = 'Conciliado (Comisión)' 
+                                WHERE id = %s
+                            """, (mov_id,))
+                            continue
+
+                        # -----------------------------------------------------------------
+                        # RUTA 3: Impuestos y Tributos SENIAT
+                        # -----------------------------------------------------------------
+                        palabras_impuestos = ["SENIAT", "ISLR", "IVA RETENCION", "IMPUESTO", "TIMBRE FISCAL", "RETENCION IVA"]
+                        if any(palabra in descripcion for palabra in palabras_impuestos):
+                            matches_impuestos += 1
+                            conciliado_exitoso = True
+                            
+                            cursor_cursor.execute(f"""
+                                UPDATE `{db_segura}`.banco_movimientos 
+                                SET estado_conciliacion = 'Conciliado (Impuestos)' 
+                                WHERE id = %s
+                            """, (mov_id,))
+                            continue
+
+                        # -----------------------------------------------------------------
+                        # RUTA 4: Pagos de Créditos o Financiamientos Otorgados
+                        # -----------------------------------------------------------------
+                        palabras_creditos = ["CREDITO", "PRESTAMO", "AMORTIZACION", "CUOTA", "FINANCIAMIENTO"]
+                        if any(palabra in descripcion for palabra in palabras_creditos):
+                            matches_creditos += 1
+                            conciliado_exitoso = True
+                            
+                            cursor_cursor.execute(f"""
+                                UPDATE `{db_segura}`.banco_movimientos 
+                                SET estado_conciliacion = 'Conciliado (Crédito/Préstamo)' 
+                                WHERE id = %s
+                            """, (mov_id,))
+                            continue
+
+                        # -----------------------------------------------------------------
+                        # RUTA 5: RED DE SEGURIDAD (Descripciones no reconocidas)
+                        # -----------------------------------------------------------------
+                        # Si pasa por todo el árbol y ninguna regla hizo match:
+                        pendientes_manuales += 1
+                        cursor_cursor.execute(f"""
+                            UPDATE `{db_segura}`.banco_movimientos 
+                            SET estado_conciliacion = 'Pendiente Clasificación Manual' 
+                            WHERE id = %s
+                        """, (mov_id,))
 
                     db_connection.commit()
 
                 st.balloons()
-                st.success(f"🎉 ¡Proceso completado con éxito! Se evaluaron {total_procesados} movimientos y se realizaron {matches_exitosos} matches automáticos por RIF.")
+                st.success(
+                    f"🎉 ¡Árbol de decisiones ejecutado con éxito!\n\n"
+                    f"- **Total de movimientos evaluados:** {total_procesados}\n"
+                    f"- 🤝 Pagos a Proveedores (Match RIF): {matches_proveedores}\n"
+                    f"- 💳 Comisiones Bancarias: {matches_comisiones}\n"
+                    f"- 🏛️ Impuestos / SENIAT: {matches_impuestos}\n"
+                    f"- 🏦 Créditos / Financiamientos: {matches_creditos}\n"
+                    f"- ⚠️ **Pendientes de Clasificación Manual:** {pendientes_manuales}"
+                )
                 st.rerun()
 
             except Exception as e_proceso:
-                st.error(f"❌ Error crítico durante el proceso de match: {e_proceso}")
+                st.error(f"❌ Error crítico durante la ejecución del árbol de decisiones: {e_proceso}")
 
 def renderizar_tab_asientos_ventas(db_connection):
     st.subheader("🤖 Asientos Automatizados - Libro de Ventas")
