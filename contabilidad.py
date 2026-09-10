@@ -1983,7 +1983,8 @@ def consultar_saldos_iniciales_db(db_nombre):
         
         # Validación simplificada (sin .is_connected)
         if conn:
-            cursor = conn.cursor(dictionary=True)
+            # CORRECCIÓN: Usamos DictCursor de PyMySQL para que devuelva diccionarios sin error
+            cursor = conn.cursor(pymysql.cursors.DictCursor)
             query = "SELECT * FROM saldos_iniciales ORDER BY id ASC"
             cursor.execute(query)
             
