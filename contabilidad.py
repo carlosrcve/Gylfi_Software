@@ -9648,6 +9648,7 @@ elif opcion_menu == "📝 Asientos Contables":
                                 st.error(f"Error crítico procesando {banco_sel}: {e}")
     
         # --- TAB 3: ESTADO DE CUENTA BANCARIO ---
+        # --- TAB 3: ESTADO DE CUENTA BANCARIO ---
         with tab3:
             st.subheader("📂 Estado de Cuenta Bancario")
 
@@ -9704,7 +9705,23 @@ elif opcion_menu == "📝 Asientos Contables":
                     df_cuenta = ejecutar_consulta(query, conn, params=(fecha_inicio, fecha_fin))
                     
                     if not df_cuenta.empty:
-                        st.dataframe(df_cuenta, use_container_width=True)
+                        df_mostrar = df_cuenta.copy()
+                        
+                        # Formateo estricto de la columna monto para la visualización
+                        if 'monto' in df_mostrar.columns:
+                            def aplicar_formato_venezolano(val):
+                                if pd.isna(val):
+                                    return ""
+                                try:
+                                    num = float(val)
+                                except:
+                                    return val
+                                # Transforma a formato con puntos de miles y coma decimal
+                                return f"{num:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+                            df_mostrar['monto'] = df_mostrar['monto'].apply(aplicar_formato_venezolano).astype(str)
+
+                        st.dataframe(df_mostrar, use_container_width=True, height=450)
                         st.write(f"**Total movimientos encontrados:** {len(df_cuenta)}")
                     else:
                         st.info(f"No hay movimientos para {empresa_data['nombre_empresa']} en {mes_sel} {ano_sel}.")
