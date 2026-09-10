@@ -5894,8 +5894,9 @@ def renderizar_tab_asientos_automatizados(db_connection):
 
                         n_comprobante_actual = f"{n_comprobante_base}-{nro_doc}"
 
-                        # Descripción clara y robusta asegurando que siempre lleve la factura y el nombre
-                        desc_base = f"Factura {nro_doc} - {razon_social}"
+                        # Asegurándonos de que si el RIF viene vacío, no afecte feo el texto, o ponerlo prominente:
+                        rif_formateado = f" | RIF: {rif_val}" if rif_val else ""
+                        desc_base = f"Factura {nro_doc}{rif_formateado} - {razon_social}"
 
                         opcion_gasto = None
                         opcion_contrapartida = None
