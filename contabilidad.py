@@ -1498,30 +1498,72 @@ def actualizar_libro_diario_en_db(db_nombre, df_cambios):
             except Exception:
                 pass
 
-def mes_esta_cerrado(conn, mes_nombre, ano):
-    mes_map = {"Enero": 1, "Febrero": 2, "Marzo": 3, "Abril": 4, "Mayo": 5, "Junio": 6,
-               "Julio": 7, "Agosto": 8, "Septiembre": 9, "Octubre": 10, "Noviembre": 11, "Diciembre": 12}
+
+def mes_esta_cerrado(conn, mes_nombre, ano, db_nombre=None):
+    """
+    Verifica si un mes está cerrado para la empresa actual.
+    Se conecta dinámicamente a la base de datos de la empresa seleccionada.
+    """
+    mes_map = {
+        "Enero": 1, "Febrero": 2, "Marzo": 3, "Abril": 4, "Mayo": 5, "Junio": 6,
+        "Julio": 7, "Agosto": 8, "Septiembre": 9, "Octubre": 10, "Noviembre": 11, "Diciembre": 12
+    }
+    
+    if mes_nombre not in mes_map:
+        return False
+        
     mes_num = mes_map[mes_nombre]
     
-    cursor = conn.cursor(buffered=True)
+    # Si no se pasa el nombre de la BD por parámetro, lo intentamos buscar de la sesión
+    if not db_nombre:
+        db_nombre = st.session_state.get('DB_ACTUAL') or st.session_state.get('empresa_actual')
+
+    # Quitamos 'buffered=True' porque PyMySQL no lo soporta
+    cursor = conn.cursor()
     try:
-        # Registro de activida
-        registrar_log_automatico(conn, "CONSULTA_TASA_BCV", f"Usuario {st.session_state.usuario} consultó tasa BCV directa {st.session_state.cliente_id}")
+        # Registrar actividad de forma segura validando si existe el usuario en sesión
+        usuario_actual = st.session_state.get('usuario', 'Sistema')
+        cliente_actual = st.session_state.get('cliente_id', 'N/D')
         
-        cursor.execute("""
-            SELECT COUNT(*) FROM kingdirver_ca.banco_movimientos 
-            WHERE MONTH(fecha_movimiento) = %s AND YEAR(fecha_movimiento) = %s 
-            AND estado_conciliacion = 'Cerrado'
-        """, (mes_num, ano))
-        resultado = cursor.fetchone()[0] > 0
-        return resultado
+        try:
+            registrar_log_automatico(conn, "VALIDAR_MES_CERRADO", f"Usuario {usuario_actual} validó cierre del mes {mes_nombre} {ano} para la empresa {db_nombre}")
+        except Exception:
+            pass # Si falla el log por falta de alguna función global, no frena la validación contable
+        
+        # Si tenemos una base de datos específica, la usamos en la consulta de forma segura
+        if db_nombre:
+            query = f"""
+                SELECT COUNT(*) FROM `{db_nombre}`.banco_movimientos 
+                WHERE MONTH(fecha_movimiento) = %s AND YEAR(fecha_movimiento) = %s 
+                AND estado_conciliacion = 'Cerrado'
+            """
+        else:
+            # Fallback por si la sesión está vacía
+            query = """
+                SELECT COUNT(*) FROM banco_movimientos 
+                WHERE MONTH(fecha_movimiento) = %s AND YEAR(fecha_movimiento) = %s 
+                AND estado_conciliacion = 'Cerrado'
+            """
+            
+        cursor.execute(query, (mes_num, ano))
+        resultado_fetch = cursor.fetchone()
+        
+        # Manejo seguro por si el cursor devuelve tupla o diccionario (DictCursor)
+        if resultado_fetch:
+            if isinstance(resultado_fetch, dict):
+                cantidad = list(resultado_fetch.values())[0]
+            else:
+                cantidad = resultado_fetch[0]
+            return cantidad > 0
+            
+        return False
         
     except Exception as e:
         st.error(f"Error al verificar estado del mes: {e}")
         return False
         
     finally:
-        cursor.close() 
+        cursor.close()
 
 
 def cargar_estado_cuenta_bdv(uploaded_file, conn):
