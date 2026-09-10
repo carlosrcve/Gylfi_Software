@@ -9641,15 +9641,7 @@ elif opcion_menu == "📝 Asientos Contables":
                     df_cuenta = ejecutar_consulta(query, conn, params=(fecha_inicio, fecha_fin))
                     
                     if not df_cuenta.empty:
-                        # --- FORMATEO DE MONTO AL ESTILO 565.345,45 ---
-                        df_mostrar = df_cuenta.copy()
-                        if 'monto' in df_mostrar.columns:
-                            # Aseguramos que sea numérico para evitar errores si viene como string
-                            df_mostrar['monto'] = pd.to_numeric(df_mostrar['monto'], errors='coerce').fillna(0.0)
-                            # Aplicamos formato: punto para miles, coma para decimales (2 decimales fijos)
-                            df_mostrar['monto'] = df_mostrar['monto'].apply(lambda x: f"{x:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
-
-                        st.dataframe(df_mostrar, use_container_width=True)
+                        st.dataframe(df_cuenta, use_container_width=True)
                         st.write(f"**Total movimientos encontrados:** {len(df_cuenta)}")
                     else:
                         st.info(f"No hay movimientos para {empresa_data['nombre_empresa']} en {mes_sel} {ano_sel}.")
@@ -9662,7 +9654,7 @@ elif opcion_menu == "📝 Asientos Contables":
                         if st.button("🗑️ Vaciar Todo (CUIDADO)"):
                             try:
                                 cursor = conn.cursor()
-                                cursor.execute(f"DELETE FROM `{db_actual}`.banco_movimientos")
+                                cursor.execute(f"DELETE FROM `{db_actual}`.banco_movimientos WHERE empresa_id = %s", (cliente_id,))
                                 conn.commit()
                                 cursor.close()
                                 st.success("Registros de esta empresa eliminados.")
@@ -9670,6 +9662,7 @@ elif opcion_menu == "📝 Asientos Contables":
                             except Exception as e:
                                 st.error(f"Error al vaciar registros: {e}")
 
+    
         # ==========================================
         # --- TAB 4: CONCILIACIÓN BANCARIA (TABLERO) ---
         # ==========================================
