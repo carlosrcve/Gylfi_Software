@@ -9629,8 +9629,6 @@ elif opcion_menu == "📝 Asientos Contables":
                             except Exception as e:
                                 st.error(f"Error crítico procesando {banco_sel}: {e}")
     
-
-        # --- TAB 3: ESTADO DE CUENTA BANCARIO ---
         # --- TAB 3: ESTADO DE CUENTA BANCARIO ---
         with tab3:
             st.subheader("📂 Estado de Cuenta Bancario")
@@ -9690,29 +9688,28 @@ elif opcion_menu == "📝 Asientos Contables":
                     if not df_cuenta.empty:
                         df_mostrar = df_cuenta.copy()
                         
-                        if 'monto' in df_mostrar.columns:
-                            def asegurar_flotante_exacto(val):
-                                if pd.isna(val):
-                                    return 0.0
-                                if isinstance(val, (int, float)):
-                                    return float(val)
-                                try:
-                                    val_str = str(val).strip()
-                                    val_str = val_str.replace('.', '').replace(',', '.')
-                                    return float(val_str)
-                                except:
-                                    return 0.0
+                        # Aplicamos el formato idéntico al de la Tab 2 buscando columnas de montos
+                        columnas_a_formatear = ['debito', 'credito', 'saldo', 'monto', 'débito', 'crédito']
+                        
+                        for col in df_mostrar.columns:
+                            col_limpia = str(col).strip().lower()
+                            if any(c in col_limpia for c in columnas_a_formatear):
+                                def limpiar_y_formatear(val):
+                                    if pd.isna(val):
+                                        return ""
+                                    if isinstance(val, (int, float)):
+                                        num = float(val)
+                                    else:
+                                        try:
+                                            val_str = str(val).strip().replace('.', '').replace(',', '.')
+                                            num = float(val_str)
+                                        except:
+                                            return val 
+                                    return f"{num:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                                
+                                df_mostrar[col] = df_mostrar[col].apply(limpiar_y_formatear).astype(str)
 
-                            df_mostrar['monto_num'] = df_mostrar['monto'].apply(asegurar_flotante_exacto)
-                            
-                            # Formateamos y convertimos explícitamente a string para evitar bloqueos en el renderizador
-                            df_mostrar['monto'] = df_mostrar['monto_num'].apply(
-                                lambda x: f"{x:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-                            ).astype(str)
-                            
-                            df_mostrar = df_mostrar.drop(columns=['monto_num'])
-
-                        # Usamos st.dataframe con altura fija para mantener fluidez
+                        # Mostramos la tabla con altura fija para mantener fluidez
                         st.dataframe(df_mostrar, use_container_width=True, height=450)
                         st.write(f"**Total movimientos encontrados:** {len(df_cuenta)}")
                     else:
