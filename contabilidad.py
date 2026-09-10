@@ -9780,7 +9780,7 @@ elif opcion_menu == "📝 Asientos Contables":
                                 cursor.close()
 
         with tab6:
-            st.subheader("🗑️ Vaciar Estado de Cuenta Bancario")
+            st.subheader("🗑️ Vaciar Estado de Cuenta Bancario por Rango de Fecha")
             
             db_actual = st.session_state.get('DB_ACTUAL')
             cliente_id = st.session_state.get('cliente_id')
@@ -9797,28 +9797,42 @@ elif opcion_menu == "📝 Asientos Contables":
                     st.error("⚠️ Acceso denegado: No tienes permisos para esta empresa.")
                     st.stop()
 
-            st.warning("⚠️ **¡Atención!** Esta acción eliminará todos los registros de movimientos bancarios (`banco_movimientos`) asociados a esta empresa de forma permanente.")
+            st.warning("⚠️ **¡Atención!** Esta acción eliminará permanentemente los movimientos bancarios (`banco_movimientos`) de la empresa dentro del rango de fechas seleccionado.")
 
-            # Función para vaciar la tabla de la base de datos
-            def vaciar_estado_cuenta(conexion, nombre_db, id_empresa):
+            # Selección de rango de fechas para el borrado específico (ej. mes de agosto)
+            col1, col2 = st.columns(2)
+            with col1:
+                fecha_desde = st.date_input("Fecha Inicio", key="f_inicio_vaciar")
+            with col2:
+                fecha_hasta = st.date_input("Fecha Fin", key="f_fin_vaciar")
+
+            # Función adaptada para eliminar por rango de fechas y empresa
+            def vaciar_estado_cuenta_por_rango(conexion, nombre_db, id_empresa, f_inicio, f_fin):
                 try:
                     cursor = conexion.cursor()
-                    # Borra todos los movimientos de la tabla banco_movimientos para la empresa actual
-                    query_delete = f"DELETE FROM `{nombre_db}`.banco_movimientos WHERE empresa_id = %s"
-                    cursor.execute(query_delete, (id_empresa,))
+                    query_delete = f"""
+                        DELETE FROM `{nombre_db}`.banco_movimientos 
+                        WHERE empresa_id = %s 
+                        AND fecha_movimiento >= %s 
+                        AND fecha_movimiento <= %s
+                    """
+                    cursor.execute(query_delete, (id_empresa, f_inicio, f_fin))
                     conexion.commit()
                     cursor.close()
                     return True
                 except Exception as e:
                     conexion.rollback()
-                    st.error(f"Error técnico al vaciar la tabla: {e}")
+                    st.error(f"Error técnico al vaciar los registros por rango: {e}")
                     return False
 
-            # Doble confirmación por seguridad
-            confirmar_checkbox = st.checkbox("Confirmo que deseo vaciar todo el estado de cuenta de esta empresa", key="chk_vaciar_movimientos")
+            # Doble confirmación por seguridad mostrando las fechas elegidas
+            confirmar_checkbox = st.checkbox(
+                f"Confirmo que deseo eliminar los movimientos del {fecha_desde} al {fecha_hasta}", 
+                key="chk_vaciar_movimientos_rango"
+            )
             
             if confirmar_checkbox:
-                if st.button("🚨 Ejecutar Vaciado de Movimientos", type="primary"):
+                if st.button("🚨 Ejecutar Eliminación por Rango", type="primary"):
                     try:
                         if 'conn' in locals() and conn:
                             conn.ping(reconnect=True)
@@ -9826,12 +9840,12 @@ elif opcion_menu == "📝 Asientos Contables":
                             conn = conectar_db(db_actual)
                         
                         if conn:
-                            exito = vaciar_estado_cuenta(conn, db_actual, cliente_id)
+                            exito = vaciar_estado_cuenta_por_rango(conn, db_actual, cliente_id, fecha_desde, fecha_hasta)
                             if exito:
-                                st.success("✅ El estado de cuenta ha sido vaciado exitosamente.")
+                                st.success(f"✅ Estado de cuenta del {fecha_desde} al {fecha_hasta} vaciado exitosamente.")
                                 st.rerun()
                             else:
-                                st.error("❌ No se pudo completar la operación de vaciado.")
+                                st.error("❌ No se pudo completar la operación de borrado.")
                         else:
                             st.error("❌ Error de conexión con la base de datos.")
                     except Exception as e:
