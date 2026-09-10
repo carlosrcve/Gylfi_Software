@@ -842,12 +842,25 @@ def obtener_salud_fiscal(db, f_inicio=None, f_fin=None):
         cursor.execute(query, (str(f_inicio_anual), str(f_fin_anual)))
         resultados = cursor.fetchall()
         
-        df_sql = pd.DataFrame(resultados) if resultados else pd.DataFrame(columns=['anio', 'mes'])
+        df_sql = pd.DataFrame(resultados) if resultados else pd.DataFrame()
 
         if not df_sql.empty and 'mes' in df_sql.columns:
             df = pd.merge(meses_skeleton, df_sql, on=['anio', 'mes'], how='left')
         else:
-            df = meses_skeleton
+            df = meses_skeleton.copy()
+
+        # BLINDAJE: Aseguramos que todas las columnas contables y acumuladas existan en el DataFrame
+        columnas_requeridas = [
+            'exentos_acum', 'gravados_acum', 'compras_exentas_acum', 'compras_16_acum',
+            'DPP_haber', 'DPP_debe', 'comisiones_bancarias_haber', 'comisiones_bancarias_debe',
+            'refrigerios_haber', 'refrigerios_debe', 'representacion_haber', 'representacion_debe',
+            'otros_ingresos_haber', 'otros_ingresos_debe', 'otros_egresos_haber', 'otros_egresos_debe',
+            'iva_debito_fiscal', 'iva_por_pagar', 'retencion_iva_compras', 'pagos_anticipados_islr',
+            'retencion_islr_proveedores', 'islr_pagar'
+        ]
+        for col in columnas_requeridas:
+            if col not in df.columns:
+                df[col] = 0.0
 
         df = df.fillna(0)
 
@@ -897,7 +910,6 @@ def obtener_salud_fiscal(db, f_inicio=None, f_fin=None):
         total_anticipo_islr = df_filtrado['pagos_anticipados_islr'].sum()
         total_ret_islr = df_filtrado['retencion_islr_proveedores'].sum()
         total_islr_pagar = df_filtrado['islr_pagar'].sum()
-
 
         kpis_fiscales = {
             'ingresos_exentos': total_exentos,
