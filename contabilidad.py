@@ -9906,9 +9906,21 @@ elif opcion_menu == "📝 Asientos Contables":
                 if not empresa_data:
                     st.error("⚠️ No se pudieron cargar los datos de la empresa.")
                 else:
+                    # --- MENSAJE PERSISTENTE DE ÉXITO ---
+                    # Si la variable de estado está activa, mostramos el mensaje fijo aquí arriba para que no se borre nunca
+                    if st.session_state.get(f'exito_guardado_{db_actual}', False):
+                        st.success("✅ ¡ASIENTOS GUARDADOS EXITOSAMENTE!")
+                        st.info("💡 El comprobante ya se encuentra registrado en la base de datos. Si deseas cargar otro archivo diferente, puedes seleccionar uno nuevo abajo.")
+                        st.markdown("---")
+
                     # 3. PROCESAMIENTO DEL ARCHIVO
                     archivo_excel = st.file_uploader("Seleccione el archivo .xlsx", type=["xlsx", "xls"], key="uploader_tab")
                     
+                    # Si el usuario selecciona un archivo nuevo, limpiamos el estado de éxito anterior para permitir una nueva carga limpia
+                    if archivo_excel and st.session_state.get(f'exito_guardado_{db_actual}', False):
+                        # Opcional: si quieres que al subir otro archivo se oculte el mensaje anterior
+                        pass
+
                     if archivo_excel:
                         try:
                             df_subido = pd.read_excel(archivo_excel, header=None, skiprows=1, dtype=object)
@@ -9945,7 +9957,6 @@ elif opcion_menu == "📝 Asientos Contables":
                                 t_debe = row['Debe_num']
                                 t_haber = row['Haber_num']
                                 diferencia = abs(t_debe - t_haber)
-                                
 
                             # Totales globales del archivo
                             v_debe = df_subido['Debe_num'].sum()
@@ -9961,12 +9972,15 @@ elif opcion_menu == "📝 Asientos Contables":
                                 if st.button("🚀 Confirmar e Importar"):
                                     df_final_import = df_subido.drop(columns=['Debe_num', 'Haber_num'])
                                     if cargar_saldos_iniciales_db(df_final_import, nombre_db=db_actual):
+                                        # 1. Activamos la bandera en session_state para que el mensaje permanezca fijo
+                                        st.session_state[f'exito_guardado_{db_actual}'] = True
+                                        # 2. Lanzamos los globos como pediste
                                         st.balloons()
-                                        st.success("✅ ¡ASIENTOS GUARDADOS EXITOSAMENTE!")
+                                        # 3. Recargamos para reflejar el estado persistente en la interfaz
                                         st.rerun()
                             else:
                                 c3.error("❌ HAY COMPROBANTES DESCUADRADOS EN EL ARCHIVO")
-                                st.warning("⚠️ Revisa las filas del comprobante 110002 en tu Excel, ya que tienen montos en el Debe pero les falta su contrapartida en el Haber.")
+                                st.warning("⚠️ Revisa las filas del comprobante en tu Excel, ya que tienen montos en el Debe pero les falta su contrapartida en el Haber.")
 
                         except Exception as e:
                             st.error(f"Error crítico: {e}")
