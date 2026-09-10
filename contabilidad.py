@@ -5493,8 +5493,8 @@ def guardar_saldo_mensual(conn, banco, mes, ano, inicial, final, db_name=None):
     if not db_name:
         db_name = st.session_state.get('DB_ACTUAL', 'kingdirver_ca')
         
-    # Usamos buffered=True para que el conector consuma todo al instante
-    cursor = conn.cursor(buffered=True)
+    # CORREGIDO: Quitamos 'buffered=True' para que sea compatible con PyMySQL
+    cursor = conn.cursor()
     try:
         # Registro de actividad (protegido por si faltan variables en session_state)
         usuario = st.session_state.get('usuario', 'Sistema')
