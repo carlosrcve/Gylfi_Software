@@ -9048,12 +9048,13 @@ elif opcion_menu == "📝 Asientos Contables":
         # 1. Validación de Seguridad: ¿Hay base de datos?
         if 'DB_ACTUAL' in st.session_state and st.session_state['DB_ACTUAL']:
             db_nombre = st.session_state['DB_ACTUAL']
-            tab1, tab2, tab3, tab4, tab5 = st.tabs([
+            tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
                 "📖 Ver Libro Diario", 
                 "📤 Importar Excel", 
                 "🗑️ Vaciar Asiento de Diarios",
                 "🤖 Asientos Costos Automatizados",
-                "📈 Asientos Ingresos Automatizados"  # Icono cambiado aquí
+                "📈 Asientos Ingresos Automatizados", 
+                "🔗 Match Asientos Contables Tabla"  # Icono y texto actualizados para el match
             ])
 
             def exportar_a_excel(df):
@@ -9241,9 +9242,6 @@ elif opcion_menu == "📝 Asientos Contables":
                 if conexion_actual:
                     # Primero la función que ya tenías
                     renderizar_tab_asientos_automatizados(conexion_actual)
-                    
-                    # Y seguidamente la nueva función del tercer frame de conciliación bancaria
-                    renderizar_tercer_frame_conciliacion_banco(conexion_actual, nombre_bd_cliente)
                 else:
                     st.error("No se pudo establecer la conexión con la base de datos de la empresa para los asientos automatizados.")
 
@@ -9259,6 +9257,19 @@ elif opcion_menu == "📝 Asientos Contables":
                     renderizar_tab_asientos_ventas(conexion_actual)
                 else:
                     st.error("No se pudo establecer la conexión con la base de datos de la empresa para los asientos automatizados.")
+
+             with tab6:
+                # 1. Recuperamos de la sesión el nombre o ID de la base de datos de la empresa actual 
+                # (Ajusta la clave 'empresa_actual' por la variable exacta que uses en tu app para el cliente)
+                nombre_bd_cliente = st.session_state.get('empresa_actual') 
+                
+                # 2. Llamamos a la conexión inyectándole la base de datos del cliente
+                conexion_actual = conectar_db(nombre_bd_cliente) 
+                
+                # 3. Validamos y ejecutamos ambas funciones dentro de la pestaña 4
+                if conexion_actual:
+                    # Y seguidamente la nueva función del tercer frame de conciliación bancaria
+                    renderizar_tercer_frame_conciliacion_banco(conexion_actual, nombre_bd_cliente)
         else:
             st.warning("⚠️ Por favor, seleccione una empresa en el panel lateral para gestionar sus asientos.")
 
