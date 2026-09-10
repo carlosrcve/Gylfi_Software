@@ -9690,16 +9690,14 @@ elif opcion_menu == "📝 Asientos Contables":
                         df_mostrar = df_cuenta.copy()
                         
                         if 'monto' in df_mostrar.columns:
-                            # Función limpia que respeta el valor exacto del Excel
+                            # Función limpia que respeta el valor exacto del número
                             def asegurar_flotante_exacto(val):
                                 if pd.isna(val):
                                     return 0.0
                                 if isinstance(val, (int, float)):
                                     return float(val)
                                 try:
-                                    # Si viene como texto tipo "20.319,37" o "-9.979,70"
                                     val_str = str(val).strip()
-                                    # Quitamos el punto de miles y cambiamos la coma por punto decimal
                                     val_str = val_str.replace('.', '').replace(',', '.')
                                     return float(val_str)
                                 except:
