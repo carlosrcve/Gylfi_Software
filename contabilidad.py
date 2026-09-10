@@ -9532,7 +9532,6 @@ elif opcion_menu == "📝 Asientos Contables":
 
         with tab2:
             st.subheader("📂 Importar nuevo estado de cuenta")
-
             db_actual = st.session_state.get('DB_ACTUAL')
             cliente_id = st.session_state.get('cliente_id')
             rol = st.session_state.get('rol')
@@ -9553,6 +9552,26 @@ elif opcion_menu == "📝 Asientos Contables":
             else:
                 banco_sel = st.selectbox("Seleccione el Banco", ["Banco de Venezuela (BDV)", "Banesco", "Mercantil"], key="banco_select")
                 archivo_banco = st.file_uploader("Suba el archivo Excel (.xlsx) del banco", type=["xlsx"], key="file_banco")
+
+                # ==========================================
+                # VISTA PREVIA ANTES DE SUBIR A LA BASE DE DATOS
+                # ==========================================
+                if archivo_banco is not None:
+                    st.markdown("---")
+                    st.markdown("### 👁️ Vista previa del archivo cargado")
+                    try:
+                        # Leemos el archivo temporalmente para inspeccionar las columnas y montos
+                        df_preview = pd.read_excel(archivo_banco)
+                        st.write(f"Total de filas detectadas en el Excel: **{len(df_preview)}**")
+                        
+                        # Mostramos las primeras filas para que verifiques si la columna 'monto' viene bien
+                        st.dataframe(df_preview.head(10), use_container_width=True)
+                        
+                        # Reiniciamos el cursor del archivo para que la función de importación lo lea desde el inicio
+                        archivo_banco.seek(0)
+                    except Exception as e:
+                        st.warning(f"No se pudo generar la vista previa automática: {e}")
+                    st.markdown("---")
 
                 if archivo_banco:
                     if st.button("Procesar e Importar"):
