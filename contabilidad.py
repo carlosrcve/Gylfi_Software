@@ -4335,17 +4335,35 @@ def cargar_asientos_contables_db(df, conn=None):
         df_limpio['fecha'] = pd.to_datetime(df_limpio['fecha'], errors='coerce')
         df_limpio = df_limpio.dropna(subset=['fecha']) 
         
-        # 2. Limpieza robusta para Debe y Haber (remplaza guiones y comas)
+        # 2. Limpieza inteligente y robusta para Debe y Haber (Formato venezolano e internacional)
+        def limpiar_valor_monetario(val):
+            if pd.isna(val):
+                return 0.0
+            if isinstance(val, (int, float)):
+                return float(val)
+            
+            val_str = str(val).strip().replace(' ', '')
+            if val_str in ['', '-', 'nan', 'None']:
+                return 0.0
+                
+            try:
+                # Si tiene tanto punto como coma (ej: 3.713.533,00)
+                if '.' in val_str and ',' in val_str:
+                    val_str = val_str.replace('.', '').replace(',', '.')
+                # Si solo tiene coma (ej: 705,75)
+                elif ',' in val_str and '.' not in val_str:
+                    val_str = val_str.replace(',', '.')
+                # Si tiene múltiples puntos (ej: 3.713.533) sin coma
+                elif val_str.count('.') > 1:
+                    val_str = val_str.replace('.', '')
+                
+                return float(val_str)
+            except:
+                return 0.0
+
         for col in ['debe', 'haber']:
             if col in df_limpio.columns:
-                df_limpio[col] = (
-                    df_limpio[col]
-                    .astype(str)
-                    .str.replace(' ', '')
-                    .str.replace(',', '.')
-                    .replace(['-', 'nan', 'None', ''], '0.0')
-                )
-                df_limpio[col] = pd.to_numeric(df_limpio[col], errors='coerce').fillna(0.0).round(2)
+                df_limpio[col] = df_limpio[col].apply(limpiar_valor_monetario).round(2)
             else:
                 df_limpio[col] = 0.0
 
@@ -9686,28 +9704,7 @@ elif opcion_menu == "📝 Asientos Contables":
                     df_cuenta = ejecutar_consulta(query, conn, params=(fecha_inicio, fecha_fin))
                     
                     if not df_cuenta.empty:
-                        df_mostrar = df_cuenta.copy()
-                        
-                        # Función limpia que respeta el valor exacto de la BD y aplica formato venezolano
-                        def formatear_monto_exacto(val):
-                            if pd.isna(val):
-                                return ""
-                            try:
-                                # Limpiamos por si viene como texto con formatos previos o espacios
-                                val_str = str(val).strip()
-                                # Si ya tiene puntos o comas de la BD, los normalizamos a float con cuidado
-                                num = float(val_str)
-                            except:
-                                return val
-                            
-                            # Formateo estricto estilo venezolano (Puntos para miles, Coma para decimales)
-                            return f"{num:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-
-                        if 'monto' in df_mostrar.columns:
-                            df_mostrar['monto'] = df_mostrar['monto'].apply(formatear_monto_exacto)
-
-                        # Mostramos la tabla directamente
-                        st.dataframe(df_mostrar, use_container_width=True, height=450)
+                        st.dataframe(df_cuenta, use_container_width=True)
                         st.write(f"**Total movimientos encontrados:** {len(df_cuenta)}")
                     else:
                         st.info(f"No hay movimientos para {empresa_data['nombre_empresa']} en {mes_sel} {ano_sel}.")
@@ -9720,7 +9717,7 @@ elif opcion_menu == "📝 Asientos Contables":
                         if st.button("🗑️ Vaciar Todo (CUIDADO)"):
                             try:
                                 cursor = conn.cursor()
-                                cursor.execute(f"DELETE FROM `{db_actual}`.banco_movimientos")
+                                cursor.execute(f"DELETE FROM `{db_actual}`.banco_movimientos WHERE empresa_id = %s", (cliente_id,))
                                 conn.commit()
                                 cursor.close()
                                 st.success("Registros de esta empresa eliminados.")
