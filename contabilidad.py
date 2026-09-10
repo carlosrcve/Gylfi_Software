@@ -1598,7 +1598,6 @@ def cargar_estado_cuenta_bdv(uploaded_file, conn):
     except Exception:
         pass
     
-    # CORREGIDO: Quitamos 'buffered=True' porque PyMySQL no lo soporta
     cursor = conn.cursor()
     try:
         # 4. Leemos el archivo
@@ -1609,15 +1608,27 @@ def cargar_estado_cuenta_bdv(uploaded_file, conn):
         
         # 5. Procesamos filas de forma segura apuntando a la BD de la empresa en curso
         for index, row in df.iterrows():
-            if pd.isna(row.get('Referencia')): 
+            # Validamos que existan Referencia y Fecha antes de continuar
+            if pd.isna(row.get('Referencia')) or pd.isna(row.get('Fecha')): 
                 continue
             
-            fecha_str = pd.to_datetime(row['Fecha']).strftime('%Y-%m-%d')
+            # Conversión segura de fecha para evitar errores de NaTType
+            raw_fecha = row['Fecha']
+            if hasattr(raw_fecha, "strftime"):
+                fecha_str = raw_fecha.strftime('%Y-%m-%d')
+            else:
+                parsed_date = pd.to_datetime(raw_fecha, errors='coerce')
+                if pd.isna(parsed_date):
+                    continue
+                fecha_str = parsed_date.strftime('%Y-%m-%d')
             
             # Limpieza de montos (asegurando que sean floats)
             debito = float(str(row.get('Débito', 0)).replace('.', '').replace(',', '.')) if pd.notna(row.get('Débito')) else 0
             credito = float(str(row.get('Crédito', 0)).replace('.', '').replace(',', '.')) if pd.notna(row.get('Crédito')) else 0
             monto = credito - debito
+            
+            # Descripción segura por si viene vacía o nula
+            descripcion_val = str(row.get('Descripción', '')) if pd.notna(row.get('Descripción')) else ''
             
             # Consulta dinámica para aislar los datos entre las 200 empresas
             query = f"""
@@ -1625,7 +1636,7 @@ def cargar_estado_cuenta_bdv(uploaded_file, conn):
                 (banco_nombre, cuenta_numero, fecha_movimiento, referencia, descripcion, monto, estado_conciliacion)
                 VALUES (%s, %s, %s, %s, %s, %s, %s)
             """
-            valores = ('Banco de Venezuela (BDV)', '0102', fecha_str, str(row['Referencia']), str(row['Descripción']), monto, 'Pendiente')
+            valores = ('Banco de Venezuela (BDV)', '0102', fecha_str, str(row['Referencia']), descripcion_val, monto, 'Pendiente')
             
             cursor.execute(query, valores)
             movimientos_insertados += 1
@@ -1648,7 +1659,6 @@ def cargar_estado_cuenta_bdv(uploaded_file, conn):
                 conn.ping(reconnect=True)
             except Exception:
                 pass
-
 
 
 def mostrar_tablero_conciliacion(conn, mes_sel, ano_sel):
