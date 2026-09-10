@@ -9644,32 +9644,32 @@ elif opcion_menu == "📝 Asientos Contables":
                         df_mostrar = df_cuenta.copy()
                         
                         if 'monto' in df_mostrar.columns:
-                            def limpiar_y_convertir_monto(val):
-                                if pd.isna(val):
+                            # Función integrada para limpiar y convertir montos correctamente
+                            def limpiar_monto_importacion(valor):
+                                if pd.isna(valor):
                                     return 0.0
-                                if isinstance(val, (int, float)):
-                                    return float(val)
-                                # Limpieza para asegurar que lea bien cadenas con formatos latinos/decimales
-                                val_str = str(val).strip()
+                                if isinstance(valor, (int, float)):
+                                    return float(valor)
+                                
+                                val_str = str(valor).strip()
                                 try:
-                                    # Si trae puntos como miles y coma como decimal, los ajustamos para Python float
-                                    if '.' in val_str and ',' in val_str:
-                                        val_str = val_str.replace('.', '').replace(',', '.')
-                                    elif ',' in val_str and '.' not in val_str:
-                                        val_str = val_str.replace(',', '.')
+                                    # Si el formato es latino (ej: 20.319,37 o -20.319,37)
+                                    # 1. Quitamos los puntos de miles (.)
+                                    # 2. Cambiamos la coma decimal (,) por un punto (.) para que Python/MySQL lo reconozca
+                                    val_str = val_str.replace('.', '').replace(',', '.')
                                     return float(val_str)
-                                except:
+                                except Exception as e:
                                     return 0.0
 
-                            # 1. Convertimos a numérico real de forma segura
-                            df_mostrar['monto_num'] = df_mostrar['monto'].apply(limpiar_y_convertir_monto)
+                            # 1. Convertimos a numérico real usando la función de limpieza
+                            df_mostrar['monto_num'] = df_mostrar['monto'].apply(limpiar_monto_importacion)
                             
-                            # 2. Formateamos al estilo deseado: 565.345,45
+                            # 2. Formateamos visualmente al estilo deseado: 565.345,45
                             df_mostrar['monto'] = df_mostrar['monto_num'].apply(
                                 lambda x: f"{x:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
                             )
                             
-                            # Eliminamos la columna auxiliar
+                            # Eliminamos la columna auxiliar numérica
                             df_mostrar = df_mostrar.drop(columns=['monto_num'])
 
                         st.dataframe(df_mostrar, use_container_width=True)
