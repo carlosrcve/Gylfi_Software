@@ -9555,7 +9555,7 @@ elif opcion_menu == "📝 Asientos Contables":
                 archivo_banco = st.file_uploader("Suba el archivo Excel (.xlsx) del banco", type=["xlsx"], key="file_banco")
 
                 # ==========================================
-                # VISTA PREVIA COMPLETA ANTES DE SUBIR A BD
+                # VISTA PREVIA COMPLETA CON FORMATO NUMÉRICO
                 # ==========================================
                 if archivo_banco is not None:
                     st.markdown("---")
@@ -9565,13 +9565,39 @@ elif opcion_menu == "📝 Asientos Contables":
                         df_preview = pd.read_excel(archivo_banco)
                         st.info(f"📊 Total de filas detectadas en el archivo: **{len(df_preview)}**")
                         
-                        # Usamos st.dataframe con una altura grande (ej. 400px) para que puedas hacer scroll y revisar las 500 líneas
-                        st.dataframe(df_preview, use_container_width=True, height=400)
+                        # Creamos una copia para formatear visualmente sin afectar la lectura original
+                        df_preview_show = df_preview.copy()
+                        
+                        # Buscamos columnas comunes de montos (Débito, Crédito, Saldo, Monto, etc.)
+                        columnas_a_formatear = ['debito', 'credito', 'saldo', 'monto', 'débito', 'crédito']
+                        
+                        for col in df_preview_show.columns:
+                            # Normalizamos el nombre de la columna para buscar coincidencias
+                            col_limpia = str(col).strip().lower()
+                            if any(c in col_limpia for c in columnas_a_formatear):
+                                def limpiar_y_formatear(val):
+                                    if pd.isna(val):
+                                        return ""
+                                    if isinstance(val, (int, float)):
+                                        num = float(val)
+                                    else:
+                                        try:
+                                            val_str = str(val).strip().replace('.', '').replace(',', '.')
+                                            num = float(val_str)
+                                        except:
+                                            return val # Si no se puede convertir, lo dejamos igual
+                                    # Formato numérico limpio estilo venezolano (ej: 635.515.300,00)
+                                    return f"{num:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                                
+                                df_preview_show[col] = df_preview_show[col].apply(limpiar_y_formatear)
+
+                        # Mostramos la tabla interactiva con scroll y formato aplicado
+                        st.dataframe(df_preview_show, use_container_width=True, height=400)
                         
                         # Reiniciamos el cursor del archivo para que la función de importación lo lea desde el inicio
                         archivo_banco.seek(0)
                     except Exception as e:
-                        st.warning(f"No se pudo generar la vista previa automática: {e}")
+                        st.warning(f"No se pudo generar la vista previa automática con formato: {e}")
                     st.markdown("---")
 
                 if archivo_banco:
