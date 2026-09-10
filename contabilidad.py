@@ -10008,32 +10008,50 @@ elif opcion_menu == "📝 Asientos Contables":
                 if not empresa_data:
                     st.error("⚠️ No se pudieron cargar los datos de la empresa.")
                 else:
+                    # --- MENSAJE PERSISTENTE DE BORRADO ---
+                    if st.session_state.get(f'exito_borrado_{db_actual}', False):
+                        st.success("🗑️ ¡Los saldos iniciales han sido eliminados y la tabla se vació exitosamente!")
+                        st.info("💡 La información fue purgada de la base de datos de forma permanente.")
+                        st.markdown("---")
+
                     # 3. INTERFAZ DE BORRADO SEGURO
                     with st.container(border=True):
                         st.error("⚠️ **ADVERTENCIA CRÍTICA: BORRADO PERMANENTE**")
                         st.write(f"Estás operando sobre la base de datos: **{db_actual}**")
                         
-                        confirmar_borrado = st.checkbox("He leído la advertencia y estoy de acuerdo en borrar toda la información de esta empresa.")
+                        confirmar_borrado = st.checkbox("He leído la advertencia y estoy de acuerdo en borrar toda la información de esta empresa.", key=f"check_borrar_{db_actual}")
 
                         if confirmar_borrado:
-                            if st.button("🧨 VACIAR TABLA DE SALDOS", type="primary", width='stretch'):
+                            if st.button("🧨 VACIAR TABLA DE SALDOS", type="primary", use_container_width=True):
                                 # Usamos la conexión dinámica
                                 conn = conectar_db(db_actual)
                                 if conn:
+                                    cursor = None
                                     try:
                                         cursor = conn.cursor()
                                         # ESPECIFICAMOS LA BASE DE DATOS DINÁMICAMENTE
                                         cursor.execute(f"TRUNCATE TABLE `{db_actual}`.saldos_iniciales")
                                         conn.commit()
-                                        st.success("✅ La tabla ha sido vaciada exitosamente.")
-                                        import time
-                                        time.sleep(1)
+                                        
+                                        # 1. Activamos la bandera de éxito persistente
+                                        st.session_state[f'exito_borrado_{db_actual}'] = True
+                                        # 2. Lanzamos los globos como pediste
+                                        st.balloons()
+                                        # 3. Recargamos la vista para reflejar el estado fijo
                                         st.rerun()
                                     except Exception as e:
                                         st.error(f"Error al vaciar: {e}")
                                     finally:
-                                        cursor.close()
-                                        conn.close()
+                                        if cursor:
+                                            try:
+                                                cursor.close()
+                                            except Exception:
+                                                pass
+                                        if conn:
+                                            try:
+                                                conn.close()
+                                            except Exception:
+                                                pass
                         else:
                             st.info("💡 Debe marcar la casilla de arriba para habilitar el botón de borrado.")
 
