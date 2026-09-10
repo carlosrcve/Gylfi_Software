@@ -9477,7 +9477,7 @@ elif opcion_menu == "📝 Asientos Contables":
                                 if resultado:
                                     st.success(f"✅ Movimientos de {banco_sel} importados con éxito.")
                                     st.balloons()
-                                    st.rerun()
+                                    #st.rerun()
                                 else:
                                     st.error(f"❌ No se pudieron procesar los datos de {banco_sel}.")
                                     
