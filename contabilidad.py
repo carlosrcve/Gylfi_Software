@@ -10022,7 +10022,7 @@ elif opcion_menu == "📝 Asientos Contables":
                         confirmar_borrado = st.checkbox("He leído la advertencia y estoy de acuerdo en borrar toda la información de esta empresa.", key=f"check_borrar_{db_actual}")
 
                         if confirmar_borrado:
-                            if st.button("🧨 VACIAR TABLA DE SALDOS", type="primary", use_container_width=True):
+                            if st.button("🧨 VACIAR TABLA DE SALDOS", type="primary", use_container_width=False):
                                 # Usamos la conexión dinámica
                                 conn = conectar_db(db_actual)
                                 if conn:
