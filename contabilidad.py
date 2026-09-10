@@ -5847,7 +5847,6 @@ def renderizar_tab_asientos_automatizados(db_connection):
                     filas_asiento_temporal = []
 
                     for idx, row in df_compras.iterrows():
-                        # CORRECCIÓN: Se evita pasar 'default' a sí mismo en su valor por defecto
                         def buscar_valor(posibles_nombres, default_val=0.0):
                             for col in df_compras.columns:
                                 c_clean = str(col).strip().lower()
@@ -5868,9 +5867,10 @@ def renderizar_tab_asientos_automatizados(db_connection):
                             except Exception:
                                 fecha_op = val_str[:10] if val_str else ""
 
-                        razon_social = str(buscar_valor(["Nombre o Razón Social", "Nombre o Razon Social", "Razon Social", "Proveedor"], "Sin Nombre")).strip()
-                        rif_val = str(buscar_valor(["R.I.F.", "RIF", "Cedula"], "")).strip().upper()
-                        nro_doc = str(buscar_valor(["Número de Documento", "Numero de Documento", "Nro Documento", "Factura"], f"{idx+1}")).strip()
+                        # CORRECCIÓN CLAVE: Ampliación de nombres comunes para asegurar captura del Proveedor
+                        razon_social = str(buscar_valor(["Nombre o Razón Social", "Nombre o Razon Social", "Razon Social", "Proveedor", "Nombre", "Contribuyente"], "Sin Nombre")).strip()
+                        rif_val = str(buscar_valor(["R.I.F.", "RIF", "Cedula", "Cédula"], "")).strip().upper()
+                        nro_doc = str(buscar_valor(["Número de Documento", "Numero de Documento", "Nro Documento", "Factura", "Nro. Factura", "Control"], f"{idx+1}")).strip()
 
                         try:
                             base_imponible = float(buscar_valor(["Base Imponible"], 0.0))
@@ -5894,6 +5894,9 @@ def renderizar_tab_asientos_automatizados(db_connection):
 
                         n_comprobante_actual = f"{n_comprobante_base}-{nro_doc}"
 
+                        # Descripción clara y robusta asegurando que siempre lleve la factura y el nombre
+                        desc_base = f"Factura {nro_doc} - {razon_social}"
+
                         opcion_gasto = None
                         opcion_contrapartida = None
                         
@@ -5901,24 +5904,21 @@ def renderizar_tab_asientos_automatizados(db_connection):
                         if datos_prov:
                             p_cod_gasto = str(datos_prov.get("codigo_cuenta", "")).strip()
                             if p_cod_gasto:
-                                # Verificamos si existe en las opciones reales del plan de cuentas
                                 opcion_gasto = obtener_opcion_valida(p_cod_gasto, None)
 
                             p_cod_pagar = str(datos_prov.get("codigo_cuenta_pagar", "")).strip()
                             if p_cod_pagar:
                                 opcion_contrapartida = obtener_opcion_valida(p_cod_pagar, None)
 
-                        # CORRECCIÓN: Si no tiene cuenta asignada, buscamos primero si hay alguna cuenta 6 o 5 disponible de forma inteligente
                         if not opcion_gasto:
                             for opt in opciones_desplegable:
-                                # Buscamos prioritariamente cuentas de gastos/costos (que suelen empezar por 5 o 6)
                                 if (opt.startswith("5") or opt.startswith("6")) and "iva" not in opt.lower():
                                     opcion_gasto = opt
                                     break
                         
                         if not opcion_gasto: 
                             for opt in opciones_desplegable:
-                                if opt.startswith("6"): # Respaldo específico para cuentas 6
+                                if opt.startswith("6"):
                                     opcion_gasto = opt
                                     break
 
@@ -5938,7 +5938,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
                         if es_king_driver:
                             filas_asiento_temporal.append({
                                 "n_comprobante": n_comprobante_actual,
-                                "descripcion": f"Factura {nro_doc} - {razon_social}",
+                                "descripcion": desc_base,
                                 "fecha": fecha_op,
                                 "plan_cuentas": opcion_gasto,
                                 "cuenta_contable": mapa_descripciones.get(opcion_gasto, ""),
@@ -5958,7 +5958,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
                                 
                                 filas_asiento_temporal.append({
                                     "n_comprobante": n_comprobante_actual,
-                                    "descripcion": f"IVA al Costo Factura {nro_doc} - {razon_social}",
+                                    "descripcion": f"IVA al Costo - {desc_base}",
                                     "fecha": fecha_op,
                                     "plan_cuentas": opcion_iva_kd,
                                     "cuenta_contable": mapa_descripciones.get(opcion_iva_kd, ""),
@@ -5971,7 +5971,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
                         else:
                             filas_asiento_temporal.append({
                                 "n_comprobante": n_comprobante_actual,
-                                "descripcion": f"Factura {nro_doc} - {razon_social}",
+                                "descripcion": desc_base,
                                 "fecha": fecha_op,
                                 "plan_cuentas": opcion_gasto,
                                 "cuenta_contable": mapa_descripciones.get(opcion_gasto, ""),
@@ -5991,7 +5991,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
                                 
                                 filas_asiento_temporal.append({
                                     "n_comprobante": n_comprobante_actual,
-                                    "descripcion": f"IVA Crédito Fiscal Factura {nro_doc} - {razon_social}",
+                                    "descripcion": f"IVA Crédito Fiscal - {desc_base}",
                                     "fecha": fecha_op,
                                     "plan_cuentas": opcion_iva,
                                     "cuenta_contable": mapa_descripciones.get(opcion_iva, ""),
@@ -6004,7 +6004,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
 
                         filas_asiento_temporal.append({
                             "n_comprobante": n_comprobante_actual,
-                            "descripcion": f"Cuentas por Pagar Factura {nro_doc} - {razon_social}",
+                            "descripcion": f"Cuentas por Pagar - {desc_base}",
                             "fecha": fecha_op,
                             "plan_cuentas": opcion_contrapartida,
                             "cuenta_contable": mapa_descripciones.get(opcion_contrapartida, ""),
