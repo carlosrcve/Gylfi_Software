@@ -9797,7 +9797,7 @@ elif opcion_menu == "📝 Asientos Contables":
                     st.error("⚠️ Acceso denegado: No tienes permisos para esta empresa.")
                     st.stop()
 
-            st.warning("⚠️ **¡Atención!** Esta acción eliminará permanentemente los movimientos bancarios (`banco_movimientos`) de la empresa dentro del rango de fechas seleccionado.")
+            st.warning("⚠️ **¡Atención!** Esta acción eliminará permanentemente los movimientos bancarios (`banco_movimientos`) de esta empresa dentro del rango de fechas seleccionado.")
 
             # Selección de rango de fechas para el borrado específico (ej. mes de agosto)
             col1, col2 = st.columns(2)
@@ -9806,17 +9806,16 @@ elif opcion_menu == "📝 Asientos Contables":
             with col2:
                 fecha_hasta = st.date_input("Fecha Fin", key="f_fin_vaciar")
 
-            # Función adaptada para eliminar por rango de fechas y empresa
-            def vaciar_estado_cuenta_por_rango(conexion, nombre_db, id_empresa, f_inicio, f_fin):
+            # Función adaptada eliminando la condición empresa_id que causaba el error
+            def vaciar_estado_cuenta_por_rango(conexion, nombre_db, f_inicio, f_fin):
                 try:
                     cursor = conexion.cursor()
                     query_delete = f"""
                         DELETE FROM `{nombre_db}`.banco_movimientos 
-                        WHERE empresa_id = %s 
-                        AND fecha_movimiento >= %s 
+                        WHERE fecha_movimiento >= %s 
                         AND fecha_movimiento <= %s
                     """
-                    cursor.execute(query_delete, (id_empresa, f_inicio, f_fin))
+                    cursor.execute(query_delete, (f_inicio, f_fin))
                     conexion.commit()
                     cursor.close()
                     return True
@@ -9840,7 +9839,8 @@ elif opcion_menu == "📝 Asientos Contables":
                             conn = conectar_db(db_actual)
                         
                         if conn:
-                            exito = vaciar_estado_cuenta_por_rango(conn, db_actual, cliente_id, fecha_desde, fecha_hasta)
+                            # Ya no pasamos cliente_id porque la BD ya pertenece exclusivamente a dicha empresa
+                            exito = vaciar_estado_cuenta_por_rango(conn, db_actual, fecha_desde, fecha_hasta)
                             if exito:
                                 st.success(f"✅ Estado de cuenta del {fecha_desde} al {fecha_hasta} vaciado exitosamente.")
                                 st.rerun()
