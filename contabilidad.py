@@ -5493,7 +5493,6 @@ def guardar_saldo_mensual(conn, banco, mes, ano, inicial, final, db_name=None):
     if not db_name:
         db_name = st.session_state.get('DB_ACTUAL', 'kingdirver_ca')
         
-    # CORREGIDO: Quitamos 'buffered=True' para que sea compatible con PyMySQL
     cursor = conn.cursor()
     try:
         # Registro de actividad (protegido por si faltan variables en session_state)
@@ -5501,13 +5500,13 @@ def guardar_saldo_mensual(conn, banco, mes, ano, inicial, final, db_name=None):
         cliente_id = st.session_state.get('cliente_id', 'N/A')
         registrar_log_automatico(conn, "GUARDAR_SALDO_MENSUAL", f"Usuario {usuario} guardó saldo mensual para {cliente_id} (Banco: {banco})")
         
-        # Consulta dinámica usando la base de datos correcta entre backticks
+        # Consulta corregida usando VALUES() para total compatibilidad con TiDB
         query = f"""
             INSERT INTO `{db_name}`.saldos_bancarios (banco, mes, ano, saldo_inicial, saldo_final)
-            VALUES (%s, %s, %s, %s, %s) AS nuevo
+            VALUES (%s, %s, %s, %s, %s)
             ON DUPLICATE KEY UPDATE 
-            saldo_inicial = nuevo.saldo_inicial, 
-            saldo_final = nuevo.saldo_final
+            saldo_inicial = VALUES(saldo_inicial), 
+            saldo_final = VALUES(saldo_final)
         """
         
         cursor.execute(query, (str(banco), str(mes), int(ano), float(inicial), float(final)))
