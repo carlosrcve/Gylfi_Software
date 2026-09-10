@@ -9644,32 +9644,29 @@ elif opcion_menu == "📝 Asientos Contables":
                         df_mostrar = df_cuenta.copy()
                         
                         if 'monto' in df_mostrar.columns:
-                            # Función integrada para limpiar y convertir montos correctamente
-                            def limpiar_monto_importacion(valor):
-                                if pd.isna(valor):
+                            # Función limpia que respeta el valor exacto del Excel
+                            def asegurar_flotante_exacto(val):
+                                if pd.isna(val):
                                     return 0.0
-                                if isinstance(valor, (int, float)):
-                                    return float(valor)
-                                
-                                val_str = str(valor).strip()
+                                if isinstance(val, (int, float)):
+                                    return float(val)
                                 try:
-                                    # Si el formato es latino (ej: 20.319,37 o -20.319,37)
-                                    # 1. Quitamos los puntos de miles (.)
-                                    # 2. Cambiamos la coma decimal (,) por un punto (.) para que Python/MySQL lo reconozca
+                                    # Si viene como texto tipo "20.319,37" o "-9.979,70"
+                                    val_str = str(val).strip()
+                                    # Quitamos el punto de miles y cambiamos la coma por punto decimal
                                     val_str = val_str.replace('.', '').replace(',', '.')
                                     return float(val_str)
-                                except Exception as e:
+                                except:
                                     return 0.0
 
-                            # 1. Convertimos a numérico real usando la función de limpieza
-                            df_mostrar['monto_num'] = df_mostrar['monto'].apply(limpiar_monto_importacion)
+                            # Convertimos a número real limpio
+                            df_mostrar['monto_num'] = df_mostrar['monto'].apply(asegurar_flotante_exacto)
                             
-                            # 2. Formateamos visualmente al estilo deseado: 565.345,45
+                            # Formateamos visualmente para la tabla estilo venezolano (ej: 20.319,37)
                             df_mostrar['monto'] = df_mostrar['monto_num'].apply(
                                 lambda x: f"{x:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
                             )
                             
-                            # Eliminamos la columna auxiliar numérica
                             df_mostrar = df_mostrar.drop(columns=['monto_num'])
 
                         st.dataframe(df_mostrar, use_container_width=True)
