@@ -9532,6 +9532,7 @@ elif opcion_menu == "📝 Asientos Contables":
 
         with tab2:
             st.subheader("📂 Importar nuevo estado de cuenta")
+
             db_actual = st.session_state.get('DB_ACTUAL')
             cliente_id = st.session_state.get('cliente_id')
             rol = st.session_state.get('rol')
@@ -9554,18 +9555,18 @@ elif opcion_menu == "📝 Asientos Contables":
                 archivo_banco = st.file_uploader("Suba el archivo Excel (.xlsx) del banco", type=["xlsx"], key="file_banco")
 
                 # ==========================================
-                # VISTA PREVIA ANTES DE SUBIR A LA BASE DE DATOS
+                # VISTA PREVIA COMPLETA ANTES DE SUBIR A BD
                 # ==========================================
                 if archivo_banco is not None:
                     st.markdown("---")
-                    st.markdown("### 👁️ Vista previa del archivo cargado")
+                    st.markdown("### 👁️ Vista previa del archivo completo")
                     try:
-                        # Leemos el archivo temporalmente para inspeccionar las columnas y montos
+                        # Leemos todo el archivo Excel
                         df_preview = pd.read_excel(archivo_banco)
-                        st.write(f"Total de filas detectadas en el Excel: **{len(df_preview)}**")
+                        st.info(f"📊 Total de filas detectadas en el archivo: **{len(df_preview)}**")
                         
-                        # Mostramos las primeras filas para que verifiques si la columna 'monto' viene bien
-                        st.dataframe(df_preview.head(10), use_container_width=True)
+                        # Usamos st.dataframe con una altura grande (ej. 400px) para que puedas hacer scroll y revisar las 500 líneas
+                        st.dataframe(df_preview, use_container_width=True, height=400)
                         
                         # Reiniciamos el cursor del archivo para que la función de importación lo lea desde el inicio
                         archivo_banco.seek(0)
