@@ -657,7 +657,7 @@ def obtener_datos_barras(db, fecha_inicio, fecha_fin):
 @st.cache_data(ttl=300)
 def obtener_historico_utilidad(db, f_inicio=None, f_fin=None):
     conn = conectar_db(db)
-    df_default = pd.DataFrame(columns=['anio', 'mes', 'mes_nombre', 'utilidad_mensual'])
+    df_default = pd.DataFrame(columns=['anio', 'mes', 'mes_nombre', 'utilidad_mensual', 'utilidad_acumulada'])
     
     if not conn:
         st.warning("⚠️ No se pudo conectar a la base de datos en obtener_historico_utilidad.")
@@ -681,8 +681,6 @@ def obtener_historico_utilidad(db, f_inicio=None, f_fin=None):
         'mes': list(range(1, 13))
     })
 
-    # CORREGIDO: Se quitó la 'f' de la f-string y se usa .format() solo para el nombre de la BD 
-    # para que los '%Y' y los '%%' de SQL queden intactos y Python no los toque.
     query = """
         SELECT 
             YEAR(STR_TO_DATE(LEFT(fecha, 10), '%%Y-%%m-%%d')) as anio,
@@ -714,12 +712,20 @@ def obtener_historico_utilidad(db, f_inicio=None, f_fin=None):
         cursor.execute(query, (anio_base,))
         resultados = cursor.fetchall()
         
-        df_sql = pd.DataFrame(resultados) if resultados else pd.DataFrame(columns=['anio', 'mes'])
+        df_sql = pd.DataFrame(resultados) if resultados else pd.DataFrame()
 
         if not df_sql.empty and 'mes' in df_sql.columns:
             df = pd.merge(meses_skeleton, df_sql, on=['anio', 'mes'], how='left')
         else:
-            df = meses_skeleton
+            df = meses_skeleton.copy()
+
+        # BLINDAJE: Aseguramos que todas las columnas contables existan aunque SQL no devuelva filas
+        columnas_requeridas = ['ing_haber', 'ing_debe', 'cos_debe', 'cos_haber', 
+                               'gas_debe', 'gas_haber', 'oing_haber', 'oing_debe', 
+                               'oeg_debe', 'oeg_haber']
+        for col in columnas_requeridas:
+            if col not in df.columns:
+                df[col] = 0.0
 
         df = df.fillna(0)
 
@@ -749,8 +755,6 @@ def obtener_historico_utilidad(db, f_inicio=None, f_fin=None):
     finally:
         if cursor: cursor.close()
         if conn: conn.close()
-
-
 
 @st.cache_data(ttl=300)
 def obtener_salud_fiscal(db, f_inicio=None, f_fin=None):
