@@ -9649,6 +9649,7 @@ elif opcion_menu == "📝 Asientos Contables":
     
         # --- TAB 3: ESTADO DE CUENTA BANCARIO ---
         # --- TAB 3: ESTADO DE CUENTA BANCARIO ---
+        # --- TAB 3: ESTADO DE CUENTA BANCARIO ---
         with tab3:
             st.subheader("📂 Estado de Cuenta Bancario")
 
@@ -9674,18 +9675,10 @@ elif opcion_menu == "📝 Asientos Contables":
                            "Julio": 7, "Agosto": 8, "Septiembre": 9, "Octubre": 10, "Noviembre": 11, "Diciembre": 12}
                 mes_num = mes_map[mes_sel]
 
-                df_cuenta = pd.DataFrame()
-
                 try:
                     if conn is None:
-                        st.warning("Reconectando a la base de datos...")
                         conn = conectar_db(db_actual)
-                    else:
-                        try:
-                            conn.ping(reconnect=True)
-                        except Exception:
-                            conn = conectar_db(db_actual)
-                            
+                    
                     if conn is None:
                         st.error("No se pudo establecer conexión con la base de datos.")
                         st.stop()
@@ -9695,6 +9688,8 @@ elif opcion_menu == "📝 Asientos Contables":
                     ultimo_dia = calendar.monthrange(int(ano_sel), int(mes_num))[1]
                     fecha_fin = f"{ano_sel}-{mes_num:02d}-{ultimo_dia}"
 
+                    # Consulta directa y rápida
+                    cursor = conn.cursor()
                     query = f"""
                         SELECT id, banco_nombre, cuenta_numero, fecha_movimiento, referencia, 
                                descripcion, monto, estado_conciliacion 
@@ -9702,27 +9697,22 @@ elif opcion_menu == "📝 Asientos Contables":
                         WHERE fecha_movimiento >= %s AND fecha_movimiento <= %s
                         ORDER BY fecha_movimiento DESC
                     """
-                    df_cuenta = ejecutar_consulta(query, conn, params=(fecha_inicio, fecha_fin))
-                    
-                    if not df_cuenta.empty:
-                        df_mostrar = df_cuenta.copy()
-                        
-                        # Aseguramos que la columna monto sea puramente numérica para evitar bloqueos
-                        if 'monto' in df_mostrar.columns:
-                            df_mostrar['monto'] = pd.to_numeric(df_mostrar['monto'], errors='coerce').fillna(0.0)
+                    cursor.execute(query, (fecha_inicio, fecha_fin))
+                    rows = cursor.fetchall()
+                    cursor.close()
 
-                        # Renderizado fluido usando la configuración nativa de columnas de Streamlit
-                        st.dataframe(
-                            df_mostrar,
-                            column_config={
-                                "monto": st.column_config.NumberColumn(
-                                    "Monto",
-                                    format="localized"  # Adapta automáticamente el formato numérico de forma fluida
-                                )
-                            },
-                            use_container_width=True,
-                            height=450
-                        )
+                    if rows:
+                        # Reconstruimos el DataFrame manualmente de forma segura para evitar bloqueos de Pandas
+                        df_cuenta = pd.DataFrame(rows, columns=[
+                            'id', 'banco_nombre', 'cuenta_numero', 'fecha_movimiento', 
+                            'referencia', 'descripcion', 'monto', 'estado_conciliacion'
+                        ])
+                        
+                        # Convertimos el monto a float plano sin funciones pesadas
+                        df_cuenta['monto'] = pd.to_numeric(df_cuenta['monto'], errors='coerce').fillna(0.0)
+
+                        # Renderizado rápido y nativo sin configuraciones complejas que cuelguen el navegador
+                        st.dataframe(df_cuenta, use_container_width=True, height=450)
                         st.write(f"**Total movimientos encontrados:** {len(df_cuenta)}")
                     else:
                         st.info(f"No hay movimientos para {empresa_data['nombre_empresa']} en {mes_sel} {ano_sel}.")
@@ -9734,10 +9724,10 @@ elif opcion_menu == "📝 Asientos Contables":
                     with st.expander("⚠️ Zona de Administración"):
                         if st.button("🗑️ Vaciar Todo (CUIDADO)"):
                             try:
-                                cursor = conn.cursor()
-                                cursor.execute(f"DELETE FROM `{db_actual}`.banco_movimientos WHERE empresa_id = %s", (cliente_id,))
+                                cursor_del = conn.cursor()
+                                cursor_del.execute(f"DELETE FROM `{db_actual}`.banco_movimientos WHERE empresa_id = %s", (cliente_id,))
                                 conn.commit()
-                                cursor.close()
+                                cursor_del.close()
                                 st.success("Registros de esta empresa eliminados.")
                                 st.rerun()
                             except Exception as e:
