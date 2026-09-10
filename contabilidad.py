@@ -8920,12 +8920,9 @@ elif opcion_menu == "📂 Plan de Cuentas":
                 df_plan.columns = df_plan.columns.str.strip().str.lower()
                 df_plan = df_plan.rename(columns={'nombre de la cuenta': 'nombre'})
                 
-                # CORRECCIÓN: Mostramos el total de registros y quitamos el .head(20) 
-                # para que el usuario pueda ver todo el contenido con un scroll completo.
                 st.info(f"📁 Archivo cargado exitosamente. Total de filas encontradas: **{len(df_plan)}**")
                 
                 st.write("Vista previa completa:")
-                # Agregamos height=400 para definir un contenedor con scroll vertical cómodo y completo
                 st.dataframe(df_plan, use_container_width=True, height=400)
                 
                 if st.button("🚀 Iniciar Importación a Base de Datos", type="primary"):
@@ -8934,14 +8931,17 @@ elif opcion_menu == "📂 Plan de Cuentas":
                     # Verificamos si al menos las columnas principales existen
                     if 'codigo' in df_plan.columns and 'nombre' in df_plan.columns:
                         try:
-                            # Nos aseguramos de incluir las columnas necesarias (completando las faltantes con None si no vienen en el Excel)
+                            # Nos aseguramos de incluir las columnas necesarias (completando las faltantes con None)
                             for col in columnas_sql:
                                 if col not in df_plan.columns:
                                     df_plan[col] = None
                                     
                             df_final = df_plan[columnas_sql]
                             
-                            # Usamos tu función existente de actualización en lugar de crear un motor con DB_CONFIG
+                            # CORRECCIÓN: Reemplazamos los NaN de pandas por None para que MySQL los acepte como NULL
+                            df_final = df_final.astype(object).where(df_final.notnull(), None)
+                            
+                            # Sincronizamos con la base de datos
                             actualizar_tabla_completa_db(conn_empresa, 'plan_cuentas', df_final)
                             
                             st.success("✅ ¡Plan de cuentas sincronizado correctamente!")
