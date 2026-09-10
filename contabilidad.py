@@ -9707,21 +9707,22 @@ elif opcion_menu == "📝 Asientos Contables":
                     if not df_cuenta.empty:
                         df_mostrar = df_cuenta.copy()
                         
-                        # Formateo estricto de la columna monto para la visualización
+                        # Aseguramos que la columna monto sea puramente numérica para evitar bloqueos
                         if 'monto' in df_mostrar.columns:
-                            def aplicar_formato_venezolano(val):
-                                if pd.isna(val):
-                                    return ""
-                                try:
-                                    num = float(val)
-                                except:
-                                    return val
-                                # Transforma a formato con puntos de miles y coma decimal
-                                return f"{num:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                            df_mostrar['monto'] = pd.to_numeric(df_mostrar['monto'], errors='coerce').fillna(0.0)
 
-                            df_mostrar['monto'] = df_mostrar['monto'].apply(aplicar_formato_venezolano).astype(str)
-
-                        st.dataframe(df_mostrar, use_container_width=True, height=450)
+                        # Renderizado fluido usando la configuración nativa de columnas de Streamlit
+                        st.dataframe(
+                            df_mostrar,
+                            column_config={
+                                "monto": st.column_config.NumberColumn(
+                                    "Monto",
+                                    format="localized"  # Adapta automáticamente el formato numérico de forma fluida
+                                )
+                            },
+                            use_container_width=True,
+                            height=450
+                        )
                         st.write(f"**Total movimientos encontrados:** {len(df_cuenta)}")
                     else:
                         st.info(f"No hay movimientos para {empresa_data['nombre_empresa']} en {mes_sel} {ano_sel}.")
