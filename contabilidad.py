@@ -8911,7 +8911,6 @@ elif opcion_menu == "📂 Plan de Cuentas":
             "📥 Descargar Excel"
         ])
         
-        
         with tab1:
             st.markdown("### Subir Archivo Excel")
             archivo_plan = st.file_uploader("Seleccione el archivo", type=["xlsx", "xls"], key="plan_up")
@@ -8921,8 +8920,13 @@ elif opcion_menu == "📂 Plan de Cuentas":
                 df_plan.columns = df_plan.columns.str.strip().str.lower()
                 df_plan = df_plan.rename(columns={'nombre de la cuenta': 'nombre'})
                 
-                st.write("Vista previa:")
-                st.dataframe(df_plan.head(20), use_container_width=True)
+                # CORRECCIÓN: Mostramos el total de registros y quitamos el .head(20) 
+                # para que el usuario pueda ver todo el contenido con un scroll completo.
+                st.info(f"📁 Archivo cargado exitosamente. Total de filas encontradas: **{len(df_plan)}**")
+                
+                st.write("Vista previa completa:")
+                # Agregamos height=400 para definir un contenedor con scroll vertical cómodo y completo
+                st.dataframe(df_plan, use_container_width=True, height=400)
                 
                 if st.button("🚀 Iniciar Importación a Base de Datos", type="primary"):
                     columnas_sql = ['id', 'codigo', 'nombre', 'nivel', 'tipo', 'padre']
