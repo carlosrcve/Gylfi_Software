@@ -1566,35 +1566,48 @@ def mes_esta_cerrado(conn, mes_nombre, ano, db_nombre=None):
         cursor.close()
 
 
+
 def cargar_estado_cuenta_bdv(uploaded_file, conn):
-    # 1. Recuperamos las variables del estado global
+    # 1. Recuperamos las variables del estado global y la base de datos de la empresa actual
     mes_sel = st.session_state.get('mes_seleccionado')
     ano_sel = st.session_state.get('ano_seleccionado')
+    
+    # Control central multi-tenant para las ~200 empresas
+    db_nombre = st.session_state.get('DB_ACTUAL') or st.session_state.get('empresa_actual')
 
     # 2. Validación de seguridad
     if not mes_sel or not ano_sel:
         st.error("❌ No se ha seleccionado mes o año en el dashboard.")
         return False
 
-    # 3. Verificamos si el mes está cerrado
-    if mes_esta_cerrado(conn, mes_sel, ano_sel):
+    if not db_nombre:
+        st.error("❌ No se ha especificado la base de datos de la empresa actual en la sesión.")
+        return False
+
+    # 3. Verificamos si el mes está cerrado (pasándole el nombre de la BD para aislar el control)
+    if mes_esta_cerrado(conn, mes_sel, ano_sel, db_nombre):
         st.error("❌ No se pueden realizar cambios. El mes está bloqueado.")
         return False
     
     # Registro de actividad
     usuario_actual = st.session_state.get('usuario', 'Desconocido')
     cliente_actual = st.session_state.get('cliente_id', 'N/A')
-    registrar_log_automatico(conn, "CARGA_ESTADO_CUENTA", f"Usuario {usuario_actual} cargó estado de cuenta para {cliente_actual}")
     
-    cursor = conn.cursor(buffered=True)
     try:
-        # 2. Leemos el archivo
+        registrar_log_automatico(conn, "CARGA_ESTADO_CUENTA", f"Usuario {usuario_actual} cargó estado de cuenta BDV para {cliente_actual} (BD: {db_nombre})")
+    except Exception:
+        pass
+    
+    # CORREGIDO: Quitamos 'buffered=True' porque PyMySQL no lo soporta
+    cursor = conn.cursor()
+    try:
+        # 4. Leemos el archivo
         df = pd.read_excel(uploaded_file)
         df.columns = df.columns.str.strip()
         
         movimientos_insertados = 0
         
-        # 3. Procesamos filas de forma segura
+        # 5. Procesamos filas de forma segura apuntando a la BD de la empresa en curso
         for index, row in df.iterrows():
             if pd.isna(row.get('Referencia')): 
                 continue
@@ -1606,30 +1619,30 @@ def cargar_estado_cuenta_bdv(uploaded_file, conn):
             credito = float(str(row.get('Crédito', 0)).replace('.', '').replace(',', '.')) if pd.notna(row.get('Crédito')) else 0
             monto = credito - debito
             
-            query = """
-                INSERT INTO banco_movimientos 
+            # Consulta dinámica para aislar los datos entre las 200 empresas
+            query = f"""
+                INSERT INTO `{db_nombre}`.banco_movimientos 
                 (banco_nombre, cuenta_numero, fecha_movimiento, referencia, descripcion, monto, estado_conciliacion)
                 VALUES (%s, %s, %s, %s, %s, %s, %s)
             """
-            valores = ('BDV', '0102', fecha_str, str(row['Referencia']), str(row['Descripción']), monto, 'Pendiente')
+            valores = ('Banco de Venezuela (BDV)', '0102', fecha_str, str(row['Referencia']), str(row['Descripción']), monto, 'Pendiente')
             
             cursor.execute(query, valores)
             movimientos_insertados += 1
             
         conn.commit()
-        st.success(f"✅ ¡Éxito! Se guardaron {movimientos_insertados} registros.")
+        st.success(f"✅ ¡Éxito! Se guardaron {movimientos_insertados} registros para la empresa `{db_nombre}`.")
         
         return True  
         
     except Exception as e:
         conn.rollback() # Revertir cambios si algo falla
-        st.error(f"❌ Error al procesar el archivo: {e}")
+        st.error(f"❌ Error al procesar el archivo del BDV: {e}")
         return False
         
     finally:
         if cursor:
             cursor.close() 
-        # Aquí eliminamos la llamada a .is_connected()
         if conn:
             try:
                 conn.ping(reconnect=True)
