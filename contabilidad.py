@@ -12922,7 +12922,7 @@ elif "Proveedores" in opcion_menu:
                                 st.balloons()
                                 
                                 # 2. Guardar el mensaje hermoso en el session_state para que se quede fijo en el frame
-                                mensaje_exito = f"🎉 ¡La tabla de proveedores de la base de datos '{db_seleccionada}' ha sido restablecida y guardada satisfactoriamente con éxito!"
+                                mensaje_exito = f"🎉 ¡La tabla de proveedores de la base de datos '{db_seleccionada}' ha sido ELIMINADA satisfactoriamente con éxito!"
                                 st.session_state.mensaje_exito_proveedores = mensaje_exito
                                 
                                 st.rerun()
