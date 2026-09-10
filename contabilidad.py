@@ -1498,6 +1498,30 @@ def actualizar_libro_diario_en_db(db_nombre, df_cambios):
             except Exception:
                 pass
 
+def mes_esta_cerrado(conn, mes_nombre, ano):
+    mes_map = {"Enero": 1, "Febrero": 2, "Marzo": 3, "Abril": 4, "Mayo": 5, "Junio": 6,
+               "Julio": 7, "Agosto": 8, "Septiembre": 9, "Octubre": 10, "Noviembre": 11, "Diciembre": 12}
+    mes_num = mes_map[mes_nombre]
+    
+    cursor = conn.cursor(buffered=True)
+    try:
+        # Registro de activida
+        registrar_log_automatico(conn, "CONSULTA_TASA_BCV", f"Usuario {st.session_state.usuario} consultó tasa BCV directa {st.session_state.cliente_id}")
+        
+        cursor.execute("""
+            SELECT COUNT(*) FROM kingdirver_ca.banco_movimientos 
+            WHERE MONTH(fecha_movimiento) = %s AND YEAR(fecha_movimiento) = %s 
+            AND estado_conciliacion = 'Cerrado'
+        """, (mes_num, ano))
+        resultado = cursor.fetchone()[0] > 0
+        return resultado
+        
+    except Exception as e:
+        st.error(f"Error al verificar estado del mes: {e}")
+        return False
+        
+    finally:
+        cursor.close() 
 
 
 def cargar_estado_cuenta_bdv(uploaded_file, conn):
