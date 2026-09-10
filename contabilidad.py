@@ -9641,7 +9641,38 @@ elif opcion_menu == "📝 Asientos Contables":
                     df_cuenta = ejecutar_consulta(query, conn, params=(fecha_inicio, fecha_fin))
                     
                     if not df_cuenta.empty:
-                        st.dataframe(df_cuenta, use_container_width=True)
+                        df_mostrar = df_cuenta.copy()
+                        
+                        if 'monto' in df_mostrar.columns:
+                            def limpiar_y_convertir_monto(val):
+                                if pd.isna(val):
+                                    return 0.0
+                                if isinstance(val, (int, float)):
+                                    return float(val)
+                                # Limpieza para asegurar que lea bien cadenas con formatos latinos/decimales
+                                val_str = str(val).strip()
+                                try:
+                                    # Si trae puntos como miles y coma como decimal, los ajustamos para Python float
+                                    if '.' in val_str and ',' in val_str:
+                                        val_str = val_str.replace('.', '').replace(',', '.')
+                                    elif ',' in val_str and '.' not in val_str:
+                                        val_str = val_str.replace(',', '.')
+                                    return float(val_str)
+                                except:
+                                    return 0.0
+
+                            # 1. Convertimos a numérico real de forma segura
+                            df_mostrar['monto_num'] = df_mostrar['monto'].apply(limpiar_y_convertir_monto)
+                            
+                            # 2. Formateamos al estilo deseado: 565.345,45
+                            df_mostrar['monto'] = df_mostrar['monto_num'].apply(
+                                lambda x: f"{x:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                            )
+                            
+                            # Eliminamos la columna auxiliar
+                            df_mostrar = df_mostrar.drop(columns=['monto_num'])
+
+                        st.dataframe(df_mostrar, use_container_width=True)
                         st.write(f"**Total movimientos encontrados:** {len(df_cuenta)}")
                     else:
                         st.info(f"No hay movimientos para {empresa_data['nombre_empresa']} en {mes_sel} {ano_sel}.")
@@ -9654,7 +9685,7 @@ elif opcion_menu == "📝 Asientos Contables":
                         if st.button("🗑️ Vaciar Todo (CUIDADO)"):
                             try:
                                 cursor = conn.cursor()
-                                cursor.execute(f"DELETE FROM `{db_actual}`.banco_movimientos WHERE empresa_id = %s", (cliente_id,))
+                                cursor.execute(f"DELETE FROM `{db_actual}`.banco_movimientos")
                                 conn.commit()
                                 cursor.close()
                                 st.success("Registros de esta empresa eliminados.")
