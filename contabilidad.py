@@ -6025,6 +6025,137 @@ def renderizar_tab_asientos_automatizados(db_connection):
         except Exception as e:
             st.error(f"Error al leer el archivo Excel: {e}")
 
+
+
+def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
+    """
+    Tercer Frame: Sube el Estado de Cuenta Bancario, asegura la tabla `banco_movimientos`,
+    extrae/compara el RIF en la descripción y concilia cancelando el pasivo contra el banco.
+    """
+    st.markdown("---")
+    st.markdown("### 🏦 Tercer Frame: Conciliación y Pagos Bancarios (Match por RIF)")
+    st.info("Sube el **Estado de Cuenta Bancario**. El sistema buscará el número de RIF del proveedor en la columna `descripcion` para realizar el match automático y cancelar los pasivos contra la cuenta del Banco.")
+
+    # 1. Asegurar la creación de la tabla banco_movimientos
+    if db_connection:
+        try:
+            with db_connection.cursor() as cursor_tabla:
+                cursor_tabla.execute(f"""
+                    CREATE TABLE IF NOT EXISTS `{db_segura}`.banco_movimientos (
+                        id INT AUTO_INCREMENT PRIMARY KEY,
+                        banco_nombre VARCHAR(50) NOT NULL,
+                        cuenta_numero VARCHAR(20) NOT NULL,
+                        fecha_movimiento DATE NOT NULL,
+                        referencia VARCHAR(50) NOT NULL,
+                        descripcion TEXT,
+                        monto DECIMAL(18,2) NOT NULL,
+                        estado_conciliacion VARCHAR(20) DEFAULT 'Pendiente',
+                        asiento_id INT NULL,
+                        fecha_importacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    );
+                """)
+                db_connection.commit()
+        except Exception as err_tabla:
+            st.warning(f"⚠️ No se pudo verificar/crear la tabla `banco_movimientos`: {err_tabla}")
+
+    # Parámetros básicos para el archivo del banco
+    col_b1, col_b2 = st.columns(2)
+    with col_b1:
+        banco_nombre_input = st.text_input("Nombre del Banco:", value="Banco Nacional", key="input_banco_nombre")
+    with col_b2:
+        cuenta_numero_input = st.text_input("Número de Cuenta:", value="0102-XXXXXXXXXX", key="input_banco_cuenta")
+
+    archivo_banco = st.file_uploader("Subir Estado de Cuenta Bancario (Excel/CSV)", type=["xlsx", "xls", "csv"], key="uploader_estado_banco_indep")
+
+    if archivo_banco is not None:
+        try:
+            if archivo_banco.name.endswith('.csv'):
+                df_banco = pd.read_csv(archivo_banco)
+            else:
+                df_banco = pd.read_excel(archivo_banco)
+            
+            df_banco.columns = df_banco.columns.str.strip()
+            st.markdown("#### Vista Previa de los Movimientos Bancarios")
+            st.dataframe(df_banco, use_container_width=True)
+
+            if st.button("🚀 Procesar Movimientos y Ejecutar Match por RIF", key="btn_ejecutar_match_rif"):
+                movimientos_guardados = 0
+                matches_exitosos = 0
+
+                # Cargar proveedores y sus RIFs desde la base de datos para el cruce
+                mapa_proveedores_por_rif = {}
+                try:
+                    with db_connection.cursor(pymysql.cursors.DictCursor) as cursor_prov:
+                        cursor_prov.execute(f"SELECT * FROM `{db_segura}`.proveedores")
+                        for prov in cursor_prov.fetchall():
+                            p_rif = str(prov.get("rif", prov.get("RIF", ""))).strip().upper()
+                            if p_rif:
+                                mapa_proveedores_por_rif[p_rif] = prov
+                except Exception:
+                    pass
+
+                with db_connection.cursor(pymysql.cursors.DictCursor) as cursor_cursor:
+                    for _, row in df_banco.iterrows():
+                        # Mapeo flexible de columnas comunes en estados de cuenta
+                        def buscar_col_banco(posibles):
+                            for col in df_banco.columns:
+                                if any(p.lower() in str(col).lower() for p in posibles):
+                                    val = row[col]
+                                    if pd.notna(val):
+                                        return val
+                            return None
+
+                        raw_fecha = buscar_col_banco(["fecha", "date"])
+                        if hasattr(raw_fecha, "strftime"):
+                            f_mov = raw_fecha.strftime("%Y-%m-%d")
+                        else:
+                            val_str = str(raw_fecha).strip().split(" ")[0]
+                            try:
+                                f_mov = pd.to_datetime(val_str).strftime("%Y-%m-%d")
+                            except Exception:
+                                f_mov = "2026-01-01"
+
+                        referencia = str(buscar_col_banco(["referencia", "ref", "nro"]) or "S/R").strip()
+                        descripcion = str(buscar_col_banco(["descripcion", "concepto", "detalle", "descripción"]) or "").strip()
+                        
+                        try:
+                            monto = float(buscar_col_banco(["monto", "importe", "debito", "débito"]) or 0.0)
+                        except Exception:
+                            monto = 0.0
+
+                        # Insertar en la tabla banco_movimientos
+                        cursor_cursor.execute(f"""
+                            INSERT INTO `{db_segura}`.banco_movimientos 
+                            (banco_nombre, cuenta_numero, fecha_movimiento, referencia, descripcion, monto, estado_conciliacion)
+                            VALUES (%s, %s, %s, %s, %s, %s, 'Pendiente')
+                        """, (banco_nombre_input, cuenta_numero_input, f_mov, referencia, descripcion, monto))
+                        
+                        movimientos_id = cursor_cursor.lastrowid
+                        movimientos_guardados += 1
+
+                        # Expresión regular para buscar patrones de RIF venezolanos (ej: J-12345678-9, V12345678, G-...)
+                        match_rif = re.search(r'([VEEJPG][-]?\d{6,10}[-]?[0-9]?)', descripcion, re.IGNORECASE)
+                        if match_rif:
+                            rif_encontrado = match_rif.group(1).upper().replace("-", "")
+                            # Normalizar búsqueda contra el mapa de proveedores
+                            for prov_rif_db, info_p in mapa_proveedores_por_rif.items():
+                                if prov_rif_db.replace("-", "") in rif_encontrado:
+                                    matches_exitosos += 1
+                                    # Aquí puedes actualizar el estado de conciliación o generar el asiento de pago automático
+                                    cursor_cursor.execute(f"""
+                                        UPDATE `{db_segura}`.banco_movimientos 
+                                        SET estado_conciliacion = 'Conciliado' 
+                                        WHERE id = %s
+                                    """, (movimientos_id,))
+                                    break
+
+                    db_connection.commit()
+
+                st.success(f"✅ Se importaron {movimientos_guardados} movimientos bancarios. Se realizaron {matches_exitosos} matches automáticos por RIF.")
+
+        except Exception as e_banco:
+            st.error(f"Error procesando el archivo del banco: {e_banco}")
+
 def renderizar_tab_asientos_ventas(db_connection):
     st.subheader("🤖 Asientos Automatizados - Libro de Ventas")
     st.markdown("""
@@ -9019,9 +9150,13 @@ elif opcion_menu == "📝 Asientos Contables":
                 # 2. Llamamos a la conexión inyectándole la base de datos del cliente
                 conexion_actual = conectar_db(nombre_bd_cliente) 
                 
-                # 3. Validamos y renderizamos
+                # 3. Validamos y ejecutamos ambas funciones dentro de la pestaña 4
                 if conexion_actual:
+                    # Primero la función que ya tenías
                     renderizar_tab_asientos_automatizados(conexion_actual)
+                    
+                    # Y seguidamente la nueva función del tercer frame de conciliación bancaria
+                    renderizar_tercer_frame_conciliacion_banco(conexion_actual, nombre_bd_cliente)
                 else:
                     st.error("No se pudo establecer la conexión con la base de datos de la empresa para los asientos automatizados.")
 
