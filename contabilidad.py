@@ -12869,6 +12869,12 @@ elif "Proveedores" in opcion_menu:
             st.subheader("⚠️ Zona de Peligro: Gestión de la Tabla Proveedores")
             st.warning("Esta acción eliminará por completo los registros de la tabla de proveedores para la empresa seleccionada actualmente.")
             
+            # Mostrar mensaje persistente si quedó guardado en la sesión anterior tras el rerun
+            if "mensaje_exito_proveedores" in st.session_state:
+                st.success(st.session_state.mensaje_exito_proveedores)
+                # Opcional: limpiarlo si quieres que solo aparezca una vez tras la recarga
+                # del st.session_state.mensaje_exito_proveedores
+
             # Checkbox de confirmación fuera del botón para que no se pierda el estado al hacer clic
             confirmacion_borrado = st.checkbox(
                 "Confirmo que deseo vaciar/eliminar la tabla de proveedores de esta empresa", 
@@ -12892,8 +12898,7 @@ elif "Proveedores" in opcion_menu:
                             else:
                                 cursor = conn_gestion.cursor()
                                 
-                                # Si quieres vaciar registros: DELETE FROM proveedores;
-                                # Si quieres eliminar la estructura completa y recrearla:
+                                # Ejecutar la eliminación y recreación de la tabla
                                 cursor.execute("DROP TABLE IF EXISTS proveedores;")
                                 cursor.execute("""
                                     CREATE TABLE proveedores (
@@ -12909,11 +12914,17 @@ elif "Proveedores" in opcion_menu:
                                 conn_gestion.commit()
                                 cursor.close()
                                 
-                                # Limpiar caché local de proveedores para obligar a recargar desde la BD limpia
+                                # Limpiar caché local de proveedores
                                 if "df_proveedores_cache" in st.session_state:
                                     del st.session_state.df_proveedores_cache
                                     
-                                st.success(f"✅ ¡La tabla de proveedores en la base de datos '{db_seleccionada}' fue reiniciada con éxito!")
+                                # 1. Lanzar los globitos festivos
+                                st.balloons()
+                                
+                                # 2. Guardar el mensaje hermoso en el session_state para que se quede fijo en el frame
+                                mensaje_exito = f"🎉 ¡La tabla de proveedores de la base de datos '{db_seleccionada}' ha sido restablecida y guardada satisfactoriamente con éxito!"
+                                st.session_state.mensaje_exito_proveedores = mensaje_exito
+                                
                                 st.rerun()
                                 
                         except Exception as e:
