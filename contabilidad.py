@@ -9394,9 +9394,12 @@ elif opcion_menu == "📝 Asientos Contables":
                 st.subheader("➕ Agregar / Editar Saldo")
                 
                 with st.form("form_saldos_main"):
+                    # Selector de banco para no dejarlo fijo en 'BDV'
+                    banco_input = st.selectbox("Banco", ["Banco de Venezuela (BDV)", "Banesco", "Mercantil"])
+                    
                     c1, c2 = st.columns(2)
                     m_input = c1.selectbox("Mes", ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", 
-                                                 "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"])
+                                                   "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"])
                     a_input = c2.selectbox("Año", [2025, 2026, 2027])
                     
                     c4, c5 = st.columns(2)
@@ -9404,8 +9407,9 @@ elif opcion_menu == "📝 Asientos Contables":
                     val_fin = c5.number_input("Saldo Final", value=0.00, format="%.2f")
                     
                     if st.form_submit_button("Guardar / Actualizar Registro"):
-                        if guardar_saldo_mensual(conn_tab1, 'BDV', m_input, a_input, val_ini, val_fin, db_name=db_actual):
-                            st.success(f"✅ Registro de {m_input} guardado.")
+                        # Pasamos el banco seleccionado dinámicamente a la función
+                        if guardar_saldo_mensual(conn_tab1, banco_input, m_input, a_input, val_ini, val_fin, db_name=db_actual):
+                            st.success(f"✅ Saldo de **{banco_input}** para **{m_input} {a_input}** guardado y actualizado con éxito.")
                             st.rerun()
 
                 # 5. ELIMINACIÓN SEGURA Y DINÁMICA
