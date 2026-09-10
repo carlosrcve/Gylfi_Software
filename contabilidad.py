@@ -9631,6 +9631,7 @@ elif opcion_menu == "📝 Asientos Contables":
     
 
         # --- TAB 3: ESTADO DE CUENTA BANCARIO ---
+        # --- TAB 3: ESTADO DE CUENTA BANCARIO ---
         with tab3:
             st.subheader("📂 Estado de Cuenta Bancario")
 
@@ -9690,7 +9691,6 @@ elif opcion_menu == "📝 Asientos Contables":
                         df_mostrar = df_cuenta.copy()
                         
                         if 'monto' in df_mostrar.columns:
-                            # Función limpia que respeta el valor exacto del número
                             def asegurar_flotante_exacto(val):
                                 if pd.isna(val):
                                     return 0.0
@@ -9703,17 +9703,17 @@ elif opcion_menu == "📝 Asientos Contables":
                                 except:
                                     return 0.0
 
-                            # Convertimos a número real limpio
                             df_mostrar['monto_num'] = df_mostrar['monto'].apply(asegurar_flotante_exacto)
                             
-                            # Formateamos visualmente para la tabla estilo venezolano (ej: 20.319,37)
+                            # Formateamos y convertimos explícitamente a string para evitar bloqueos en el renderizador
                             df_mostrar['monto'] = df_mostrar['monto_num'].apply(
                                 lambda x: f"{x:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-                            )
+                            ).astype(str)
                             
                             df_mostrar = df_mostrar.drop(columns=['monto_num'])
 
-                        st.dataframe(df_mostrar, use_container_width=True)
+                        # Usamos st.dataframe con altura fija para mantener fluidez
+                        st.dataframe(df_mostrar, use_container_width=True, height=450)
                         st.write(f"**Total movimientos encontrados:** {len(df_cuenta)}")
                     else:
                         st.info(f"No hay movimientos para {empresa_data['nombre_empresa']} en {mes_sel} {ano_sel}.")
