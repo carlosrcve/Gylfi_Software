@@ -9141,7 +9141,7 @@ elif opcion_menu == "📝 Asientos Contables":
                 "🗑️ Vaciar Asiento de Diarios",
                 "🤖 Asientos Costos Automatizados",
                 "📈 Asientos Ingresos Automatizados", 
-                "🔗 Match Asientos Contables Tabla"  # Icono y texto actualizados para el match
+                "🔗 Matching Asientos Contables"  # Icono y texto actualizados para el match
             ])
 
             def exportar_a_excel(df):
