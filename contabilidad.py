@@ -6362,13 +6362,10 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
 
 
 
-import pandas as pd
-import streamlit as st
-
 def conciliacion_de_gastos_y_comisiones(db_connection, db_segura):
     """
     Función de Conciliación Masiva con selección automática de comisiones 
-    y formato numérico limpio en los montos de la vista previa.
+    y formato numérico contable venezolano (15.539,00) en la vista previa y el editor.
     """
     st.markdown("---")
     st.markdown("### ⚙️ Conciliación Masiva de Gastos y Comisiones Bancarias")
@@ -6425,6 +6422,10 @@ def conciliacion_de_gastos_y_comisiones(db_connection, db_segura):
             ORDER BY fecha_movimiento DESC;
         """
         df_pendientes = pd.read_sql(query_pend, db_connection)
+        
+        if not df_pendientes.empty and 'monto' in df_pendientes.columns:
+            df_pendientes['monto'] = pd.to_numeric(df_pendientes['monto'], errors='coerce').fillna(0.0)
+
     except Exception as e_q:
         st.error(f"❌ Error al cargar los movimientos bancarios: {e_q}")
         return
@@ -6432,6 +6433,9 @@ def conciliacion_de_gastos_y_comisiones(db_connection, db_segura):
     if df_pendientes.empty:
         st.success("🎉 ¡Excelente! No hay movimientos bancarios disponibles para conciliar en este momento.")
         return
+
+    # Diccionario de respaldo con los montos numéricos reales por ID para cálculos exactos
+    dict_montos_originales = dict(zip(df_pendientes['id'], df_pendientes['monto']))
 
     # Barra de búsqueda libre opcional
     col_f1, col_f2 = st.columns([2, 1])
@@ -6479,15 +6483,34 @@ def conciliacion_de_gastos_y_comisiones(db_connection, db_segura):
         else:
             lista_seleccion_inicial.append(False)
 
-    # Editor de datos para seleccionar los movimientos
     df_pendientes["Seleccionar"] = lista_seleccion_inicial
-    cols = ["Seleccionar"] + [c for c in df_pendientes.columns if c != "Seleccionar"]
-    df_editable = df_pendientes[cols]
+    
+    # 🛠️ CREAR COPIA PARA LA VISTA CON FORMATO CONTABLE VENEZOLANO (15.539,00)
+    df_editable = df_pendientes.copy()
+    
+    def formato_venezolano(val):
+        try:
+            return f"{float(val):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+        except:
+            return "0,00"
+
+    df_editable["monto"] = df_editable["monto"].apply(formato_venezolano)
+
+    cols = ["Seleccionar"] + [c for c in df_editable.columns if c != "Seleccionar"]
+    df_editable = df_editable[cols]
 
     df_resultado_seleccion = st.data_editor(
         df_editable,
         hide_index=True,
         use_container_width=True,
+        column_config={
+            "monto": st.column_config.TextColumn(
+                "Monto",
+                help="Monto del movimiento bancario en formato contable"
+            ),
+            "Seleccionar": st.column_config.CheckboxColumn("Seleccionar", default=False)
+        },
+        disabled=[c for c in df_editable.columns if c != "Seleccionar"],
         key="editor_movimientos_banco"
     )
 
@@ -6501,8 +6524,12 @@ def conciliacion_de_gastos_y_comisiones(db_connection, db_segura):
         key="select_cuenta_banco_lote"
     )
 
-    # Filtrar los registros seleccionados
-    seleccionados_prev = df_resultado_seleccion[df_resultado_seleccion["Seleccionar"] == True]
+    # Filtrar los registros seleccionados mediante el ID y recuperar su monto numérico original exacto
+    ids_seleccionados = df_resultado_seleccion[df_resultado_seleccion["Seleccionar"] == True]["id"].tolist()
+    seleccionados_prev = df_pendientes[df_pendientes["id"].isin(ids_seleccionados)].copy()
+    
+    if not seleccionados_prev.empty:
+        seleccionados_prev["monto"] = seleccionados_prev["id"].map(dict_montos_originales)
 
     # 👁️ GENERAR VISTA PREVIA EN TIEMPO REAL CON FORMATO NUMÉRICO LIMPIO
     if not seleccionados_prev.empty:
