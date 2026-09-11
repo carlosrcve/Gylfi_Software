@@ -1834,7 +1834,7 @@ def crear_pdf_conciliacion(conn, df_conciliado, saldo_inicial, saldo_final_banco
         st.error("No se ha seleccionado una base de datos de empresa.")
         st.stop()
 
-    # 3. VERIFICACIÓN DE PERMISOS (si aplica en tu sistema)
+    # 3. VERIFICACIÓN DE PERMISOS
     try:
         empresa_data = obtener_datos_agente_db(db_actual)
         if empresa_data and rol != 'admin':
@@ -1842,7 +1842,7 @@ def crear_pdf_conciliacion(conn, df_conciliado, saldo_inicial, saldo_final_banco
                 st.error("⚠️ Acceso denegado.")
                 st.stop()
     except NameError:
-        pass # Si la función obtener_datos_agente_db no está definida globalmente en este módulo
+        pass
 
     # 4. FECHA DINÁMICA (Sincronizada con la 'ñ' del sidebar de Streamlit)
     mes_actual = mes_sel or st.session_state.get('mes_seleccionado')
@@ -1871,16 +1871,24 @@ def crear_pdf_conciliacion(conn, df_conciliado, saldo_inicial, saldo_final_banco
         except Exception:
             pass
         
-        cursor = conn.cursor(dictionary=True)
+        # Cursor estándar (compatible con todos los conectores MySQL)
+        cursor = conn.cursor()
         cursor.execute("SELECT nombre_empresa, rif, domicilio_fiscal FROM control_central.clientes WHERE id = %s", (cliente_id,))
-        empresa = cursor.fetchone()
+        row = cursor.fetchone()
+        
+        # Mapeo seguro de la empresa a diccionario manual
+        empresa = {}
+        if row:
+            # Obtenemos los nombres de las columnas del cursor de forma segura
+            col_names = [desc[0] for desc in cursor.description]
+            empresa = dict(zip(col_names, row))
         
         pdf = FPDF()
         pdf.add_page()
         
         # Encabezado del Reporte
         pdf.set_font("Arial", 'B', 16)
-        pdf.cell(0, 10, empresa['nombre_empresa'] if empresa else "Conciliación Bancaria", ln=True, align='C')
+        pdf.cell(0, 10, empresa.get('nombre_empresa', "Conciliación Bancaria"), ln=True, align='C')
         
         if empresa:
             pdf.set_font("Arial", '', 10)
@@ -1912,10 +1920,20 @@ def crear_pdf_conciliacion(conn, df_conciliado, saldo_inicial, saldo_final_banco
                 pdf.cell(190, 7, "No hay movimientos registrados en esta sección.", 1, 1, 'C')
             else:
                 for mov in lista_movimientos:
-                    pdf.cell(30, 6, str(mov.get('fecha_movimiento', '')), 1)
-                    pdf.cell(40, 6, str(mov.get('referencia', '')), 1)
-                    pdf.cell(90, 6, str(mov.get('descripcion', ''))[:45], 1)
-                    pdf.cell(30, 6, f"{float(mov.get('monto', 0)):,.2f}", 1, 1, 'R')
+                    # Soporta tanto si vienen como diccionarios puros como si son objetos/filas
+                    if isinstance(mov, dict):
+                        f_mov = str(mov.get('fecha_movimiento', ''))
+                        ref = str(mov.get('referencia', ''))
+                        desc = str(mov.get('descripcion', ''))[:45]
+                        mnt = float(mov.get('monto', 0))
+                    else:
+                        # Si fuera una tupla u otro formato
+                        f_mov, ref, desc, mnt = str(mov[0]), str(mov[1]), str(mov[2])[:45], float(mov[3])
+
+                    pdf.cell(30, 6, f_mov, 1)
+                    pdf.cell(40, 6, ref, 1)
+                    pdf.cell(90, 6, desc, 1)
+                    pdf.cell(30, 6, f"{mnt:,.2f}", 1, 1, 'R')
         
         pdf.ln(2)
         pintar_seccion("Más: Ingresos Pendientes", lista_ingresos)
