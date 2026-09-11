@@ -6361,11 +6361,9 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
             st.caption("💡 Haz clic en el botón superior para realizar el escaneo y cruce automático por RIF.")
 
 
-
 def conciliacion_de_gastos_y_comisiones(db_connection, db_segura):
     """
-    Función de Conciliación Masiva por Lotes con filtro dinámico 
-    para separar comisiones, gastos y pagos en la tabla de pendientes.
+    Función con diagnóstico incorporado para verificar el contenido real de banco_movimientos.
     """
     st.markdown("---")
     st.markdown("### ⚙️ Conciliación Masiva de Gastos y Comisiones Bancarias")
@@ -6377,7 +6375,17 @@ def conciliacion_de_gastos_y_comisiones(db_connection, db_segura):
         st.error("❌ No hay ninguna base de datos de empresa seleccionada correctamente en la sesión.")
         return
 
-    # 1. Cargar el Plan de Cuentas (guardando código como opción y mapeando el nombre)
+    # 🔍 SECCIÓN DE DIAGNÓSTICO RÁPIDO (Para ver qué estados y registros existen realmente)
+    with st.expander("🛠️ Ver Diagnóstico de Movimientos Bancarios en BD", expanded=False):
+        try:
+            query_debug = f"SELECT estado_conciliacion, COUNT(*) as total FROM `{db_segura}`.banco_movimientos GROUP BY estado_conciliacion;"
+            df_debug = pd.read_sql(query_debug, db_connection)
+            st.write("Conteo de movimientos por su estado actual en la base de datos:")
+            st.dataframe(df_debug, use_container_width=True)
+        except Exception as e_dbg:
+            st.warning(f"No se pudo consultar el diagnóstico de estados: {e_dbg}")
+
+    # 1. Cargar el Plan de Cuentas
     dict_cuentas = {}
     lista_codigos_cuentas = []
     try:
@@ -6410,13 +6418,14 @@ def conciliacion_de_gastos_y_comisiones(db_connection, db_segura):
     st.markdown("---")
     st.markdown("#### 2️⃣ Selecciona los Movimientos Bancarios Pendientes")
 
-    # Cargar todos los movimientos pendientes base de la tabla banco_movimientos
+    # ⚠️ Ampliamos la consulta para capturar cualquier estado pendiente o nulo por si las comisiones tienen otro estado
     df_pendientes = pd.DataFrame()
     try:
         query_pend = f"""
-            SELECT id, banco_nombre, cuenta_numero, fecha_movimiento, referencia, descripcion, monto 
+            SELECT id, banco_nombre, cuenta_numero, fecha_movimiento, referencia, descripcion, monto, estado_conciliacion 
             FROM `{db_segura}`.banco_movimientos 
-            WHERE estado_conciliacion IN ('Pendiente', 'Pendiente Clasificación Manual') 
+            WHERE estado_conciliacion IN ('Pendiente', 'Pendiente Clasificación Manual', 'PENDIENTE', '') 
+               OR estado_conciliacion IS NULL
             ORDER BY fecha_movimiento DESC;
         """
         df_pendientes = pd.read_sql(query_pend, db_connection)
@@ -6428,27 +6437,21 @@ def conciliacion_de_gastos_y_comisiones(db_connection, db_segura):
         st.success("🎉 ¡Excelente! No hay movimientos bancarios pendientes de conciliar en este momento.")
         return
 
-    # 🔍 Filtro rápido para alternar visualización entre Comisiones y Pagos a Proveedores
-    filtro_tipo = st.radio(
-        "Filtrar movimientos en pantalla por tipo:",
-        options=["Mostrar Todos", "🛈 Solo Comisiones / Gastos Bancarios (Comisión, IGTF, etc.)", "👥 Pagos / Otros movimientos"],
-        horizontal=True,
-        key="radio_filtro_movs"
-    )
+    # Selector de filtro libre para buscar cualquier palabra (Ej: "comision", "com", "nota", etc.)
+    col_f1, col_f2 = st.columns([2, 1])
+    with col_f1:
+        texto_busqueda = st.text_input("🔍 Filtrar por palabra clave en la descripción (ej: comision, nota, igtf):", "")
+    with col_f2:
+        st.write("")
+        st.write(f"Total registros: **{len(df_pendientes)}**")
 
-    if "Comisiones" in filtro_tipo:
-        # Filtra descripciones comunes de comisiones bancarias o montos pequeños / palabras clave
-        patron_comision = "COMISION|COM|IGTF|PAGO MOVIL|DEBITO|NOTA"
-        df_pendientes = df_pendientes[df_pendientes['descripcion'].str.upper().str.contains(patron_comision, na=False)]
-    elif "Pagos" in filtro_tipo:
-        patron_comision = "COMISION|COM|IGTF|NOTA"
-        df_pendientes = df_pendientes[~df_pendientes['descripcion'].str.upper().str.contains(patron_comision, na=False)]
+    # Aplicar filtro de texto si el usuario escribe algo
+    if texto_busqueda.strip():
+        df_pendientes = df_pendientes[df_pendientes['descripcion'].str.upper().str.contains(texto_busqueda.strip().upper(), na=False)]
 
     if df_pendientes.empty:
-        st.warning("⚠️ No se encontraron movimientos con el filtro seleccionado.")
+        st.warning("⚠️ No se encontraron movimientos que coincidan con la búsqueda.")
         return
-
-    st.info(f"Se muestran **{len(df_pendientes)}** movimientos bancarios filtrados.")
 
     # Convertir el DataFrame para visualización interactiva con Dataframe / Editor
     df_pendientes["Seleccionar"] = False
