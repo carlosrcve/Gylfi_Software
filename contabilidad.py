@@ -6184,11 +6184,10 @@ def renderizar_tab_asientos_automatizados(db_connection):
 
 def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
     """
-    Tercer Frame: Conciliación automatizada extrayendo y comparando RIFs 
-    desde el texto libre de los movimientos bancarios y los asientos contables.
+    Tercer Frame: Conciliación automatizada con extracción exacta de RIFs (Banco vs Asientos Contables).
     """
     st.markdown("---")
-    st.markdown("### 🏦 Tercer Frame: Conciliación y Cruce por Extracción Inteligente de RIF")
+    st.markdown("### 🏦 Tercer Frame: Conciliación y Cruce por RIF")
     
     if not db_segura or db_segura == 'none':
         db_segura = st.session_state.get('DB_ACTUAL')
@@ -6197,7 +6196,7 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
         st.error("❌ No hay ninguna base de datos de empresa seleccionada correctamente en la sesión.")
         return
 
-    # 1. Asegurar la tabla banco_movimientos (usando db_connection.commit())
+    # 1. Asegurar la tabla banco_movimientos
     if db_connection:
         try:
             with db_connection.cursor() as cursor_tabla:
@@ -6255,36 +6254,35 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
                 descripcion_banco = str(row["descripcion"] or "").strip().upper()
                 monto_mov = abs(float(row["monto"] or 0.0))
 
-                # 1. Extraer RIF del texto del banco (Ej: J000622884 o J-000622884)
-                match_rif_banco = re.search(r'\b([VEJGP])[\s-]?(\d{6,10})\b', descripcion_banco, re.IGNORECASE)
-                rif_banco_limpio = ""
-                if match_rif_banco:
-                    letra = match_rif_banco.group(1).upper()
-                    cuerpo = match_rif_banco.group(2)
-                    rif_banco_limpio = f"{letra}{cuerpo}"
+                # Extraer RIF del texto del banco (ej. J000622884)
+                match_rif_banco = re.search(r'\b([VEJGP])[\s-]?(\d+)\b', descripcion_banco, re.IGNORECASE)
+                if not match_rif_banco:
+                    continue
+                
+                letra_banco = match_rif_banco.group(1).upper()
+                num_banco = match_rif_banco.group(2)
+                rif_banco_limpio = f"{letra_banco}{num_banco}"
 
                 asiento_referencia = None
                 proveedor_nombre_encontrado = ""
 
-                # 2. Recorrer los asientos y extraer también el RIF de cada descripción larga
-                if rif_banco_limpio and lista_asientos:
+                # Recorrer los asientos contables buscando el mismo RIF
+                if lista_asientos:
                     for ast in lista_asientos:
                         desc_ast = str(ast.get("descripcion", "")).upper()
+                        match_rif_ast = re.search(r'\b([VEJGP])[\s-]?(\d+)\b', desc_ast, re.IGNORECASE)
                         
-                        # Extraer RIF dentro del texto del asiento contable
-                        match_rif_ast = re.search(r'\b([VEJGP])[\s-]?(\d{6,10})\b', desc_ast, re.IGNORECASE)
                         if match_rif_ast:
                             letra_ast = match_rif_ast.group(1).upper()
-                            cuerpo_ast = match_rif_ast.group(2)
-                            rif_ast_limpio = f"{letra_ast}{cuerpo_ast}"
+                            num_ast = match_rif_ast.group(2)
+                            rif_ast_limpio = f"{letra_ast}{num_ast}"
                             
-                            # Comparar si los RIFs extraídos coinciden exactamente
+                            # Si los RIFs coinciden exactamente
                             if rif_banco_limpio == rif_ast_limpio:
                                 asiento_referencia = ast
                                 proveedor_nombre_encontrado = desc_ast
                                 break
 
-                # Si encontramos coincidencia de RIF extraído, agregamos la propuesta
                 if asiento_referencia:
                     propuestas.append({
                         "mov_id": mov_id,
@@ -6300,9 +6298,9 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
 
             st.session_state.matches_propuestos = propuestas
             if propuestas:
-                st.success(f"🎯 ¡Se han cruzado exitosamente {len(propuestas)} movimiento(s) por coincidencia exacta de RIF!")
+                st.success(f"🎯 ¡Match exitoso! Se cruzó el movimiento con el RIF **{propuestas[0]['rif_detectado']}**.")
             else:
-                st.warning("⚠️ No se encontró coincidencia de RIF extraído. Verifica que el formato del RIF esté presente en el texto del banco y en el texto del asiento.")
+                st.warning("⚠️ No se encontró coincidencia en esta pasada. Verifica que el movimiento pendiente en el banco tenga exactamente el mismo RIF que la factura registrada.")
         except Exception as e_scan:
             st.error(f"Error en el análisis de cruce: {e_scan}")
 
@@ -6315,17 +6313,17 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
             with st.container():
                 st.success(
                     f"✅ **¡Match Encontrado por RIF (`{prop['rif_detectado']}`)!**\n\n"
-                    f"• **Detalle en Contabilidad:** `{prop['proveedor_nombre']}`\n"
-                    f"• **Movimiento Bancario:** {prop['banco']} | Monto: **Bs. {prop['monto']:,.2f}**\n"
-                    f"• **Comprobante Relacionado:** `{prop['n_comprobante_origen']}`"
+                    f"• **Proveedor / Detalle:** `{prop['proveedor_nombre']}`\n"
+                    f"• **Banco:** {prop['banco']} | Monto del Pago: **Bs. {prop['monto']:,.2f}**\n"
+                    f"• **Comprobante de Factura Original:** `{prop['n_comprobante_origen']}`"
                 )
                 
-                col_btn1, col_btn2 = st.columns([2, 2])
+                col_btn1, _ = st.columns([2, 2])
                 with col_btn1:
-                    if st.button(f"🚀 Generar Asiento de Pago", key=f"btn_generar_pago_{prop['mov_id']}_{idx}", type="primary"):
+                    if st.button(f"🚀 Generar Asiento de Pago (CxP vs Banco)", key=f"btn_generar_pago_{prop['mov_id']}_{idx}", type="primary"):
                         try:
                             with db_connection.cursor() as cursor_pago:
-                                # Comprobante automático para el pago
+                                # Obtener el siguiente comprobante de pago
                                 cursor_pago.execute(f"SELECT MAX(CAST(SUBSTRING_INDEX(n_comprobante, '-', -1) AS UNSIGNED)) as max_n FROM `{db_segura}`.asientos_contables")
                                 res_max = cursor_pago.fetchone()
                                 siguiente_num = (res_max[0] or 1000) + 1 if res_max and res_max[0] else 90001
@@ -6334,31 +6332,29 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
 
                                 desc_pago = f"Pago de Factura | Ref Banco: {prop['descripcion_banco']}"
 
-                                # Insertar Debe (Disminuye pasivo/proveedor)
+                                # 1. DEBE: Disminuye la Cuenta por Pagar (Pasivo)
                                 cursor_pago.execute(f"""
                                     INSERT INTO `{db_segura}`.asientos_contables 
                                     (n_comprobante, descripcion, fecha, cuenta_contable, debe, haber)
                                     VALUES (%s, %s, %s, %s, %s, 0.00)
                                 """, (n_comp_pago, desc_pago, fecha_hoy, prop['cuenta_destino'], prop['monto']))
 
-                                # Insertar Haber (Sale del banco)
+                                # 2. HABER: Sale el dinero del Banco
                                 cursor_pago.execute(f"""
                                     INSERT INTO `{db_segura}`.asientos_contables 
                                     (n_comprobante, descripcion, fecha, cuenta_contable, debe, haber)
                                     VALUES (%s, %s, %s, %s, 0.00, %s)
                                 """, (n_comp_pago, desc_pago, fecha_hoy, f"Banco {prop['banco']}", prop['monto']))
 
-                                # Actualizar banco_movimientos
+                                # 3. Actualizar banco_movimientos como Conciliado y Pagado
                                 cursor_pago.execute(f"""
                                     UPDATE `{db_segura}`.banco_movimientos 
                                     SET estado_conciliacion = 'Conciliado y Pagado', asiento_id = %s 
                                     WHERE id = %s
                                 """, (cursor_pago.lastrowid, prop['mov_id']))
 
-                            # ¡Commit hecho correctamente en la conexión principal!
                             db_connection.commit()
-
-                            st.success(f"🎉 ¡Asiento de pago generado con éxito (Comprobante: `{n_comp_pago}`)!")
+                            st.success(f"🎉 ¡Asiento de pago generado exitosamente con el comprobante `{n_comp_pago}`!")
                             st.session_state.matches_propuestos.pop(idx)
                             st.rerun()
 
@@ -6366,7 +6362,7 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
                             st.error(f"❌ Error al registrar el asiento de pago: {e_pago}")
     else:
         if not btn_escanear:
-            st.caption("💡 Haz clic en el botón superior para realizar el escaneo y extracción inteligente de RIFs.")
+            st.caption("💡 Haz clic en el botón superior para realizar el cruce automático.")
 
 
 def renderizar_tab_asientos_ventas(db_connection):
