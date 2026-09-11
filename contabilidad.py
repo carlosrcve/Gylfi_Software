@@ -1600,7 +1600,7 @@ def cargar_estado_cuenta_bdv(uploaded_file, conn):
         st.error("❌ No se ha especificado la base de datos de la empresa actual en la sesión.")
         return False
 
-    # 3. Verificamos si el mes está cerrado (pasándole el nombre de la BD para aislar el control)
+    # 3. Verificamos si el mes está cerrado
     if mes_esta_cerrado(conn, mes_sel, ano_sel, db_nombre):
         st.error("❌ No se pueden realizar cambios. El mes está bloqueado.")
         return False
@@ -1616,13 +1616,11 @@ def cargar_estado_cuenta_bdv(uploaded_file, conn):
     
     cursor = conn.cursor()
     try:
-        # 4. Leemos el archivo
+        # 4. Leemos el archivo completo
         df = pd.read_excel(uploaded_file)
         df.columns = df.columns.str.strip()
         
-        movimientos_insertados = 0
-        
-        # Función auxiliar robusta para limpiar montos en formato venezolano
+        # Función auxiliar robusta para limpiar montos
         def limpiar_monto_venezolano(val):
             if pd.isna(val):
                 return 0.0
@@ -1634,13 +1632,10 @@ def cargar_estado_cuenta_bdv(uploaded_file, conn):
                 return 0.0
                 
             try:
-                # Si tiene tanto punto de miles como coma decimal (ej: 1.420,54)
                 if '.' in val_str and ',' in val_str:
                     val_str = val_str.replace('.', '').replace(',', '.')
-                # Si solo tiene coma decimal (ej: 420,54 o -420,54)
                 elif ',' in val_str and '.' not in val_str:
                     val_str = val_str.replace(',', '.')
-                # Si tiene múltiples puntos sin coma (ej: 3.713.533)
                 elif val_str.count('.') > 1:
                     val_str = val_str.replace('.', '')
                 
@@ -1648,13 +1643,13 @@ def cargar_estado_cuenta_bdv(uploaded_file, conn):
             except:
                 return 0.0
 
-        # 5. Procesamos filas de forma segura apuntando a la BD de la empresa en curso
-        for index, row in df.iterrows():
-            # Validamos que existan Referencia y Fecha antes de continuar
+        # Preparamos una lista de tuplas para la inserción masiva (Batch Insert)
+        valores_a_insertar = []
+        
+        for _, row in df.iterrows():
             if pd.isna(row.get('Referencia')) or pd.isna(row.get('Fecha')): 
                 continue
             
-            # Conversión segura de fecha para evitar errores de NaTType
             raw_fecha = row['Fecha']
             if hasattr(raw_fecha, "strftime"):
                 fecha_str = raw_fecha.strftime('%Y-%m-%d')
@@ -1664,32 +1659,43 @@ def cargar_estado_cuenta_bdv(uploaded_file, conn):
                     continue
                 fecha_str = parsed_date.strftime('%Y-%m-%d')
             
-            # Limpieza exacta usando la función robusta
             debito = limpiar_monto_venezolano(row.get('Débito', 0))
             credito = limpiar_monto_venezolano(row.get('Crédito', 0))
             monto = credito - debito
             
-            # Descripción segura por si viene vacía o nula
             descripcion_val = str(row.get('Descripción', '')) if pd.notna(row.get('Descripción')) else ''
             
-            # Consulta dinámica para aislar los datos entre las 200 empresas
-            query = f"""
-                INSERT INTO `{db_nombre}`.banco_movimientos 
-                (banco_nombre, cuenta_numero, fecha_movimiento, referencia, descripcion, monto, estado_conciliacion)
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
-            """
-            valores = ('Banco de Venezuela (BDV)', '0102', fecha_str, str(row['Referencia']), descripcion_val, monto, 'Pendiente')
-            
-            cursor.execute(query, valores)
-            movimientos_insertados += 1
-            
-        conn.commit()
-        st.success(f"✅ ¡Éxito! Se guardaron {movimientos_insertados} registros para la empresa `{db_nombre}`.")
+            # Agregamos la tupla a la lista masiva
+            valores_a_insertar.append((
+                'Banco de Venezuela (BDV)', 
+                '0102', 
+                fecha_str, 
+                str(row['Referencia']), 
+                descripcion_val, 
+                monto, 
+                'Pendiente'
+            ))
         
+        if not valores_a_insertar:
+            st.warning("⚠️ No se encontraron registros válidos para insertar en el archivo.")
+            return False
+
+        # Consulta SQL optimizada para inserción masiva
+        query = f"""
+            INSERT INTO `{db_nombre}`.banco_movimientos 
+            (banco_nombre, cuenta_numero, fecha_movimiento, referencia, descripcion, monto, estado_conciliacion)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+        """
+        
+        # Ejecutamos de un solo golpe con executemany (evita bloqueos del hilo principal)
+        cursor.executemany(query, valores_a_insertar)
+        conn.commit()
+        
+        st.success(f"✅ ¡Éxito! Se guardaron {len(valores_a_insertar)} registros para la empresa `{db_nombre}`.")
         return True  
         
     except Exception as e:
-        conn.rollback() # Revertir cambios si algo falla
+        conn.rollback()
         st.error(f"❌ Error al procesar el archivo del BDV: {e}")
         return False
         
@@ -9599,7 +9605,7 @@ elif opcion_menu == "📝 Asientos Contables":
                 archivo_banco = st.file_uploader("Suba el archivo Excel (.xlsx) del banco", type=["xlsx"], key="file_banco")
 
                 # ==========================================
-                # VISTA PREVIA COMPLETA CON FORMATO NUMÉRICO
+                # VISTA PREVIA COMPLETA CON FORMATO NUMÉRICO Y FECHAS
                 # ==========================================
                 if archivo_banco is not None:
                     st.markdown("---")
@@ -9612,6 +9618,12 @@ elif opcion_menu == "📝 Asientos Contables":
                         # Creamos una copia para formatear visualmente sin afectar la lectura original
                         df_preview_show = df_preview.copy()
                         
+                        # Buscamos columnas de fecha comunes para estandarizarlas a YYYY-MM-DD en la vista previa
+                        columnas_fecha = ['fecha', 'date', 'fec_movimiento', 'fecha_movimiento']
+                        for col in df_preview_show.columns:
+                            if str(col).strip().lower() in columnas_fecha:
+                                df_preview_show[col] = pd.to_datetime(df_preview_show[col], errors='coerce').dt.strftime('%Y-%m-%d').fillna(df_preview_show[col].astype(str))
+
                         # Buscamos columnas comunes de montos (Débito, Crédito, Saldo, Monto, etc.)
                         columnas_a_formatear = ['debito', 'credito', 'saldo', 'monto', 'débito', 'crédito']
                         
