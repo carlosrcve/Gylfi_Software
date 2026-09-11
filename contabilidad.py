@@ -1956,7 +1956,6 @@ def mostrar_tablero_conciliacion(conn, mes_sel, ano_sel):
         ano_anterior = str(ano_sel)
 
     # 3. CARGA DE BANCOS (Usando la DB ya seleccionada)
-    # 3. CARGA DE BANCOS (Usando la DB ya seleccionada)
     cursor = conn.cursor()
     try:
         # Búsqueda más flexible e insensible a mayúsculas para evitar falsos negativos
@@ -2036,6 +2035,13 @@ def mostrar_tablero_conciliacion(conn, mes_sel, ano_sel):
     finally:
         cursor.close()
 
+    # 🛠️ Función auxiliar de formato venezolano para montos
+    def formato_venezolano(val):
+        try:
+            return f"{float(val):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+        except:
+            return "0,00"
+
     # 5. VISUALIZACIÓN
     st.subheader("📊 Historial y Cuadre de Saldos")
     
@@ -2052,10 +2058,26 @@ def mostrar_tablero_conciliacion(conn, mes_sel, ano_sel):
 
     st.subheader("📥 Pendientes por Conciliar")
     col_p1, col_p2 = st.columns(2)
+    
+    # Preparar DataFrames pendientes con formato numérico contable
+    if not df_banco.empty and 'monto' in df_banco.columns:
+        df_banco['monto'] = pd.to_numeric(df_banco['monto'], errors='coerce').fillna(0.0)
+        
+        df_banco_ingresos = df_banco[df_banco['monto'] > 0].copy()
+        if not df_banco_ingresos.empty:
+            df_banco_ingresos['monto'] = df_banco_ingresos['monto'].apply(formato_venezolano)
+            
+        df_banco_egresos = df_banco[df_banco['monto'] < 0].copy()
+        if not df_banco_egresos.empty:
+            df_banco_egresos['monto'] = df_banco_egresos['monto'].apply(formato_venezolano)
+    else:
+        df_banco_ingresos = pd.DataFrame()
+        df_banco_egresos = pd.DataFrame()
+
     col_p1.write("📥 Ingresos Pendientes")
-    col_p1.dataframe(df_banco[df_banco['monto'] > 0] if not df_banco.empty else pd.DataFrame(), use_container_width=True)
+    col_p1.dataframe(df_banco_ingresos, use_container_width=True, hide_index=True)
     col_p2.write("📤 Egresos Pendientes")
-    col_p2.dataframe(df_banco[df_banco['monto'] < 0] if not df_banco.empty else pd.DataFrame(), use_container_width=True)
+    col_p2.dataframe(df_banco_egresos, use_container_width=True, hide_index=True)
         
     if 'saldo_final_libros' not in st.session_state:
         st.session_state.saldo_final_libros = 0.0
@@ -2095,16 +2117,25 @@ def mostrar_tablero_conciliacion(conn, mes_sel, ano_sel):
         st.error(f"Error generando el PDF: {e}")
 
     # 7. MOVIMIENTOS CONCILIADOS
-    if not df_conciliado.empty:
+    if not df_conciliado.empty and 'monto' in df_conciliado.columns:
         st.subheader("✅ Movimientos Conciliados")
+        df_conciliado['monto'] = pd.to_numeric(df_conciliado['monto'], errors='coerce').fillna(0.0)
+        
+        df_conciliado_ingresos = df_conciliado[df_conciliado['monto'] > 0].copy()
+        if not df_conciliado_ingresos.empty:
+            df_conciliado_ingresos['monto'] = df_conciliado_ingresos['monto'].apply(formato_venezolano)
+            
+        df_conciliado_egresos = df_conciliado[df_conciliado['monto'] < 0].copy()
+        if not df_conciliado_egresos.empty:
+            df_conciliado_egresos['monto'] = df_conciliado_egresos['monto'].apply(formato_venezolano)
+
         col_d, col_h = st.columns(2)
         col_d.write("Ingresos")
-        col_d.dataframe(df_conciliado[df_conciliado['monto'] > 0], use_container_width=True)
+        col_d.dataframe(df_conciliado_ingresos, use_container_width=True, hide_index=True)
         col_h.write("Egresos")
-        col_h.dataframe(df_conciliado[df_conciliado['monto'] < 0], use_container_width=True)
+        col_h.dataframe(df_conciliado_egresos, use_container_width=True, hide_index=True)
     else:
         st.info("ℹ️ No hay movimientos conciliados en este periodo.")
-
 
 # Definido a nivel global para evitar recrearlo en cada llamada
 _MAPEO_BANCOS = {
