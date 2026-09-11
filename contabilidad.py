@@ -9805,19 +9805,38 @@ elif opcion_menu == "📝 Asientos Contables":
                         df_saldos = ejecutar_consulta(query_saldos, conn_tab1)
                         
                         if df_saldos is not None and not df_saldos.empty:
+                            # Asegurar formato numérico real en el DataFrame original
+                            df_saldos['saldo_inicial'] = pd.to_numeric(df_saldos['saldo_inicial'], errors='coerce').fillna(0.0)
+                            df_saldos['saldo_final'] = pd.to_numeric(df_saldos['saldo_final'], errors='coerce').fillna(0.0)
+
+                            # Diccionarios de respaldo para los montos numéricos reales por ID
+                            dict_inicial_original = dict(zip(df_saldos['id'], df_saldos['saldo_inicial']))
+                            dict_final_original = dict(zip(df_saldos['id'], df_saldos['saldo_final']))
+
                             st.info("💡 **Consejo:** Puedes hacer doble clic directamente en las celdas de **saldo_inicial** o **saldo_final** de la tabla de abajo para modificarlos, y luego hacer clic en el botón de guardar.")
                             
+                            # 🛠️ CREAR COPIA PARA LA VISTA CON FORMATO CONTABLE VENEZOLANO (15.539,00)
+                            df_editable = df_saldos.copy()
+                            
+                            def formato_venezolano(val):
+                                try:
+                                    return f"{float(val):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                                except:
+                                    return "0,00"
+
+                            df_editable['saldo_inicial'] = df_editable['saldo_inicial'].apply(formato_venezolano)
+                            df_editable['saldo_final'] = df_editable['saldo_final'].apply(formato_venezolano)
+
                             # Tabla interactiva con editor nativo de Streamlit
-                            # 'id' se deshabilita para que no se pueda modificar la llave primaria
-                            edited_df = st.data_editor(
-                                df_saldos,
+                            edited_df_preview = st.data_editor(
+                                df_editable,
                                 column_config={
                                     "id": st.column_config.NumberColumn("ID", disabled=True),
                                     "banco": st.column_config.TextColumn("Banco"),
                                     "mes": st.column_config.TextColumn("Mes"),
                                     "ano": st.column_config.NumberColumn("Año", disabled=True),
-                                    "saldo_inicial": st.column_config.NumberColumn("Saldo Inicial", format="%.2f"),
-                                    "saldo_final": st.column_config.NumberColumn("Saldo Final", format="%.2f"),
+                                    "saldo_inicial": st.column_config.TextColumn("Saldo Inicial", help="Formato contable (ej. 15.539,00)"),
+                                    "saldo_final": st.column_config.TextColumn("Saldo Final", help="Formato contable (ej. 15.539,00)"),
                                 },
                                 hide_index=True,
                                 use_container_width=True,
@@ -9828,20 +9847,31 @@ elif opcion_menu == "📝 Asientos Contables":
                             if st.button("💾 Guardar cambios de la tabla", key="btn_guardar_tabla_saldos"):
                                 try:
                                     cursor_upd = conn_tab1.cursor()
-                                    # Comparamos el dataframe original con el editado para actualizar solo lo que cambió
                                     actualizaciones = 0
                                     
-                                    for index, row in edited_df.iterrows():
-                                        orig_row = df_saldos.loc[df_saldos['id'] == row['id']].iloc[0]
+                                    for index, row in edited_df_preview.iterrows():
+                                        row_id = row['id']
+                                        orig_row = df_saldos.loc[df_saldos['id'] == row_id].iloc[0]
                                         
-                                        # Verificamos si hubo cambios en saldo_inicial o saldo_final (u otras columnas futuras)
-                                        if (row['saldo_inicial'] != orig_row['saldo_inicial']) or (row['saldo_final'] != orig_row['saldo_final']) or (row['banco'] != orig_row['banco']):
+                                        # Limpiar y convertir de nuevo el formato string ingresado por el usuario a float flotante seguro
+                                        try:
+                                            val_ini_limpio = float(str(row['saldo_inicial']).replace(".", "").replace(",", "."))
+                                        except:
+                                            val_ini_limpio = orig_row['saldo_inicial']
+
+                                        try:
+                                            val_fin_limpio = float(str(row['saldo_final']).replace(".", "").replace(",", "."))
+                                        except:
+                                            val_fin_limpio = orig_row['saldo_final']
+
+                                        # Verificamos si hubo cambios comparando con los datos originales limpios
+                                        if (val_ini_limpio != orig_row['saldo_inicial']) or (val_fin_limpio != orig_row['saldo_final']) or (row['banco'] != orig_row['banco']):
                                             query_update = f"""
                                                 UPDATE `{db_actual}`.saldos_bancarios 
                                                 SET banco = %s, saldo_inicial = %s, saldo_final = %s 
                                                 WHERE id = %s
                                             """
-                                            cursor_upd.execute(query_update, (row['banco'], row['saldo_inicial'], row['saldo_final'], row['id']))
+                                            cursor_upd.execute(query_update, (row['banco'], val_ini_limpio, val_fin_limpio, row_id))
                                             actualizaciones += 1
                                             
                                     conn_tab1.commit()
