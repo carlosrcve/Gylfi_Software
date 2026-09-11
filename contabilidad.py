@@ -1708,6 +1708,106 @@ def cargar_estado_cuenta_bdv(uploaded_file, conn):
             except Exception:
                 pass
 
+from fpdf import FPDF
+@log_ejecucion
+def crear_pdf_conciliacion(conn, df_conciliado, saldo_inicial, saldo_final_banco, saldo_final_libros, lista_ingresos, lista_egresos):
+    # 1. Recuperación de estado de sesión
+    db_actual = st.session_state.get('DB_ACTUAL')
+    cliente_id = st.session_state.get('cliente_id')
+    rol = st.session_state.get('rol')
+
+    # 2. VALIDACIÓN DE SEGURIDAD
+    if not db_actual:
+        st.error("No se ha seleccionado una base de datos de empresa.")
+        st.stop()
+
+    # 3. VERIFICACIÓN DE PERMISOS
+    empresa_data = obtener_datos_agente_db(db_actual)
+    if empresa_data and rol != 'admin':
+        if empresa_data['id'] != cliente_id:
+            st.error("⚠️ Acceso denegado.")
+            st.stop()
+
+    # 4. FECHA DINÁMICA (Aquí ya no usamos fecha_seleccionada)
+    mes = st.session_state.get('mes_seleccionado') 
+    anio = st.session_state.get('anio_seleccionado')
+    
+    if not mes or not anio:
+        st.error("Por favor, selecciona un mes y un año en la interfaz.")
+        st.stop()
+        
+    mes_anio = f"{mes} {anio}"
+
+    # 5. GESTIÓN DE CONEXIÓN
+    try:
+        if not conn.is_connected():
+            conn.reconnect(attempts=3, delay=1)
+    except:
+        conn = get_db_connection()
+
+    cursor = None
+    try:
+        registrar_log_automatico(conn, "GENERAR_PDF_CONCILIACION", f"Usuario {st.session_state.usuario} | Cliente {cliente_id}")
+        
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT nombre_empresa, rif, domicilio_fiscal FROM control_central.clientes WHERE id = %s", (cliente_id,))
+        empresa = cursor.fetchone()
+        
+        pdf = FPDF()
+        pdf.add_page()
+        
+        # Encabezado
+        pdf.set_font("Arial", 'B', 16)
+        pdf.cell(0, 10, empresa['nombre_empresa'] if empresa else "Conciliacion Bancaria", ln=True, align='C')
+        
+        if empresa:
+            pdf.set_font("Arial", '', 10)
+            pdf.cell(0, 5, f"RIF: {empresa['rif']} | Dirección: {empresa['domicilio_fiscal']}", ln=True, align='C')
+        
+        # Usamos el mes_anio que definimos arriba
+        pdf.set_font("Arial", 'B', 12)
+        pdf.cell(0, 10, f"Conciliacion Bancaria - Mes: {mes_anio}", ln=True, align='C')
+        pdf.ln(5)
+        
+        # ... (resto de tu lógica se mantiene igual)
+        pdf.set_font("Arial", 'B', 12)
+        pdf.set_fill_color(200, 220, 255)
+        pdf.cell(140, 10, "Saldo Final Banco", 1, 0, 'L', True)
+        pdf.cell(50, 10, f"{saldo_final_banco:,.2f}", 1, 1, 'R')
+        
+        def pintar_seccion(titulo, lista_movimientos):
+            pdf.set_font("Arial", 'B', 11)
+            pdf.cell(190, 8, titulo, ln=True)
+            pdf.set_font("Arial", size=9)
+            for mov in lista_movimientos:
+                pdf.cell(30, 8, str(mov['fecha_movimiento']), 1)
+                pdf.cell(40, 8, str(mov['referencia']), 1)
+                pdf.cell(90, 8, str(mov['descripcion'])[:45], 1)
+                pdf.cell(30, 8, f"{float(mov['monto']):,.2f}", 1, 1, 'R')
+        
+        pintar_seccion("Mas: Ingresos Pendientes", lista_ingresos)
+        pintar_seccion("Menos: Egresos Pendientes", lista_egresos)
+        
+        pdf.ln(5)
+        pdf.cell(140, 10, "Saldo Final Libros", 1, 0, 'L', True)
+        pdf.cell(50, 10, f"{saldo_final_libros:,.2f}", 1, 1, 'R')
+        
+        dif = saldo_final_libros - saldo_final_banco
+        pdf.ln(5)
+        if abs(dif) < 0.01:
+            pdf.set_text_color(0, 128, 0)
+            pdf.cell(0, 10, "ESTADO: CONCILIADO - Diferencia Cero", ln=True, align='C')
+        else:
+            pdf.set_text_color(255, 0, 0)
+            pdf.cell(0, 10, f"Diferencia pendiente de cuadre: {dif:,.2f}", ln=True, align='R')
+        
+        return pdf.output(dest='S').encode('latin-1')
+
+    finally:
+        if cursor:
+            cursor.close()
+        if conn and conn.is_connected():
+            conn.ping(reconnect=True)
 
 def mostrar_tablero_conciliacion(conn, mes_sel, ano_sel):
     st.title("⚖️ Conciliación Bancaria")
