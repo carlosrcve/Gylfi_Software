@@ -1823,7 +1823,6 @@ def diagnosticar_conciliacion(conn, db_empresa):
             cursor.close()
 
 
-
 def crear_pdf_conciliacion(conn, df_conciliado, saldo_inicial, saldo_final_banco, saldo_final_libros, lista_ingresos, lista_egresos, mes_sel=None, ano_sel=None):
     # 1. Recuperación de estado de sesión
     db_actual = st.session_state.get('DB_ACTUAL')
@@ -1872,7 +1871,6 @@ def crear_pdf_conciliacion(conn, df_conciliado, saldo_inicial, saldo_final_banco
         except Exception:
             pass
         
-        # Consulta SQL ajustada solo con columnas existentes garantizadas
         cursor = conn.cursor()
         cursor.execute("SELECT nombre_empresa, rif FROM control_central.clientes WHERE id = %s", (cliente_id,))
         row = cursor.fetchone()
@@ -1952,7 +1950,8 @@ def crear_pdf_conciliacion(conn, df_conciliado, saldo_inicial, saldo_final_banco
             pdf.set_text_color(255, 0, 0)
             pdf.cell(0, 10, f"Diferencia pendiente de cuadre: {dif:,.2f}", ln=True, align='C')
         
-        return pdf.output(dest='S').encode('latin-1')
+        # Retorno directo del bytearray sin codificación adicional
+        return bytes(pdf.output(dest='S'))
 
     finally:
         if cursor:
