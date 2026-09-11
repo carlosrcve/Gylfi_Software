@@ -9516,20 +9516,58 @@ elif opcion_menu == "📝 Asientos Contables":
                         df_saldos = ejecutar_consulta(query_saldos, conn_tab1)
                         
                         if df_saldos is not None and not df_saldos.empty:
-                            df_view = df_saldos.copy()
+                            st.info("💡 **Consejo:** Puedes hacer doble clic directamente en las celdas de **saldo_inicial** o **saldo_final** de la tabla de abajo para modificarlos, y luego hacer clic en el botón de guardar.")
                             
-                            def formatear_moneda(valor):
-                                try:
-                                    if pd.isna(valor) or valor is None:
-                                        return "0,00"
-                                    return "{:,.2f}".format(float(valor)).replace(",", "X").replace(".", ",").replace("X", ".")
-                                except Exception:
-                                    return "0,00"
+                            # Tabla interactiva con editor nativo de Streamlit
+                            # 'id' se deshabilita para que no se pueda modificar la llave primaria
+                            edited_df = st.data_editor(
+                                df_saldos,
+                                column_config={
+                                    "id": st.column_config.NumberColumn("ID", disabled=True),
+                                    "banco": st.column_config.TextColumn("Banco"),
+                                    "mes": st.column_config.TextColumn("Mes"),
+                                    "ano": st.column_config.NumberColumn("Año", disabled=True),
+                                    "saldo_inicial": st.column_config.NumberColumn("Saldo Inicial", format="%.2f"),
+                                    "saldo_final": st.column_config.NumberColumn("Saldo Final", format="%.2f"),
+                                },
+                                hide_index=True,
+                                use_container_width=True,
+                                key="editor_saldos_bancarios"
+                            )
 
-                            df_view['saldo_inicial'] = df_view['saldo_inicial'].apply(formatear_moneda)
-                            df_view['saldo_final'] = df_view['saldo_final'].apply(formatear_moneda)
-                            
-                            st.dataframe(df_view, use_container_width=True)
+                            # Botón para persistir los cambios hechos en el data_editor
+                            if st.button("💾 Guardar cambios de la tabla", key="btn_guardar_tabla_saldos"):
+                                try:
+                                    cursor_upd = conn_tab1.cursor()
+                                    # Comparamos el dataframe original con el editado para actualizar solo lo que cambió
+                                    actualizaciones = 0
+                                    
+                                    for index, row in edited_df.iterrows():
+                                        orig_row = df_saldos.loc[df_saldos['id'] == row['id']].iloc[0]
+                                        
+                                        # Verificamos si hubo cambios en saldo_inicial o saldo_final (u otras columnas futuras)
+                                        if (row['saldo_inicial'] != orig_row['saldo_inicial']) or (row['saldo_final'] != orig_row['saldo_final']) or (row['banco'] != orig_row['banco']):
+                                            query_update = f"""
+                                                UPDATE `{db_actual}`.saldos_bancarios 
+                                                SET banco = %s, saldo_inicial = %s, saldo_final = %s 
+                                                WHERE id = %s
+                                            """
+                                            cursor_upd.execute(query_update, (row['banco'], row['saldo_inicial'], row['saldo_final'], row['id']))
+                                            actualizaciones += 1
+                                            
+                                    conn_tab1.commit()
+                                    cursor_upd.close()
+                                    
+                                    if actualizaciones > 0:
+                                        st.success(f"✅ ¡Se actualizaron {actualizaciones} registro(s) con éxito!")
+                                        st.rerun()
+                                    else:
+                                        st.info("ℹ️ No se detectaron cambios nuevos para guardar.")
+                                        
+                                except Exception as e:
+                                    conn_tab1.rollback()
+                                    st.error(f"❌ Error al guardar las modificaciones: {e}")
+
                         else:
                             nombre_emp = empresa_data.get('nombre_empresa', 'la empresa')
                             st.info(f"No hay saldos registrados para {nombre_emp}.")
@@ -9537,12 +9575,11 @@ elif opcion_menu == "📝 Asientos Contables":
                     except Exception as e:
                         st.error(f"Error al cargar la tabla de saldos: {e}")
 
-                # 4. FORMULARIO DE REGISTRO
+                # 4. FORMULARIO DE REGISTRO NUEVO
                 st.markdown("---")
-                st.subheader("➕ Agregar / Editar Saldo")
+                st.subheader("➕ Agregar Nuevo Saldo Mensual")
                 
                 with st.form("form_saldos_main"):
-                    # Selector de banco para no dejarlo fijo en 'BDV'
                     banco_input = st.selectbox("Banco", ["Banco de Venezuela (BDV)", "Banesco", "Mercantil"])
                     
                     c1, c2 = st.columns(2)
@@ -9554,10 +9591,9 @@ elif opcion_menu == "📝 Asientos Contables":
                     val_ini = c4.number_input("Saldo Inicial", value=0.00, format="%.2f")
                     val_fin = c5.number_input("Saldo Final", value=0.00, format="%.2f")
                     
-                    if st.form_submit_button("Guardar / Actualizar Registro"):
-                        # Pasamos el banco seleccionado dinámicamente a la función
+                    if st.form_submit_button("Registrar Nuevo Saldo"):
                         if guardar_saldo_mensual(conn_tab1, banco_input, m_input, a_input, val_ini, val_fin, db_name=db_actual):
-                            st.success(f"✅ Saldo de **{banco_input}** para **{m_input} {a_input}** guardado y actualizado con éxito.")
+                            st.success(f"✅ Saldo de **{banco_input}** para **{m_input} {a_input}** guardado con éxito.")
                             st.rerun()
 
                 # 5. ELIMINACIÓN SEGURA Y DINÁMICA
@@ -9578,7 +9614,6 @@ elif opcion_menu == "📝 Asientos Contables":
                     conn_tab1.close()
                 except:
                     pass
-
 
         with tab2:
             st.subheader("📂 Importar nuevo estado de cuenta")
