@@ -1823,6 +1823,7 @@ def diagnosticar_conciliacion(conn, db_empresa):
             cursor.close()
 
 
+
 def crear_pdf_conciliacion(conn, df_conciliado, saldo_inicial, saldo_final_banco, saldo_final_libros, lista_ingresos, lista_egresos, mes_sel=None, ano_sel=None):
     # 1. Recuperación de estado de sesión
     db_actual = st.session_state.get('DB_ACTUAL')
@@ -1871,15 +1872,13 @@ def crear_pdf_conciliacion(conn, df_conciliado, saldo_inicial, saldo_final_banco
         except Exception:
             pass
         
-        # Cursor estándar (compatible con todos los conectores MySQL)
+        # Consulta SQL ajustada solo con columnas existentes garantizadas
         cursor = conn.cursor()
-        cursor.execute("SELECT nombre_empresa, rif, domicilio_fiscal FROM control_central.clientes WHERE id = %s", (cliente_id,))
+        cursor.execute("SELECT nombre_empresa, rif FROM control_central.clientes WHERE id = %s", (cliente_id,))
         row = cursor.fetchone()
         
-        # Mapeo seguro de la empresa a diccionario manual
         empresa = {}
         if row:
-            # Obtenemos los nombres de las columnas del cursor de forma segura
             col_names = [desc[0] for desc in cursor.description]
             empresa = dict(zip(col_names, row))
         
@@ -1890,9 +1889,9 @@ def crear_pdf_conciliacion(conn, df_conciliado, saldo_inicial, saldo_final_banco
         pdf.set_font("Arial", 'B', 16)
         pdf.cell(0, 10, empresa.get('nombre_empresa', "Conciliación Bancaria"), ln=True, align='C')
         
-        if empresa:
+        if empresa.get('rif'):
             pdf.set_font("Arial", '', 10)
-            pdf.cell(0, 5, f"RIF: {empresa.get('rif', '')} | Dirección: {empresa.get('domicilio_fiscal', '')}", ln=True, align='C')
+            pdf.cell(0, 5, f"RIF: {empresa.get('rif', '')}", ln=True, align='C')
         
         pdf.set_font("Arial", 'B', 12)
         pdf.cell(0, 10, f"Conciliación Bancaria - Mes: {mes_anio}", ln=True, align='C')
@@ -1920,14 +1919,12 @@ def crear_pdf_conciliacion(conn, df_conciliado, saldo_inicial, saldo_final_banco
                 pdf.cell(190, 7, "No hay movimientos registrados en esta sección.", 1, 1, 'C')
             else:
                 for mov in lista_movimientos:
-                    # Soporta tanto si vienen como diccionarios puros como si son objetos/filas
                     if isinstance(mov, dict):
                         f_mov = str(mov.get('fecha_movimiento', ''))
                         ref = str(mov.get('referencia', ''))
                         desc = str(mov.get('descripcion', ''))[:45]
                         mnt = float(mov.get('monto', 0))
                     else:
-                        # Si fuera una tupla u otro formato
                         f_mov, ref, desc, mnt = str(mov[0]), str(mov[1]), str(mov[2])[:45], float(mov[3])
 
                     pdf.cell(30, 6, f_mov, 1)
