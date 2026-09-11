@@ -6197,7 +6197,7 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
         st.error("❌ No hay ninguna base de datos de empresa seleccionada correctamente en la sesión.")
         return
 
-    # 1. Asegurar la tabla banco_movimientos
+    # 1. Asegurar la tabla banco_movimientos (usando db_connection.commit())
     if db_connection:
         try:
             with db_connection.cursor() as cursor_tabla:
@@ -6216,7 +6216,7 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
                         fecha_importacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     );
                 """)
-                cursor_tabla.commit()
+            db_connection.commit()
         except Exception as err_tabla:
             st.warning(f"⚠️ Nota de tabla banco: {err_tabla}")
 
@@ -6302,7 +6302,7 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
             if propuestas:
                 st.success(f"🎯 ¡Se han cruzado exitosamente {len(propuestas)} movimiento(s) por coincidencia exacta de RIF!")
             else:
-                st.warning("⚠️ No se encontró coincidencia de RIF extraído. Verifica que el formato del RIF (ej. J000622884) esté presente en el texto del banco y en el texto del asiento.")
+                st.warning("⚠️ No se encontró coincidencia de RIF extraído. Verifica que el formato del RIF esté presente en el texto del banco y en el texto del asiento.")
         except Exception as e_scan:
             st.error(f"Error en el análisis de cruce: {e_scan}")
 
@@ -6355,7 +6355,8 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
                                     WHERE id = %s
                                 """, (cursor_pago.lastrowid, prop['mov_id']))
 
-                                db_connection.commit()
+                            # ¡Commit hecho correctamente en la conexión principal!
+                            db_connection.commit()
 
                             st.success(f"🎉 ¡Asiento de pago generado con éxito (Comprobante: `{n_comp_pago}`)!")
                             st.session_state.matches_propuestos.pop(idx)
