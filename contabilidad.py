@@ -1823,7 +1823,7 @@ def diagnosticar_conciliacion(conn, db_empresa):
             cursor.close()
 
 
-def crear_pdf_conciliacion(conn, df_conciliado, saldo_inicial, saldo_final_banco, saldo_final_libros, lista_ingresos, lista_egresos):
+def crear_pdf_conciliacion(conn, df_conciliado, saldo_inicial, saldo_final_banco, saldo_final_libros, lista_ingresos, lista_egresos, mes_sel=None, ano_sel=None):
     # 1. Recuperación de estado de sesión
     db_actual = st.session_state.get('DB_ACTUAL')
     cliente_id = st.session_state.get('cliente_id')
@@ -1841,17 +1841,19 @@ def crear_pdf_conciliacion(conn, df_conciliado, saldo_inicial, saldo_final_banco
             st.error("⚠️ Acceso denegado.")
             st.stop()
 
-    # 4. FECHA DINÁMICA (Aquí ya no usamos fecha_seleccionada)
-    mes = st.session_state.get('mes_seleccionado') 
-    anio = st.session_state.get('anio_seleccionado')
+    # 4. FECHA DINÁMICA (Si no se pasan como argumento, los busca en session_state o da error controlado)
+    if not mes_sel:
+        mes_sel = st.session_state.get('mes_seleccionado')
+    if not ano_sel:
+        ano_sel = st.session_state.get('anio_seleccionado')
     
-    if not mes or not anio:
+    if not mes_sel or not ano_sel:
         st.error("Por favor, selecciona un mes y un año en la interfaz.")
         st.stop()
         
-    mes_anio = f"{mes} {anio}"
+    mes_anio = f"{mes_sel} {ano_sel}"
 
-    # 5. GESTIÓN DE CONEXIÓN (Corregido usando conectar_db en lugar de get_db_connection)
+    # 5. GESTIÓN DE CONEXIÓN
     try:
         if not conn.is_connected():
             conn.reconnect(attempts=3, delay=1)
@@ -1860,7 +1862,7 @@ def crear_pdf_conciliacion(conn, df_conciliado, saldo_inicial, saldo_final_banco
 
     cursor = None
     try:
-        registrar_log_automatico(conn, "GENERAR_PDF_CONCILIACION", f"Usuario {st.session_state.usuario} | Cliente {cliente_id}")
+        registrar_log_automatico(conn, "GENERAR_PDF_CONCILIACION", f"Usuario {st.session_state.get('usuario', 'Desconocido')} | Cliente {cliente_id}")
         
         cursor = conn.cursor(dictionary=True)
         cursor.execute("SELECT nombre_empresa, rif, domicilio_fiscal FROM control_central.clientes WHERE id = %s", (cliente_id,))
@@ -1877,7 +1879,6 @@ def crear_pdf_conciliacion(conn, df_conciliado, saldo_inicial, saldo_final_banco
             pdf.set_font("Arial", '', 10)
             pdf.cell(0, 5, f"RIF: {empresa['rif']} | Dirección: {empresa['domicilio_fiscal']}", ln=True, align='C')
         
-        # Usamos el mes_anio que definimos arriba
         pdf.set_font("Arial", 'B', 12)
         pdf.cell(0, 10, f"Conciliacion Bancaria - Mes: {mes_anio}", ln=True, align='C')
         pdf.ln(5)
