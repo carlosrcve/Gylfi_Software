@@ -1740,14 +1740,28 @@ def mostrar_tablero_conciliacion(conn, mes_sel, ano_sel):
         ano_anterior = str(ano_sel)
 
     # 3. CARGA DE BANCOS (Usando la DB ya seleccionada)
+    # 3. CARGA DE BANCOS (Usando la DB ya seleccionada)
     cursor = conn.cursor()
     try:
-        query_bancos = f"SELECT nombre, codigo FROM `{db}`.plan_cuentas WHERE nombre LIKE '%BANCO%' AND tipo = 'Detalle'"
+        # Búsqueda más flexible e insensible a mayúsculas para evitar falsos negativos
+        query_bancos = f"""
+            SELECT nombre, codigo FROM `{db}`.plan_cuentas 
+            WHERE UPPER(nombre) LIKE '%BANCO%'
+        """
         cursor.execute(query_bancos)
         bancos_dict = {b[0]: b[1] for b in cursor.fetchall()}
         
+        # PLAN B: Si aún así no encuentra nada con la palabra BANCO, traemos las cuentas de activo o detalle disponibles
         if not bancos_dict:
-            st.warning("No se encontraron cuentas bancarias.")
+            query_alternativa = f"""
+                SELECT nombre, codigo FROM `{db}`.plan_cuentas 
+                WHERE codigo LIKE '1%' AND (tipo = 'Detalle' OR tipo IS NULL OR tipo = '')
+            """
+            cursor.execute(query_alternativa)
+            bancos_dict = {b[0]: b[1] for b in cursor.fetchall()}
+
+        if not bancos_dict:
+            st.warning(f"⚠️ No se encontraron cuentas bancarias o de activo en el plan de cuentas de la empresa ({db}). Revisa tu catastro de cuentas.")
             return
 
         # Selector de Banco seguro dentro del cuerpo (evita el bucle de sidebar)
