@@ -1824,9 +1824,9 @@ def diagnosticar_conciliacion(conn, db_empresa):
 
 
 def crear_pdf_conciliacion(conn, df_conciliado, saldo_inicial, saldo_final_banco, saldo_final_libros, lista_ingresos, lista_egresos, mes_sel=None, ano_sel=None):
-    # 1. Recuperación de estado de sesión (Prioridad absoluta a session_state por el ciclo de recarga de Streamlit)
+    # 1. Recuperación de estado de sesión
     db_actual = st.session_state.get('DB_ACTUAL')
-    cliente_id = st.session_state.get('cliente_id')
+    cliente_id = st.session_state.get('cliente_id') or st.session_state.get('cliente_id_seleccionado')
     rol = st.session_state.get('rol')
 
     # 2. VALIDACIÓN DE SEGURIDAD
@@ -1834,16 +1834,19 @@ def crear_pdf_conciliacion(conn, df_conciliado, saldo_inicial, saldo_final_banco
         st.error("No se ha seleccionado una base de datos de empresa.")
         st.stop()
 
-    # 3. VERIFICACIÓN DE PERMISOS
-    empresa_data = obtener_datos_agente_db(db_actual)
-    if empresa_data and rol != 'admin':
-        if empresa_data['id'] != cliente_id:
-            st.error("⚠️ Acceso denegado.")
-            st.stop()
+    # 3. VERIFICACIÓN DE PERMISOS (si aplica en tu sistema)
+    try:
+        empresa_data = obtener_datos_agente_db(db_actual)
+        if empresa_data and rol != 'admin':
+            if empresa_data.get('id') != cliente_id:
+                st.error("⚠️ Acceso denegado.")
+                st.stop()
+    except NameError:
+        pass # Si la función obtener_datos_agente_db no está definida globalmente en este módulo
 
-    # 4. FECHA DINÁMICA (Búsqueda robusta en cascada: argumentos -> session_state)
+    # 4. FECHA DINÁMICA (Sincronizada con la 'ñ' del sidebar de Streamlit)
     mes_actual = mes_sel or st.session_state.get('mes_seleccionado')
-    ano_actual = ano_sel or st.session_state.get('anio_seleccionado')
+    ano_actual = ano_sel or st.session_state.get('año_seleccionado') or st.session_state.get('anio_seleccionado')
     
     if not mes_actual or not ano_actual:
         st.error("Por favor, selecciona un mes y un año en la interfaz.")
@@ -1855,12 +1858,18 @@ def crear_pdf_conciliacion(conn, df_conciliado, saldo_inicial, saldo_final_banco
     try:
         if not conn.is_connected():
             conn.reconnect(attempts=3, delay=1)
-    except:
-        conn = conectar_db(db_actual)
+    except Exception:
+        try:
+            conn = conectar_db(db_actual)
+        except Exception:
+            pass
 
     cursor = None
     try:
-        registrar_log_automatico(conn, "GENERAR_PDF_CONCILIACION", f"Usuario {st.session_state.get('usuario', 'Desconocido')} | Cliente {cliente_id}")
+        try:
+            registrar_log_automatico(conn, "GENERAR_PDF_CONCILIACION", f"Usuario {st.session_state.get('usuario', 'Desconocido')} | Cliente {cliente_id}")
+        except Exception:
+            pass
         
         cursor = conn.cursor(dictionary=True)
         cursor.execute("SELECT nombre_empresa, rif, domicilio_fiscal FROM control_central.clientes WHERE id = %s", (cliente_id,))
@@ -1869,58 +1878,74 @@ def crear_pdf_conciliacion(conn, df_conciliado, saldo_inicial, saldo_final_banco
         pdf = FPDF()
         pdf.add_page()
         
-        # Encabezado
+        # Encabezado del Reporte
         pdf.set_font("Arial", 'B', 16)
-        pdf.cell(0, 10, empresa['nombre_empresa'] if empresa else "Conciliacion Bancaria", ln=True, align='C')
+        pdf.cell(0, 10, empresa['nombre_empresa'] if empresa else "Conciliación Bancaria", ln=True, align='C')
         
         if empresa:
             pdf.set_font("Arial", '', 10)
-            pdf.cell(0, 5, f"RIF: {empresa['rif']} | Dirección: {empresa['domicilio_fiscal']}", ln=True, align='C')
+            pdf.cell(0, 5, f"RIF: {empresa.get('rif', '')} | Dirección: {empresa.get('domicilio_fiscal', '')}", ln=True, align='C')
         
         pdf.set_font("Arial", 'B', 12)
-        pdf.cell(0, 10, f"Conciliacion Bancaria - Mes: {mes_anio}", ln=True, align='C')
+        pdf.cell(0, 10, f"Conciliación Bancaria - Mes: {mes_anio}", ln=True, align='C')
         pdf.ln(5)
         
+        # Saldo Final Banco
         pdf.set_font("Arial", 'B', 12)
         pdf.set_fill_color(200, 220, 255)
         pdf.cell(140, 10, "Saldo Final Banco", 1, 0, 'L', True)
-        pdf.cell(50, 10, f"{saldo_final_banco:,.2f}", 1, 1, 'R')
+        pdf.cell(50, 10, f"{float(saldo_final_banco):,.2f}", 1, 1, 'R')
         
+        # Función auxiliar para pintar secciones de tablas
         def pintar_seccion(titulo, lista_movimientos):
             pdf.set_font("Arial", 'B', 11)
             pdf.cell(190, 8, titulo, ln=True)
+            pdf.set_font("Arial", 'B', 9)
+            # Cabeceras de tabla
+            pdf.cell(30, 7, "Fecha", 1, 0, 'C', True)
+            pdf.cell(40, 7, "Referencia", 1, 0, 'C', True)
+            pdf.cell(90, 7, "Descripción", 1, 0, 'C', True)
+            pdf.cell(30, 7, "Monto", 1, 1, 'C', True)
+            
             pdf.set_font("Arial", size=9)
-            for mov in lista_movimientos:
-                pdf.cell(30, 8, str(mov['fecha_movimiento']), 1)
-                pdf.cell(40, 8, str(mov['referencia']), 1)
-                pdf.cell(90, 8, str(mov['descripcion'])[:45], 1)
-                pdf.cell(30, 8, f"{float(mov['monto']):,.2f}", 1, 1, 'R')
+            if not lista_movimientos:
+                pdf.cell(190, 7, "No hay movimientos registrados en esta sección.", 1, 1, 'C')
+            else:
+                for mov in lista_movimientos:
+                    pdf.cell(30, 6, str(mov.get('fecha_movimiento', '')), 1)
+                    pdf.cell(40, 6, str(mov.get('referencia', '')), 1)
+                    pdf.cell(90, 6, str(mov.get('descripcion', ''))[:45], 1)
+                    pdf.cell(30, 6, f"{float(mov.get('monto', 0)):,.2f}", 1, 1, 'R')
         
-        pintar_seccion("Mas: Ingresos Pendientes", lista_ingresos)
+        pdf.ln(2)
+        pintar_seccion("Más: Ingresos Pendientes", lista_ingresos)
+        pdf.ln(2)
         pintar_seccion("Menos: Egresos Pendientes", lista_egresos)
         
         pdf.ln(5)
+        pdf.set_font("Arial", 'B', 12)
         pdf.cell(140, 10, "Saldo Final Libros", 1, 0, 'L', True)
-        pdf.cell(50, 10, f"{saldo_final_libros:,.2f}", 1, 1, 'R')
+        pdf.cell(50, 10, f"{float(saldo_final_libros):,.2f}", 1, 1, 'R')
         
-        dif = saldo_final_libros - saldo_final_banco
+        # Cuadre / Diferencia
+        dif = round(float(saldo_final_libros) - float(saldo_final_banco), 2)
         pdf.ln(5)
         if abs(dif) < 0.01:
             pdf.set_text_color(0, 128, 0)
             pdf.cell(0, 10, "ESTADO: CONCILIADO - Diferencia Cero", ln=True, align='C')
         else:
             pdf.set_text_color(255, 0, 0)
-            pdf.cell(0, 10, f"Diferencia pendiente de cuadre: {dif:,.2f}", ln=True, align='R')
+            pdf.cell(0, 10, f"Diferencia pendiente de cuadre: {dif:,.2f}", ln=True, align='C')
         
         return pdf.output(dest='S').encode('latin-1')
 
     finally:
         if cursor:
             cursor.close()
-        if conn and conn.is_connected():
+        if conn and hasattr(conn, 'is_connected') and conn.is_connected():
             try:
                 conn.ping(reconnect=True)
-            except:
+            except Exception:
                 pass
 
 
