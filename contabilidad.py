@@ -6185,7 +6185,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
 
 def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
     """
-    Tercer Frame: Conciliación automatizada con diagnóstico de RIFs en pantalla.
+    Tercer Frame: Conciliación automatizada cruzando por RIF con estados actualizados.
     """
     st.markdown("---")
     st.markdown("### 🏦 Tercer Frame: Conciliación y Cruce por RIF")
@@ -6220,11 +6220,16 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
         except Exception as err_tabla:
             st.warning(f"⚠️ Nota de tabla banco: {err_tabla}")
 
-    # Cargar movimientos bancarios pendientes
+    # Cargar movimientos bancarios pendientes (Ajustado para incluir 'Pendiente Clasificación Manual')
     df_movs_bd = pd.DataFrame()
     if db_connection:
         try:
-            query_movs = f"SELECT id, banco_nombre, cuenta_numero, fecha_movimiento, referencia, descripcion, monto, estado_conciliacion FROM `{db_segura}`.banco_movimientos WHERE estado_conciliacion = 'Pendiente' ORDER BY fecha_movimiento DESC;"
+            query_movs = f"""
+                SELECT id, banco_nombre, cuenta_numero, fecha_movimiento, referencia, descripcion, monto, estado_conciliacion 
+                FROM `{db_segura}`.banco_movimientos 
+                WHERE estado_conciliacion IN ('Pendiente', 'Pendiente Clasificación Manual') 
+                ORDER BY fecha_movimiento DESC;
+            """
             df_movs_bd = pd.read_sql(query_movs, db_connection)
         except Exception as e_load:
             st.error(f"Error al cargar movimientos bancarios: {e_load}")
@@ -6248,24 +6253,6 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
         except Exception as e_asientos:
             st.error(f"Error al cargar la tabla `asientos_contables`: {e_asientos}")
 
-        # ZONA DE DIAGNÓSTICO VISUAL PARA ENTENDER QUÉ LEE PYTHON
-        with st.expander("🛠️ Panel de Diagnóstico de RIFs Detectados", expanded=True):
-            st.write(f"Total movimientos bancarios pendientes: {len(df_movs_bd)}")
-            st.write(f"Total asientos contables cargados: {len(lista_asientos)}")
-            
-            if not df_movs_bd.empty:
-                st.markdown("##### 📌 Banco (Primer movimiento):")
-                desc_b_ej = str(df_movs_bd.iloc[0]["descripcion"] or "")
-                match_b_ej = re.search(r'([VEJGP])\s*[-]?\s*(\d{6,10})', desc_b_ej, re.IGNORECASE)
-                st.code(f"Texto: '{desc_b_ej}'\nResultado RIF: {match_b_ej.group(0) if match_b_ej else 'NO CAPTURADO'}")
-
-            if lista_asientos:
-                st.markdown("##### 📌 Asientos Contables (Primeros 3):")
-                for ast in lista_asientos[:3]:
-                    desc_a_ej = str(ast.get("descripcion", ""))
-                    match_a_ej = re.search(r'([VEJGP])\s*[-]?\s*(\d{6,10})', desc_a_ej, re.IGNORECASE)
-                    st.code(f"Comprobante: {ast.get('n_comprobante')} | Texto: '{desc_a_ej}'\nResultado RIF: {match_a_ej.group(0) if match_a_ej else 'NO CAPTURADO'}")
-
         try:
             for _, row in df_movs_bd.iterrows():
                 mov_id = row["id"]
@@ -6273,12 +6260,11 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
                 descripcion_banco = str(row["descripcion"] or "").strip().upper()
                 monto_mov = abs(float(row["monto"] or 0.0))
 
-                # Extracción más flexible de RIF (admite espacios opcionales o guiones)
+                # Extraer RIF del texto del banco
                 match_rif_banco = re.search(r'([VEJGP])\s*[-]?\s*(\d{6,10})', descripcion_banco, re.IGNORECASE)
                 if not match_rif_banco:
                     continue
                 
-                # Normalizar limpiando espacios y guiones para que quede ej: J000622884
                 rif_banco_limpio = f"{match_rif_banco.group(1).upper()}{match_rif_banco.group(2)}"
 
                 asiento_referencia = None
@@ -6312,9 +6298,9 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
 
             st.session_state.matches_propuestos = propuestas
             if propuestas:
-                st.success(f"🎯 ¡Match exitoso! Se cruzó el movimiento con el RIF **{propuestas[0]['rif_detectado']}**.")
+                st.success(f"🎯 ¡Se han cruzado exitosamente {len(propuestas)} movimiento(s) por coincidencia exacta de RIF!")
             else:
-                st.warning("⚠️ No se encontró coincidencia en esta pasada. Revisa el panel desplegable de arriba para ver si los RIFs se están extrayendo correctamente de ambos lados.")
+                st.warning("⚠️ No se encontró coincidencia de RIF entre los movimientos listados y la contabilidad.")
         except Exception as e_scan:
             st.error(f"Error en el análisis de cruce: {e_scan}")
 
@@ -6327,14 +6313,14 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
             with st.container():
                 st.success(
                     f"✅ **¡Match Encontrado por RIF (`{prop['rif_detectado']}`)!**\n\n"
-                    f"• **Proveedor / Detalle:** `{prop['proveedor_nombre']}`\n"
-                    f"• **Banco:** {prop['banco']} | Monto del Pago: **Bs. {prop['monto']:,.2f}**\n"
-                    f"• **Comprobante de Factura Original:** `{prop['n_comprobante_origen']}`"
+                    f"• **Detalle en Contabilidad:** `{prop['proveedor_nombre']}`\n"
+                    f"• **Movimiento Bancario:** {prop['banco']} | Monto: **Bs. {prop['monto']:,.2f}**\n"
+                    f"• **Comprobante Relacionado:** `{prop['n_comprobante_origen']}`"
                 )
                 
                 col_btn1, _ = st.columns([2, 2])
                 with col_btn1:
-                    if st.button(f"🚀 Generar Asiento de Pago (CxP vs Banco)", key=f"btn_generar_pago_{prop['mov_id']}_{idx}", type="primary"):
+                    if st.button(f"🚀 Generar Asiento de Pago", key=f"btn_generar_pago_{prop['mov_id']}_{idx}", type="primary"):
                         try:
                             with db_connection.cursor() as cursor_pago:
                                 cursor_pago.execute(f"SELECT MAX(CAST(SUBSTRING_INDEX(n_comprobante, '-', -1) AS UNSIGNED)) as max_n FROM `{db_segura}`.asientos_contables")
@@ -6364,7 +6350,7 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
                                 """, (cursor_pago.lastrowid, prop['mov_id']))
 
                             db_connection.commit()
-                            st.success(f"🎉 ¡Asiento de pago generado exitosamente con el comprobante `{n_comp_pago}`!")
+                            st.success(f"🎉 ¡Asiento de pago generado con éxito (Comprobante: `{n_comp_pago}`)!")
                             st.session_state.matches_propuestos.pop(idx)
                             st.rerun()
 
@@ -6372,7 +6358,7 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
                             st.error(f"❌ Error al registrar el asiento de pago: {e_pago}")
     else:
         if not btn_escanear:
-            st.caption("💡 Haz clic en el botón superior para realizar el cruce automático.")
+            st.caption("💡 Haz clic en el botón superior para realizar el escaneo y cruce automático por RIF.")
 
 
 def renderizar_tab_asientos_ventas(db_connection):
