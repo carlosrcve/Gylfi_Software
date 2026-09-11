@@ -6185,8 +6185,9 @@ def renderizar_tab_asientos_automatizados(db_connection):
 
 def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
     """
-    Tercer Frame: Conciliación interactiva. Detecta el match y pausa la ejecución
-    para solicitar confirmación al usuario antes de asentar el pago contra el banco (ej. Banco de Venezuela).
+    Tercer Frame: Conciliación interactiva mejorada. 
+    Busca coincidencias cruzando la descripción del banco con los RIFs y nombres de proveedores
+    registrados en la base de datos, además de validar el monto.
     """
     st.markdown("---")
     st.markdown("### 🏦 Tercer Frame: Conciliación Interactiva y Asientos Asistidos")
@@ -6198,7 +6199,7 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
         st.error("❌ No hay ninguna base de datos de empresa seleccionada correctamente en la sesión.")
         return
 
-    st.info(f"Empresa activa: **{db_segura}**. Este módulo busca coincidencias y solicita tu aprobación para cancelar las facturas contra el banco emisor.")
+    st.info(f"Empresa activa: **{db_segura}**. Este módulo busca coincidencias cruzadas entre la descripción bancaria y tus proveedores.")
 
     # 1. Asegurar la tabla banco_movimientos y sus columnas
     if db_connection:
@@ -6235,27 +6236,24 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
         except Exception as e_load:
             st.error(f"Error al cargar movimientos: {e_load}")
 
-    # Botón para escanear y proponer matches en session_state
     col_acc1, _ = st.columns([1, 3])
     with col_acc1:
         btn_escanear = st.button("🔍 Analizar y Buscar Matches", type="primary", key="btn_escanear_matches")
 
-    # Inicializar la lista de propuestas en session_state si no existe
     if "matches_propuestos" not in st.session_state:
         st.session_state.matches_propuestos = []
 
     if btn_escanear:
         propuestas = []
-        mapa_proveedores_por_rif = {}
+        
+        # Cargar todos los proveedores de la base de datos
+        lista_proveedores_db = []
         try:
             with db_connection.cursor(pymysql.cursors.DictCursor) as cursor_prov:
                 cursor_prov.execute(f"SELECT * FROM `{db_segura}`.proveedores")
-                for prov in cursor_prov.fetchall():
-                    p_rif = str(prov.get("rif", prov.get("RIF", ""))).strip().upper()
-                    if p_rif:
-                        mapa_proveedores_por_rif[p_rif] = prov
-        except Exception:
-            pass
+                lista_proveedores_db = cursor_prov.fetchall()
+        except Exception as e_prov:
+            st.warning(f"No se pudieron cargar los proveedores: {e_prov}")
 
         try:
             with db_connection.cursor(pymysql.cursors.DictCursor) as cursor_cursor:
@@ -6263,56 +6261,72 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
                     mov_id = row["id"]
                     banco_nombre = row["banco_nombre"]
                     descripcion = str(row["descripcion"] or "").strip().upper()
-                    monto_mov = float(row["monto"] or 0.0)
+                    monto_mov = abs(float(row["monto"] or 0.0)) # Usar valor absoluto para comparar
 
-                    # Buscar RIF
+                    proveedor_encontrado_id = None
+                    nombre_proveedor_encontrado = ""
+
+                    # Estrategia de Cruce 1: Buscar por RIF usando Expresión Regular en la descripción
                     match_rif = re.search(r'\b([VEJGP])[\s-]?(\d{6,10})[-]?(\d)?\b', descripcion, re.IGNORECASE)
+                    rif_encontrado_limpio = ""
                     if match_rif:
                         letra = match_rif.group(1).upper()
                         cuerpo = match_rif.group(2)
                         digito = match_rif.group(3) if match_rif.group(3) else ""
                         rif_encontrado_limpio = f"{letra}{cuerpo}{digito}".replace("-", "").strip()
 
-                        proveedor_encontrado = None
-                        prov_id_val = None
-                        for prov_rif_db, info_p in mapa_proveedores_por_rif.items():
-                            rif_db_limpio = str(prov_rif_db).upper().replace("-", "").strip()
-                            if rif_encontrado_limpio == rif_db_limpio or rif_db_limpio in rif_encontrado_limpio or rif_encontrado_limpio in rif_db_limpio:
-                                proveedor_encontrado = info_p.get("nombre", "Proveedor ID " + str(info_p.get("id")))
-                                prov_id_val = info_p.get("id")
-                                break
+                    # Evaluar contra cada proveedor registrado
+                    for prov in lista_proveedores_db:
+                        p_id = prov.get("id")
+                        p_rif = str(prov.get("rif", prov.get("RIF", ""))).strip().upper()
+                        p_rif_limpio = p_rif.replace("-", "").strip()
+                        p_nombre = str(prov.get("nombre", prov.get("nombre_empresa", ""))).strip().upper()
 
-                        if prov_id_val:
-                            monto_busqueda = abs(monto_mov)
-                            cursor_cursor.execute(f"""
-                                SELECT id, saldo_pendiente, monto_total 
-                                FROM `{db_segura}`.cuentas_por_pagar 
-                                WHERE proveedor_id = %s AND (saldo_pendiente = %s OR monto_total = %s) AND estado != 'Pagado'
-                                LIMIT 1
-                            """, (prov_id_val, monto_busqueda, monto_busqueda))
-                            
-                            factura_pend = cursor_cursor.fetchone()
-                            if factura_pend:
-                                propuestas.append({
-                                    "mov_id": mov_id,
-                                    "banco": banco_nombre,
-                                    "descripcion": descripcion,
-                                    "monto": monto_mov,
-                                    "proveedor": proveedor_encontrado,
-                                    "proveedor_id": prov_id_val,
-                                    "factura_id": factura_pend.get("id"),
-                                    "saldo_factura": factura_pend.get("saldo_pendiente")
-                                })
+                        # Condición A: El RIF extraído del banco coincide con el RIF del proveedor
+                        match_por_rif = (rif_encontrado_limpio and p_rif_limpio and (rif_encontrado_limpio in p_rif_limpio or p_rif_limpio in rif_encontrado_limpio))
+                        
+                        # Condición B: El RIF del proveedor está escrito directamente en la descripción del banco aunque no haya hecho match la regex
+                        match_por_texto_rif = (p_rif_limpio and p_rif_limpio in descripcion.replace("-", "").replace(" ", ""))
+                        
+                        # Condición C: El nombre del proveedor aparece dentro de la descripción del banco
+                        match_por_nombre = (p_nombre and len(p_nombre) > 3 and p_nombre in descripcion)
+
+                        if match_por_rif or match_por_texto_rif or match_por_nombre:
+                            proveedor_encontrado_id = p_id
+                            nombre_proveedor_encontrado = prov.get("nombre", prov.get("nombre_empresa", f"Proveedor ID {p_id}"))
+                            break
+
+                    # Si encontramos un proveedor asociado al movimiento, buscamos su factura pendiente por el monto exacto
+                    if proveedor_encontrado_id:
+                        cursor_cursor.execute(f"""
+                            SELECT id, saldo_pendiente, monto_total 
+                            FROM `{db_segura}`.cuentas_por_pagar 
+                            WHERE proveedor_id = %s AND (ABS(saldo_pendiente - %s) < 0.05 OR ABS(monto_total - %s) < 0.05) AND estado != 'Pagado'
+                            LIMIT 1
+                        """, (proveedor_encontrado_id, monto_mov, monto_mov))
+                        
+                        factura_pend = cursor_cursor.fetchone()
+                        if factura_pend:
+                            propuestas.append({
+                                "mov_id": mov_id,
+                                "banco": banco_nombre,
+                                "descripcion": descripcion,
+                                "monto": float(row["monto"]),
+                                "proveedor": nombre_proveedor_encontrado,
+                                "proveedor_id": proveedor_encontrado_id,
+                                "factura_id": factura_pend.get("id"),
+                                "saldo_factura": factura_pend.get("saldo_pendiente")
+                            })
 
             st.session_state.matches_propuestos = propuestas
             if propuestas:
-                st.success(f"🎯 ¡Se han encontrado {len(propuestas)} coincidencia(s) pendientes de aprobación!")
+                st.success(f"🎯 ¡Se han encontrado {len(propuestas)} coincidencia(s) listas para procesar!")
             else:
-                st.warning("⚠️ No se encontraron facturas pendientes que coincidan exactamente con los RIFs y montos de los movimientos.")
+                st.warning("⚠️ El movimiento coincide con un proveedor, pero no se encontró ninguna factura pendiente en `cuentas_por_pagar` que coincida exactamente con el monto de Bs. " + f"{monto_mov:,.2f}.")
         except Exception as e_scan:
-            st.error(f"Error en el análisis: {e_scan}")
+            st.error(f"Error en el análisis cruzado: {e_scan}")
 
-    # 2. SECCIÓN INTERACTIVA: Mostrar las propuestas encontradas para que el usuario decida
+    # 2. SECCIÓN INTERACTIVA: Mostrar las propuestas encontradas
     if st.session_state.get("matches_propuestos"):
         st.markdown("---")
         st.markdown("#### 📝 Facturas detectadas listas para cancelar")
@@ -6320,12 +6334,11 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
         for idx, prop in enumerate(st.session_state.matches_propuestos):
             with st.container():
                 st.info(
-                    f"**Banco:** {prop['banco']}  |  **Movimiento:** {prop['descripcion']}  |  "
+                    f"**Banco:** {prop['banco']}  |  **Descripción en Banco:** {prop['descripcion']}  |  "
                     f"**Monto:** Bs. {prop['monto']:,.2f}\n\n"
                     f"👉 **Match detectado con el Proveedor:** `{prop['proveedor']}` (Factura ID: `{prop['factura_id']}`)"
                 )
                 
-                # Pregunta clave interactiva
                 col_preg1, col_preg2 = st.columns([3, 1])
                 with col_preg1:
                     confirmar_pago = st.checkbox(
@@ -6337,7 +6350,7 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
                         if st.button("✅ Ejecutar Asiento", key=f"btn_ejecutar_{prop['mov_id']}_{idx}", type="primary"):
                             try:
                                 with db_connection.cursor() as cursor_accion:
-                                    # 1. Actualizar el movimiento bancario a conciliado
+                                    # 1. Actualizar el movimiento bancario
                                     cursor_accion.execute(f"""
                                         UPDATE `{db_segura}`.banco_movimientos 
                                         SET estado_conciliacion = 'Conciliado (Pago de Factura)', asiento_id = %s 
@@ -6355,7 +6368,6 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
                                 
                                 st.success(f"🎉 ¡Asiento generado con éxito! La factura ID {prop['factura_id']} fue cancelada contra el {prop['banco']}.")
                                 
-                                # Remover de la lista de pendientes en sesión
                                 st.session_state.matches_propuestos.pop(idx)
                                 st.rerun()
                                 
@@ -6363,7 +6375,7 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
                                 st.error(f"❌ Error al procesar el asiento contable: {e_asiento}")
     else:
         if not btn_escanear:
-            st.caption("💡 Haz clic en 'Analizar y Buscar Matches' para evaluar los movimientos actuales.")
+            st.caption("💡 Haz clic en 'Analizar y Buscar Matches' para evaluar los movimientos actuales contra tus tablas.")
 
         
 def renderizar_tab_asientos_ventas(db_connection):
