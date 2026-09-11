@@ -9648,8 +9648,6 @@ elif opcion_menu == "📝 Asientos Contables":
                                 st.error(f"Error crítico procesando {banco_sel}: {e}")
     
         # --- TAB 3: ESTADO DE CUENTA BANCARIO ---
-        # --- TAB 3: ESTADO DE CUENTA BANCARIO ---
-        # --- TAB 3: ESTADO DE CUENTA BANCARIO ---
         with tab3:
             st.subheader("📂 Estado de Cuenta Bancario")
 
@@ -9673,11 +9671,16 @@ elif opcion_menu == "📝 Asientos Contables":
             else:
                 mes_map = {"Enero": 1, "Febrero": 2, "Marzo": 3, "Abril": 4, "Mayo": 5, "Junio": 6,
                            "Julio": 7, "Agosto": 8, "Septiembre": 9, "Octubre": 10, "Noviembre": 11, "Diciembre": 12}
-                mes_num = mes_map[mes_sel]
+                mes_num = mes_map.get(mes_sel, 1)
 
                 try:
                     if conn is None:
                         conn = conectar_db(db_actual)
+                    else:
+                        try:
+                            conn.ping(reconnect=True)
+                        except Exception:
+                            conn = conectar_db(db_actual)
                     
                     if conn is None:
                         st.error("No se pudo establecer conexión con la base de datos.")
@@ -9688,7 +9691,7 @@ elif opcion_menu == "📝 Asientos Contables":
                     ultimo_dia = calendar.monthrange(int(ano_sel), int(mes_num))[1]
                     fecha_fin = f"{ano_sel}-{mes_num:02d}-{ultimo_dia}"
 
-                    # Consulta directa y rápida
+                    # Consulta directa y segura
                     cursor = conn.cursor()
                     query = f"""
                         SELECT id, banco_nombre, cuenta_numero, fecha_movimiento, referencia, 
@@ -9702,23 +9705,23 @@ elif opcion_menu == "📝 Asientos Contables":
                     cursor.close()
 
                     if rows:
-                        # Reconstruimos el DataFrame manualmente de forma segura para evitar bloqueos de Pandas
                         df_cuenta = pd.DataFrame(rows, columns=[
                             'id', 'banco_nombre', 'cuenta_numero', 'fecha_movimiento', 
                             'referencia', 'descripcion', 'monto', 'estado_conciliacion'
                         ])
                         
-                        # Convertimos el monto a float plano sin funciones pesadas
                         df_cuenta['monto'] = pd.to_numeric(df_cuenta['monto'], errors='coerce').fillna(0.0)
 
-                        # Renderizado rápido y nativo sin configuraciones complejas que cuelguen el navegador
                         st.dataframe(df_cuenta, use_container_width=True, height=450)
                         st.write(f"**Total movimientos encontrados:** {len(df_cuenta)}")
                     else:
-                        st.info(f"No hay movimientos para {empresa_data['nombre_empresa']} en {mes_sel} {ano_sel}.")
+                        st.info(f"No hay movimientos para {empresa_data.get('nombre_empresa', 'la empresa')} en {mes_sel} {ano_sel}.")
 
                 except Exception as e:
-                    st.error(f"Error específico en la consulta: {e}")
+                    # Captura detallada para evitar el error (0, '')
+                    err_code = e.args[0] if len(e.args) > 0 else "Desconocido"
+                    err_msg = e.args[1] if len(e.args) > 1 else str(e)
+                    st.error(f"❌ Error en la base de datos [Código {err_code}]: {err_msg}")
 
                 if rol == 'admin':
                     with st.expander("⚠️ Zona de Administración"):
