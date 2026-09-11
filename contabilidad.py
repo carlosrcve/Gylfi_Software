@@ -6361,6 +6361,195 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
             st.caption("💡 Haz clic en el botón superior para realizar el escaneo y cruce automático por RIF.")
 
 
+
+def conciliacion_de_gastos_y_comisiones(db_connection, db_segura):
+    """
+    Función de Conciliación de Gastos, Comisiones e Impuestos con Motor de Reglas
+    y Panel Interactivo de Excepciones.
+    """
+    st.markdown("---")
+    st.markdown("### ⚙️ Conciliación Automática y Manual de Gastos y Comisiones Bancarias")
+    
+    if not db_segura or db_segura == 'none':
+        db_segura = st.session_state.get('DB_ACTUAL') or st.session_state.get('empresa_actual')
+        
+    if not db_segura or db_segura == 'none':
+        st.error("❌ No hay ninguna base de datos de empresa seleccionada correctamente en la sesión.")
+        return
+
+    # 1. Cargar la lista de cuentas contables de gastos disponibles en la empresa para los selectores
+    cuentas_gastos = []
+    try:
+        with db_connection.cursor() as cursor_cta:
+            cursor_cta.execute(f"SELECT DISTINCT cuenta_contable FROM `{db_segura}`.asientos_contables LIMIT 100;")
+            res_ctas = cursor_cta.fetchall()
+            cuentas_gastos = [c[0] for c in res_ctas] if res_ctas else ["6.1.2.01.001", "Gastos Bancarios", "Comisiones Bancarias"]
+    except Exception:
+        cuentas_gastos = ["6.1.2.01.001", "Gastos Bancarios", "Comisiones Bancarias"]
+
+    col_btn_reglas, _ = st.columns([1, 3])
+    with col_btn_reglas:
+        btn_aplicar_reglas = st.button("⚡ Aplicar Reglas Automáticas (Comisiones/IGTF)", type="primary", key="btn_reglas_gastos")
+
+    # Si el usuario presiona el botón, ejecutamos el motor de reglas automáticas
+    if btn_aplicar_reglas:
+        try:
+            # Buscar movimientos pendientes o de clasificación manual que NO sean de proveedores
+            query_pendientes = f"""
+                SELECT id, banco_nombre, descripcion, monto 
+                FROM `{db_segura}`.banco_movimientos 
+                WHERE estado_conciliacion IN ('Pendiente', 'Pendiente Clasificación Manual')
+            """
+            df_pend = pd.read_sql(query_pendientes, db_connection)
+            
+            autoprocesados = 0
+            with db_connection.cursor() as cursor_regla:
+                for _, row in df_pend.iterrows():
+                    m_id = row["id"]
+                    banco_nom = row["banco_nombre"]
+                    desc = str(row["descripcion"] or "").upper()
+                    monto = abs(float(row["monto"] or 0.0))
+                    
+                    cuenta_destino = None
+                    tipo_gasto = ""
+
+                    # Regla 1: Comisiones bancarias
+                    if any(kw in desc for kw in ["COMISION", "COM PAGO", "COBRO COMISION", "MANTENIMIENTO"]):
+                        cuenta_destino = "Gastos Bancarios"
+                        tipo_gasto = "Comisión Bancaria"
+                    # Regla 2: IGTF o Impuestos financieros
+                    elif any(kw in desc for kw in ["IGTF", "IMPUESTO FINANCIERO", "DEBITO BANCARIO"]):
+                        cuenta_destino = "Gastos por IGTF"
+                        tipo_gasto = "Impuesto IGTF"
+
+                    # Si hizo match con alguna regla, generamos el asiento automático
+                    if cuenta_destino:
+                        # Obtener siguiente comprobante
+                        cursor_regla.execute(f"SELECT MAX(CAST(SUBSTRING_INDEX(n_comprobante, '-', -1) AS UNSIGNED)) as max_n FROM `{db_segura}`.asientos_contables")
+                        res_max = cursor_regla.fetchone()
+                        siguiente_num = (res_max[0] or 1000) + 1 if res_max and res_max[0] else 90001
+                        n_comp = f"GASTO-{siguiente_num}"
+                        fecha_hoy = pd.Timestamp.today().strftime('%Y-%m-%d')
+                        desc_asiento = f"{tipo_gasto} | Ref: {desc}"
+
+                        # Insertar Debe (Gasto)
+                        cursor_regla.execute(f"""
+                            INSERT INTO `{db_segura}`.asientos_contables 
+                            (n_comprobante, descripcion, fecha, cuenta_contable, debe, haber)
+                            VALUES (%s, %s, %s, %s, %s, 0.00)
+                        """, (n_comp, desc_asiento, fecha_hoy, cuenta_destino, monto))
+
+                        # Insertar Haber (Banco)
+                        cursor_regla.execute(f"""
+                            INSERT INTO `{db_segura}`.asientos_contables 
+                            (n_comprobante, descripcion, fecha, cuenta_contable, debe, haber)
+                            VALUES (%s, %s, %s, %s, 0.00, %s)
+                        """, (n_comp, desc_asiento, fecha_hoy, f"Banco {banco_nom}", monto))
+
+                        # Actualizar movimiento bancario
+                        cursor_regla.execute(f"""
+                            UPDATE `{db_segura}`.banco_movimientos 
+                            SET estado_conciliacion = 'Conciliado (Automático)', asiento_id = %s 
+                            WHERE id = %s
+                        """, (cursor_regla.lastrowid, m_id))
+                        
+                        autoprocesados += 1
+
+                db_connection.commit()
+            
+            if autoprocesados > 0:
+                st.success(f"🚀 ¡Se procesaron y conciliaron automáticamente {autoprocesados} movimientos por reglas de palabras clave!")
+                st.rerun()
+            else:
+                st.info("ℹ️ No se encontraron movimientos nuevos que coincidan con las reglas automáticas de comisiones o IGTF.")
+                
+        except Exception as e_reglas:
+            st.error(f"❌ Error al ejecutar las reglas automáticas: {e_reglas}")
+
+    # 2. PANEL INTERACTIVO DE EXCEPCIONES (Bandeja de pendientes restantes)
+    st.markdown("#### 📋 Bandeja de Excepciones y Gastos Pendientes")
+    st.caption("Utiliza esta tabla para clasificar manualmente los movimientos que no aplican por RIF ni por reglas automáticas.")
+
+    df_excepciones = pd.DataFrame()
+    try:
+        query_exc = f"""
+            SELECT id, banco_nombre, fecha_movimiento, referencia, descripcion, monto 
+            FROM `{db_segura}`.banco_movimientos 
+            WHERE estado_conciliacion IN ('Pendiente', 'Pendiente Clasificación Manual') 
+            ORDER BY fecha_movimiento DESC;
+        """
+        df_excepciones = pd.read_sql(query_exc, db_connection)
+    except Exception as e_exc:
+        st.error(f"Error al cargar excepciones: {e_exc}")
+
+    if df_excepciones.empty:
+        st.success("🎉 ¡Excelente! No hay movimientos bancarios pendientes de conciliación en este momento.")
+        return
+
+    # Renderizar formulario interactivo por cada excepción restante
+    for _, row in df_excepciones.iterrows():
+        m_id = row["id"]
+        banco = row["banco_nombre"]
+        fecha = row["fecha_movimiento"]
+        ref = row["referencia"]
+        desc = row["descripcion"]
+        monto = abs(float(row["monto"] or 0.0))
+
+        with st.expander(f"🔹 [{fecha}] Banco: {banco} | Ref: {ref} | Monto: Bs. {monto:,.2f}", expanded=False):
+            st.write(f"**Descripción Original:** `{desc}`")
+            
+            col_sel1, col_sel2 = st.columns([2, 1])
+            with col_sel1:
+                cta_seleccionada = st.selectbox(
+                    "Selecciona la Cuenta Contable de Gasto:",
+                    options=cuentas_gastos,
+                    key=f"cta_gasto_{m_id}"
+                )
+            with col_sel2:
+                st.write("")
+                st.write("")
+                btn_registrar_excepcion = st.button("✅ Registrar Gasto y Conciliar", key=f"btn_exc_{m_id}", type="primary")
+
+            if btn_registrar_excepcion:
+                try:
+                    with db_connection.cursor() as cursor_exc:
+                        # Comprobante automático
+                        cursor_exc.execute(f"SELECT MAX(CAST(SUBSTRING_INDEX(n_comprobante, '-', -1) AS UNSIGNED)) as max_n FROM `{db_segura}`.asientos_contables")
+                        res_max = cursor_exc.fetchone()
+                        siguiente_num = (res_max[0] or 1000) + 1 if res_max and res_max[0] else 90001
+                        n_comp_exc = f"EXC-{siguiente_num}"
+                        fecha_hoy = pd.Timestamp.today().strftime('%Y-%m-%d')
+                        desc_asiento_exc = f"Gasto / Impuesto | {desc}"
+
+                        # Insertar Debe (Gasto seleccionado)
+                        cursor_exc.execute(f"""
+                            INSERT INTO `{db_segura}`.asientos_contables 
+                            (n_comprobante, descripcion, fecha, cuenta_contable, debe, haber)
+                            VALUES (%s, %s, %s, %s, %s, 0.00)
+                        """, (n_comp_exc, desc_asiento_exc, fecha_hoy, cta_seleccionada, monto))
+
+                        # Insertar Haber (Banco)
+                        cursor_exc.execute(f"""
+                            INSERT INTO `{db_segura}`.asientos_contables 
+                            (n_comprobante, descripcion, fecha, cuenta_contable, debe, haber)
+                            VALUES (%s, %s, %s, %s, 0.00, %s)
+                        """, (n_comp_exc, desc_asiento_exc, fecha_hoy, f"Banco {banco}", monto))
+
+                        # Actualizar banco_movimientos
+                        cursor_exc.execute(f"""
+                            UPDATE `{db_segura}`.banco_movimientos 
+                            SET estado_conciliacion = 'Conciliado y Registrado', asiento_id = %s 
+                            WHERE id = %s
+                        """, (cursor_exc.lastrowid, m_id))
+
+                    db_connection.commit()
+                    st.success(f"🎉 ¡Gasto registrado exitosamente con el comprobante `{n_comp_exc}`!")
+                    st.rerun()
+
+                except Exception as e_reg_exc:
+                    st.error(f"❌ Error al registrar el gasto: {e_reg_exc}")
+
+
 def renderizar_tab_asientos_ventas(db_connection):
     st.subheader("🤖 Asientos Automatizados - Libro de Ventas")
     st.markdown("""
@@ -9170,13 +9359,14 @@ elif opcion_menu == "📝 Asientos Contables":
         # 1. Validación de Seguridad: ¿Hay base de datos?
         if 'DB_ACTUAL' in st.session_state and st.session_state['DB_ACTUAL']:
             db_nombre = st.session_state['DB_ACTUAL']
-            tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+            tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
                 "📖 Ver Libro Diario", 
                 "📤 Importar Excel", 
                 "🗑️ Vaciar Asiento de Diarios",
                 "🤖 Asientos Costos Automatizados",
                 "📈 Asientos Ingresos Automatizados", 
-                "🔗 Matching Asientos Contables"  # Icono y texto actualizados para el match
+                "🔗 Matching Asientos Contables",
+                "⚙️ Gastos y Comisiones Banco"  # 👈 Nueva pestaña 7 añadida
             ])
 
             def exportar_a_excel(df):
@@ -9392,6 +9582,20 @@ elif opcion_menu == "📝 Asientos Contables":
                 if conexion_actual:
                     # Y seguidamente la nueva función del tercer frame de conciliación bancaria
                     renderizar_tercer_frame_conciliacion_banco(conexion_actual, nombre_bd_cliente)
+
+
+            with tab7:
+                # 1. Recuperamos de la sesión el nombre o ID de la base de datos de la empresa actual 
+                # (Ajusta la clave 'empresa_actual' por la variable exacta que uses en tu app para el cliente)
+                nombre_bd_cliente = st.session_state.get('empresa_actual') 
+                
+                # 2. Llamamos a la conexión inyectándole la base de datos del cliente
+                conexion_actual = conectar_db(nombre_bd_cliente) 
+                
+                # 3. Validamos y ejecutamos ambas funciones dentro de la pestaña 4
+                if conexion_actual:
+                    # Y seguidamente la nueva función del tercer frame de conciliación bancaria
+                    conciliacion_de_gastos_y_comisiones(conexion_actual, nombre_bd_cliente)
         else:
             st.warning("⚠️ Por favor, seleccione una empresa en el panel lateral para gestionar sus asientos.")
 
