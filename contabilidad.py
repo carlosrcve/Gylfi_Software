@@ -10039,7 +10039,6 @@ elif opcion_menu == "📝 Asientos Contables":
                             except Exception as e:
                                 st.error(f"Error crítico procesando {banco_sel}: {e}")
     
-        # --- TAB 3: ESTADO DE CUENTA BANCARIO ---
         with tab3:
             st.subheader("📂 Estado de Cuenta Bancario")
 
@@ -10104,15 +10103,27 @@ elif opcion_menu == "📝 Asientos Contables":
                         
                         df_cuenta['monto'] = pd.to_numeric(df_cuenta['monto'], errors='coerce').fillna(0.0)
 
-                        # Renderizado fluido con formato numérico nativo configurado
+                        # 🛠️ CREAR COPIA PARA LA VISTA CON FORMATO CONTABLE VENEZOLANO (15.539,00)
+                        df_cuenta_display = df_cuenta.copy()
+                        
+                        def formato_venezolano(val):
+                            try:
+                                return f"{float(val):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                            except:
+                                return "0,00"
+
+                        df_cuenta_display['monto'] = df_cuenta_display['monto'].apply(formato_venezolano)
+
+                        # Renderizado fluido con formato numérico contable venezolano
                         st.dataframe(
-                            df_cuenta,
+                            df_cuenta_display,
                             column_config={
-                                "monto": st.column_config.NumberColumn(
+                                "monto": st.column_config.TextColumn(
                                     "Monto",
-                                    format="%.2f"  # Muestra los decimales limpios de forma nativa sin congelar Streamlit
+                                    help="Monto del movimiento bancario en formato contable (ej. 15.539,00)"
                                 )
                             },
+                            hide_index=True,
                             use_container_width=True, 
                             height=450
                         )
