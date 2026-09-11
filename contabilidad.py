@@ -6361,11 +6361,10 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
             st.caption("💡 Haz clic en el botón superior para realizar el escaneo y cruce automático por RIF.")
 
 
-
 def conciliacion_de_gastos_y_comisiones(db_connection, db_segura):
     """
     Función de Conciliación Masiva por Lotes de Movimientos Bancarios 
-    utilizando el Plan de Cuentas y Selección Múltiple.
+    utilizando el Plan de Cuentas, Selección Múltiple y estructura correcta de asientos.
     """
     st.markdown("---")
     st.markdown("### ⚙️ Conciliación Masiva de Gastos y Comisiones Bancarias")
@@ -6378,37 +6377,37 @@ def conciliacion_de_gastos_y_comisiones(db_connection, db_segura):
         return
 
     # 1. Cargar el Plan de Cuentas para los selectores (código - nombre)
-    lista_cuentas = []
+    dict_cuentas = {}
+    lista_opciones_cuentas = []
     try:
         with db_connection.cursor() as cursor_pc:
-            # Consultamos la tabla plan_cuentas mostrada en la estructura
             cursor_pc.execute(f"SELECT codigo, nombre FROM `{db_segura}`.plan_cuentas ORDER BY codigo ASC;")
             res_pc = cursor_pc.fetchall()
             if res_pc:
-                lista_cuentas = [f"{row[0]} - {row[1]}" for row in res_pc]
+                for codigo, nombre in res_pc:
+                    # Formato amigable para el selectbox: "6.1.2.01.001 - Gastos Bancarios"
+                    etiqueta = f"{codigo} - {nombre}"
+                    lista_opciones_cuentas.append(etiqueta)
+                    dict_cuentas[codigo] = nombre
     except Exception as e_pc:
         st.warning(f"No se pudo cargar plan_cuentas automáticamente: {e_pc}")
     
     # Fallback por si la tabla está vacía o da error
-    if not lista_cuentas:
-        lista_cuentas = ["6.1.2.01.001 - Gastos Bancarios", "1.1.1.02.001 - Banco de Venezuela"]
+    if not lista_opciones_cuentas:
+        lista_opciones_cuentas = ["6.1.2.01.001 - Gastos Bancarios", "1.1.1.02.001 - Banco de Venezuela"]
+        dict_cuentas = {
+            "6.1.2.01.001": "Gastos Bancarios",
+            "1.1.1.02.001": "Banco de Venezuela"
+        }
 
-    st.markdown("#### 1️⃣ Configuración del Asiento Masivo")
-    col_cta1, col_cta2 = st.columns(2)
+    st.markdown("#### 1️⃣ Configuración de la Cuenta de Gasto / Costo")
     
-    with col_cta1:
-        cuenta_gasto_seleccionada = st.selectbox(
-            "Selecciona la Cuenta Contable de Gasto/Costo:",
-            options=lista_cuentas,
-            key="select_cuenta_gasto_lote"
-        )
-        
-    with col_cta2:
-        cuenta_banco_seleccionada = st.selectbox(
-            "Selecciona la Cuenta Contable del Banco (Contrapartida):",
-            options=lista_cuentas,
-            key="select_cuenta_banco_lote"
-        )
+    # Selector principal de Gasto (Arriba)
+    cuenta_gasto_seleccionada = st.selectbox(
+        "Selecciona el código y cuenta contable de Gasto/Costo:",
+        options=lista_opciones_cuentas,
+        key="select_cuenta_gasto_lote"
+    )
 
     st.markdown("---")
     st.markdown("#### 2️⃣ Selecciona los Movimientos Bancarios Pendientes")
@@ -6434,14 +6433,10 @@ def conciliacion_de_gastos_y_comisiones(db_connection, db_segura):
     st.info(f"Se encontraron **{len(df_pendientes)}** movimientos bancarios pendientes.")
 
     # Convertir el DataFrame para visualización interactiva con Dataframe / Editor
-    # Agregamos una columna de selección (checkbox) al inicio usando data_editor
     df_pendientes["Seleccionar"] = False
-    # Reordenar columnas para que la selección quede de primera
-
     cols = ["Seleccionar"] + [c for c in df_pendientes.columns if c != "Seleccionar"]
     df_editable = df_pendientes[cols]
 
-    # Mostrar la tabla interactiva de Streamlit donde el usuario marca los ítems
     df_resultado_seleccion = st.data_editor(
         df_editable,
         hide_index=True,
@@ -6450,30 +6445,41 @@ def conciliacion_de_gastos_y_comisiones(db_connection, db_segura):
     )
 
     st.markdown("---")
+    st.markdown("#### 3️⃣ Configuración de Contrapartida y Procesamiento")
     
-    # Botón para procesar masivamente los elementos seleccionados
+    # Selector del Banco (Contrapartida) colocado en la parte inferior del frame como solicitaste
+    cuenta_banco_seleccionada = st.selectbox(
+        "Selecciona la Cuenta Contable del Banco Asociado (Contrapartida):",
+        options=lista_opciones_cuentas,
+        key="select_cuenta_banco_lote"
+    )
+
+    st.write("")
     col_btn, _ = st.columns([1, 2])
     with col_btn:
         btn_procesar_lote = st.button("🚀 Procesar y Generar Asientos Seleccionados", type="primary", key="btn_procesar_lote_banco")
 
     if btn_procesar_lote:
-        # Filtrar solo los registros donde la casilla 'Seleccionar' sea True
+        # Filtrar solo los registros marcados
         seleccionados = df_resultado_seleccion[df_resultado_seleccion["Seleccionar"] == True]
         
         if seleccionados.empty:
             st.warning("⚠️ Debes marcar al menos un movimiento bancario en la tabla antes de procesar.")
             return
 
-        # Extraer los códigos limpios de las cuentas seleccionadas (ej: extraer "6.1.2.01.001" de "6.1.2.01.001 - Gastos Bancarios")
-        cod_cuenta_gasto = cuenta_gasto_seleccionada.split(" - ")[0].strip()
-        cod_cuenta_banco = cuenta_banco_seleccionada.split(" - ")[0].strip()
+        # Extraer códigos y descripciones limpios del Plan de Cuentas
+        cod_gasto = cuenta_gasto_seleccionada.split(" - ")[0].strip()
+        nombre_gasto = dict_cuentas.get(cod_gasto, cuenta_gasto_seleccionada)
+
+        cod_banco = cuenta_banco_seleccionada.split(" - ")[0].strip()
+        nombre_banco = dict_cuentas.get(cod_banco, cuenta_banco_seleccionada)
 
         try:
             procesados_exito = 0
             with db_connection.cursor() as cursor_lote:
                 for _, row in seleccionados.iterrows():
                     m_id = row["id"]
-                    banco_nom = row["banco_nombre"]
+                    ref_mov = str(row["referencia"] or "")
                     desc_mov = str(row["descripcion"] or "Sin descripción")
                     monto = abs(float(row["monto"] or 0.0))
                     
@@ -6483,23 +6489,24 @@ def conciliacion_de_gastos_y_comisiones(db_connection, db_segura):
                     siguiente_num = (res_max[0] or 1000) + 1 if res_max and res_max[0] else 90001
                     n_comp = f"LOT-{siguiente_num}"
                     fecha_hoy = pd.Timestamp.today().strftime('%Y-%m-%d')
-                    desc_asiento = f"Conciliación Bancaria | Ref: {row['referencia']} - {desc_mov}"
+                    desc_asiento = f"Conciliación Bancaria | Ref: {ref_mov} - {desc_mov}"
 
                     # 2. Insertar movimiento en el DEBE (Cuenta de Gasto/Costo seleccionada)
+                    # Respetando columnas: n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber
                     cursor_lote.execute(f"""
                         INSERT INTO `{db_segura}`.asientos_contables 
-                        (n_comprobante, descripcion, fecha, cuenta_contable, debe, haber)
-                        VALUES (%s, %s, %s, %s, %s, 0.00)
-                    """, (n_comp, desc_asiento, fecha_hoy, cod_cuenta_gasto, monto))
+                        (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, 0.00)
+                    """, (n_comp, desc_asiento, fecha_hoy, cod_gasto, nombre_gasto, ref_mov, monto))
 
                     # 3. Insertar movimiento en el HABER (Cuenta de Banco seleccionada como contrapartida)
                     cursor_lote.execute(f"""
                         INSERT INTO `{db_segura}`.asientos_contables 
-                        (n_comprobante, descripcion, fecha, cuenta_contable, debe, haber)
-                        VALUES (%s, %s, %s, %s, 0.00, %s)
-                    """, (n_comp, desc_asiento, fecha_hoy, cod_cuenta_banco, monto))
+                        (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber)
+                        VALUES (%s, %s, %s, %s, %s, %s, 0.00, %s)
+                    """, (n_comp, desc_asiento, fecha_hoy, cod_banco, nombre_banco, ref_mov, monto))
 
-                    # 4. Actualizar el estado en banco_movimientos vinculando el asiento generado
+                    # 4. Actualizar el estado en banco_movimientos vinculando el último asiento insertado
                     cursor_lote.execute(f"""
                         UPDATE `{db_segura}`.banco_movimientos 
                         SET estado_conciliacion = 'Conciliado y Registrado', asiento_id = %s 
@@ -6510,7 +6517,7 @@ def conciliacion_de_gastos_y_comisiones(db_connection, db_segura):
 
                 db_connection.commit()
 
-            st.success(f"🎉 ¡Se han generado exitosamente **{procesados_exito}** asientos contables en lote de forma correcta!")
+            st.success(f"🎉 ¡Se han generado exitosamente **{procesados_exito}** asientos contables en lote de forma correcta bajo la estructura de la base de datos!")
             st.rerun()
 
         except Exception as e_lote:
