@@ -1708,6 +1708,122 @@ def cargar_estado_cuenta_bdv(uploaded_file, conn):
                 pass
 
 
+def conciliar_datos(conn, fecha_inicio, fecha_fin, db_empresa):
+    # 1. Recuperamos lo necesario
+    db_actual = st.session_state.get('DB_ACTUAL')
+    cliente_id = st.session_state.get('cliente_id')
+    rol = st.session_state.get('rol')
+
+    # 2. VALIDACIÓN DE SEGURIDAD
+    if not db_actual:
+        st.error("No se ha seleccionado una base de datos de empresa.")
+        st.stop()
+
+    empresa_data = obtener_datos_agente_db(db_actual)
+
+    # 3. FILTRO DE ACCESO
+    if empresa_data and rol != 'admin':
+        if empresa_data['id'] != cliente_id:
+            st.error("⚠️ Acceso denegado: No tienes permisos para esta empresa.")
+            st.stop()
+
+    if not empresa_data:
+        st.error("⚠️ No se pudieron cargar los datos de la empresa.")
+        return
+
+    # 4. ASEGURAR CONEXIÓN (Protocolo para evitar el error de socket)
+    try:
+        if not conn.is_connected():
+            conn.reconnect(attempts=3, delay=1)
+    except Exception:
+        # Si la conexión principal está muerta, intentamos obtener una nueva
+        conn = get_db_connection() 
+
+    cursor = None
+    try:
+        usuario = st.session_state.get('usuario', 'Desconocido')
+        registrar_log_automatico(conn, "CONCILIAR_DATOS", f"Usuario {usuario} concilió datos para {db_empresa}")
+        
+        cursor = conn.cursor(buffered=True)
+        
+        query_match = f"""
+            UPDATE `{db_empresa}`.banco_movimientos bm
+            JOIN `{db_empresa}`.asientos_contables ac ON bm.referencia = ac.referencia
+            SET bm.estado_conciliacion = 'Conciliado', bm.asiento_id = ac.id
+            WHERE bm.fecha_movimiento BETWEEN %s AND %s
+            AND bm.estado_conciliacion = 'Pendiente'
+        """
+        
+        cursor.execute(query_match, (fecha_inicio, fecha_fin))
+        conn.commit()
+        st.success(f"✅ ¡Conciliación inteligente ejecutada para {empresa_data['nombre_empresa']}!")
+        
+    except Exception as e:
+        # Si falla, intentamos reconectar antes del rollback para que no de error de socket
+        try:
+            if conn.is_connected():
+                conn.rollback()
+        except:
+            pass # Si el socket está totalmente roto, ya no se puede hacer rollback
+        st.error(f"❌ Error al conciliar: {e}")
+    finally:
+        if cursor:
+            cursor.close()
+
+def diagnosticar_conciliacion(conn, db_empresa):
+    """
+    db_empresa: Nombre de la base de datos específica (ej: 'empresa_a_db')
+    """
+    # 1. Recuperamos lo necesario de la sesión
+    db_actual = st.session_state.get('DB_ACTUAL')
+    cliente_id = st.session_state.get('cliente_id')
+    rol = st.session_state.get('rol')
+    usuario = st.session_state.get('usuario', 'Desconocido')
+
+    # 2. VALIDACIÓN DE SEGURIDAD
+    if not db_actual:
+        st.error("No se ha seleccionado una base de datos de empresa.")
+        st.stop()
+
+    # Obtenemos los datos desde el control central para validar
+    # Asegúrate de que esta función obtenga los datos de control_central.clientes
+    empresa_data = obtener_datos_agente_db(db_actual)
+
+    # 3. FILTRO DE ACCESO
+    if empresa_data and rol != 'admin':
+        if empresa_data['id'] != cliente_id:
+            st.error("⚠️ Acceso denegado: No tienes permisos para esta empresa.")
+            st.stop()
+    
+    if not empresa_data:
+        st.error("⚠️ No se pudieron cargar los datos de la empresa para el diagnóstico.")
+        return
+
+    cursor = None
+    try:
+        registrar_log_automatico(conn, "DIAGNOSTICO_CONCILIACION", f"Usuario {usuario} realizó diagnóstico para cliente: {cliente_id}")
+        
+        cursor = conn.cursor(buffered=True)
+        
+        # Usamos la variable db_empresa para hacer las consultas dinámicas
+        query = f"""
+            SELECT b.referencia AS ref_b, a.referencia AS ref_a, 
+                   b.monto AS monto_b, (a.haber - a.debe) AS monto_a
+            FROM `{db_empresa}`.banco_movimientos b, `{db_empresa}`.asientos_contables a
+            LIMIT 5
+        """
+        df_diagnostico = pd.read_sql(query, conn)
+        
+        st.subheader(f"🔍 Diagnóstico para: {empresa_data['nombre_empresa']}")
+        st.table(df_diagnostico)
+        
+    except Exception as e:
+        st.error(f"❌ Error en el diagnóstico para {db_empresa}: {e}")
+    finally:
+        if cursor:
+            cursor.close()
+
+
 def crear_pdf_conciliacion(conn, df_conciliado, saldo_inicial, saldo_final_banco, saldo_final_libros, lista_ingresos, lista_egresos):
     # 1. Recuperación de estado de sesión
     db_actual = st.session_state.get('DB_ACTUAL')
@@ -1806,6 +1922,8 @@ def crear_pdf_conciliacion(conn, df_conciliado, saldo_inicial, saldo_final_banco
             cursor.close()
         if conn and conn.is_connected():
             conn.ping(reconnect=True)
+
+
 
 def mostrar_tablero_conciliacion(conn, mes_sel, ano_sel):
     st.title("⚖️ Conciliación Bancaria")
