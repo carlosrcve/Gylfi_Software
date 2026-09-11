@@ -32,7 +32,6 @@ import google.generativeai as genai
 import pdfplumber
 import tempfile
 import pytesseract
-
 st.set_page_config(
     page_title="Mi App Contable",
     layout="wide",
@@ -1708,8 +1707,7 @@ def cargar_estado_cuenta_bdv(uploaded_file, conn):
             except Exception:
                 pass
 
-from fpdf import FPDF
-@log_ejecucion
+
 def crear_pdf_conciliacion(conn, df_conciliado, saldo_inicial, saldo_final_banco, saldo_final_libros, lista_ingresos, lista_egresos):
     # 1. Recuperación de estado de sesión
     db_actual = st.session_state.get('DB_ACTUAL')
