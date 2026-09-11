@@ -6377,8 +6377,7 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
                             st.error(f"❌ Error al registrar el asiento contable de pago: {e_pago}")
     else:
         if not btn_escanear:
-            st.caption("💡 Haz clic en el botón superior para escanear el banco y empalmar automáticamente los pagos con sus proveedores.")sientos' para evaluar tus movimientos frente a `asientos_contables`.")
-
+            st.caption("💡 Haz clic en el botón superior para escanear el banco y empalmar automáticamente los pagos con sus proveedores.")
 def renderizar_tab_asientos_ventas(db_connection):
     st.subheader("🤖 Asientos Automatizados - Libro de Ventas")
     st.markdown("""
