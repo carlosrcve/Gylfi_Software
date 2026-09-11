@@ -6187,7 +6187,7 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
     """
     Tercer Frame: Lee los movimientos bancarios ya importados en la tabla `banco_movimientos`,
     clasifica y concilia mediante un árbol de decisiones inteligente:
-    1. Match por RIF para proveedores.
+    1. Match por RIF y Monto contra Cuentas por Pagar (Pasivos).
     2. Comisiones bancarias automáticas.
     3. Impuestos y tributos SENIAT.
     4. Pagos de créditos o financiamientos.
@@ -6283,19 +6283,62 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
                         conciliado_exitoso = False
 
                         # -----------------------------------------------------------------
-                        # RUTA 1: Buscar RIF de proveedor en la descripción (Pago Pasivo)
+                        # RUTA 1: Buscar RIF y Monto exacto contra Cuentas por Pagar (Pasivo)
                         # -----------------------------------------------------------------
-                        match_rif = re.search(r'([VEEJPG][-]?\d{6,10}[-]?[0-9]?)', descripcion, re.IGNORECASE)
+                        match_rif = re.search(r'\b([VEJGP])[\s-]?(\d{6,10})[-]?(\d)?\b', descripcion, re.IGNORECASE)
                         if match_rif:
-                            rif_encontrado = match_rif.group(1).upper().replace("-", "")
+                            letra = match_rif.group(1).upper()
+                            cuerpo = match_rif.group(2)
+                            digito = match_rif.group(3) if match_rif.group(3) else ""
+                            rif_encontrado_limpio = f"{letra}{cuerpo}{digito}".replace("-", "").strip()
+
+                            proveedor_id_encontrado = None
                             for prov_rif_db, info_p in mapa_proveedores_por_rif.items():
-                                if prov_rif_db.replace("-", "") in rif_encontrado:
+                                rif_db_limpio = str(prov_rif_db).upper().replace("-", "").strip()
+                                if rif_encontrado_limpio == rif_db_limpio or rif_db_limpio in rif_encontrado_limpio or rif_encontrado_limpio in rif_db_limpio:
+                                    proveedor_id_encontrado = info_p.get("id")
+                                    break
+
+                            if proveedor_id_encontrado:
+                                # Buscamos si hay una cuenta por pagar pendiente con el monto exacto del movimiento (valor absoluto)
+                                monto_busqueda = abs(monto_mov)
+                                
+                                cursor_cursor.execute(f"""
+                                    SELECT id, saldo_pendiente 
+                                    FROM `{db_segura}`.cuentas_por_pagar 
+                                    WHERE proveedor_id = %s AND (saldo_pendiente = %s OR monto_total = %s) AND estado != 'Pagado'
+                                    LIMIT 1
+                                """, (proveedor_id_encontrado, monto_busqueda, monto_busqueda))
+                                
+                                factura_pend = cursor_cursor.fetchone()
+                                
+                                if factura_pend:
                                     matches_proveedores += 1
                                     conciliado_exitoso = True
+                                    factura_id = factura_pend.get("id")
                                     
+                                    # Actualizar banco_movimientos enlazándolo a la factura (asiento_id)
                                     cursor_cursor.execute(f"""
                                         UPDATE `{db_segura}`.banco_movimientos 
-                                        SET estado_conciliacion = 'Conciliado (Proveedor)' 
+                                        SET estado_conciliacion = 'Conciliado (Proveedor / Factura)', asiento_id = %s 
+                                        WHERE id = %s
+                                    """, (factura_id, mov_id))
+
+                                    # Actualizar el pasivo a Pagado
+                                    cursor_cursor.execute(f"""
+                                        UPDATE `{db_segura}`.cuentas_por_pagar 
+                                        SET estado = 'Pagado', saldo_pendiente = 0 
+                                        WHERE id = %s
+                                    """, (factura_id,))
+                                    
+                                    break
+                                else:
+                                    # Si el RIF hace match pero el monto no coincide exactamente con ninguna factura pendiente
+                                    matches_proveedores += 1
+                                    conciliado_exitoso = True
+                                    cursor_cursor.execute(f"""
+                                        UPDATE `{db_segura}`.banco_movimientos 
+                                        SET estado_conciliacion = 'Conciliado (Solo Proveedor - Monto Diferente)' 
                                         WHERE id = %s
                                     """, (mov_id,))
                                     break
@@ -6351,7 +6394,6 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
                         # -----------------------------------------------------------------
                         # RUTA 5: RED DE SEGURIDAD (Descripciones no reconocidas)
                         # -----------------------------------------------------------------
-                        # Si pasa por todo el árbol y ninguna regla hizo match:
                         pendientes_manuales += 1
                         cursor_cursor.execute(f"""
                             UPDATE `{db_segura}`.banco_movimientos 
@@ -6365,7 +6407,7 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
                 st.success(
                     f"🎉 ¡Árbol de decisiones ejecutado con éxito!\n\n"
                     f"- **Total de movimientos evaluados:** {total_procesados}\n"
-                    f"- 🤝 Pagos a Proveedores (Match RIF): {matches_proveedores}\n"
+                    f"- 🤝 Pagos a Proveedores / Facturas: {matches_proveedores}\n"
                     f"- 💳 Comisiones Bancarias: {matches_comisiones}\n"
                     f"- 🏛️ Impuestos / SENIAT: {matches_impuestos}\n"
                     f"- 🏦 Créditos / Financiamientos: {matches_creditos}\n"
