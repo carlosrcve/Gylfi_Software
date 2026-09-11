@@ -6437,7 +6437,7 @@ def conciliacion_de_gastos_y_comisiones(db_connection, db_segura):
     # Agregamos una columna de selección (checkbox) al inicio usando data_editor
     df_pendientes["Seleccionar"] = False
     # Reordenar columnas para que la selección quede de primera
-:
+
     cols = ["Seleccionar"] + [c for c in df_pendientes.columns if c != "Seleccionar"]
     df_editable = df_pendientes[cols]
 
