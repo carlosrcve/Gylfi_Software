@@ -6362,13 +6362,10 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
 
 
 
-import pandas as pd
-import streamlit as st
-
 def conciliacion_de_gastos_y_comisiones(db_connection, db_segura):
     """
-    Función de Conciliación Masiva con opción de marcar automáticamente 
-    solo las comisiones bancarias para evitar selecciones manuales lentas.
+    Función de Conciliación Masiva con selección automática de comisiones 
+    y formato numérico limpio en los montos de la vista previa.
     """
     st.markdown("---")
     st.markdown("### ⚙️ Conciliación Masiva de Gastos y Comisiones Bancarias")
@@ -6448,7 +6445,7 @@ def conciliacion_de_gastos_y_comisiones(db_connection, db_segura):
         st.warning("⚠️ No se encontraron movimientos que coincidan con la búsqueda.")
         return
 
-    # ⚡ BOTONES DE ACCIÓN RÁPIDA INTELIGENTES (Marcar solo comisiones, marcar todos o limpiar)
+    # ⚡ BOTONES DE ACCIÓN RÁPIDA INTELIGENTES
     st.write("")
     col_acc1, col_acc2, col_acc3, _ = st.columns([1.5, 1, 1, 1])
     
@@ -6466,7 +6463,7 @@ def conciliacion_de_gastos_y_comisiones(db_connection, db_segura):
     modo_actual = st.session_state.get("modo_seleccion_lote", "ninguno")
     
     lista_seleccion_inicial = []
-    palabras_comision = ["COMISION", "COM", "COMIS", "SERV", "MANTENIMIENTO", "TASA"] # Puedes ajustar o ampliar las palabras clave aquí
+    palabras_comision = ["COMISION", "COM", "COMIS", "SERV", "MANTENIMIENTO", "TASA"]
 
     for _, row in df_pendientes.iterrows():
         desc_upper = str(row["descripcion"] or "").upper()
@@ -6474,7 +6471,6 @@ def conciliacion_de_gastos_y_comisiones(db_connection, db_segura):
         if modo_actual == "todos":
             lista_seleccion_inicial.append(True)
         elif modo_actual == "solo_comisiones":
-            # Revisa si alguna palabra clave de comisión está en la descripción del movimiento
             es_comision = any(p in desc_upper for p in palabras_comision)
             lista_seleccion_inicial.append(es_comision)
         else:
@@ -6502,10 +6498,10 @@ def conciliacion_de_gastos_y_comisiones(db_connection, db_segura):
         key="select_cuenta_banco_lote"
     )
 
-    # Filtrar los registros que el usuario tiene seleccionados (o marcó automáticamente)
+    # Filtrar los registros seleccionados
     seleccionados_prev = df_resultado_seleccion[df_resultado_seleccion["Seleccionar"] == True]
 
-    # 👁️ GENERAR VISTA PREVIA EN TIEMPO REAL ANTES DE PROCESAR
+    # 👁️ GENERAR VISTA PREVIA EN TIEMPO REAL CON FORMATO NUMÉRICO LIMPIO
     if not seleccionados_prev.empty:
         st.markdown(f"##### 🔍 Vista Previa del Asiento Contable Generado ({len(seleccionados_prev)} registros seleccionados)")
         st.info("Así es como se estructurarán los asientos contables en la base de datos para los registros seleccionados:")
@@ -6547,7 +6543,13 @@ def conciliacion_de_gastos_y_comisiones(db_connection, db_segura):
             num_simulado += 1
 
         df_preview_final = pd.DataFrame(lista_preview)
-        st.dataframe(df_preview_final, hide_index=True, use_container_width=True)
+        
+        # Aplicar formato numérico limpio a las columnas de montos en la vista previa
+        st.dataframe(
+            df_preview_final.style.format({"Debe": "{:,.2f}", "Haber": "{:,.2f}"}),
+            hide_index=True,
+            use_container_width=True
+        )
     else:
         st.info("ℹ️ Haz clic en '🏷️ Marcar Solo Comisiones' o selecciona manualmente los movimientos en la tabla superior para visualizar la vista previa.")
 
