@@ -6361,11 +6361,10 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
             st.caption("💡 Haz clic en el botón superior para realizar el escaneo y cruce automático por RIF.")
 
 
-
 def conciliacion_de_gastos_y_comisiones(db_connection, db_segura):
     """
-    Función de Conciliación Masiva que muestra todos los movimientos bancarios 
-    disponibles para garantizar que no se oculte ninguna comisión ni pago.
+    Función de Conciliación Masiva con vista previa interactiva de los asientos 
+    contables antes de proceder a la inserción final en la base de datos.
     """
     st.markdown("---")
     st.markdown("### ⚙️ Conciliación Masiva de Gastos y Comisiones Bancarias")
@@ -6410,7 +6409,7 @@ def conciliacion_de_gastos_y_comisiones(db_connection, db_segura):
     st.markdown("---")
     st.markdown("#### 2️⃣ Selecciona los Movimientos Bancarios")
 
-    # 🔍 Cargar TODOS los movimientos (excluyendo solo los ya conciliados formalmente para evitar duplicar)
+    # Cargar todos los movimientos pendientes o disponibles
     df_pendientes = pd.DataFrame()
     try:
         query_pend = f"""
@@ -6430,7 +6429,7 @@ def conciliacion_de_gastos_y_comisiones(db_connection, db_segura):
         st.success("🎉 ¡Excelente! No hay movimientos bancarios disponibles para conciliar en este momento.")
         return
 
-    # Barra de búsqueda libre opcional para ubicar comisiones rápidamente por texto
+    # Barra de búsqueda libre opcional
     col_f1, col_f2 = st.columns([2, 1])
     with col_f1:
         texto_busqueda = st.text_input("🔍 Buscar en descripción (ej: comision, igtf, proveedor, etc.):", "")
@@ -6445,7 +6444,7 @@ def conciliacion_de_gastos_y_comisiones(db_connection, db_segura):
         st.warning("⚠️ No se encontraron movimientos que coincidan con la búsqueda.")
         return
 
-    # Convertir el DataFrame para visualización interactiva con Dataframe / Editor
+    # Editor de datos para seleccionar los movimientos
     df_pendientes["Seleccionar"] = False
     cols = ["Seleccionar"] + [c for c in df_pendientes.columns if c != "Seleccionar"]
     df_editable = df_pendientes[cols]
@@ -6458,7 +6457,7 @@ def conciliacion_de_gastos_y_comisiones(db_connection, db_segura):
     )
 
     st.markdown("---")
-    st.markdown("#### 3️⃣ Configuración de Contrapartida y Procesamiento")
+    st.markdown("#### 3️⃣ Configuración de Contrapartida y Vista Previa de Asientos")
     
     cod_banco_seleccionado = st.selectbox(
         "Selecciona el código de la cuenta contable del Banco (Contrapartida):",
@@ -6467,13 +6466,63 @@ def conciliacion_de_gastos_y_comisiones(db_connection, db_segura):
         key="select_cuenta_banco_lote"
     )
 
+    # Filtrar los registros que el usuario acaba de seleccionar
+    seleccionados_prev = df_resultado_seleccion[df_resultado_seleccion["Seleccionar"] == True]
+
+    # 👁️ GENERAR VISTA PREVIA EN TIEMPO REAL ANTES DE PROCESAR
+    if not seleccionados_prev.empty:
+        st.markdown("##### 🔍 Vista Previa del Asiento Contable Generado")
+        st.info("Así es como se estructurarán los asientos contables en la base de datos para los registros seleccionados:")
+
+        nombre_gasto_prev = dict_cuentas.get(cod_gasto_seleccionado, "Gasto Bancario")
+        nombre_banco_prev = dict_cuentas.get(cod_banco_seleccionado, "Banco")
+        
+        lista_preview = []
+        # Simular numeración preliminar para la vista previa
+        num_simulado = 90001
+        
+        for _, row in seleccionados_prev.iterrows():
+            ref_prev = str(row["referencia"] or "")
+            desc_prev = str(row["descripcion"] or "Sin descripción")
+            monto_prev = abs(float(row["monto"] or 0.0))
+            comp_sim = f"LOT-{num_simulado}"
+            
+            # Fila del DEBE (Gasto)
+            lista_preview.append({
+                "Comprobante": comp_sim,
+                "Fecha": pd.Timestamp.today().strftime('%Y-%m-%d'),
+                "Código Cuenta": cod_gasto_seleccionado,
+                "Cuenta Contable": nombre_gasto_prev,
+                "Referencia": ref_prev,
+                "Descripción": f"Conciliación Bancaria | Ref: {ref_prev} - {desc_prev}",
+                "Debe": monto_prev,
+                "Haber": 0.00
+            })
+            # Fila del HABER (Banco)
+            lista_preview.append({
+                "Comprobante": comp_sim,
+                "Fecha": pd.Timestamp.today().strftime('%Y-%m-%d'),
+                "Código Cuenta": cod_banco_seleccionado,
+                "Cuenta Contable": nombre_banco_prev,
+                "Referencia": ref_prev,
+                "Descripción": f"Conciliación Bancaria | Ref: {ref_prev} - {desc_prev}",
+                "Debe": 0.00,
+                "Haber": monto_prev
+            })
+            num_simulado += 1
+
+        df_preview_final = pd.DataFrame(lista_preview)
+        st.dataframe(df_preview_final, hide_index=True, use_container_width=True)
+    else:
+        st.info("ℹ️ Selecciona al menos un movimiento bancario en la tabla superior para visualizar la vista previa del asiento contable.")
+
     st.write("")
     col_btn, _ = st.columns([1, 2])
     with col_btn:
         btn_procesar_lote = st.button("🚀 Procesar y Generar Asientos Seleccionados", type="primary", key="btn_procesar_lote_banco")
 
     if btn_procesar_lote:
-        seleccionados = df_resultado_seleccion[df_resultado_seleccion["Seleccionar"] == True]
+        seleccionados = seleccionados_prev
         
         if seleccionados.empty:
             st.warning("⚠️ Debes marcar al menos un movimiento bancario en la tabla antes de procesar.")
