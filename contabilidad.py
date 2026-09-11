@@ -6184,7 +6184,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
 
 def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
     """
-    Tercer Frame: Conciliación interactiva con Diagnóstico Visual de Cuentas por Pagar y doble criterio de cruce (RIF o Monto).
+    Tercer Frame: Conciliación interactiva basada en Asientos Contables y movimientos bancarios.
     """
     st.markdown("---")
     st.markdown("### 🏦 Tercer Frame: Conciliación Interactiva y Asientos Asistidos")
@@ -6196,9 +6196,9 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
         st.error("❌ No hay ninguna base de datos de empresa seleccionada correctamente en la sesión.")
         return
 
-    st.info(f"Empresa activa: **{db_segura}**. Módulo de conciliación con auditoría de montos y RIF.")
+    st.info(f"Empresa activa: **{db_segura}**. Módulo de conciliación integrado con Asientos Contables.")
 
-    # 1. Asegurar la tabla banco_movimientos y sus columnas
+    # 1. Asegurar la tabla banco_movimientos
     if db_connection:
         try:
             with db_connection.cursor() as cursor_tabla:
@@ -6222,9 +6222,9 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
                 """)
                 db_connection.commit()
         except Exception as err_tabla:
-            st.warning(f"⚠️ Nota de tabla: {err_tabla}")
+            st.warning(f"⚠️ Nota de tabla banco: {err_tabla}")
 
-    # Cargar movimientos pendientes
+    # Cargar movimientos bancarios pendientes
     df_movs_bd = pd.DataFrame()
     if db_connection:
         try:
@@ -6235,7 +6235,7 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
 
     col_acc1, _ = st.columns([1, 3])
     with col_acc1:
-        btn_escanear = st.button("🔍 Analizar y Buscar Matches", type="primary", key="btn_escanear_matches")
+        btn_escanear = st.button("🔍 Analizar contra Asientos Contables", type="primary", key="btn_escanear_matches")
 
     if "matches_propuestos" not in st.session_state:
         st.session_state.matches_propuestos = []
@@ -6243,33 +6243,29 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
     if btn_escanear:
         propuestas = []
         
-        # Cargar proveedores y cuentas por pagar con JOIN para facilitar el cruce por RIF y Monto
-        lista_proveedores_db = []
-        todas_cxp = []
+        # Cargar asientos contables y sus detalles para evaluar contrapartidas y montos
+        asientos_pendientes = []
         try:
             with db_connection.cursor(pymysql.cursors.DictCursor) as cursor_diag:
-                cursor_diag.execute(f"SELECT * FROM `{db_segura}`.proveedores")
-                lista_proveedores_db = cursor_diag.fetchall()
-
+                # Intentamos leer la cabecera y detalles de los asientos contables
+                # (Ajusta los nombres de tablas si en tu esquema difieren ligeramente, ej: 'asientos' y 'asiento_detalles')
                 cursor_diag.execute(f"""
-                    SELECT cxp.id, cxp.proveedor_id, cxp.monto_total, cxp.saldo_pendiente, cxp.estado,
-                           p.nombre as proveedor_nombre, p.rif as proveedor_rif
-                    FROM `{db_segura}`.cuentas_por_pagar cxp
-                    LEFT JOIN `{db_segura}`.proveedores p ON cxp.proveedor_id = p.id
-                    WHERE cxp.estado != 'Pagado'
+                    SELECT a.id as asiento_id, a.fecha, a.concepto, 
+                           d.cuenta_codigo, d.debe, d.haber, d.descripcion as detalle_desc
+                    FROM `{db_segura}`.asientos a
+                    JOIN `{db_segura}`.asiento_detalles d ON a.id = d.asiento_id
                 """)
-                todas_cxp = cursor_diag.fetchall()
+                asientos_pendientes = cursor_diag.fetchall()
 
-                with st.expander("🛠️ Panel de Diagnóstico de Facturas y Proveedores", expanded=True):
-                    st.write(f"Total de proveedores en BD: {len(lista_proveedores_db)}")
-                    st.write(f"Total de registros pendientes en Cuentas por Pagar: {len(todas_cxp)}")
-                    if todas_cxp:
-                        st.dataframe(pd.DataFrame(todas_cxp))
+                with st.expander("🛠️ Panel de Diagnóstico de Asientos Contables", expanded=True):
+                    st.write(f"Total de líneas en asientos contables cargadas: {len(asientos_pendientes)}")
+                    if asientos_pendientes:
+                        st.dataframe(pd.DataFrame(asientos_pendientes).head(20))
                     else:
-                        st.warning("⚠️ La tabla `cuentas_por_pagar` no tiene registros pendientes.")
+                        st.warning("⚠️ No se encontraron registros en las tablas de asientos contables.")
 
-        except Exception as e_prov:
-            st.warning(f"No se pudieron cargar los datos de proveedores/CxP: {e_prov}")
+        except Exception as e_asientos:
+            st.warning(f"No se pudieron cargar los asientos contables (verifica los nombres de las tablas de asientos): {e_asientos}")
 
         try:
             for _, row in df_movs_bd.iterrows():
@@ -6278,128 +6274,86 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
                 descripcion = str(row["descripcion"] or "").strip().upper()
                 monto_mov = abs(float(row["monto"] or 0.0))
 
-                proveedor_encontrado_id = None
-                nombre_proveedor_encontrado = ""
-                factura_pend = None
+                asiento_encontrado = None
 
-                # 1. Extracción de RIF desde la descripción del banco
-                match_rif = re.search(r'\b([VEJGP])[\s-]?(\d{6,10})[-]?(\d)?\b', descripcion, re.IGNORECASE)
-                rif_encontrado_limpio = ""
-                if match_rif:
-                    letra = match_rif.group(1).upper()
-                    cuerpo = match_rif.group(2)
-                    digito = match_rif.group(3) if match_rif.group(3) else ""
-                    rif_encontrado_limpio = f"{letra}{cuerpo}{digito}".replace("-", "").strip()
-
-                # 2. Criterio A: Cruce por RIF del Proveedor + Monto de la Factura
-                if rif_encontrado_limpio:
-                    for prov in lista_proveedores_db:
-                        p_id = prov.get("id")
-                        p_rif = str(prov.get("rif", prov.get("RIF", ""))).strip().upper()
-                        p_rif_limpio = p_rif.replace("-", "").strip()
-                        p_nombre = str(prov.get("nombre", prov.get("nombre_empresa", ""))).strip().upper()
-
-                        match_por_rif = (p_rif_limpio and (rif_encontrado_limpio in p_rif_limpio or p_rif_limpio in rif_encontrado_limpio))
-                        match_por_texto_rif = (p_rif_limpio and p_rif_limpio in descripcion.replace("-", "").replace(" ", ""))
-                        match_por_nombre = (p_nombre and len(p_nombre) > 3 and p_nombre in descripcion)
-
-                        if match_por_rif or match_por_texto_rif or match_por_nombre:
-                            proveedor_encontrado_id = p_id
-                            nombre_proveedor_encontrado = prov.get("nombre", prov.get("nombre_empresa", f"Proveedor ID {p_id}"))
+                # Cruce por monto contra los asientos contables (por ejemplo, buscando en el Haber o Debe según aplique)
+                if monto_mov > 0 and asientos_pendientes:
+                    for det in asientos_pendientes:
+                        # Evaluamos coincidencia de monto con el debe o haber del asiento contable
+                        monto_debe = float(det.get("debe", 0) or 0)
+                        monto_haber = float(det.get("haber", 0) or 0)
+                        
+                        if abs(monto_debe - monto_mov) <= 1.00 or abs(monto_haber - monto_mov) <= 1.00:
+                            # Verificamos opcionalmente si la descripción o concepto guarda relación
+                            concepto_asiento = str(det.get("concepto", "")).upper()
+                            detalle_asiento = str(det.get("detalle_desc", "")).upper()
+                            
+                            asiento_encontrado = det
                             break
 
-                # Buscar factura dentro de las del proveedor con tolerancia de monto
-                if proveedor_encontrado_id:
-                    for f in todas_cxp:
-                        if f.get("proveedor_id") == proveedor_encontrado_id:
-                            saldo_f = float(f.get("saldo_pendiente", 0) or f.get("monto_total", 0) or 0)
-                            if abs(saldo_f - monto_mov) <= 1.00:
-                                factura_pend = f
-                                break
-
-                # 3. Criterio B: Si no hubo match por RIF, intentar cruce directo por MONTO (Pasivo vs Débito Bancario)
-                if not factura_pend and monto_mov > 0:
-                    for f in todas_cxp:
-                        saldo_f = float(f.get("saldo_pendiente", 0) or f.get("monto_total", 0) or 0)
-                        if abs(saldo_f - monto_mov) <= 1.00:
-                            factura_pend = f
-                            proveedor_encontrado_id = f.get("proveedor_id")
-                            nombre_proveedor_encontrado = f.get("proveedor_nombre", f"Proveedor ID {proveedor_encontrado_id}")
-                            break
-
-                # Si se encontró una factura por cualquiera de las dos vías, se propone el match
-                if factura_pend:
+                if asiento_encontrado:
                     propuestas.append({
                         "mov_id": mov_id,
                         "banco": banco_nombre,
                         "descripcion": descripcion,
                         "monto": float(row["monto"]),
-                        "proveedor": nombre_proveedor_encontrado,
-                        "proveedor_id": proveedor_encontrado_id,
-                        "factura_id": factura_pend.get("id"),
-                        "saldo_factura": factura_pend.get("saldo_pendiente")
+                        "asiento_id": asiento_encontrado.get("asiento_id"),
+                        "concepto_asiento": asiento_encontrado.get("concepto"),
+                        "cuenta": asiento_encontrado.get("cuenta_codigo")
                     })
 
             st.session_state.matches_propuestos = propuestas
             if propuestas:
-                st.success(f"🎯 ¡Se han encontrado {len(propuestas)} coincidencia(s) listas para procesar (por RIF o Monto)!")
+                st.success(f"🎯 ¡Se han encontrado {len(propuestas)} coincidencia(s) con asientos contables!")
             else:
-                st.warning("⚠️ No se encontró ninguna coincidencia ni por RIF en la descripción ni por monto exacto en las cuentas por pagar.")
+                st.warning("⚠️ No se encontró ningún asiento contable con un monto coincidente.")
         except Exception as e_scan:
-            st.error(f"Error en el análisis cruzado: {e_scan}")
+            st.error(f"Error en el análisis de asientos: {e_scan}")
 
-    # 2. SECCIÓN INTERACTIVA: Mostrar las propuestas encontradas
+    # 2. SECCIÓN INTERACTIVA: Conciliación y asociación con el asiento
     if st.session_state.get("matches_propuestos"):
         st.markdown("---")
-        st.markdown("#### 📝 Facturas detectadas listas para cancelar")
+        st.markdown("#### 📝 Movimientos bancarios vinculables a Asientos")
         
         for idx, prop in enumerate(list(st.session_state.matches_propuestos)):
             with st.container():
                 st.info(
-                    f"**Banco:** {prop['banco']}  |  **Descripción en Banco:** {prop['descripcion']}  |  "
+                    f"**Banco:** {prop['banco']}  |  **Descripción:** {prop['descripcion']}  |  "
                     f"**Monto:** Bs. {prop['monto']:,.2f}\n\n"
-                    f"👉 **Match detectado con el Proveedor:** `{prop['proveedor']}` (Factura ID: `{prop['factura_id']}`)"
+                    f"👉 **Asiento Contable Sugerido ID:** `{prop['asiento_id']}` | **Concepto:** {prop['concepto_asiento']} (Cuenta: {prop['cuenta']})"
                 )
                 
                 col_preg1, col_preg2 = st.columns([3, 1])
                 with col_preg1:
-                    confirmar_pago = st.checkbox(
-                        f"¿Desea cancelar esa factura usando el {prop['banco']}?",
-                        key=f"chk_pago_{prop['mov_id']}_{idx}"
+                    confirmar_conciliacion = st.checkbox(
+                        f"¿Conciliar este movimiento bancario con el Asiento #{prop['asiento_id']}?",
+                        key=f"chk_asiento_{prop['mov_id']}_{idx}"
                     )
                 with col_preg2:
-                    if confirmar_pago:
-                        if st.button("✅ Ejecutar Asiento", key=f"btn_ejecutar_{prop['mov_id']}_{idx}", type="primary"):
+                    if confirmar_conciliacion:
+                        if st.button("✅ Confirmar Conciliación", key=f"btn_conciliar_asiento_{prop['mov_id']}_{idx}", type="primary"):
                             try:
                                 with db_connection.cursor() as cursor_accion:
-                                    # 1. Actualizar el movimiento bancario
+                                    # Actualizar el movimiento bancario como conciliado apuntando al ID del asiento contable
                                     cursor_accion.execute(f"""
                                         UPDATE `{db_segura}`.banco_movimientos 
-                                        SET estado_conciliacion = 'Conciliado (Pago de Factura)', asiento_id = %s 
+                                        SET estado_conciliacion = 'Conciliado con Asiento', asiento_id = %s 
                                         WHERE id = %s
-                                    """, (prop['factura_id'], prop['mov_id']))
-
-                                    # 2. Marcar la cuenta por pagar como pagada
-                                    cursor_accion.execute(f"""
-                                        UPDATE `{db_segura}`.cuentas_por_pagar 
-                                        SET estado = 'Pagado', saldo_pendiente = 0 
-                                        WHERE id = %s
-                                    """, (prop['factura_id'],))
+                                    """, (prop['asiento_id'], prop['mov_id']))
                                     
                                     db_connection.commit()
                                 
-                                st.success(f"🎉 ¡Asiento generado con éxito! La factura ID {prop['factura_id']} fue cancelada contra el {prop['banco']}.")
-                                
+                                st.success(f"🎉 ¡Movimiento conciliado exitosamente con el Asiento Contable #{prop['asiento_id']}!")
                                 st.session_state.matches_propuestos.pop(idx)
                                 st.rerun()
                                 
                             except Exception as e_asiento:
-                                st.error(f"❌ Error al procesar el asiento contable: {e_asiento}")
+                                st.error(f"❌ Error al actualizar el estado: {e_asiento}")
     else:
         if not btn_escanear:
-            st.caption("💡 Haz clic en 'Analizar y Buscar Matches' para evaluar los movimientos actuales contra tus tablas.")
+            st.caption("💡 Haz clic en el botón superior para contrastar los movimientos del banco contra los asientos contables registrados.")
 
-        
+
 def renderizar_tab_asientos_ventas(db_connection):
     st.subheader("🤖 Asientos Automatizados - Libro de Ventas")
     st.markdown("""
