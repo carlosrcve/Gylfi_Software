@@ -9712,13 +9712,23 @@ elif opcion_menu == "📝 Asientos Contables":
                         
                         df_cuenta['monto'] = pd.to_numeric(df_cuenta['monto'], errors='coerce').fillna(0.0)
 
-                        st.dataframe(df_cuenta, use_container_width=True, height=450)
+                        # Renderizado fluido con formato numérico nativo configurado
+                        st.dataframe(
+                            df_cuenta,
+                            column_config={
+                                "monto": st.column_config.NumberColumn(
+                                    "Monto",
+                                    format="%.2f"  # Muestra los decimales limpios de forma nativa sin congelar Streamlit
+                                )
+                            },
+                            use_container_width=True, 
+                            height=450
+                        )
                         st.write(f"**Total movimientos encontrados:** {len(df_cuenta)}")
                     else:
                         st.info(f"No hay movimientos para {empresa_data.get('nombre_empresa', 'la empresa')} en {mes_sel} {ano_sel}.")
 
                 except Exception as e:
-                    # Captura detallada para evitar el error (0, '')
                     err_code = e.args[0] if len(e.args) > 0 else "Desconocido"
                     err_msg = e.args[1] if len(e.args) > 1 else str(e)
                     st.error(f"❌ Error en la base de datos [Código {err_code}]: {err_msg}")
