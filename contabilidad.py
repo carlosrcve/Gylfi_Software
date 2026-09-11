@@ -6361,9 +6361,11 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
             st.caption("💡 Haz clic en el botón superior para realizar el escaneo y cruce automático por RIF.")
 
 
+
 def conciliacion_de_gastos_y_comisiones(db_connection, db_segura):
     """
-    Función con diagnóstico incorporado para verificar el contenido real de banco_movimientos.
+    Función de Conciliación Masiva que muestra todos los movimientos bancarios 
+    disponibles para garantizar que no se oculte ninguna comisión ni pago.
     """
     st.markdown("---")
     st.markdown("### ⚙️ Conciliación Masiva de Gastos y Comisiones Bancarias")
@@ -6374,16 +6376,6 @@ def conciliacion_de_gastos_y_comisiones(db_connection, db_segura):
     if not db_segura or db_segura == 'none':
         st.error("❌ No hay ninguna base de datos de empresa seleccionada correctamente en la sesión.")
         return
-
-    # 🔍 SECCIÓN DE DIAGNÓSTICO RÁPIDO (Para ver qué estados y registros existen realmente)
-    with st.expander("🛠️ Ver Diagnóstico de Movimientos Bancarios en BD", expanded=False):
-        try:
-            query_debug = f"SELECT estado_conciliacion, COUNT(*) as total FROM `{db_segura}`.banco_movimientos GROUP BY estado_conciliacion;"
-            df_debug = pd.read_sql(query_debug, db_connection)
-            st.write("Conteo de movimientos por su estado actual en la base de datos:")
-            st.dataframe(df_debug, use_container_width=True)
-        except Exception as e_dbg:
-            st.warning(f"No se pudo consultar el diagnóstico de estados: {e_dbg}")
 
     # 1. Cargar el Plan de Cuentas
     dict_cuentas = {}
@@ -6416,16 +6408,17 @@ def conciliacion_de_gastos_y_comisiones(db_connection, db_segura):
     )
 
     st.markdown("---")
-    st.markdown("#### 2️⃣ Selecciona los Movimientos Bancarios Pendientes")
+    st.markdown("#### 2️⃣ Selecciona los Movimientos Bancarios")
 
-    # ⚠️ Ampliamos la consulta para capturar cualquier estado pendiente o nulo por si las comisiones tienen otro estado
+    # 🔍 Cargar TODOS los movimientos (excluyendo solo los ya conciliados formalmente para evitar duplicar)
     df_pendientes = pd.DataFrame()
     try:
         query_pend = f"""
             SELECT id, banco_nombre, cuenta_numero, fecha_movimiento, referencia, descripcion, monto, estado_conciliacion 
             FROM `{db_segura}`.banco_movimientos 
-            WHERE estado_conciliacion IN ('Pendiente', 'Pendiente Clasificación Manual', 'PENDIENTE', '') 
-               OR estado_conciliacion IS NULL
+            WHERE estado_conciliacion NOT IN ('Conciliado y Registrado') 
+               OR estado_conciliacion IS NULL 
+               OR estado_conciliacion = ''
             ORDER BY fecha_movimiento DESC;
         """
         df_pendientes = pd.read_sql(query_pend, db_connection)
@@ -6434,18 +6427,17 @@ def conciliacion_de_gastos_y_comisiones(db_connection, db_segura):
         return
 
     if df_pendientes.empty:
-        st.success("🎉 ¡Excelente! No hay movimientos bancarios pendientes de conciliar en este momento.")
+        st.success("🎉 ¡Excelente! No hay movimientos bancarios disponibles para conciliar en este momento.")
         return
 
-    # Selector de filtro libre para buscar cualquier palabra (Ej: "comision", "com", "nota", etc.)
+    # Barra de búsqueda libre opcional para ubicar comisiones rápidamente por texto
     col_f1, col_f2 = st.columns([2, 1])
     with col_f1:
-        texto_busqueda = st.text_input("🔍 Filtrar por palabra clave en la descripción (ej: comision, nota, igtf):", "")
+        texto_busqueda = st.text_input("🔍 Buscar en descripción (ej: comision, igtf, proveedor, etc.):", "")
     with col_f2:
         st.write("")
-        st.write(f"Total registros: **{len(df_pendientes)}**")
+        st.write(f"Total registros cargados: **{len(df_pendientes)}**")
 
-    # Aplicar filtro de texto si el usuario escribe algo
     if texto_busqueda.strip():
         df_pendientes = df_pendientes[df_pendientes['descripcion'].str.upper().str.contains(texto_busqueda.strip().upper(), na=False)]
 
