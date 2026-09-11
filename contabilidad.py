@@ -1731,13 +1731,13 @@ def conciliar_datos(conn, fecha_inicio, fecha_fin, db_empresa):
         st.error("⚠️ No se pudieron cargar los datos de la empresa.")
         return
 
-    # 4. ASEGURAR CONEXIÓN (Protocolo para evitar el error de socket)
+    # 4. ASEGURAR CONEXIÓN (Protocolo corregido usando conectar_db)
     try:
         if not conn.is_connected():
             conn.reconnect(attempts=3, delay=1)
     except Exception:
-        # Si la conexión principal está muerta, intentamos obtener una nueva
-        conn = get_db_connection() 
+        # Si la conexión principal está muerta, intentamos obtener una nueva con la función correcta del proyecto
+        conn = conectar_db(db_actual) 
 
     cursor = None
     try:
@@ -1769,7 +1769,6 @@ def conciliar_datos(conn, fecha_inicio, fecha_fin, db_empresa):
     finally:
         if cursor:
             cursor.close()
-
 def diagnosticar_conciliacion(conn, db_empresa):
     """
     db_empresa: Nombre de la base de datos específica (ej: 'empresa_a_db')
@@ -1852,12 +1851,12 @@ def crear_pdf_conciliacion(conn, df_conciliado, saldo_inicial, saldo_final_banco
         
     mes_anio = f"{mes} {anio}"
 
-    # 5. GESTIÓN DE CONEXIÓN
+    # 5. GESTIÓN DE CONEXIÓN (Corregido usando conectar_db en lugar de get_db_connection)
     try:
         if not conn.is_connected():
             conn.reconnect(attempts=3, delay=1)
     except:
-        conn = get_db_connection()
+        conn = conectar_db(db_actual)
 
     cursor = None
     try:
@@ -1883,7 +1882,6 @@ def crear_pdf_conciliacion(conn, df_conciliado, saldo_inicial, saldo_final_banco
         pdf.cell(0, 10, f"Conciliacion Bancaria - Mes: {mes_anio}", ln=True, align='C')
         pdf.ln(5)
         
-        # ... (resto de tu lógica se mantiene igual)
         pdf.set_font("Arial", 'B', 12)
         pdf.set_fill_color(200, 220, 255)
         pdf.cell(140, 10, "Saldo Final Banco", 1, 0, 'L', True)
@@ -1921,8 +1919,10 @@ def crear_pdf_conciliacion(conn, df_conciliado, saldo_inicial, saldo_final_banco
         if cursor:
             cursor.close()
         if conn and conn.is_connected():
-            conn.ping(reconnect=True)
-
+            try:
+                conn.ping(reconnect=True)
+            except:
+                pass
 
 
 def mostrar_tablero_conciliacion(conn, mes_sel, ano_sel):
