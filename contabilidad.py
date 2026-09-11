@@ -1824,7 +1824,7 @@ def diagnosticar_conciliacion(conn, db_empresa):
 
 
 def crear_pdf_conciliacion(conn, df_conciliado, saldo_inicial, saldo_final_banco, saldo_final_libros, lista_ingresos, lista_egresos, mes_sel=None, ano_sel=None):
-    # 1. Recuperación de estado de sesión
+    # 1. Recuperación de estado de sesión (Prioridad absoluta a session_state por el ciclo de recarga de Streamlit)
     db_actual = st.session_state.get('DB_ACTUAL')
     cliente_id = st.session_state.get('cliente_id')
     rol = st.session_state.get('rol')
@@ -1841,17 +1841,15 @@ def crear_pdf_conciliacion(conn, df_conciliado, saldo_inicial, saldo_final_banco
             st.error("⚠️ Acceso denegado.")
             st.stop()
 
-    # 4. FECHA DINÁMICA (Si no se pasan como argumento, los busca en session_state o da error controlado)
-    if not mes_sel:
-        mes_sel = st.session_state.get('mes_seleccionado')
-    if not ano_sel:
-        ano_sel = st.session_state.get('anio_seleccionado')
+    # 4. FECHA DINÁMICA (Búsqueda robusta en cascada: argumentos -> session_state)
+    mes_actual = mes_sel or st.session_state.get('mes_seleccionado')
+    ano_actual = ano_sel or st.session_state.get('anio_seleccionado')
     
-    if not mes_sel or not ano_sel:
+    if not mes_actual or not ano_actual:
         st.error("Por favor, selecciona un mes y un año en la interfaz.")
         st.stop()
         
-    mes_anio = f"{mes_sel} {ano_sel}"
+    mes_anio = f"{mes_actual} {ano_actual}"
 
     # 5. GESTIÓN DE CONEXIÓN
     try:
