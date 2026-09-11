@@ -6206,7 +6206,7 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
 
     st.info(f"Empresa activa en este frame: **{db_segura}**. Este módulo procesa, clasifica y aísla los movimientos del estado de cuenta.")
 
-    # 1. Asegurar la creación de la tabla banco_movimientos utilizando la base de datos segura y limpia
+    # 1. Asegurar la creación o expansión de la tabla banco_movimientos utilizando la base de datos segura
     if db_connection:
         try:
             with db_connection.cursor() as cursor_tabla:
@@ -6220,14 +6220,18 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
                         referencia VARCHAR(50) NOT NULL,
                         descripcion TEXT,
                         monto DECIMAL(18,2) NOT NULL,
-                        estado_conciliacion VARCHAR(50) DEFAULT 'Pendiente',
+                        estado_conciliacion VARCHAR(100) DEFAULT 'Pendiente',
                         asiento_id INT NULL,
                         fecha_importacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     );
                 """)
+                # Asegurar por si la tabla ya existía con un VARCHAR más corto (ej: 20)
+                cursor_tabla.execute("""
+                    ALTER TABLE banco_movimientos MODIFY COLUMN estado_conciliacion VARCHAR(100) DEFAULT 'Pendiente';
+                """)
                 db_connection.commit()
         except Exception as err_tabla:
-            st.warning(f"⚠️ No se pudo verificar/crear la tabla `banco_movimientos`: {err_tabla}")
+            st.warning(f"⚠️ No se pudo verificar/actualizar la tabla `banco_movimientos`: {err_tabla}")
 
     # Consultar los movimientos bancarios actuales usando la base de datos correcta
     df_movs_bd = pd.DataFrame()
