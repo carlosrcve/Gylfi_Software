@@ -1622,6 +1622,32 @@ def cargar_estado_cuenta_bdv(uploaded_file, conn):
         
         movimientos_insertados = 0
         
+        # Función auxiliar robusta para limpiar montos en formato venezolano
+        def limpiar_monto_venezolano(val):
+            if pd.isna(val):
+                return 0.0
+            if isinstance(val, (int, float)):
+                return float(val)
+            
+            val_str = str(val).strip().replace(' ', '')
+            if val_str in ['', '-', 'nan', 'None']:
+                return 0.0
+                
+            try:
+                # Si tiene tanto punto de miles como coma decimal (ej: 1.420,54)
+                if '.' in val_str and ',' in val_str:
+                    val_str = val_str.replace('.', '').replace(',', '.')
+                # Si solo tiene coma decimal (ej: 420,54 o -420,54)
+                elif ',' in val_str and '.' not in val_str:
+                    val_str = val_str.replace(',', '.')
+                # Si tiene múltiples puntos sin coma (ej: 3.713.533)
+                elif val_str.count('.') > 1:
+                    val_str = val_str.replace('.', '')
+                
+                return float(val_str)
+            except:
+                return 0.0
+
         # 5. Procesamos filas de forma segura apuntando a la BD de la empresa en curso
         for index, row in df.iterrows():
             # Validamos que existan Referencia y Fecha antes de continuar
@@ -1638,9 +1664,9 @@ def cargar_estado_cuenta_bdv(uploaded_file, conn):
                     continue
                 fecha_str = parsed_date.strftime('%Y-%m-%d')
             
-            # Limpieza de montos (asegurando que sean floats)
-            debito = float(str(row.get('Débito', 0)).replace('.', '').replace(',', '.')) if pd.notna(row.get('Débito')) else 0
-            credito = float(str(row.get('Crédito', 0)).replace('.', '').replace(',', '.')) if pd.notna(row.get('Crédito')) else 0
+            # Limpieza exacta usando la función robusta
+            debito = limpiar_monto_venezolano(row.get('Débito', 0))
+            credito = limpiar_monto_venezolano(row.get('Crédito', 0))
             monto = credito - debito
             
             # Descripción segura por si viene vacía o nula
