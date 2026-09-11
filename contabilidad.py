@@ -6362,10 +6362,13 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
 
 
 
+import pandas as pd
+import streamlit as st
+
 def conciliacion_de_gastos_y_comisiones(db_connection, db_segura):
     """
-    Función de Conciliación Masiva optimizada con botones de selección masiva 
-    para evitar bloqueos al procesar muchos registros (ej. comisiones).
+    Función de Conciliación Masiva con opción de marcar automáticamente 
+    solo las comisiones bancarias para evitar selecciones manuales lentas.
     """
     st.markdown("---")
     st.markdown("### ⚙️ Conciliación Masiva de Gastos y Comisiones Bancarias")
@@ -6445,21 +6448,40 @@ def conciliacion_de_gastos_y_comisiones(db_connection, db_segura):
         st.warning("⚠️ No se encontraron movimientos que coincidan con la búsqueda.")
         return
 
-    # ⚡ BOTONES DE ACCIÓN RÁPIDA PARA SELECCIÓN MASIVA (Evita clics uno por uno)
+    # ⚡ BOTONES DE ACCIÓN RÁPIDA INTELIGENTES (Marcar solo comisiones, marcar todos o limpiar)
     st.write("")
-    col_acc1, col_acc2, _ = st.columns([1, 1, 2])
+    col_acc1, col_acc2, col_acc3, _ = st.columns([1.5, 1, 1, 1])
+    
     with col_acc1:
-        if st.button("☑️ Marcar Todos", key="btn_marcar_todos"):
-            st.session_state["estado_seleccion_masiva"] = True
+        if st.button("🏷️ Marcar Solo Comisiones", key="btn_marcar_comisiones"):
+            st.session_state["modo_seleccion_lote"] = "solo_comisiones"
     with col_acc2:
-        if st.button("◻️ Desmarcar Todos", key="btn_desmarcar_todos"):
-            st.session_state["estado_seleccion_masiva"] = False
+        if st.button("☑️ Marcar Todos", key="btn_marcar_todos"):
+            st.session_state["modo_seleccion_lote"] = "todos"
+    with col_acc3:
+        if st.button("◻️ Desmarcar", key="btn_desmarcar_todos"):
+            st.session_state["modo_seleccion_lote"] = "ninguno"
 
-    # Obtener el estado actual de selección masiva (por defecto False)
-    val_default_sel = st.session_state.get("estado_seleccion_masiva", False)
+    # Determinar el estado inicial de selección basado en el botón presionado
+    modo_actual = st.session_state.get("modo_seleccion_lote", "ninguno")
+    
+    lista_seleccion_inicial = []
+    palabras_comision = ["COMISION", "COM", "COMIS", "SERV", "MANTENIMIENTO", "TASA"] # Puedes ajustar o ampliar las palabras clave aquí
+
+    for _, row in df_pendientes.iterrows():
+        desc_upper = str(row["descripcion"] or "").upper()
+        
+        if modo_actual == "todos":
+            lista_seleccion_inicial.append(True)
+        elif modo_actual == "solo_comisiones":
+            # Revisa si alguna palabra clave de comisión está en la descripción del movimiento
+            es_comision = any(p in desc_upper for p in palabras_comision)
+            lista_seleccion_inicial.append(es_comision)
+        else:
+            lista_seleccion_inicial.append(False)
 
     # Editor de datos para seleccionar los movimientos
-    df_pendientes["Seleccionar"] = val_default_sel
+    df_pendientes["Seleccionar"] = lista_seleccion_inicial
     cols = ["Seleccionar"] + [c for c in df_pendientes.columns if c != "Seleccionar"]
     df_editable = df_pendientes[cols]
 
@@ -6480,7 +6502,7 @@ def conciliacion_de_gastos_y_comisiones(db_connection, db_segura):
         key="select_cuenta_banco_lote"
     )
 
-    # Filtrar los registros que el usuario tiene seleccionados
+    # Filtrar los registros que el usuario tiene seleccionados (o marcó automáticamente)
     seleccionados_prev = df_resultado_seleccion[df_resultado_seleccion["Seleccionar"] == True]
 
     # 👁️ GENERAR VISTA PREVIA EN TIEMPO REAL ANTES DE PROCESAR
@@ -6527,7 +6549,7 @@ def conciliacion_de_gastos_y_comisiones(db_connection, db_segura):
         df_preview_final = pd.DataFrame(lista_preview)
         st.dataframe(df_preview_final, hide_index=True, use_container_width=True)
     else:
-        st.info("ℹ️ Selecciona al menos un movimiento bancario en la tabla superior (o usa el botón 'Marcar Todos') para visualizar la vista previa.")
+        st.info("ℹ️ Haz clic en '🏷️ Marcar Solo Comisiones' o selecciona manualmente los movimientos en la tabla superior para visualizar la vista previa.")
 
     st.write("")
     col_btn, _ = st.columns([1, 2])
@@ -6585,9 +6607,9 @@ def conciliacion_de_gastos_y_comisiones(db_connection, db_segura):
 
                 db_connection.commit()
 
-            # Limpiar la variable de sesión para restablecer el estado al terminar
-            if "estado_seleccion_masiva" in st.session_state:
-                del st.session_state["estado_seleccion_masiva"]
+            # Limpiar estado de sesión
+            if "modo_seleccion_lote" in st.session_state:
+                del st.session_state["modo_seleccion_lote"]
 
             st.success(f"🎉 ¡Se han generado exitosamente **{procesados_exito}** asientos contables en lote de forma correcta!")
             st.rerun()
