@@ -6285,7 +6285,7 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
                         # Condición A: El RIF extraído del banco coincide con el RIF del proveedor
                         match_por_rif = (rif_encontrado_limpio and p_rif_limpio and (rif_encontrado_limpio in p_rif_limpio or p_rif_limpio in rif_encontrado_limpio))
                         
-                        # Condición B: El RIF del proveedor está escrito directamente en la descripción del banco aunque no haya hecho match la regex
+                        # Condición B: El RIF del proveedor está escrito directamente en la descripción del banco
                         match_por_texto_rif = (p_rif_limpio and p_rif_limpio in descripcion.replace("-", "").replace(" ", ""))
                         
                         # Condición C: El nombre del proveedor aparece dentro de la descripción del banco
@@ -6296,7 +6296,7 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
                             nombre_proveedor_encontrado = prov.get("nombre", prov.get("nombre_empresa", f"Proveedor ID {p_id}"))
                             break
 
-                    # Si encontramos un proveedor asociado al movimiento, buscamos su factura pendiente por el monto exacto
+                    # Si encontramos un proveedor asociado, buscamos su factura pendiente por el monto exacto
                     if proveedor_encontrado_id:
                         cursor_cursor.execute(f"""
                             SELECT id, saldo_pendiente, monto_total 
@@ -6322,7 +6322,7 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
             if propuestas:
                 st.success(f"🎯 ¡Se han encontrado {len(propuestas)} coincidencia(s) listas para procesar!")
             else:
-                st.warning("⚠️ El movimiento coincide con un proveedor, pero no se encontró ninguna factura pendiente en `cuentas_por_pagar` que coincida exactamente con el monto de Bs. " + f"{monto_mov:,.2f}.")
+                st.warning("⚠️ No se encontraron facturas pendientes que coincidan con los movimientos y proveedores analizados.")
         except Exception as e_scan:
             st.error(f"Error en el análisis cruzado: {e_scan}")
 
@@ -6331,7 +6331,7 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
         st.markdown("---")
         st.markdown("#### 📝 Facturas detectadas listas para cancelar")
         
-        for idx, prop in enumerate(st.session_state.matches_propuestos):
+        for idx, prop in enumerate(list(st.session_state.matches_propuestos)):
             with st.container():
                 st.info(
                     f"**Banco:** {prop['banco']}  |  **Descripción en Banco:** {prop['descripcion']}  |  "
