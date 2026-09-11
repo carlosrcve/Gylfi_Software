@@ -6365,7 +6365,7 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
 def conciliacion_de_gastos_y_comisiones(db_connection, db_segura):
     """
     Función de Conciliación Masiva con selección automática de comisiones 
-    y formato numérico limpio en los montos de la vista previa.
+    y formato numérico limpio en los montos de la vista previa y el editor.
     """
     st.markdown("---")
     st.markdown("### ⚙️ Conciliación Masiva de Gastos y Comisiones Bancarias")
@@ -6422,6 +6422,11 @@ def conciliacion_de_gastos_y_comisiones(db_connection, db_segura):
             ORDER BY fecha_movimiento DESC;
         """
         df_pendientes = pd.read_sql(query_pend, db_connection)
+        
+        # 🛠️ CONVERSIÓN FORZADA A NÚMERO: Garantiza que Streamlit la lea como float y aplique el format de NumberColumn
+        if not df_pendientes.empty and 'monto' in df_pendientes.columns:
+            df_pendientes['monto'] = pd.to_numeric(df_pendientes['monto'], errors='coerce').fillna(0.0)
+
     except Exception as e_q:
         st.error(f"❌ Error al cargar los movimientos bancarios: {e_q}")
         return
@@ -6476,7 +6481,7 @@ def conciliacion_de_gastos_y_comisiones(db_connection, db_segura):
         else:
             lista_seleccion_inicial.append(False)
 
-    # Editor de datos para seleccionar los movimientos
+    # Editor de datos para seleccionar los movimientos (con formato numérico limpio en la columna monto)
     df_pendientes["Seleccionar"] = lista_seleccion_inicial
     cols = ["Seleccionar"] + [c for c in df_pendientes.columns if c != "Seleccionar"]
     df_editable = df_pendientes[cols]
@@ -6485,6 +6490,13 @@ def conciliacion_de_gastos_y_comisiones(db_connection, db_segura):
         df_editable,
         hide_index=True,
         use_container_width=True,
+        column_config={
+            "monto": st.column_config.NumberColumn(
+                "Monto",
+                format="%.2f",  # Muestra siempre 2 decimales limpios
+                help="Monto del movimiento bancario"
+            )
+        },
         key="editor_movimientos_banco"
     )
 
