@@ -6272,156 +6272,144 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
             except Exception:
                 pass
 
-            try:
-                with db_connection.cursor(pymysql.cursors.DictCursor) as cursor_cursor:
-                    for _, row in df_movs_bd.iterrows():
-                        mov_id = row["id"]
-                        descripcion = str(row["descripcion"] or "").strip().upper()
-                        monto_mov = float(row["monto"] or 0.0)
-                        estado_actual = str(row["estado_conciliacion"] or "")
+            # Contenedor de depuración para ver qué pasa en tiempo real sin que se borre
+            with st.expander("🔍 Log de Depuración en Tiempo Real del Árbol", expanded=True):
+                try:
+                    with db_connection.cursor(pymysql.cursors.DictCursor) as cursor_cursor:
+                        for _, row in df_movs_bd.iterrows():
+                            mov_id = row["id"]
+                            descripcion = str(row["descripcion"] or "").strip().upper()
+                            monto_mov = float(row["monto"] or 0.0)
+                            estado_actual = str(row["estado_conciliacion"] or "")
 
-                        # Omitir los que ya estén firmemente conciliados
-                        if "CONCILIADO" in estado_actual.upper() and "PENDIENTE" not in estado_actual.upper():
-                            continue
+                            # Omitir los que ya estén firmemente conciliados
+                            if "CONCILIADO" in estado_actual.upper() and "PENDIENTE" not in estado_actual.upper():
+                                continue
 
-                        conciliado_exitoso = False
+                            conciliado_exitoso = False
 
-                        # -----------------------------------------------------------------
-                        # RUTA 1: Buscar RIF y Monto exacto contra Cuentas por Pagar (Pasivo)
-                        # -----------------------------------------------------------------
-                        match_rif = re.search(r'\b([VEJGP])[\s-]?(\d{6,10})[-]?(\d)?\b', descripcion, re.IGNORECASE)
-                        if match_rif:
-                            letra = match_rif.group(1).upper()
-                            cuerpo = match_rif.group(2)
-                            digito = match_rif.group(3) if match_rif.group(3) else ""
-                            rif_encontrado_limpio = f"{letra}{cuerpo}{digito}".replace("-", "").strip()
+                            # -----------------------------------------------------------------
+                            # RUTA 1: Buscar RIF y Monto exacto contra Cuentas por Pagar (Pasivo)
+                            # -----------------------------------------------------------------
+                            match_rif = re.search(r'\b([VEJGP])[\s-]?(\d{6,10})[-]?(\d)?\b', descripcion, re.IGNORECASE)
+                            if match_rif:
+                                letra = match_rif.group(1).upper()
+                                cuerpo = match_rif.group(2)
+                                digito = match_rif.group(3) if match_rif.group(3) else ""
+                                rif_encontrado_limpio = f"{letra}{cuerpo}{digito}".replace("-", "").strip()
 
-                            proveedor_id_encontrado = None
-                            for prov_rif_db, info_p in mapa_proveedores_por_rif.items():
-                                rif_db_limpio = str(prov_rif_db).upper().replace("-", "").strip()
-                                if rif_encontrado_limpio == rif_db_limpio or rif_db_limpio in rif_encontrado_limpio or rif_encontrado_limpio in rif_db_limpio:
-                                    proveedor_id_encontrado = info_p.get("id")
-                                    break
+                                proveedor_id_encontrado = None
+                                for prov_rif_db, info_p in mapa_proveedores_por_rif.items():
+                                    rif_db_limpio = str(prov_rif_db).upper().replace("-", "").strip()
+                                    if rif_encontrado_limpio == rif_db_limpio or rif_db_limpio in rif_encontrado_limpio or rif_encontrado_limpio in rif_db_limpio:
+                                        proveedor_id_encontrado = info_p.get("id")
+                                        break
 
-                            if proveedor_id_encontrado:
-                                # Buscamos si hay una cuenta por pagar pendiente con el monto exacto del movimiento (valor absoluto)
-                                monto_busqueda = abs(monto_mov)
-                                
+                                if proveedor_id_encontrado:
+                                    monto_busqueda = abs(monto_mov)
+                                    st.write(f"👉 RIF detectado: `{rif_encontrado_limpio}` (Proveedor ID: {proveedor_id_encontrado}) | Buscando factura por monto: {monto_busqueda}")
+                                    
+                                    cursor_cursor.execute(f"""
+                                        SELECT id, saldo_pendiente, monto_total 
+                                        FROM `{db_segura}`.cuentas_por_pagar 
+                                        WHERE proveedor_id = %s AND (saldo_pendiente = %s OR monto_total = %s) AND estado != 'Pagado'
+                                        LIMIT 1
+                                    """, (proveedor_id_encontrado, monto_busqueda, monto_busqueda))
+                                    
+                                    factura_pend = cursor_cursor.fetchone()
+                                    
+                                    if factura_pend:
+                                        matches_proveedores += 1
+                                        conciliado_exitoso = True
+                                        factura_id = factura_pend.get("id")
+                                        st.success(f"✅ ¡Match de Factura Encontrado! ID Factura: {factura_id} para movimiento ID {mov_id}")
+                                        
+                                        cursor_cursor.execute(f"""
+                                            UPDATE `{db_segura}`.banco_movimientos 
+                                            SET estado_conciliacion = 'Conciliado (Proveedor / Factura)', asiento_id = %s 
+                                            WHERE id = %s
+                                        """, (factura_id, mov_id))
+
+                                        cursor_cursor.execute(f"""
+                                            UPDATE `{db_segura}`.cuentas_por_pagar 
+                                            SET estado = 'Pagado', saldo_pendiente = 0 
+                                            WHERE id = %s
+                                        """, (factura_id,))
+                                        
+                                        break
+                                    else:
+                                        matches_proveedores += 1
+                                        conciliado_exitoso = True
+                                        st.warning(f"⚠️ RIF encontrado pero NO hay factura pendiente con el monto exacto {monto_busqueda}. Marcando como Solo Proveedor.")
+                                        cursor_cursor.execute(f"""
+                                            UPDATE `{db_segura}`.banco_movimientos 
+                                            SET estado_conciliacion = 'Conciliado (Solo Proveedor - Monto Diferente)' 
+                                            WHERE id = %s
+                                        """, (mov_id,))
+                                        break
+                            
+                            if conciliado_exitoso:
+                                continue
+
+                            # -----------------------------------------------------------------
+                            # RUTA 2: Comisiones Bancarias
+                            # -----------------------------------------------------------------
+                            palabras_comision = ["COMISION", "COMIS", "PORTES", "GASTOS BANCARIOS", "SERV BANCARIO", "IVA SOBRE COMISION"]
+                            if any(palabra in descripcion for palabra in palabras_comision):
+                                matches_comisiones += 1
+                                conciliado_exitoso = True
                                 cursor_cursor.execute(f"""
-                                    SELECT id, saldo_pendiente 
-                                    FROM `{db_segura}`.cuentas_por_pagar 
-                                    WHERE proveedor_id = %s AND (saldo_pendiente = %s OR monto_total = %s) AND estado != 'Pagado'
-                                    LIMIT 1
-                                """, (proveedor_id_encontrado, monto_busqueda, monto_busqueda))
-                                
-                                factura_pend = cursor_cursor.fetchone()
-                                
-                                if factura_pend:
-                                    matches_proveedores += 1
-                                    conciliado_exitoso = True
-                                    factura_id = factura_pend.get("id")
-                                    
-                                    # Actualizar banco_movimientos enlazándolo a la factura (asiento_id)
-                                    cursor_cursor.execute(f"""
-                                        UPDATE `{db_segura}`.banco_movimientos 
-                                        SET estado_conciliacion = 'Conciliado (Proveedor / Factura)', asiento_id = %s 
-                                        WHERE id = %s
-                                    """, (factura_id, mov_id))
+                                    UPDATE `{db_segura}`.banco_movimientos 
+                                    SET estado_conciliacion = 'Conciliado (Comisión)' 
+                                    WHERE id = %s
+                                """, (mov_id,))
+                                continue
 
-                                    # Actualizar el pasivo a Pagado
-                                    cursor_cursor.execute(f"""
-                                        UPDATE `{db_segura}`.cuentas_por_pagar 
-                                        SET estado = 'Pagado', saldo_pendiente = 0 
-                                        WHERE id = %s
-                                    """, (factura_id,))
-                                    
-                                    break
-                                else:
-                                    # Si el RIF hace match pero el monto no coincide exactamente con ninguna factura pendiente
-                                    matches_proveedores += 1
-                                    conciliado_exitoso = True
-                                    cursor_cursor.execute(f"""
-                                        UPDATE `{db_segura}`.banco_movimientos 
-                                        SET estado_conciliacion = 'Conciliado (Solo Proveedor - Monto Diferente)' 
-                                        WHERE id = %s
-                                    """, (mov_id,))
-                                    break
-                        
-                        if conciliado_exitoso:
-                            continue
+                            # -----------------------------------------------------------------
+                            # RUTA 3: Impuestos y Tributos SENIAT
+                            # -----------------------------------------------------------------
+                            palabras_impuestos = ["SENIAT", "ISLR", "IVA RETENCION", "IMPUESTO", "TIMBRE FISCAL", "RETENCION IVA"]
+                            if any(palabra in descripcion for palabra in palabras_impuestos):
+                                matches_impuestos += 1
+                                conciliado_exitoso = True
+                                cursor_cursor.execute(f"""
+                                    UPDATE `{db_segura}`.banco_movimientos 
+                                    SET estado_conciliacion = 'Conciliado (Impuestos)' 
+                                    WHERE id = %s
+                                """, (mov_id,))
+                                continue
 
-                        # -----------------------------------------------------------------
-                        # RUTA 2: Comisiones Bancarias (Cuenta 6.1.1.03.013)
-                        # -----------------------------------------------------------------
-                        palabras_comision = ["COMISION", "COMIS", "PORTES", "GASTOS BANCARIOS", "SERV BANCARIO", "IVA SOBRE COMISION"]
-                        if any(palabra in descripcion for palabra in palabras_comision):
-                            matches_comisiones += 1
-                            conciliado_exitoso = True
-                            
+                            # -----------------------------------------------------------------
+                            # RUTA 4: Pagos de Créditos o Financiamientos
+                            # -----------------------------------------------------------------
+                            palabras_creditos = ["CREDITO", "PRESTAMO", "AMORTIZACION", "CUOTA", "FINANCIAMIENTO"]
+                            if any(palabra in descripcion for palabra in palabras_creditos):
+                                matches_creditos += 1
+                                conciliado_exitoso = True
+                                cursor_cursor.execute(f"""
+                                    UPDATE `{db_segura}`.banco_movimientos 
+                                    SET estado_conciliacion = 'Conciliado (Crédito/Préstamo)' 
+                                    WHERE id = %s
+                                """, (mov_id,))
+                                continue
+
+                            # -----------------------------------------------------------------
+                            # RUTA 5: RED DE SEGURIDAD
+                            # -----------------------------------------------------------------
+                            pendientes_manuales += 1
                             cursor_cursor.execute(f"""
                                 UPDATE `{db_segura}`.banco_movimientos 
-                                SET estado_conciliacion = 'Conciliado (Comisión)' 
+                                SET estado_conciliacion = 'Pendiente Clasificación Manual' 
                                 WHERE id = %s
                             """, (mov_id,))
-                            continue
 
-                        # -----------------------------------------------------------------
-                        # RUTA 3: Impuestos y Tributos SENIAT
-                        # -----------------------------------------------------------------
-                        palabras_impuestos = ["SENIAT", "ISLR", "IVA RETENCION", "IMPUESTO", "TIMBRE FISCAL", "RETENCION IVA"]
-                        if any(palabra in descripcion for palabra in palabras_impuestos):
-                            matches_impuestos += 1
-                            conciliado_exitoso = True
-                            
-                            cursor_cursor.execute(f"""
-                                UPDATE `{db_segura}`.banco_movimientos 
-                                SET estado_conciliacion = 'Conciliado (Impuestos)' 
-                                WHERE id = %s
-                            """, (mov_id,))
-                            continue
+                        db_connection.commit()
+                        st.success("🎉 ¡Proceso de árbol de decisiones finalizado correctamente!")
 
-                        # -----------------------------------------------------------------
-                        # RUTA 4: Pagos de Créditos o Financiamientos Otorgados
-                        # -----------------------------------------------------------------
-                        palabras_creditos = ["CREDITO", "PRESTAMO", "AMORTIZACION", "CUOTA", "FINANCIAMIENTO"]
-                        if any(palabra in descripcion for palabra in palabras_creditos):
-                            matches_creditos += 1
-                            conciliado_exitoso = True
-                            
-                            cursor_cursor.execute(f"""
-                                UPDATE `{db_segura}`.banco_movimientos 
-                                SET estado_conciliacion = 'Conciliado (Crédito/Préstamo)' 
-                                WHERE id = %s
-                            """, (mov_id,))
-                            continue
+                except Exception as e_proceso:
+                    st.error(f"❌ Error crítico durante la ejecución del árbol de decisiones: {e_proceso}")
 
-                        # -----------------------------------------------------------------
-                        # RUTA 5: RED DE SEGURIDAD (Descripciones no reconocidas)
-                        # -----------------------------------------------------------------
-                        pendientes_manuales += 1
-                        cursor_cursor.execute(f"""
-                            UPDATE `{db_segura}`.banco_movimientos 
-                            SET estado_conciliacion = 'Pendiente Clasificación Manual' 
-                            WHERE id = %s
-                        """, (mov_id,))
-
-                    db_connection.commit()
-
-                st.balloons()
-                st.success(
-                    f"🎉 ¡Árbol de decisiones ejecutado con éxito!\n\n"
-                    f"- **Total de movimientos evaluados:** {total_procesados}\n"
-                    f"- 🤝 Pagos a Proveedores / Facturas: {matches_proveedores}\n"
-                    f"- 💳 Comisiones Bancarias: {matches_comisiones}\n"
-                    f"- 🏛️ Impuestos / SENIAT: {matches_impuestos}\n"
-                    f"- 🏦 Créditos / Financiamientos: {matches_creditos}\n"
-                    f"- ⚠️ **Pendientes de Clasificación Manual:** {pendientes_manuales}"
-                )
-                st.rerun()
-
-            except Exception as e_proceso:
-                st.error(f"❌ Error crítico durante la ejecución del árbol de decisiones: {e_proceso}")
-
+        
 def renderizar_tab_asientos_ventas(db_connection):
     st.subheader("🤖 Asientos Automatizados - Libro de Ventas")
     st.markdown("""
