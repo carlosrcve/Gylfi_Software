@@ -6361,10 +6361,11 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
             st.caption("💡 Haz clic en el botón superior para realizar el escaneo y cruce automático por RIF.")
 
 
+
 def conciliacion_de_gastos_y_comisiones(db_connection, db_segura):
     """
-    Función de Conciliación Masiva con vista previa interactiva de los asientos 
-    contables antes de proceder a la inserción final en la base de datos.
+    Función de Conciliación Masiva optimizada con botones de selección masiva 
+    para evitar bloqueos al procesar muchos registros (ej. comisiones).
     """
     st.markdown("---")
     st.markdown("### ⚙️ Conciliación Masiva de Gastos y Comisiones Bancarias")
@@ -6444,8 +6445,21 @@ def conciliacion_de_gastos_y_comisiones(db_connection, db_segura):
         st.warning("⚠️ No se encontraron movimientos que coincidan con la búsqueda.")
         return
 
+    # ⚡ BOTONES DE ACCIÓN RÁPIDA PARA SELECCIÓN MASIVA (Evita clics uno por uno)
+    st.write("")
+    col_acc1, col_acc2, _ = st.columns([1, 1, 2])
+    with col_acc1:
+        if st.button("☑️ Marcar Todos", key="btn_marcar_todos"):
+            st.session_state["estado_seleccion_masiva"] = True
+    with col_acc2:
+        if st.button("◻️ Desmarcar Todos", key="btn_desmarcar_todos"):
+            st.session_state["estado_seleccion_masiva"] = False
+
+    # Obtener el estado actual de selección masiva (por defecto False)
+    val_default_sel = st.session_state.get("estado_seleccion_masiva", False)
+
     # Editor de datos para seleccionar los movimientos
-    df_pendientes["Seleccionar"] = False
+    df_pendientes["Seleccionar"] = val_default_sel
     cols = ["Seleccionar"] + [c for c in df_pendientes.columns if c != "Seleccionar"]
     df_editable = df_pendientes[cols]
 
@@ -6466,19 +6480,18 @@ def conciliacion_de_gastos_y_comisiones(db_connection, db_segura):
         key="select_cuenta_banco_lote"
     )
 
-    # Filtrar los registros que el usuario acaba de seleccionar
+    # Filtrar los registros que el usuario tiene seleccionados
     seleccionados_prev = df_resultado_seleccion[df_resultado_seleccion["Seleccionar"] == True]
 
     # 👁️ GENERAR VISTA PREVIA EN TIEMPO REAL ANTES DE PROCESAR
     if not seleccionados_prev.empty:
-        st.markdown("##### 🔍 Vista Previa del Asiento Contable Generado")
+        st.markdown(f"##### 🔍 Vista Previa del Asiento Contable Generado ({len(seleccionados_prev)} registros seleccionados)")
         st.info("Así es como se estructurarán los asientos contables en la base de datos para los registros seleccionados:")
 
         nombre_gasto_prev = dict_cuentas.get(cod_gasto_seleccionado, "Gasto Bancario")
         nombre_banco_prev = dict_cuentas.get(cod_banco_seleccionado, "Banco")
         
         lista_preview = []
-        # Simular numeración preliminar para la vista previa
         num_simulado = 90001
         
         for _, row in seleccionados_prev.iterrows():
@@ -6514,7 +6527,7 @@ def conciliacion_de_gastos_y_comisiones(db_connection, db_segura):
         df_preview_final = pd.DataFrame(lista_preview)
         st.dataframe(df_preview_final, hide_index=True, use_container_width=True)
     else:
-        st.info("ℹ️ Selecciona al menos un movimiento bancario en la tabla superior para visualizar la vista previa del asiento contable.")
+        st.info("ℹ️ Selecciona al menos un movimiento bancario en la tabla superior (o usa el botón 'Marcar Todos') para visualizar la vista previa.")
 
     st.write("")
     col_btn, _ = st.columns([1, 2])
@@ -6571,6 +6584,10 @@ def conciliacion_de_gastos_y_comisiones(db_connection, db_segura):
                     procesados_exito += 1
 
                 db_connection.commit()
+
+            # Limpiar la variable de sesión para restablecer el estado al terminar
+            if "estado_seleccion_masiva" in st.session_state:
+                del st.session_state["estado_seleccion_masiva"]
 
             st.success(f"🎉 ¡Se han generado exitosamente **{procesados_exito}** asientos contables en lote de forma correcta!")
             st.rerun()
