@@ -6490,22 +6490,22 @@ def conciliacion_de_gastos_y_comisiones(db_connection, db_segura):
             # Fila del DEBE (Gasto)
             lista_preview.append({
                 "Comprobante": comp_sim,
+                "Descripción": f"Conciliación Bancaria | Ref: {ref_prev} - {desc_prev}",
                 "Fecha": pd.Timestamp.today().strftime('%Y-%m-%d'),
                 "Código Cuenta": cod_gasto_seleccionado,
                 "Cuenta Contable": nombre_gasto_prev,
                 "Referencia": ref_prev,
-                "Descripción": f"Conciliación Bancaria | Ref: {ref_prev} - {desc_prev}",
                 "Debe": monto_prev,
                 "Haber": 0.00
             })
             # Fila del HABER (Banco)
             lista_preview.append({
                 "Comprobante": comp_sim,
+                "Descripción": f"Conciliación Bancaria | Ref: {ref_prev} - {desc_prev}",
                 "Fecha": pd.Timestamp.today().strftime('%Y-%m-%d'),
                 "Código Cuenta": cod_banco_seleccionado,
                 "Cuenta Contable": nombre_banco_prev,
                 "Referencia": ref_prev,
-                "Descripción": f"Conciliación Bancaria | Ref: {ref_prev} - {desc_prev}",
                 "Debe": 0.00,
                 "Haber": monto_prev
             })
