@@ -6182,12 +6182,18 @@ def renderizar_tab_asientos_automatizados(db_connection):
             st.error(f"Error al leer el archivo Excel: {e}")
 
 
+import re
+import pandas as pd
+import streamlit as st
+import pymysql
+
 def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
     """
-    Tercer Frame: Conciliación interactiva basada en Asientos Contables y movimientos bancarios.
+    Tercer Frame: Conciliación interactiva basada en el cruce de RIF y Monto 
+    contra la tabla plana 'asientos_contables'.
     """
     st.markdown("---")
-    st.markdown("### 🏦 Tercer Frame: Conciliación Interactiva y Asientos Asistidos")
+    st.markdown("### 🏦 Tercer Frame: Conciliación Interactiva (Banco vs Asientos Contables)")
     
     if not db_segura or db_segura == 'none':
         db_segura = st.session_state.get('DB_ACTUAL')
@@ -6196,9 +6202,9 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
         st.error("❌ No hay ninguna base de datos de empresa seleccionada correctamente en la sesión.")
         return
 
-    st.info(f"Empresa activa: **{db_segura}**. Módulo de conciliación integrado con Asientos Contables.")
+    st.info(f"Empresa activa: **{db_segura}**. Módulo conectado con `asientos_contables` y `banco_movimientos`.")
 
-    # 1. Asegurar la tabla banco_movimientos
+    # 1. Asegurar la tabla banco_movimientos por seguridad
     if db_connection:
         try:
             with db_connection.cursor() as cursor_tabla:
@@ -6212,13 +6218,10 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
                         referencia VARCHAR(50) NOT NULL,
                         descripcion TEXT,
                         monto DECIMAL(18,2) NOT NULL,
-                        estado_conciliacion VARCHAR(100) DEFAULT 'Pendiente',
+                        estado_conciliacion VARCHAR(50) DEFAULT 'Pendiente',
                         asiento_id INT NULL,
                         fecha_importacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     );
-                """)
-                cursor_tabla.execute("""
-                    ALTER TABLE banco_movimientos MODIFY COLUMN estado_conciliacion VARCHAR(100) DEFAULT 'Pendiente';
                 """)
                 db_connection.commit()
         except Exception as err_tabla:
@@ -6231,11 +6234,11 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
             query_movs = f"SELECT id, banco_nombre, cuenta_numero, fecha_movimiento, referencia, descripcion, monto, estado_conciliacion FROM `{db_segura}`.banco_movimientos WHERE estado_conciliacion = 'Pendiente' ORDER BY fecha_movimiento DESC;"
             df_movs_bd = pd.read_sql(query_movs, db_connection)
         except Exception as e_load:
-            st.error(f"Error al cargar movimientos: {e_load}")
+            st.error(f"Error al cargar movimientos bancarios: {e_load}")
 
     col_acc1, _ = st.columns([1, 3])
     with col_acc1:
-        btn_escanear = st.button("🔍 Analizar contra Asientos Contables", type="primary", key="btn_escanear_matches")
+        btn_escanear = st.button("🔍 Analizar y Cruzar con Asientos", type="primary", key="btn_escanear_matches")
 
     if "matches_propuestos" not in st.session_state:
         st.session_state.matches_propuestos = []
@@ -6243,107 +6246,116 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
     if btn_escanear:
         propuestas = []
         
-        # Cargar asientos contables y sus detalles para evaluar contrapartidas y montos
-        asientos_pendientes = []
+        # Cargar los registros de asientos contables
+        lista_asientos = []
         try:
             with db_connection.cursor(pymysql.cursors.DictCursor) as cursor_diag:
-                # Intentamos leer la cabecera y detalles de los asientos contables
-                # (Ajusta los nombres de tablas si en tu esquema difieren ligeramente, ej: 'asientos' y 'asiento_detalles')
-                cursor_diag.execute(f"""
-                    SELECT a.id as asiento_id, a.fecha, a.concepto, 
-                           d.cuenta_codigo, d.debe, d.haber, d.descripcion as detalle_desc
-                    FROM `{db_segura}`.asientos a
-                    JOIN `{db_segura}`.asiento_detalles d ON a.id = d.asiento_id
-                """)
-                asientos_pendientes = cursor_diag.fetchall()
+                cursor_diag.execute(f"SELECT id, n_comprobante, descripcion, fecha, cuenta_contable, debe, haber FROM `{db_segura}`.asientos_contables")
+                lista_asientos = cursor_diag.fetchall()
 
-                with st.expander("🛠️ Panel de Diagnóstico de Asientos Contables", expanded=True):
-                    st.write(f"Total de líneas en asientos contables cargadas: {len(asientos_pendientes)}")
-                    if asientos_pendientes:
-                        st.dataframe(pd.DataFrame(asientos_pendientes).head(20))
+                with st.expander("🛠️ Panel de Diagnóstico de `asientos_contables`", expanded=True):
+                    st.write(f"Total de filas en `asientos_contables`: {len(lista_asientos)}")
+                    if lista_asientos:
+                        st.dataframe(pd.DataFrame(lista_asientos).head(15))
                     else:
-                        st.warning("⚠️ No se encontraron registros en las tablas de asientos contables.")
+                        st.warning("⚠️ La tabla `asientos_contables` no tiene registros cargados.")
 
         except Exception as e_asientos:
-            st.warning(f"No se pudieron cargar los asientos contables (verifica los nombres de las tablas de asientos): {e_asientos}")
+            st.error(f"Error al cargar la tabla `asientos_contables`: {e_asientos}")
 
         try:
             for _, row in df_movs_bd.iterrows():
                 mov_id = row["id"]
                 banco_nombre = row["banco_nombre"]
-                descripcion = str(row["descripcion"] or "").strip().upper()
+                descripcion_banco = str(row["descripcion"] or "").strip().upper()
                 monto_mov = abs(float(row["monto"] or 0.0))
+
+                # 1. Extraer RIF de la descripción del banco (Ej: J000622884)
+                match_rif = re.search(r'\b([VEJGP])[\s-]?(\d{6,10})[-]?(\d)?\b', descripcion_banco, re.IGNORECASE)
+                rif_banco_limpio = ""
+                if match_rif:
+                    letra = match_rif.group(1).upper()
+                    cuerpo = match_rif.group(2)
+                    digito = match_rif.group(3) if match_rif.group(3) else ""
+                    rif_banco_limpio = f"{letra}{cuerpo}{digito}".replace("-", "").strip()
 
                 asiento_encontrado = None
 
-                # Cruce por monto contra los asientos contables (por ejemplo, buscando en el Haber o Debe según aplique)
-                if monto_mov > 0 and asientos_pendientes:
-                    for det in asientos_pendientes:
-                        # Evaluamos coincidencia de monto con el debe o haber del asiento contable
-                        monto_debe = float(det.get("debe", 0) or 0)
-                        monto_haber = float(det.get("haber", 0) or 0)
+                # 2. Criterio A: Buscar coincidencia por RIF dentro de la descripción del asiento contable
+                if rif_banco_limpio and lista_asientos:
+                    for ast in lista_asientos:
+                        desc_ast = str(ast.get("descripcion", "")).upper()
+                        desc_ast_limpia = desc_ast.replace("-", "").replace(" ", "")
                         
-                        if abs(monto_debe - monto_mov) <= 1.00 or abs(monto_haber - monto_mov) <= 1.00:
-                            # Verificamos opcionalmente si la descripción o concepto guarda relación
-                            concepto_asiento = str(det.get("concepto", "")).upper()
-                            detalle_asiento = str(det.get("detalle_desc", "")).upper()
-                            
-                            asiento_encontrado = det
+                        if rif_banco_limpio in desc_ast_limpia:
+                            asiento_encontrado = ast
+                            break
+
+                # 3. Criterio B: Si no hubo match por RIF, intentar cruce directo por MONTO (Debe o Haber)
+                if not asiento_encontrado and monto_mov > 0 and lista_asientos:
+                    for ast in lista_asientos:
+                        debe_val = float(ast.get("debe", 0) or 0)
+                        haber_val = float(ast.get("haber", 0) or 0)
+                        
+                        if abs(debe_val - monto_mov) <= 1.00 or abs(haber_val - monto_mov) <= 1.00:
+                            asiento_encontrado = ast
                             break
 
                 if asiento_encontrado:
                     propuestas.append({
                         "mov_id": mov_id,
                         "banco": banco_nombre,
-                        "descripcion": descripcion,
+                        "descripcion_banco": descripcion_banco,
+                        "rif_detectado": rif_banco_limpio,
                         "monto": float(row["monto"]),
-                        "asiento_id": asiento_encontrado.get("asiento_id"),
-                        "concepto_asiento": asiento_encontrado.get("concepto"),
-                        "cuenta": asiento_encontrado.get("cuenta_codigo")
+                        "asiento_id": asiento_encontrado.get("id"),
+                        "comprobante": asiento_encontrado.get("n_comprobante"),
+                        "descripcion_asiento": asiento_encontrado.get("descripcion")
                     })
 
             st.session_state.matches_propuestos = propuestas
             if propuestas:
-                st.success(f"🎯 ¡Se han encontrado {len(propuestas)} coincidencia(s) con asientos contables!")
+                st.success(f"🎯 ¡Se encontraron {len(propuestas)} coincidencia(s) con `asientos_contables`!")
             else:
-                st.warning("⚠️ No se encontró ningún asiento contable con un monto coincidente.")
+                st.warning("⚠️ No se encontró coincidencia ni por RIF en texto ni por monto en `asientos_contables`.")
         except Exception as e_scan:
-            st.error(f"Error en el análisis de asientos: {e_scan}")
+            st.error(f"Error en el análisis de cruce: {e_scan}")
 
-    # 2. SECCIÓN INTERACTIVA: Conciliación y asociación con el asiento
+    # 2. SECCIÓN INTERACTIVA: Confirmar conciliación
     if st.session_state.get("matches_propuestos"):
         st.markdown("---")
-        st.markdown("#### 📝 Movimientos bancarios vinculables a Asientos")
+        st.markdown("#### 📝 Cruces Propuestos Listos para Conciliar")
         
         for idx, prop in enumerate(list(st.session_state.matches_propuestos)):
             with st.container():
                 st.info(
-                    f"**Banco:** {prop['banco']}  |  **Descripción:** {prop['descripcion']}  |  "
+                    f"**Banco:** {prop['banco']}  |  **Descripción Banco:** `{prop['descripcion_banco']}`  |  "
                     f"**Monto:** Bs. {prop['monto']:,.2f}\n\n"
-                    f"👉 **Asiento Contable Sugerido ID:** `{prop['asiento_id']}` | **Concepto:** {prop['concepto_asiento']} (Cuenta: {prop['cuenta']})"
+                    f"👉 **Asiento Sugerido ID:** `{prop['asiento_id']}` (Comprobante: {prop['comprobante']})  |  "
+                    f"**Descripción en Contabilidad:** `{prop['descripcion_asiento']}`"
                 )
                 
                 col_preg1, col_preg2 = st.columns([3, 1])
                 with col_preg1:
                     confirmar_conciliacion = st.checkbox(
-                        f"¿Conciliar este movimiento bancario con el Asiento #{prop['asiento_id']}?",
+                        f"¿Conciliar este movimiento bancario con el Asiento ID {prop['asiento_id']}?",
                         key=f"chk_asiento_{prop['mov_id']}_{idx}"
                     )
                 with col_preg2:
                     if confirmar_conciliacion:
-                        if st.button("✅ Confirmar Conciliación", key=f"btn_conciliar_asiento_{prop['mov_id']}_{idx}", type="primary"):
+                        if st.button("✅ Confirmar Conciliación", key=f"btn_conciliar_{prop['mov_id']}_{idx}", type="primary"):
                             try:
                                 with db_connection.cursor() as cursor_accion:
-                                    # Actualizar el movimiento bancario como conciliado apuntando al ID del asiento contable
+                                    # Actualizar el movimiento bancario vinculando el asiento_id y cambiando el estado
                                     cursor_accion.execute(f"""
                                         UPDATE `{db_segura}`.banco_movimientos 
-                                        SET estado_conciliacion = 'Conciliado con Asiento', asiento_id = %s 
+                                        SET estado_conciliacion = 'Conciliado', asiento_id = %s 
                                         WHERE id = %s
                                     """, (prop['asiento_id'], prop['mov_id']))
                                     
                                     db_connection.commit()
                                 
-                                st.success(f"🎉 ¡Movimiento conciliado exitosamente con el Asiento Contable #{prop['asiento_id']}!")
+                                st.success(f"🎉 ¡Movimiento conciliado exitosamente con el Asiento Contable ID {prop['asiento_id']}!")
                                 st.session_state.matches_propuestos.pop(idx)
                                 st.rerun()
                                 
@@ -6351,8 +6363,7 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
                                 st.error(f"❌ Error al actualizar el estado: {e_asiento}")
     else:
         if not btn_escanear:
-            st.caption("💡 Haz clic en el botón superior para contrastar los movimientos del banco contra los asientos contables registrados.")
-
+            st.caption("💡 Haz clic en 'Analizar y Cruzar con Asientos' para evaluar tus movimientos frente a `asientos_contables`.")
 
 def renderizar_tab_asientos_ventas(db_connection):
     st.subheader("🤖 Asientos Automatizados - Libro de Ventas")
