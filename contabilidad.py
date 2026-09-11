@@ -6182,12 +6182,9 @@ def renderizar_tab_asientos_automatizados(db_connection):
             st.error(f"Error al leer el archivo Excel: {e}")
 
 
-
 def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
     """
-    Tercer Frame: Conciliación interactiva mejorada. 
-    Busca coincidencias cruzando la descripción del banco con los RIFs y nombres de proveedores
-    registrados en la base de datos, además de validar el monto.
+    Tercer Frame: Conciliación interactiva con Diagnóstico Visual de Cuentas por Pagar y doble criterio de cruce (RIF o Monto).
     """
     st.markdown("---")
     st.markdown("### 🏦 Tercer Frame: Conciliación Interactiva y Asientos Asistidos")
@@ -6199,7 +6196,7 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
         st.error("❌ No hay ninguna base de datos de empresa seleccionada correctamente en la sesión.")
         return
 
-    st.info(f"Empresa activa: **{db_segura}**. Este módulo busca coincidencias cruzadas entre la descripción bancaria y tus proveedores.")
+    st.info(f"Empresa activa: **{db_segura}**. Módulo de conciliación con auditoría de montos y RIF.")
 
     # 1. Asegurar la tabla banco_movimientos y sus columnas
     if db_connection:
@@ -6246,49 +6243,64 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
     if btn_escanear:
         propuestas = []
         
-        # Cargar todos los proveedores de la base de datos
+        # Cargar proveedores y cuentas por pagar con JOIN para facilitar el cruce por RIF y Monto
         lista_proveedores_db = []
+        todas_cxp = []
         try:
-            with db_connection.cursor(pymysql.cursors.DictCursor) as cursor_prov:
-                cursor_prov.execute(f"SELECT * FROM `{db_segura}`.proveedores")
-                lista_proveedores_db = cursor_prov.fetchall()
+            with db_connection.cursor(pymysql.cursors.DictCursor) as cursor_diag:
+                cursor_diag.execute(f"SELECT * FROM `{db_segura}`.proveedores")
+                lista_proveedores_db = cursor_diag.fetchall()
+
+                cursor_diag.execute(f"""
+                    SELECT cxp.id, cxp.proveedor_id, cxp.monto_total, cxp.saldo_pendiente, cxp.estado,
+                           p.nombre as proveedor_nombre, p.rif as proveedor_rif
+                    FROM `{db_segura}`.cuentas_por_pagar cxp
+                    LEFT JOIN `{db_segura}`.proveedores p ON cxp.proveedor_id = p.id
+                    WHERE cxp.estado != 'Pagado'
+                """)
+                todas_cxp = cursor_diag.fetchall()
+
+                with st.expander("🛠️ Panel de Diagnóstico de Facturas y Proveedores", expanded=True):
+                    st.write(f"Total de proveedores en BD: {len(lista_proveedores_db)}")
+                    st.write(f"Total de registros pendientes en Cuentas por Pagar: {len(todas_cxp)}")
+                    if todas_cxp:
+                        st.dataframe(pd.DataFrame(todas_cxp))
+                    else:
+                        st.warning("⚠️ La tabla `cuentas_por_pagar` no tiene registros pendientes.")
+
         except Exception as e_prov:
-            st.warning(f"No se pudieron cargar los proveedores: {e_prov}")
+            st.warning(f"No se pudieron cargar los datos de proveedores/CxP: {e_prov}")
 
         try:
-            with db_connection.cursor(pymysql.cursors.DictCursor) as cursor_cursor:
-                for _, row in df_movs_bd.iterrows():
-                    mov_id = row["id"]
-                    banco_nombre = row["banco_nombre"]
-                    descripcion = str(row["descripcion"] or "").strip().upper()
-                    monto_mov = abs(float(row["monto"] or 0.0)) # Usar valor absoluto para comparar
+            for _, row in df_movs_bd.iterrows():
+                mov_id = row["id"]
+                banco_nombre = row["banco_nombre"]
+                descripcion = str(row["descripcion"] or "").strip().upper()
+                monto_mov = abs(float(row["monto"] or 0.0))
 
-                    proveedor_encontrado_id = None
-                    nombre_proveedor_encontrado = ""
+                proveedor_encontrado_id = None
+                nombre_proveedor_encontrado = ""
+                factura_pend = None
 
-                    # Estrategia de Cruce 1: Buscar por RIF usando Expresión Regular en la descripción
-                    match_rif = re.search(r'\b([VEJGP])[\s-]?(\d{6,10})[-]?(\d)?\b', descripcion, re.IGNORECASE)
-                    rif_encontrado_limpio = ""
-                    if match_rif:
-                        letra = match_rif.group(1).upper()
-                        cuerpo = match_rif.group(2)
-                        digito = match_rif.group(3) if match_rif.group(3) else ""
-                        rif_encontrado_limpio = f"{letra}{cuerpo}{digito}".replace("-", "").strip()
+                # 1. Extracción de RIF desde la descripción del banco
+                match_rif = re.search(r'\b([VEJGP])[\s-]?(\d{6,10})[-]?(\d)?\b', descripcion, re.IGNORECASE)
+                rif_encontrado_limpio = ""
+                if match_rif:
+                    letra = match_rif.group(1).upper()
+                    cuerpo = match_rif.group(2)
+                    digito = match_rif.group(3) if match_rif.group(3) else ""
+                    rif_encontrado_limpio = f"{letra}{cuerpo}{digito}".replace("-", "").strip()
 
-                    # Evaluar contra cada proveedor registrado
+                # 2. Criterio A: Cruce por RIF del Proveedor + Monto de la Factura
+                if rif_encontrado_limpio:
                     for prov in lista_proveedores_db:
                         p_id = prov.get("id")
                         p_rif = str(prov.get("rif", prov.get("RIF", ""))).strip().upper()
                         p_rif_limpio = p_rif.replace("-", "").strip()
                         p_nombre = str(prov.get("nombre", prov.get("nombre_empresa", ""))).strip().upper()
 
-                        # Condición A: El RIF extraído del banco coincide con el RIF del proveedor
-                        match_por_rif = (rif_encontrado_limpio and p_rif_limpio and (rif_encontrado_limpio in p_rif_limpio or p_rif_limpio in rif_encontrado_limpio))
-                        
-                        # Condición B: El RIF del proveedor está escrito directamente en la descripción del banco
+                        match_por_rif = (p_rif_limpio and (rif_encontrado_limpio in p_rif_limpio or p_rif_limpio in rif_encontrado_limpio))
                         match_por_texto_rif = (p_rif_limpio and p_rif_limpio in descripcion.replace("-", "").replace(" ", ""))
-                        
-                        # Condición C: El nombre del proveedor aparece dentro de la descripción del banco
                         match_por_nombre = (p_nombre and len(p_nombre) > 3 and p_nombre in descripcion)
 
                         if match_por_rif or match_por_texto_rif or match_por_nombre:
@@ -6296,33 +6308,43 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
                             nombre_proveedor_encontrado = prov.get("nombre", prov.get("nombre_empresa", f"Proveedor ID {p_id}"))
                             break
 
-                    # Si encontramos un proveedor asociado, buscamos su factura pendiente por el monto exacto
-                    if proveedor_encontrado_id:
-                        cursor_cursor.execute(f"""
-                            SELECT id, saldo_pendiente, monto_total 
-                            FROM `{db_segura}`.cuentas_por_pagar 
-                            WHERE proveedor_id = %s AND (ABS(saldo_pendiente - %s) < 0.05 OR ABS(monto_total - %s) < 0.05) AND estado != 'Pagado'
-                            LIMIT 1
-                        """, (proveedor_encontrado_id, monto_mov, monto_mov))
-                        
-                        factura_pend = cursor_cursor.fetchone()
-                        if factura_pend:
-                            propuestas.append({
-                                "mov_id": mov_id,
-                                "banco": banco_nombre,
-                                "descripcion": descripcion,
-                                "monto": float(row["monto"]),
-                                "proveedor": nombre_proveedor_encontrado,
-                                "proveedor_id": proveedor_encontrado_id,
-                                "factura_id": factura_pend.get("id"),
-                                "saldo_factura": factura_pend.get("saldo_pendiente")
-                            })
+                # Buscar factura dentro de las del proveedor con tolerancia de monto
+                if proveedor_encontrado_id:
+                    for f in todas_cxp:
+                        if f.get("proveedor_id") == proveedor_encontrado_id:
+                            saldo_f = float(f.get("saldo_pendiente", 0) or f.get("monto_total", 0) or 0)
+                            if abs(saldo_f - monto_mov) <= 1.00:
+                                factura_pend = f
+                                break
+
+                # 3. Criterio B: Si no hubo match por RIF, intentar cruce directo por MONTO (Pasivo vs Débito Bancario)
+                if not factura_pend and monto_mov > 0:
+                    for f in todas_cxp:
+                        saldo_f = float(f.get("saldo_pendiente", 0) or f.get("monto_total", 0) or 0)
+                        if abs(saldo_f - monto_mov) <= 1.00:
+                            factura_pend = f
+                            proveedor_encontrado_id = f.get("proveedor_id")
+                            nombre_proveedor_encontrado = f.get("proveedor_nombre", f"Proveedor ID {proveedor_encontrado_id}")
+                            break
+
+                # Si se encontró una factura por cualquiera de las dos vías, se propone el match
+                if factura_pend:
+                    propuestas.append({
+                        "mov_id": mov_id,
+                        "banco": banco_nombre,
+                        "descripcion": descripcion,
+                        "monto": float(row["monto"]),
+                        "proveedor": nombre_proveedor_encontrado,
+                        "proveedor_id": proveedor_encontrado_id,
+                        "factura_id": factura_pend.get("id"),
+                        "saldo_factura": factura_pend.get("saldo_pendiente")
+                    })
 
             st.session_state.matches_propuestos = propuestas
             if propuestas:
-                st.success(f"🎯 ¡Se han encontrado {len(propuestas)} coincidencia(s) listas para procesar!")
+                st.success(f"🎯 ¡Se han encontrado {len(propuestas)} coincidencia(s) listas para procesar (por RIF o Monto)!")
             else:
-                st.warning("⚠️ No se encontraron facturas pendientes que coincidan con los movimientos y proveedores analizados.")
+                st.warning("⚠️ No se encontró ninguna coincidencia ni por RIF en la descripción ni por monto exacto en las cuentas por pagar.")
         except Exception as e_scan:
             st.error(f"Error en el análisis cruzado: {e_scan}")
 
