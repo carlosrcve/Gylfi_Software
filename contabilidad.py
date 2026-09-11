@@ -7337,7 +7337,7 @@ if menu_lateral == "📊 Auditoría Contable":
         st.session_state['opcion_menu_auditoria'] = opcion_menu
 
         if opcion_menu == "📝 Asientos Contables":
-            sub_opcion = st.radio("Acciones:", ["Subir Datos", "Conciliación Bancaria", "Consultar Comprobante", "Consultar Saldos Iniciales", "Consultar Cierre Contable"], key="sub_asientos")
+            sub_opcion = st.radio("Acciones:", ["Subir Datos", "Conciliación Bancaria", "Consultar Comprobante", "Consultar Saldos Iniciales", "Consultar Cierre Contable","Gestor Documental"], key="sub_asientos")
         elif opcion_menu == "📊 Estados Financieros":
             st.markdown("---")
             sub_opcion = st.radio("Reportes Financieros:", ["Balance de Comprobación", "Balance General", "Estado de Resultados"], key="sub_estados")
