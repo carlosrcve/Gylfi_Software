@@ -2453,7 +2453,7 @@ def generar_pdf_comprobante(df, n_comp, conn):
                     conn.ping(reconnect=True)
             except Exception as ping_error:
                 print(f"Error al hacer ping a la conexión MySQL: {ping_error}")
-                
+
 
 def mostrar_interfaz_mayor(f_ini_g, f_fin_g, db_nombre):
     st.subheader("📖 Libro Mayor Analítico")
@@ -10879,7 +10879,7 @@ elif opcion_menu == "📝 Asientos Contables":
             # --- PARTE 3: GENERAR REPORTE ---
             with st.expander("🔍 Generar Reporte", expanded=True):
                 n_comp = st.text_input("Nº de Comprobante", key="busc_comp")
-                btn_comp = st.button("🔎 Generar Reporte", type="primary", use_container_width=True)
+                btn_comp = st.button("🔎 Generar Reporte", type="primary", use_container_width=False)
 
             if btn_comp and n_comp:
                 # Reporte visual
