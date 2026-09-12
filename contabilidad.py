@@ -2560,30 +2560,26 @@ def mostrar_interfaz_mayor(f_ini_g, f_fin_g, db_nombre):
             usuario = st.session_state.get('usuario', 'Desconocido')
             registrar_log_automatico(conn, "CONSULTA_LIBRO_MAYOR", f"Usuario {usuario} consultó mayor en {db_nombre}")
             
-            # Consultar directamente las cuentas desde el plan de cuentas o unidas con los asientos
+            # Consultar los códigos y nombres reales desde asientos_contables
             query_cuentas = """
-                SELECT DISTINCT a.cuenta_contable, p.nombre 
+                SELECT DISTINCT a.plan_cuentas, a.cuenta_contable 
                 FROM asientos_contables a
-                LEFT JOIN plan_cuentas p ON TRIM(a.cuenta_contable) = TRIM(p.codigo)
-                ORDER BY a.cuenta_contable
+                ORDER BY a.plan_cuentas
             """
             df_cuentas = ejecutar_consulta(query_cuentas, conn)
             
             if not df_cuentas.empty:
-                # Construir una lista de opciones limpia tipo "CODIGO - NOMBRE"
                 opciones_mapa = {}
                 lista_opciones = []
                 
                 for _, row in df_cuentas.iterrows():
-                    cod = str(row['cuenta_contable']).strip()
-                    nom = str(row['nombre']).strip() if pd.notna(row['nombre']) else "Cuenta Contable"
+                    cod = str(row['plan_cuentas']).strip()
+                    nom = str(row['cuenta_contable']).strip() if pd.notna(row['cuenta_contable']) else "Cuenta"
                     label = f"{cod} - {nom}"
                     opciones_mapa[label] = cod
                     lista_opciones.append(label)
 
-                idx_inicial = 0 # Puedes ajustar si usas cuenta_previa
-                
-                cuenta_sel_label = st.selectbox("Seleccione cuenta de detalle:", lista_opciones, index=idx_inicial, key="select_cuenta_mayor")
+                cuenta_sel_label = st.selectbox("Seleccione cuenta de detalle:", lista_opciones, key="select_cuenta_mayor")
                 
                 # Obtener el código puro exacto mapeado
                 cuenta_para_consulta = opciones_mapa.get(cuenta_sel_label, cuenta_sel_label)
@@ -2595,7 +2591,7 @@ def mostrar_interfaz_mayor(f_ini_g, f_fin_g, db_nombre):
                 saldo_inicial_periodo = 0.0
 
                 if st.button("🔍 Generar Movimientos", key="btn_generar_movs_mayor"):
-                    # Llamada a la función con el código puro garantizado desde el diccionario
+                    # Llamada a la función con el código puro garantizado
                     res_reporte, _, saldo_final_real = ejecutar_mayor_analitico(db_nombre, cuenta_para_consulta, f_m_d, f_m_h)
                     
                     if not res_reporte.empty:
@@ -2696,7 +2692,6 @@ def mostrar_interfaz_mayor(f_ini_g, f_fin_g, db_nombre):
                 except: pass
     else:
         st.error("❌ No se pudo establecer conexión con la base de datos.")
-
 
 def generar_balance_profesional(conn, f_i, f_f, sucursal):
     db = st.session_state.get('DB_ACTUAL')
@@ -2812,10 +2807,9 @@ def generar_balance_profesional(conn, f_i, f_f, sucursal):
 
 def ejecutar_mayor_analitico(db_nombre, cuenta, fecha_desde, fecha_hasta):
     """
-    Ejecuta el reporte de Mayor Analítico para una cuenta contable específica,
-    conectando de forma segura con la base de datos de la empresa activa.
+    Ejecuta el reporte de Mayor Analítico buscando correctamente por el código 
+    almacenado en la columna 'plan_cuentas' de la tabla asientos_contables.
     """
-    # 1. Asegurar la base de datos actual de la sesión si viene vacía o 'none'
     if not db_nombre or db_nombre == 'none':
         db_nombre = st.session_state.get('DB_ACTUAL') or st.session_state.get('empresa_actual')
 
@@ -2830,27 +2824,26 @@ def ejecutar_mayor_analitico(db_nombre, cuenta, fecha_desde, fecha_hasta):
             st.error(f"❌ No se pudo establecer conexión con la base de datos `{db_nombre}`.")
             return pd.DataFrame(), pd.DataFrame(), 0.0
 
-        # Normalizar fechas de filtro
         f_inicio = pd.to_datetime(fecha_desde).normalize()
         f_fin = pd.to_datetime(fecha_hasta).normalize() + pd.Timedelta(hours=23, minutes=59, seconds=59)
 
-        # 2. Cálculo del Saldo Inicial (Saldos Iniciales + Asientos previos a la fecha de inicio)
+        # 1. Cálculo del Saldo Inicial (Buscando por plan_cuentas que es donde vive el código)
         query_saldo_inicial = f"""
             SELECT 
                 (SELECT IFNULL(SUM(debe - haber), 0) FROM `{db_nombre}`.saldos_iniciales WHERE TRIM(cuenta_contable) = TRIM(%s)) +
                 (SELECT IFNULL(SUM(debe - haber), 0) FROM `{db_nombre}`.asientos_contables 
-                 WHERE TRIM(cuenta_contable) = TRIM(%s) AND fecha < %s) 
+                 WHERE TRIM(plan_cuentas) = TRIM(%s) AND fecha < %s) 
             AS saldo_previo
         """
         
         res_saldo = pd.read_sql(query_saldo_inicial, conn, params=(cuenta, cuenta, f_inicio.strftime('%Y-%m-%d %H:%M:%S')))
         saldo_inicial_periodo = float(res_saldo.iloc[0, 0]) if not res_saldo.empty else 0.0
 
-        # 3. Consulta de los movimientos del período
+        # 2. Consulta de los movimientos del período (Buscando por plan_cuentas)
         query_movs = f"""
             SELECT fecha, n_comprobante, descripcion, referencia, debe, haber 
             FROM `{db_nombre}`.asientos_contables 
-            WHERE TRIM(cuenta_contable) = TRIM(%s) 
+            WHERE TRIM(plan_cuentas) = TRIM(%s) 
             AND fecha >= %s AND fecha <= %s 
             ORDER BY fecha ASC, id ASC
         """
@@ -2860,7 +2853,7 @@ def ejecutar_mayor_analitico(db_nombre, cuenta, fecha_desde, fecha_hasta):
             params=(cuenta, f_inicio.strftime('%Y-%m-%d %H:%M:%S'), f_fin.strftime('%Y-%m-%d %H:%M:%S'))
         )
         
-        # 4. Procesamiento matemático blindado y cálculo del acumulado
+        # 3. Procesamiento matemático y cálculo del acumulado
         if not df_movs.empty:
             df_movs['debe'] = pd.to_numeric(df_movs['debe'], errors='coerce').fillna(0.0)
             df_movs['haber'] = pd.to_numeric(df_movs['haber'], errors='coerce').fillna(0.0)
@@ -2869,7 +2862,7 @@ def ejecutar_mayor_analitico(db_nombre, cuenta, fecha_desde, fecha_hasta):
         else:
             df_movs = pd.DataFrame(columns=['fecha', 'n_comprobante', 'descripcion', 'referencia', 'debe', 'haber', 'Saldo'])
 
-        # 5. Construcción de la fila de Saldo Inicial y el reporte final
+        # 4. Construcción de la fila de Saldo Inicial y el reporte final
         fila_inicial = pd.DataFrame([{
             'fecha': pd.to_datetime(fecha_desde),
             'n_comprobante': 'S/I',
@@ -2881,8 +2874,6 @@ def ejecutar_mayor_analitico(db_nombre, cuenta, fecha_desde, fecha_hasta):
         }])
 
         df_final = pd.concat([fila_inicial, df_movs], ignore_index=True)
-        
-        # El saldo final real es siempre el último valor acumulado del reporte (o el inicial si no hay movimientos)
         saldo_final_real = float(df_final['Saldo'].iloc[-1]) if not df_final.empty else saldo_inicial_periodo
         
         return df_final, df_movs, saldo_final_real
