@@ -10740,7 +10740,6 @@ elif opcion_menu == "📝 Asientos Contables":
             
             if conn_list:
                 try:
-                    # Filtrado por el mes y año seleccionados en la barra superior para optimizar rendimiento
                     query_listado = f"""
                         SELECT n_comprobante as 'Nº', MAX(fecha) as 'Fecha', MAX(descripcion) as 'Concepto' 
                         FROM `{db_actual}`.asientos_contables 
@@ -10753,27 +10752,24 @@ elif opcion_menu == "📝 Asientos Contables":
                 finally:
                     conn_list.close()
 
-            # --- PARTE 2: INTERFAZ DE SELECCIÓN (TABLA Y SELECTBOX DESCRIPTIVO) ---
+            # --- PARTE 2: INTERFAZ DE SELECCIÓN (SIEMPRE VISIBLE) ---
             n_comp_seleccionado = ""
-            
+            opciones_comprobantes = [""]
+            mapa_comprobantes = {}
+
             if not df_listado.empty:
-                # 💡 Creamos las opciones descriptivas extrayendo datos de la tabla de asientos contables
-                opciones_comprobantes = [""]
-                mapa_comprobantes = {}
-                
                 for _, row in df_listado.iterrows():
                     n_comp_val = str(row['Nº'])
                     fecha_val = str(row['Fecha'])
                     concepto_val = str(row['Concepto']) if pd.notna(row['Concepto']) else "Sin descripción"
                     
-                    # Formato claro: Número | Fecha | Descripción
                     etiqueta_opcion = f"Comprobante Nº: {n_comp_val} ({fecha_val}) - {concepto_val[:60]}"
                     opciones_comprobantes.append(etiqueta_opcion)
                     mapa_comprobantes[etiqueta_opcion] = n_comp_val
 
-                with st.expander(f"📋 Listado de Comprobantes ({mes_sel} {ano_sel})", expanded=True):
-                    
-                    # Selector rápido desplegable basado en los datos de asientos contables
+            with st.expander(f"📋 Listado de Comprobantes ({mes_sel} {ano_sel})", expanded=True):
+                if not df_listado.empty:
+                    # Selector rápido desplegable
                     comp_elegido_combo = st.selectbox(
                         "📌 Seleccione un comprobante de la lista (por número, fecha o concepto):",
                         options=opciones_comprobantes,
@@ -10793,8 +10789,10 @@ elif opcion_menu == "📝 Asientos Contables":
                     if len(event.selection.rows) > 0:
                         idx = event.selection.rows[0]
                         n_comp_seleccionado = str(df_listado.iloc[idx]['Nº'])
+                else:
+                    st.info(f"ℹ️ No se encontraron asientos contables registrados para el período: **{mes_sel} {ano_sel}** en la base de datos `{db_actual}`.")
 
-            # Usar session_state para mantener la sincronización del input de texto de forma limpia
+            # Sincronizar con session_state para el input de texto
             if "busc_comp" not in st.session_state:
                 st.session_state.busc_comp = ""
 
