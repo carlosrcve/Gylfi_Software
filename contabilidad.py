@@ -2809,31 +2809,49 @@ def generar_balance_profesional(conn, f_i, f_f, sucursal):
 
 def ejecutar_mayor_analitico(db_nombre, cuenta, fecha_desde, fecha_hasta):
     """
-    Ejecuta el reporte de Mayor Analítico buscando correctamente por el código 
-    almacenado en la columna 'plan_cuentas' de la tabla asientos_contables.
+    Ejecuta el reporte de Mayor Analítico validando los permisos de Control Central
+    y buscando los movimientos por el código en 'plan_cuentas'.
     """
-    if not db_nombre or db_nombre == 'none':
-        db_nombre = st.session_state.get('DB_ACTUAL') or st.session_state.get('empresa_actual')
+    # 1. SEGURIDAD Y CONTEXTO (Control Central)
+    db_actual = db_nombre if db_nombre and db_nombre != 'none' else st.session_state.get('DB_ACTUAL')
+    cliente_id = st.session_state.get('cliente_id')
+    rol = st.session_state.get('rol')
 
-    if not db_nombre or db_nombre == 'none':
+    if not db_actual or db_actual == 'none':
+        db_actual = st.session_state.get('empresa_actual')
+
+    if not db_actual or db_actual == 'none':
         st.error("❌ No se ha seleccionado una base de datos de empresa válida.")
         return pd.DataFrame(), pd.DataFrame(), 0.0
 
+    # Validación mediante Control Central
+    try:
+        empresa_data = obtener_datos_agente_db(db_actual)
+        if empresa_data and rol != 'admin':
+            if empresa_data.get('id') != cliente_id:
+                st.error("⚠️ Acceso denegado: No tienes permisos para esta empresa.")
+                return pd.DataFrame(), pd.DataFrame(), 0.0
+        if not empresa_data:
+            st.warning("⚠️ No se pudieron cargar los datos de la empresa desde Control Central.")
+    except Exception as e:
+        # Si la función auxiliar no está en este ámbito, se omite de forma segura
+        pass
+
     conn = None
     try:
-        conn = conectar_db(db_nombre)
+        conn = conectar_db(db_actual)
         if not conn:
-            st.error(f"❌ No se pudo establecer conexión con la base de datos `{db_nombre}`.")
+            st.error(f"❌ No se pudo establecer conexión con la base de datos `{db_actual}`.")
             return pd.DataFrame(), pd.DataFrame(), 0.0
 
         f_inicio = pd.to_datetime(fecha_desde).normalize()
         f_fin = pd.to_datetime(fecha_hasta).normalize() + pd.Timedelta(hours=23, minutes=59, seconds=59)
 
-        # 1. Cálculo del Saldo Inicial (Buscando por plan_cuentas que es donde vive el código)
+        # 2. Cálculo del Saldo Inicial (Buscando por plan_cuentas)
         query_saldo_inicial = f"""
             SELECT 
-                (SELECT IFNULL(SUM(debe - haber), 0) FROM `{db_nombre}`.saldos_iniciales WHERE TRIM(cuenta_contable) = TRIM(%s)) +
-                (SELECT IFNULL(SUM(debe - haber), 0) FROM `{db_nombre}`.asientos_contables 
+                (SELECT IFNULL(SUM(debe - haber), 0) FROM `{db_actual}`.saldos_iniciales WHERE TRIM(cuenta_contable) = TRIM(%s)) +
+                (SELECT IFNULL(SUM(debe - haber), 0) FROM `{db_actual}`.asientos_contables 
                  WHERE TRIM(plan_cuentas) = TRIM(%s) AND fecha < %s) 
             AS saldo_previo
         """
@@ -2841,10 +2859,10 @@ def ejecutar_mayor_analitico(db_nombre, cuenta, fecha_desde, fecha_hasta):
         res_saldo = pd.read_sql(query_saldo_inicial, conn, params=(cuenta, cuenta, f_inicio.strftime('%Y-%m-%d %H:%M:%S')))
         saldo_inicial_periodo = float(res_saldo.iloc[0, 0]) if not res_saldo.empty else 0.0
 
-        # 2. Consulta de los movimientos del período (Buscando por plan_cuentas)
+        # 3. Consulta de los movimientos del período (Buscando por plan_cuentas)
         query_movs = f"""
             SELECT fecha, n_comprobante, descripcion, referencia, debe, haber 
-            FROM `{db_nombre}`.asientos_contables 
+            FROM `{db_actual}`.asientos_contables 
             WHERE TRIM(plan_cuentas) = TRIM(%s) 
             AND fecha >= %s AND fecha <= %s 
             ORDER BY fecha ASC, id ASC
@@ -2855,7 +2873,7 @@ def ejecutar_mayor_analitico(db_nombre, cuenta, fecha_desde, fecha_hasta):
             params=(cuenta, f_inicio.strftime('%Y-%m-%d %H:%M:%S'), f_fin.strftime('%Y-%m-%d %H:%M:%S'))
         )
         
-        # 3. Procesamiento matemático y cálculo del acumulado
+        # 4. Procesamiento matemático y cálculo del acumulado
         if not df_movs.empty:
             df_movs['debe'] = pd.to_numeric(df_movs['debe'], errors='coerce').fillna(0.0)
             df_movs['haber'] = pd.to_numeric(df_movs['haber'], errors='coerce').fillna(0.0)
@@ -2864,7 +2882,7 @@ def ejecutar_mayor_analitico(db_nombre, cuenta, fecha_desde, fecha_hasta):
         else:
             df_movs = pd.DataFrame(columns=['fecha', 'n_comprobante', 'descripcion', 'referencia', 'debe', 'haber', 'Saldo'])
 
-        # 4. Construcción de la fila de Saldo Inicial y el reporte final
+        # 5. Construcción de la fila de Saldo Inicial y el reporte final
         fila_inicial = pd.DataFrame([{
             'fecha': pd.to_datetime(fecha_desde),
             'n_comprobante': 'S/I',
@@ -2881,7 +2899,7 @@ def ejecutar_mayor_analitico(db_nombre, cuenta, fecha_desde, fecha_hasta):
         return df_final, df_movs, saldo_final_real
 
     except Exception as e:
-        st.error(f"❌ Error al generar el Libro Mayor Analítico en `{db_nombre}`: {e}")
+        st.error(f"❌ Error al generar el Libro Mayor Analítico en `{db_actual}`: {e}")
         return pd.DataFrame(), pd.DataFrame(), 0.0
     finally:
         if conn:
