@@ -2913,6 +2913,10 @@ def ejecutar_mayor_analitico(db_nombre, cuenta, fecha_desde, fecha_hasta):
     Ejecuta el reporte de Mayor Analítico validando los permisos de Control Central
     y buscando los movimientos por el código en 'plan_cuentas'.
     """
+    # 0. Asegurar que 'cuenta' sea solo el código limpio (por si llega con etiqueta completa tipo "01.02 - Banco")
+    if cuenta and " - " in str(cuenta):
+        cuenta = str(cuenta).split(" - ")[0].strip()
+
     # 1. SEGURIDAD Y CONTEXTO (Control Central)
     db_actual = db_nombre if db_nombre and db_nombre != 'none' else st.session_state.get('DB_ACTUAL')
     cliente_id = st.session_state.get('cliente_id')
