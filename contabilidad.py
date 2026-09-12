@@ -2814,7 +2814,7 @@ def ejecutar_mayor_analitico(db_nombre, cuenta, fecha_desde, fecha_hasta):
     conn = None
     try:
         conn = conectar_db(db_nombre)
-        if not conn or not conn.is_connected():
+        if not conn:
             st.error(f"❌ No se pudo establecer conexión con la base de datos `{db_nombre}`.")
             return pd.DataFrame(), pd.DataFrame(), 0.0
 
@@ -2879,7 +2879,7 @@ def ejecutar_mayor_analitico(db_nombre, cuenta, fecha_desde, fecha_hasta):
         st.error(f"❌ Error al generar el Libro Mayor Analítico en `{db_nombre}`: {e}")
         return pd.DataFrame(), pd.DataFrame(), 0.0
     finally:
-        if conn and conn.is_connected():
+        if conn:
             try:
                 conn.close()
             except:
