@@ -7605,40 +7605,74 @@ def renderizar_tab_asientos_ventas(db_connection):
 
                 if st.button("💾 Guardar Asientos de Ventas en el Libro Diario", key="btn_guardar_ventas_finales", use_container_width=True):
                     try:
-                        with db_connection.cursor() as cursor:
-                            cursor.execute(f"""
-                                CREATE TABLE IF NOT EXISTS `{db_segura}`.asientos_contables (
-                                    id INT AUTO_INCREMENT PRIMARY KEY,
-                                    n_comprobante VARCHAR(50),
-                                    descripcion TEXT,
-                                    fecha DATE,
-                                    plan_cuentas VARCHAR(100),
-                                    cuenta_contable VARCHAR(255),
-                                    referencia VARCHAR(100),
-                                    debe DECIMAL(15, 2) DEFAULT 0.00,
-                                    haber DECIMAL(15, 2) DEFAULT 0.00
-                                );
-                            """)
+                        # --- VALIDACIÓN DE PERÍODO CERRADO (BLOQUEO ESTRICTO DE MAYO / MESES CERRADOS) ---
+                        df_val = df_editado.copy()
+                        df_val['fecha'] = pd.to_datetime(df_val['fecha'], errors='coerce')
+                        anios_meses_excel = set((row['fecha'].year, row['fecha'].month) for _, row in df_val.iterrows() if pd.notnull(row['fecha']))
+                        
+                        bloqueo_detectado = False
+                        mensaje_bloqueo = ""
+                        
+                        for anio, mes in anios_meses_excel:
+                            if mes == 5:
+                                bloqueo_detectado = True
+                                mensaje_bloqueo = f"❌ **¡Alerta! El mes de mayo ({mes:02d}/{anio}) está cerrado.** No se puede subir el libro de diario del mes de mayo porque ya está cerrado."
+                                break
                             
-                            for _, row in df_editado.iterrows():
-                                codigo_limpio = extraer_solo_codigo(row["plan_cuentas"])
+                            # Revisar también si la BD tiene el periodo bloqueado
+                            try:
+                                with db_connection.cursor() as cur_check:
+                                    cur_check.execute(f"""
+                                        SELECT COUNT(*) FROM `{db_segura}`.asientos_contables 
+                                        WHERE YEAR(fecha) = %s AND MONTH(fecha) = %s AND bloqueado = 1
+                                    """, (anio, mes))
+                                    res_bloqueo = cur_check.fetchone()
+                                    if res_bloqueo and res_bloqueo[0] > 0:
+                                        bloqueo_detectado = True
+                                        mensaje_bloqueo = f"❌ **Operación Denegada**: El período correspondiente al mes **{mes:02d}/{anio}** se encuentra **CERRADO y BLOQUEADO**. No se pueden hacer asientos de libro de ventas en un mes cerrado."
+                                        break
+                            except Exception:
+                                pass
+
+                        if bloqueo_detectado:
+                            st.error(mensaje_bloqueo)
+                        else:
+                            with db_connection.cursor() as cursor:
                                 cursor.execute(f"""
-                                    INSERT INTO `{db_segura}`.asientos_contables 
-                                    (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber)
-                                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                                """, (
-                                    row["n_comprobante"],
-                                    row["descripcion"],
-                                    row["fecha"],
-                                    codigo_limpio,
-                                    row["cuenta_contable"],
-                                    row["referencia"],
-                                    row["debe"],
-                                    row["haber"]
-                                ))
-                            db_connection.commit()
-                            st.success("✅ ¡Asientos de ventas guardados exitosamente en el Libro Diario!")
+                                    CREATE TABLE IF NOT EXISTS `{db_segura}`.asientos_contables (
+                                        id INT AUTO_INCREMENT PRIMARY KEY,
+                                        n_comprobante VARCHAR(50),
+                                        descripcion TEXT,
+                                        fecha DATE,
+                                        plan_cuentas VARCHAR(100),
+                                        cuenta_contable VARCHAR(255),
+                                        referencia VARCHAR(100),
+                                        debe DECIMAL(15, 2) DEFAULT 0.00,
+                                        haber DECIMAL(15, 2) DEFAULT 0.00
+                                    );
+                                """)
+                                
+                                for _, row in df_editado.iterrows():
+                                    codigo_limpio = extraer_solo_codigo(row["plan_cuentas"])
+                                    cursor.execute(f"""
+                                        INSERT INTO `{db_segura}`.asientos_contables 
+                                        (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber)
+                                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                                    """, (
+                                        row["n_comprobante"],
+                                        row["descripcion"],
+                                        row["fecha"],
+                                        codigo_limpio,
+                                        row["cuenta_contable"],
+                                        row["referencia"],
+                                        row["debe"],
+                                        row["haber"]
+                                    ))
+                                db_connection.commit()
+                                st.success("✅ ¡Asientos de ventas guardados exitosamente en el Libro Diario!")
                     except Exception as db_err:
+                        if hasattr(db_connection, 'rollback'):
+                            db_connection.rollback()
                         st.error(f"Error al guardar los asientos de ventas: {db_err}")
         except Exception as e:
             st.error(f"Error al leer el archivo Excel de ventas: {e}")
