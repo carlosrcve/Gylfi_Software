@@ -4828,100 +4828,74 @@ def consultar_saldos_iniciales_db(db_nombre):
         st.error("❌ No se pudo establecer conexión con la base de datos.")
         return pd.DataFrame()
 
-def cargar_asientos_contables_db(df, conn=None):
-    if not conn:
-        db_actual = st.session_state.get('DB_ACTUAL', 'kingdirver_ca')
-        conn = conectar_db(db_actual)
+def consultar_saldos_iniciales_db(db_nombre):
+    """
+    Consulta los saldos iniciales de la empresa activa con control central de sesión 
+    y compatible con cursores estándar de MySQL.
+    """
+    if not db_nombre:
+        return pd.DataFrame()
+
+    # Control central: Asegurar que la base de datos consultada coincida con la activa en la sesión si está definida
+    db_actual = st.session_state.get('DB_ACTUAL')
+    if db_actual and db_nombre != db_actual:
+        st.warning(f"⚠️ Advertencia de seguridad: Intentando consultar saldos de '{db_nombre}' cuando la sesión activa es '{db_actual}'.")
+
+    # 1. Intentamos conectar
+    conn = conectar_db(db_nombre)
     
-    if not conn: return False
-    
-    cursor = None
-    try:
-        df_limpio = df.copy()
-        df_limpio.columns = df_limpio.columns.astype(str).str.strip().str.lower()
-        
-        # 1. Limpieza de fecha
-        df_limpio['fecha'] = pd.to_datetime(df_limpio['fecha'], errors='coerce')
-        df_limpio = df_limpio.dropna(subset=['fecha']) 
-        
-        # 2. Limpieza inteligente y robusta para Debe y Haber (Formato venezolano e internacional)
-        def limpiar_valor_monetario(val):
-            if pd.isna(val):
-                return 0.0
-            if isinstance(val, (int, float)):
-                return float(val)
+    conexion_valida = False
+    if conn:
+        try:
+            if hasattr(conn, "ping"):
+                conn.ping(reconnect=True)
+            conexion_valida = True
+        except Exception:
+            conexion_valida = False
+
+    if conexion_valida:
+        cursor = None
+        try:
+            # 2. Registramos el log de forma centralizada
+            usuario = st.session_state.get('usuario', 'Desconocido')
+            cliente = st.session_state.get('cliente_id', 'Desconocido')
+            registrar_log_automatico(
+                conn, 
+                "CONSULTA_SALDOS_INICIALES", 
+                f"Usuario {usuario} consultó saldos iniciales para el cliente {cliente} en la base de datos {db_nombre}"
+            )
             
-            val_str = str(val).strip().replace(' ', '')
-            if val_str in ['', '-', 'nan', 'None']:
-                return 0.0
-                
-            try:
-                # Si tiene tanto punto como coma (ej: 3.713.533,00)
-                if '.' in val_str and ',' in val_str:
-                    val_str = val_str.replace('.', '').replace(',', '.')
-                # Si solo tiene coma (ej: 705,75)
-                elif ',' in val_str and '.' not in val_str:
-                    val_str = val_str.replace(',', '.')
-                # Si tiene múltiples puntos (ej: 3.713.533) sin coma
-                elif val_str.count('.') > 1:
-                    val_str = val_str.replace('.', '')
-                
-                return float(val_str)
-            except:
-                return 0.0
-
-        for col in ['debe', 'haber']:
-            if col in df_limpio.columns:
-                df_limpio[col] = df_limpio[col].apply(limpiar_valor_monetario).round(2)
+            # Crear cursor estándar compatible con cualquier conector
+            cursor = conn.cursor()
+            query = f"SELECT * FROM `{db_nombre}`.saldos_iniciales ORDER BY id ASC"
+            cursor.execute(query)
+            
+            resultados = cursor.fetchall()
+            if resultados:
+                # Obtenemos los nombres de las columnas de forma segura a través de la descripción del cursor
+                columnas = [col[0] for col in cursor.description]
+                return pd.DataFrame(resultados, columns=columnas)
             else:
-                df_limpio[col] = 0.0
-
-        valores = []
-        for index, row in df_limpio.iterrows():
-            try:
-                # Forzar conversión estricta a tipos nativos de Python para evitar errores de MySQL
-                n_comp = str(row.get('n_comprobante', ''))
-                desc = str(row.get('descripcion', ''))
-                fec = row['fecha'].strftime('%Y-%m-%d')
-                plan = str(row.get('plan_de_cuentas', row.get('plan_cuentas', '')))
-                cta = str(row.get('cuenta_contable', ''))
-                ref = str(row.get('ref', row.get('referencia', '')))
-                debe_val = float(row['debe'])
-                haber_val = float(row['haber'])
-
-                tupla = (n_comp, desc, fec, plan, cta, ref, debe_val, haber_val)
-                valores.append(tupla)
-            except Exception as row_err:
-                st.warning(f"⚠️ Saltando fila {index + 1} por formato inválido: {row_err}")
-                continue
-        
-        if not valores:
-            st.warning("⚠️ No se encontraron datos válidos para insertar después de la limpieza.")
-            return False
-
-        # 3. Inserción masiva limpia
-        cursor = conn.cursor()
-        query = """
-            INSERT INTO asientos_contables 
-            (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber) 
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-        """
-        
-        cursor.executemany(query, valores)
-        conn.commit()
-        
-        st.success(f"✅ ¡Éxito! {len(valores)} asientos cargados correctamente.")
-        return True
-
-    except Exception as e:
-        if conn: conn.rollback()
-        st.error(f"❌ Error masivo al insertar en la base de datos: {e}")
-        return False
-    finally:
-        if cursor:
-            cursor.close()
-        if conn:
-            conn.ping(reconnect=True)
+                return pd.DataFrame()
+                
+        except Exception as e:
+            st.error(f"❌ Error en la consulta de saldos en {db_nombre}: {e}")
+            return pd.DataFrame()
+        finally:
+            if cursor:
+                try:
+                    cursor.close()
+                except Exception:
+                    pass
+            if conn:
+                try:
+                    if hasattr(conn, "ping"):
+                        conn.ping(reconnect=True)
+                except Exception:
+                    pass
+    else:
+        st.error("❌ No se pudo establecer conexión con la base de datos.")
+        return pd.DataFrame()
 
             
 def consultar_tabla_db(conn, nombre_tabla, limite=None):
