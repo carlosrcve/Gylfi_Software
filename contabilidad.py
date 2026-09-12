@@ -10753,10 +10753,28 @@ elif opcion_menu == "📝 Asientos Contables":
                 finally:
                     conn_list.close()
 
-            # --- PARTE 2: INTERFAZ DE SELECCIÓN Y TEXT INPUT SIN CONFLICTOS ---
+            # --- PARTE 2: INTERFAZ DE SELECCIÓN (TABLA Y SELECTBOX) ---
             n_comp_seleccionado = ""
+            
             if not df_listado.empty:
+                # 💡 Creamos una lista limpia de comprobantes para el selectbox
+                lista_n_comprobantes = [str(x) for x in df_listado['Nº'].tolist()]
+                
                 with st.expander(f"📋 Listado de Comprobantes ({mes_sel} {ano_sel})", expanded=True):
+                    
+                    # Selector rápido de ayuda desplegable
+                    comp_elegido_combo = st.selectbox(
+                        "📌 Seleccione un comprobante de la lista (Opcional):",
+                        options=[""] + lista_n_comprobantes,
+                        key="combo_selector_comprobante"
+                    )
+                    
+                    if comp_elegido_combo:
+                        n_comp_seleccionado = comp_elegido_combo
+
+                    st.markdown("---")
+                    st.write("O haz clic en una fila de la tabla:")
+                    
                     event = st.dataframe(
                         df_listado, use_container_width=True, hide_index=True,
                         on_select="rerun", selection_mode="single-row"
@@ -10804,7 +10822,6 @@ elif opcion_menu == "📝 Asientos Contables":
                         st.error(f"Error al generar el PDF del comprobante: {e}")
                     finally:
                         conn_pdf.close()
-
     elif sub_opcion == "Consultar Saldos Iniciales":
         st.subheader("🏁 Comprobante de Apertura")
         # 1. SEGURIDAD Y CONTEXTO
