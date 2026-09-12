@@ -2352,6 +2352,76 @@ def disenar_reporte_asiento_contable(numero_comprobante):
     else:
         st.error("❌ Los datos del comprobante están incompletos.")
 
+def generar_pdf_comprobante(df, n_comp, conn):
+    """
+    Genera el PDF del comprobante, registra la actividad en el log
+    y mantiene la conexión a MySQL viva.
+    """
+    # 1. Registrar la actividad
+    registrar_log_automatico(conn, "GENERACION_COMPROBANTE", f"Usuario {st.session_state.usuario} generó PDF de comprobante {n_comp} para {st.session_state.cliente_id}")
+
+    cursor = conn.cursor()
+    
+    try:
+        pdf = FPDF()
+        pdf.add_page()
+        pdf.set_font("Arial", 'B', 16)
+        
+        # Encabezado
+        pdf.cell(190, 10, "COMPROBANTE DE ASIENTO CONTABLE", 0, 1, 'C')
+        pdf.set_font("Arial", '', 10)
+        pdf.cell(190, 10, f"Comprobante Nro: {n_comp}", 0, 1, 'L')
+        pdf.cell(190, 5, f"Fecha de Impresión: {pd.Timestamp.now().strftime('%d/%m/%Y')}", 0, 1, 'L')
+        pdf.ln(10)
+        
+        # Tabla - Encabezados
+        pdf.set_fill_color(200, 220, 255)
+        pdf.set_font("Arial", 'B', 9)
+        pdf.cell(30, 8, "Fecha", 1, 0, 'C', 1)
+        pdf.cell(100, 8, "Descripción / Cuenta", 1, 0, 'C', 1)
+        pdf.cell(30, 8, "Debe", 1, 0, 'C', 1)
+        pdf.cell(30, 8, "Haber", 1, 1, 'C', 1)
+        
+        # Tabla - Datos
+        pdf.set_font("Arial", '', 8)
+        t_debe = 0
+        t_haber = 0
+        
+        for _, row in df.iterrows():
+            pdf.cell(30, 7, str(row['fecha']), 1, 0, 'C')
+            descripcion_txt = f"{row['cuenta_contable']} - {row['descripcion']}"
+            if len(descripcion_txt) > 55:
+                descripcion_txt = descripcion_txt[:52] + "..."
+            pdf.cell(100, 7, descripcion_txt, 1, 0, 'L')
+            pdf.cell(30, 7, f"{row['debe']:,.2f}", 1, 0, 'R')
+            pdf.cell(30, 7, f"{row['haber']:,.2f}", 1, 1, 'R')
+            t_debe += row['debe']
+            t_haber += row['haber']
+            
+        # Totales
+        pdf.set_font("Arial", 'B', 9)
+        pdf.cell(130, 8, "TOTALES GENERALES (Bs.)", 1, 0, 'R', 1)
+        pdf.cell(30, 8, f"{t_debe:,.2f}", 1, 0, 'R', 1)
+        pdf.cell(30, 8, f"{t_haber:,.2f}", 1, 1, 'R', 1)
+        
+        # Firmas
+        pdf.ln(20)
+        pdf.cell(95, 10, "__________________________", 0, 0, 'C')
+        pdf.cell(95, 10, "__________________________", 0, 1, 'C')
+        pdf.cell(95, 5, "Preparado por", 0, 0, 'C')
+        pdf.cell(95, 5, "Revisado por", 0, 1, 'C')
+        
+        return pdf.output(dest='S').encode('latin-1')
+
+    finally:
+        # AQUÍ ESTÁ EL SECRETO:
+        if cursor:
+            cursor.close()
+        
+        # NO cierres conn. 
+        # En su lugar, haz un 'ping' para decirle a MySQL que sigues ahí:
+        if conn and conn.is_connected():
+            conn.ping(reconnect=True)
 
 
 def consultar_saldos_iniciales_db(db_nombre):
