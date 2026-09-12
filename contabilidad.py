@@ -2354,11 +2354,29 @@ def disenar_reporte_asiento_contable(numero_comprobante):
 
 def generar_pdf_comprobante(df, n_comp, conn):
     """
-    Genera el PDF del comprobante, registra la actividad en el log
-    y mantiene la conexión a MySQL viva.
+    Genera el PDF del comprobante usando la base de datos actual de la sesión,
+    registra la actividad en el log y mantiene la conexión a MySQL viva.
     """
-    # 1. Registrar la actividad
-    registrar_log_automatico(conn, "GENERACION_COMPROBANTE", f"Usuario {st.session_state.usuario} generó PDF de comprobante {n_comp} para {st.session_state.cliente_id}")
+    # Obtener la base de datos actual de la sesión de Streamlit para control centralizado
+    db_actual = st.session_state.get('DB_ACTUAL')
+    
+    if not db_actual:
+        st.error("No se ha especificado una base de datos activa para el registro de logs o consultas.")
+        return None
+
+    # 1. Registrar la actividad de forma centralizada controlando la BD actual
+    try:
+        usuario_actual = st.session_state.get('usuario', 'Desconocido')
+        cliente_id_actual = st.session_state.get('cliente_id', 'N/A')
+        
+        registrar_log_automatico(
+            conn, 
+            "GENERACION_COMPROBANTE", 
+            f"Usuario {usuario_actual} generó PDF de comprobante {n_comp} para el cliente {cliente_id_actual} en la base de datos {db_actual}"
+        )
+    except Exception as log_error:
+        # Si falla el log, no detenemos la generación del PDF, pero queda constancia en consola
+        print(f"Advertencia al registrar log automático: {log_error}")
 
     cursor = conn.cursor()
     
@@ -2371,6 +2389,7 @@ def generar_pdf_comprobante(df, n_comp, conn):
         pdf.cell(190, 10, "COMPROBANTE DE ASIENTO CONTABLE", 0, 1, 'C')
         pdf.set_font("Arial", '', 10)
         pdf.cell(190, 10, f"Comprobante Nro: {n_comp}", 0, 1, 'L')
+        pdf.cell(190, 5, f"Base de Datos: {db_actual}", 0, 1, 'L')
         pdf.cell(190, 5, f"Fecha de Impresión: {pd.Timestamp.now().strftime('%d/%m/%Y')}", 0, 1, 'L')
         pdf.ln(10)
         
@@ -2414,14 +2433,18 @@ def generar_pdf_comprobante(df, n_comp, conn):
         return pdf.output(dest='S').encode('latin-1')
 
     finally:
-        # AQUÍ ESTÁ EL SECRETO:
+        # Cierre seguro del cursor e indicador de latido (ping) a MySQL
         if cursor:
-            cursor.close()
+            try:
+                cursor.close()
+            except Exception:
+                pass
         
-        # NO cierres conn. 
-        # En su lugar, haz un 'ping' para decirle a MySQL que sigues ahí:
         if conn and conn.is_connected():
-            conn.ping(reconnect=True)
+            try:
+                conn.ping(reconnect=True)
+            except Exception as ping_error:
+                print(f"Error al hacer ping a la conexión MySQL: {ping_error}")
 
 
 def consultar_saldos_iniciales_db(db_nombre):
