@@ -2053,10 +2053,15 @@ def mostrar_tablero_conciliacion(conn, mes_sel, ano_sel):
                         FROM `{db}`.saldos_bancarios 
                         WHERE (banco = %s OR banco LIKE %s) AND LOWER(mes) = LOWER(%s) AND CAST(ano AS CHAR) = %s"""
         
-        # Probamos tanto el nombre seleccionado como una variante con comodines
         cursor.execute(sql_saldos, (nombre_banco_sel, f"%{nombre_banco_sel}%", mes_sel, str(ano_sel)))
         res_banco = cursor.fetchone()
-        saldo_inicial, saldo_final_banco = (float(res_banco[0]), float(res_banco[1])) if res_banco else (0.0, 0.0)
+        
+        if res_banco:
+            saldo_inicial = float(res_banco[0]) if res_banco[0] is not None else 0.0
+            saldo_final_banco = float(res_banco[1]) if res_banco[1] is not None else 0.0
+        else:
+            saldo_inicial = 0.0
+            saldo_final_banco = 0.0
 
         # B. Saldo Libros (Mes anterior)
         query_saldo_anterior = f"""
