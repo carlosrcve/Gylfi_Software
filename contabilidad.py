@@ -1506,80 +1506,6 @@ def cargar_asientos_contables_db(df, conn=None):
                 pass
 
 
-def consultar_libro_diario_db(conn_activa=None, fecha_inicio=None, fecha_fin=None):
-    # 1. Seguridad y Contexto
-    usuario = st.session_state.get('usuario', 'Desconocido')
-    cliente = st.session_state.get('cliente_id', 'N/A')
-    db_a_usar = st.session_state.get('DB_ACTUAL')
-    
-    if not db_a_usar:
-        return pd.DataFrame()
-
-    # 2. Conexión Inteligente
-    es_conexion_interna = False
-    if conn_activa:
-        conn = conn_activa
-    else:
-        conn = conectar_db(db_a_usar)
-        es_conexion_interna = True
-    
-    if not conn:
-        return pd.DataFrame()
-
-    # 3. Registrar el log de forma segura
-    try:
-        registrar_log_automatico(conn, "CONSULTA_LIBRO_DIARIO", f"Usuario {usuario} consultó libro diario para {cliente}")
-    except Exception as log_error:
-        print(f"No se pudo registrar el log: {log_error}")
-
-    try:
-        # 4. Preparar consulta
-        if fecha_inicio and fecha_fin:
-            query = "SELECT * FROM asientos_contables WHERE fecha BETWEEN %s AND %s ORDER BY id ASC"
-            params = (fecha_inicio, fecha_fin)
-        else:
-            query = "SELECT * FROM asientos_contables ORDER BY id ASC"
-            params = None
-        
-        # 5. Ejecución con pandas/ejecutar_consulta
-        df = ejecutar_consulta(query, conn, params=params)
-        
-        # 6. Normalización Universal
-        if df is not None and not df.empty:
-            df.columns = [c.lower() for c in df.columns]
-            
-            mapeo = {
-                'plan_cuentas': 'plan_de_cuentas',
-                'cuenta': 'plan_de_cuentas',
-                'monto_debe': 'debe',
-                'monto_haber': 'haber',
-                'debito': 'debe',
-                'credito': 'haber'
-            }
-            df.rename(columns=mapeo, inplace=True)
-            
-            # Verificación de integridad
-            if 'debe' not in df.columns or 'haber' not in df.columns:
-                st.warning(f"⚠️ Estructura incompatible. Columnas detectadas: {df.columns.tolist()}")
-                return pd.DataFrame()
-            
-            return df
-        
-        return pd.DataFrame()
-        
-    except Exception as e:
-        st.error(f"Error procesando libro diario: {e}")
-        return pd.DataFrame()
-        
-    finally:
-        # Cierre seguro adaptado a PyMySQL / Conectores genéricos
-        if es_conexion_interna and conn:
-            try:
-                conn.close()
-            except Exception:
-                pass
-
-
 def actualizar_libro_diario_en_db(db_nombre, df_cambios):
     conn = conectar_db(db_nombre)
     if not conn:
@@ -6378,7 +6304,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
                     nombre = str(c.get("nombre", "")).strip()
                     if codigo:
                         mapa_descripciones[codigo] = nombre
-                        opciones_desplegable.append(codigo)  
+                        opciones_desplegable.append(codigo)  # Guardamos solo el código puro
 
                 try:
                     cursor_opt.execute(f"SELECT * FROM `{db_segura}`.proveedores")
@@ -6463,7 +6389,6 @@ def renderizar_tab_asientos_automatizados(db_connection):
             if st.button("🔄 Generar Estructura del Segundo Frame", key="btn_generar_segundo_frame"):
                 try:
                     filas_asiento_temporal = []
-                    fechas_en_mes_cerrado = 0
 
                     for idx, row in df_compras.iterrows():
                         def buscar_valor(posibles_nombres, default_val=0.0):
@@ -6486,13 +6411,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
                             except Exception:
                                 fecha_op = val_str[:10] if val_str else ""
 
-                        # ====================================================
-                        # VALIDACIÓN DE MES CERRADO (Ej. Mayo: mes '05')
-                        # ====================================================
-                        if fecha_op.startswith("2026-05") or fecha_op.startswith("2025-05"):
-                            fechas_en_mes_cerrado += 1
-                            continue  # Omite o previene generar registros para meses cerrados
-
+                        # CORRECCIÓN CLAVE: Ampliación de nombres comunes para asegurar captura del Proveedor
                         razon_social = str(buscar_valor(["Nombre o Razón Social", "Nombre o Razon Social", "Razon Social", "Proveedor", "Nombre", "Contribuyente"], "Sin Nombre")).strip()
                         rif_val = str(buscar_valor(["R.I.F.", "RIF", "Cedula", "Cédula"], "")).strip().upper()
                         nro_doc = str(buscar_valor(["Número de Documento", "Numero de Documento", "Nro Documento", "Factura", "Nro. Factura", "Control"], f"{idx+1}")).strip()
@@ -6519,6 +6438,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
 
                         n_comprobante_actual = f"{n_comprobante_base}-{nro_doc}"
 
+                        # Asegurándonos de que si el RIF viene vacío, no afecte feo el texto, o ponerlo prominente:
                         rif_formateado = f" | RIF: {rif_val}" if rif_val else ""
                         desc_base = f"Factura {nro_doc}{rif_formateado} - {razon_social}"
 
@@ -6638,9 +6558,6 @@ def renderizar_tab_asientos_automatizados(db_connection):
                             "haber": monto_haber_total
                         })
 
-                    if fechas_en_mes_cerrado > 0:
-                        st.warning(f"⚠️ Se omitieron {fechas_en_mes_cerrado} registros correspondientes a mayo (mes cerrado). No se permiten asientos en este período.")
-
                     st.session_state['df_asientos_proceso'] = pd.DataFrame(filas_asiento_temporal)
                     st.rerun()
 
@@ -6719,56 +6636,45 @@ def renderizar_tab_asientos_automatizados(db_connection):
                 )
 
                 if st.button("💾 Guardar Todo el Asiento en el Libro Diario", key="btn_guardar_asientos_finales", use_container_width=True):
-                    # ====================================================
-                    # VALIDACIÓN FINAL ANTES DE GUARDAR EN BASE DE DATOS
-                    # ====================================================
-                    fechas_invalidas = []
-                    for _, row in df_editado.iterrows():
-                        f_val = str(row["fecha"]).strip()
-                        if f_val.startswith("2026-05") or f_val.startswith("2025-05"):
-                            fechas_invalidas.append(f_val)
-
-                    if fechas_invalidas:
-                        st.error("❌ **Operación Bloqueada:** El archivo o los registros contienen fechas del mes de **mayo** (mes cerrado). No se pueden guardar asientos en un período cerrado.")
-                    else:
-                        try:
-                            with db_connection.cursor() as cursor:
+                    try:
+                        with db_connection.cursor() as cursor:
+                            cursor.execute(f"""
+                                CREATE TABLE IF NOT EXISTS `{db_segura}`.asientos_contables (
+                                    id INT AUTO_INCREMENT PRIMARY KEY,
+                                    n_comprobante VARCHAR(50),
+                                    descripcion TEXT,
+                                    fecha DATE,
+                                    plan_cuentas VARCHAR(100),
+                                    cuenta_contable VARCHAR(255),
+                                    referencia VARCHAR(100),
+                                    debe DECIMAL(15, 2) DEFAULT 0.00,
+                                    haber DECIMAL(15, 2) DEFAULT 0.00
+                                );
+                            """)
+                            
+                            for _, row in df_editado.iterrows():
+                                codigo_limpio = extraer_solo_codigo(row["plan_cuentas"])
                                 cursor.execute(f"""
-                                    CREATE TABLE IF NOT EXISTS `{db_segura}`.asientos_contables (
-                                        id INT AUTO_INCREMENT PRIMARY KEY,
-                                        n_comprobante VARCHAR(50),
-                                        descripcion TEXT,
-                                        fecha DATE,
-                                        plan_cuentas VARCHAR(100),
-                                        cuenta_contable VARCHAR(255),
-                                        referencia VARCHAR(100),
-                                        debe DECIMAL(15, 2) DEFAULT 0.00,
-                                        haber DECIMAL(15, 2) DEFAULT 0.00
-                                    );
-                                """)
-                                
-                                for _, row in df_editado.iterrows():
-                                    codigo_limpio = extraer_solo_codigo(row["plan_cuentas"])
-                                    cursor.execute(f"""
-                                        INSERT INTO `{db_segura}`.asientos_contables 
-                                        (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber)
-                                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                                    """, (
-                                        row["n_comprobante"],
-                                        row["descripcion"],
-                                        row["fecha"],
-                                        codigo_limpio,
-                                        row["cuenta_contable"],
-                                        row["referencia"],
-                                        row["debe"],
-                                        row["haber"]
-                                    ))
-                                db_connection.commit()
-                                st.success("✅ ¡Asientos contables guardados exitosamente en el Libro Diario!")
-                        except Exception as db_err:
-                            st.error(f"Error al guardar en la base de datos: {db_err}")
+                                    INSERT INTO `{db_segura}`.asientos_contables 
+                                    (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber)
+                                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                                """, (
+                                    row["n_comprobante"],
+                                    row["descripcion"],
+                                    row["fecha"],
+                                    codigo_limpio,
+                                    row["cuenta_contable"],
+                                    row["referencia"],
+                                    row["debe"],
+                                    row["haber"]
+                                ))
+                            db_connection.commit()
+                            st.success("✅ ¡Asientos contables guardados exitosamente en el Libro Diario!")
+                    except Exception as db_err:
+                        st.error(f"Error al guardar en la base de datos: {db_err}")
         except Exception as e:
             st.error(f"Error al leer el archivo Excel: {e}")
+
 
 
 def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
