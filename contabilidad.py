@@ -10719,10 +10719,30 @@ elif opcion_menu == "📝 Asientos Contables":
         if not empresa_data:
             st.error("⚠️ No se pudieron cargar los datos de la empresa.")
         else:
-            # --- ASEGURAR QUE LAS VARIABLES DE FECHA EXISTEN ---
-            mes_sel = st.session_state.get('mes_sel', 'Enero')
-            ano_sel = st.session_state.get('ano_sel', pd.Timestamp.now().year)
-            # --------------------------------------------------
+            # --- FILTROS DE PERÍODO PROPIOS PARA LA BÚSQUEDA ---
+            st.markdown("### 📅 Seleccione el Período a Consultar")
+            col_m, col_a = st.columns(2)
+            
+            meses_nombres = [
+                "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", 
+                "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
+            ]
+            
+            with col_m:
+                mes_sel = st.selectbox(
+                    "Mes", 
+                    options=meses_nombres, 
+                    index=0, 
+                    key="busc_mes_sel"
+                )
+            with col_a:
+                ano_actual = pd.Timestamp.now().year
+                ano_sel = st.selectbox(
+                    "Año", 
+                    options=list(range(ano_actual, 2023, -1)), # Permite desde el año actual hacia atrás hasta 2024
+                    index=0, 
+                    key="busc_ano_sel"
+                )
 
             meses_dict = {
                 "Enero": "01", "Febrero": "02", "Marzo": "03", "Abril": "04", 
@@ -10734,7 +10754,7 @@ elif opcion_menu == "📝 Asientos Contables":
             ultimo_dia = calendar.monthrange(int(ano_sel), int(mes_num))[1]
             fecha_fin = f"{ano_sel}-{mes_num}-{ultimo_dia:02d}"
 
-            # --- PARTE 1: CARGAR EL LISTADO FILTRADO POR FECHA ---
+            # --- PARTE 1: CARGAR EL LISTADO FILTRADO POR EL PERÍODO SELECCIONADO ---
             df_listado = pd.DataFrame()
             conn_list = conectar_db(db_actual)
             
@@ -10752,7 +10772,7 @@ elif opcion_menu == "📝 Asientos Contables":
                 finally:
                     conn_list.close()
 
-            # --- PARTE 2: INTERFAZ DE SELECCIÓN (SIEMPRE VISIBLE) ---
+            # --- PARTE 2: INTERFAZ DE SELECCIÓN (LISTA DESPLEGABLE Y TABLA) ---
             n_comp_seleccionado = ""
             opciones_comprobantes = [""]
             mapa_comprobantes = {}
@@ -10769,7 +10789,7 @@ elif opcion_menu == "📝 Asientos Contables":
 
             with st.expander(f"📋 Listado de Comprobantes ({mes_sel} {ano_sel})", expanded=True):
                 if not df_listado.empty:
-                    # Selector rápido desplegable
+                    # 💡 Lista desplegable interactiva con los comprobantes del mes/año elegido
                     comp_elegido_combo = st.selectbox(
                         "📌 Seleccione un comprobante de la lista (por número, fecha o concepto):",
                         options=opciones_comprobantes,
@@ -10790,7 +10810,7 @@ elif opcion_menu == "📝 Asientos Contables":
                         idx = event.selection.rows[0]
                         n_comp_seleccionado = str(df_listado.iloc[idx]['Nº'])
                 else:
-                    st.info(f"ℹ️ No se encontraron asientos contables registrados para el período: **{mes_sel} {ano_sel}** en la base de datos `{db_actual}`.")
+                    st.warning(f"⚠️ No se encontraron asientos contables registrados para el período: **{mes_sel} {ano_sel}**. Prueba cambiando el mes o el año arriba.")
 
             # Sincronizar con session_state para el input de texto
             if "busc_comp" not in st.session_state:
