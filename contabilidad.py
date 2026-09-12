@@ -4761,7 +4761,72 @@ def generar_excel_formateado(conn, df, titulo, subtitulo):
             except Exception:
                 pass
 
+def consultar_saldos_iniciales_db(db_nombre):
+    """
+    Consulta los saldos iniciales de la empresa activa con control central de sesión.
+    """
+    if not db_nombre:
+        return pd.DataFrame()
 
+    # Control central: Asegurar que la base de datos consultada coincida con la activa en la sesión si está definida
+    db_actual = st.session_state.get('DB_ACTUAL')
+    if db_actual and db_nombre != db_actual:
+        st.warning(f"⚠️ Advertencia de seguridad: Intentando consultar saldos de '{db_nombre}' cuando la sesión activa es '{db_actual}'.")
+
+    # 1. Intentamos conectar
+    conn = conectar_db(db_nombre)
+    
+    # Validación segura compatible con diferentes conectores (PyMySQL, mysql-connector, etc.)
+    conexion_valida = False
+    if conn:
+        try:
+            if hasattr(conn, "is_connected") and conn.is_connected():
+                conexion_valida = True
+            else:
+                # Si no tiene is_connected, intentamos un ping o asumimos activa si abrió correctamente
+                if hasattr(conn, "ping"):
+                    conn.ping(reconnect=True)
+                conexion_valida = True
+        except Exception:
+            conexion_valida = False
+
+    if conexion_valida:
+        cursor = None
+        try:
+            # 2. Registramos el log de forma centralizada
+            usuario = st.session_state.get('usuario', 'Desconocido')
+            cliente = st.session_state.get('cliente_id', 'Desconocido')
+            registrar_log_automatico(
+                conn, 
+                "CONSULTA_SALDOS_INICIALES", 
+                f"Usuario {usuario} consultó saldos iniciales para el cliente {cliente} en la base de datos {db_nombre}"
+            )
+            
+            cursor = conn.cursor(dictionary=True)
+            query = f"SELECT * FROM `{db_nombre}`.saldos_iniciales ORDER BY id ASC"
+            cursor.execute(query)
+            
+            resultados = cursor.fetchall()
+            return pd.DataFrame(resultados) if resultados else pd.DataFrame()
+                
+        except Exception as e:
+            st.error(f"❌ Error en la consulta de saldos en {db_nombre}: {e}")
+            return pd.DataFrame()
+        finally:
+            if cursor:
+                try:
+                    cursor.close()
+                except Exception:
+                    pass
+            if conn:
+                try:
+                    if hasattr(conn, "ping"):
+                        conn.ping(reconnect=True)
+                except Exception:
+                    pass
+    else:
+        st.error("❌ No se pudo establecer conexión con la base de datos.")
+        return pd.DataFrame()
 
 def cargar_asientos_contables_db(df, conn=None):
     if not conn:
