@@ -10753,24 +10753,35 @@ elif opcion_menu == "📝 Asientos Contables":
                 finally:
                     conn_list.close()
 
-            # --- PARTE 2: INTERFAZ DE SELECCIÓN (TABLA Y SELECTBOX) ---
+            # --- PARTE 2: INTERFAZ DE SELECCIÓN (TABLA Y SELECTBOX DESCRIPTIVO) ---
             n_comp_seleccionado = ""
             
             if not df_listado.empty:
-                # 💡 Creamos una lista limpia de comprobantes para el selectbox
-                lista_n_comprobantes = [str(x) for x in df_listado['Nº'].tolist()]
+                # 💡 Creamos las opciones descriptivas extrayendo datos de la tabla de asientos contables
+                opciones_comprobantes = [""]
+                mapa_comprobantes = {}
                 
+                for _, row in df_listado.iterrows():
+                    n_comp_val = str(row['Nº'])
+                    fecha_val = str(row['Fecha'])
+                    concepto_val = str(row['Concepto']) if pd.notna(row['Concepto']) else "Sin descripción"
+                    
+                    # Formato claro: Número | Fecha | Descripción
+                    etiqueta_opcion = f"Comprobante Nº: {n_comp_val} ({fecha_val}) - {concepto_val[:60]}"
+                    opciones_comprobantes.append(etiqueta_opcion)
+                    mapa_comprobantes[etiqueta_opcion] = n_comp_val
+
                 with st.expander(f"📋 Listado de Comprobantes ({mes_sel} {ano_sel})", expanded=True):
                     
-                    # Selector rápido de ayuda desplegable
+                    # Selector rápido desplegable basado en los datos de asientos contables
                     comp_elegido_combo = st.selectbox(
-                        "📌 Seleccione un comprobante de la lista (Opcional):",
-                        options=[""] + lista_n_comprobantes,
+                        "📌 Seleccione un comprobante de la lista (por número, fecha o concepto):",
+                        options=opciones_comprobantes,
                         key="combo_selector_comprobante"
                     )
                     
-                    if comp_elegido_combo:
-                        n_comp_seleccionado = comp_elegido_combo
+                    if comp_elegido_combo and comp_elegido_combo in mapa_comprobantes:
+                        n_comp_seleccionado = mapa_comprobantes[comp_elegido_combo]
 
                     st.markdown("---")
                     st.write("O haz clic en una fila de la tabla:")
@@ -10822,6 +10833,7 @@ elif opcion_menu == "📝 Asientos Contables":
                         st.error(f"Error al generar el PDF del comprobante: {e}")
                     finally:
                         conn_pdf.close()
+                        
     elif sub_opcion == "Consultar Saldos Iniciales":
         st.subheader("🏁 Comprobante de Apertura")
         # 1. SEGURIDAD Y CONTEXTO
