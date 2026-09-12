@@ -2865,7 +2865,7 @@ def consultar_libro_diario_db(conn_activa=None, fecha_inicio=None, fecha_fin=Non
     finally:
         # Solo hacemos ping si la conexión fue creada DENTRO de la función.
         # Si la pasamos desde fuera (conn_activa), es mejor que el código que la abrió la cierre.
-        if not conn_activa and conn and conn.is_connected():
+        if not conn_activa and conn:
             conn.ping(reconnect=True)
 
 
