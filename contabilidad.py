@@ -2807,35 +2807,61 @@ def generar_balance_profesional(conn, f_i, f_f, sucursal):
         if cursor: cursor.close()
 
 def consultar_libro_diario_db(conn_activa=None, fecha_inicio=None, fecha_fin=None):
-    # 1. Seguridad y Contexto
+    """
+    Consulta el libro diario validando la base de datos actual y permisos de Control Central
+    sin depender de métodos incompatibles del driver de conexión.
+    """
+    # 1. Seguridad y Contexto (Control Central)
     usuario = st.session_state.get('usuario', 'Desconocido')
-    cliente = st.session_state.get('cliente_id', 'N/A')
+    cliente_id = st.session_state.get('cliente_id')
+    rol = st.session_state.get('rol')
     db_a_usar = st.session_state.get('DB_ACTUAL')
     
-    registrar_log_automatico(None, "CONSULTA_LIBRO_DIARIO", f"Usuario {usuario} consultó libro diario para {cliente}")
-    
-    if not db_a_usar:
+    if not db_a_usar or db_a_usar == 'none':
+        db_a_usar = st.session_state.get('empresa_actual')
+
+    if not db_a_usar or db_a_usar == 'none':
+        st.error("❌ No se ha seleccionado una base de datos de empresa válida.")
         return pd.DataFrame()
 
-    # 2. Conexión Inteligente (Solo conecta si no pasaste una activa)
-    conn = conn_activa if conn_activa else conectar_db(db_a_usar)
+    # Validación mediante Control Central si aplica
+    try:
+        empresa_data = obtener_datos_agente_db(db_a_usar) if 'obtener_datos_agente_db' in globals() else None
+        if empresa_data and rol != 'admin':
+            if empresa_id := empresa_data.get('id'):
+                if str(empresa_id) != str(cliente_id):
+                    st.error("⚠️ Acceso denegado: No tienes permisos para esta empresa.")
+                    return pd.DataFrame()
+    except Exception:
+        pass
+
+    # Registrar log automático si la función existe
+    if 'registrar_log_automatico' in globals():
+        try:
+            registrar_log_automatico(None, "CONSULTA_LIBRO_DIARIO", f"Usuario {usuario} consultó libro diario para {db_a_usar}")
+        except Exception:
+            pass
+
+    # 2. Conexión Inteligente
+    conn = conn_activa if conn_activa else (conectar_db(db_a_usar) if 'conectar_db' in globals() else None)
     
-    if not conn or not conn.is_connected():
+    if not conn:
+        st.error(f"❌ No se pudo establecer conexión con la base de datos `{db_a_usar}`.")
         return pd.DataFrame()
 
     try:
-        # 1. Preparar consulta
+        # 3. Preparar consulta asegurando el uso de la base de datos correcta
         if fecha_inicio and fecha_fin:
-            query = "SELECT * FROM asientos_contables WHERE fecha BETWEEN %s AND %s ORDER BY id ASC"
+            query = f"SELECT * FROM `{db_a_usar}`.asientos_contables WHERE fecha BETWEEN %s AND %s ORDER BY id ASC"
             params = (fecha_inicio, fecha_fin)
         else:
-            query = "SELECT * FROM asientos_contables ORDER BY id ASC"
+            query = f"SELECT * FROM `{db_a_usar}`.asientos_contables ORDER BY id ASC"
             params = None
         
-        # 2. Ejecución con pandas (pd.read_sql maneja su propio cursor, no necesitamos crear uno)
+        # 4. Ejecución con pandas
         df = pd.read_sql(query, conn, params=params)
         
-        # 3. Normalización Universal
+        # 5. Normalización Universal
         if not df.empty:
             df.columns = [c.lower() for c in df.columns]
             
@@ -2859,14 +2885,16 @@ def consultar_libro_diario_db(conn_activa=None, fecha_inicio=None, fecha_fin=Non
         return pd.DataFrame()
         
     except Exception as e:
-        st.error(f"Error procesando base de datos: {e}")
+        st.error(f"❌ Error al consultar el libro diario en `{db_a_usar}`: {e}")
         return pd.DataFrame()
         
     finally:
-        # Solo hacemos ping si la conexión fue creada DENTRO de la función.
-        # Si la pasamos desde fuera (conn_activa), es mejor que el código que la abrió la cierre.
+        # Cierre seguro si la conexión fue abierta internamente en la función
         if not conn_activa and conn:
-            conn.ping(reconnect=True)
+            try:
+                conn.close()
+            except Exception:
+                pass
 
 
 
