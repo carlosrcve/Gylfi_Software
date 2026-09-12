@@ -2433,63 +2433,20 @@ def generar_pdf_comprobante(df, n_comp, conn):
         return pdf.output(dest='S').encode('latin-1')
 
     finally:
-        # Cierre seguro del cursor e indicador de latido (ping) a MySQL
+        # Cierre seguro del cursor
         if cursor:
             try:
                 cursor.close()
             except Exception:
                 pass
         
-        if conn and conn.is_connected():
+        # Mantener conexión activa de forma compatible con PyMySQL / conectores estándar
+        if conn:
             try:
-                conn.ping(reconnect=True)
+                if hasattr(conn, "ping"):
+                    conn.ping(reconnect=True)
             except Exception as ping_error:
                 print(f"Error al hacer ping a la conexión MySQL: {ping_error}")
-
-
-def consultar_saldos_iniciales_db(db_nombre):
-    """
-    Consulta los saldos iniciales de la empresa activa de forma rápida y directa.
-    """
-    if not db_nombre:
-        return pd.DataFrame()
-
-    conn = None
-    cursor = None
-    
-    try:
-        # Conexión directa a la BD del cliente
-        conn = conectar_db(db_nombre)
-        
-        # Validación simplificada (sin .is_connected)
-        if conn:
-            # CORRECCIÓN: Usamos DictCursor de PyMySQL para que devuelva diccionarios sin error
-            cursor = conn.cursor(pymysql.cursors.DictCursor)
-            query = "SELECT * FROM saldos_iniciales ORDER BY id ASC"
-            cursor.execute(query)
-            
-            resultados = cursor.fetchall()
-            return pd.DataFrame(resultados) if resultados else pd.DataFrame()
-        else:
-            st.error("❌ No se pudo establecer conexión con la base de datos.")
-            return pd.DataFrame()
-            
-    except Exception as e:
-        st.error(f"❌ Error en la consulta de saldos en {db_nombre}: {e}")
-        return pd.DataFrame()
-        
-    finally:
-        # Cierre estricto de recursos para liberar el socket en TiDB Cloud
-        if cursor:
-            try:
-                cursor.close()
-            except Exception:
-                pass
-        if conn:
-            try:
-                conn.close()
-            except Exception:
-                pass
 
 def mostrar_interfaz_mayor(f_ini_g, f_fin_g, db_nombre):
     st.subheader("📖 Libro Mayor Analítico")
