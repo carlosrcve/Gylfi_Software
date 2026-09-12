@@ -2797,6 +2797,95 @@ def generar_balance_profesional(conn, f_i, f_f, sucursal):
     finally:
         if cursor: cursor.close()
 
+
+def ejecutar_mayor_analitico(db_nombre, cuenta, fecha_desde, fecha_hasta):
+    """
+    Ejecuta el reporte de Mayor Analítico para una cuenta contable específica,
+    conectando de forma segura con la base de datos de la empresa activa.
+    """
+    # 1. Asegurar la base de datos actual de la sesión si viene vacía o 'none'
+    if not db_nombre or db_nombre == 'none':
+        db_nombre = st.session_state.get('DB_ACTUAL') or st.session_state.get('empresa_actual')
+
+    if not db_nombre or db_nombre == 'none':
+        st.error("❌ No se ha seleccionado una base de datos de empresa válida.")
+        return pd.DataFrame(), pd.DataFrame(), 0.0
+
+    conn = None
+    try:
+        conn = conectar_db(db_nombre)
+        if not conn or not conn.is_connected():
+            st.error(f"❌ No se pudo establecer conexión con la base de datos `{db_nombre}`.")
+            return pd.DataFrame(), pd.DataFrame(), 0.0
+
+        # Normalizar fechas de filtro
+        f_inicio = pd.to_datetime(fecha_desde).normalize()
+        f_fin = pd.to_datetime(fecha_hasta).normalize() + pd.Timedelta(hours=23, minutes=59, seconds=59)
+
+        # 2. Cálculo del Saldo Inicial (Saldos Iniciales + Asientos previos a la fecha de inicio)
+        query_saldo_inicial = f"""
+            SELECT 
+                (SELECT IFNULL(SUM(debe - haber), 0) FROM `{db_nombre}`.saldos_iniciales WHERE TRIM(cuenta_contable) = TRIM(%s)) +
+                (SELECT IFNULL(SUM(debe - haber), 0) FROM `{db_nombre}`.asientos_contables 
+                 WHERE TRIM(cuenta_contable) = TRIM(%s) AND fecha < %s) 
+            AS saldo_previo
+        """
+        
+        res_saldo = pd.read_sql(query_saldo_inicial, conn, params=(cuenta, cuenta, f_inicio.strftime('%Y-%m-%d %H:%M:%S')))
+        saldo_inicial_periodo = float(res_saldo.iloc[0, 0]) if not res_saldo.empty else 0.0
+
+        # 3. Consulta de los movimientos del período
+        query_movs = f"""
+            SELECT fecha, n_comprobante, descripcion, referencia, debe, haber 
+            FROM `{db_nombre}`.asientos_contables 
+            WHERE TRIM(cuenta_contable) = TRIM(%s) 
+            AND fecha >= %s AND fecha <= %s 
+            ORDER BY fecha ASC, id ASC
+        """
+        df_movs = pd.read_sql(
+            query_movs, 
+            conn, 
+            params=(cuenta, f_inicio.strftime('%Y-%m-%d %H:%M:%S'), f_fin.strftime('%Y-%m-%d %H:%M:%S'))
+        )
+        
+        # 4. Procesamiento matemático blindado y cálculo del acumulado
+        if not df_movs.empty:
+            df_movs['debe'] = pd.to_numeric(df_movs['debe'], errors='coerce').fillna(0.0)
+            df_movs['haber'] = pd.to_numeric(df_movs['haber'], errors='coerce').fillna(0.0)
+            df_movs['Saldo'] = saldo_inicial_periodo + (df_movs['debe'] - df_movs['haber']).cumsum()
+            df_movs['fecha'] = pd.to_datetime(df_movs['fecha'], errors='coerce')
+        else:
+            df_movs = pd.DataFrame(columns=['fecha', 'n_comprobante', 'descripcion', 'referencia', 'debe', 'haber', 'Saldo'])
+
+        # 5. Construcción de la fila de Saldo Inicial y el reporte final
+        fila_inicial = pd.DataFrame([{
+            'fecha': pd.to_datetime(fecha_desde),
+            'n_comprobante': 'S/I',
+            'descripcion': f'SALDO INICIAL AL {fecha_desde}',
+            'referencia': 'INICIAL',
+            'debe': 0.00, 
+            'haber': 0.00,
+            'Saldo': saldo_inicial_periodo
+        }])
+
+        df_final = pd.concat([fila_inicial, df_movs], ignore_index=True)
+        
+        # El saldo final real es siempre el último valor acumulado del reporte (o el inicial si no hay movimientos)
+        saldo_final_real = float(df_final['Saldo'].iloc[-1]) if not df_final.empty else saldo_inicial_periodo
+        
+        return df_final, df_movs, saldo_final_real
+
+    except Exception as e:
+        st.error(f"❌ Error al generar el Libro Mayor Analítico en `{db_nombre}`: {e}")
+        return pd.DataFrame(), pd.DataFrame(), 0.0
+    finally:
+        if conn and conn.is_connected():
+            try:
+                conn.close()
+            except:
+                pass
+
+
 def generar_balance_comprobacion(conn, f_i, f_f, sucursal):
     db = st.session_state.get('DB_ACTUAL')
     cliente_id = st.session_state.get('cliente_id')
@@ -7238,7 +7327,7 @@ def conciliacion_de_gastos_y_comisiones(db_connection, db_segura):
         except Exception as e_lote:
             db_connection.rollback()
             st.error(f"❌ Error crítico al procesar los asientos en lote: {e_lote}")
-            
+
 
 def renderizar_tab_asientos_ventas(db_connection):
     st.subheader("🤖 Asientos Automatizados - Libro de Ventas")
@@ -11687,7 +11776,7 @@ elif opcion_menu == "📝 Asientos Contables":
 
 # D. MAYOR ANALÍTICO
 elif opcion_menu == "📖 Mayor Analítico":
-    st.subheader("📖 Mayor Analítico")
+    #st.subheader("📖 Mayor Analítico")
 
     # 1. SEGURIDAD Y CONTEXTO
     db_actual = st.session_state.get("DB_ACTUAL")
