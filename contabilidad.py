@@ -2072,7 +2072,7 @@ def mostrar_tablero_conciliacion(conn, mes_sel, ano_sel):
             WHERE TRIM(cuenta_contable) = TRIM(%s) 
             AND fecha BETWEEN %s AND %s
         """
-        cursor.execute(query_movimientos_mes, (nombre_banco_sel, fecha_inicio, fecha_fin))
+        cursor.execute(query_movimientos_mes, (cuenta_codigo, fecha_inicio, fecha_fin))
         debe_mes, haber_mes = cursor.fetchone()
 
         # Cálculo final de libros
