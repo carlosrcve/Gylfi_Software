@@ -1963,16 +1963,39 @@ def crear_pdf_conciliacion(conn, df_conciliado, saldo_inicial, saldo_final_banco
                 pass
 
 
+
 def mostrar_tablero_conciliacion(conn, mes_sel, ano_sel):
     st.title("⚖️ Conciliación Bancaria")
 
-    # 1. RECUPERAR CONTEXTO GLOBAL (Sin modificar la barra lateral ni hacer loops)
+    # 1. RECUPERAR CONTEXTO GLOBAL
     db = st.session_state.get('DB_ACTUAL')
+    cliente_id = st.session_state.get('cliente_id') or st.session_state.get('cliente_id_seleccionado')
+
     if not db:
         st.warning("⚠️ No se ha seleccionado una base de datos activa.")
         return
 
-    # 2. PREPARACIÓN DE FECHAS
+    # 2. CONEXIÓN CON CONTROL CENTRAL PARA DATOS DE LA EMPRESA
+    cursor = conn.cursor()
+    nombre_empresa_mostrada = db
+    rif_empresa = ""
+    
+    try:
+        if cliente_id:
+            cursor.execute("SELECT nombre_empresa, rif FROM control_central.clientes WHERE id = %s", (cliente_id,))
+            res_cliente = cursor.fetchone()
+            if res_cliente:
+                nombre_empresa_mostrada = res_cliente[0]
+                rif_empresa = res_cliente[1]
+    except Exception:
+        # Si ocurre un fallo en control_central, mantenemos el nombre de la BD por defecto
+        pass
+
+    # Mostrar la tarjeta informativa de la empresa actual en pantalla
+    st.markdown(f"### 🏢 Empresa: **{nombre_empresa_mostrada}** {f'(RIF: {rif_empresa})' if rif_empresa else ''}")
+    st.divider()
+
+    # 3. PREPARACIÓN DE FECHAS
     meses_dict = {
         "Enero": "01", "Febrero": "02", "Marzo": "03", "Abril": "04", 
         "Mayo": "05", "Junio": "06", "Julio": "07", "Agosto": "08", 
@@ -1993,10 +2016,8 @@ def mostrar_tablero_conciliacion(conn, mes_sel, ano_sel):
         mes_anterior = meses_lista[idx_mes_actual - 1]
         ano_anterior = str(ano_sel)
 
-    # 3. CARGA DE BANCOS (Usando la DB ya seleccionada)
-    cursor = conn.cursor()
+    # 4. CARGA DE BANCOS (Usando la DB ya seleccionada)
     try:
-        # Búsqueda más flexible e insensible a mayúsculas para evitar falsos negativos
         query_bancos = f"""
             SELECT nombre, codigo FROM `{db}`.plan_cuentas 
             WHERE UPPER(nombre) LIKE '%BANCO%'
@@ -2004,7 +2025,7 @@ def mostrar_tablero_conciliacion(conn, mes_sel, ano_sel):
         cursor.execute(query_bancos)
         bancos_dict = {b[0]: b[1] for b in cursor.fetchall()}
         
-        # PLAN B: Si aún así no encuentra nada con la palabra BANCO, traemos las cuentas de activo o detalle disponibles
+        # PLAN B: Si no encuentra cuentas con la palabra BANCO
         if not bancos_dict:
             query_alternativa = f"""
                 SELECT nombre, codigo FROM `{db}`.plan_cuentas 
@@ -2015,16 +2036,17 @@ def mostrar_tablero_conciliacion(conn, mes_sel, ano_sel):
 
         if not bancos_dict:
             st.warning(f"⚠️ No se encontraron cuentas bancarias o de activo en el plan de cuentas de la empresa ({db}). Revisa tu catastro de cuentas.")
+            cursor.close()
             return
 
-        # Selector de Banco seguro dentro del cuerpo (evita el bucle de sidebar)
+        # Selector de Banco seguro dentro del cuerpo
         nombre_banco_sel = st.selectbox("Seleccione Banco", list(bancos_dict.keys()), key="select_banco_tablero_seguro")
         cuenta_codigo = bancos_dict[nombre_banco_sel]
         
         # Transformación de nombre para la BD (Alias)
         banco_db = obtener_alias_banco(nombre_banco_sel)
 
-        # 4. CONSULTAS PRINCIPALES
+        # 5. CONSULTAS PRINCIPALES
         # A. Saldo Banco
         sql_saldos = f"""SELECT saldo_inicial, saldo_final 
                         FROM `{db}`.saldos_bancarios 
@@ -2080,7 +2102,7 @@ def mostrar_tablero_conciliacion(conn, mes_sel, ano_sel):
         except:
             return "0,00"
 
-    # 5. VISUALIZACIÓN
+    # 6. VISUALIZACIÓN
     st.subheader("📊 Historial y Cuadre de Saldos")
     
     m1, m2, m3 = st.columns(3)
@@ -2126,7 +2148,7 @@ def mostrar_tablero_conciliacion(conn, mes_sel, ano_sel):
         st.success("Conciliación ejecutada con éxito.")
         st.rerun()
 
-    # 6. LÓGICA DE PDF CENTRALIZADA
+    # 7. LÓGICA DE PDF CENTRALIZADA
     st.divider()
     st.subheader("📄 Reporte de Conciliación")
     
@@ -2142,8 +2164,9 @@ def mostrar_tablero_conciliacion(conn, mes_sel, ano_sel):
             lista_egresos.append(partida_ajuste)
 
     try:
+        # Se pasan explícitamente mes_sel y ano_sel a la función PDF para asegurar consistencia
         pdf_data = crear_pdf_conciliacion(
-            conn, df_conciliado, saldo_inicial, saldo_final_banco, saldo_final_libros, lista_ingresos, lista_egresos
+            conn, df_conciliado, saldo_inicial, saldo_final_banco, saldo_final_libros, lista_ingresos, lista_egresos, mes_sel=mes_sel, ano_sel=ano_sel
         )
         st.download_button(
             label="📄 Descargar Conciliación PDF", 
@@ -2154,7 +2177,7 @@ def mostrar_tablero_conciliacion(conn, mes_sel, ano_sel):
     except Exception as e:
         st.error(f"Error generando el PDF: {e}")
 
-    # 7. MOVIMIENTOS CONCILIADOS
+    # 8. MOVIMIENTOS CONCILIADOS
     if not df_conciliado.empty and 'monto' in df_conciliado.columns:
         st.subheader("✅ Movimientos Conciliados")
         df_conciliado['monto'] = pd.to_numeric(df_conciliado['monto'], errors='coerce').fillna(0.0)
