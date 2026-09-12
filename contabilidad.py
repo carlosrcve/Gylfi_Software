@@ -10913,7 +10913,7 @@ elif opcion_menu == "📝 Asientos Contables":
                                 data=pdf_bytes,
                                 file_name=f"Comprobante_{n_comp}.pdf",
                                 mime="application/pdf",
-                                use_container_width=True
+                                use_container_width=False
                             )
                         else:
                             st.warning(f"No se encontraron registros para el comprobante {n_comp}.")
@@ -10921,7 +10921,7 @@ elif opcion_menu == "📝 Asientos Contables":
                         st.error(f"Error al generar el PDF del comprobante: {e}")
                     finally:
                         conn_pdf.close()
-                        
+
     elif sub_opcion == "Consultar Saldos Iniciales":
         st.subheader("🏁 Comprobante de Apertura")
         # 1. SEGURIDAD Y CONTEXTO
