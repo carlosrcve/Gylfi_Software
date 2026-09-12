@@ -2565,6 +2565,8 @@ def mostrar_interfaz_mayor(f_ini_g, f_fin_g, db_nombre):
             df_cuentas = ejecutar_consulta(query_cuentas, conn)
             
             if not df_cuentas.empty:
+                # Asegurarnos de manejar si la columna tiene el nombre o el código
+                # (Si prefieres mostrar Código y Nombre juntos en el selectbox)
                 lista_opciones = df_cuentas['cuenta_contable'].tolist()
                 idx_inicial = lista_opciones.index(cuenta_previa) if cuenta_previa in lista_opciones else 0
                 
@@ -2577,18 +2579,28 @@ def mostrar_interfaz_mayor(f_ini_g, f_fin_g, db_nombre):
                 saldo_inicial_periodo = 0.0
 
                 if st.button("🔍 Generar Movimientos"):
-                    # Asumimos que ejecutar_mayor_analitico retorna el reporte completo y los movimientos puros
-                    res_reporte, _, saldo_final_real = ejecutar_mayor_analitico(db_nombre, cuenta_sel, f_m_d, f_m_h)
+                    # --- EXTRACCIÓN LIMPIA DEL CÓDIGO PURO ---
+                    # Si cuenta_sel viene con formato "1.1.1.02.001 - Banco de Venezuela" o similar, extraemos solo el código.
+                    # Si tu cuenta_sel ya es el código exacto, esta función lo deja igual.
+                    cuenta_para_consulta = str(cuenta_sel).strip()
+                    if " - " in cuenta_para_consulta:
+                        cuenta_para_consulta = cuenta_para_consulta.split(" - ")[0].strip()
+                    elif " " in cuenta_para_consulta:
+                        # Por si acaso el código está separado por espacio
+                        cuenta_para_consulta = cuenta_para_consulta.split(" ")[0].strip()
+
+                    # Llamada a la función con el código puro extraído
+                    res_reporte, _, saldo_final_real = ejecutar_mayor_analitico(db_nombre, cuenta_para_consulta, f_m_d, f_m_h)
                     
                     if not res_reporte.empty:
                         st.session_state.reporte_mayor = res_reporte
-                        # Guardamos también los movimientos puros si la función los retorna, o usamos el mismo reporte
                         st.session_state.movs_solos = res_reporte 
                         
-                        st.session_state.saldo_final_reporte = saldo_inicial_periodo + res_reporte['debe'].sum() - res_reporte['haber'].sum()
+                        # Usamos el saldo final real devuelto por la función en lugar de calcularlo a mano con ceros
+                        st.session_state.saldo_final_reporte = saldo_final_real
                         st.session_state.cuenta_actual = cuenta_sel
                     else:
-                        st.warning("No se obtuvieron datos.")
+                        st.warning("No se obtuvieron datos para los filtros seleccionados.")
                         st.session_state.reporte_mayor = None
                         st.session_state.movs_solos = None
 
