@@ -2560,15 +2560,33 @@ def mostrar_interfaz_mayor(f_ini_g, f_fin_g, db_nombre):
             usuario = st.session_state.get('usuario', 'Desconocido')
             registrar_log_automatico(conn, "CONSULTA_LIBRO_MAYOR", f"Usuario {usuario} consultó mayor en {db_nombre}")
             
-            # Consultar las cuentas que realmente tienen movimientos
-            query_cuentas = "SELECT DISTINCT cuenta_contable FROM asientos_contables ORDER BY cuenta_contable"
+            # Consultar directamente las cuentas desde el plan de cuentas o unidas con los asientos
+            query_cuentas = """
+                SELECT DISTINCT a.cuenta_contable, p.nombre 
+                FROM asientos_contables a
+                LEFT JOIN plan_cuentas p ON TRIM(a.cuenta_contable) = TRIM(p.codigo)
+                ORDER BY a.cuenta_contable
+            """
             df_cuentas = ejecutar_consulta(query_cuentas, conn)
             
             if not df_cuentas.empty:
-                lista_opciones = df_cuentas['cuenta_contable'].tolist()
-                idx_inicial = lista_opciones.index(cuenta_previa) if cuenta_previa in lista_opciones else 0
+                # Construir una lista de opciones limpia tipo "CODIGO - NOMBRE"
+                opciones_mapa = {}
+                lista_opciones = []
                 
-                cuenta_sel = st.selectbox("Seleccione cuenta de detalle:", lista_opciones, index=idx_inicial, key="select_cuenta_mayor")
+                for _, row in df_cuentas.iterrows():
+                    cod = str(row['cuenta_contable']).strip()
+                    nom = str(row['nombre']).strip() if pd.notna(row['nombre']) else "Cuenta Contable"
+                    label = f"{cod} - {nom}"
+                    opciones_mapa[label] = cod
+                    lista_opciones.append(label)
+
+                idx_inicial = 0 # Puedes ajustar si usas cuenta_previa
+                
+                cuenta_sel_label = st.selectbox("Seleccione cuenta de detalle:", lista_opciones, index=idx_inicial, key="select_cuenta_mayor")
+                
+                # Obtener el código puro exacto mapeado
+                cuenta_para_consulta = opciones_mapa.get(cuenta_sel_label, cuenta_sel_label)
                 
                 col1, col2 = st.columns(2)
                 f_m_d = col1.date_input("Desde", f_ini_g, key="m_d")
@@ -2577,31 +2595,14 @@ def mostrar_interfaz_mayor(f_ini_g, f_fin_g, db_nombre):
                 saldo_inicial_periodo = 0.0
 
                 if st.button("🔍 Generar Movimientos", key="btn_generar_movs_mayor"):
-                    # --- EXTRACCIÓN ROBUSTA DEL CÓDIGO PURO ---
-                    cuenta_para_consulta = str(cuenta_sel).strip()
-                    
-                    # Si tiene un guion, tomamos la primera parte
-                    if " - " in cuenta_para_consulta:
-                        cuenta_para_consulta = cuenta_para_consulta.split(" - ")[0].strip()
-                    # Si el texto contiene paréntesis al final (ej: "Banco (BDV)"), limpiamos o intentamos buscar si es un texto descriptivo
-                    # Si la cuenta seleccionada es literalmente un texto descriptivo, buscamos su código en plan_cuentas
-                    try:
-                        with conn.cursor() as cur_pc:
-                            cur_pc.execute(f"SELECT codigo FROM `{db_nombre}`.plan_cuentas WHERE nombre = %s OR codigo = %s LIMIT 1", (cuenta_sel, cuenta_sel))
-                            res_pc = cur_pc.fetchone()
-                            if res_pc and res_pc[0]:
-                                cuenta_para_consulta = str(res_pc[0]).strip()
-                    except Exception:
-                        pass
-
-                    # Llamada a la función con el código puro garantizado
+                    # Llamada a la función con el código puro garantizado desde el diccionario
                     res_reporte, _, saldo_final_real = ejecutar_mayor_analitico(db_nombre, cuenta_para_consulta, f_m_d, f_m_h)
                     
                     if not res_reporte.empty:
                         st.session_state.reporte_mayor = res_reporte
                         st.session_state.movs_solos = res_reporte 
                         st.session_state.saldo_final_reporte = saldo_final_real
-                        st.session_state.cuenta_actual = cuenta_sel
+                        st.session_state.cuenta_actual = cuenta_sel_label
                     else:
                         st.warning(f"⚠️ No se obtuvieron movimientos para la cuenta '{cuenta_para_consulta}' en el rango de fechas seleccionado.")
                         st.session_state.reporte_mayor = None
@@ -2695,7 +2696,6 @@ def mostrar_interfaz_mayor(f_ini_g, f_fin_g, db_nombre):
                 except: pass
     else:
         st.error("❌ No se pudo establecer conexión con la base de datos.")
-
 
 
 def generar_balance_profesional(conn, f_i, f_f, sucursal):
