@@ -2068,18 +2068,24 @@ def mostrar_tablero_conciliacion(conn, mes_sel, ano_sel):
         res_anterior = cursor.fetchone()
         saldo_mes_anterior = float(res_anterior[0]) if res_anterior else 0.0
 
-        # C. Movimientos del mes (Probamos buscando por CÓDIGO de cuenta y por NOMBRE por si acaso)
+        # C. Movimientos del mes (Probando múltiples nombres de columnas para asegurar compatibilidad con la tabla)
         query_movimientos_mes = f"""
             SELECT IFNULL(SUM(debe), 0.0), IFNULL(SUM(haber), 0.0) 
             FROM `{db}`.asientos_contables 
-            WHERE (TRIM(cuenta_contable) = TRIM(%s) OR TRIM(cuenta_contable) = TRIM(%s)) 
+            WHERE (
+                TRIM(cuenta_contable) = TRIM(%s) OR 
+                TRIM(cuenta_contable) = TRIM(%s) OR 
+                TRIM(cuenta) = TRIM(%s) OR 
+                TRIM(cuenta) = TRIM(%s)
+            ) 
             AND fecha BETWEEN %s AND %s
         """
-        cursor.execute(query_movimientos_mes, (cuenta_codigo, nombre_banco_sel, fecha_inicio, fecha_fin))
+        cursor.execute(query_movimientos_mes, (cuenta_codigo, nombre_banco_sel, cuenta_codigo, nombre_banco_sel, fecha_inicio, fecha_fin))
         res_mov = cursor.fetchone()
         debe_mes, haber_mes = res_mov if res_mov else (0.0, 0.0)
 
-        saldo_final_libros = saldo_mes_anterior + (float(debe_mes) - float(haber_mes))
+        # Saldo final libros = Saldo inicial del mes (o saldo anterior) + Debe - Haber del mes
+        saldo_final_libros = saldo_inicial + (float(debe_mes) - float(haber_mes))
 
         # D. Movimientos de Banco
         query_mov_pendientes = f"SELECT * FROM `{db}`.banco_movimientos WHERE estado_conciliacion = 'Pendiente' AND fecha_movimiento BETWEEN %s AND %s"
