@@ -2560,11 +2560,14 @@ def mostrar_interfaz_mayor(f_ini_g, f_fin_g, db_nombre):
             usuario = st.session_state.get('usuario', 'Desconocido')
             registrar_log_automatico(conn, "CONSULTA_LIBRO_MAYOR", f"Usuario {usuario} consultó mayor en {db_nombre}")
             
-            # Consultar los códigos y nombres reales desde asientos_contables
+            # Consultar solo cuentas con código válido en plan_cuentas (evitando nulos y 'nan')
             query_cuentas = """
-                SELECT DISTINCT a.plan_cuentas, a.cuenta_contable 
-                FROM asientos_contables a
-                ORDER BY a.plan_cuentas
+                SELECT DISTINCT plan_cuentas, cuenta_contable 
+                FROM asientos_contables 
+                WHERE plan_cuentas IS NOT NULL 
+                  AND TRIM(plan_cuentas) != '' 
+                  AND LOWER(plan_cuentas) != 'nan'
+                ORDER BY plan_cuentas
             """
             df_cuentas = ejecutar_consulta(query_cuentas, conn)
             
@@ -2574,7 +2577,7 @@ def mostrar_interfaz_mayor(f_ini_g, f_fin_g, db_nombre):
                 
                 for _, row in df_cuentas.iterrows():
                     cod = str(row['plan_cuentas']).strip()
-                    nom = str(row['cuenta_contable']).strip() if pd.notna(row['cuenta_contable']) else "Cuenta"
+                    nom = str(row['cuenta_contable']).strip() if pd.notna(row['cuenta_contable']) else "Cuenta Contable"
                     label = f"{cod} - {nom}"
                     opciones_mapa[label] = cod
                     lista_opciones.append(label)
@@ -2591,7 +2594,6 @@ def mostrar_interfaz_mayor(f_ini_g, f_fin_g, db_nombre):
                 saldo_inicial_periodo = 0.0
 
                 if st.button("🔍 Generar Movimientos", key="btn_generar_movs_mayor"):
-                    # Llamada a la función con el código puro garantizado
                     res_reporte, _, saldo_final_real = ejecutar_mayor_analitico(db_nombre, cuenta_para_consulta, f_m_d, f_m_h)
                     
                     if not res_reporte.empty:
@@ -2679,7 +2681,7 @@ def mostrar_interfaz_mayor(f_ini_g, f_fin_g, db_nombre):
                     else:
                         st.warning("No se encontraron movimientos para esta cuenta.")
             else:
-                st.warning(f"⚠️ No hay datos contables en la base de datos: {db_nombre}")
+                st.warning(f"⚠️ No hay datos contables válidos en la base de datos: {db_nombre}")
         
         except Exception as e:
             st.error(f"❌ Error en el Libro Mayor: {e}")
