@@ -2131,11 +2131,6 @@ def mostrar_tablero_conciliacion(conn, mes_sel, ano_sel):
     finally:
         cursor.close()
 
-    # 🛠️ Panel de Diagnóstico Visual (para verificar montos y columnas)
-    with st.expander("🔍 Ver Diagnóstico de Datos (Depuración)", expanded=False):
-        st.json(debug_info)
-        st.info("💡 Si ves valores en `None` o `0.0`, revisa en el JSON si el Debe o Haber están capturando los montos correctamente.")
-
     # 🛠️ Formato venezolano
     def formato_venezolano(val):
         try:
