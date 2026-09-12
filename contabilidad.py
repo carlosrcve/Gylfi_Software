@@ -2572,39 +2572,49 @@ def mostrar_interfaz_mayor(f_ini_g, f_fin_g, db_nombre):
             df_cuentas = ejecutar_consulta(query_cuentas, conn)
             
             if not df_cuentas.empty:
-                opciones_mapa = {}
-                lista_opciones = []
+            opciones_mapa = {}
+            lista_opciones = []
+            
+            for _, row in df_cuentas.iterrows():
+                cod = str(row['plan_cuentas']).strip() if row['plan_cuentas'] is not None else ""
+                nom = str(row['cuenta_contable']).strip() if pd.notna(row['cuenta_contable']) else ""
                 
-                for _, row in df_cuentas.iterrows():
-                    cod = str(row['plan_cuentas']).strip()
-                    nom = str(row['cuenta_contable']).strip() if pd.notna(row['cuenta_contable']) else "Cuenta Contable"
-                    label = f"{cod} - {nom}"
-                    opciones_mapa[label] = cod
-                    lista_opciones.append(label)
-
-                cuenta_sel_label = st.selectbox("Seleccione cuenta de detalle:", lista_opciones, key="select_cuenta_mayor")
-                
-                # Obtener el código puro exacto mapeado
-                cuenta_para_consulta = opciones_mapa.get(cuenta_sel_label, cuenta_sel_label)
-                
-                col1, col2 = st.columns(2)
-                f_m_d = col1.date_input("Desde", f_ini_g, key="m_d")
-                f_m_h = col2.date_input("Hasta", f_fin_g, key="m_h")
-                
-                saldo_inicial_periodo = 0.0
-
-                if st.button("🔍 Generar Movimientos", key="btn_generar_movs_mayor"):
-                    res_reporte, _, saldo_final_real = ejecutar_mayor_analitico(db_nombre, cuenta_para_consulta, f_m_d, f_m_h)
+                # Omitir si el código o el nombre son nulos, vacíos o dicen literalmente 'nan'
+                if not cod or cod.lower() == 'nan' or not nom or nom.lower() == 'nan':
+                    continue
                     
-                    if not res_reporte.empty:
-                        st.session_state.reporte_mayor = res_reporte
-                        st.session_state.movs_solos = res_reporte 
-                        st.session_state.saldo_final_reporte = saldo_final_real
-                        st.session_state.cuenta_actual = cuenta_sel_label
-                    else:
-                        st.warning(f"⚠️ No se obtuvieron movimientos para la cuenta '{cuenta_para_consulta}' en el rango de fechas seleccionado.")
-                        st.session_state.reporte_mayor = None
-                        st.session_state.movs_solos = None
+                label = f"{cod} - {nom}"
+                opciones_mapa[label] = cod
+                lista_opciones.append(label)
+
+            # Validar que la lista no haya quedado vacía tras la limpieza
+            if not lista_opciones:
+                st.warning("⚠️ No se encontraron cuentas contables válidas (sin valores nulos o 'nan') en los asientos.")
+                return
+
+            cuenta_sel_label = st.selectbox("Seleccione cuenta de detalle:", lista_opciones, key="select_cuenta_mayor")
+            
+            # Obtener el código puro exacto mapeado
+            cuenta_para_consulta = opciones_mapa.get(cuenta_sel_label, cuenta_sel_label)
+            
+            col1, col2 = st.columns(2)
+            f_m_d = col1.date_input("Desde", f_ini_g, key="m_d")
+            f_m_h = col2.date_input("Hasta", f_fin_g, key="m_h")
+            
+            saldo_inicial_periodo = 0.0
+
+            if st.button("🔍 Generar Movimientos", key="btn_generar_movs_mayor"):
+                res_reporte, _, saldo_final_real = ejecutar_mayor_analitico(db_nombre, cuenta_para_consulta, f_m_d, f_m_h)
+                
+                if not res_reporte.empty:
+                    st.session_state.reporte_mayor = res_reporte
+                    st.session_state.movs_solos = res_reporte 
+                    st.session_state.saldo_final_reporte = saldo_final_real
+                    st.session_state.cuenta_actual = cuenta_sel_label
+                else:
+                    st.warning(f"⚠️ No se obtuvieron movimientos para la cuenta '{cuenta_para_consulta}' en el rango de fechas seleccionado.")
+                    st.session_state.reporte_mayor = None
+                    st.session_state.movs_solos = None
 
                 st.divider()
 
