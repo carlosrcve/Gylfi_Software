@@ -1396,7 +1396,8 @@ def cargar_asientos_contables_db(df, conn=None):
         st.error("⚠️ No se ha seleccionado una base de datos de empresa en la sesión.")
         return False
 
-    registrar_log_automatico(conn, "CONSULTA_BALANCE_GENERAL", f"Usuario {st.session_state.get('usuario', 'Admin')} intentó cargar asientos para {db_actual}")
+    usuario_actual = str(st.session_state.get('usuario', 'Admin'))
+    registrar_log_automatico(conn, "CONSULTA_BALANCE_GENERAL", f"Usuario {usuario_actual} intentó cargar asientos para {db_actual}")
 
     # 2. Gestionar la conexión si no viene dada
     if not conn:
@@ -1406,10 +1407,30 @@ def cargar_asientos_contables_db(df, conn=None):
         st.error("❌ No se pudo establecer conexión con la base de datos.")
         return False
         
+    cursor = None
     try:
         # --- LIMPIEZA DE DATOS CRÍTICA ---
         df_limpio = df.copy()
         
+        # Normalizar nombres de columnas a minúsculas o buscar variantes comunes para evitar KeyErrors
+        df_limpio.columns = [str(c).strip() for c in df_limpio.columns]
+        
+        # Diccionario de posibles nombres para la columna de fecha
+        col_fecha_candidatos = ['Fecha', 'fecha', 'FECHA', 'Fecha de Operacion', 'Fecha de Operación']
+        col_fecha_encontrada = None
+        for c in col_fecha_candidatos:
+            if c in df_limpio.columns:
+                col_fecha_encontrada = c
+                break
+                
+        if not col_fecha_encontrada:
+            st.error(f"❌ El archivo Excel no contiene una columna de fecha válida. Columnas detectadas: {list(df_limpio.columns)}")
+            return False
+
+        # Renombrar temporalmente a 'Fecha' para estandarizar
+        if col_fecha_encontrada != 'Fecha':
+            df_limpio.rename(columns={col_fecha_encontrada: 'Fecha'}, inplace=True)
+
         # 1. Convertir fecha y ELIMINAR filas donde la fecha sea nula (NaT)
         df_limpio['Fecha'] = pd.to_datetime(df_limpio['Fecha'], errors='coerce')
         df_limpio = df_limpio.dropna(subset=['Fecha']) 
@@ -1447,6 +1468,28 @@ def cargar_asientos_contables_db(df, conn=None):
                 # Si la columna 'bloqueado' no existe todavía en la tabla, la ignoramos para evitar que rompa el flujo
                 pass
 
+        # Mapeo flexible de columnas de Debe y Haber
+        for col_objetivo, posibles in [
+            ('Debe', ['Debe', 'DEBE', 'debe']),
+            ('Haber', ['Haber', 'HABER', 'haber']),
+            ('N_comprobante', ['N_comprobante', 'n_comprobante', 'Comprobante', 'Nro Comprobante']),
+            ('Descripcion', ['Descripcion', 'Descripción', 'DESCRIPCION', 'concepto']),
+            ('plan_de_cuentas', ['plan_de_cuentas', 'Plan de Cuentas', 'cuenta', 'codigo_cuenta']),
+            ('cuenta_contable', ['cuenta_contable', 'Cuenta Contable', 'nombre_cuenta', 'descripcion_cuenta']),
+            ('Ref', ['Ref', 'REF', 'Referencia', 'referencia'])
+        ]:
+            if col_objetivo not in df_limpio.columns:
+                encontrado = False
+                for p in posibles:
+                    if p in df_limpio.columns:
+                        df_limpio.rename(columns={p: col_objetivo}, inplace=True)
+                        encontrado = True
+                        break
+                if not encontrado and col_objetivo in ['Debe', 'Haber']:
+                    df_limpio[col_objetivo] = 0.0
+                elif not encontrado:
+                    df_limpio[col_objetivo] = ""
+
         # 3. Asegurar que Debe y Haber sean números usando la función de limpieza
         df_limpio['Debe'] = df_limpio['Debe'].apply(limpiar_moneda).round(2)
         df_limpio['Haber'] = df_limpio['Haber'].apply(limpiar_moneda).round(2)
@@ -1456,23 +1499,23 @@ def cargar_asientos_contables_db(df, conn=None):
         for index, row in df_limpio.iterrows():
             try:
                 tupla = (
-                    str(row['N_comprobante']), 
-                    str(row['Descripcion']), 
+                    str(row.get('N_comprobante', '')), 
+                    str(row.get('Descripcion', '')), 
                     row['Fecha'].strftime('%Y-%m-%d'), 
-                    str(row['plan_de_cuentas']), 
-                    str(row['cuenta_contable']), 
-                    str(row['Ref']), 
-                    float(row['Debe']), 
-                    float(row['Haber'])
+                    str(row.get('plan_de_cuentas', '')), 
+                    str(row.get('cuenta_contable', '')), 
+                    str(row.get('Ref', '')), 
+                    float(row.get('Debe', 0.0)), 
+                    float(row.get('Haber', 0.0))
                 )
                 valores.append(tupla)
-            except Exception as e:
-                st.error(f"Error en la fila {index + 1}: {e}")
+            except Exception as e_row:
+                st.error(f"Error procesando la fila {index + 1}: {e_row}")
                 continue 
         
         if not valores:
             st.warning("⚠️ No se encontraron datos válidos para insertar.")
-            cursor.close()
+            if cursor: cursor.close()
             return False
 
         # 5. Inserción masiva si todo está abierto
@@ -1491,10 +1534,10 @@ def cargar_asientos_contables_db(df, conn=None):
 
     except Exception as e:
         if conn: conn.rollback()
-        st.error(f"❌ Error masivo al insertar en la base de datos: {e}")
+        st.error(f"❌ Error al procesar o insertar en la base de datos: {e}")
         return False
     finally:
-        if 'cursor' in locals() and cursor:
+        if cursor:
             try:
                 cursor.close()
             except:
