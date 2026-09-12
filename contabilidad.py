@@ -2557,20 +2557,18 @@ def mostrar_interfaz_mayor(f_ini_g, f_fin_g, db_nombre):
         try:
             cursor = conn.cursor()
             
-            # Auditoría y consulta de cuentas de forma segura (sin interpolar db_nombre)
             usuario = st.session_state.get('usuario', 'Desconocido')
             registrar_log_automatico(conn, "CONSULTA_LIBRO_MAYOR", f"Usuario {usuario} consultó mayor en {db_nombre}")
             
+            # Consultar las cuentas que realmente tienen movimientos
             query_cuentas = "SELECT DISTINCT cuenta_contable FROM asientos_contables ORDER BY cuenta_contable"
             df_cuentas = ejecutar_consulta(query_cuentas, conn)
             
             if not df_cuentas.empty:
-                # Asegurarnos de manejar si la columna tiene el nombre o el código
-                # (Si prefieres mostrar Código y Nombre juntos en el selectbox)
                 lista_opciones = df_cuentas['cuenta_contable'].tolist()
                 idx_inicial = lista_opciones.index(cuenta_previa) if cuenta_previa in lista_opciones else 0
                 
-                cuenta_sel = st.selectbox("Seleccione cuenta de detalle:", lista_opciones, index=idx_inicial)
+                cuenta_sel = st.selectbox("Seleccione cuenta de detalle:", lista_opciones, index=idx_inicial, key="select_cuenta_mayor")
                 
                 col1, col2 = st.columns(2)
                 f_m_d = col1.date_input("Desde", f_ini_g, key="m_d")
@@ -2578,29 +2576,34 @@ def mostrar_interfaz_mayor(f_ini_g, f_fin_g, db_nombre):
                 
                 saldo_inicial_periodo = 0.0
 
-                if st.button("🔍 Generar Movimientos"):
-                    # --- EXTRACCIÓN LIMPIA DEL CÓDIGO PURO ---
-                    # Si cuenta_sel viene con formato "1.1.1.02.001 - Banco de Venezuela" o similar, extraemos solo el código.
-                    # Si tu cuenta_sel ya es el código exacto, esta función lo deja igual.
+                if st.button("🔍 Generar Movimientos", key="btn_generar_movs_mayor"):
+                    # --- EXTRACCIÓN ROBUSTA DEL CÓDIGO PURO ---
                     cuenta_para_consulta = str(cuenta_sel).strip()
+                    
+                    # Si tiene un guion, tomamos la primera parte
                     if " - " in cuenta_para_consulta:
                         cuenta_para_consulta = cuenta_para_consulta.split(" - ")[0].strip()
-                    elif " " in cuenta_para_consulta:
-                        # Por si acaso el código está separado por espacio
-                        cuenta_para_consulta = cuenta_para_consulta.split(" ")[0].strip()
+                    # Si el texto contiene paréntesis al final (ej: "Banco (BDV)"), limpiamos o intentamos buscar si es un texto descriptivo
+                    # Si la cuenta seleccionada es literalmente un texto descriptivo, buscamos su código en plan_cuentas
+                    try:
+                        with conn.cursor() as cur_pc:
+                            cur_pc.execute(f"SELECT codigo FROM `{db_nombre}`.plan_cuentas WHERE nombre = %s OR codigo = %s LIMIT 1", (cuenta_sel, cuenta_sel))
+                            res_pc = cur_pc.fetchone()
+                            if res_pc and res_pc[0]:
+                                cuenta_para_consulta = str(res_pc[0]).strip()
+                    except Exception:
+                        pass
 
-                    # Llamada a la función con el código puro extraído
+                    # Llamada a la función con el código puro garantizado
                     res_reporte, _, saldo_final_real = ejecutar_mayor_analitico(db_nombre, cuenta_para_consulta, f_m_d, f_m_h)
                     
                     if not res_reporte.empty:
                         st.session_state.reporte_mayor = res_reporte
                         st.session_state.movs_solos = res_reporte 
-                        
-                        # Usamos el saldo final real devuelto por la función en lugar de calcularlo a mano con ceros
                         st.session_state.saldo_final_reporte = saldo_final_real
                         st.session_state.cuenta_actual = cuenta_sel
                     else:
-                        st.warning("No se obtuvieron datos para los filtros seleccionados.")
+                        st.warning(f"⚠️ No se obtuvieron movimientos para la cuenta '{cuenta_para_consulta}' en el rango de fechas seleccionado.")
                         st.session_state.reporte_mayor = None
                         st.session_state.movs_solos = None
 
@@ -2623,11 +2626,11 @@ def mostrar_interfaz_mayor(f_ini_g, f_fin_g, db_nombre):
                         fmt = {'debe': '{:,.2f}', 'haber': '{:,.2f}', 'Saldo': '{:,.2f}'}
                         st.dataframe(
                             reporte.style.format(fmt), 
-                            width='stretch', 
+                            use_container_width=True, 
                             hide_index=True
                         )
                         
-                        if st.button("📄 Generar Reporte PDF para Auditoría"):
+                        if st.button("📄 Generar Reporte PDF para Auditoría", key="btn_pdf_mayor"):
                             try:
                                 from fpdf import FPDF
                                 
@@ -2644,7 +2647,6 @@ def mostrar_interfaz_mayor(f_ini_g, f_fin_g, db_nombre):
                                 pdf.set_font("Arial", 'B', 10)
                                 pdf.cell(0, 10, f"CUENTA: {st.session_state.cuenta_actual}", ln=True)
                                 
-                                # Encabezado de tabla
                                 pdf.set_fill_color(230, 230, 230)
                                 pdf.cell(25, 8, "Fecha", 1, 0, 'C', True)
                                 pdf.cell(85, 8, "Descripción", 1, 0, 'C', True)
@@ -2652,16 +2654,14 @@ def mostrar_interfaz_mayor(f_ini_g, f_fin_g, db_nombre):
                                 pdf.cell(26, 8, "Haber", 1, 0, 'C', True)
                                 pdf.cell(26, 8, "Saldo", 1, 1, 'C', True)
                                 
-                                # Filas
                                 pdf.set_font("Arial", size=8)
                                 for _, fila in reporte.iterrows():
-                                    pdf.cell(25, 7, str(fila['fecha']), 1)
+                                    pdf.cell(25, 7, str(fila['fecha'])[:10], 1)
                                     pdf.cell(85, 7, str(fila['descripcion'])[:50], 1)
                                     pdf.cell(26, 7, f"{fila['debe']:,.2f}", 1, 0, 'R')
                                     pdf.cell(26, 7, f"{fila['haber']:,.2f}", 1, 0, 'R')
                                     pdf.cell(26, 7, f"{fila['Saldo']:,.2f}", 1, 1, 'R')
                                 
-                                # Totales finales
                                 pdf.ln(5)
                                 pdf.set_font("Arial", 'B', 10)
                                 pdf.cell(110, 8, "TOTALES GENERALES:", 0, 0, 'R')
@@ -2669,13 +2669,13 @@ def mostrar_interfaz_mayor(f_ini_g, f_fin_g, db_nombre):
                                 pdf.cell(26, 8, f"{t_haber:,.2f}", 1, 0, 'R')
                                 pdf.cell(26, 8, f"{s_final:,.2f}", 1, 1, 'R')
 
-                                # Botón de descarga
                                 pdf_bytes = pdf.output(dest='S').encode('latin-1')
                                 st.download_button(
                                     label="⬇️ Descargar Archivo PDF",
                                     data=pdf_bytes,
                                     file_name=f"Mayor_{st.session_state.cuenta_actual}.pdf",
-                                    mime="application/pdf"
+                                    mime="application/pdf",
+                                    key="dl_pdf_mayor_analitico"
                                 )
                             except Exception as e:
                                 st.error(f"Error generando PDF: {e}")
