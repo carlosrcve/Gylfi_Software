@@ -2049,11 +2049,12 @@ def mostrar_tablero_conciliacion(conn, mes_sel, ano_sel):
         banco_db = obtener_alias_banco(nombre_banco_sel) if 'obtener_alias_banco' in globals() else nombre_banco_sel
 
         # 5. CONSULTAS PRINCIPALES
-        # A. Saldo Banco
         sql_saldos = f"""SELECT saldo_inicial, saldo_final 
                         FROM `{db}`.saldos_bancarios 
-                        WHERE banco = %s AND mes = %s AND ano = %s"""
-        cursor.execute(sql_saldos, (banco_db, mes_sel, str(ano_sel)))
+                        WHERE (banco = %s OR banco LIKE %s) AND LOWER(mes) = LOWER(%s) AND CAST(ano AS CHAR) = %s"""
+        
+        # Probamos tanto el nombre seleccionado como una variante con comodines
+        cursor.execute(sql_saldos, (nombre_banco_sel, f"%{nombre_banco_sel}%", mes_sel, str(ano_sel)))
         res_banco = cursor.fetchone()
         saldo_inicial, saldo_final_banco = (float(res_banco[0]), float(res_banco[1])) if res_banco else (0.0, 0.0)
 
@@ -2061,9 +2062,9 @@ def mostrar_tablero_conciliacion(conn, mes_sel, ano_sel):
         query_saldo_anterior = f"""
             SELECT saldo_final 
             FROM `{db}`.saldos_bancarios 
-            WHERE banco = %s AND mes = %s AND ano = %s
+            WHERE (banco = %s OR banco LIKE %s) AND LOWER(mes) = LOWER(%s) AND CAST(ano AS CHAR) = %s
         """
-        cursor.execute(query_saldo_anterior, (banco_db, mes_anterior, str(ano_anterior)))
+        cursor.execute(query_saldo_anterior, (nombre_banco_sel, f"%{nombre_banco_sel}%", mes_anterior, str(ano_anterior)))
         res_anterior = cursor.fetchone()
         saldo_mes_anterior = float(res_anterior[0]) if res_anterior else 0.0
 
