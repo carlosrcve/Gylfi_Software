@@ -1389,6 +1389,112 @@ def _obtener_datos_agente_db_v2(valor_busqueda):
         if conn_central: conn_central.close()
 
 
+def cargar_asientos_contables_db(df, conn=None):
+    # 1. Obtener y asegurar la base de datos actual de la sesión
+    db_actual = st.session_state.get('DB_ACTUAL')
+    if not db_actual:
+        st.error("⚠️ No se ha seleccionado una base de datos de empresa en la sesión.")
+        return False
+
+    registrar_log_automatico(conn, "CONSULTA_BALANCE_GENERAL", f"Usuario {st.session_state.get('usuario', 'Admin')} intentó cargar asientos para {db_actual}")
+
+    # 2. Gestionar la conexión si no viene dada
+    if not conn:
+        conn = conectar_db(db_actual)
+    
+    if not conn: 
+        st.error("❌ No se pudo establecer conexión con la base de datos.")
+        return False
+        
+    try:
+        # --- LIMPIEZA DE DATOS CRÍTICA ---
+        df_limpio = df.copy()
+        
+        # 1. Convertir fecha y ELIMINAR filas donde la fecha sea nula (NaT)
+        df_limpio['Fecha'] = pd.to_datetime(df_limpio['Fecha'], errors='coerce')
+        df_limpio = df_limpio.dropna(subset=['Fecha']) 
+        
+        if df_limpio.empty:
+            st.warning("⚠️ No se encontraron fechas válidas en el archivo Excel.")
+            return False
+
+        # 2. VALIDACIÓN DE PERÍODOS BLOQUEADOS ANTES DE PROCESAR
+        # Extraemos los meses y años únicos que trae el Excel a importar
+        anios_meses_excel = set((row['Fecha'].year, row['Fecha'].month) for _, row in df_limpio.iterrows())
+        
+        cursor = conn.cursor()
+        for anio, mes in anios_meses_excel:
+            query_verificar_bloqueo = f"""
+                SELECT COUNT(*) FROM `{db_actual}`.asientos_contables 
+                WHERE YEAR(fecha) = %s AND MONTH(fecha) = %s AND bloqueado = 1
+            """
+            cursor.execute(query_verificar_bloqueo, (anio, mes))
+            resultado = cursor.fetchone()
+            
+            if resultado and resultado[0] > 0:
+                cursor.close()
+                st.error(f"❌ **Operación Denegada**: El período correspondiente al mes **{mes:02d}/{anio}** se encuentra **CERRADO y BLOQUEADO** en la empresa `{db_actual}`. No se pueden importar ni modificar transacciones en este período.")
+                return False
+
+        # 3. Asegurar que Debe y Haber sean números usando la función de limpieza
+        df_limpio['Debe'] = df_limpio['Debe'].apply(limpiar_moneda).round(2)
+        df_limpio['Haber'] = df_limpio['Haber'].apply(limpiar_moneda).round(2)
+
+        # 4. Armamos las tuplas forzando tipo de dato y validando
+        valores = []
+        for index, row in df_limpio.iterrows():
+            try:
+                tupla = (
+                    str(row['N_comprobante']), 
+                    str(row['Descripcion']), 
+                    row['Fecha'].strftime('%Y-%m-%d'), 
+                    str(row['plan_de_cuentas']), 
+                    str(row['cuenta_contable']), 
+                    str(row['Ref']), 
+                    float(row['Debe']), 
+                    float(row['Haber'])
+                )
+                valores.append(tupla)
+            except Exception as e:
+                st.error(f"Error en la fila {index + 1}: {e}")
+                continue 
+        
+        if not valores:
+            st.warning("⚠️ No se encontraron datos válidos para insertar.")
+            cursor.close()
+            return False
+
+        # 5. Inserción masiva si todo está abierto
+        query_insert = f"""
+            INSERT INTO `{db_actual}`.asientos_contables 
+            (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber) 
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        """
+        
+        cursor.executemany(query_insert, valores)
+        conn.commit()
+        cursor.close()
+        
+        st.success(f"✅ ¡Éxito! {len(valores)} asientos cargados correctamente en `{db_actual}`.")
+        return True
+
+    except Exception as e:
+        if conn: conn.rollback()
+        st.error(f"❌ Error masivo al insertar en la base de datos: {e}")
+        return False
+    finally:
+        if 'cursor' in locals() and cursor:
+            try:
+                cursor.close()
+            except:
+                pass
+        if conn:
+            try:
+                conn.ping(reconnect=True)
+            except:
+                pass
+
+
 def consultar_libro_diario_db(conn_activa=None, fecha_inicio=None, fecha_fin=None):
     # 1. Seguridad y Contexto
     usuario = st.session_state.get('usuario', 'Desconocido')
@@ -6261,7 +6367,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
                     nombre = str(c.get("nombre", "")).strip()
                     if codigo:
                         mapa_descripciones[codigo] = nombre
-                        opciones_desplegable.append(codigo)  # Guardamos solo el código puro
+                        opciones_desplegable.append(codigo)  
 
                 try:
                     cursor_opt.execute(f"SELECT * FROM `{db_segura}`.proveedores")
@@ -6346,6 +6452,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
             if st.button("🔄 Generar Estructura del Segundo Frame", key="btn_generar_segundo_frame"):
                 try:
                     filas_asiento_temporal = []
+                    fechas_en_mes_cerrado = 0
 
                     for idx, row in df_compras.iterrows():
                         def buscar_valor(posibles_nombres, default_val=0.0):
@@ -6368,7 +6475,13 @@ def renderizar_tab_asientos_automatizados(db_connection):
                             except Exception:
                                 fecha_op = val_str[:10] if val_str else ""
 
-                        # CORRECCIÓN CLAVE: Ampliación de nombres comunes para asegurar captura del Proveedor
+                        # ====================================================
+                        # VALIDACIÓN DE MES CERRADO (Ej. Mayo: mes '05')
+                        # ====================================================
+                        if fecha_op.startswith("2026-05") or fecha_op.startswith("2025-05"):
+                            fechas_en_mes_cerrado += 1
+                            continue  # Omite o previene generar registros para meses cerrados
+
                         razon_social = str(buscar_valor(["Nombre o Razón Social", "Nombre o Razon Social", "Razon Social", "Proveedor", "Nombre", "Contribuyente"], "Sin Nombre")).strip()
                         rif_val = str(buscar_valor(["R.I.F.", "RIF", "Cedula", "Cédula"], "")).strip().upper()
                         nro_doc = str(buscar_valor(["Número de Documento", "Numero de Documento", "Nro Documento", "Factura", "Nro. Factura", "Control"], f"{idx+1}")).strip()
@@ -6395,7 +6508,6 @@ def renderizar_tab_asientos_automatizados(db_connection):
 
                         n_comprobante_actual = f"{n_comprobante_base}-{nro_doc}"
 
-                        # Asegurándonos de que si el RIF viene vacío, no afecte feo el texto, o ponerlo prominente:
                         rif_formateado = f" | RIF: {rif_val}" if rif_val else ""
                         desc_base = f"Factura {nro_doc}{rif_formateado} - {razon_social}"
 
@@ -6515,6 +6627,9 @@ def renderizar_tab_asientos_automatizados(db_connection):
                             "haber": monto_haber_total
                         })
 
+                    if fechas_en_mes_cerrado > 0:
+                        st.warning(f"⚠️ Se omitieron {fechas_en_mes_cerrado} registros correspondientes a mayo (mes cerrado). No se permiten asientos en este período.")
+
                     st.session_state['df_asientos_proceso'] = pd.DataFrame(filas_asiento_temporal)
                     st.rerun()
 
@@ -6593,45 +6708,56 @@ def renderizar_tab_asientos_automatizados(db_connection):
                 )
 
                 if st.button("💾 Guardar Todo el Asiento en el Libro Diario", key="btn_guardar_asientos_finales", use_container_width=True):
-                    try:
-                        with db_connection.cursor() as cursor:
-                            cursor.execute(f"""
-                                CREATE TABLE IF NOT EXISTS `{db_segura}`.asientos_contables (
-                                    id INT AUTO_INCREMENT PRIMARY KEY,
-                                    n_comprobante VARCHAR(50),
-                                    descripcion TEXT,
-                                    fecha DATE,
-                                    plan_cuentas VARCHAR(100),
-                                    cuenta_contable VARCHAR(255),
-                                    referencia VARCHAR(100),
-                                    debe DECIMAL(15, 2) DEFAULT 0.00,
-                                    haber DECIMAL(15, 2) DEFAULT 0.00
-                                );
-                            """)
-                            
-                            for _, row in df_editado.iterrows():
-                                codigo_limpio = extraer_solo_codigo(row["plan_cuentas"])
+                    # ====================================================
+                    # VALIDACIÓN FINAL ANTES DE GUARDAR EN BASE DE DATOS
+                    # ====================================================
+                    fechas_invalidas = []
+                    for _, row in df_editado.iterrows():
+                        f_val = str(row["fecha"]).strip()
+                        if f_val.startswith("2026-05") or f_val.startswith("2025-05"):
+                            fechas_invalidas.append(f_val)
+
+                    if fechas_invalidas:
+                        st.error("❌ **Operación Bloqueada:** El archivo o los registros contienen fechas del mes de **mayo** (mes cerrado). No se pueden guardar asientos en un período cerrado.")
+                    else:
+                        try:
+                            with db_connection.cursor() as cursor:
                                 cursor.execute(f"""
-                                    INSERT INTO `{db_segura}`.asientos_contables 
-                                    (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber)
-                                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                                """, (
-                                    row["n_comprobante"],
-                                    row["descripcion"],
-                                    row["fecha"],
-                                    codigo_limpio,
-                                    row["cuenta_contable"],
-                                    row["referencia"],
-                                    row["debe"],
-                                    row["haber"]
-                                ))
-                            db_connection.commit()
-                            st.success("✅ ¡Asientos contables guardados exitosamente en el Libro Diario!")
-                    except Exception as db_err:
-                        st.error(f"Error al guardar en la base de datos: {db_err}")
+                                    CREATE TABLE IF NOT EXISTS `{db_segura}`.asientos_contables (
+                                        id INT AUTO_INCREMENT PRIMARY KEY,
+                                        n_comprobante VARCHAR(50),
+                                        descripcion TEXT,
+                                        fecha DATE,
+                                        plan_cuentas VARCHAR(100),
+                                        cuenta_contable VARCHAR(255),
+                                        referencia VARCHAR(100),
+                                        debe DECIMAL(15, 2) DEFAULT 0.00,
+                                        haber DECIMAL(15, 2) DEFAULT 0.00
+                                    );
+                                """)
+                                
+                                for _, row in df_editado.iterrows():
+                                    codigo_limpio = extraer_solo_codigo(row["plan_cuentas"])
+                                    cursor.execute(f"""
+                                        INSERT INTO `{db_segura}`.asientos_contables 
+                                        (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber)
+                                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                                    """, (
+                                        row["n_comprobante"],
+                                        row["descripcion"],
+                                        row["fecha"],
+                                        codigo_limpio,
+                                        row["cuenta_contable"],
+                                        row["referencia"],
+                                        row["debe"],
+                                        row["haber"]
+                                    ))
+                                db_connection.commit()
+                                st.success("✅ ¡Asientos contables guardados exitosamente en el Libro Diario!")
+                        except Exception as db_err:
+                            st.error(f"Error al guardar en la base de datos: {db_err}")
         except Exception as e:
             st.error(f"Error al leer el archivo Excel: {e}")
-
 
 
 def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
@@ -11389,7 +11515,7 @@ elif opcion_menu == "📝 Asientos Contables":
             else:
                 st.info(f"ℹ️ No se han encontrado asientos de cierre registrados para el año **{ano_sel}** en la empresa `{db_actual}`.")
 
-            
+
     elif sub_opcion == "Gestor Documental":
         st.subheader("📁 Gestor Documental en la Nube")
         st.markdown("Sube y administra comprobantes, transferencias, PDFs o archivos de Office de forma organizada.")
