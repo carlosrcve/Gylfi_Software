@@ -2375,7 +2375,6 @@ def generar_pdf_comprobante(df, n_comp, conn):
             f"Usuario {usuario_actual} generó PDF de comprobante {n_comp} para el cliente {cliente_id_actual} en la base de datos {db_actual}"
         )
     except Exception as log_error:
-        # Si falla el log, no detenemos la generación del PDF, pero queda constancia en consola
         print(f"Advertencia al registrar log automático: {log_error}")
 
     cursor = conn.cursor()
@@ -2430,7 +2429,14 @@ def generar_pdf_comprobante(df, n_comp, conn):
         pdf.cell(95, 5, "Preparado por", 0, 0, 'C')
         pdf.cell(95, 5, "Revisado por", 0, 1, 'C')
         
-        return pdf.output(dest='S').encode('latin-1')
+        # Generar salida del PDF adaptada a tipo string, bytes o bytearray
+        pdf_output = pdf.output(dest='S')
+        if isinstance(pdf_output, str):
+            return pdf_output.encode('latin-1')
+        elif isinstance(pdf_output, bytearray):
+            return bytes(pdf_output)
+        else:
+            return pdf_output
 
     finally:
         # Cierre seguro del cursor
@@ -2440,13 +2446,14 @@ def generar_pdf_comprobante(df, n_comp, conn):
             except Exception:
                 pass
         
-        # Mantener conexión activa de forma compatible con PyMySQL / conectores estándar
+        # Mantener conexión activa
         if conn:
             try:
                 if hasattr(conn, "ping"):
                     conn.ping(reconnect=True)
             except Exception as ping_error:
                 print(f"Error al hacer ping a la conexión MySQL: {ping_error}")
+                
 
 def mostrar_interfaz_mayor(f_ini_g, f_fin_g, db_nombre):
     st.subheader("📖 Libro Mayor Analítico")
