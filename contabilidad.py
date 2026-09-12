@@ -2806,6 +2806,69 @@ def generar_balance_profesional(conn, f_i, f_f, sucursal):
     finally:
         if cursor: cursor.close()
 
+def consultar_libro_diario_db(conn_activa=None, fecha_inicio=None, fecha_fin=None):
+    # 1. Seguridad y Contexto
+    usuario = st.session_state.get('usuario', 'Desconocido')
+    cliente = st.session_state.get('cliente_id', 'N/A')
+    db_a_usar = st.session_state.get('DB_ACTUAL')
+    
+    registrar_log_automatico(None, "CONSULTA_LIBRO_DIARIO", f"Usuario {usuario} consultó libro diario para {cliente}")
+    
+    if not db_a_usar:
+        return pd.DataFrame()
+
+    # 2. Conexión Inteligente (Solo conecta si no pasaste una activa)
+    conn = conn_activa if conn_activa else conectar_db(db_a_usar)
+    
+    if not conn or not conn.is_connected():
+        return pd.DataFrame()
+
+    try:
+        # 1. Preparar consulta
+        if fecha_inicio and fecha_fin:
+            query = "SELECT * FROM asientos_contables WHERE fecha BETWEEN %s AND %s ORDER BY id ASC"
+            params = (fecha_inicio, fecha_fin)
+        else:
+            query = "SELECT * FROM asientos_contables ORDER BY id ASC"
+            params = None
+        
+        # 2. Ejecución con pandas (pd.read_sql maneja su propio cursor, no necesitamos crear uno)
+        df = pd.read_sql(query, conn, params=params)
+        
+        # 3. Normalización Universal
+        if not df.empty:
+            df.columns = [c.lower() for c in df.columns]
+            
+            mapeo = {
+                'plan_cuentas': 'plan_de_cuentas',
+                'cuenta': 'plan_de_cuentas',
+                'monto_debe': 'debe',
+                'monto_haber': 'haber',
+                'debito': 'debe',
+                'credito': 'haber'
+            }
+            df.rename(columns=mapeo, inplace=True)
+            
+            # Verificación de integridad
+            if not all(col in df.columns for col in ['debe', 'haber']):
+                st.error(f"⚠️ Estructura incompatible. Columnas: {df.columns.tolist()}")
+                return pd.DataFrame()
+            
+            return df
+        
+        return pd.DataFrame()
+        
+    except Exception as e:
+        st.error(f"Error procesando base de datos: {e}")
+        return pd.DataFrame()
+        
+    finally:
+        # Solo hacemos ping si la conexión fue creada DENTRO de la función.
+        # Si la pasamos desde fuera (conn_activa), es mejor que el código que la abrió la cierre.
+        if not conn_activa and conn and conn.is_connected():
+            conn.ping(reconnect=True)
+
+
 
 def ejecutar_mayor_analitico(db_nombre, cuenta, fecha_desde, fecha_hasta):
     """
@@ -2834,7 +2897,6 @@ def ejecutar_mayor_analitico(db_nombre, cuenta, fecha_desde, fecha_hasta):
         if not empresa_data:
             st.warning("⚠️ No se pudieron cargar los datos de la empresa desde Control Central.")
     except Exception as e:
-        # Si la función auxiliar no está en este ámbito, se omite de forma segura
         pass
 
     conn = None
