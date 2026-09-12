@@ -1963,11 +1963,6 @@ def crear_pdf_conciliacion(conn, df_conciliado, saldo_inicial, saldo_final_banco
                 pass
 
 
-
-import calendar
-import pandas as pd
-import streamlit as st
-
 def mostrar_tablero_conciliacion(conn, mes_sel, ano_sel):
     st.title("⚖️ Conciliación Bancaria")
 
@@ -2073,7 +2068,7 @@ def mostrar_tablero_conciliacion(conn, mes_sel, ano_sel):
         res_anterior = cursor.fetchone()
         saldo_mes_anterior = float(res_anterior[0]) if res_anterior else 0.0
 
-        # C. Movimientos del mes (Búsqueda robusta por código, nombre y patrón de cuenta)
+        # C. Movimientos del mes (Búsqueda robusta por código, nombre y patrón de cuenta en la tabla asientos_contables)
         query_movimientos_mes = f"""
             SELECT IFNULL(SUM(debe), 0.0), IFNULL(SUM(haber), 0.0) 
             FROM `{db}`.asientos_contables 
@@ -2081,14 +2076,14 @@ def mostrar_tablero_conciliacion(conn, mes_sel, ano_sel):
                 TRIM(cuenta_contable) = TRIM(%s) OR 
                 TRIM(cuenta_contable) = TRIM(%s) OR 
                 TRIM(plan_cuentas) = TRIM(%s) OR
+                TRIM(plan_cuentas) = TRIM(%s) OR
                 cuenta_contable LIKE %s
             ) 
             AND fecha BETWEEN %s AND %s
         """
-        # Creamos un patrón de búsqueda flexible (ej: '1.1.1.02%') por si el asiento guarda subauxiliares
         patron_cuenta = f"{cuenta_codigo}%"
         
-        cursor.execute(query_movimientos_mes, (cuenta_codigo, nombre_banco_sel, cuenta_codigo, patron_cuenta, fecha_inicio, fecha_fin))
+        cursor.execute(query_movimientos_mes, (cuenta_codigo, nombre_banco_sel, cuenta_codigo, nombre_banco_sel, patron_cuenta, fecha_inicio, fecha_fin))
         res_mov = cursor.fetchone()
         
         debe_mes = float(res_mov[0]) if res_mov and res_mov[0] is not None else 0.0
@@ -2113,7 +2108,8 @@ def mostrar_tablero_conciliacion(conn, mes_sel, ano_sel):
             "Periodo": f"{mes_sel} {ano_sel} ({fecha_inicio} al {fecha_fin})",
             "Saldo Banco Encontrado": res_banco,
             "Debe Mes Encontrado": debe_mes,
-            "Haber Mes Encontrado": haber_mes
+            "Haber Mes Encontrado": haber_mes,
+            "Saldo Final Libros Calculado": saldo_final_libros
         }
 
     except Exception as e:
@@ -2126,10 +2122,10 @@ def mostrar_tablero_conciliacion(conn, mes_sel, ano_sel):
     finally:
         cursor.close()
 
-    # 🛠️ Panel de Diagnóstico Visual (para ver por qué sale 0.00)
+    # 🛠️ Panel de Diagnóstico Visual (para verificar montos y columnas)
     with st.expander("🔍 Ver Diagnóstico de Datos (Depuración)", expanded=False):
         st.json(debug_info)
-        st.info("💡 Si ves valores en `None` o `0.0`, significa que la tabla `saldos_bancarios` o `asientos_contables` no tiene registros coincidentes para los filtros mostrados arriba.")
+        st.info("💡 Si ves valores en `None` o `0.0`, revisa en el JSON si el Debe o Haber están capturando los montos correctamente.")
 
     # 🛠️ Formato venezolano
     def formato_venezolano(val):
