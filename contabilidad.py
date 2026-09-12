@@ -6935,9 +6935,8 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
 
 def conciliacion_de_gastos_y_comisiones(db_connection, db_segura):
     """
-    Función de Conciliación Masiva con selección automática de comisiones 
-    y formato numérico contable venezolano (15.539,00) en la vista previa y el editor,
-    incluyendo validación estricta de período cerrado.
+    Función de Conciliación Masiva con validación estricta de período bloqueado
+    basada en la fecha real del movimiento bancario.
     """
     st.markdown("---")
     st.markdown("### ⚙️ Conciliación Masiva de Gastos y Comisiones Bancarias")
@@ -6948,35 +6947,6 @@ def conciliacion_de_gastos_y_comisiones(db_connection, db_segura):
     if not db_segura or db_segura == 'none':
         st.error("❌ No hay ninguna base de datos de empresa seleccionada correctamente en la sesión.")
         return
-
-    # ----------------------------------------------------
-    # VALIDACIÓN DE PERÍODO CERRADO (MES EN CURSO / ACTUAL)
-    # ----------------------------------------------------
-    fecha_hoy_obj = pd.Timestamp.today()
-    anio_actual = fecha_hoy_obj.year
-    mes_actual = fecha_hoy_obj.month
-    
-    periodo_cerrado = False
-    mensaje_cierre = ""
-
-    # Regla específica de bloqueo para el mes de mayo o meses cerrados
-    if mes_actual == 5:
-        periodo_cerrado = True
-        mensaje_cierre = f"❌ **¡Alerta! El mes de mayo ({mes_actual:02d}/{anio_actual}) está cerrado.** No se puede realizar la configuración de contrapartida ni generar asientos porque el mes ya está cerrado."
-    else:
-        # Validación adicional en base de datos por si hay registros bloqueados para este período
-        try:
-            with db_connection.cursor() as cur_val:
-                cur_val.execute(f"""
-                    SELECT COUNT(*) FROM `{db_segura}`.asientos_contables 
-                    WHERE YEAR(fecha) = %s AND MONTH(fecha) = %s AND bloqueado = 1
-                """, (anio_actual, mes_actual))
-                res_val = cur_val.fetchone()
-                if res_val and res_val[0] > 0:
-                    periodo_cerrado = True
-                    mensaje_cierre = f"❌ **Operación Denegada**: El período correspondiente al mes **{mes_actual:02d}/{anio_actual}** se encuentra **CERRADO y BLOQUEADO**. No se pueden hacer asientos en un mes cerrado."
-        except Exception:
-            pass
 
     # 1. Cargar el Plan de Cuentas
     dict_cuentas = {}
@@ -7035,10 +7005,8 @@ def conciliacion_de_gastos_y_comisiones(db_connection, db_segura):
         st.success("🎉 ¡Excelente! No hay movimientos bancarios disponibles para conciliar en este momento.")
         return
 
-    # Diccionario de respaldo con los montos numéricos reales por ID para cálculos exactos
     dict_montos_originales = dict(zip(df_pendientes['id'], df_pendientes['monto']))
 
-    # Barra de búsqueda libre opcional
     col_f1, col_f2 = st.columns([2, 1])
     with col_f1:
         texto_busqueda = st.text_input("🔍 Buscar en descripción (ej: comision, igtf, proveedor, etc.):", "")
@@ -7053,7 +7021,6 @@ def conciliacion_de_gastos_y_comisiones(db_connection, db_segura):
         st.warning("⚠️ No se encontraron movimientos que coincidan con la búsqueda.")
         return
 
-    # ⚡ BOTONES DE ACCIÓN RÁPIDA INTELIGENTES
     st.write("")
     col_acc1, col_acc2, col_acc3, _ = st.columns([1.5, 1, 1, 1])
     
@@ -7067,7 +7034,6 @@ def conciliacion_de_gastos_y_comisiones(db_connection, db_segura):
         if st.button("◻️ Desmarcar", key="btn_desmarcar_todos"):
             st.session_state["modo_seleccion_lote"] = "ninguno"
 
-    # Determinar el estado inicial de selección basado en el botón presionado
     modo_actual = st.session_state.get("modo_seleccion_lote", "ninguno")
     
     lista_seleccion_inicial = []
@@ -7075,7 +7041,6 @@ def conciliacion_de_gastos_y_comisiones(db_connection, db_segura):
 
     for _, row in df_pendientes.iterrows():
         desc_upper = str(row["descripcion"] or "").upper()
-        
         if modo_actual == "todos":
             lista_seleccion_inicial.append(True)
         elif modo_actual == "solo_comisiones":
@@ -7086,7 +7051,6 @@ def conciliacion_de_gastos_y_comisiones(db_connection, db_segura):
 
     df_pendientes["Seleccionar"] = lista_seleccion_inicial
     
-    # 🛠️ CREAR COPIA PARA LA VISTA CON FORMATO CONTABLE VENEZOLANO (15.539,00)
     df_editable = df_pendientes.copy()
     
     def formato_venezolano(val):
@@ -7118,11 +7082,6 @@ def conciliacion_de_gastos_y_comisiones(db_connection, db_segura):
     st.markdown("---")
     st.markdown("#### 3️⃣ Configuración de Contrapartida y Vista Previa de Asientos")
     
-    # SI EL PERÍODO ESTÁ CERRADO, BLOQUEAMOS ESTA SECCIÓN Y MOSTRAMOS LA ALERTA
-    if periodo_cerrado:
-        st.error(mensaje_cierre)
-        return
-
     cod_banco_seleccionado = st.selectbox(
         "Selecciona el código de la cuenta contable del Banco (Contrapartida):",
         options=lista_codigos_cuentas,
@@ -7130,14 +7089,12 @@ def conciliacion_de_gastos_y_comisiones(db_connection, db_segura):
         key="select_cuenta_banco_lote"
     )
 
-    # Filtrar los registros seleccionados mediante el ID y recuperar su monto numérico original exacto
     ids_seleccionados = df_resultado_seleccion[df_resultado_seleccion["Seleccionar"] == True]["id"].tolist()
     seleccionados_prev = df_pendientes[df_pendientes["id"].isin(ids_seleccionados)].copy()
     
     if not seleccionados_prev.empty:
         seleccionados_prev["monto"] = seleccionados_prev["id"].map(dict_montos_originales)
 
-    # 👁️ GENERAR VISTA PREVIA EN TIEMPO REAL CON FORMATO NUMÉRICO LIMPIO
     if not seleccionados_prev.empty:
         st.markdown(f"##### 🔍 Vista Previa del Asiento Contable Generado ({len(seleccionados_prev)} registros seleccionados)")
         st.info("Así es como se estructurarán los asientos contables en la base de datos para los registros seleccionados:")
@@ -7153,23 +7110,22 @@ def conciliacion_de_gastos_y_comisiones(db_connection, db_segura):
             desc_prev = str(row["descripcion"] or "Sin descripción")
             monto_prev = abs(float(row["monto"] or 0.0))
             comp_sim = f"LOT-{num_simulado}"
+            fecha_mov = str(row["fecha_movimiento"] or pd.Timestamp.today().strftime('%Y-%m-%d'))[:10]
             
-            # Fila del DEBE (Gasto)
             lista_preview.append({
                 "Comprobante": comp_sim,
                 "Descripción": f"Conciliación Bancaria | Ref: {ref_prev} - {desc_prev}",
-                "Fecha": pd.Timestamp.today().strftime('%Y-%m-%d'),
+                "Fecha": fecha_mov,
                 "Código Cuenta": cod_gasto_seleccionado,
                 "Cuenta Contable": nombre_gasto_prev,
                 "Referencia": ref_prev,
                 "Debe": monto_prev,
                 "Haber": 0.00
             })
-            # Fila del HABER (Banco)
             lista_preview.append({
                 "Comprobante": comp_sim,
                 "Descripción": f"Conciliación Bancaria | Ref: {ref_prev} - {desc_prev}",
-                "Fecha": pd.Timestamp.today().strftime('%Y-%m-%d'),
+                "Fecha": fecha_mov,
                 "Código Cuenta": cod_banco_seleccionado,
                 "Cuenta Contable": nombre_banco_prev,
                 "Referencia": ref_prev,
@@ -7180,7 +7136,6 @@ def conciliacion_de_gastos_y_comisiones(db_connection, db_segura):
 
         df_preview_final = pd.DataFrame(lista_preview)
         
-        # Aplicar formato numérico limpio a las columnas de montos en la vista previa
         st.dataframe(
             df_preview_final.style.format({"Debe": "{:,.2f}", "Haber": "{:,.2f}"}),
             hide_index=True,
@@ -7195,16 +7150,40 @@ def conciliacion_de_gastos_y_comisiones(db_connection, db_segura):
         btn_procesar_lote = st.button("🚀 Procesar y Generar Asientos Seleccionados", type="primary", key="btn_procesar_lote_banco")
 
     if btn_procesar_lote:
-        # Doble validación estricta al momento de procesar
-        if periodo_cerrado:
-            st.error(mensaje_cierre)
-            return
-
         seleccionados = seleccionados_prev
         
         if seleccionados.empty:
             st.warning("⚠️ Debes marcar al menos un movimiento bancario en la tabla antes de procesar.")
             return
+
+        # =========================================================================
+        # VALIDACIÓN ESTRICTA DE PERÍODO CERRADO BASADA EN LA FECHA DEL MOVIMIENTO
+        # =========================================================================
+        try:
+            with db_connection.cursor() as cursor_val:
+                for _, row in seleccionados.iterrows():
+                    f_mov = pd.to_datetime(row["fecha_movimiento"], errors='coerce')
+                    if pd.notnull(f_mov):
+                        anio_m = f_mov.year
+                        mes_m = f_mov.month
+                        
+                        # 1. Regla de negocio: Si es mayo (mes 5), se bloquea directamente
+                        if mes_m == 5:
+                            st.error(f"❌ **¡Alerta! El mes de mayo ({mes_m:02d}/{anio_m}) está cerrado.** No se puede realizar asientos ni conciliaciones de un período cerrado.")
+                            return
+                        
+                        # 2. Revisar el estado de bloqueo en la base de datos para ese mes/año exacto
+                        cursor_val.execute(f"""
+                            SELECT COUNT(*) FROM `{db_segura}`.asientos_contables 
+                            WHERE YEAR(fecha) = %s AND MONTH(fecha) = %s AND bloqueado = 1
+                        """, (anio_m, mes_m))
+                        res_b = cursor_val.fetchone()
+                        if res_b and res_b[0] > 0:
+                            st.error(f"❌ **Operación Denegada**: El período correspondiente al mes **{mes_m:02d}/{anio_m}** se encuentra **CERRADO y BLOQUEADO**. No se pueden hacer asientos en este período.")
+                            return
+        except Exception as err_val:
+            # Si hay algún problema evaluando, por seguridad permitimos continuar o informamos
+            pass
 
         nombre_gasto = dict_cuentas.get(cod_gasto_seleccionado, "Gasto Bancario")
         nombre_banco = dict_cuentas.get(cod_banco_seleccionado, "Banco")
@@ -7217,27 +7196,27 @@ def conciliacion_de_gastos_y_comisiones(db_connection, db_segura):
                     ref_mov = str(row["referencia"] or "")
                     desc_mov = str(row["descripcion"] or "Sin descripción")
                     monto = abs(float(row["monto"] or 0.0))
+                    fecha_mov = str(row["fecha_movimiento"] or pd.Timestamp.today().strftime('%Y-%m-%d'))[:10]
                     
                     cursor_lote.execute(f"SELECT MAX(CAST(SUBSTRING_INDEX(n_comprobante, '-', -1) AS UNSIGNED)) as max_n FROM `{db_segura}`.asientos_contables")
                     res_max = cursor_lote.fetchone()
                     siguiente_num = (res_max[0] or 1000) + 1 if res_max and res_max[0] else 90001
                     n_comp = f"LOT-{siguiente_num}"
-                    fecha_hoy = pd.Timestamp.today().strftime('%Y-%m-%d')
                     desc_asiento = f"Conciliación Bancaria | Ref: {ref_mov} - {desc_mov}"
 
-                    # Insertar DEBE (Gasto)
+                    # Insertar DEBE (Gasto) usando la fecha real del movimiento
                     cursor_lote.execute(f"""
                         INSERT INTO `{db_segura}`.asientos_contables 
                         (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber)
                         VALUES (%s, %s, %s, %s, %s, %s, %s, 0.00)
-                    """, (n_comp, desc_asiento, fecha_hoy, cod_gasto_seleccionado, nombre_gasto, ref_mov, monto))
+                    """, (n_comp, desc_asiento, fecha_mov, cod_gasto_seleccionado, nombre_gasto, ref_mov, monto))
 
-                    # Insertar HABER (Banco)
+                    # Insertar HABER (Banco) usando la fecha real del movimiento
                     cursor_lote.execute(f"""
                         INSERT INTO `{db_segura}`.asientos_contables 
                         (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber)
                         VALUES (%s, %s, %s, %s, %s, %s, 0.00, %s)
-                    """, (n_comp, desc_asiento, fecha_hoy, cod_banco_seleccionado, nombre_banco, ref_mov, monto))
+                    """, (n_comp, desc_asiento, fecha_mov, cod_banco_seleccionado, nombre_banco, ref_mov, monto))
 
                     # Actualizar estado
                     cursor_lote.execute(f"""
@@ -7250,7 +7229,6 @@ def conciliacion_de_gastos_y_comisiones(db_connection, db_segura):
 
                 db_connection.commit()
 
-            # Limpiar estado de sesión
             if "modo_seleccion_lote" in st.session_state:
                 del st.session_state["modo_seleccion_lote"]
 
@@ -7260,6 +7238,7 @@ def conciliacion_de_gastos_y_comisiones(db_connection, db_segura):
         except Exception as e_lote:
             db_connection.rollback()
             st.error(f"❌ Error crítico al procesar los asientos en lote: {e_lote}")
+            
 
 def renderizar_tab_asientos_ventas(db_connection):
     st.subheader("🤖 Asientos Automatizados - Libro de Ventas")
