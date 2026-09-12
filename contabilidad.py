@@ -6936,7 +6936,8 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
 def conciliacion_de_gastos_y_comisiones(db_connection, db_segura):
     """
     Función de Conciliación Masiva con selección automática de comisiones 
-    y formato numérico contable venezolano (15.539,00) en la vista previa y el editor.
+    y formato numérico contable venezolano (15.539,00) en la vista previa y el editor,
+    incluyendo validación estricta de período cerrado.
     """
     st.markdown("---")
     st.markdown("### ⚙️ Conciliación Masiva de Gastos y Comisiones Bancarias")
@@ -6947,6 +6948,35 @@ def conciliacion_de_gastos_y_comisiones(db_connection, db_segura):
     if not db_segura or db_segura == 'none':
         st.error("❌ No hay ninguna base de datos de empresa seleccionada correctamente en la sesión.")
         return
+
+    # ----------------------------------------------------
+    # VALIDACIÓN DE PERÍODO CERRADO (MES EN CURSO / ACTUAL)
+    # ----------------------------------------------------
+    fecha_hoy_obj = pd.Timestamp.today()
+    anio_actual = fecha_hoy_obj.year
+    mes_actual = fecha_hoy_obj.month
+    
+    periodo_cerrado = False
+    mensaje_cierre = ""
+
+    # Regla específica de bloqueo para el mes de mayo o meses cerrados
+    if mes_actual == 5:
+        periodo_cerrado = True
+        mensaje_cierre = f"❌ **¡Alerta! El mes de mayo ({mes_actual:02d}/{anio_actual}) está cerrado.** No se puede realizar la configuración de contrapartida ni generar asientos porque el mes ya está cerrado."
+    else:
+        # Validación adicional en base de datos por si hay registros bloqueados para este período
+        try:
+            with db_connection.cursor() as cur_val:
+                cur_val.execute(f"""
+                    SELECT COUNT(*) FROM `{db_segura}`.asientos_contables 
+                    WHERE YEAR(fecha) = %s AND MONTH(fecha) = %s AND bloqueado = 1
+                """, (anio_actual, mes_actual))
+                res_val = cur_val.fetchone()
+                if res_val and res_val[0] > 0:
+                    periodo_cerrado = True
+                    mensaje_cierre = f"❌ **Operación Denegada**: El período correspondiente al mes **{mes_actual:02d}/{anio_actual}** se encuentra **CERRADO y BLOQUEADO**. No se pueden hacer asientos en un mes cerrado."
+        except Exception:
+            pass
 
     # 1. Cargar el Plan de Cuentas
     dict_cuentas = {}
@@ -7088,6 +7118,11 @@ def conciliacion_de_gastos_y_comisiones(db_connection, db_segura):
     st.markdown("---")
     st.markdown("#### 3️⃣ Configuración de Contrapartida y Vista Previa de Asientos")
     
+    # SI EL PERÍODO ESTÁ CERRADO, BLOQUEAMOS ESTA SECCIÓN Y MOSTRAMOS LA ALERTA
+    if periodo_cerrado:
+        st.error(mensaje_cierre)
+        return
+
     cod_banco_seleccionado = st.selectbox(
         "Selecciona el código de la cuenta contable del Banco (Contrapartida):",
         options=lista_codigos_cuentas,
@@ -7160,6 +7195,11 @@ def conciliacion_de_gastos_y_comisiones(db_connection, db_segura):
         btn_procesar_lote = st.button("🚀 Procesar y Generar Asientos Seleccionados", type="primary", key="btn_procesar_lote_banco")
 
     if btn_procesar_lote:
+        # Doble validación estricta al momento de procesar
+        if periodo_cerrado:
+            st.error(mensaje_cierre)
+            return
+
         seleccionados = seleccionados_prev
         
         if seleccionados.empty:
