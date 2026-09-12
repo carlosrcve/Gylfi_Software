@@ -2053,10 +2053,10 @@ def mostrar_tablero_conciliacion(conn, mes_sel, ano_sel):
         
         if res_banco:
             saldo_inicial = float(res_banco[0]) if res_banco[0] is not None else 0.0
-            saldo_final_banco = float(res_banco[1]) if res_banco[1] is not None else 0.0
+            saldo_final_banco_tabla = float(res_banco[1]) if res_banco[1] is not None else 0.0
         else:
             saldo_inicial = 0.0
-            saldo_final_banco = 0.0
+            saldo_final_banco_tabla = 0.0
 
         # B. Saldo Libros (Mes anterior)
         query_saldo_anterior = f"""
@@ -2068,9 +2068,9 @@ def mostrar_tablero_conciliacion(conn, mes_sel, ano_sel):
         res_anterior = cursor.fetchone()
         saldo_mes_anterior = float(res_anterior[0]) if res_anterior else 0.0
 
-        # C. Movimientos del mes (Búsqueda robusta por código, nombre y patrón de cuenta en la tabla asientos_contables)
+        # C. Movimientos del mes en la tabla asientos_contables
         query_movimientos_mes = f"""
-            SELECT IFNULL(SUM(debe), 0.0), IFNULL(SUM(haber), 0.0) 
+            SELECT IFNULL(SUM(debe), 0.0), IFNULL(SUM(haber), 0.0), COUNT(*) 
             FROM `{db}`.asientos_contables 
             WHERE (
                 TRIM(cuenta_contable) = TRIM(%s) OR 
@@ -2088,9 +2088,18 @@ def mostrar_tablero_conciliacion(conn, mes_sel, ano_sel):
         
         debe_mes = float(res_mov[0]) if res_mov and res_mov[0] is not None else 0.0
         haber_mes = float(res_mov[1]) if res_mov and res_mov[1] is not None else 0.0
+        cantidad_asientos = int(res_mov[2]) if res_mov and res_mov[2] is not None else 0
 
-        # FÓRMULA CONTABLE EXACTA: Saldo Inicial + Debe - Haber = Saldo Final en Libros
-        saldo_final_libros = saldo_inicial + debe_mes - haber_mes
+        # LÓGICA HÍBRIDA CONTABLE:
+        # Si existen asientos contables detallados en el mes, aplicamos: Saldo Inicial + Debe - Haber.
+        # Si NO hay asientos en el mes (ej. meses previos a mayo), usamos directamente el saldo final guardado en la tabla saldos_bancarios.
+        if cantidad_asientos > 0:
+            saldo_final_libros = saldo_inicial + debe_mes - haber_mes
+        else:
+            saldo_final_libros = saldo_final_banco_tabla
+
+        # El saldo final de banco oficial para comparar en el tablero viene de la tabla saldos_bancarios
+        saldo_final_banco = saldo_final_banco_tabla
 
         # D. Movimientos de Banco
         query_mov_pendientes = f"SELECT * FROM `{db}`.banco_movimientos WHERE estado_conciliacion = 'Pendiente' AND fecha_movimiento BETWEEN %s AND %s"
