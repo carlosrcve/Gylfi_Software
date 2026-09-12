@@ -1489,7 +1489,7 @@ def cargar_asientos_contables_db(df, conn=None):
         st.success(f"✅ ¡Éxito! {len(valores)} asientos cargados correctamente en `{db_actual}`.")
         return True
 
-     except Exception as e:
+    except Exception as e:
         if conn: conn.rollback()
         st.error(f"❌ Error masivo al insertar en la base de datos: {e}")
         return False
