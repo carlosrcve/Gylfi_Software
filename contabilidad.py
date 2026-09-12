@@ -2578,7 +2578,7 @@ def mostrar_interfaz_mayor(f_ini_g, f_fin_g, db_nombre):
 
                 if st.button("🔍 Generar Movimientos"):
                     # Asumimos que ejecutar_mayor_analitico retorna el reporte completo y los movimientos puros
-                    res_reporte, saldo_inicial_periodo = ejecutar_mayor_analitico(db_nombre, cuenta_sel, f_m_d, f_m_h)
+                    res_reporte, _, saldo_final_real = ejecutar_mayor_analitico(db_nombre, cuenta_sel, f_m_d, f_m_h)
                     
                     if not res_reporte.empty:
                         st.session_state.reporte_mayor = res_reporte
