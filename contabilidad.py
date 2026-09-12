@@ -1964,6 +1964,10 @@ def crear_pdf_conciliacion(conn, df_conciliado, saldo_inicial, saldo_final_banco
 
 
 
+import calendar
+import pandas as pd
+import streamlit as st
+
 def mostrar_tablero_conciliacion(conn, mes_sel, ano_sel):
     st.title("⚖️ Conciliación Bancaria")
 
@@ -1988,10 +1992,8 @@ def mostrar_tablero_conciliacion(conn, mes_sel, ano_sel):
                 nombre_empresa_mostrada = res_cliente[0]
                 rif_empresa = res_cliente[1]
     except Exception:
-        # Si ocurre un fallo en control_central, mantenemos el nombre de la BD por defecto
         pass
 
-    # Mostrar la tarjeta informativa de la empresa actual en pantalla
     st.markdown(f"### 🏢 Empresa: **{nombre_empresa_mostrada}** {f'(RIF: {rif_empresa})' if rif_empresa else ''}")
     st.divider()
 
@@ -2006,7 +2008,7 @@ def mostrar_tablero_conciliacion(conn, mes_sel, ano_sel):
     ultimo_dia = calendar.monthrange(int(ano_sel), int(mes_num))[1]
     fecha_fin = f"{ano_sel}-{mes_num}-{ultimo_dia:02d}"
 
-    # Cálculo dinámico del mes anterior para el saldo inicial en libros
+    # Cálculo dinámico del mes anterior
     meses_lista = list(meses_dict.keys())
     idx_mes_actual = meses_lista.index(mes_sel)
     if idx_mes_actual == 0:
@@ -2016,7 +2018,10 @@ def mostrar_tablero_conciliacion(conn, mes_sel, ano_sel):
         mes_anterior = meses_lista[idx_mes_actual - 1]
         ano_anterior = str(ano_sel)
 
-    # 4. CARGA DE BANCOS (Usando la DB ya seleccionada)
+    # Inicializar variables de depuración
+    debug_info = {}
+
+    # 4. CARGA DE BANCOS
     try:
         query_bancos = f"""
             SELECT nombre, codigo FROM `{db}`.plan_cuentas 
@@ -2025,7 +2030,6 @@ def mostrar_tablero_conciliacion(conn, mes_sel, ano_sel):
         cursor.execute(query_bancos)
         bancos_dict = {b[0]: b[1] for b in cursor.fetchall()}
         
-        # PLAN B: Si no encuentra cuentas con la palabra BANCO
         if not bancos_dict:
             query_alternativa = f"""
                 SELECT nombre, codigo FROM `{db}`.plan_cuentas 
@@ -2035,16 +2039,14 @@ def mostrar_tablero_conciliacion(conn, mes_sel, ano_sel):
             bancos_dict = {b[0]: b[1] for b in cursor.fetchall()}
 
         if not bancos_dict:
-            st.warning(f"⚠️ No se encontraron cuentas bancarias o de activo en el plan de cuentas de la empresa ({db}). Revisa tu catastro de cuentas.")
+            st.warning(f"⚠️ No se encontraron cuentas bancarias o de activo en el plan de cuentas de la empresa ({db}).")
             cursor.close()
             return
 
-        # Selector de Banco seguro dentro del cuerpo
         nombre_banco_sel = st.selectbox("Seleccione Banco", list(bancos_dict.keys()), key="select_banco_tablero_seguro")
         cuenta_codigo = bancos_dict[nombre_banco_sel]
         
-        # Transformación de nombre para la BD (Alias)
-        banco_db = obtener_alias_banco(nombre_banco_sel)
+        banco_db = obtener_alias_banco(nombre_banco_sel) if 'obtener_alias_banco' in globals() else nombre_banco_sel
 
         # 5. CONSULTAS PRINCIPALES
         # A. Saldo Banco
@@ -2055,7 +2057,7 @@ def mostrar_tablero_conciliacion(conn, mes_sel, ano_sel):
         res_banco = cursor.fetchone()
         saldo_inicial, saldo_final_banco = (float(res_banco[0]), float(res_banco[1])) if res_banco else (0.0, 0.0)
 
-        # B. Saldo Libros (Dinámico con el mes anterior correcto)
+        # B. Saldo Libros (Mes anterior)
         query_saldo_anterior = f"""
             SELECT saldo_final 
             FROM `{db}`.saldos_bancarios 
@@ -2065,25 +2067,37 @@ def mostrar_tablero_conciliacion(conn, mes_sel, ano_sel):
         res_anterior = cursor.fetchone()
         saldo_mes_anterior = float(res_anterior[0]) if res_anterior else 0.0
 
-        # Obtener movimientos del mes seleccionado de forma segura
+        # C. Movimientos del mes (Probamos buscando por CÓDIGO de cuenta y por NOMBRE por si acaso)
         query_movimientos_mes = f"""
             SELECT IFNULL(SUM(debe), 0.0), IFNULL(SUM(haber), 0.0) 
             FROM `{db}`.asientos_contables 
-            WHERE TRIM(cuenta_contable) = TRIM(%s) 
+            WHERE (TRIM(cuenta_contable) = TRIM(%s) OR TRIM(cuenta_contable) = TRIM(%s)) 
             AND fecha BETWEEN %s AND %s
         """
-        cursor.execute(query_movimientos_mes, (cuenta_codigo, fecha_inicio, fecha_fin))
-        debe_mes, haber_mes = cursor.fetchone()
+        cursor.execute(query_movimientos_mes, (cuenta_codigo, nombre_banco_sel, fecha_inicio, fecha_fin))
+        res_mov = cursor.fetchone()
+        debe_mes, haber_mes = res_mov if res_mov else (0.0, 0.0)
 
-        # Cálculo final de libros
         saldo_final_libros = saldo_mes_anterior + (float(debe_mes) - float(haber_mes))
 
-        # C. Movimientos de Banco (Pendientes y Conciliados)
+        # D. Movimientos de Banco
         query_mov_pendientes = f"SELECT * FROM `{db}`.banco_movimientos WHERE estado_conciliacion = 'Pendiente' AND fecha_movimiento BETWEEN %s AND %s"
-        df_banco = ejecutar_consulta(query_mov_pendientes, conn, params=(fecha_inicio, fecha_fin))
+        df_banco = ejecutar_consulta(query_mov_pendientes, conn, params=(fecha_inicio, fecha_fin)) if 'ejecutar_consulta' in globals() else pd.DataFrame()
 
         query_mov_conciliados = f"SELECT * FROM `{db}`.banco_movimientos WHERE estado_conciliacion = 'Conciliado' AND fecha_movimiento BETWEEN %s AND %s"
-        df_conciliado = ejecutar_consulta(query_mov_conciliados, conn, params=(fecha_inicio, fecha_fin))
+        df_conciliado = ejecutar_consulta(query_mov_conciliados, conn, params=(fecha_inicio, fecha_fin)) if 'ejecutar_consulta' in globals() else pd.DataFrame()
+
+        # Guardar datos para depuración visual
+        debug_info = {
+            "Base de Datos": db,
+            "Banco Seleccionado": nombre_banco_sel,
+            "Código de Cuenta": cuenta_codigo,
+            "Alias Buscado en Saldos": banco_db,
+            "Periodo": f"{mes_sel} {ano_sel} ({fecha_inicio} al {fecha_fin})",
+            "Saldo Banco Encontrado": res_banco,
+            "Debe Mes Encontrado": debe_mes,
+            "Haber Mes Encontrado": haber_mes
+        }
 
     except Exception as e:
         st.error(f"Error en la consulta para {db}: {e}")
@@ -2095,7 +2109,12 @@ def mostrar_tablero_conciliacion(conn, mes_sel, ano_sel):
     finally:
         cursor.close()
 
-    # 🛠️ Función auxiliar de formato venezolano para montos
+    # 🛠️ Panel de Diagnóstico Visual (para ver por qué sale 0.00)
+    with st.expander("🔍 Ver Diagnóstico de Datos (Depuración)", expanded=False):
+        st.json(debug_info)
+        st.info("💡 Si ves valores en `None` o `0.0`, significa que la tabla `saldos_bancarios` o `asientos_contables` no tiene registros coincidentes para los filtros mostrados arriba.")
+
+    # 🛠️ Formato venezolano
     def formato_venezolano(val):
         try:
             return f"{float(val):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
@@ -2119,10 +2138,8 @@ def mostrar_tablero_conciliacion(conn, mes_sel, ano_sel):
     st.subheader("📥 Pendientes por Conciliar")
     col_p1, col_p2 = st.columns(2)
     
-    # Preparar DataFrames pendientes con formato numérico contable
     if not df_banco.empty and 'monto' in df_banco.columns:
         df_banco['monto'] = pd.to_numeric(df_banco['monto'], errors='coerce').fillna(0.0)
-        
         df_banco_ingresos = df_banco[df_banco['monto'] > 0].copy()
         if not df_banco_ingresos.empty:
             df_banco_ingresos['monto'] = df_banco_ingresos['monto'].apply(formato_venezolano)
@@ -2143,7 +2160,7 @@ def mostrar_tablero_conciliacion(conn, mes_sel, ano_sel):
         st.session_state.saldo_final_libros = 0.0
 
     if st.button("🚀 Ejecutar Conciliación", key="btn_ejecutar_conciliacion_tablero"):
-        resultado = conciliar_datos(conn, fecha_inicio, fecha_fin, db)
+        resultado = conciliar_datos(conn, fecha_inicio, fecha_fin, db) if 'conciliar_datos' in globals() else 0.0
         st.session_state.saldo_final_libros = resultado
         st.success("Conciliación ejecutada con éxito.")
         st.rerun()
@@ -2164,7 +2181,6 @@ def mostrar_tablero_conciliacion(conn, mes_sel, ano_sel):
             lista_egresos.append(partida_ajuste)
 
     try:
-        # Se pasan explícitamente mes_sel y ano_sel a la función PDF para asegurar consistencia
         pdf_data = crear_pdf_conciliacion(
             conn, df_conciliado, saldo_inicial, saldo_final_banco, saldo_final_libros, lista_ingresos, lista_egresos, mes_sel=mes_sel, ano_sel=ano_sel
         )
