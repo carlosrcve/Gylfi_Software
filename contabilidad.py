@@ -2073,23 +2073,29 @@ def mostrar_tablero_conciliacion(conn, mes_sel, ano_sel):
         res_anterior = cursor.fetchone()
         saldo_mes_anterior = float(res_anterior[0]) if res_anterior else 0.0
 
-        # C. Movimientos del mes usando las columnas correctas de tu tabla (cuenta_contable y plan_cuentas)
+        # C. Movimientos del mes (Búsqueda robusta por código, nombre y patrón de cuenta)
         query_movimientos_mes = f"""
             SELECT IFNULL(SUM(debe), 0.0), IFNULL(SUM(haber), 0.0) 
             FROM `{db}`.asientos_contables 
             WHERE (
                 TRIM(cuenta_contable) = TRIM(%s) OR 
                 TRIM(cuenta_contable) = TRIM(%s) OR 
-                TRIM(plan_cuentas) = TRIM(%s)
+                TRIM(plan_cuentas) = TRIM(%s) OR
+                cuenta_contable LIKE %s
             ) 
             AND fecha BETWEEN %s AND %s
         """
-        cursor.execute(query_movimientos_mes, (cuenta_codigo, nombre_banco_sel, cuenta_codigo, fecha_inicio, fecha_fin))
+        # Creamos un patrón de búsqueda flexible (ej: '1.1.1.02%') por si el asiento guarda subauxiliares
+        patron_cuenta = f"{cuenta_codigo}%"
+        
+        cursor.execute(query_movimientos_mes, (cuenta_codigo, nombre_banco_sel, cuenta_codigo, patron_cuenta, fecha_inicio, fecha_fin))
         res_mov = cursor.fetchone()
-        debe_mes, haber_mes = res_mov if res_mov else (0.0, 0.0)
+        
+        debe_mes = float(res_mov[0]) if res_mov and res_mov[0] is not None else 0.0
+        haber_mes = float(res_mov[1]) if res_mov and res_mov[1] is not None else 0.0
 
-        # Saldo final libros = Saldo inicial del mes + Movimientos del mes
-        saldo_final_libros = saldo_inicial + (float(debe_mes) - float(haber_mes))
+        # FÓRMULA CONTABLE EXACTA: Saldo Inicial + Debe - Haber = Saldo Final en Libros
+        saldo_final_libros = saldo_inicial + debe_mes - haber_mes
 
         # D. Movimientos de Banco
         query_mov_pendientes = f"SELECT * FROM `{db}`.banco_movimientos WHERE estado_conciliacion = 'Pendiente' AND fecha_movimiento BETWEEN %s AND %s"
