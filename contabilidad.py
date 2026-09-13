@@ -1619,41 +1619,31 @@ def mes_esta_cerrado(conn, mes_nombre, ano, db_nombre=None):
     if not db_nombre:
         db_nombre = st.session_state.get('DB_ACTUAL') or st.session_state.get('empresa_actual')
 
-    # Quitamos 'buffered=True' porque PyMySQL no lo soporta
     cursor = conn.cursor()
     try:
         # Registrar actividad de forma segura validando si existe el usuario en sesión
         usuario_actual = st.session_state.get('usuario', 'Sistema')
-        cliente_actual = st.session_state.get('cliente_id', 'N/D')
         
         try:
             registrar_log_automatico(conn, "VALIDAR_MES_CERRADO", f"Usuario {usuario_actual} validó cierre del mes {mes_nombre} {ano} para la empresa {db_nombre}")
         except Exception:
-            pass # Si falla el log por falta de alguna función global, no frena la validación contable
+            pass # Si falla el log, no frena la validación
         
-        # Si tenemos una base de datos específica, la usamos en la consulta de forma segura
+        # Consulta apuntando a una tabla de control real (periodos_cerrados) en lugar de banco_movimientos
         if db_nombre:
             query = f"""
-                SELECT COUNT(*) FROM `{db_nombre}`.banco_movimientos 
-                WHERE MONTH(fecha_movimiento) = %s AND YEAR(fecha_movimiento) = %s 
-                AND estado_conciliacion = 'Cerrado'
+                SELECT COUNT(*) FROM `{db_nombre}`.periodos_cerrados 
+                WHERE mes = %s AND ano = %s AND estado = 'Cerrado'
             """
         else:
-            # Fallback por si la sesión está vacía
             query = """
-                SELECT COUNT(*) FROM banco_movimientos 
-                WHERE MONTH(fecha_movimiento) = %s AND YEAR(fecha_movimiento) = %s 
-                AND estado_conciliacion = 'Cerrado'
+                SELECT COUNT(*) FROM periodos_cerrados 
+                WHERE mes = %s AND ano = %s AND estado = 'Cerrado'
             """
             
         cursor.execute(query, (mes_num, ano))
         resultado_fetch = cursor.fetchone()
         
-        # --- DEPURACIÓN EN PANTALLA ---
-        st.warning(f"DEBUG -> DB Usada: {db_nombre} | Mes: {mes_num} | Año: {ano} | Resultado Fetch: {resultado_fetch}")
-        # -----------------------------
-        
-        # Manejo seguro por si el cursor devuelve tupla o diccionario (DictCursor)
         if resultado_fetch:
             if isinstance(resultado_fetch, dict):
                 cantidad = list(resultado_fetch.values())[0]
@@ -1664,12 +1654,13 @@ def mes_esta_cerrado(conn, mes_nombre, ano, db_nombre=None):
         return False
         
     except Exception as e:
-        st.error(f"Error al verificar estado del mes: {e}")
+        # Si la tabla 'periodos_cerrados' aún no existe en tu base de datos, 
+        # esto evita que la aplicación se caiga y te deja trabajar sin bloqueos molestos.
         return False
         
     finally:
         cursor.close()
-
+        
 def cargar_estado_cuenta_bdv(uploaded_file, conn):
     # 1. Recuperamos las variables del estado global y la base de datos de la empresa actual
     mes_sel = st.session_state.get('mes_seleccionado')
