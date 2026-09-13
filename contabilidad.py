@@ -2541,80 +2541,168 @@ def generar_pdf_comprobante(df, n_comp, conn):
                 print(f"Error al hacer ping a la conexión MySQL: {ping_error}")
 
 
-def mostrar_interfaz_mayor():
+def mostrar_interfaz_mayor(f_ini_g, f_fin_g, db_nombre):
     st.subheader("📖 Libro Mayor Analítico")
+
+    # 1. ESTADOS DE SESIÓN
+    cuenta_previa = st.session_state.get('cuenta_a_buscar', "")
+    if 'reporte_mayor' not in st.session_state: st.session_state.reporte_mayor = None
+    if 'movs_solos' not in st.session_state: st.session_state.movs_solos = None
+    if 'cuenta_actual' not in st.session_state: st.session_state.cuenta_actual = ""
+
+    conn = conectar_db(db_nombre)
+    cursor = None
     
-    db_actual = st.session_state.get('DB_ACTUAL') or st.session_state.get('empresa_actual')
-    if not db_actual or db_actual == 'none':
-        st.error("❌ Selecciona una empresa en Control Central para ver el Mayor Analítico.")
-        return
-
-    conn = conectar_db(db_actual)
-    if not conn:
-        st.error("❌ No se pudo conectar a la base de datos de la empresa.")
-        return
-
-    try:
-        # Cargar TODAS las cuentas del plan de cuentas oficial
-        # (Si tu tabla usa otra columna para diferenciar cuentas de movimiento/detalle, agrégala aquí)
-        query_cuentas = "SELECT codigo, nombre FROM plan_cuentas WHERE codigo IS NOT NULL ORDER BY codigo"
-        df_cuentas = pd.read_sql(query_cuentas, conn)
-        
-        if df_cuentas.empty:
-            st.warning("⚠️ No se encontraron cuentas en el plan de cuentas.")
-            conn.close()
-            return
-
-        # Crear el diccionario de mapeo: "Código - Nombre" -> "Código"
-        opciones_mapa = {}
-        lista_opciones = []
-        for _, row in df_cuentas.iterrows():
-            codigo = str(row['codigo']).strip()
-            nombre = str(row['nombre']).strip()
-            label = f"{codigo} - {nombre}"
-            lista_opciones.append(label)
-            opciones_mapa[label] = codigo
-
-        # Componentes de la UI
-        cuenta_sel_label = st.selectbox("Seleccione cuenta de detalle:", lista_opciones, key="select_cuenta_mayor")
-        cuenta_seleccionada = opciones_mapa.get(cuenta_sel_label, cuenta_sel_label.split(" - ")[0])
-
-        col1, col2 = st.columns(2)
-        with col1:
-            fecha_desde = st.date_input("Desde", value=pd.to_datetime("2026-05-01"))
-        with col2:
-            fecha_hasta = st.date_input("Hasta", value=pd.to_datetime("2026-05-31"))
-
-        if st.button("🔍 Generar Movimientos", type="primary"):
-            df_final, df_movs, saldo_final = ejecutar_mayor_analitico(
-                db_actual, cuenta_seleccionada, fecha_desde, fecha_hasta
-            )
+    if conn:
+        try:
+            cursor = conn.cursor()
             
-            # Guardar en session_state para mostrarlos en pantalla
-            st.session_state['df_mayor_final'] = df_final
-            st.session_state['saldo_mayor_final'] = saldo_final
+            usuario = st.session_state.get('usuario', 'Desconocido')
+            registrar_log_automatico(conn, "CONSULTA_LIBRO_MAYOR", f"Usuario {usuario} consultó mayor en {db_nombre}")
+            
+            # CORRECCIÓN: Consultar TODAS las cuentas desde la tabla maestra 'plan_cuentas'
+            # (Ajusta 'codigo' y 'nombre' si tu tabla usa otros nombres de columna como 'cuenta' y 'descripcion')
+            query_cuentas = """
+                SELECT codigo, nombre 
+                FROM plan_cuentas 
+                WHERE codigo IS NOT NULL 
+                  AND TRIM(codigo) != '' 
+                  AND LOWER(codigo) != 'nan'
+                ORDER BY codigo
+            """
+            df_cuentas = ejecutar_consulta(query_cuentas, conn)
+            
+            if not df_cuentas.empty:
+                opciones_mapa = {}
+                lista_opciones = []
+                
+                for _, row in df_cuentas.iterrows():
+                    cod = str(row['codigo']).strip() if row['codigo'] is not None else ""
+                    nom = str(row['nombre']).strip() if pd.notna(row['nombre']) else ""
+                    
+                    if not cod or cod.lower() == 'nan':
+                        continue
+                        
+                    label = f"{cod} - {nom}" if nom and nom.lower() != 'nan' else cod
+                    opciones_mapa[label] = cod
+                    lista_opciones.append(label)
 
-    except Exception as e:
-        st.error(f"❌ Error al cargar el plan de cuentas: {e}")
-    finally:
-        if conn:
-            conn.close()
+                if not lista_opciones:
+                    st.warning("⚠️ No se encontraron cuentas contables válidas en el plan de cuentas.")
+                    return
 
-    # Mostrar resultados si ya fueron generados
-    if 'df_mayor_final' in st.session_state:
-        df_f = st.session_state['df_mayor_final']
-        s_final = st.session_state.get('saldo_mayor_final', 0.0)
+                cuenta_sel_label = st.selectbox("Seleccione cuenta de detalle:", lista_opciones, key="select_cuenta_mayor")
+                
+                # Obtener el código puro exacto mapeado
+                cuenta_para_consulta = opciones_mapa.get(cuenta_sel_label, cuenta_sel_label.split(" - ")[0])
+                
+                col1, col2 = st.columns(2)
+                f_m_d = col1.date_input("Desde", f_ini_g, key="m_d")
+                f_m_h = col2.date_input("Hasta", f_fin_g, key="m_h")
+                
+                saldo_inicial_periodo = 0.0
+
+                if st.button("🔍 Generar Movimientos", key="btn_generar_movs_mayor"):
+                    res_reporte, _, saldo_final_real = ejecutar_mayor_analitico(db_nombre, cuenta_para_consulta, f_m_d, f_m_h)
+                    
+                    if not res_reporte.empty:
+                        st.session_state.reporte_mayor = res_reporte
+                        st.session_state.movs_solos = res_reporte 
+                        st.session_state.saldo_final_reporte = saldo_final_real
+                        st.session_state.cuenta_actual = cuenta_sel_label
+                    else:
+                        st.warning(f"⚠️ No se obtuvieron movimientos para la cuenta '{cuenta_para_consulta}' en el rango de fechas seleccionado.")
+                        st.session_state.reporte_mayor = None
+                        st.session_state.movs_solos = None
+
+                st.divider()
+
+                if st.session_state.reporte_mayor is not None:
+                    reporte = st.session_state.reporte_mayor
+                    movs_solos = st.session_state.movs_solos
+                    
+                    if not reporte.empty and movs_solos is not None:
+                        t_debe = movs_solos['debe'].sum() if 'debe' in movs_solos.columns else 0.0
+                        t_haber = movs_solos['haber'].sum() if 'haber' in movs_solos.columns else 0.0
+                        s_final = st.session_state.get('saldo_final_reporte', 0.0)
+
+                        m1, m2, m3 = st.columns(3)
+                        m1.metric("TOTAL DEBE", f"Bs. {t_debe:,.2f}")
+                        m2.metric("TOTAL HABER", f"Bs. {t_haber:,.2f}")
+                        m3.metric("SALDO FINAL", f"Bs. {s_final:,.2f}")
+
+                        fmt = {'debe': '{:,.2f}', 'haber': '{:,.2f}', 'Saldo': '{:,.2f}'}
+                        st.dataframe(
+                            reporte.style.format(fmt), 
+                            use_container_width=True, 
+                            hide_index=True
+                        )
+                        
+                        if st.button("📄 Generar Reporte PDF para Auditoría", key="btn_pdf_mayor"):
+                            try:
+                                from fpdf import FPDF
+                                
+                                class PDF(FPDF):
+                                    def header(self):
+                                        self.set_font('Arial', 'B', 14)
+                                        self.cell(0, 10, 'KING DRIVER, C.A. - LIBRO MAYOR ANALÍTICO', ln=True, align='C')
+                                        self.set_font('Arial', 'I', 10)
+                                        self.cell(0, 5, f'Período: {f_m_d.strftime("%d/%m/%Y")} al {f_m_h.strftime("%d/%m/%Y")}', ln=True, align='C')
+                                        self.ln(10)
+
+                                pdf = PDF()
+                                pdf.add_page()
+                                pdf.set_font("Arial", 'B', 10)
+                                pdf.cell(0, 10, f"CUENTA: {st.session_state.cuenta_actual}", ln=True)
+                                
+                                pdf.set_fill_color(230, 230, 230)
+                                pdf.cell(25, 8, "Fecha", 1, 0, 'C', True)
+                                pdf.cell(85, 8, "Descripción", 1, 0, 'C', True)
+                                pdf.cell(26, 8, "Debe", 1, 0, 'C', True)
+                                pdf.cell(26, 8, "Haber", 1, 0, 'C', True)
+                                pdf.cell(26, 8, "Saldo", 1, 1, 'C', True)
+                                
+                                pdf.set_font("Arial", size=8)
+                                for _, fila in reporte.iterrows():
+                                    pdf.cell(25, 7, str(fila['fecha'])[:10], 1)
+                                    pdf.cell(85, 7, str(fila['descripcion'])[:50], 1)
+                                    pdf.cell(26, 7, f"{fila['debe']:,.2f}", 1, 0, 'R')
+                                    pdf.cell(26, 7, f"{fila['haber']:,.2f}", 1, 0, 'R')
+                                    pdf.cell(26, 7, f"{fila['Saldo']:,.2f}", 1, 1, 'R')
+                                
+                                pdf.ln(5)
+                                pdf.set_font("Arial", 'B', 10)
+                                pdf.cell(110, 8, "TOTALES GENERALES:", 0, 0, 'R')
+                                pdf.cell(26, 8, f"{t_debe:,.2f}", 1, 0, 'R')
+                                pdf.cell(26, 8, f"{t_haber:,.2f}", 1, 0, 'R')
+                                pdf.cell(26, 8, f"{s_final:,.2f}", 1, 1, 'R')
+
+                                pdf_bytes = pdf.output(dest='S').encode('latin-1')
+                                st.download_button(
+                                    label="⬇️ Descargar Archivo PDF",
+                                    data=pdf_bytes,
+                                    file_name=f"Mayor_{st.session_state.cuenta_actual.split(' - ')[0]}.pdf",
+                                    mime="application/pdf",
+                                    key="dl_pdf_mayor_analitico"
+                                )
+                            except Exception as e:
+                                st.error(f"Error generando PDF: {e}")
+                    else:
+                        st.warning("No se encontraron movimientos para esta cuenta.")
+            else:
+                st.warning(f"⚠️ No hay cuentas registradas en la tabla 'plan_cuentas' de la base de datos: {db_nombre}")
         
-        # Calcular métricas
-        total_debe = df_f['debe'].sum() if not df_f.empty else 0.0
-        total_haber = df_f['haber'].sum() if not df_f.empty else 0.0
-
-        m1, m2, m3 = st.columns(3)
-        m1.metric("TOTAL DEBE", f"Bs. {total_debe:,.2f}")
-        m2.metric("TOTAL HABER", f"Bs. {total_haber:,.2f}")
-        m3.metric("SALDO FINAL", f"Bs. {s_final:,.2f}")
-
-        st.dataframe(df_f, use_container_width=True)
+        except Exception as e:
+            st.error(f"❌ Error en el Libro Mayor: {e}")
+        finally:
+            if cursor:
+                try: cursor.close()
+                except: pass
+            if conn:
+                try: conn.close()
+                except: pass
+    else:
+        st.error("❌ No se pudo establecer conexión con la base de datos.")
 
 def generar_balance_profesional(conn, f_i, f_f, sucursal):
     db = st.session_state.get('DB_ACTUAL')
