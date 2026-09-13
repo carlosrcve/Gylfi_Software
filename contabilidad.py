@@ -6566,7 +6566,20 @@ def renderizar_tab_asientos_automatizados(db_connection):
             df_compras = pd.read_excel(archivo_excel)
             df_compras.columns = df_compras.columns.str.strip()
             
-            st.dataframe(df_compras, use_container_width=True)
+            # Intentar estandarizar la columna de fecha en el DataFrame si existe para asegurar el formato
+            for col in df_compras.columns:
+                if "fecha" in str(col).strip().lower():
+                    df_compras[col] = pd.to_datetime(df_compras[col], errors='coerce').dt.date
+            
+            # Vista previa del DataFrame con formato de fecha configurado
+            st.dataframe(
+                df_compras, 
+                use_container_width=True,
+                column_config={
+                    col: st.column_config.DateColumn(col, format="YYYY-MM-DD")
+                    for col in df_compras.columns if "fecha" in str(col).strip().lower()
+                }
+            )
 
             st.markdown("---")
             st.markdown("### ⚙️ Configuración de Asientos")
@@ -6629,7 +6642,6 @@ def renderizar_tab_asientos_automatizados(db_connection):
 
                         n_comprobante_actual = f"{n_comprobante_base}-{nro_doc}"
 
-                        # Asegurándonos de que si el RIF viene vacío, no afecte feo el texto, o ponerlo prominente:
                         rif_formateado = f" | RIF: {rif_val}" if rif_val else ""
                         desc_base = f"Factura {nro_doc}{rif_formateado} - {razon_social}"
 
@@ -6691,7 +6703,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
                                     if opt.startswith("5.1.1.01.002"):
                                         opcion_iva_kd = opt
                                         break
-                                
+                            
                                 filas_asiento_temporal.append({
                                     "n_comprobante": n_comprobante_actual,
                                     "descripcion": f"IVA al Costo - {desc_base}",
@@ -6724,7 +6736,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
                                     if opt.startswith("1.1.4.01.001"):
                                         opcion_iva = opt
                                         break
-                                
+                            
                                 filas_asiento_temporal.append({
                                     "n_comprobante": n_comprobante_actual,
                                     "descripcion": f"IVA Crédito Fiscal - {desc_base}",
@@ -6754,7 +6766,6 @@ def renderizar_tab_asientos_automatizados(db_connection):
 
                 except Exception as proc_err:
                     st.error(f"Error procesando los datos: {proc_err}")
-
             # ----------------------------------------------------
             # SEGUNDO FRAME: ESTRUCTURA COMPLETA
             # ----------------------------------------------------
