@@ -2560,12 +2560,27 @@ def mostrar_interfaz_mayor(f_ini_g, f_fin_g, db_nombre):
         registrar_log_automatico(conn, "CONSULTA_LIBRO_MAYOR", f"Usuario {usuario} consultó mayor en {db_nombre}")
         
         # Traemos las cuentas directamente sin filtro estricto para que selecciones la tuya tranquilamente
-        query_cuentas = "SELECT codigo, nombre FROM plan_cuentas WHERE codigo IS NOT NULL ORDER BY codigo"
+        query_cuentas = """
+            SELECT codigo, nombre 
+            FROM plan_cuentas 
+            WHERE codigo IS NOT NULL 
+              AND TRIM(codigo) != '' 
+              AND LOWER(codigo) != 'nan'
+              AND LOWER(TRIM(tipo)) = 'detalle'
+            ORDER BY codigo
+        """
         df_cuentas = ejecutar_consulta(query_cuentas, conn)
         
         if df_cuentas.empty:
-            st.warning("⚠️ No se encontraron cuentas contables.")
-            return
+            query_cuentas = """
+                SELECT codigo, nombre 
+                FROM plan_cuentas 
+                WHERE codigo IS NOT NULL 
+                  AND TRIM(codigo) != '' 
+                  AND LOWER(codigo) != 'nan'
+                ORDER BY codigo
+            """
+            df_cuentas = ejecutar_consulta(query_cuentas, conn)
 
         opciones_mapa = {}
         lista_opciones = []
