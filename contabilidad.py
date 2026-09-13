@@ -2595,9 +2595,15 @@ def mostrar_interfaz_mayor(f_ini_g, f_fin_g, db_nombre):
                 # Obtener el código puro exacto mapeado
                 cuenta_para_consulta = opciones_mapa.get(cuenta_sel_label, cuenta_sel_label.split(" - ")[0])
                 
+                # Definimos de forma directa las fechas de septiembre para que no arrastre el mes de mayo
+                import datetime
+                fecha_default_inicio = datetime.date(2026, 9, 1)
+                fecha_default_fin = datetime.date(2026, 9, 30)
+
                 col1, col2 = st.columns(2)
-                f_m_d = col1.date_input("Desde", f_ini_g, key="m_d")
-                f_m_h = col2.date_input("Hasta", f_fin_g, key="m_h")
+                # Forzamos los valores iniciales y limpiamos el key viejo usando un sufijo nuevo
+                f_m_d = col1.date_input("Desde", value=fecha_default_inicio, key="m_d_septiembre")
+                f_m_h = col2.date_input("Hasta", value=fecha_default_fin, key="m_h_septiembre")
                 
                 saldo_inicial_periodo = 0.0
 
