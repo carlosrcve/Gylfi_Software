@@ -2560,8 +2560,7 @@ def mostrar_interfaz_mayor(f_ini_g, f_fin_g, db_nombre):
             usuario = st.session_state.get('usuario', 'Desconocido')
             registrar_log_automatico(conn, "CONSULTA_LIBRO_MAYOR", f"Usuario {usuario} consultó mayor en {db_nombre}")
             
-            # CORRECCIÓN: Consultar TODAS las cuentas desde la tabla maestra 'plan_cuentas'
-            # (Ajusta 'codigo' y 'nombre' si tu tabla usa otros nombres de columna como 'cuenta' y 'descripcion')
+            # Consultar TODAS las cuentas desde la tabla maestra 'plan_cuentas'
             query_cuentas = """
                 SELECT codigo, nombre 
                 FROM plan_cuentas 
@@ -2602,16 +2601,26 @@ def mostrar_interfaz_mayor(f_ini_g, f_fin_g, db_nombre):
                 
                 saldo_inicial_periodo = 0.0
 
+                # 🛑 BOTÓN DE GENERACIÓN CON DIAGNÓSTICO INTEGRADO
                 if st.button("🔍 Generar Movimientos", key="btn_generar_movs_mayor"):
-                    res_reporte, _, saldo_final_real = ejecutar_mayor_analitico(db_nombre, cuenta_para_consulta, f_m_d, f_m_h)
+                    st.write("✅ ¡EL BOTÓN FUNCIONA Y FUE CLICKEADO!")
+                    st.write(f"Cuenta seleccionada para enviar: **{cuenta_para_consulta}**")
+                    st.write(f"Base de datos activa: **{db_nombre}**")
+                    
+                    # Llamamos a la función de análisis robusta
+                    res_reporte, movs_solos, saldo_final_real = ejecutar_mayor_analitico(db_nombre, cuenta_para_consulta, f_m_d, f_m_h)
+                    
+                    st.write(f"📊 Filas devueltas por el reporte: {len(res_reporte) if not res_reporte.empty else 0}")
                     
                     if not res_reporte.empty:
                         st.session_state.reporte_mayor = res_reporte
-                        st.session_state.movs_solos = res_reporte 
+                        st.session_state.movs_solos = movs_solos if not movs_solos.empty else res_reporte
                         st.session_state.saldo_final_reporte = saldo_final_real
                         st.session_state.cuenta_actual = cuenta_sel_label
+                        st.success("¡Datos guardados con éxito!")
+                        st.rerun()
                     else:
-                        st.warning(f"⚠️ No se obtuvieron movimientos para la cuenta '{cuenta_para_consulta}' en el rango de fechas seleccionado.")
+                        st.warning(f"⚠️ La función devolvió un DataFrame vacío para la cuenta '{cuenta_para_consulta}'.")
                         st.session_state.reporte_mayor = None
                         st.session_state.movs_solos = None
 
