@@ -2734,7 +2734,7 @@ def mostrar_interfaz_mayor(f_ini_g, f_fin_g, db_nombre):
                 except: pass
     else:
         st.error("❌ No se pudo establecer conexión con la base de datos.")
-        
+
 def generar_balance_profesional(conn, f_i, f_f, sucursal):
     db = st.session_state.get('DB_ACTUAL')
     if not db:
@@ -11922,7 +11922,7 @@ elif opcion_menu == "📝 Asientos Contables":
 
 # D. MAYOR ANALÍTICO
 elif opcion_menu == "📖 Mayor Analítico":
-    #st.subheader("📖 Mayor Analítico")
+    # st.subheader("📖 Mayor Analítico")
 
     # 1. SEGURIDAD Y CONTEXTO
     db_actual = st.session_state.get("DB_ACTUAL")
@@ -11933,20 +11933,24 @@ elif opcion_menu == "📖 Mayor Analítico":
     f_inicio_global = st.session_state.get("f_inicio_global")
     f_fin_global = st.session_state.get("f_fin_global")
 
+    # 🔍 DIAGNÓSTICO EN VIVO PARA VER QUÉ HAY EN MEMORIA
+    st.info(f"🔍 [DEBUG MENÚ] DB_ACTUAL: {db_actual} | cliente_id: {cliente_id} | rol: {rol}")
+
     if not db_actual:
         st.error("No se ha seleccionado una base de datos de empresa.")
         st.stop()
 
     empresa_data = obtener_datos_agente_db(db_actual)
+    st.info(f"🔍 [DEBUG MENÚ] empresa_data devuelto: {empresa_data}")
 
     # 2. FILTRO DE ACCESO
     if empresa_data and rol != "admin":
         if empresa_data["id"] != cliente_id:
-            st.error("⚠️ Acceso denegado: No tienes permisos para esta empresa.")
+            st.error(f"⚠️ Acceso denegado: empresa_data['id'] ({empresa_data.get('id')}) != cliente_id ({cliente_id})")
             st.stop()
 
     if not empresa_data:
-        st.error("⚠️ No se pudieron cargar los datos de la empresa.")
+        st.error("⚠️ No se pudieron cargar los datos de la empresa (empresa_data es None o vacío).")
     else:
         # 3. EJECUCIÓN SEGURA (Ya las fechas existen garantizadas por el sidebar)
         mostrar_interfaz_mayor(f_inicio_global, f_fin_global, db_actual)
