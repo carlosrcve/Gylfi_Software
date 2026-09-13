@@ -2601,28 +2601,32 @@ def mostrar_interfaz_mayor(f_ini_g, f_fin_g, db_nombre):
                 
                 saldo_inicial_periodo = 0.0
 
-                # 🛑 BOTÓN DE GENERACIÓN CON DIAGNÓSTICO INTEGRADO
+                # 🛑 BOTÓN DE GENERACIÓN CON ESTADO PERSISTENTE
                 if st.button("🔍 Generar Movimientos", key="btn_generar_movs_mayor"):
-                    st.write("✅ ¡EL BOTÓN FUNCIONA Y FUE CLICKEADO!")
-                    st.write(f"Cuenta seleccionada para enviar: **{cuenta_para_consulta}**")
-                    st.write(f"Base de datos activa: **{db_nombre}**")
+                    # Guardamos el mensaje de éxito en session_state para que no se borre con el rerun
+                    st.session_state.debug_log = f"✅ ¡Botón presionado! Cuenta: {cuenta_para_consulta} | BD: {db_nombre}"
                     
                     # Llamamos a la función de análisis robusta
                     res_reporte, movs_solos, saldo_final_real = ejecutar_mayor_analitico(db_nombre, cuenta_para_consulta, f_m_d, f_m_h)
-                    
-                    st.write(f"📊 Filas devueltas por el reporte: {len(res_reporte) if not res_reporte.empty else 0}")
                     
                     if not res_reporte.empty:
                         st.session_state.reporte_mayor = res_reporte
                         st.session_state.movs_solos = movs_solos if not movs_solos.empty else res_reporte
                         st.session_state.saldo_final_reporte = saldo_final_real
                         st.session_state.cuenta_actual = cuenta_sel_label
-                        st.success("¡Datos guardados con éxito!")
+                        st.session_state.debug_filas = f"📊 Filas devueltas: {len(res_reporte)}"
                         st.rerun()
                     else:
-                        st.warning(f"⚠️ La función devolvió un DataFrame vacío para la cuenta '{cuenta_para_consulta}'.")
                         st.session_state.reporte_mayor = None
                         st.session_state.movs_solos = None
+                        st.session_state.debug_filas = f"⚠️ La función devolvió un DataFrame vacío para '{cuenta_para_consulta}'."
+                        st.rerun()
+
+                # Mostramos los logs de depuración fijos si existen
+                if 'debug_log' in st.session_state and st.session_state.debug_log:
+                    st.success(st.session_state.debug_log)
+                if 'debug_filas' in st.session_state and st.session_state.debug_filas:
+                    st.info(st.session_state.debug_filas)
 
                 st.divider()
 
