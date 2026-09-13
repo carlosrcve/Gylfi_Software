@@ -2560,21 +2560,30 @@ def mostrar_interfaz_mayor(f_ini_g, f_fin_g, db_nombre):
             usuario = st.session_state.get('usuario', 'Desconocido')
             registrar_log_automatico(conn, "CONSULTA_LIBRO_MAYOR", f"Usuario {usuario} consultó mayor en {db_nombre}")
             
-            # 🔍 DIAGNÓSTICO: Ver cuántas filas totales existen en la tabla plan_cuentas
-            df_conteo = ejecutar_consulta("SELECT COUNT(*) as total FROM plan_cuentas", conn)
-            total_cuentas_bd = df_conteo['total'].iloc[0] if not df_conteo.empty else 0
-            st.info(f"🔎 **Diagnóstico BD ({db_nombre}):** La tabla `plan_cuentas` tiene un total de **{total_cuentas_bd}** registros.")
-
-            # 🎯 CONSULTA GENERAL DE CUENTAS
+            # 🎯 CONSULTA ROBUSTA: Limpia espacios y maneja cualquier variante de mayúsculas/minúsculas para traer cuentas de detalle
             query_cuentas = """
-                SELECT codigo, nombre, nivel, tipo 
+                SELECT codigo, nombre, tipo 
                 FROM plan_cuentas 
                 WHERE codigo IS NOT NULL 
                   AND TRIM(codigo) != '' 
                   AND LOWER(codigo) != 'nan'
+                  AND LOWER(TRIM(tipo)) = 'detalle'
                 ORDER BY codigo
             """
             df_cuentas = ejecutar_consulta(query_cuentas, conn)
+            
+            # Si por alguna razón la consulta estricta anterior viniera vacía, hacemos un respaldo trayendo todo 
+            # para que el sistema nunca se quede sin opciones en pantalla.
+            if df_cuentas.empty:
+                query_respaldo = """
+                    SELECT codigo, nombre, tipo 
+                    FROM plan_cuentas 
+                    WHERE codigo IS NOT NULL 
+                      AND TRIM(codigo) != '' 
+                      AND LOWER(codigo) != 'nan'
+                    ORDER BY codigo
+                """
+                df_cuentas = ejecutar_consulta(query_respaldo, conn)
             
             if not df_cuentas.empty:
                 opciones_mapa = {}
@@ -2583,20 +2592,19 @@ def mostrar_interfaz_mayor(f_ini_g, f_fin_g, db_nombre):
                 for _, row in df_cuentas.iterrows():
                     cod = str(row['codigo']).strip() if row['codigo'] is not None else ""
                     nom = str(row['nombre']).strip() if pd.notna(row['nombre']) else ""
-                    tipo_cta = str(row['tipo']).strip() if pd.notna(row['tipo']) else ""
                     
                     if not cod or cod.lower() == 'nan':
                         continue
                         
-                    label = f"{cod} - {nom} [{tipo_cta}]"
+                    label = f"{cod} - {nom}" if nom and nom.lower() != 'nan' else cod
                     opciones_mapa[label] = cod
                     lista_opciones.append(label)
 
                 if not lista_opciones:
-                    st.warning("⚠️ No se encontraron cuentas válidas en el plan de cuentas.")
+                    st.warning("⚠️ No se encontraron cuentas contables válidas en el plan de cuentas.")
                     return
 
-                cuenta_sel_label = st.selectbox("Seleccione cuenta:", lista_opciones, key="select_cuenta_mayor")
+                cuenta_sel_label = st.selectbox("Seleccione cuenta de detalle:", lista_opciones, key="select_cuenta_mayor")
                 
                 # Obtener el código puro exacto mapeado
                 cuenta_para_consulta = opciones_mapa.get(cuenta_sel_label, cuenta_sel_label.split(" - ")[0])
@@ -2622,7 +2630,7 @@ def mostrar_interfaz_mayor(f_ini_g, f_fin_g, db_nombre):
                     else:
                         st.session_state.reporte_mayor = None
                         st.session_state.movs_solos = None
-                        st.warning("⚠️ No hay movimientos registrados para esta cuenta en el período de mayo seleccionado.")
+                        st.warning("⚠️ No hay movimientos registrados para esta cuenta en el período seleccionado.")
 
                 st.divider()
 
