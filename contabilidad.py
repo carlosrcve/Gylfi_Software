@@ -2560,16 +2560,34 @@ def mostrar_interfaz_mayor(f_ini_g, f_fin_g, db_nombre):
             usuario = st.session_state.get('usuario', 'Desconocido')
             registrar_log_automatico(conn, "CONSULTA_LIBRO_MAYOR", f"Usuario {usuario} consultó mayor en {db_nombre}")
             
-            # Consultar TODAS las cuentas desde la tabla maestra 'plan_cuentas'
+            # 🎯 FILTRAR SOLO CUENTAS DE DETALLE (Ajusta 'tipo = "D"' o 'es_movimiento = 1' según tu BD si es necesario)
             query_cuentas = """
                 SELECT codigo, nombre 
                 FROM plan_cuentas 
                 WHERE codigo IS NOT NULL 
                   AND TRIM(codigo) != '' 
                   AND LOWER(codigo) != 'nan'
+                  AND (tipo = 'D' OR es_movimiento = 1)
                 ORDER BY codigo
             """
+            # Nota: Si tu tabla usa otro nombre de columna para el detalle (ej. 'imputable = 1'), 
+            # solo ajústalo en el filtro WHERE de arriba.
+            
             df_cuentas = ejecutar_consulta(query_cuentas, conn)
+            
+            # Si la consulta anterior no devuelve nada porque los nombres de columnas varían, 
+            # puedes quitar temporalmente el filtro extra y dejar solo las de mayor nivel o longitud.
+            if df_cuentas.empty:
+                # Fallback por si la columna de detalle tiene otro nombre: traemos las más largas o filtramos por longitud/puntos
+                query_cuentas_alt = """
+                    SELECT codigo, nombre 
+                    FROM plan_cuentas 
+                    WHERE codigo IS NOT NULL 
+                      AND TRIM(codigo) != '' 
+                      AND LOWER(codigo) != 'nan'
+                    ORDER BY codigo
+                """
+                df_cuentas = ejecutar_consulta(query_cuentas_alt, conn)
             
             if not df_cuentas.empty:
                 opciones_mapa = {}
@@ -2602,36 +2620,21 @@ def mostrar_interfaz_mayor(f_ini_g, f_fin_g, db_nombre):
                 col1, col2 = st.columns(2)
                 f_m_d = col1.date_input("Desde", value=def_inicio, key="m_d_mayo")
                 f_m_h = col2.date_input("Hasta", value=def_fin, key="m_h_mayo")
-                
-                # 🔍 DEBUG VISUAL DE ENTRADAS
-                st.write(f"🛠️ **DEBUG - Base de datos:** `{db_nombre}`")
-                st.write(f"🛠️ **DEBUG - Cuenta seleccionada (código):** `{cuenta_para_consulta}`")
-                st.write(f"🛠️ **DEBUG - Rango de fechas:** Desde `{f_m_d}` hasta `{f_m_h}`")
 
                 # 🛑 BOTÓN DE GENERACIÓN CON ESTADO PERSISTENTE
                 if st.button("🔍 Generar Movimientos", key="btn_generar_movs_mayor"):
-                    st.write("⚡ *El botón fue presionado. Ejecutando función...*")
-                    
-                    # Llamamos a la función de análisis
                     res_reporte, movs_solos, saldo_final_real = ejecutar_mayor_analitico(db_nombre, cuenta_para_consulta, f_m_d, f_m_h)
                     
-                    # 🔍 DEBUG DE LO QUE DEVUELVE LA FUNCIÓN
-                    st.write("📊 **DEBUG res_reporte tipo:**", type(res_reporte))
-                    st.write("📊 **DEBUG res_reporte contenido:**", res_reporte)
-                    st.write("📊 **DEBUG movs_solos contenido:**", movs_solos)
-                    st.write(f"📊 **DEBUG saldo_final_real:** {saldo_final_real}")
-
                     if res_reporte is not None and not res_reporte.empty:
                         st.session_state.reporte_mayor = res_reporte
                         st.session_state.movs_solos = movs_solos if not movs_solos.empty else res_reporte
                         st.session_state.saldo_final_reporte = saldo_final_real
                         st.session_state.cuenta_actual = cuenta_sel_label
-                        st.success("✅ ¡Datos cargados en session_state con éxito!")
                         st.rerun()
                     else:
                         st.session_state.reporte_mayor = None
                         st.session_state.movs_solos = None
-                        st.error("⚠️ La función `ejecutar_mayor_analitico` devolvió un DataFrame vacío o nulo.")
+                        st.warning("⚠️ No hay movimientos registrados para esta cuenta en el período de mayo seleccionado.")
 
                 st.divider()
 
