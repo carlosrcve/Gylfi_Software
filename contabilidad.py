@@ -1658,7 +1658,7 @@ def mes_esta_cerrado(conn, mes_nombre, ano, db_nombre=None):
         
     finally:
         cursor.close()
-        
+
 def cargar_estado_cuenta_bdv(uploaded_file, conn):
     # 1. Recuperamos las variables del estado global y la base de datos de la empresa actual
     mes_sel = st.session_state.get('mes_seleccionado')
@@ -1676,11 +1676,12 @@ def cargar_estado_cuenta_bdv(uploaded_file, conn):
         st.error("❌ No se ha especificado la base de datos de la empresa actual en la sesión.")
         return False
 
+
     # 3. Verificamos si el mes está cerrado
     if mes_esta_cerrado(conn, mes_sel, ano_sel, db_nombre):
         st.error("❌ No se pueden realizar cambios. El mes está bloqueado.")
         return False
-    
+   
     # Registro de actividad
     usuario_actual = st.session_state.get('usuario', 'Desconocido')
     cliente_actual = st.session_state.get('cliente_id', 'N/A')
@@ -6827,7 +6828,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
 
                 if st.button("💾 Guardar Todo el Asiento en el Libro Diario", key="btn_guardar_asientos_finales", use_container_width=True):
                     try:
-                        # --- VALIDACIÓN DE PERÍODO CERRADO (BLOQUEO ESTRICTO DE MAYO) ---
+                        # --- VALIDACIÓN PURAMENTE DESDE MYSQL ---
                         df_val = df_editado.copy()
                         df_val['fecha'] = pd.to_datetime(df_val['fecha'], errors='coerce')
                         anios_meses_excel = set((row['fecha'].year, row['fecha'].month) for _, row in df_val.iterrows() if pd.notnull(row['fecha']))
@@ -6835,13 +6836,8 @@ def renderizar_tab_asientos_automatizados(db_connection):
                         bloqueo_detectado = False
                         mensaje_bloqueo = ""
                         
+                        # Consultamos exclusivamente a MySQL por cada año/mes detectado
                         for anio, mes in anios_meses_excel:
-                            if mes == 5:
-                                bloqueo_detectado = True
-                                mensaje_bloqueo = f"❌ **¡Alerta! El mes de mayo ({mes:02d}/{anio}) está cerrado.** No se puede subir el libro de diario del mes de mayo porque ya está cerrado."
-                                break
-                            
-                            # Opcional: Revisar también si la BD tiene la tabla/columna de bloqueo activa
                             try:
                                 with db_connection.cursor() as cur_check:
                                     cur_check.execute(f"""
@@ -6849,17 +6845,22 @@ def renderizar_tab_asientos_automatizados(db_connection):
                                         WHERE YEAR(fecha) = %s AND MONTH(fecha) = %s AND bloqueado = 1
                                     """, (anio, mes))
                                     res_bloqueo = cur_check.fetchone()
-                                    if res_bloqueo and res_bloqueo[0] > 0:
+                                    
+                                    # Manejo por si devuelve tupla o diccionario
+                                    cantidad_bloqueos = list(res_bloqueo.values())[0] if isinstance(res_bloqueo, dict) else res_bloqueo[0]
+                                    
+                                    if cantidad_bloqueos > 0:
                                         bloqueo_detectado = True
-                                        mensaje_bloqueo = f"❌ **Operación Denegada**: El período correspondiente al mes **{mes:02d}/{anio}** se encuentra **CERRADO y BLOQUEADO**. No se pueden subir asientos en este período."
+                                        mensaje_bloqueo = f"❌ **Operación Denegada**: El período correspondiente al mes **{mes:02d}/{anio}** se encuentra **CERRADO y BLOQUEADO** en MySQL."
                                         break
-                            except Exception:
-                                pass # Si la columna o tabla no existe aún, solo pasa por alto esta capa de BD
+                            except Exception as e:
+                                # Si la columna 'bloqueado' o la tabla no existe en MySQL, no bloquea por error de esquema
+                                pass 
 
                         if bloqueo_detectado:
                             st.error(mensaje_bloqueo)
                         else:
-                            # Procedimiento normal de guardado si el período está abierto
+                            # Procedimiento normal de guardado en MySQL si no hay bloqueos reales en la BD
                             with db_connection.cursor() as cursor:
                                 cursor.execute(f"""
                                     CREATE TABLE IF NOT EXISTS `{db_segura}`.asientos_contables (
@@ -6871,7 +6872,8 @@ def renderizar_tab_asientos_automatizados(db_connection):
                                         cuenta_contable VARCHAR(255),
                                         referencia VARCHAR(100),
                                         debe DECIMAL(15, 2) DEFAULT 0.00,
-                                        haber DECIMAL(15, 2) DEFAULT 0.00
+                                        haber DECIMAL(15, 2) DEFAULT 0.00,
+                                        bloqueado TINYINT DEFAULT 0
                                     );
                                 """)
                                 
