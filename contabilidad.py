@@ -11051,7 +11051,7 @@ elif opcion_menu == "📝 Asientos Contables":
                                 cursor.close()
 
         with tab6:
-            st.subheader("🗑️ Vaciar Estado de Cuenta Bancario por Rango de Fecha")
+            st.subheader("🗑️ Vaciar Saldos Bancarios por Rango o Período")
             
             db_actual = st.session_state.get('DB_ACTUAL')
             cliente_id = st.session_state.get('cliente_id')
@@ -11068,23 +11068,24 @@ elif opcion_menu == "📝 Asientos Contables":
                     st.error("⚠️ Acceso denegado: No tienes permisos para esta empresa.")
                     st.stop()
 
-            st.warning("⚠️ **¡Atención!** Esta acción eliminará permanentemente los movimientos bancarios (`banco_movimientos`) de esta empresa dentro del rango de fechas seleccionado.")
+            st.warning("⚠️ **¡Atención!** Esta acción eliminará permanentemente los registros de la tabla `saldos_bancarios` de esta empresa dentro del rango seleccionado.")
 
-            # Selección de rango de fechas para el borrado específico (ej. mes de agosto)
             col1, col2 = st.columns(2)
             with col1:
                 fecha_desde = st.date_input("Fecha Inicio", key="f_inicio_vaciar")
             with col2:
                 fecha_hasta = st.date_input("Fecha Fin", key="f_fin_vaciar")
 
-            # Función adaptada eliminando la condición empresa_id que causaba el error
-            def vaciar_estado_cuenta_por_rango(conexion, nombre_db, f_inicio, f_fin):
+            # Función corregida para apuntar a 'saldos_bancarios'
+            def vaciar_saldos_bancarios(conexion, nombre_db, f_inicio, f_fin):
                 try:
                     cursor = conexion.cursor()
+                    # Nota: Cambiamos 'banco_movimientos' por 'saldos_bancarios' 
+                    # y validamos contra 'fecha_actualizacion' o el rango que corresponda.
                     query_delete = f"""
-                        DELETE FROM `{nombre_db}`.banco_movimientos 
-                        WHERE fecha_movimiento >= %s 
-                        AND fecha_movimiento <= %s
+                        DELETE FROM `{nombre_db}`.saldos_bancarios 
+                        WHERE fecha_actualizacion >= %s 
+                        AND fecha_actualizacion <= %s
                     """
                     cursor.execute(query_delete, (f_inicio, f_fin))
                     conexion.commit()
@@ -11092,17 +11093,16 @@ elif opcion_menu == "📝 Asientos Contables":
                     return True
                 except Exception as e:
                     conexion.rollback()
-                    st.error(f"Error técnico al vaciar los registros por rango: {e}")
+                    st.error(f"Error técnico al vaciar los saldos bancarios: {e}")
                     return False
 
-            # Doble confirmación por seguridad mostrando las fechas elegidas
             confirmar_checkbox = st.checkbox(
-                f"Confirmo que deseo eliminar los movimientos del {fecha_desde} al {fecha_hasta}", 
+                f"Confirmo que deseo eliminar los registros del {fecha_desde} al {fecha_hasta}", 
                 key="chk_vaciar_movimientos_rango"
             )
             
             if confirmar_checkbox:
-                if st.button("🚨 Ejecutar Eliminación por Rango", type="primary"):
+                if st.button("🚨 Ejecutar Eliminación en Saldos Bancarios", type="primary"):
                     try:
                         if 'conn' in locals() and conn:
                             conn.ping(reconnect=True)
@@ -11110,13 +11110,10 @@ elif opcion_menu == "📝 Asientos Contables":
                             conn = conectar_db(db_actual)
                         
                         if conn:
-                            # Ya no pasamos cliente_id porque la BD ya pertenece exclusivamente a dicha empresa
-                            exito = vaciar_estado_cuenta_por_rango(conn, db_actual, fecha_desde, fecha_hasta)
+                            exito = vaciar_saldos_bancarios(conn, db_actual, fecha_desde, fecha_hasta)
                             if exito:
-                                # ¡Lanzamos los globos y la buena noticia!
                                 st.balloons()
-                                st.success(f"🎉 ¡Listo mi pana! Los movimientos del {fecha_desde} al {fecha_hasta} se borraron a la perfección. ¡A limpiar cochino se ha dicho! 🚀")
-                                # Nota: Se omitió st.rerun() para que el mensaje de éxito no desaparezca de golpe.
+                                st.success(f"🎉 ¡Listo mi pana! Los registros de `saldos_bancarios` del {fecha_desde} al {fecha_hasta} se borraron a la perfección. ¡A limpiar cochino se ha dicho! 🚀")
                             else:
                                 st.error("❌ No se pudo completar la operación de borrado.")
                         else:
