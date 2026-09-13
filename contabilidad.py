@@ -2595,39 +2595,43 @@ def mostrar_interfaz_mayor(f_ini_g, f_fin_g, db_nombre):
                 # Obtener el código puro exacto mapeado
                 cuenta_para_consulta = opciones_mapa.get(cuenta_sel_label, cuenta_sel_label.split(" - ")[0])
                 
+                import datetime
+                def_inicio = f_ini_g if f_ini_g else datetime.date(2026, 5, 1)
+                def_fin = f_fin_g if f_fin_g else datetime.date(2026, 5, 31)
+
                 col1, col2 = st.columns(2)
-                # Usamos f_ini_g y f_fin_g para que tome dinámicamente el mes que el usuario seleccione en la app
-                f_m_d = col1.date_input("Desde", value=f_ini_g, key="m_d_dinamico")
-                f_m_h = col2.date_input("Hasta", value=f_fin_g, key="m_h_dinamico")
+                f_m_d = col1.date_input("Desde", value=def_inicio, key="m_d_mayo")
+                f_m_h = col2.date_input("Hasta", value=def_fin, key="m_h_mayo")
                 
-                saldo_inicial_periodo = 0.0
+                # 🔍 DEBUG VISUAL DE ENTRADAS
+                st.write(f"🛠️ **DEBUG - Base de datos:** `{db_nombre}`")
+                st.write(f"🛠️ **DEBUG - Cuenta seleccionada (código):** `{cuenta_para_consulta}`")
+                st.write(f"🛠️ **DEBUG - Rango de fechas:** Desde `{f_m_d}` hasta `{f_m_h}`")
 
                 # 🛑 BOTÓN DE GENERACIÓN CON ESTADO PERSISTENTE
                 if st.button("🔍 Generar Movimientos", key="btn_generar_movs_mayor"):
-                    # Guardamos el mensaje de éxito en session_state para que no se borre con el rerun
-                    st.session_state.debug_log = f"✅ ¡Botón presionado! Cuenta: {cuenta_para_consulta} | BD: {db_nombre}"
+                    st.write("⚡ *El botón fue presionado. Ejecutando función...*")
                     
-                    # Llamamos a la función de análisis robusta pasándole las fechas dinámicas seleccionadas
+                    # Llamamos a la función de análisis
                     res_reporte, movs_solos, saldo_final_real = ejecutar_mayor_analitico(db_nombre, cuenta_para_consulta, f_m_d, f_m_h)
                     
-                    if not res_reporte.empty:
+                    # 🔍 DEBUG DE LO QUE DEVUELVE LA FUNCIÓN
+                    st.write("📊 **DEBUG res_reporte tipo:**", type(res_reporte))
+                    st.write("📊 **DEBUG res_reporte contenido:**", res_reporte)
+                    st.write("📊 **DEBUG movs_solos contenido:**", movs_solos)
+                    st.write(f"📊 **DEBUG saldo_final_real:** {saldo_final_real}")
+
+                    if res_reporte is not None and not res_reporte.empty:
                         st.session_state.reporte_mayor = res_reporte
                         st.session_state.movs_solos = movs_solos if not movs_solos.empty else res_reporte
                         st.session_state.saldo_final_reporte = saldo_final_real
                         st.session_state.cuenta_actual = cuenta_sel_label
-                        st.session_state.debug_filas = f"📊 Filas devueltas: {len(res_reporte)}"
+                        st.success("✅ ¡Datos cargados en session_state con éxito!")
                         st.rerun()
                     else:
                         st.session_state.reporte_mayor = None
                         st.session_state.movs_solos = None
-                        st.session_state.debug_filas = f"⚠️ La función devolvió un DataFrame vacío para '{cuenta_para_consulta}' en el período seleccionado."
-                        st.rerun()
-
-                # Mostramos los logs de depuración fijos si existen
-                if 'debug_log' in st.session_state and st.session_state.debug_log:
-                    st.success(st.session_state.debug_log)
-                if 'debug_filas' in st.session_state and st.session_state.debug_filas:
-                    st.info(st.session_state.debug_filas)
+                        st.error("⚠️ La función `ejecutar_mayor_analitico` devolvió un DataFrame vacío o nulo.")
 
                 st.divider()
 
@@ -2701,8 +2705,6 @@ def mostrar_interfaz_mayor(f_ini_g, f_fin_g, db_nombre):
                                 )
                             except Exception as e:
                                 st.error(f"Error generando PDF: {e}")
-                    else:
-                        st.warning("No se encontraron movimientos para esta cuenta en el rango de fechas seleccionado.")
             else:
                 st.warning(f"⚠️ No hay cuentas registradas en la tabla 'plan_cuentas' de la base de datos: {db_nombre}")
         
@@ -2717,7 +2719,7 @@ def mostrar_interfaz_mayor(f_ini_g, f_fin_g, db_nombre):
                 except: pass
     else:
         st.error("❌ No se pudo establecer conexión con la base de datos.")
-
+        
 def generar_balance_profesional(conn, f_i, f_f, sucursal):
     db = st.session_state.get('DB_ACTUAL')
     if not db:
