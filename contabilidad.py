@@ -2551,6 +2551,22 @@ def mostrar_interfaz_mayor(f_ini_g, f_fin_g, db_nombre):
     if 'cuenta_actual' not in st.session_state: st.session_state.cuenta_actual = ""
 
     conn = conectar_db(db_nombre)
+    
+    # 🔍 DIAGNÓSTICO FORZADO INMEDIATO (Validamos conexión y datos de una vez)
+    if conn:
+        try:
+            query_diagnostico = "SELECT codigo, nombre, tipo FROM plan_cuentas"
+            df_diagnostico = ejecutar_consulta(query_diagnostico, conn)
+            
+            # Usamos st.info y st.dataframe para garantizar que se renderice visualmente
+            st.info(f"🔍 [DEBUG] Conectado a BD: {db_nombre} | Registros en plan_cuentas: {len(df_diagnostico)}")
+            if not df_diagnostico.empty:
+                st.dataframe(df_diagnostico, use_container_width=True)
+            else:
+                st.error("⚠️ La tabla plan_cuentas devolvió 0 filas en la consulta de diagnóstico.")
+        except Exception as err_diag:
+            st.error(f"❌ Error ejecutando el diagnóstico: {err_diag}")
+
     cursor = None
     
     if conn:
