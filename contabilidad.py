@@ -2913,7 +2913,7 @@ def ejecutar_mayor_analitico(db_nombre, cuenta, fecha_desde, fecha_hasta):
     Ejecuta el reporte de Mayor Analítico validando los permisos de Control Central
     y buscando los movimientos por el código en 'plan_cuentas'.
     """
-    # 0. Asegurar que 'cuenta' sea solo el código limpio (por si llega con etiqueta completa tipo "01.02 - Banco")
+    # 0. Asegurar que 'cuenta' sea solo el código limpio
     if cuenta and " - " in str(cuenta):
         cuenta = str(cuenta).split(" - ")[0].strip()
 
@@ -2950,20 +2950,37 @@ def ejecutar_mayor_analitico(db_nombre, cuenta, fecha_desde, fecha_hasta):
 
         f_inicio = pd.to_datetime(fecha_desde).normalize()
         f_fin = pd.to_datetime(fecha_hasta).normalize() + pd.Timedelta(hours=23, minutes=59, seconds=59)
+        cursor = conn.cursor()
 
-        # 2. Cálculo del Saldo Inicial (Buscando por plan_cuentas)
-        query_saldo_inicial = f"""
-            SELECT 
-                (SELECT IFNULL(SUM(debe - haber), 0) FROM `{db_actual}`.saldos_iniciales WHERE TRIM(cuenta_contable) = TRIM(%s)) +
-                (SELECT IFNULL(SUM(debe - haber), 0) FROM `{db_actual}`.asientos_contables 
-                 WHERE TRIM(plan_cuentas) = TRIM(%s) AND fecha < %s) 
-            AS saldo_previo
-        """
-        
-        res_saldo = pd.read_sql(query_saldo_inicial, conn, params=(cuenta, cuenta, f_inicio.strftime('%Y-%m-%d %H:%M:%S')))
+        # Verificar si la tabla 'saldos_iniciales' existe en esta base de datos
+        cursor.execute("""
+            SELECT COUNT(*) FROM information_schema.tables 
+            WHERE table_schema = %s AND table_name = 'saldos_iniciales'
+        """, (db_actual,))
+        tiene_saldos_iniciales = cursor.fetchone()[0] > 0
+
+        # 2. Cálculo del Saldo Inicial de forma segura
+        if tiene_saldos_iniciales:
+            query_saldo_inicial = f"""
+                SELECT 
+                    (SELECT IFNULL(SUM(debe - haber), 0) FROM `{db_actual}`.saldos_iniciales WHERE TRIM(cuenta_contable) = TRIM(%s)) +
+                    (SELECT IFNULL(SUM(debe - haber), 0) FROM `{db_actual}`.asientos_contables 
+                     WHERE TRIM(plan_cuentas) = TRIM(%s) AND fecha < %s) 
+                AS saldo_previo
+            """
+            res_saldo = pd.read_sql(query_saldo_inicial, conn, params=(cuenta, cuenta, f_inicio.strftime('%Y-%m-%d %H:%M:%S')))
+        else:
+            # Si no existe la tabla saldos_iniciales, calculamos solo con asientos anteriores a la fecha
+            query_saldo_inicial = f"""
+                SELECT IFNULL(SUM(debe - haber), 0) AS saldo_previo
+                FROM `{db_actual}`.asientos_contables 
+                WHERE TRIM(plan_cuentas) = TRIM(%s) AND fecha < %s
+            """
+            res_saldo = pd.read_sql(query_saldo_inicial, conn, params=(cuenta, f_inicio.strftime('%Y-%m-%d %H:%M:%S')))
+
         saldo_inicial_periodo = float(res_saldo.iloc[0, 0]) if not res_saldo.empty else 0.0
 
-        # 3. Consulta de los movimientos del período (Buscando por plan_cuentas)
+        # 3. Consulta de los movimientos del período
         query_movs = f"""
             SELECT fecha, n_comprobante, descripcion, referencia, debe, haber 
             FROM `{db_actual}`.asientos_contables 
