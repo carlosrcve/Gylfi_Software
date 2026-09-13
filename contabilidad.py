@@ -11116,7 +11116,7 @@ elif opcion_menu == "📝 Asientos Contables":
                                 # ¡Lanzamos los globos y la buena noticia!
                                 st.balloons()
                                 st.success(f"🎉 ¡Listo mi pana! Los movimientos del {fecha_desde} al {fecha_hasta} se borraron a la perfección. ¡A limpiar cochino se ha dicho! 🚀")
-                                st.rerun()
+                                # Nota: Se omitió st.rerun() para que el mensaje de éxito no desaparezca de golpe.
                             else:
                                 st.error("❌ No se pudo completar la operación de borrado.")
                         else:
