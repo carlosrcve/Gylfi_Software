@@ -2908,83 +2908,80 @@ def consultar_libro_diario_db(conn_activa=None, fecha_inicio=None, fecha_fin=Non
 
 
 def ejecutar_mayor_analitico(db_nombre, cuenta, fecha_desde, fecha_hasta):
-    """
-    Ejecuta el reporte de Mayor Analítico validando los permisos de Control Central
-    y buscando los movimientos de forma robusta.
-    """
     if cuenta and " - " in str(cuenta):
         cuenta = str(cuenta).split(" - ")[0].strip()
 
     db_actual = db_nombre if db_nombre and db_nombre != 'none' else st.session_state.get('DB_ACTUAL')
-    cliente_id = st.session_state.get('cliente_id')
-    rol = st.session_state.get('rol')
-
     if not db_actual or db_actual == 'none':
         db_actual = st.session_state.get('empresa_actual')
 
-    if not db_actual or db_actual == 'none':
-        st.error("❌ No se ha seleccionado una base de datos de empresa válida.")
+    conn = conectar_db(db_actual)
+    if not conn:
         return pd.DataFrame(), pd.DataFrame(), 0.0
 
-    conn = None
     try:
-        conn = conectar_db(db_actual)
-        if not conn:
-            st.error(f"❌ No se pudo establecer conexión con la base de datos `{db_actual}`.")
-            return pd.DataFrame(), pd.DataFrame(), 0.0
-
         f_inicio = pd.to_datetime(fecha_desde).normalize()
         f_fin = pd.to_datetime(fecha_hasta).normalize() + pd.Timedelta(hours=23, minutes=59, seconds=59)
         cursor = conn.cursor()
 
-        # Verificar si existe la tabla 'saldos_iniciales'
+        # Verificar si existe 'saldos_iniciales'
         cursor.execute("""
             SELECT COUNT(*) FROM information_schema.tables 
             WHERE table_schema = %s AND table_name = 'saldos_iniciales'
         """, (db_actual,))
         tiene_saldos_iniciales = cursor.fetchone()[0] > 0
+        
+        patron_cuenta = f"%{cuenta}%"
 
-        patron_cuenta = f"{cuenta}%"
-
-        # 2. Cálculo del Saldo Inicial blindado
+        # 1. Saldo Inicial
         if tiene_saldos_iniciales:
-            query_saldo_inicial = f"""
+            query_saldo = f"""
                 SELECT 
                     (SELECT IFNULL(SUM(debe - haber), 0) FROM `{db_actual}`.saldos_iniciales WHERE TRIM(cuenta_contable) = TRIM(%s)) +
                     (SELECT IFNULL(SUM(debe - haber), 0) FROM `{db_actual}`.asientos_contables 
                      WHERE (TRIM(plan_cuentas) = TRIM(%s) OR TRIM(cuenta_contable) = TRIM(%s) OR plan_cuentas LIKE %s) AND fecha < %s) 
                 AS saldo_previo
             """
-            res_saldo = pd.read_sql(query_saldo_inicial, conn, params=(cuenta, cuenta, cuenta, patron_cuenta, f_inicio.strftime('%Y-%m-%d %H:%M:%S')))
+            res_saldo = pd.read_sql(query_saldo, conn, params=(cuenta, cuenta, cuenta, patron_cuenta, f_inicio.strftime('%Y-%m-%d %H:%M:%S')))
         else:
-            query_saldo_inicial = f"""
+            query_saldo = f"""
                 SELECT IFNULL(SUM(debe - haber), 0) AS saldo_previo
                 FROM `{db_actual}`.asientos_contables 
                 WHERE (TRIM(plan_cuentas) = TRIM(%s) OR TRIM(cuenta_contable) = TRIM(%s) OR plan_cuentas LIKE %s) AND fecha < %s
             """
-            res_saldo = pd.read_sql(query_saldo_inicial, conn, params=(cuenta, cuenta, patron_cuenta, f_inicio.strftime('%Y-%m-%d %H:%M:%S')))
+            res_saldo = pd.read_sql(query_saldo, conn, params=(cuenta, cuenta, patron_cuenta, f_inicio.strftime('%Y-%m-%d %H:%M:%S')))
 
         saldo_inicial_periodo = float(res_saldo.iloc[0, 0]) if not res_saldo.empty else 0.0
 
-        # 3. Consulta de movimientos del período abarcando ambos campos posibles
+        # 2. Consulta de movimientos del período
         query_movs = f"""
             SELECT fecha, n_comprobante, descripcion, referencia, debe, haber 
             FROM `{db_actual}`.asientos_contables 
             WHERE (
                 TRIM(plan_cuentas) = TRIM(%s) OR 
                 TRIM(cuenta_contable) = TRIM(%s) OR 
-                plan_cuentas LIKE %s
+                plan_cuentas LIKE %s OR 
+                cuenta_contable LIKE %s
             ) 
             AND fecha >= %s AND fecha <= %s 
             ORDER BY fecha ASC, id ASC
         """
         df_movs = pd.read_sql(
-            query_movs, 
-            conn, 
-            params=(cuenta, cuenta, patron_cuenta, f_inicio.strftime('%Y-%m-%d %H:%M:%S'), f_fin.strftime('%Y-%m-%d %H:%M:%S'))
+            query_movs, conn, 
+            params=(cuenta, cuenta, patron_cuenta, patron_cuenta, f_inicio.strftime('%Y-%m-%d %H:%M:%S'), f_fin.strftime('%Y-%m-%d %H:%M:%S'))
         )
         
-        # 4. Procesamiento matemático y cálculo del acumulado
+        # SI NO HAY MOVIMIENTOS EN EL RANGO, hagamos una prueba rápida sin filtro de fechas para ver si la cuenta tiene movimientos en otro período
+        if df_movs.empty:
+            query_test = f"""
+                SELECT COUNT(*) FROM `{db_actual}`.asientos_contables 
+                WHERE TRIM(plan_cuentas) = TRIM(%s) OR TRIM(cuenta_contable) = TRIM(%s)
+            """
+            cursor.execute(query_test, (cuenta, cuenta))
+            total_historico = cursor.fetchone()[0]
+            if total_historico > 0:
+                st.info(f"ℹ️ La cuenta '{cuenta}' tiene {total_historico} movimientos históricos en total, pero ninguno en el rango de fechas {fecha_desde} al {fecha_hasta}.")
+
         if not df_movs.empty:
             df_movs['debe'] = pd.to_numeric(df_movs['debe'], errors='coerce').fillna(0.0)
             df_movs['haber'] = pd.to_numeric(df_movs['haber'], errors='coerce').fillna(0.0)
@@ -2993,7 +2990,6 @@ def ejecutar_mayor_analitico(db_nombre, cuenta, fecha_desde, fecha_hasta):
         else:
             df_movs = pd.DataFrame(columns=['fecha', 'n_comprobante', 'descripcion', 'referencia', 'debe', 'haber', 'Saldo'])
 
-        # 5. Fila de saldo inicial
         fila_inicial = pd.DataFrame([{
             'fecha': pd.to_datetime(fecha_desde),
             'n_comprobante': 'S/I',
@@ -3010,12 +3006,11 @@ def ejecutar_mayor_analitico(db_nombre, cuenta, fecha_desde, fecha_hasta):
         return df_final, df_movs, saldo_final_real
 
     except Exception as e:
-        st.error(f"❌ Error al generar el Mayor Analítico: {e}")
+        st.error(f"❌ Error en Mayor Analítico: {e}")
         return pd.DataFrame(), pd.DataFrame(), 0.0
     finally:
         if conn:
-            try: conn.close()
-            except: pass
+            conn.close()
 
 
 def generar_balance_comprobacion(conn, f_i, f_f, sucursal):
