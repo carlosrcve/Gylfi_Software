@@ -6785,7 +6785,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
                     column_config={
                         "n_comprobante": st.column_config.TextColumn("n_comprobante"),
                         "descripcion": st.column_config.TextColumn("Descripción"),
-                        "fecha": st.column_config.TextColumn("Fecha"),
+                        "fecha": st.column_config.DateColumn("Fecha", format="YYYY-MM-DD"),
                         "plan_cuentas": st.column_config.SelectboxColumn(
                             "Plan de Cuentas (Código)",
                             options=opciones_codigos_puros,
@@ -6855,8 +6855,8 @@ def renderizar_tab_asientos_automatizados(db_connection):
                                         break
                             except Exception as e:
                                 # Si la columna 'bloqueado' o la tabla no existe en MySQL, no bloquea por error de esquema
-                                pass 
-
+                                pass
+                                
                         if bloqueo_detectado:
                             st.error(mensaje_bloqueo)
                         else:
