@@ -2560,34 +2560,17 @@ def mostrar_interfaz_mayor(f_ini_g, f_fin_g, db_nombre):
             usuario = st.session_state.get('usuario', 'Desconocido')
             registrar_log_automatico(conn, "CONSULTA_LIBRO_MAYOR", f"Usuario {usuario} consultó mayor en {db_nombre}")
             
-            # 🎯 FILTRAR SOLO CUENTAS DE DETALLE (Ajusta 'tipo = "D"' o 'es_movimiento = 1' según tu BD si es necesario)
+            # 🎯 FILTRAR SOLO CUENTAS DE DETALLE BASADO EN TU ESQUEMA REAL
             query_cuentas = """
                 SELECT codigo, nombre 
                 FROM plan_cuentas 
                 WHERE codigo IS NOT NULL 
                   AND TRIM(codigo) != '' 
                   AND LOWER(codigo) != 'nan'
-                  AND (tipo = 'D' OR es_movimiento = 1)
+                  AND tipo = 'Detalle'
                 ORDER BY codigo
             """
-            # Nota: Si tu tabla usa otro nombre de columna para el detalle (ej. 'imputable = 1'), 
-            # solo ajústalo en el filtro WHERE de arriba.
-            
             df_cuentas = ejecutar_consulta(query_cuentas, conn)
-            
-            # Si la consulta anterior no devuelve nada porque los nombres de columnas varían, 
-            # puedes quitar temporalmente el filtro extra y dejar solo las de mayor nivel o longitud.
-            if df_cuentas.empty:
-                # Fallback por si la columna de detalle tiene otro nombre: traemos las más largas o filtramos por longitud/puntos
-                query_cuentas_alt = """
-                    SELECT codigo, nombre 
-                    FROM plan_cuentas 
-                    WHERE codigo IS NOT NULL 
-                      AND TRIM(codigo) != '' 
-                      AND LOWER(codigo) != 'nan'
-                    ORDER BY codigo
-                """
-                df_cuentas = ejecutar_consulta(query_cuentas_alt, conn)
             
             if not df_cuentas.empty:
                 opciones_mapa = {}
@@ -2605,7 +2588,7 @@ def mostrar_interfaz_mayor(f_ini_g, f_fin_g, db_nombre):
                     lista_opciones.append(label)
 
                 if not lista_opciones:
-                    st.warning("⚠️ No se encontraron cuentas contables válidas en el plan de cuentas.")
+                    st.warning("⚠️ No se encontraron cuentas de detalle válidas en el plan de cuentas.")
                     return
 
                 cuenta_sel_label = st.selectbox("Seleccione cuenta de detalle:", lista_opciones, key="select_cuenta_mayor")
@@ -2709,7 +2692,7 @@ def mostrar_interfaz_mayor(f_ini_g, f_fin_g, db_nombre):
                             except Exception as e:
                                 st.error(f"Error generando PDF: {e}")
             else:
-                st.warning(f"⚠️ No hay cuentas registradas en la tabla 'plan_cuentas' de la base de datos: {db_nombre}")
+                st.warning(f"⚠️ No hay cuentas de detalle registradas en la tabla 'plan_cuentas' de la base de datos: {db_nombre}")
         
         except Exception as e:
             st.error(f"❌ Error en el Libro Mayor: {e}")
