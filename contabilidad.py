@@ -1629,7 +1629,7 @@ def mes_esta_cerrado(conn, mes_nombre, ano, db_nombre=None):
         except Exception:
             pass # Si falla el log, no frena la validación
         
-        # Consulta apuntando a una tabla de control real (periodos_cerrados) en lugar de banco_movimientos
+        # Consulta apuntando a la tabla de control de periodos cerrados
         if db_nombre:
             query = f"""
                 SELECT COUNT(*) FROM `{db_nombre}`.periodos_cerrados 
@@ -1654,8 +1654,7 @@ def mes_esta_cerrado(conn, mes_nombre, ano, db_nombre=None):
         return False
         
     except Exception as e:
-        # Si la tabla 'periodos_cerrados' aún no existe en tu base de datos, 
-        # esto evita que la aplicación se caiga y te deja trabajar sin bloqueos molestos.
+        # Si la tabla 'periodos_cerrados' no existe o da error, retorna False para evitar bloqueos
         return False
         
     finally:
