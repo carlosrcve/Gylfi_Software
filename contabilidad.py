@@ -2595,15 +2595,10 @@ def mostrar_interfaz_mayor(f_ini_g, f_fin_g, db_nombre):
                 # Obtener el código puro exacto mapeado
                 cuenta_para_consulta = opciones_mapa.get(cuenta_sel_label, cuenta_sel_label.split(" - ")[0])
                 
-                # Definimos de forma directa las fechas de septiembre para que no arrastre el mes de mayo
-                import datetime
-                fecha_default_inicio = datetime.date(2026, 9, 1)
-                fecha_default_fin = datetime.date(2026, 9, 30)
-
                 col1, col2 = st.columns(2)
-                # Forzamos los valores iniciales y limpiamos el key viejo usando un sufijo nuevo
-                f_m_d = col1.date_input("Desde", value=fecha_default_inicio, key="m_d_septiembre")
-                f_m_h = col2.date_input("Hasta", value=fecha_default_fin, key="m_h_septiembre")
+                # Usamos f_ini_g y f_fin_g para que tome dinámicamente el mes que el usuario seleccione en la app
+                f_m_d = col1.date_input("Desde", value=f_ini_g, key="m_d_dinamico")
+                f_m_h = col2.date_input("Hasta", value=f_fin_g, key="m_h_dinamico")
                 
                 saldo_inicial_periodo = 0.0
 
@@ -2612,7 +2607,7 @@ def mostrar_interfaz_mayor(f_ini_g, f_fin_g, db_nombre):
                     # Guardamos el mensaje de éxito en session_state para que no se borre con el rerun
                     st.session_state.debug_log = f"✅ ¡Botón presionado! Cuenta: {cuenta_para_consulta} | BD: {db_nombre}"
                     
-                    # Llamamos a la función de análisis robusta
+                    # Llamamos a la función de análisis robusta pasándole las fechas dinámicas seleccionadas
                     res_reporte, movs_solos, saldo_final_real = ejecutar_mayor_analitico(db_nombre, cuenta_para_consulta, f_m_d, f_m_h)
                     
                     if not res_reporte.empty:
@@ -2625,7 +2620,7 @@ def mostrar_interfaz_mayor(f_ini_g, f_fin_g, db_nombre):
                     else:
                         st.session_state.reporte_mayor = None
                         st.session_state.movs_solos = None
-                        st.session_state.debug_filas = f"⚠️ La función devolvió un DataFrame vacío para '{cuenta_para_consulta}'."
+                        st.session_state.debug_filas = f"⚠️ La función devolvió un DataFrame vacío para '{cuenta_para_consulta}' en el período seleccionado."
                         st.rerun()
 
                 # Mostramos los logs de depuración fijos si existen
@@ -2707,7 +2702,7 @@ def mostrar_interfaz_mayor(f_ini_g, f_fin_g, db_nombre):
                             except Exception as e:
                                 st.error(f"Error generando PDF: {e}")
                     else:
-                        st.warning("No se encontraron movimientos para esta cuenta.")
+                        st.warning("No se encontraron movimientos para esta cuenta en el rango de fechas seleccionado.")
             else:
                 st.warning(f"⚠️ No hay cuentas registradas en la tabla 'plan_cuentas' de la base de datos: {db_nombre}")
         
