@@ -1649,6 +1649,10 @@ def mes_esta_cerrado(conn, mes_nombre, ano, db_nombre=None):
         cursor.execute(query, (mes_num, ano))
         resultado_fetch = cursor.fetchone()
         
+        # --- DEPURACIÓN EN PANTALLA ---
+        st.warning(f"DEBUG -> DB Usada: {db_nombre} | Mes: {mes_num} | Año: {ano} | Resultado Fetch: {resultado_fetch}")
+        # -----------------------------
+        
         # Manejo seguro por si el cursor devuelve tupla o diccionario (DictCursor)
         if resultado_fetch:
             if isinstance(resultado_fetch, dict):
@@ -1665,8 +1669,6 @@ def mes_esta_cerrado(conn, mes_nombre, ano, db_nombre=None):
         
     finally:
         cursor.close()
-
-
 
 def cargar_estado_cuenta_bdv(uploaded_file, conn):
     # 1. Recuperamos las variables del estado global y la base de datos de la empresa actual
@@ -11862,7 +11864,7 @@ elif opcion_menu == "📖 Mayor Analítico":
         st.stop()
 
     empresa_data = obtener_datos_agente_db(db_actual)
-    st.info(f"🔍 [DEBUG MENÚ] empresa_data devuelto: {empresa_data}")
+    #st.info(f"🔍 [DEBUG MENÚ] empresa_data devuelto: {empresa_data}")
 
     # 2. FILTRO DE ACCESO
     if empresa_data and rol != "admin":
