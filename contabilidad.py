@@ -2881,35 +2881,38 @@ def ejecutar_mayor_analitico(db_nombre, cuenta, fecha_desde, fecha_hasta):
         """, (db_actual,))
         tiene_saldos_iniciales = cursor.fetchone()[0] > 0
         
-        # Limpiamos bien la variable cuenta por si entra con texto o espacios
+        # Preparamos ambas versiones: con formato (puntos) y solo números (como en el balance)
         cuenta_limpia = str(cuenta).strip()
+        cuenta_solo_numeros = "".join(filter(str.isdigit, cuenta_limpia))
 
-        # Cálculo del Saldo Inicial acumulado previo a f_inicio (Búsqueda exacta)
+        # Cálculo del Saldo Inicial acumulado previo a f_inicio (Buscando ambas variantes)
         if tiene_saldos_iniciales:
             query_saldo = f"""
                 SELECT 
-                    (SELECT IFNULL(SUM(debe - haber), 0) FROM `{db_actual}`.saldos_iniciales WHERE TRIM(cuenta_contable) = TRIM(%s)) +
+                    (SELECT IFNULL(SUM(debe - haber), 0) FROM `{db_actual}`.saldos_iniciales WHERE TRIM(cuenta_contable) = TRIM(%s) OR TRIM(cuenta_contable) = TRIM(%s)) +
                     (SELECT IFNULL(SUM(debe - haber), 0) FROM `{db_actual}`.asientos_contables 
-                     WHERE (TRIM(plan_cuentas) = TRIM(%s) OR TRIM(cuenta_contable) = TRIM(%s)) AND fecha < %s) 
+                     WHERE (TRIM(plan_cuentas) = TRIM(%s) OR TRIM(plan_cuentas) = TRIM(%s) OR TRIM(cuenta_contable) = TRIM(%s) OR TRIM(cuenta_contable) = TRIM(%s)) AND fecha < %s) 
                 AS saldo_previo
             """
-            res_saldo = pd.read_sql(query_saldo, conn, params=(cuenta_limpia, cuenta_limpia, cuenta_limpia, f_inicio.strftime('%Y-%m-%d %H:%M:%S')))
+            res_saldo = pd.read_sql(query_saldo, conn, params=(cuenta_limpia, cuenta_solo_numeros, cuenta_limpia, cuenta_solo_numeros, cuenta_limpia, cuenta_solo_numeros, f_inicio.strftime('%Y-%m-%d %H:%M:%S')))
         else:
             query_saldo = f"""
                 SELECT IFNULL(SUM(debe - haber), 0) AS saldo_previo
                 FROM `{db_actual}`.asientos_contables 
-                WHERE (TRIM(plan_cuentas) = TRIM(%s) OR TRIM(cuenta_contable) = TRIM(%s)) AND fecha < %s
+                WHERE (TRIM(plan_cuentas) = TRIM(%s) OR TRIM(plan_cuentas) = TRIM(%s) OR TRIM(cuenta_contable) = TRIM(%s) OR TRIM(cuenta_contable) = TRIM(%s)) AND fecha < %s
             """
-            res_saldo = pd.read_sql(query_saldo, conn, params=(cuenta_limpia, cuenta_limpia, f_inicio.strftime('%Y-%m-%d %H:%M:%S')))
+            res_saldo = pd.read_sql(query_saldo, conn, params=(cuenta_limpia, cuenta_solo_numeros, cuenta_limpia, cuenta_solo_numeros, f_inicio.strftime('%Y-%m-%d %H:%M:%S')))
 
         saldo_inicial_periodo = float(res_saldo.iloc[0, 0]) if not res_saldo.empty else 0.0
 
-        # Consulta de movimientos en el rango seleccionado (Búsqueda exacta para evitar cruces de cuentas)
+        # Consulta de movimientos en el rango seleccionado (Buscando formato con puntos y sin puntos)
         query_movs = f"""
             SELECT fecha, n_comprobante, descripcion, referencia, debe, haber 
             FROM `{db_actual}`.asientos_contables 
             WHERE (
                 TRIM(plan_cuentas) = TRIM(%s) OR 
+                TRIM(plan_cuentas) = TRIM(%s) OR 
+                TRIM(cuenta_contable) = TRIM(%s) OR 
                 TRIM(cuenta_contable) = TRIM(%s)
             ) 
             AND fecha >= %s AND fecha <= %s 
@@ -2917,7 +2920,7 @@ def ejecutar_mayor_analitico(db_nombre, cuenta, fecha_desde, fecha_hasta):
         """
         df_movs = pd.read_sql(
             query_movs, conn, 
-            params=(cuenta_limpia, cuenta_limpia, f_inicio.strftime('%Y-%m-%d %H:%M:%S'), f_fin.strftime('%Y-%m-%d %H:%M:%S'))
+            params=(cuenta_limpia, cuenta_solo_numeros, cuenta_limpia, cuenta_solo_numeros, f_inicio.strftime('%Y-%m-%d %H:%M:%S'), f_fin.strftime('%Y-%m-%d %H:%M:%S'))
         )
         
         if not df_movs.empty:
@@ -2949,7 +2952,6 @@ def ejecutar_mayor_analitico(db_nombre, cuenta, fecha_desde, fecha_hasta):
         if conn:
             try: conn.close()
             except: pass
-
 
 def generar_balance_comprobacion(conn, f_i, f_f, sucursal):
     db = st.session_state.get('DB_ACTUAL')
