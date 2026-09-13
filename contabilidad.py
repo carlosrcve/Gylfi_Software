@@ -2908,10 +2908,6 @@ def consultar_libro_diario_db(conn_activa=None, fecha_inicio=None, fecha_fin=Non
 
 
 def ejecutar_mayor_analitico(db_nombre, cuenta, fecha_desde, fecha_hasta):
-    """
-    Motor analítico robusto para el Libro Mayor.
-    Calcula el saldo inicial acumulado antes de la 'fecha_desde' y los movimientos del período.
-    """
     # Extraer el código puro si viene en formato "Código - Nombre"
     if cuenta and " - " in str(cuenta):
         cuenta = str(cuenta).split(" - ")[0].strip()
@@ -2922,6 +2918,7 @@ def ejecutar_mayor_analitico(db_nombre, cuenta, fecha_desde, fecha_hasta):
 
     conn = conectar_db(db_actual)
     if not conn:
+        st.error(f"❌ No se pudo conectar a la base de datos: {db_actual}")
         return pd.DataFrame(), pd.DataFrame(), 0.0
 
     try:
@@ -2929,36 +2926,41 @@ def ejecutar_mayor_analitico(db_nombre, cuenta, fecha_desde, fecha_hasta):
         f_fin = pd.to_datetime(fecha_hasta).normalize() + pd.Timedelta(hours=23, minutes=59, seconds=59)
         cursor = conn.cursor()
 
-        # 1. Comprobar si la tabla 'saldos_iniciales' existe en la base de datos de la empresa
-        cursor.execute("""
-            SELECT COUNT(*) FROM information_schema.tables 
-            WHERE table_schema = %s AND table_name = 'saldos_iniciales'
-        """, (db_actual,))
-        tiene_saldos_iniciales = cursor.fetchone()[0] > 0
+        # 🔍 PASO DE DIAGNÓSTICO 1: Verificamos qué columnas tiene realmente 'asientos_contables'
+        cursor.execute(f"SHOW COLUMNS FROM `{db_actual}`.asientos_contables")
+        columnas_tabla = [col[0] for col in cursor.fetchall()]
         
+        # Mostramos en pantalla el diagnóstico para que lo veas claramente
+        with st.expander("🛠️ Panel de Diagnóstico SQL (Depuración)", expanded=True):
+            st.write(f"**Base de datos consultada:** `{db_actual}`")
+            st.write(f"**Cuenta buscada (código limpio):** `{cuenta}`")
+            st.write(f"**Rango de fechas:** `{f_inicio}` al `{f_fin}`")
+            st.write(f"**Columnas detectadas en asientos_contables:** {columnas_tabla}")
+
         patron_cuenta = f"%{cuenta}%"
 
-        # 2. Cálculo del Saldo Inicial (Acumulado histórico previo a f_inicio)
-        if tiene_saldos_iniciales:
-            query_saldo = f"""
-                SELECT 
-                    (SELECT IFNULL(SUM(debe - haber), 0) FROM `{db_actual}`.saldos_iniciales WHERE TRIM(cuenta_contable) = TRIM(%s)) +
-                    (SELECT IFNULL(SUM(debe - haber), 0) FROM `{db_actual}`.asientos_contables 
-                     WHERE (TRIM(plan_cuentas) = TRIM(%s) OR TRIM(cuenta_contable) = TRIM(%s) OR plan_cuentas LIKE %s) AND fecha < %s) 
-                AS saldo_previo
-            """
-            res_saldo = pd.read_sql(query_saldo, conn, params=(cuenta, cuenta, cuenta, patron_cuenta, f_inicio.strftime('%Y-%m-%d %H:%M:%S')))
-        else:
-            query_saldo = f"""
-                SELECT IFNULL(SUM(debe - haber), 0) AS saldo_previo
+        # 🔍 PASO DE DIAGNÓSTICO 2: Probar conteo libre sin fechas para ver si la cuenta existe en los asientos
+        query_prueba_conteo = f"""
+            SELECT COUNT(*) FROM `{db_actual}`.asientos_contables 
+            WHERE plan_cuentas LIKE %s OR cuenta_contable LIKE %s
+        """
+        cursor.execute(query_prueba_conteo, (patron_cuenta, patron_cuenta))
+        total_coincidencias = cursor.fetchone()[0]
+        st.write(f"**Total de registros en la tabla que coinciden con '{cuenta}' (sin importar la fecha):** {total_coincidencias}")
+
+        if total_coincidencias > 0:
+            # Mostrar los primeros 3 registros encontrados para ver cómo están guardadas las fechas y cuentas
+            query_muestra = f"""
+                SELECT fecha, plan_cuentas, cuenta_contable, debe, haber, descripcion 
                 FROM `{db_actual}`.asientos_contables 
-                WHERE (TRIM(plan_cuentas) = TRIM(%s) OR TRIM(cuenta_contable) = TRIM(%s) OR plan_cuentas LIKE %s) AND fecha < %s
+                WHERE plan_cuentas LIKE %s OR cuenta_contable LIKE %s 
+                LIMIT 3
             """
-            res_saldo = pd.read_sql(query_saldo, conn, params=(cuenta, cuenta, patron_cuenta, f_inicio.strftime('%Y-%m-%d %H:%M:%S')))
+            df_muestra = pd.read_sql(query_muestra, conn, params=(patron_cuenta, patron_cuenta))
+            st.write("**Muestra de registros en la BD para esta cuenta:**")
+            st.dataframe(df_muestra)
 
-        saldo_inicial_periodo = float(res_saldo.iloc[0, 0]) if not res_saldo.empty else 0.0
-
-        # 3. Consulta de los movimientos exactos dentro del rango de fechas
+        # 3. Consulta de los movimientos exactos dentro del rango de fechas seleccionadas
         query_movs = f"""
             SELECT fecha, n_comprobante, descripcion, referencia, debe, haber 
             FROM `{db_actual}`.asientos_contables 
@@ -2969,24 +2971,27 @@ def ejecutar_mayor_analitico(db_nombre, cuenta, fecha_desde, fecha_hasta):
                 cuenta_contable LIKE %s
             ) 
             AND fecha >= %s AND fecha <= %s 
-            ORDER BY fecha ASC, id ASC
+            ORDER BY fecha ASC
         """
         df_movs = pd.read_sql(
             query_movs, conn, 
             params=(cuenta, cuenta, patron_cuenta, patron_cuenta, f_inicio.strftime('%Y-%m-%d %H:%M:%S'), f_fin.strftime('%Y-%m-%d %H:%M:%S'))
         )
         
-        # Procesamiento con Pandas de los movimientos del período
+        st.write(f"**Movimientos encontrados exactamente en el rango de fechas:** {len(df_movs)}")
+
+        # Procesamiento con Pandas
         if not df_movs.empty:
             df_movs['debe'] = pd.to_numeric(df_movs['debe'], errors='coerce').fillna(0.0)
             df_movs['haber'] = pd.to_numeric(df_movs['haber'], errors='coerce').fillna(0.0)
-            # Cálculo de la columna acumulativa de saldo por línea
-            df_movs['Saldo'] = saldo_inicial_periodo + (df_movs['debe'] - df_movs['haber']).cumsum()
+            df_movs['Saldo'] = (df_movs['debe'] - df_movs['haber']).cumsum()
             df_movs['fecha'] = pd.to_datetime(df_movs['fecha'], errors='coerce')
         else:
             df_movs = pd.DataFrame(columns=['fecha', 'n_comprobante', 'descripcion', 'referencia', 'debe', 'haber', 'Saldo'])
 
-        # 4. Creación de la fila inicial (S/I)
+        # Saldo inicial en 0.00 para la vista de prueba diagnóstica
+        saldo_inicial_periodo = 0.00
+
         fila_inicial = pd.DataFrame([{
             'fecha': pd.to_datetime(fecha_desde),
             'n_comprobante': 'S/I',
@@ -2997,7 +3002,6 @@ def ejecutar_mayor_analitico(db_nombre, cuenta, fecha_desde, fecha_hasta):
             'Saldo': saldo_inicial_periodo
         }])
 
-        # Unir saldo inicial con el DataFrame de movimientos del período
         df_final = pd.concat([fila_inicial, df_movs], ignore_index=True)
         saldo_final_real = float(df_final['Saldo'].iloc[-1]) if not df_final.empty else saldo_inicial_periodo
         
