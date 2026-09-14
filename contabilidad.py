@@ -8399,7 +8399,9 @@ def renderizar_tab_asientos_ventas(db_connection):
                 if bloqueo_detectado:
                     st.error(mensaje_bloqueo)
                 else:
+                    # --- PASO DE INSERCIÓN CON DEPURACIÓN EXPLICITA ---
                     with db_connection.cursor() as cursor:
+                        # 1. Asegurar la tabla
                         cursor.execute(f"""
                             CREATE TABLE IF NOT EXISTS `{db_segura}`.asientos_contables (
                                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -8414,28 +8416,37 @@ def renderizar_tab_asientos_ventas(db_connection):
                             );
                         """)
                         
+                        registros_insertados = 0
                         for _, row in df_editado.iterrows():
                             codigo_limpio = extraer_solo_codigo(row["plan_cuentas"])
+                            
+                            # Nos aseguramos de formatear correctamente la fecha para MySQL (YYYY-MM-DD)
+                            fecha_str = str(row["fecha"]).split(" ")[0] if pd.notnotnull(row["fecha"]) else None
+                            
                             cursor.execute(f"""
                                 INSERT INTO `{db_segura}`.asientos_contables 
                                 (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber)
                                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                             """, (
-                                row["n_comprobante"],
-                                row["descripcion"],
-                                row["fecha"],
-                                codigo_limpio,
-                                row["cuenta_contable"],
-                                row["referencia"],
-                                row["debe"],
-                                row["haber"]
+                                str(row["n_comprobante"]),
+                                str(row["descripcion"]),
+                                fecha_str,
+                                str(codigo_limpio),
+                                str(row["cuenta_contable"]),
+                                str(row["referencia"]) if pd.notnull(row["referencia"]) else "",
+                                float(row["debe"]),
+                                float(row["haber"])
                             ))
+                            registros_insertados += 1
+                            
                         db_connection.commit()
-                        st.success("✅ ¡Asientos de ventas guardados exitosamente en el Libro Diario!")
+                        st.success(f"✅ ¡ {registros_insertados} Asientos de ventas guardados y confirmados (commit) en la base de datos `{db_segura}`!")
+                        
             except Exception as db_err:
                 if hasattr(db_connection, 'rollback'):
                     db_connection.rollback()
-                st.error(f"Error al guardar los asientos de ventas: {db_err}")
+                # Muestra el error exacto en pantalla para saber si falla por SQL, conexión o tipos
+                st.error(f"❌ Error crítico detallado al guardar en MySQL: {str(db_err)}")
 
 
 def gestionar_sidebar():
