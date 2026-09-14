@@ -6554,7 +6554,14 @@ def renderizar_tab_asientos_automatizados(db_connection):
     st.markdown("---")
     st.markdown("### 📋 Primer Frame: Libro de Ventas Subido")
 
-    archivo_excel = st.file_uploader("Subir Libro de Ventas (Excel)", type=["xlsx", "xls"], key="uploader_libro_ventas")
+    # Clave dinámica basada en la base de datos activa para evitar colisiones de widgets
+    key_uploader_dinamica = f"uploader_libro_ventas_{db_segura}"
+
+    archivo_excel = st.file_uploader(
+        "Subir Libro de Ventas (Excel)", 
+        type=["xlsx", "xls"], 
+        key=key_uploader_dinamica
+    )
 
     if archivo_excel is not None:
         try:
