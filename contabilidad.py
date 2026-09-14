@@ -8250,7 +8250,7 @@ def renderizar_tab_asientos_ventas(db_connection):
             st.error(f"Error al leer o procesar el archivo Excel: {excel_err}")
 
     # ----------------------------------------------------
-    # SEGUNDO FRAME: ESTRUCTURA COMPLETA DE VENTAS (FORMATO ORIGINAL RESTAURADO)
+    # SEGUNDO FRAME: ESTRUCTURA COMPLETA DE VENTAS (FORMATO VENEZOLANO RESTAURADO)
     # ----------------------------------------------------
     if 'df_asientos_ventas_proceso' in st.session_state and not st.session_state['df_asientos_ventas_proceso'].empty:
         df_a_procesar = st.session_state['df_asientos_ventas_proceso'].copy()
@@ -8265,7 +8265,7 @@ def renderizar_tab_asientos_ventas(db_connection):
                     .astype(str)
                     .str.replace('$', '', regex=False)
                     .str.replace('€', '', regex=False)
-                    .str.replace('.', '', regex=False)   # Elimina separador de miles si lo trae
+                    .str.replace('.', '', regex=False)   # Elimina separador de miles
                     .str.replace(',', '.', regex=False)  # Cambia coma por punto decimal
                     .str.strip()
                 )
@@ -8277,7 +8277,7 @@ def renderizar_tab_asientos_ventas(db_connection):
         
         mapa_descripciones["4.1.1.01.001"] = "Ingresos Exento I.V.A."
 
-        # --- FUNCIÓN AUXILIAR PARA FORMATO VENEZOLANO (Solo para métricas finales) ---
+        # --- FUNCIÓN PARA FORMATO VENEZOLANO (Punto para miles, coma para decimales) ---
         def formato_venezolano(val):
             try:
                 return f"{float(val):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
@@ -8345,9 +8345,16 @@ def renderizar_tab_asientos_ventas(db_connection):
         if not opciones_codigos_puros or "4.1.1.01.001" not in opciones_codigos_puros:
             opciones_codigos_puros = ["4.1.1.01.001"] + [op for op in opciones_codigos_puros if op != "4.1.1.01.001"]
 
-        # --- RENDERIZAR EL EDITOR CON LOS VALORES NUMÉRICOS ORIGINALES ---
+        # --- PREPARAR DATAFRAME CON FORMATO VENEZOLANO PARA VISUALIZACIÓN EN TEXTO ---
+        df_para_mostrar = df_a_procesar.copy()
+        for col in ['debe', 'haber']:
+            if col in df_para_mostrar.columns:
+                df_para_mostrar[col] = pd.to_numeric(df_para_mostrar[col], errors='coerce').fillna(0.0)
+                df_para_mostrar[col] = df_para_mostrar[col].apply(formato_venezolano)
+
+        # --- RENDERIZAR EL EDITOR CON TEXTCOLUMN PARA MANTENER EL FORMATO 335.981,00 ---
         df_editado_crudo = st.data_editor(
-            df_a_procesar,
+            df_para_mostrar,
             num_rows="dynamic",
             use_container_width=True,
             column_config={
@@ -8361,17 +8368,25 @@ def renderizar_tab_asientos_ventas(db_connection):
                 ),
                 "cuenta_contable": st.column_config.TextColumn("Descripción Cuenta", disabled=True),
                 "referencia": st.column_config.TextColumn("Referencia"),
-                "debe": st.column_config.NumberColumn("Debe", format="%.2f"),
-                "haber": st.column_config.NumberColumn("Haber", format="%.2f"),
+                "debe": st.column_config.TextColumn("Debe"),
+                "haber": st.column_config.TextColumn("Haber"),
             },
             key="editor_segundo_frame_ventas"
         )
         
-        # --- BLINDAJE Y RECONVERSIÓN A FLOAT ---
+        # --- BLINDAJE Y RECONVERSIÓN A FLOAT DESDE EL FORMATO VENEZOLANO ---
         df_editado = df_editado_crudo.copy()
         for col in ['debe', 'haber']:
             if col in df_editado.columns:
-                df_editado[col] = pd.to_numeric(df_editado[col], errors='coerce').fillna(0.0).astype(float)
+                col_limpia = (
+                    df_editado[col]
+                    .astype(str)
+                    .str.replace('$', '', regex=False)
+                    .str.replace('.', '', regex=False)  # Quita separador de miles
+                    .str.replace(',', '.', regex=False)  # Cambia coma decimal por punto
+                    .str.strip()
+                )
+                df_editado[col] = pd.to_numeric(col_limpia, errors='coerce').fillna(0.0).astype(float)
 
         for idx in df_editado.index:
             codigo_puro = extraer_solo_codigo(df_editado.at[idx, "plan_cuentas"])
