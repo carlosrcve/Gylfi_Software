@@ -7873,20 +7873,24 @@ def renderizar_tab_asientos_ventas(db_connection):
         st.warning(f"⚠️ No se pudo consultar la tabla `clientes_comerciales`: {e}")
 
     # ----------------------------------------------------
-    # FUNCIÓN INTERNA PARA FORMATEAR Y CONVERTIR A NÚMERO
+    # FUNCIÓN INTERNA PARA FORMATEAR Y CONVERTIR A NÚMERO (FORMATO VENEZOLANO)
     # ----------------------------------------------------
     def limpiar_y_forzar_numerico(df):
-        """Fuerza la conversión de debe y haber a floats puros de manera estricta."""
-        for col in ["debe", "haber"]:
-            if col in df.columns:
+        """Fuerza la conversión de debe, haber y columnas numéricas a floats puros de manera estricta."""
+        for col in df.columns:
+            c_lower = str(col).lower().strip()
+            keywords = ["debe", "haber", "venta", "base", "debito", "crédito", "credito", "total", "iva", "monto", "impuesto", "exenta", "alícuota", "alicuota"]
+            
+            if any(term in c_lower for term in keywords) or col in ["debe", "haber"]:
+                serie_str = df[col].astype(str).str.strip()
                 serie_limpia = (
-                    df[col]
-                    .astype(str)
+                    serie_str
                     .str.replace(" ", "", regex=False)
                     .str.replace("$", "", regex=False)
                     .str.replace("Bs.", "", regex=False)
+                    .str.replace(".", "", regex=False)    # Quita el punto de miles (ej: 335.891 -> 335891)
+                    .str.replace(",", ".", regex=False)   # Cambia la coma decimal por punto (ej: ,00 -> .00)
                 )
-                serie_limpia = serie_limpia.str.replace(",", ".", regex=False)
                 df[col] = pd.to_numeric(serie_limpia, errors="coerce").fillna(0.0).astype(float)
         return df
 
@@ -7904,18 +7908,18 @@ def renderizar_tab_asientos_ventas(db_connection):
             df_ventas = pd.read_excel(archivo_excel)
             df_ventas.columns = df_ventas.columns.str.strip()
             
-            # --- FORMATEO NUMÉRICO A DOS DECIMALES PARA EL PRIMER FRAME ---
+            # Aplicar la limpieza numérica al dataframe inicial
+            df_ventas = limpiar_y_forzar_numerico(df_ventas)
+
+            # --- CONFIGURACIÓN DE COLUMNAS PARA EL DATAFRAME ---
             configuracion_columnas_dataframe = {}
             for col in df_ventas.columns:
-                c_lower = str(col).lower()
-                if any(term in c_lower for term in ["venta", "base", "debito", "credito", "total", "iva", "monto", "impuesto"]):
-                    df_ventas[col] = pd.to_numeric(
-                        df_ventas[col].astype(str).str.replace(",", "", regex=True), 
-                        errors="coerce"
-                    ).fillna(0.0)
-                    
+                c_lower = str(col).lower().strip()
+                keywords = ["venta", "base", "debito", "crédito", "credito", "total", "iva", "monto", "impuesto", "exenta", "alícuota", "alicuota"]
+                
+                if any(term in c_lower for term in keywords):
                     configuracion_columnas_dataframe[col] = st.column_config.NumberColumn(
-                        col,
+                        str(col),
                         format="%.2f",
                         step=0.01
                     )
@@ -7973,22 +7977,22 @@ def renderizar_tab_asientos_ventas(db_connection):
                             nro_doc = str(idx + 1)
 
                         try:
-                            ventas_exentas = float(str(buscar_valor(["Ventas Exentas", "Exentas"], 0.0)).replace(",", ""))
+                            ventas_exentas = float(buscar_valor(["Ventas Exentas", "Exentas"], 0.0))
                         except Exception:
                             ventas_exentas = 0.0
 
                         try:
-                            base_imponible = float(str(buscar_valor(["Base Imponible"], 0.0)).replace(",", ""))
+                            base_imponible = float(buscar_valor(["Base Imponible"], 0.0))
                         except Exception:
                             base_imponible = 0.0
 
                         try:
-                            debito_fiscal = float(str(buscar_valor(["Débito Fiscal", "Debito Fiscal"], 0.0)).replace(",", ""))
+                            debito_fiscal = float(buscar_valor(["Débito Fiscal", "Debito Fiscal"], 0.0))
                         except Exception:
                             debito_fiscal = 0.0
 
                         try:
-                            total_ventas = float(str(buscar_valor(["Total Ventas Incluyendo el IVA", "Total Ventas"], base_imponible + ventas_exentas + debito_fiscal)).replace(",", ""))
+                            total_ventas = float(buscar_valor(["Total Ventas Incluyendo el IVA", "Total Ventas"], base_imponible + ventas_exentas + debito_fiscal))
                         except Exception:
                             total_ventas = base_imponible + ventas_exentas + debito_fiscal
 
