@@ -7716,6 +7716,11 @@ def conciliacion_de_gastos_y_comisiones(db_connection, db_segura):
 
 
 
+import pandas as pd
+import pymysql
+import streamlit as st
+
+
 def renderizar_tab_asientos_ventas(db_connection):
     st.subheader("🤖 Asientos Automatizados - Libro de Ventas")
     st.markdown("""
@@ -7917,7 +7922,7 @@ def renderizar_tab_asientos_ventas(db_connection):
         st.warning(f"⚠️ No se pudo consultar la tabla `clientes_comerciales`: {e}")
 
     # ----------------------------------------------------
-    # FUNCIÓN INTERNA PARA FORMATEAR Y CONVERTIR A NÚMERO ROBUSTA
+    # FUNCIÓN CORREGIDA PARA LIMPIAR Y FORZAR VALORES NUMÉRICOS
     # ----------------------------------------------------
     def limpiar_y_forzar_numerico(df):
         if df is None or df.empty:
@@ -7931,30 +7936,41 @@ def renderizar_tab_asientos_ventas(db_connection):
             ]
 
             if any(term in c_lower for term in keywords) or col in ["debe", "haber"]:
-                s = df[col].astype(str).str.strip()
-                s = s.str.replace(" ", "", regex=False).str.replace("$", "", regex=False).str.replace("Bs.", "", regex=False)
-                
                 def parsear_valor_latino(val):
-                    if not val or val == "nan" or val == "None":
+                    if val is None or pd.isna(val) or str(val).strip() in ["", "nan", "None"]:
                         return 0.0
-                    val = str(val).strip()
-                    try:
-                        if "," in val and "." in val:
-                            if val.rfind(",") > val.rfind("."):
-                                val = val.replace(".", "").replace(",", ".")
-                            else:
-                                val = val.replace(",", "")
-                        elif "," in val:
-                            val = val.replace(".", "").replace(",", ".")
-                        elif "." in val:
-                            partes = val.split(".")
-                            if len(partes) > 2 or len(partes[-1]) != 2:
-                                val = val.replace(".", "")
+                    if isinstance(val, (int, float)):
                         return float(val)
-                    except:
+                    
+                    val_str = str(val).strip().replace(" ", "").replace("$", "").replace("Bs.", "")
+                    
+                    # Si ya viene como número con punto decimal estándar de pandas (ej. 3276441.0)
+                    try:
+                        return float(val_str)
+                    except ValueError:
+                        pass
+
+                    # Manejo de formatos con puntos de miles y comas decimales (ej. 3.276.441,00)
+                    try:
+                        if "," in val_str and "." in val_str:
+                            # Asumimos formato 3.276.441,00 (punto = miles, coma = decimales)
+                            if val_str.rfind(",") > val_str.rfind("."):
+                                val_str = val_str.replace(".", "").replace(",", ".")
+                            else:
+                                val_str = val_str.replace(",", "")
+                        elif "," in val_str:
+                            # Solo tiene coma (ej. 3276441,00)
+                            val_str = val_str.replace(".", "").replace(",", ".")
+                        elif "." in val_str:
+                            # Puede ser 3.276.441 (sin decimales pero con puntos de miles) o 3276441.00
+                            partes = val_str.split(".")
+                            if len(partes) > 2 or (len(partes) == 2 and len(partes[-1]) != 2):
+                                val_str = val_str.replace(".", "")
+                        return float(val_str)
+                    except Exception:
                         return 0.0
 
-                df[col] = s.apply(parsear_valor_latino)
+                df[col] = df[col].apply(parsear_valor_latino)
         return df
 
     # ----------------------------------------------------
@@ -8263,7 +8279,6 @@ def renderizar_tab_asientos_ventas(db_connection):
         
         st.session_state["df_asientos_ventas_proceso"] = df_editado
 
-        # Botón para registrar los asientos en la base de datos
         if st.button("💾 Guardar Asientos en el Libro Diario", key=f"btn_guardar_ventas_{db_segura}"):
             st.success("¡Estructura lista para integración con el Libro Diario!")
 
