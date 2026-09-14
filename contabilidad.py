@@ -1439,19 +1439,13 @@ def cargar_asientos_contables_db(df, conn=None):
             st.warning("⚠️ No se encontraron fechas válidas en el archivo Excel.")
             return False
 
-        # 2. VALIDACIÓN ESTRICTA DE PERÍODOS BLOQUEADOS (MAYO Y OTROS CIERRES)
+        # 2. VALIDACIÓN ESTRICTA DE PERÍODOS BLOQUEADOS DESDE MYSQL
         anios_meses_excel = set((row['Fecha'].year, row['Fecha'].month) for _, row in df_limpio.iterrows())
         
         cursor = conn.cursor()
         
-        # Validación directa por regla de negocio: Si incluye mayo (mes 5), se bloquea de inmediato
+        # Validación dinámica consultando directamente en MySQL si el período está bloqueado
         for anio, mes in anios_meses_excel:
-            if mes == 5:
-                cursor.close()
-                st.error(f"❌ **¡Alerta! El mes de mayo ({mes:02d}/{anio}) está cerrado.** No se puede subir el libro de diario del mes de mayo porque ya está cerrado.")
-                return False
-
-            # Validación secundaria en base de datos por si existe la columna y el registro de bloqueo
             try:
                 query_verificar_bloqueo = f"""
                     SELECT COUNT(*) FROM `{db_actual}`.asientos_contables 
@@ -1462,10 +1456,10 @@ def cargar_asientos_contables_db(df, conn=None):
                 
                 if resultado and resultado[0] > 0:
                     cursor.close()
-                    st.error(f"❌ **Operación Denegada**: El período correspondiente al mes **{mes:02d}/{anio}** se encuentra **CERRADO y BLOQUEADO** en la empresa `{db_actual}`. No se pueden importar ni modificar transacciones en este período.")
+                    st.error(f"❌ **¡Alerta! El período {mes:02d}/{anio} está cerrado y bloqueado.** No se puede subir el libro de diario porque este mes ya se encuentra cerrado en la base de datos.")
                     return False
             except Exception:
-                # Si la columna 'bloqueado' no existe todavía en la tabla, la ignoramos para evitar que rompa el flujo
+                # Si la columna 'bloqueado' no existe o la tabla aún no la contempla, la ignoramos para no interrumpir el flujo
                 pass
 
         # Mapeo flexible de columnas de Debe y Haber
