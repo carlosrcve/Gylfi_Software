@@ -8363,10 +8363,10 @@ def renderizar_tab_asientos_ventas(db_connection):
             file_name=f"asientos_ventas_{db_segura}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             key="btn_descargar_excel_ventas",
-            use_container_width=True
+            use_container_width=False
         )
 
-        if st.button("💾 Guardar Asientos de Ventas en el Libro Diario", key="btn_guardar_ventas_finales", use_container_width=True):
+        if st.button("💾 Guardar Asientos de Ventas en el Libro Diario", key="btn_guardar_ventas_finales", use_container_width=False):
             try:
                 # --- VALIDACIÓN DE PERÍODO CERRADO ---
                 df_val = df_editado.copy()
