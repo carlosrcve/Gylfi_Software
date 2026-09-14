@@ -7922,7 +7922,7 @@ def renderizar_tab_asientos_ventas(db_connection):
         st.warning(f"⚠️ No se pudo consultar la tabla `clientes_comerciales`: {e}")
 
     # ----------------------------------------------------
-    # FUNCIÓN CORREGIDA PARA LIMPIAR Y FORZAR VALORES NUMÉRICOS
+    # FUNCIÓN ROBUSTA PARA LIMPIAR Y FORZAR VALORES NUMÉRICOS
     # ----------------------------------------------------
     def limpiar_y_forzar_numerico(df):
         if df is None or df.empty:
@@ -7944,25 +7944,20 @@ def renderizar_tab_asientos_ventas(db_connection):
                     
                     val_str = str(val).strip().replace(" ", "").replace("$", "").replace("Bs.", "")
                     
-                    # Si ya viene como número con punto decimal estándar de pandas (ej. 3276441.0)
                     try:
                         return float(val_str)
                     except ValueError:
                         pass
 
-                    # Manejo de formatos con puntos de miles y comas decimales (ej. 3.276.441,00)
                     try:
                         if "," in val_str and "." in val_str:
-                            # Asumimos formato 3.276.441,00 (punto = miles, coma = decimales)
                             if val_str.rfind(",") > val_str.rfind("."):
                                 val_str = val_str.replace(".", "").replace(",", ".")
                             else:
                                 val_str = val_str.replace(",", "")
                         elif "," in val_str:
-                            # Solo tiene coma (ej. 3276441,00)
                             val_str = val_str.replace(".", "").replace(",", ".")
                         elif "." in val_str:
-                            # Puede ser 3.276.441 (sin decimales pero con puntos de miles) o 3276441.00
                             partes = val_str.split(".")
                             if len(partes) > 2 or (len(partes) == 2 and len(partes[-1]) != 2):
                                 val_str = val_str.replace(".", "")
@@ -8231,6 +8226,10 @@ def renderizar_tab_asientos_ventas(db_connection):
         df_a_procesar = st.session_state["df_asientos_ventas_proceso"]
         df_a_procesar = limpiar_y_forzar_numerico(df_a_procesar)
 
+        # Forzar tipos de datos estrictos para evitar excepciones en st.data_editor
+        df_a_procesar["debe"] = pd.to_numeric(df_a_procesar["debe"], errors="coerce").fillna(0.0)
+        df_a_procesar["haber"] = pd.to_numeric(df_a_procesar["haber"], errors="coerce").fillna(0.0)
+
         st.markdown(
             f"### 📋 Segundo Frame: Estructura del Asiento de Ventas ({len(df_a_procesar)} registros)"
         )
@@ -8257,6 +8256,12 @@ def renderizar_tab_asientos_ventas(db_connection):
                 "4.1.1.01.001",
                 "2.1.2.01.001",
             ]
+
+        # Asegurar que todas las cuentas presentes en el DataFrame estén en las opciones permitidas
+        for idx in df_a_procesar.index:
+            val_actual = str(df_a_procesar.at[idx, "plan_cuentas"]).strip()
+            if val_actual and val_actual not in opciones_codigos_puros:
+                opciones_codigos_puros.append(val_actual)
 
         df_editado = st.data_editor(
             df_a_procesar,
