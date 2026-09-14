@@ -7980,32 +7980,37 @@ def renderizar_tab_asientos_ventas(db_connection):
             df_ventas.columns = df_ventas.columns.str.strip()
             df_ventas = limpiar_y_forzar_numerico(df_ventas)
 
+            # Formateador de Estilo Venezolano
+            def formato_venezolano(val):
+                try:
+                    return f"{float(val):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                except:
+                    return "0,00"
+
+            # Aplicar formato venezolano visual únicamente a "Total Ventas..." y "Ventas Exentas" (y variantes)
+            df_ventas_visual = df_ventas.copy()
+            for col in df_ventas_visual.columns:
+                c_lower = str(col).lower().strip()
+                # Coincidencia estricta con las columnas solicitadas
+                es_total_ventas = "total" in c_lower and "venta" in c_lower
+                es_ventas_exentas = "exenta" in c_lower and "venta" in c_lower
+                
+                if es_total_ventas or es_ventas_exentas:
+                    df_ventas_visual[col] = df_ventas_visual[col].apply(formato_venezolano)
+
             configuracion_columnas_dataframe = {}
             for col in df_ventas.columns:
                 c_lower = str(col).lower().strip()
-                keywords = [
-                    "venta",
-                    "base",
-                    "debito",
-                    "crédito",
-                    "credito",
-                    "total",
-                    "iva",
-                    "monto",
-                    "impuesto",
-                    "exenta",
-                    "alícuota",
-                    "alicuota",
-                ]
-                if any(term in c_lower for term in keywords):
+                es_total_ventas = "total" in c_lower and "venta" in c_lower
+                es_ventas_exentas = "exenta" in c_lower and "venta" in c_lower
+                
+                if es_total_ventas or es_ventas_exentas:
                     configuracion_columnas_dataframe[col] = (
-                        st.column_config.NumberColumn(
-                            str(col), format="%.2f", step=0.01
-                        )
+                        st.column_config.TextColumn(str(col))
                     )
 
             st.dataframe(
-                df_ventas,
+                df_ventas_visual,
                 use_container_width=True,
                 column_config=configuracion_columnas_dataframe,
             )
@@ -8332,7 +8337,6 @@ def renderizar_tab_asientos_ventas(db_connection):
                         mensaje_bloqueo = ""
 
                         for anio, mes in anios_meses_excel:
-                            # Nota: Puedes mantener o quitar esta condición fija de mayo si deseas que dependa exclusivamente de la BD
                             try:
                                 with db_connection.cursor() as cur_check:
                                     cur_check.execute(
