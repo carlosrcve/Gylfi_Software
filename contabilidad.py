@@ -8280,10 +8280,55 @@ def renderizar_tab_asientos_ventas(db_connection):
                 return val_str.split(" - ")[0].strip()
             return val_str
 
+        # --- FUNCIÓN PARA BUSCAR LA CUENTA DEL CLIENTE EN LA TABLA CLIENTES_COMERCIALES ---
+        def obtener_cuenta_desde_clientes_comerciales(rif_cliente):
+            """
+            Consulta la tabla clientes_comerciales usando el RIF para obtener 
+            el código de cuenta y la descripción de la cuenta contable asociada.
+            """
+            if not rif_cliente or str(rif_cliente).strip() in ["", "nan", "None"]:
+                return None, None
+            
+            rif_limpio = str(rif_cliente).strip()
+            try:
+                with db_connection.cursor() as cur_cc:
+                    cur_cc.execute(f"""
+                        SELECT codigo_cuenta, descripcion_cuenta 
+                        FROM `{db_segura}`.clientes_comerciales 
+                        WHERE TRIM(rif) = %s
+                        LIMIT 1;
+                    """, (rif_limpio,))
+                    resultado = cur_cc.fetchone()
+                    if resultado:
+                        return str(resultado[0]).strip(), str(resultado[1]).strip()
+            except Exception as e:
+                print(f"Error consultando clientes_comerciales para el RIF {rif_limpio}: {e}")
+            
+            return None, None
+
+        # --- ASIGNAR AUTOMÁTICAMENTE LA CUENTA SEGÚN LA TABLA CLIENTES_COMERCIALES ---
         for idx in df_a_procesar.index:
-            codigo_puro = extraer_solo_codigo(df_a_procesar.at[idx, "plan_cuentas"])
-            df_a_procesar.at[idx, "plan_cuentas"] = codigo_puro
-            df_a_procesar.at[idx, "cuenta_contable"] = mapa_descripciones.get(codigo_puro, "")
+            # Detectamos el RIF de la fila (puede venir como 'rif', 'rif_cliente' o 'cliente_rif')
+            rif_val = None
+            for col_posible in ["rif", "rif_cliente", "cliente_rif"]:
+                if col_posible in df_a_procesar.columns and pd.notnull(df_a_procesar.at[idx, col_posible]):
+                    rif_val = df_a_procesar.at[idx, col_posible]
+                    break
+            
+            # Buscamos en la tabla clientes_comerciales por RIF
+            cod_cliente, desc_cliente = obtener_cuenta_desde_clientes_comerciales(rif_val)
+            
+            if cod_cliente:
+                df_a_procesar.at[idx, "plan_cuentas"] = cod_cliente
+                if cod_cliente not in mapa_descripciones and desc_cliente:
+                    mapa_descripciones[cod_cliente] = desc_cliente
+            else:
+                # Si no se encuentra por RIF, mantenemos el comportamiento por defecto o limpiamos
+                codigo_puro = extraer_solo_codigo(df_a_procesar.at[idx, "plan_cuentas"] if "plan_cuentas" in df_a_procesar.columns else "")
+                df_a_procesar.at[idx, "plan_cuentas"] = codigo_puro
+
+            codigo_actual = extraer_solo_codigo(df_a_procesar.at[idx, "plan_cuentas"])
+            df_a_procesar.at[idx, "cuenta_contable"] = mapa_descripciones.get(codigo_actual, desc_cliente if 'desc_cliente' in locals() else "")
 
         opciones_codigos_puros = list(mapa_descripciones.keys())
         if not opciones_codigos_puros:
@@ -8293,7 +8338,6 @@ def renderizar_tab_asientos_ventas(db_connection):
         df_para_mostrar = df_a_procesar.copy()
         for col in ['debe', 'haber']:
             if col in df_para_mostrar.columns:
-                # Nos aseguramos que sean numéricos primero para aplicarles bien el formato
                 df_para_mostrar[col] = pd.to_numeric(
                     df_para_mostrar[col].astype(str).str.replace('$', '', regex=False).str.replace('.', '', regex=False).str.replace(',', '.', regex=False), 
                     errors='coerce'
@@ -8309,13 +8353,12 @@ def renderizar_tab_asientos_ventas(db_connection):
                 "descripcion": st.column_config.TextColumn("Descripción"),
                 "fecha": st.column_config.TextColumn("Fecha"),
                 "plan_cuentas": st.column_config.SelectboxColumn(
-                    "Plan de Cuentas (Código)",
+                    "Plan de Cuentas (Cuentas x Cobrar Cliente)",
                     options=opciones_codigos_puros,
                     required=True
                 ),
                 "cuenta_contable": st.column_config.TextColumn("Descripción Cuenta", disabled=True),
                 "referencia": st.column_config.TextColumn("Referencia"),
-                # Las transformamos a TextColumn para que respeten estrictamente el formato visual venezolano (ej. 335.814,78)
                 "debe": st.column_config.TextColumn("Debe"),
                 "haber": st.column_config.TextColumn("Haber"),
             },
@@ -8326,13 +8369,12 @@ def renderizar_tab_asientos_ventas(db_connection):
         df_editado = df_editado_crudo.copy()
         for col in ['debe', 'haber']:
             if col in df_editado.columns:
-                # Limpiamos el formato venezolano (quitamos puntos de miles y cambiamos coma decimal por punto)
                 col_limpia = (
                     df_editado[col]
                     .astype(str)
                     .str.replace('$', '', regex=False)
-                    .str.replace('.', '', regex=False)  # Remueve el separador de miles
-                    .str.replace(',', '.', regex=False)  # Cambia la coma decimal por punto para Python/MySQL
+                    .str.replace('.', '', regex=False)  
+                    .str.replace(',', '.', regex=False)  
                     .str.strip()
                 )
                 df_editado[col] = pd.to_numeric(col_limpia, errors='coerce').fillna(0.0).astype(float)
@@ -8344,7 +8386,6 @@ def renderizar_tab_asientos_ventas(db_connection):
 
         st.session_state['df_asientos_proceso'] = df_editado
         
-        # Forzamos que la suma devuelva estrictamente un float nativo y se muestre en formato venezolano en las métricas
         tot_debe = float(df_editado['debe'].sum())
         tot_haber = float(df_editado['haber'].sum())
         
@@ -8368,7 +8409,6 @@ def renderizar_tab_asientos_ventas(db_connection):
 
         if st.button("💾 Guardar Asientos de Ventas en el Libro Diario", key="btn_guardar_ventas_finales", use_container_width=False):
             try:
-                # --- VALIDACIÓN DE PERÍODO CERRADO DIRECTAMENTE EN MYSQL ---
                 df_val = df_editado.copy()
                 df_val['fecha'] = pd.to_datetime(df_val['fecha'], errors='coerce')
                 anios_meses_excel = set((row['fecha'].year, row['fecha'].month) for _, row in df_val.iterrows() if pd.notnull(row['fecha']))
@@ -8379,7 +8419,6 @@ def renderizar_tab_asientos_ventas(db_connection):
                 for anio, mes in anios_meses_excel:
                     try:
                         with db_connection.cursor() as cur_check:
-                            # Consulta estricta a MySQL para verificar si el período está cerrado/bloqueado
                             cur_check.execute(f"""
                                 SELECT COUNT(*) FROM `{db_segura}`.asientos_contables 
                                 WHERE YEAR(fecha) = %s AND MONTH(fecha) = %s AND bloqueado = 1
@@ -8388,18 +8427,15 @@ def renderizar_tab_asientos_ventas(db_connection):
                             
                             if res_bloqueo and res_bloqueo[0] > 0:
                                 bloqueo_detectado = True
-                                mensaje_bloqueo = f"❌ **Operación Denegada**: El período correspondiente al mes **{mes:02d}/{anio}** se encuentra **CERRADO y BLOQUEADO** en la base de datos. No se pueden registrar asientos en un período cerrado."
+                                mensaje_bloqueo = f"❌ **Operación Denegada**: El período correspondiente al mes **{mes:02d}/{anio}** se encuentra **CERRADO y BLOQUEADO** en la base de datos."
                                 break
                     except Exception:
-                        # Si la columna o tabla aún no maneja bloqueos, permite continuar o lo maneja la estructura
                         pass
 
                 if bloqueo_detectado:
                     st.error(mensaje_bloqueo)
                 else:
-                    # --- PASO DE INSERCIÓN CON DEPURACIÓN EXPLÍCITA ---
                     with db_connection.cursor() as cursor:
-                        # 1. Asegurar la tabla con su campo de bloqueo incorporado
                         cursor.execute(f"""
                             CREATE TABLE IF NOT EXISTS `{db_segura}`.asientos_contables (
                                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -8418,8 +8454,6 @@ def renderizar_tab_asientos_ventas(db_connection):
                         registros_insertados = 0
                         for _, row in df_editado.iterrows():
                             codigo_limpio = extraer_solo_codigo(row["plan_cuentas"])
-                            
-                            # Formatear correctamente la fecha para MySQL (YYYY-MM-DD)
                             fecha_str = str(row["fecha"]).split(" ")[0] if pd.notnull(row["fecha"]) else None
                             
                             cursor.execute(f"""
