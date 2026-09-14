@@ -7925,34 +7925,29 @@ def renderizar_tab_asientos_ventas(db_connection):
         for col in df.columns:
             c_lower = str(col).lower().strip()
             keywords = [
-                "debe",
-                "haber",
-                "venta",
-                "base",
-                "debito",
-                "crédito",
-                "credito",
-                "total",
-                "iva",
-                "monto",
-                "impuesto",
-                "exenta",
-                "alícuota",
-                "alicuota",
+                "debe", "haber", "venta", "base", "debito", "crédito", 
+                "credito", "total", "iva", "monto", "impuesto", "exenta", 
+                "alícuota", "alicuota"
             ]
 
-            if any(term in c_lower for term in keywords) or col in [
-                "debe",
-                "haber",
-            ]:
+            if any(term in c_lower for term in keywords) or col in ["debe", "haber"]:
+                # Si los datos vienen como string con formato de miles (ej: "335.891,00")
                 serie_str = df[col].astype(str).str.strip()
+                
+                # Verificamos si usa puntos como miles y coma como decimal
+                # Limpiamos quitando espacios y símbolos de moneda
                 serie_limpia = (
                     serie_str.str.replace(" ", "", regex=False)
                     .str.replace("$", "", regex=False)
                     .str.replace("Bs.", "", regex=False)
-                    .str.replace(".", "", regex=False)
+                )
+                
+                # Reemplazamos los puntos de miles por vacío y la coma decimal por punto estándar de Python
+                serie_limpia = (
+                    serie_limpia.str.replace(".", "", regex=False)
                     .str.replace(",", ".", regex=False)
                 )
+
                 df[col] = (
                     pd.to_numeric(serie_limpia, errors="coerce")
                     .fillna(0.0)
