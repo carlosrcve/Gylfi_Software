@@ -7880,7 +7880,6 @@ def renderizar_tab_asientos_ventas(db_connection):
         """Fuerza la conversión de debe y haber a floats puros de manera estricta."""
         for col in ["debe", "haber"]:
             if col in df.columns:
-                # Convertir a serie de texto, limpiar espacios y reemplazar posibles símbolos molestos
                 serie_limpia = (
                     df[col]
                     .astype(str)
@@ -7888,14 +7887,8 @@ def renderizar_tab_asientos_ventas(db_connection):
                     .str.replace("$", "", regex=False)
                     .str.replace("Bs.", "", regex=False)
                 )
-                
-                # Si usa comas como decimales y puntos como miles, o viceversa, lo estandarizamos a punto decimal
-                # (Si tu Excel usa punto como decimal, esto lo deja intacto o limpio de comas)
                 serie_limpia = serie_limpia.str.replace(",", ".", regex=False)
-                
-                # Forzar a numérico puro (lo que no sirva lo vuelve 0.0)
                 df[col] = pd.to_numeric(serie_limpia, errors="coerce").fillna(0.0).astype(float)
-        
         return df
 
     # ----------------------------------------------------
@@ -7904,23 +7897,44 @@ def renderizar_tab_asientos_ventas(db_connection):
     st.markdown("---")
     st.markdown("### 📋 Primer Frame: Libro de Ventas Subido")
 
-    archivo_excel = st.file_uploader("Subir Libro de Ventas (Excel)", type=["xlsx", "xls"], key="uploader_libro_ventas")
+    key_uploader_dinamica = f"uploader_libro_ventas_{db_segura}"
+    archivo_excel = st.file_uploader("Subir Libro de Ventas (Excel)", type=["xlsx", "xls"], key=key_uploader_dinamica)
 
     if archivo_excel is not None:
         try:
             df_ventas = pd.read_excel(archivo_excel)
             df_ventas.columns = df_ventas.columns.str.strip()
             
-            st.dataframe(df_ventas, use_container_width=True)
+            # --- FORMATEO NUMÉRICO A DOS DECIMALES PARA EL PRIMER FRAME ---
+            configuracion_columnas_dataframe = {}
+            for col in df_ventas.columns:
+                c_lower = str(col).lower()
+                if any(term in c_lower for term in ["venta", "base", "debito", "credito", "total", "iva", "monto", "impuesto"]):
+                    df_ventas[col] = pd.to_numeric(
+                        df_ventas[col].astype(str).str.replace(",", "", regex=True), 
+                        errors="coerce"
+                    ).fillna(0.0)
+                    
+                    configuracion_columnas_dataframe[col] = st.column_config.NumberColumn(
+                        col,
+                        format="%.2f",
+                        step=0.01
+                    )
+
+            st.dataframe(
+                df_ventas, 
+                use_container_width=True,
+                column_config=configuracion_columnas_dataframe
+            )
 
             st.markdown("---")
             st.markdown("### ⚙️ Configuración de Asientos de Ventas")
             
             col_cfg1, col_cfg2 = st.columns(2)
             with col_cfg1:
-                n_comprobante_base = st.text_input("Número de Comprobante (Fijo para todas las líneas):", value="060001", key="prefijo_ventas")
+                n_comprobante_base = st.text_input("Número de Comprobante (Fijo para todas las líneas):", value="060001", key=f"prefijo_ventas_{db_segura}")
             
-            if st.button("🔄 Generar Estructura del Segundo Frame (Ventas)", key="btn_generar_frame_ventas"):
+            if st.button("🔄 Generar Estructura del Segundo Frame (Ventas)", key=f"btn_generar_frame_ventas_{db_segura}"):
                 try:
                     filas_asiento_temporal = []
 
@@ -8101,10 +8115,9 @@ def renderizar_tab_asientos_ventas(db_connection):
                             help="Monto del haber"
                         ),
                     },
-                    key="editor_segundo_frame_ventas"
+                    key=f"editor_segundo_frame_ventas_{db_segura}"
                 )
                 
-                # Forzar limpieza numérica de nuevo al editar por el usuario
                 df_editado = limpiar_y_forzar_numerico(df_editado)
                 for idx in df_editado.index:
                     codigo_puro = extraer_solo_codigo(df_editado.at[idx, "plan_cuentas"])
@@ -8129,13 +8142,12 @@ def renderizar_tab_asientos_ventas(db_connection):
                     data=buffer_excel,
                     file_name=f"asientos_ventas_{db_segura}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    key="btn_descargar_excel_ventas",
+                    key=f"btn_descargar_excel_ventas_{db_segura}",
                     use_container_width=True
                 )
 
-                if st.button("💾 Guardar Asientos de Ventas en el Libro Diario", key="btn_guardar_ventas_finales", use_container_width=True):
+                if st.button("💾 Guardar Asientos de Ventas en el Libro Diario", key=f"btn_guardar_ventas_finales_{db_segura}", use_container_width=True):
                     try:
-                        # --- VALIDACIÓN DE PERÍODO CERRADO ---
                         df_val = df_editado.copy()
                         df_val['fecha'] = pd.to_datetime(df_val['fecha'], errors='coerce')
                         anios_meses_excel = set((row['fecha'].year, row['fecha'].month) for _, row in df_val.iterrows() if pd.notnull(row['fecha']))
