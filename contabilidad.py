@@ -7059,12 +7059,6 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
     if st.session_state.get("matches_propuestos"):
         st.markdown("---")
         
-        # Cabecera con opción de procesamiento masivo y fecha global de lote opcional
-        col_head1, col_head2 = st.columns([2, 2])
-        with col_head1:
-            st.markdown("#### ⚡ Coincidencias Detectadas")
-        with col_head2:
-            fecha_lote_global = st.date_input("📅 Fecha Contable para Lote", value=pd.Timestamp.today(), key="input_fecha_lote_global")
 
         if st.button("🚀 Registrar Todos en Lote", type="primary", key="btn_registrar_todos_matches"):
             try:
