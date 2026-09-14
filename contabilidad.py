@@ -10966,6 +10966,13 @@ elif opcion_menu == "📝 Asientos Contables":
                 st.markdown("### 📤 Cargar nuevos Asientos Contables")
                 archivo_excel = st.file_uploader("Seleccione el archivo .xlsx", type=["xlsx", "xls"], key="up_diario_tabs")
                 
+                # --- FUNCIÓN AUXILIAR PARA FORMATO VENEZOLANO ---
+                def formato_venezolano(val):
+                    try:
+                        return f"{float(val):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                    except:
+                        return "0,00"
+
                 if archivo_excel:
                     try:
                         # 1. Lectura inicial
@@ -10981,15 +10988,29 @@ elif opcion_menu == "📝 Asientos Contables":
                         if 'fecha' in df_subido.columns:
                             df_subido['fecha'] = pd.to_datetime(df_subido['fecha'], errors='coerce').dt.date
 
-                        # 3. Convertir el resto de columnas a texto para evitar el crash de Arrow en la UI
+                        # 3. Copia exclusiva para visualización con formato venezolano en los montos
+                        df_para_mostrar = df_subido.copy()
+                        columnas_a_formatear = ['debe', 'haber', 'saldo']  # Incluye saldo si existe
+                        
+                        for col in columnas_a_formatear:
+                            if col in df_para_mostrar.columns:
+                                # Convertimos a numérico temporalmente para formatearlo bien
+                                df_para_mostrar[col] = pd.to_numeric(
+                                    df_para_mostrar[col].astype(str).str.replace('$', '', regex=False).str.replace('.', '', regex=False).str.replace(',', '.', regex=False), 
+                                    errors='coerce'
+                                ).fillna(0.0)
+                                df_para_mostrar[col] = df_para_mostrar[col].apply(formato_venezolano)
+
+                        # 4. Convertir el resto de columnas a texto para evitar el crash de Arrow en la UI
                         for col in df_subido.columns:
                             if col != 'fecha':  # Dejamos la fecha intacta para el manejo interno
                                 df_subido[col] = df_subido[col].astype(str).replace(['nan', 'None', ''], '')
 
                         st.write("### ✅ Vista previa de la carga:")
-                        st.dataframe(df_subido, hide_index=True, width='stretch')
+                        # Mostramos el dataframe formateado estéticamente
+                        st.dataframe(df_para_mostrar, hide_index=True, width='stretch')
 
-                        # 4. Importación segura
+                        # 5. Importación segura (Se envía df_subido original a la base de datos)
                         if st.button("🚀 Confirmar e Importar al Diario", width='stretch'):
                             conn = conectar_db(db_actual) 
                             
