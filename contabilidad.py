@@ -6839,9 +6839,13 @@ def renderizar_tab_asientos_automatizados(db_connection):
                         "debe": st.column_config.NumberColumn("Debe", format="%.2f"),
                         "haber": st.column_config.NumberColumn("Haber", format="%.2f"),
                     },
-                    key="editor_segundo_frame"
+                    key="editor_segundo_frame_ventas"
                 )
                 
+                # 1. Asegurar que los datos editados por el usuario sean numéricos puros
+                df_editado['debe'] = df_editado['debe'].apply(limpiar_monto).astype(float)
+                df_editado['haber'] = df_editado['haber'].apply(limpiar_monto).astype(float)
+
                 for idx in df_editado.index:
                     codigo_puro = extraer_solo_codigo(df_editado.at[idx, "plan_cuentas"])
                     df_editado.at[idx, "plan_cuentas"] = codigo_puro
@@ -6849,13 +6853,13 @@ def renderizar_tab_asientos_automatizados(db_connection):
 
                 st.session_state['df_asientos_proceso'] = df_editado
                 
-                # El resto de tu código sigue exactamente igual...
-
+                # 2. Ahora las sumas se hacen sobre números garantizados
                 tot_debe = df_editado['debe'].sum()
                 tot_haber = df_editado['haber'].sum()
+                
                 col_m1, col_m2 = st.columns(2)
-                col_m1.metric("Total Debe (General)", f"{tot_debe:,.2f}")
-                col_m2.metric("Total Haber (General)", f"{tot_haber:,.2f}")
+                col_m1.metric("Total Debe (Ventas)", f"{tot_debe:,.2f}")
+                col_m2.metric("Total Haber (Ventas)", f"{tot_haber:,.2f}")
 
                 buffer_excel = io.BytesIO()
                 with pd.ExcelWriter(buffer_excel, engine='openpyxl') as writer:
