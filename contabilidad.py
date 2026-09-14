@@ -6913,11 +6913,9 @@ def renderizar_tab_asientos_automatizados(db_connection):
         except Exception as e:
             st.error(f"Error al leer el archivo Excel: {e}")
 
-
-
 def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
     """
-    Tercer Frame: Conciliación automatizada cruzando por RIF, con opción masiva y fecha automática del banco.
+    Tercer Frame: Conciliación automatizada cruzando por RIF, con fecha independiente por cada match y opción masiva.
     """
     st.markdown("---")
     st.markdown("### 🏦 Tercer Frame: Conciliación y Cruce por RIF")
@@ -7050,21 +7048,92 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
         except Exception as e_scan:
             st.error(f"Error en el análisis de cruce: {e_scan}")
 
-    # 2. SECCIÓN INTERACTIVA: Mostrar el match y generar el asiento de pago
+    # 2. SECCIÓN INTERACTIVA: Mostrar cada match con su fecha individual y botón de lote al final
     if st.session_state.get("matches_propuestos"):
         st.markdown("---")
-        st.markdown("#### ⚡ Coincidencias Detectadas")
+        st.markdown("#### ⚡ Coincidencias Detectadas y Configuración de Fechas")
+        st.caption("Cada match cuenta con su propio selector de fecha independiente. Puedes ajustarlas antes de procesar individualmente o en lote.")
 
-        if st.button("🚀 Registrar Todos en Lote", type="primary", key="btn_registrar_todos_matches"):
+        # Renderizar cada match y recolectar sus inputs de fecha
+        for idx, prop in enumerate(list(st.session_state.matches_propuestos)):
+            with st.container():
+                try:
+                    fecha_defecto = pd.to_datetime(prop.get('fecha_movimiento')).date()
+                except Exception:
+                    fecha_defecto = datetime.today().date()
+
+                st.success(
+                    f"✅ **Match #{idx + 1} | RIF (`{prop['rif_detectado']}`)**\n\n"
+                    f"• **Detalle Contabilidad:** `{prop['proveedor_nombre']}`\n"
+                    f"• **Banco:** {prop['banco']} | Monto: **Bs. {prop['monto']:,.2f}**\n"
+                    f"• **Comprobante Relacionado:** `{prop['n_comprobante_origen']}`"
+                )
+
+                col_date, col_btn = st.columns([2, 2])
+                key_fecha = f"fecha_manual_{prop['mov_id']}_{idx}"
+                
+                with col_date:
+                    fecha_asiento_manual = st.date_input(
+                        "📅 Fecha del Asiento Contable", 
+                        value=fecha_defecto, 
+                        key=key_fecha
+                    )
+                
+                with col_btn:
+                    st.write("") # Espaciador visual
+                    if st.button(f"🚀 Generar Este Asiento", key=f"btn_generar_pago_{prop['mov_id']}_{idx}", type="primary"):
+                        try:
+                            fecha_str_manual = fecha_asiento_manual.strftime('%Y-%m-%d')
+                            with db_connection.cursor() as cursor_pago:
+                                cursor_pago.execute(f"SELECT MAX(CAST(SUBSTRING_INDEX(n_comprobante, '-', -1) AS UNSIGNED)) as max_n FROM `{db_segura}`.asientos_contables")
+                                res_max = cursor_pago.fetchone()
+                                siguiente_num = (res_max[0] or 1000) + 1 if res_max and res_max[0] else 90001
+                                n_comp_pago = f"PAGO-{siguiente_num}"
+                                
+                                desc_pago = f"Pago de Factura | Ref Banco: {prop['descripcion_banco']}"
+                                nombre_banco_contable = f"Banco {prop['banco']}"
+                                codigo_banco_contable = dict_cuentas_codigo.get(nombre_banco_contable.upper(), "1.1.1.02.001")
+
+                                # 1. Proveedor (DEBE)
+                                cursor_pago.execute(f"""
+                                    INSERT INTO `{db_segura}`.asientos_contables 
+                                    (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, debe, haber)
+                                    VALUES (%s, %s, %s, %s, %s, %s, 0.00)
+                                """, (n_comp_pago, desc_pago, fecha_str_manual, prop['codigo_destino'], prop['cuenta_destino'], prop['monto']))
+
+                                # 2. Banco (HABER)
+                                cursor_pago.execute(f"""
+                                    INSERT INTO `{db_segura}`.asientos_contables 
+                                    (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, debe, haber)
+                                    VALUES (%s, %s, %s, %s, %s, 0.00, %s)
+                                """, (n_comp_pago, desc_pago, fecha_str_manual, codigo_banco_contable, nombre_banco_contable, prop['monto']))
+
+                                cursor_pago.execute(f"""
+                                    UPDATE `{db_segura}`.banco_movimientos 
+                                    SET estado_conciliacion = 'Conciliado y Pagado', asiento_id = %s 
+                                    WHERE id = %s
+                                """, (cursor_pago.lastrowid, prop['mov_id']))
+
+                                db_connection.commit()
+                                st.success(f"🎉 ¡Asiento generado con éxito (Comprobante: `{n_comp_pago}` - Fecha: {fecha_str_manual})!")
+                                st.session_state.matches_propuestos.pop(idx)
+                                st.rerun()
+
+                        except Exception as e_pago:
+                            db_connection.rollback()
+                            st.error(f"❌ Error al registrar el asiento de pago: {e_pago}")
+                st.markdown("---")
+
+        # Botón general al final que respeta la fecha individual configurada en cada match de arriba
+        if st.button("🚀 Registrar Todos en Lote (Usando la Fecha de Cada Match)", type="primary", key="btn_registrar_todos_matches"):
             try:
                 procesados_total = 0
                 with db_connection.cursor() as cursor_pago_lote:
-                    for prop in list(st.session_state.matches_propuestos):
-                        # Usar la fecha automática del movimiento bancario
-                        try:
-                            fecha_str_lote = pd.to_datetime(prop.get('fecha_movimiento')).strftime('%Y-%m-%d')
-                        except Exception:
-                            fecha_str_lote = datetime.today().strftime('%Y-%m-%d')
+                    for idx, prop in enumerate(list(st.session_state.matches_propuestos)):
+                        # Extraer la fecha configurada en el date_input correspondiente a este match específico
+                        key_fecha = f"fecha_manual_{prop['mov_id']}_{idx}"
+                        fecha_seleccionada = st.session_state.get(key_fecha, pd.to_datetime(prop.get('fecha_movimiento')).date())
+                        fecha_str_lote = fecha_seleccionada.strftime('%Y-%m-%d')
 
                         # Obtener siguiente número de comprobante secuencial
                         cursor_pago_lote.execute(f"SELECT MAX(CAST(SUBSTRING_INDEX(n_comprobante, '-', -1) AS UNSIGNED)) as max_n FROM `{db_segura}`.asientos_contables")
@@ -7101,75 +7170,12 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
 
                 db_connection.commit()
                 st.session_state.matches_propuestos = []
-                st.success(f"🎉 ¡Se han registrado exitosamente los **{procesados_total}** asientos de pago en lote usando sus fechas automáticas!")
+                st.success(f"🎉 ¡Se han registrado exitosamente los **{procesados_total}** asientos en lote utilizando la fecha asignada de cada match!")
                 st.rerun()
 
             except Exception as e_lote_pago:
                 db_connection.rollback()
                 st.error(f"❌ Error crítico al registrar los pagos en lote: {e_lote_pago}")
-
-        st.markdown("---")
-
-        # Visualización y procesamiento individual con fecha automática del banco
-        for idx, prop in enumerate(list(st.session_state.matches_propuestos)):
-            with st.container():
-                # Obtener la fecha formateada para mostrarla de forma limpia
-                try:
-                    fecha_mostrada = pd.to_datetime(prop.get('fecha_movimiento')).strftime('%d/%m/%Y')
-                    fecha_str_sql = pd.to_datetime(prop.get('fecha_movimiento')).strftime('%Y-%m-%d')
-                except Exception:
-                    fecha_mostrada = str(prop.get('fecha_movimiento'))
-                    fecha_str_sql = datetime.today().strftime('%Y-%m-%d')
-
-                st.success(
-                    f"✅ **¡Match Encontrado por RIF (`{prop['rif_detectado']}`)!**\n\n"
-                    f"• **Detalle en Contabilidad:** `{prop['proveedor_nombre']}`\n"
-                    f"• **Movimiento Bancario:** {prop['banco']} | Monto: **Bs. {prop['monto']:,.2f}**\n"
-                    f"• **Fecha Automática del Banco:** `{fecha_mostrada}`\n"
-                    f"• **Comprobante Relacionado:** `{prop['n_comprobante_origen']}`"
-                )
-                
-                if st.button(f"🚀 Generar Asiento", key=f"btn_generar_pago_{prop['mov_id']}_{idx}", type="primary"):
-                    try:
-                        with db_connection.cursor() as cursor_pago:
-                            cursor_pago.execute(f"SELECT MAX(CAST(SUBSTRING_INDEX(n_comprobante, '-', -1) AS UNSIGNED)) as max_n FROM `{db_segura}`.asientos_contables")
-                            res_max = cursor_pago.fetchone()
-                            siguiente_num = (res_max[0] or 1000) + 1 if res_max and res_max[0] else 90001
-                            n_comp_pago = f"PAGO-{siguiente_num}"
-                            
-                            desc_pago = f"Pago de Factura | Ref Banco: {prop['descripcion_banco']}"
-                            nombre_banco_contable = f"Banco {prop['banco']}"
-                            codigo_banco_contable = dict_cuentas_codigo.get(nombre_banco_contable.upper(), "1.1.1.02.001")
-
-                            # 1. Proveedor (DEBE)
-                            cursor_pago.execute(f"""
-                                INSERT INTO `{db_segura}`.asientos_contables 
-                                (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, debe, haber)
-                                VALUES (%s, %s, %s, %s, %s, %s, 0.00)
-                            """, (n_comp_pago, desc_pago, fecha_str_sql, prop['codigo_destino'], prop['cuenta_destino'], prop['monto']))
-
-                            # 2. Banco (HABER)
-                            cursor_pago.execute(f"""
-                                INSERT INTO `{db_segura}`.asientos_contables 
-                                (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, debe, haber)
-                                VALUES (%s, %s, %s, %s, %s, 0.00, %s)
-                            """, (n_comp_pago, desc_pago, fecha_str_sql, codigo_banco_contable, nombre_banco_contable, prop['monto']))
-
-                            cursor_pago.execute(f"""
-                                UPDATE `{db_segura}`.banco_movimientos 
-                                SET estado_conciliacion = 'Conciliado y Pagado', asiento_id = %s 
-                                WHERE id = %s
-                            """, (cursor_pago.lastrowid, prop['mov_id']))
-
-                            db_connection.commit()
-                            st.success(f"🎉 ¡Asiento generado con éxito (Comprobante: `{n_comp_pago}` - Fecha: {fecha_str_sql})!")
-                            st.session_state.matches_propuestos.pop(idx)
-                            st.rerun()
-
-                    except Exception as e_pago:
-                        db_connection.rollback()
-                        st.error(f"❌ Error al registrar el asiento de pago: {e_pago}")
-                st.markdown("---")
     else:
         if not btn_escanear:
             st.caption("💡 Haz clic en el botón superior para realizar el escaneo y cruce automático por RIF.")
