@@ -10973,13 +10973,28 @@ elif opcion_menu == "📝 Asientos Contables":
                     except:
                         return "0,00"
 
+                # --- FUNCIÓN SEGURA PARA LIMPIAR MONTONES ESTILO LATINO/VENEZOLANO ---
+                def limpiar_monto_venezolano(serie):
+                    # Convertir a texto y limpiar espacios
+                    s = serie.astype(str).str.strip().str.replace('$', '', regex=False)
+                    # Si viene vacío o NaN
+                    s = s.replace(['nan', 'None', '', 'nan'], '0')
+                    
+                    # Reemplazo seguro para formato venezolano (ej: 9.997,20 o 35.399.998,40)
+                    # 1. Quitamos los puntos que separan miles
+                    s = s.str.replace('.', '', regex=False)
+                    # 2. Cambiamos la coma decimal por un punto estándar de python
+                    s = s.str.replace(',', '.', regex=False)
+                    
+                    return pd.to_numeric(s, errors='coerce').fillna(0.0)
+
                 if archivo_excel:
                     try:
                         # 1. Lectura inicial
                         df_subido = pd.read_excel(archivo_excel, dtype=object)
                         df_subido.columns = df_subido.columns.astype(str).str.strip().str.lower()
 
-                        # Normalizar nombres de columnas comunes (maneja débito/debe, crédito/haber)
+                        # Normalizar nombres de columnas comunes
                         rename_dict = {}
                         for col in df_subido.columns:
                             if col in ['débito', 'debito', 'debe']:
@@ -10989,45 +11004,25 @@ elif opcion_menu == "📝 Asientos Contables":
                         df_subido = df_subido.rename(columns=rename_dict)
 
                         if len(df_subido.columns) >= 8 and not all(col in df_subido.columns for col in ['n_comprobante', 'descripcion', 'fecha']):
-                            # Ajuste si viene sin cabeceras claras
                             pass
 
-                        # 2. Procesar fecha PRIMERO (mientras conserva su formato original de Excel)
+                        # 2. Procesar fecha PRIMERO
                         if 'fecha' in df_subido.columns:
                             df_subido['fecha'] = pd.to_datetime(df_subido['fecha'], errors='coerce').dt.date
 
-                        # 3. Limpieza profunda y conversión numérica real para DEBE y HABER
+                        # 3. Limpieza y conversión numérica real usando la función especializada
                         for col in ['debe', 'haber']:
                             if col in df_subido.columns:
-                                df_subido[col] = (
-                                    df_subido[col]
-                                    .astype(str)
-                                    .str.replace('$', '', regex=False)
-                                    .str.replace(' ', '', regex=False)
-                                    # Si el archivo usa punto para miles y coma para decimales (estilo 1.234,56)
-                                    .str.replace('.', '', regex=False)
-                                    .str.replace(',', '.', regex=False)
-                                )
-                                df_subido[col] = pd.to_numeric(df_subido[col], errors='coerce').fillna(0.0)
+                                df_subido[col] = limpiar_monto_venezolano(df_subido[col])
                             else:
                                 df_subido[col] = 0.0
 
-                        # 4. Cálculo automático o saneamiento de la columna 'saldo'
+                        # 4. Procesamiento o cálculo limpio de la columna 'saldo'
                         if 'saldo' in df_subido.columns:
-                            df_subido['saldo'] = (
-                                df_subido['saldo']
-                                .astype(str)
-                                .str.replace('$', '', regex=False)
-                                .str.replace(' ', '', regex=False)
-                                .str.replace('.', '', regex=False)
-                                .str.replace(',', '.', regex=False)
-                            )
-                            df_subido['saldo'] = pd.to_numeric(df_subido['saldo'], errors='coerce')
-                            # Si el saldo viene vacío en el Excel, lo calculamos de forma acumulativa
-                            if df_subido['saldo'].isna().all():
-                                df_subido['saldo'] = 0.00 # O la lógica de saldo inicial que uses
+                            df_subido['saldo'] = limpiar_monto_venezolano(df_subido['saldo'])
                         else:
-                            # Si no existe la columna saldo, la calculamos opcionalmente (Débito - Crédito o según naturaleza)
+                            # Si no existe saldo en el Excel, se puede calcular de manera acumulativa si lo deseas:
+                            # df_subido['saldo'] = (df_subido['debe'] - df_subido['haber']).cumsum()
                             pass
 
                         # 5. Copia exclusiva para visualización con formato venezolano estético
@@ -11036,7 +11031,7 @@ elif opcion_menu == "📝 Asientos Contables":
                             if col in df_para_mostrar.columns:
                                 df_para_mostrar[col] = df_para_mostrar[col].apply(formato_venezolano)
 
-                        # Renombrar temporalmente para que el usuario vea 'débito' y 'crédito' tal cual su imagen
+                        # Renombrar temporalmente para la UI visual
                         df_para_mostrar = df_para_mostrar.rename(columns={'debe': 'débito', 'haber': 'crédito'})
 
                         # 6. Convertir el resto de columnas a texto para evitar el crash de Arrow en la UI
