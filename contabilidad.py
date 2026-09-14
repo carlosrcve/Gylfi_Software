@@ -7991,7 +7991,6 @@ def renderizar_tab_asientos_ventas(db_connection):
             df_ventas_visual = df_ventas.copy()
             for col in df_ventas_visual.columns:
                 c_lower = str(col).lower().strip()
-                # Coincidencia estricta con las columnas solicitadas
                 es_total_ventas = "total" in c_lower and "venta" in c_lower
                 es_ventas_exentas = "exenta" in c_lower and "venta" in c_lower
                 
@@ -8210,201 +8209,64 @@ def renderizar_tab_asientos_ventas(db_connection):
                         f"Error procesando los datos de ventas: {proc_err}"
                     )
 
-            # ----------------------------------------------------
-            # SEGUNDO FRAME: ESTRUCTURA COMPLETA DE VENTAS
-            # ----------------------------------------------------
-            if (
-                "df_asientos_ventas_proceso" in st.session_state
-                and not st.session_state["df_asientos_ventas_proceso"].empty
-            ):
-                df_a_procesar = st.session_state["df_asientos_ventas_proceso"]
-                df_a_procesar = limpiar_y_forzar_numerico(df_a_procesar)
+        # ----------------------------------------------------
+        # SEGUNDO FRAME: ESTRUCTURA COMPLETA DE VENTAS
+        # ----------------------------------------------------
+        if (
+            "df_asientos_ventas_proceso" in st.session_state
+            and not st.session_state["df_asientos_ventas_proceso"].empty
+        ):
+            df_a_procesar = st.session_state["df_asientos_ventas_proceso"]
+            df_a_procesar = limpiar_y_forzar_numerico(df_a_procesar)
 
-                st.markdown(
-                    f"### 📋 Segundo Frame: Estructura del Asiento de Ventas ({len(df_a_procesar)} registros)"
+            st.markdown(
+                f"### 📋 Segundo Frame: Estructura del Asiento de Ventas ({len(df_a_procesar)} registros)"
+            )
+
+            def extraer_solo_codigo(val):
+                val_str = str(val).strip()
+                if " - " in val_str:
+                    return val_str.split(" - ")[0].strip()
+                return val_str
+
+            for idx in df_a_procesar.index:
+                codigo_puro = extraer_solo_codigo(
+                    df_a_procesar.at[idx, "plan_cuentas"]
+                )
+                df_a_procesar.at[idx, "plan_cuentas"] = codigo_puro
+                df_a_procesar.at[idx, "cuenta_contable"] = (
+                    mapa_descripciones.get(codigo_puro, "")
                 )
 
-                def extraer_solo_codigo(val):
-                    val_str = str(val).strip()
-                    if " - " in val_str:
-                        return val_str.split(" - ")[0].strip()
-                    return val_str
+            opciones_codigos_puros = list(mapa_descripciones.keys())
+            if not opciones_codigos_puros:
+                opciones_codigos_puros = [
+                    "1.1.2.01.001",
+                    "4.1.1.01.001",
+                    "2.1.2.01.001",
+                ]
 
-                for idx in df_a_procesar.index:
-                    codigo_puro = extraer_solo_codigo(
-                        df_a_procesar.at[idx, "plan_cuentas"]
-                    )
-                    df_a_procesar.at[idx, "plan_cuentas"] = codigo_puro
-                    df_a_procesar.at[idx, "cuenta_contable"] = (
-                        mapa_descripciones.get(codigo_puro, "")
-                    )
-
-                opciones_codigos_puros = list(mapa_descripciones.keys())
-                if not opciones_codigos_puros:
-                    opciones_codigos_puros = [
-                        "1.1.2.01.001",
-                        "4.1.1.01.001",
-                        "2.1.2.01.001",
-                    ]
-
-                df_editado = st.data_editor(
-                    df_a_procesar,
-                    num_rows="dynamic",
-                    use_container_width=True,
-                    column_config={
-                        "n_comprobante": st.column_config.TextColumn(
-                            "n_comprobante"
-                        ),
-                        "descripcion": st.column_config.TextColumn("Descripción"),
-                        "fecha": st.column_config.TextColumn("Fecha"),
-                        "plan_cuentas": st.column_config.SelectboxColumn(
-                            "Plan de Cuentas (Código)",
-                            options=opciones_codigos_puros,
-                            required=True,
-                        ),
-                        "cuenta_contable": st.column_config.TextColumn(
-                            "Descripción Cuenta", disabled=True
-                        ),
-                        "referencia": st.column_config.TextColumn("Referencia"),
-                        "debe": st.column_config.NumberColumn(
-                            "Debe",
-                            format="%.2f",
-                            step=0.01,
-                            help="Monto del debe",
-                        ),
-                        "haber": st.column_config.NumberColumn(
-                            "Haber",
-                            format="%.2f",
-                            step=0.01,
-                            help="Monto del haber",
-                        ),
-                    },
-                    key=f"editor_segundo_frame_ventas_{db_segura}",
-                )
-
-                df_editado = limpiar_y_forzar_numerico(df_editado)
-                for idx in df_editado.index:
-                    codigo_puro = extraer_solo_codigo(
-                        df_editado.at[idx, "plan_cuentas"]
-                    )
-                    df_editado.at[idx, "plan_cuentas"] = codigo_puro
-                    df_editado.at[idx, "cuenta_contable"] = (
-                        mapa_descripciones.get(codigo_puro, "")
-                    )
-
-                # Actualizamos el session_state con lo editado en tiempo real
-                st.session_state["df_asientos_ventas_proceso"] = df_editado
-
-                tot_debe = df_editado["debe"].sum()
-                tot_haber = df_editado["haber"].sum()
-                col_m1, col_m2 = st.columns(2)
-                col_m1.metric("Total Debe (Ventas)", f"{tot_debe:,.2f}")
-                col_m2.metric("Total Haber (Ventas)", f"{tot_haber:,.2f}")
-
-                buffer_excel = io.BytesIO()
-                with pd.ExcelWriter(buffer_excel, engine="openpyxl") as writer:
-                    df_editado.to_excel(
-                        writer, index=False, sheet_name="Asientos_Ventas"
-                    )
-                buffer_excel.seek(0)
-
-                st.download_button(
-                    label="📥 Descargar Estructura de Ventas en Excel",
-                    data=buffer_excel,
-                    file_name=f"asientos_ventas_{db_segura}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    key=f"btn_descargar_excel_ventas_{db_segura}",
-                    use_container_width=True,
-                )
-
-                if st.button(
-                    "💾 Guardar Asientos de Ventas en el Libro Diario",
-                    key=f"btn_guardar_ventas_finales_{db_segura}",
-                    use_container_width=True,
-                ):
-                    try:
-                        df_val = df_editado.copy()
-                        df_val["fecha"] = pd.to_datetime(
-                            df_val["fecha"], errors="coerce"
-                        )
-                        anios_meses_excel = set(
-                            (row["fecha"].year, row["fecha"].month)
-                            for _, row in df_val.iterrows()
-                            if pd.notnull(row["fecha"])
-                        )
-
-                        bloqueo_detectado = False
-                        mensaje_bloqueo = ""
-
-                        for anio, mes in anios_meses_excel:
-                            try:
-                                with db_connection.cursor() as cur_check:
-                                    cur_check.execute(
-                                        f"""
-                                        SELECT COUNT(*) FROM `{db_segura}`.asientos_contables 
-                                        WHERE YEAR(fecha) = %s AND MONTH(fecha) = %s AND bloqueado = 1
-                                    """,
-                                        (anio, mes),
-                                    )
-                                    res_bloqueo = cur_check.fetchone()
-                                    if res_bloqueo and res_bloqueo[0] > 0:
-                                        bloqueo_detectado = True
-                                        mensaje_bloqueo = f"❌ **Operación Denegada**: El período correspondiente al mes **{mes:02d}/{anio}** se encuentra **CERRADO y BLOQUEADO**. No se pueden hacer asientos de libro de ventas en un mes cerrado."
-                                        break
-                            except Exception:
-                                pass
-
-                        if bloqueo_detectado:
-                            st.error(mensaje_bloqueo)
-                        else:
-                            with db_connection.cursor() as cursor:
-                                cursor.execute(f"""
-                                    CREATE TABLE IF NOT EXISTS `{db_segura}`.asientos_contables (
-                                        id INT AUTO_INCREMENT PRIMARY KEY,
-                                        n_comprobante VARCHAR(50),
-                                        descripcion TEXT,
-                                        fecha DATE,
-                                        plan_cuentas VARCHAR(100),
-                                        cuenta_contable VARCHAR(255),
-                                        referencia VARCHAR(100),
-                                        debe DECIMAL(15, 2) DEFAULT 0.00,
-                                        haber DECIMAL(15, 2) DEFAULT 0.00
-                                    );
-                                """)
-
-                                for _, row in df_editado.iterrows():
-                                    codigo_limpio = extraer_solo_codigo(
-                                        row["plan_cuentas"]
-                                    )
-                                    cursor.execute(
-                                        f"""
-                                        INSERT INTO `{db_segura}`.asientos_contables 
-                                        (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber)
-                                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                                    """,
-                                        (
-                                            row["n_comprobante"],
-                                            row["descripcion"],
-                                            row["fecha"],
-                                            codigo_limpio,
-                                            row["cuenta_contable"],
-                                            row["referencia"],
-                                            float(row["debe"] or 0.0),
-                                            float(row["haber"] or 0.0),
-                                        ),
-                                    )
-                                db_connection.commit()
-                                st.success(
-                                    "✅ ¡Asientos de ventas guardados exitosamente en el Libro Diario!"
-                                )
-                    except Exception as db_err:
-                        if hasattr(db_connection, "rollback"):
-                            db_connection.rollback()
-                        st.error(
-                            f"Error al guardar los asientos de ventas: {db_err}"
-                        )
-        except Exception as e:
-            st.error(f"Error al leer el archivo Excel de ventas: {e}")
+            df_editado = st.data_editor(
+                df_a_procesar,
+                num_rows="dynamic",
+                use_container_width=True,
+                column_config={
+                    "n_comprobante": st.column_config.TextColumn("n_comprobante"),
+                    "descripcion": st.column_config.TextColumn("descripcion"),
+                    "fecha": st.column_config.DateColumn("fecha"),
+                    "plan_cuentas": st.column_config.SelectboxColumn(
+                        "plan_cuentas", options=opciones_codigos_puros
+                    ),
+                    "cuenta_contable": st.column_config.TextColumn("cuenta_contable"),
+                    "referencia": st.column_config.TextColumn("referencia"),
+                    "debe": st.column_config.NumberColumn("debe", format="%.2f"),
+                    "haber": st.column_config.NumberColumn("haber", format="%.2f"),
+                },
+                key=f"editor_asientos_ventas_{db_segura}",
+            )
+            
+            # Guardar el dataframe editado de vuelta en el session state si es necesario
+            st.session_state["df_asientos_ventas_proceso"] = df_editado
 
 
 def gestionar_sidebar():
