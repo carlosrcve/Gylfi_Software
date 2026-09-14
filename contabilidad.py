@@ -6917,7 +6917,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
 
 def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
     """
-    Tercer Frame: Conciliación automatizada cruzando por RIF, con selección interactiva del Banco de contrapartida.
+    Tercer Frame: Conciliación automatizada cruzando por RIF, utilizando exclusivamente el Banco Global.
     """
     st.markdown("---")
     st.markdown("### 🏦 Tercer Frame: Conciliación y Cruce por RIF")
@@ -7067,13 +7067,13 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
         except Exception as e_scan:
             st.error(f"Error en el análisis de cruce: {e_scan}")
 
-    # 2. SECCIÓN INTERACTIVA: Mostrar cada match con su fecha individual y selección de banco
+    # 2. SECCIÓN INTERACTIVA: Mostrar cada match con su fecha individual y aplicación del Banco Global único
     if st.session_state.get("matches_propuestos"):
         st.markdown("---")
-        st.markdown("#### ⚡ Coincidencias Detectadas, Fechas y Selección de Banco Salida")
-        st.caption("Selecciona el banco de salida correspondiente para cada pago o utiliza el selector global para aplicarlo a todos en lote.")
+        st.markdown("#### ⚡ Coincidencias Detectadas y Fechas")
+        st.markdown("Configura la fecha de cada asiento. Todos los registros utilizarán automáticamente el **Banco Global** seleccionado abajo.")
 
-        # Selector Global de Banco para el Lote
+        # Selector Global de Banco para el Lote / Operaciones
         if lista_cuentas_bancos_opciones:
             banco_global_sel = st.selectbox(
                 "🌐 Seleccionar Banco Global para el Lote de Pagos (Haber)", 
@@ -7104,9 +7104,9 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
                     f"• **Referencia:** `{ref_banco_mostrar}` | **Comprobante Base:** `{prop.get('n_comprobante_origen', 'N/D')}`"
                 )
 
-                col_date, col_banco, col_btn = st.columns([2, 3, 2])
+                # Columnas ajustadas: solo fecha y botón de acción individual
+                col_date, col_btn = st.columns([3, 2])
                 key_fecha = f"fecha_manual_{prop['mov_id']}_{idx}"
-                key_banco_ind = f"banco_manual_{prop['mov_id']}_{idx}"
                 
                 with col_date:
                     fecha_asiento_manual = st.date_input(
@@ -7114,16 +7114,6 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
                         value=fecha_defecto, 
                         key=key_fecha
                     )
-
-                with col_banco:
-                    banco_ind_sel = st.selectbox(
-                        "🏦 Banco de Pago (Haber)",
-                        options=lista_cuentas_bancos_opciones,
-                        index=lista_cuentas_bancos_opciones.index(banco_global_sel) if banco_global_sel in lista_cuentas_bancos_opciones else 0,
-                        key=key_banco_ind
-                    )
-                    cod_banco_actual = banco_ind_sel.split(" - ")[0].strip()
-                    nom_banco_actual = " - ".join(banco_ind_sel.split(" - ")[1:]).strip()
                 
                 with col_btn:
                     st.write("") # Espaciador visual
@@ -7143,9 +7133,9 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
                                 cod_debe = prop.get('codigo_destino', "2.1.1.01.001")
                                 cuenta_debe = prop.get('cuenta_destino', "Proveedores Nacionales")
 
-                                # HABER: Banco seleccionado individualmente
-                                cod_haber = cod_banco_actual
-                                cuenta_haber = nom_banco_actual
+                                # HABER: Usando exclusivamente el Banco Global seleccionado
+                                cod_haber = codigo_banco_global
+                                cuenta_haber = nombre_banco_global
 
                                 ref_banco = prop.get('referencia_banco', prop.get('referencia', ''))
 
@@ -7156,7 +7146,7 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
                                     VALUES (%s, %s, %s, %s, %s, %s, %s, 0.00)
                                 """, (n_comp_pago, desc_pago, fecha_str_manual, cod_debe, cuenta_debe, ref_banco, prop['monto']))
 
-                                # 2. Banco (HABER)
+                                # 2. Banco Global (HABER)
                                 cursor_pago.execute(f"""
                                     INSERT INTO `{db_segura}`.asientos_contables 
                                     (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber)
@@ -7170,7 +7160,7 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
                                 """, (cursor_pago.lastrowid, prop['mov_id']))
 
                                 db_connection.commit()
-                                st.success(f"🎉 ¡Asiento generado con éxito (Comprobante: `{n_comp_pago}` - Banco: {cuenta_haber})!")
+                                st.success(f"🎉 ¡Asiento generado con éxito (Comprobante: `{n_comp_pago}` - Banco Global: {cuenta_haber})!")
                                 st.session_state.matches_propuestos.pop(idx)
                                 st.rerun()
 
@@ -7179,21 +7169,20 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
                             st.error(f"❌ Error al registrar el asiento de pago: {e_pago}")
                 st.markdown("---")
 
-        # Botón general para procesar en lote respetando la fecha y banco seleccionado de cada match
-        if st.button("🚀 Registrar Todos en Lote (Usando Fecha y Banco Seleccionado)", type="primary", key="btn_registrar_todos_matches"):
+        # Botón general para procesar en lote usando el Banco Global
+        if st.button("🚀 Registrar Todos en Lote (Usando Banco Global)", type="primary", key="btn_registrar_todos_matches"):
             try:
                 procesados_total = 0
                 with db_connection.cursor() as cursor_pago_lote:
                     for idx, prop in enumerate(list(st.session_state.matches_propuestos)):
                         key_fecha = f"fecha_manual_{prop['mov_id']}_{idx}"
-                        key_banco_ind = f"banco_manual_{prop['mov_id']}_{idx}"
 
                         fecha_seleccionada = st.session_state.get(key_fecha, pd.to_datetime(prop.get('fecha_movimiento')).date())
                         fecha_str_lote = fecha_seleccionada.strftime('%Y-%m-%d')
 
-                        banco_seleccionado_lote = st.session_state.get(key_banco_ind, banco_global_sel)
-                        cod_haber_lote = banco_seleccionado_lote.split(" - ")[0].strip()
-                        cuenta_haber_lote = " - ".join(banco_seleccionado_lote.split(" - ")[1:]).strip()
+                        # Aplicando Banco Global para todos en lote
+                        cod_haber_lote = codigo_banco_global
+                        cuenta_haber_lote = nombre_banco_global
 
                         cursor_pago_lote.execute(f"SELECT MAX(CAST(SUBSTRING_INDEX(n_comprobante, '-', -1) AS UNSIGNED)) as max_n FROM `{db_segura}`.asientos_contables")
                         res_max = cursor_pago_lote.fetchone()
@@ -7213,7 +7202,7 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
                             VALUES (%s, %s, %s, %s, %s, %s, %s, 0.00)
                         """, (n_comp_pago, desc_pago, fecha_str_lote, cod_debe, cuenta_debe, ref_banco, prop['monto']))
 
-                        # 2. Banco contrapartida (HABER)
+                        # 2. Banco Global de contrapartida (HABER)
                         cursor_pago_lote.execute(f"""
                             INSERT INTO `{db_segura}`.asientos_contables 
                             (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber)
@@ -7230,7 +7219,7 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
 
                 db_connection.commit()
                 st.session_state.matches_propuestos = []
-                st.success(f"🎉 ¡Se han registrado exitosamente los **{procesados_total}** asientos en lote con sus respectivos bancos y fechas!")
+                st.success(f"🎉 ¡Se han registrado exitosamente los **{procesados_total}** asientos en lote utilizando el Banco Global!")
                 st.rerun()
 
             except Exception as e_lote_pago:
@@ -7239,7 +7228,6 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
     else:
         if not btn_escanear:
             st.caption("💡 Haz clic en el botón superior para realizar el escaneo y cruce automático por RIF.")
-
 
 
 def conciliacion_de_gastos_y_comisiones(db_connection, db_segura):
