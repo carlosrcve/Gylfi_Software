@@ -8250,7 +8250,7 @@ def renderizar_tab_asientos_ventas(db_connection):
             st.error(f"Error al leer o procesar el archivo Excel: {excel_err}")
 
     # ----------------------------------------------------
-    # SEGUNDO FRAME: ESTRUCTURA COMPLETA DE VENTAS (CORREGIDO)
+    # SEGUNDO FRAME: ESTRUCTURA COMPLETA DE VENTAS (CORREGIDO Y OPTIMIZADO)
     # ----------------------------------------------------
     if 'df_asientos_ventas_proceso' in st.session_state and not st.session_state['df_asientos_ventas_proceso'].empty:
         df_a_procesar = st.session_state['df_asientos_ventas_proceso'].copy()
@@ -8318,10 +8318,10 @@ def renderizar_tab_asientos_ventas(db_connection):
             
             cod_cliente, desc_cliente, rif_oficial = obtener_datos_cliente_por_texto(desc_actual)
             
-            # Como ya limpiamos arriba, esto ahora es un float seguro de Python
             haber_val = float(df_a_procesar.at[idx, "haber"]) if "haber" in df_a_procesar.columns else 0.0
             debe_val = float(df_a_procesar.at[idx, "debe"]) if "debe" in df_a_procesar.columns else 0.0
 
+            # Los créditos van directo contra el ingreso exento que pediste
             if haber_val > 0 and debe_val == 0:
                 df_a_procesar.at[idx, "plan_cuentas"] = "4.1.1.01.001"
             else:
@@ -8340,6 +8340,11 @@ def renderizar_tab_asientos_ventas(db_connection):
                 df_a_procesar.at[idx, "cuenta_contable"] = "Ingresos Exento I.V.A."
             else:
                 df_a_procesar.at[idx, "cuenta_contable"] = mapa_descripciones.get(codigo_actual, desc_cliente if 'desc_cliente' in locals() else "")
+
+        # --- ASEGURAR OPCIONES DE CÓDIGOS PARA EL SELECTBOX DE FORMA SEGURA ---
+        opciones_codigos_puros = list(mapa_descripciones.keys())
+        if not opciones_codigos_puros or "4.1.1.01.001" not in opciones_codigos_puros:
+            opciones_codigos_puros = ["4.1.1.01.001"] + [op for op in opciones_codigos_puros if op != "4.1.1.01.001"]
 
         # --- PREPARAR DATAFRAME PARA MOSTRAR ---
         df_para_mostrar = df_a_procesar.copy()
