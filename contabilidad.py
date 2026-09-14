@@ -8267,6 +8267,10 @@ def renderizar_tab_asientos_ventas(db_connection):
         if 'mapa_descripciones' not in locals() and 'mapa_descripciones' not in globals():
             mapa_descripciones = {} 
 
+        # --- MAPA PARA GUARDAR EL RIF ASOCIADO A CADA FILA O CUENTA ---
+        if 'mapa_rifs_clientes' not in locals():
+            mapa_rifs_clientes = {}
+
         # --- FUNCIÓN AUXILIAR PARA FORMATO VENEZOLANO ---
         def formato_venezolano(val):
             try:
@@ -8280,50 +8284,53 @@ def renderizar_tab_asientos_ventas(db_connection):
                 return val_str.split(" - ")[0].strip()
             return val_str
 
-        # --- FUNCIÓN PARA BUSCAR LA CUENTA DEL CLIENTE EN LA TABLA CLIENTES_COMERCIALES ---
-        def obtener_cuenta_desde_clientes_comerciales(rif_cliente):
+        # --- FUNCIÓN PARA BUSCAR LA CUENTA Y EL RIF DESDE CLIENTES_COMERCIALES ---
+        def obtener_datos_desde_clientes_comerciales(rif_cliente):
             """
             Consulta la tabla clientes_comerciales usando el RIF para obtener 
-            el código de cuenta y la descripción de la cuenta contable asociada.
+            el código de cuenta, la descripción y el RIF limpio oficial.
             """
             if not rif_cliente or str(rif_cliente).strip() in ["", "nan", "None"]:
-                return None, None
+                return None, None, None
             
             rif_limpio = str(rif_cliente).strip()
             try:
                 with db_connection.cursor() as cur_cc:
                     cur_cc.execute(f"""
-                        SELECT codigo_cuenta, descripcion_cuenta 
+                        SELECT codigo_cuenta, descripcion_cuenta, rif 
                         FROM `{db_segura}`.clientes_comerciales 
                         WHERE TRIM(rif) = %s
                         LIMIT 1;
                     """, (rif_limpio,))
                     resultado = cur_cc.fetchone()
                     if resultado:
-                        return str(resultado[0]).strip(), str(resultado[1]).strip()
+                        return str(resultado[0]).strip(), str(resultado[1]).strip(), str(resultado[2]).strip()
             except Exception as e:
                 print(f"Error consultando clientes_comerciales para el RIF {rif_limpio}: {e}")
             
-            return None, None
+            return None, None, None
 
-        # --- ASIGNAR AUTOMÁTICAMENTE LA CUENTA SEGÚN LA TABLA CLIENTES_COMERCIALES ---
+        # --- ASIGNAR AUTOMÁTICAMENTE LA CUENTA Y EL RIF SEGÚN CLIENTES_COMERCIALES ---
         for idx in df_a_procesar.index:
-            # Detectamos el RIF de la fila (puede venir como 'rif', 'rif_cliente' o 'cliente_rif')
             rif_val = None
             for col_posible in ["rif", "rif_cliente", "cliente_rif"]:
                 if col_posible in df_a_procesar.columns and pd.notnull(df_a_procesar.at[idx, col_posible]):
                     rif_val = df_a_procesar.at[idx, col_posible]
                     break
             
-            # Buscamos en la tabla clientes_comerciales por RIF
-            cod_cliente, desc_cliente = obtener_cuenta_desde_clientes_comerciales(rif_val)
+            cod_cliente, desc_cliente, rif_oficial = obtener_datos_desde_clientes_comerciales(rif_val)
             
             if cod_cliente:
                 df_a_procesar.at[idx, "plan_cuentas"] = cod_cliente
                 if cod_cliente not in mapa_descripciones and desc_cliente:
                     mapa_descripciones[cod_cliente] = desc_cliente
+                if rif_oficial:
+                    mapa_rifs_clientes[idx] = rif_oficial
+                    # Asegurar que el RIF quede inyectado o visible en la descripción del asiento para el matching posterior
+                    desc_actual = str(df_a_procesar.at[idx, "descripcion"]) if "descripcion" in df_a_procesar.columns else ""
+                    if rif_oficial not in desc_actual:
+                        df_a_procesar.at[idx, "descripcion"] = f"{desc_actual} - RIF: {rif_oficial}".strip(" -")
             else:
-                # Si no se encuentra por RIF, mantenemos el comportamiento por defecto o limpiamos
                 codigo_puro = extraer_solo_codigo(df_a_procesar.at[idx, "plan_cuentas"] if "plan_cuentas" in df_a_procesar.columns else "")
                 df_a_procesar.at[idx, "plan_cuentas"] = codigo_puro
 
@@ -8350,7 +8357,7 @@ def renderizar_tab_asientos_ventas(db_connection):
             use_container_width=True,
             column_config={
                 "n_comprobante": st.column_config.TextColumn("n_comprobante"),
-                "descripcion": st.column_config.TextColumn("Descripción"),
+                "descripcion": st.column_config.TextColumn("Descripción (Incluye RIF)"),
                 "fecha": st.column_config.TextColumn("Fecha"),
                 "plan_cuentas": st.column_config.SelectboxColumn(
                     "Plan de Cuentas (Cuentas x Cobrar Cliente)",
@@ -8387,7 +8394,7 @@ def renderizar_tab_asientos_ventas(db_connection):
         st.session_state['df_asientos_proceso'] = df_editado
         
         tot_debe = float(df_editado['debe'].sum())
-        tot_haber = float(df_editado['haber'].sum())
+        tot_haber = float(df__haber if 'df_haber' in locals() else df_editado['haber'].sum())
         
         col_m1, col_m2 = st.columns(2)
         col_m1.metric("Total Debe (Ventas)", formato_venezolano(tot_debe))
@@ -8462,7 +8469,7 @@ def renderizar_tab_asientos_ventas(db_connection):
                                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 0)
                             """, (
                                 str(row["n_comprobante"]),
-                                str(row["descripcion"]),
+                                str(row["descripcion"]), # Ya incluye el RIF inyectado para que el Tercer Frame lo reconozca
                                 fecha_str,
                                 str(codigo_limpio),
                                 str(row["cuenta_contable"]),
@@ -8473,7 +8480,7 @@ def renderizar_tab_asientos_ventas(db_connection):
                             registros_insertados += 1
                             
                         db_connection.commit()
-                        st.success(f"✅ ¡{registros_insertados} asientos de ventas guardados y confirmados (commit) en la base de datos `{db_segura}`!")
+                        st.success(f"✅ ¡{registros_insertados} asientos de ventas con sus respectivos RIFs guardados y confirmados en la base de datos `{db_segura}`!")
                         
             except Exception as db_err:
                 if hasattr(db_connection, 'rollback'):
