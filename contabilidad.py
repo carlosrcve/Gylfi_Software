@@ -6989,7 +6989,6 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
         lista_asientos = []
         try:
             with db_connection.cursor(pymysql.cursors.DictCursor) as cursor_diag:
-                # Incluimos 'referencia' en la consulta para contemplar la estructura completa de tu tabla
                 cursor_diag.execute(f"SELECT id, n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber FROM `{db_segura}`.asientos_contables")
                 lista_asientos = cursor_diag.fetchall()
         except Exception as e_asientos:
@@ -7034,7 +7033,7 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
                         "mov_id": mov_id,
                         "banco": banco_nombre,
                         "descripcion_banco": descripcion_banco,
-                        "referencia_banco": ref_mov,
+                        "referencia_banco": ref_mov,  # <-- Clave añadida correctamente aquí
                         "rif_detectado": rif_banco_limpio,
                         "monto": monto_mov,
                         "fecha_movimiento": fecha_mov,
@@ -7099,14 +7098,14 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
                                 codigo_banco_contable = dict_cuentas_codigo.get(nombre_banco_contable.upper(), "1.1.1.02.001")
                                 ref_banco = prop['referencia_banco']
 
-                                # 1. Proveedor (DEBE) - Incluyendo columna referencia
+                                # 1. Proveedor (DEBE)
                                 cursor_pago.execute(f"""
                                     INSERT INTO `{db_segura}`.asientos_contables 
                                     (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber)
                                     VALUES (%s, %s, %s, %s, %s, %s, %s, 0.00)
                                 """, (n_comp_pago, desc_pago, fecha_str_manual, prop['codigo_destino'], prop['cuenta_destino'], ref_banco, prop['monto']))
 
-                                # 2. Banco (HABER) - Incluyendo columna referencia
+                                # 2. Banco (HABER)
                                 cursor_pago.execute(f"""
                                     INSERT INTO `{db_segura}`.asientos_contables 
                                     (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber)
@@ -7149,14 +7148,14 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
                         codigo_banco_contable = dict_cuentas_codigo.get(nombre_banco_contable.upper(), "1.1.1.02.001")
                         ref_banco = prop['referencia_banco']
 
-                        # 1. Pasivo / Proveedor (DEBE) - Incluyendo columna referencia
+                        # 1. Pasivo / Proveedor (DEBE)
                         cursor_pago_lote.execute(f"""
                             INSERT INTO `{db_segura}`.asientos_contables 
                             (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber)
                             VALUES (%s, %s, %s, %s, %s, %s, %s, 0.00)
                         """, (n_comp_pago, desc_pago, fecha_str_lote, prop['codigo_destino'], prop['cuenta_destino'], ref_banco, prop['monto']))
 
-                        # 2. Banco contrapartida (HABER) - Incluyendo columna referencia
+                        # 2. Banco contrapartida (HABER)
                         cursor_pago_lote.execute(f"""
                             INSERT INTO `{db_segura}`.asientos_contables 
                             (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber)
