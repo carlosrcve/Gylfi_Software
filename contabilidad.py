@@ -7907,7 +7907,6 @@ def renderizar_tab_asientos_ventas(db_connection):
                                             return val
                             return default_val
 
-                        # Búsqueda exclusiva para la fecha
                         raw_fecha = buscar_valor(["Fecha de Factura", "Fecha"], "")
                         if hasattr(raw_fecha, "strftime"):
                             fecha_op = raw_fecha.strftime("%Y-%m-%d")
@@ -7921,7 +7920,6 @@ def renderizar_tab_asientos_ventas(db_connection):
                         razon_social = str(buscar_valor(["Nombre y Apellido o Razón Social", "Razon Social", "Cliente"], "Sin Nombre")).strip()
                         rif_cliente = str(buscar_valor(["R.I.F.", "RIF", "Rif"], "")).strip().upper()
                         
-                        # Búsqueda exacta y segura del Número de Factura para que vaya a Referencia
                         nro_doc = ""
                         for col in df_ventas.columns:
                             c_clean = str(col).strip().lower()
@@ -7955,9 +7953,6 @@ def renderizar_tab_asientos_ventas(db_connection):
 
                         n_comprobante_actual = str(n_comprobante_base).strip()
 
-                        # ----------------------------------------------------
-                        # CRUCE CON LA TABLA `clientes_comerciales` SEGÚN EL RIF
-                        # ----------------------------------------------------
                         opcion_cxc = default_opcion
                         descripcion_personalizada = f"Factura Venta {nro_doc} - {razon_social}"
 
@@ -7987,13 +7982,13 @@ def renderizar_tab_asientos_ventas(db_connection):
                             "fecha": fecha_op,
                             "plan_cuentas": opcion_cxc,
                             "cuenta_contable": mapa_descripciones.get(opcion_cxc, ""),
-                            "referencia": nro_doc,  # <--- Número de factura exacto aquí
-                            "debe": total_ventas,
+                            "referencia": nro_doc, 
+                            "debe": float(total_ventas),
                             "haber": 0.0
                         })
 
                         # 2. Ingresos (HABER)
-                        monto_ingreso = base_imponible + ventas_exentas
+                        monto_ingreso = float(base_imponible + ventas_exentas)
                         if monto_ingreso > 0:
                             filas_asiento_temporal.append({
                                 "n_comprobante": n_comprobante_actual,
@@ -8001,7 +7996,7 @@ def renderizar_tab_asientos_ventas(db_connection):
                                 "fecha": fecha_op,
                                 "plan_cuentas": opcion_ingreso,
                                 "cuenta_contable": mapa_descripciones.get(opcion_ingreso, ""),
-                                "referencia": nro_doc,  # <--- Número de factura exacto aquí
+                                "referencia": nro_doc, 
                                 "debe": 0.0,
                                 "haber": monto_ingreso
                             })
@@ -8014,9 +8009,9 @@ def renderizar_tab_asientos_ventas(db_connection):
                                 "fecha": fecha_op,
                                 "plan_cuentas": opcion_iva_debito,
                                 "cuenta_contable": mapa_descripciones.get(opcion_iva_debito, ""),
-                                "referencia": nro_doc,  # <--- Número de factura exacto aquí
+                                "referencia": nro_doc, 
                                 "debe": 0.0,
-                                "haber": debito_fiscal
+                                "haber": float(debito_fiscal)
                             })
 
                     st.session_state['df_asientos_ventas_proceso'] = pd.DataFrame(filas_asiento_temporal)
@@ -8043,6 +8038,10 @@ def renderizar_tab_asientos_ventas(db_connection):
                     codigo_puro = extraer_solo_codigo(df_a_procesar.at[idx, "plan_cuentas"])
                     df_a_procesar.at[idx, "plan_cuentas"] = codigo_puro
                     df_a_procesar.at[idx, "cuenta_contable"] = mapa_descripciones.get(codigo_puro, "")
+                    
+                    # Asegurar conversión numérica correcta
+                    df_a_procesar.at[idx, "debe"] = float(df_a_procesar.at[idx, "debe"] or 0.0)
+                    df_a_procesar.at[idx, "haber"] = float(df_a_procesar.at[idx, "haber"] or 0.0)
 
                 opciones_codigos_puros = list(mapa_descripciones.keys())
                 if not opciones_codigos_puros:
@@ -8063,8 +8062,16 @@ def renderizar_tab_asientos_ventas(db_connection):
                         ),
                         "cuenta_contable": st.column_config.TextColumn("Descripción Cuenta", disabled=True),
                         "referencia": st.column_config.TextColumn("Referencia"),
-                        "debe": st.column_config.NumberColumn("Debe", format="%,.2f"),
-                        "haber": st.column_config.NumberColumn("Haber", format="%,.2f"),
+                        "debe": st.column_config.NumberColumn(
+                            "Debe", 
+                            format="%,.2f",
+                            help="Monto del debe en formato numérico contable"
+                        ),
+                        "haber": st.column_config.NumberColumn(
+                            "Haber", 
+                            format="%,.2f",
+                            help="Monto del haber en formato numérico contable"
+                        ),
                     },
                     key="editor_segundo_frame_ventas"
                 )
@@ -8073,6 +8080,8 @@ def renderizar_tab_asientos_ventas(db_connection):
                     codigo_puro = extraer_solo_codigo(df_editado.at[idx, "plan_cuentas"])
                     df_editado.at[idx, "plan_cuentas"] = codigo_puro
                     df_editado.at[idx, "cuenta_contable"] = mapa_descripciones.get(codigo_puro, "")
+                    df_editado.at[idx, "debe"] = float(df_editado.at[idx, "debe"] or 0.0)
+                    df_editado.at[idx, "haber"] = float(df_editado.at[idx, "haber"] or 0.0)
 
                 st.session_state['df_asientos_ventas_proceso'] = df_editado
 
@@ -8098,7 +8107,7 @@ def renderizar_tab_asientos_ventas(db_connection):
 
                 if st.button("💾 Guardar Asientos de Ventas en el Libro Diario", key="btn_guardar_ventas_finales", use_container_width=True):
                     try:
-                        # --- VALIDACIÓN DE PERÍODO CERRADO (BLOQUEO ESTRICTO DE MAYO / MESES CERRADOS) ---
+                        # --- VALIDACIÓN DE PERÍODO CERRADO ---
                         df_val = df_editado.copy()
                         df_val['fecha'] = pd.to_datetime(df_val['fecha'], errors='coerce')
                         anios_meses_excel = set((row['fecha'].year, row['fecha'].month) for _, row in df_val.iterrows() if pd.notnull(row['fecha']))
@@ -8112,7 +8121,6 @@ def renderizar_tab_asientos_ventas(db_connection):
                                 mensaje_bloqueo = f"❌ **¡Alerta! El mes de mayo ({mes:02d}/{anio}) está cerrado.** No se puede subir el libro de diario del mes de mayo porque ya está cerrado."
                                 break
                             
-                            # Revisar también si la BD tiene el periodo bloqueado
                             try:
                                 with db_connection.cursor() as cur_check:
                                     cur_check.execute(f"""
@@ -8158,8 +8166,8 @@ def renderizar_tab_asientos_ventas(db_connection):
                                         codigo_limpio,
                                         row["cuenta_contable"],
                                         row["referencia"],
-                                        row["debe"],
-                                        row["haber"]
+                                        float(row["debe"] or 0.0),
+                                        float(row["haber"] or 0.0)
                                     ))
                                 db_connection.commit()
                                 st.success("✅ ¡Asientos de ventas guardados exitosamente en el Libro Diario!")
@@ -8169,7 +8177,6 @@ def renderizar_tab_asientos_ventas(db_connection):
                         st.error(f"Error al guardar los asientos de ventas: {db_err}")
         except Exception as e:
             st.error(f"Error al leer el archivo Excel de ventas: {e}")
-
 
 def gestionar_sidebar():
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
