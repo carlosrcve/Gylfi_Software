@@ -6914,7 +6914,6 @@ def renderizar_tab_asientos_automatizados(db_connection):
             st.error(f"Error al leer el archivo Excel: {e}")
 
 
-
 def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
     """
     Tercer Frame: Conciliación automatizada cruzando por RIF, incluyendo la columna 'referencia' en asientos contables.
@@ -7029,11 +7028,12 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
                     cuenta_orig_nombre = asiento_referencia.get("cuenta_contable", "Proveedores Nacionales")
                     codigo_orig = asiento_referencia.get("plan_cuentas") or dict_cuentas_codigo.get(str(cuenta_orig_nombre).strip().upper(), "2.1.1.01.001")
                     
+                    # Garantizamos que todas las llaves existan explícitamente
                     propuestas.append({
                         "mov_id": mov_id,
                         "banco": banco_nombre,
                         "descripcion_banco": descripcion_banco,
-                        "referencia_banco": ref_mov,  # <-- Clave añadida correctamente aquí
+                        "referencia_banco": ref_mov,
                         "rif_detectado": rif_banco_limpio,
                         "monto": monto_mov,
                         "fecha_movimiento": fecha_mov,
@@ -7065,11 +7065,14 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
                 except Exception:
                     fecha_defecto = datetime.today().date()
 
+                # Respaldo seguro por si alguna llave vieja quedó guardada en la sesión del navegador
+                ref_banco_mostrar = prop.get('referencia_banco', prop.get('referencia', ''))
+
                 st.success(
-                    f"✅ **Match #{idx + 1} | RIF (`{prop['rif_detectado']}`)**\n\n"
-                    f"• **Detalle Contabilidad:** `{prop['proveedor_nombre']}`\n"
-                    f"• **Banco:** {prop['banco']} | Monto: **Bs. {prop['monto']:,.2f}**\n"
-                    f"• **Referencia:** `{prop['referencia_banco']}` | **Comprobante Base:** `{prop['n_comprobante_origen']}`"
+                    f"✅ **Match #{idx + 1} | RIF (`{prop.get('rif_detectado', 'N/D')}`)**\n\n"
+                    f"• **Detalle Contabilidad:** `{prop.get('proveedor_nombre', 'N/D')}`\n"
+                    f"• **Banco:** {prop.get('banco', 'N/D')} | Monto: **Bs. {prop.get('monto', 0.0):,.2f}**\n"
+                    f"• **Referencia:** `{ref_banco_mostrar}` | **Comprobante Base:** `{prop.get('n_comprobante_origen', 'N/D')}`"
                 )
 
                 col_date, col_btn = st.columns([2, 2])
@@ -7096,7 +7099,7 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
                                 desc_pago = f"Pago de Factura | Ref Banco: {prop['descripcion_banco']}"
                                 nombre_banco_contable = f"Banco {prop['banco']}"
                                 codigo_banco_contable = dict_cuentas_codigo.get(nombre_banco_contable.upper(), "1.1.1.02.001")
-                                ref_banco = prop['referencia_banco']
+                                ref_banco = prop.get('referencia_banco', prop.get('referencia', ''))
 
                                 # 1. Proveedor (DEBE)
                                 cursor_pago.execute(f"""
@@ -7146,7 +7149,7 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
                         desc_pago = f"Pago de Factura | Ref Banco: {prop['descripcion_banco']}"
                         nombre_banco_contable = f"Banco {prop['banco']}"
                         codigo_banco_contable = dict_cuentas_codigo.get(nombre_banco_contable.upper(), "1.1.1.02.001")
-                        ref_banco = prop['referencia_banco']
+                        ref_banco = prop.get('referencia_banco', prop.get('referencia', ''))
 
                         # 1. Pasivo / Proveedor (DEBE)
                         cursor_pago_lote.execute(f"""
