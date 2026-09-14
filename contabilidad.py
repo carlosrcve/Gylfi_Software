@@ -7412,13 +7412,10 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
       )
 
 
-
-
-      
 def conciliacion_de_gastos_y_comisiones(db_connection, db_segura):
     """
     Función de Conciliación Masiva con validación estricta de período bloqueado
-    basada en la fecha real del movimiento bancario.
+    basada en la fecha real del movimiento bancario consultando MySQL.
     """
     st.markdown("---")
     st.markdown("### ⚙️ Conciliación Masiva de Gastos y Comisiones Bancarias")
@@ -7639,7 +7636,7 @@ def conciliacion_de_gastos_y_comisiones(db_connection, db_segura):
             return
 
         # =========================================================================
-        # VALIDACIÓN ESTRICTA DE PERÍODO CERRADO BASADA EN LA FECHA DEL MOVIMIENTO
+        # VALIDACIÓN ESTRICTA DE PERÍODO CERRADO BASADA EN LA FECHA DEL MOVIMIENTO (DESDE MYSQL)
         # =========================================================================
         try:
             with db_connection.cursor() as cursor_val:
@@ -7649,19 +7646,14 @@ def conciliacion_de_gastos_y_comisiones(db_connection, db_segura):
                         anio_m = f_mov.year
                         mes_m = f_mov.month
                         
-                        # 1. Regla de negocio: Si es mayo (mes 5), se bloquea directamente
-                        if mes_m == 5:
-                            st.error(f"❌ **¡Alerta! El mes de mayo ({mes_m:02d}/{anio_m}) está cerrado.** No se puede realizar asientos ni conciliaciones de un período cerrado.")
-                            return
-                        
-                        # 2. Revisar el estado de bloqueo en la base de datos para ese mes/año exacto
+                        # Revisar el estado de bloqueo en la base de datos de forma dinámica para ese mes/año exacto
                         cursor_val.execute(f"""
                             SELECT COUNT(*) FROM `{db_segura}`.asientos_contables 
                             WHERE YEAR(fecha) = %s AND MONTH(fecha) = %s AND bloqueado = 1
                         """, (anio_m, mes_m))
                         res_b = cursor_val.fetchone()
                         if res_b and res_b[0] > 0:
-                            st.error(f"❌ **Operación Denegada**: El período correspondiente al mes **{mes_m:02d}/{anio_m}** se encuentra **CERRADO y BLOQUEADO**. No se pueden hacer asientos en este período.")
+                            st.error(f"❌ **Operación Denegada**: El período correspondiente al mes **{mes_m:02d}/{anio_m}** se encuentra **CERRADO y BLOQUEADO** en la base de datos. No se pueden hacer asientos en este período.")
                             return
         except Exception as err_val:
             # Si hay algún problema evaluando, por seguridad permitimos continuar o informamos
