@@ -8280,20 +8280,57 @@ def renderizar_tab_asientos_ventas(db_connection):
                 return val_str.split(" - ")[0].strip()
             return val_str
 
-        for idx in df_a_procesar.index:
-            codigo_puro = extraer_solo_codigo(df_a_procesar.at[idx, "plan_cuentas"])
-            df_a_procesar.at[idx, "plan_cuentas"] = codigo_puro
-            df_a_procesar.at[idx, "cuenta_contable"] = mapa_descripciones.get(codigo_puro, "")
+        # --- BUSCAR CUENTA DEL CHOFER EN EL PLAN DE CUENTAS ---
+        def buscar_cuenta_chofer(nombre_chofer, mapa_desc):
+            """
+            Busca en el diccionario del plan de cuentas (código -> descripción)
+            una coincidencia relacionada con el chofer para asignar su cuenta por cobrar.
+            """
+            nombre_limpio = str(nombre_chofer).strip().lower()
+            if not nombre_limpio or nombre_limpio == 'nan':
+                return None
+            
+            # 1. Búsqueda exacta o parcial del nombre del chofer en la descripción de las cuentas
+            for codigo, desc in mapa_desc.items():
+                desc_lower = str(desc).lower()
+                # Buscamos si la cuenta pertenece a cuentas por cobrar o clientes/choferes y coincide el nombre
+                if nombre_limpio in desc_lower and ('cobrar' in desc_lower or 'chofer' in desc_lower or 'conductor' in desc_lower):
+                    return codigo
+                    
+            # 2. Segunda pasada genérica por si el nombre está en cualquier cuenta de activo de choferes
+            for codigo, desc in mapa_desc.items():
+                desc_lower = str(desc).lower()
+                if nombre_limpio in desc_lower:
+                    return codigo
+                    
+            return None
 
         opciones_codigos_puros = list(mapa_descripciones.keys())
         if not opciones_codigos_puros:
             opciones_codigos_puros = ["1.1.2.01.001", "4.1.1.01.001", "2.1.2.01.001"]
 
+        # --- ASIGNAR AUTOMÁTICAMENTE LA CUENTA DEL CHOFER EN EL DEBE ---
+        for idx in df_a_procesar.index:
+            # Intentamos detectar si hay una columna de chofer o conductor en el DataFrame de proceso
+            chofer_val = df_a_procesar.at[idx, "chofer"] if "chofer" in df_a_procesar.columns else df_a_procesar.at[idx, "descripcion"]
+            
+            # Buscamos su cuenta por cobrar asociada en el plan de cuentas
+            cuenta_encontrada = buscar_cuenta_chofer(chofer_val, mapa_descripciones)
+            
+            if cuenta_encontrada:
+                df_a_procesar.at[idx, "plan_cuentas"] = cuenta_encontrada
+            else:
+                # Si ya traía un código, limpiamos el formato
+                codigo_puro = extraer_solo_codigo(df_a_procesar.at[idx, "plan_cuentas"])
+                df_a_procesar.at[idx, "plan_cuentas"] = codigo_puro if codigo_puro in mapa_descripciones else opciones_codigos_puros[0]
+                
+            codigo_actual = extraer_solo_codigo(df_a_procesar.at[idx, "plan_cuentas"])
+            df_a_procesar.at[idx, "cuenta_contable"] = mapa_descripciones.get(codigo_actual, "")
+
         # --- PREPARAR DATAFRAME PARA MOSTRAR CON FORMATO VENEZOLANO EN TEXTO ---
         df_para_mostrar = df_a_procesar.copy()
         for col in ['debe', 'haber']:
             if col in df_para_mostrar.columns:
-                # Nos aseguramos que sean numéricos primero para aplicarles bien el formato
                 df_para_mostrar[col] = pd.to_numeric(
                     df_para_mostrar[col].astype(str).str.replace('$', '', regex=False).str.replace('.', '', regex=False).str.replace(',', '.', regex=False), 
                     errors='coerce'
@@ -8309,13 +8346,12 @@ def renderizar_tab_asientos_ventas(db_connection):
                 "descripcion": st.column_config.TextColumn("Descripción"),
                 "fecha": st.column_config.TextColumn("Fecha"),
                 "plan_cuentas": st.column_config.SelectboxColumn(
-                    "Plan de Cuentas (Código)",
+                    "Plan de Cuentas (Cuentas x Cobrar Choferes)",
                     options=opciones_codigos_puros,
                     required=True
                 ),
                 "cuenta_contable": st.column_config.TextColumn("Descripción Cuenta", disabled=True),
                 "referencia": st.column_config.TextColumn("Referencia"),
-                # Las transformamos a TextColumn para que respeten estrictamente el formato visual venezolano (ej. 335.814,78)
                 "debe": st.column_config.TextColumn("Debe"),
                 "haber": st.column_config.TextColumn("Haber"),
             },
@@ -8326,13 +8362,12 @@ def renderizar_tab_asientos_ventas(db_connection):
         df_editado = df_editado_crudo.copy()
         for col in ['debe', 'haber']:
             if col in df_editado.columns:
-                # Limpiamos el formato venezolano (quitamos puntos de miles y cambiamos coma decimal por punto)
                 col_limpia = (
                     df_editado[col]
                     .astype(str)
                     .str.replace('$', '', regex=False)
-                    .str.replace('.', '', regex=False)  # Remueve el separador de miles
-                    .str.replace(',', '.', regex=False)  # Cambia la coma decimal por punto para Python/MySQL
+                    .str.replace('.', '', regex=False)  
+                    .str.replace(',', '.', regex=False)  
                     .str.strip()
                 )
                 df_editado[col] = pd.to_numeric(col_limpia, errors='coerce').fillna(0.0).astype(float)
@@ -8344,7 +8379,6 @@ def renderizar_tab_asientos_ventas(db_connection):
 
         st.session_state['df_asientos_proceso'] = df_editado
         
-        # Forzamos que la suma devuelva estrictamente un float nativo y se muestre en formato venezolano en las métricas
         tot_debe = float(df_editado['debe'].sum())
         tot_haber = float(df_editado['haber'].sum())
         
@@ -8368,7 +8402,6 @@ def renderizar_tab_asientos_ventas(db_connection):
 
         if st.button("💾 Guardar Asientos de Ventas en el Libro Diario", key="btn_guardar_ventas_finales", use_container_width=False):
             try:
-                # --- VALIDACIÓN DE PERÍODO CERRADO DIRECTAMENTE EN MYSQL ---
                 df_val = df_editado.copy()
                 df_val['fecha'] = pd.to_datetime(df_val['fecha'], errors='coerce')
                 anios_meses_excel = set((row['fecha'].year, row['fecha'].month) for _, row in df_val.iterrows() if pd.notnull(row['fecha']))
@@ -8379,7 +8412,6 @@ def renderizar_tab_asientos_ventas(db_connection):
                 for anio, mes in anios_meses_excel:
                     try:
                         with db_connection.cursor() as cur_check:
-                            # Consulta estricta a MySQL para verificar si el período está cerrado/bloqueado
                             cur_check.execute(f"""
                                 SELECT COUNT(*) FROM `{db_segura}`.asientos_contables 
                                 WHERE YEAR(fecha) = %s AND MONTH(fecha) = %s AND bloqueado = 1
@@ -8388,18 +8420,15 @@ def renderizar_tab_asientos_ventas(db_connection):
                             
                             if res_bloqueo and res_bloqueo[0] > 0:
                                 bloqueo_detectado = True
-                                mensaje_bloqueo = f"❌ **Operación Denegada**: El período correspondiente al mes **{mes:02d}/{anio}** se encuentra **CERRADO y BLOQUEADO** en la base de datos. No se pueden registrar asientos en un período cerrado."
+                                mensaje_bloqueo = f"❌ **Operación Denegada**: El período correspondiente al mes **{mes:02d}/{anio}** se encuentra **CERRADO y BLOQUEADO** en la base de datos."
                                 break
                     except Exception:
-                        # Si la columna o tabla aún no maneja bloqueos, permite continuar o lo maneja la estructura
                         pass
 
                 if bloqueo_detectado:
                     st.error(mensaje_bloqueo)
                 else:
-                    # --- PASO DE INSERCIÓN CON DEPURACIÓN EXPLÍCITA ---
                     with db_connection.cursor() as cursor:
-                        # 1. Asegurar la tabla con su campo de bloqueo incorporado
                         cursor.execute(f"""
                             CREATE TABLE IF NOT EXISTS `{db_segura}`.asientos_contables (
                                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -8418,8 +8447,6 @@ def renderizar_tab_asientos_ventas(db_connection):
                         registros_insertados = 0
                         for _, row in df_editado.iterrows():
                             codigo_limpio = extraer_solo_codigo(row["plan_cuentas"])
-                            
-                            # Formatear correctamente la fecha para MySQL (YYYY-MM-DD)
                             fecha_str = str(row["fecha"]).split(" ")[0] if pd.notnull(row["fecha"]) else None
                             
                             cursor.execute(f"""
