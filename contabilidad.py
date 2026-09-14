@@ -6780,6 +6780,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
                 df_a_procesar = st.session_state['df_asientos_proceso'].copy()
                 
                 # --- FUNCIÓN PARA LIMPIAR Y CONVERTIR MONTOS ---
+                # 1. Definir la función de limpieza de montos si no la tienes
                 def limpiar_monto(val):
                     if pd.isna(val):
                         return 0.0
@@ -6787,12 +6788,9 @@ def renderizar_tab_asientos_automatizados(db_connection):
                         return float(val)
                     
                     val_str = str(val).replace('$', '').strip()
-                    # Si tiene tanto punto como coma (ej: "335.891,00")
                     if ',' in val_str and '.' in val_str:
-                        # Asume que el punto es miles y la coma es decimal
                         val_str = val_str.replace('.', '').replace(',', '.')
                     elif ',' in val_str:
-                        # Si solo tiene coma, la asumimos como decimal
                         val_str = val_str.replace(',', '.')
                     
                     try:
@@ -6800,11 +6798,11 @@ def renderizar_tab_asientos_automatizados(db_connection):
                     except ValueError:
                         return 0.0
 
-                # Aplicar la limpieza a las columnas 'debe' y 'haber' antes de procesar o mostrar
+                # 2. Forzar que las columnas sean numéricas puras antes de hacer nada
                 if 'debe' in df_a_procesar.columns:
-                    df_a_procesar['debe'] = df_a_procesar['debe'].apply(limpiar_monto)
+                    df_a_procesar['debe'] = df_a_procesar['debe'].apply(limpiar_monto).astype(float)
                 if 'haber' in df_a_procesar.columns:
-                    df_a_procesar['haber'] = df_a_procesar['haber'].apply(limpiar_monto)
+                    df_a_procesar['haber'] = df_a_procesar['haber'].apply(limpiar_monto).astype(float)
 
                 st.markdown(f"### 📋 Segundo Frame: Estructura Completa del Asiento Contable ({len(df_a_procesar)} registros)")
                 
@@ -6838,8 +6836,8 @@ def renderizar_tab_asientos_automatizados(db_connection):
                         ),
                         "cuenta_contable": st.column_config.TextColumn("Descripción Cuenta", disabled=True),
                         "referencia": st.column_config.TextColumn("Referencia"),
-                        "debe": st.column_config.NumberColumn("Debe", format="%,.2f"),
-                        "haber": st.column_config.NumberColumn("Haber", format="%,.2f"),
+                        "debe": st.column_config.NumberColumn("Debe", format="%.2f"),
+                        "haber": st.column_config.NumberColumn("Haber", format="%.2f"),
                     },
                     key="editor_segundo_frame"
                 )
