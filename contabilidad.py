@@ -10898,8 +10898,19 @@ elif opcion_menu == "📝 Asientos Contables":
                     st.markdown("---")
                     st.markdown("### 👁️ Vista previa del archivo completo")
                     try:
-                        # Leemos todo el archivo Excel
-                        df_preview = pd.read_excel(archivo_banco)
+                        # 1. Detectar automáticamente la fila de cabecera real ignorando metadatos superiores
+                        df_raw = pd.read_excel(archivo_banco, header=None)
+                        fila_cabecera = 0
+                        for i, row in df_raw.head(10).iterrows():
+                            row_str = " ".join([str(val).lower() for val in row.values])
+                            if any(k in row_str for k in ['referencia', 'fecha', 'descripcion', 'débito', 'debito', 'saldo']):
+                                fila_cabecera = i
+                                break
+
+                        # 2. Leer el Excel usando la fila correcta como encabezado
+                        df_preview = pd.read_excel(archivo_banco, header=fila_cabecera)
+                        df_preview = df_preview.dropna(how='all').reset_index(drop=True)
+                        
                         st.info(f"📊 Total de filas detectadas en el archivo: **{len(df_preview)}**")
                         
                         # Creamos una copia para formatear visualmente sin afectar la lectura original
@@ -10955,6 +10966,8 @@ elif opcion_menu == "📝 Asientos Contables":
 
                                 resultado = False
                                 
+                                # NOTA: Si tus funciones internas leen el excel directo, te sugeriría pasarles también la fila de cabecera detectada 
+                                # o asegurarte de que tus funciones `cargar_estado_cuenta_*` utilicen este mismo barrido si también sufren del mismo desfase.
                                 if banco_sel == "Banco de Venezuela (BDV)":
                                     resultado = cargar_estado_cuenta_bdv(archivo_banco, conn)
                                 elif banco_sel == "Banesco":
