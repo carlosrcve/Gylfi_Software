@@ -6549,36 +6549,37 @@ def renderizar_tab_asientos_automatizados(db_connection):
         return fallback
 
     # ----------------------------------------------------
-    # PRIMER FRAME: CARGA Y VISTA PREVIA DEL EXCEL
+    # PRIMER FRAME: VISTA PREVIA DEL EXCEL (CON FORMATO NUMÉRICO)
     # ----------------------------------------------------
     st.markdown("---")
-    st.markdown("### 📋 Primer Frame: Libro de Compras Subido")
-    
-    if es_king_driver:
-        st.success("🚗 **Modo King Driver Detectado:** El sistema aplicará automáticamente el IVA al costo utilizando la cuenta `5.1.1.01.002`.")
-    else:
-        st.info("🏢 **Modo Empresa Regular:** El sistema aplicará Crédito Fiscal estándar.")
+    st.markdown("### 📋 Primer Frame: Libro de Ventas Subido")
 
-    archivo_excel = st.file_uploader("Subir Libro de Compras (Excel)", type=["xlsx", "xls"], key="uploader_libro_compras")
+    archivo_excel = st.file_uploader("Subir Libro de Ventas (Excel)", type=["xlsx", "xls"], key="uploader_libro_ventas")
 
     if archivo_excel is not None:
         try:
-            df_compras = pd.read_excel(archivo_excel)
-            df_compras.columns = df_compras.columns.str.strip()
+            df_ventas = pd.read_excel(archivo_excel)
+            df_ventas.columns = df_ventas.columns.str.strip()
             
-            # Intentar estandarizar la columna de fecha en el DataFrame si existe para asegurar el formato
-            for col in df_compras.columns:
-                if "fecha" in str(col).strip().lower():
-                    df_compras[col] = pd.to_datetime(df_compras[col], errors='coerce').dt.date
-            
-            # Vista previa del DataFrame con formato de fecha configurado
+            # Detectar automáticamente qué columnas son de dinero/montos para darles formato numérico en la vista previa
+            configuracion_columnas_dataframe = {}
+            for col in df_ventas.columns:
+                c_lower = str(col).lower()
+                if any(term in c_lower for term in ["venta", "base", "debito", "credito", "total", "iva", "monto", "impuesto"]):
+                    # Forzar la columna a numérico de forma interna para que el dataframe la pinte bien
+                    df_ventas[col] = pd.to_numeric(df_ventas[col].astype(str).str.replace(",", "", regex=True), errors="coerce").fillna(0.0)
+                    
+                    configuracion_columnas_dataframe[col] = st.column_config.NumberColumn(
+                        col,
+                        format="%.2f",
+                        step=0.01
+                    )
+
+            # Pintar el dataframe aplicando el formato numérico a las columnas de dinero
             st.dataframe(
-                df_compras, 
+                df_ventas, 
                 use_container_width=True,
-                column_config={
-                    col: st.column_config.DateColumn(col, format="YYYY-MM-DD")
-                    for col in df_compras.columns if "fecha" in str(col).strip().lower()
-                }
+                column_config=configuracion_columnas_dataframe
             )
 
             st.markdown("---")
