@@ -6916,25 +6916,26 @@ def renderizar_tab_asientos_automatizados(db_connection):
 
 
 def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
-    """
-    Tercer Frame: Conciliación automatizada cruzando por RIF, utilizando exclusivamente el Banco Global.
-    """
-    st.markdown("---")
-    st.markdown("### 🏦 Tercer Frame: Conciliación y Cruce por RIF")
-    
-    if not db_segura or db_segura == 'none':
-        db_segura = st.session_state.get('DB_ACTUAL')
-        
-    if not db_segura or db_segura == 'none':
-        st.error("❌ No hay ninguna base de datos de empresa seleccionada correctamente en la sesión.")
-        return
+  """Tercer Frame: Conciliación automatizada cruzando por RIF, utilizando exclusivamente el Banco Global."""
+  st.markdown("---")
+  st.markdown("### 🏦 Tercer Frame: Conciliación y Cruce por RIF")
 
-    # 1. Asegurar la tabla banco_movimientos
-    if db_connection:
-        try:
-            with db_connection.cursor() as cursor_tabla:
-                cursor_tabla.execute(f"USE `{db_segura}`;")
-                cursor_tabla.execute("""
+  if not db_segura or db_segura == "none":
+    db_segura = st.session_state.get("DB_ACTUAL")
+
+  if not db_segura or db_segura == "none":
+    st.error(
+        "❌ No hay ninguna base de datos de empresa seleccionada correctamente"
+        " en la sesión."
+    )
+    return
+
+  # 1. Asegurar la tabla banco_movimientos
+  if db_connection:
+    try:
+      with db_connection.cursor() as cursor_tabla:
+        cursor_tabla.execute(f"USE `{db_segura}`;")
+        cursor_tabla.execute("""
                     CREATE TABLE IF NOT EXISTS banco_movimientos (
                         id INT AUTO_INCREMENT PRIMARY KEY,
                         banco_nombre VARCHAR(50) NOT NULL,
@@ -6948,287 +6949,520 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
                         fecha_importacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     );
                 """)
-            db_connection.commit()
-        except Exception as err_tabla:
-            st.warning(f"⚠️ Nota de tabla banco: {err_tabla}")
+      db_connection.commit()
+    except Exception as err_tabla:
+      st.warning(f"⚠️ Nota de tabla banco: {err_tabla}")
 
-    # Cargar Plan de Cuentas completo y filtrar posibles cuentas de Bancos / Caja
-    dict_cuentas_codigo = {}
-    dict_codigo_cuenta = {}
-    lista_cuentas_bancos_opciones = []
-    
+  # Cargar Plan de Cuentas completo y filtrar posibles cuentas de Bancos / Caja
+  dict_cuentas_codigo = {}
+  dict_codigo_cuenta = {}
+  lista_cuentas_bancos_opciones = []
+  cuenta_pasivo_default_codigo = "2.1.1.01.001"
+  cuenta_pasivo_default_nombre = "Proveedores Nacionales"
+
+  try:
+    with db_connection.cursor() as cursor_pc:
+      cursor_pc.execute(f"SELECT codigo, nombre FROM `{db_segura}`.plan_cuentas;")
+      for cod, nom in cursor_pc.fetchall():
+        cod_str = str(cod).strip()
+        nom_str = str(nom).strip()
+        dict_cuentas_codigo[nom_str.upper()] = cod_str
+        dict_codigo_cuenta[cod_str] = nom_str
+
+        # Heurística para detectar cuentas de bancos/efectivo
+        nom_upper = nom_str.upper()
+        if (
+            cod_str.startswith("1.1.1")
+            or "BANCO" in nom_upper
+            or "BDV" in nom_upper
+            or "CAJA" in nom_upper
+        ):
+          lista_cuentas_bancos_opciones.append(f"{cod_str} - {nom_str}")
+
+        # Detectar pasivo por defecto
+        if cod_str.startswith("2.1.1") and "PROVEEDOR" in nom_upper:
+          cuenta_pasivo_default_codigo = cod_str
+          cuenta_pasivo_default_nombre = nom_str
+  except Exception:
+    pass
+
+  if not lista_cuentas_bancos_opciones:
+    lista_cuentas_bancos_opciones = [
+        f"{c} - {n}" for c, n in dict_codigo_cuenta.items()
+    ]
+
+  # Cargar movimientos bancarios pendientes
+  df_movs_bd = pd.DataFrame()
+  if db_connection:
     try:
-        with db_connection.cursor() as cursor_pc:
-            cursor_pc.execute(f"SELECT codigo, nombre FROM `{db_segura}`.plan_cuentas;")
-            for cod, nom in cursor_pc.fetchall():
-                cod_str = str(cod).strip()
-                nom_str = str(nom).strip()
-                dict_cuentas_codigo[nom_str.upper()] = cod_str
-                dict_codigo_cuenta[cod_str] = nom_str
-                
-                # Heurística para detectar cuentas de bancos/efectivo (ej. empiezan por 1.1.1 o contienen BANCO/CAJA)
-                nom_upper = nom_str.upper()
-                if cod_str.startswith("1.1.1") or "BANCO" in nom_upper or "BDV" in nom_upper or "CAJA" in nom_upper:
-                    lista_cuentas_bancos_opciones.append(f"{cod_str} - {nom_str}")
-    except Exception:
-        pass
-
-    # Si no encontró ninguna por filtro estricto, cargamos todo el plan de cuentas como respaldo
-    if not lista_cuentas_bancos_opciones:
-        lista_cuentas_bancos_opciones = [f"{c} - {n}" for c, n in dict_codigo_cuenta.items()]
-
-    # Cargar movimientos bancarios pendientes
-    df_movs_bd = pd.DataFrame()
-    if db_connection:
-        try:
-            query_movs = f"""
+      query_movs = f"""
                 SELECT id, banco_nombre, cuenta_numero, fecha_movimiento, referencia, descripcion, monto, estado_conciliacion 
                 FROM `{db_segura}`.banco_movimientos 
                 WHERE estado_conciliacion IN ('Pendiente', 'Pendiente Clasificación Manual') 
                 ORDER BY fecha_movimiento DESC;
             """
-            df_movs_bd = pd.read_sql(query_movs, db_connection)
-        except Exception as e_load:
-            st.error(f"Error al cargar movimientos bancarios: {e_load}")
+      df_movs_bd = pd.read_sql(query_movs, db_connection)
+    except Exception as e_load:
+      st.error(f"Error al cargar movimientos bancarios: {e_load}")
 
-    col_acc1, _ = st.columns([1, 3])
-    with col_acc1:
-        btn_escanear = st.button("🔍 Analizar y Cruzar Asientos", type="primary", key="btn_escanear_matches")
+  col_acc1, _ = st.columns([1, 3])
+  with col_acc1:
+    btn_escanear = st.button(
+        "🔍 Analizar y Cruzar Asientos",
+        type="primary",
+        key="btn_escanear_matches",
+    )
 
-    if "matches_propuestos" not in st.session_state:
-        st.session_state.matches_propuestos = []
+  if "matches_propuestos" not in st.session_state:
+    st.session_state.matches_propuestos = []
 
-    if btn_escanear:
-        propuestas = []
-        
-        lista_asientos = []
-        try:
-            with db_connection.cursor(pymysql.cursors.DictCursor) as cursor_diag:
-                cursor_diag.execute(f"SELECT id, n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber FROM `{db_segura}`.asientos_contables")
-                lista_asientos = cursor_diag.fetchall()
-        except Exception as e_asientos:
-            st.error(f"Error al cargar la tabla `asientos_contables`: {e_asientos}")
+  if btn_escanear:
+    propuestas = []
+    lista_asientos = []
+    try:
+      with db_connection.cursor(pymysql.cursors.DictCursor) as cursor_diag:
+        cursor_diag.execute(f"""
+                    SELECT id, n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber 
+                    FROM `{db_segura}`.asientos_contables
+                """)
+        lista_asientos = cursor_diag.fetchall()
+    except Exception as e_asientos:
+      st.error(f"Error al cargar la tabla `asientos_contables`: {e_asientos}")
 
-        try:
-            for _, row in df_movs_bd.iterrows():
-                mov_id = row["id"]
-                banco_nombre = row["banco_nombre"]
-                descripcion_banco = str(row["descripcion"] or "").strip().upper()
-                monto_mov = abs(float(row["monto"] or 0.0))
-                fecha_mov = row["fecha_movimiento"]
-                ref_mov = str(row["referencia"] or "").strip()
+    try:
+      for _, row in df_movs_bd.iterrows():
+        mov_id = row["id"]
+        banco_nombre = row["banco_nombre"]
+        descripcion_banco = str(row["descripcion"] or "").strip().upper()
+        monto_mov = abs(float(row["monto"] or 0.0))
+        fecha_mov = row["fecha_movimiento"]
+        ref_mov = str(row["referencia"] or "").strip()
 
-                match_rif_banco = re.search(r'([VEJGP])\s*[-]?\s*(\d{6,10})', descripcion_banco, re.IGNORECASE)
-                if not match_rif_banco:
-                    continue
-                
-                rif_banco_limpio = f"{match_rif_banco.group(1).upper()}{match_rif_banco.group(2)}"
+        # Extraer RIF del movimiento bancario (ej: J-12345678-9 o J123456789)
+        match_rif_banco = re.search(
+            r"([VEJGP])\s*[-]?\s*(\d{6,10})", descripcion_banco, re.IGNORECASE
+        )
+        if not match_rif_banco:
+          continue
 
-                asiento_referencia = None
-                proveedor_nombre_encontrado = ""
+        rif_banco_limpio = (
+            f"{match_rif_banco.group(1).upper()}{match_rif_banco.group(2)}"
+        )
 
-                if lista_asientos:
-                    for ast in lista_asientos:
-                        desc_ast = str(ast.get("descripcion", "")).upper()
-                        match_rif_ast = re.search(r'([VEJGP])\s*[-]?\s*(\d{6,10})', desc_ast, re.IGNORECASE)
-                        
-                        if match_rif_ast:
-                            rif_ast_limpio = f"{match_rif_ast.group(1).upper()}{match_rif_ast.group(2)}"
-                            
-                            if rif_banco_limpio == rif_ast_limpio:
-                                asiento_referencia = ast
-                                proveedor_nombre_encontrado = desc_ast
-                                break
+        asiento_referencia = None
+        proveedor_nombre_encontrado = ""
 
-                if asiento_referencia:
-                    cuenta_orig_nombre = asiento_referencia.get("cuenta_contable", "Proveedores Nacionales")
-                    codigo_orig = asiento_referencia.get("plan_cuentas") or dict_cuentas_codigo.get(str(cuenta_orig_nombre).strip().upper(), "2.1.1.01.001")
-                    
-                    propuestas.append({
-                        "mov_id": mov_id,
-                        "banco": banco_nombre,
-                        "descripcion_banco": descripcion_banco,
-                        "referencia_banco": ref_mov,
-                        "rif_detectado": rif_banco_limpio,
-                        "monto": monto_mov,
-                        "fecha_movimiento": fecha_mov,
-                        "asiento_origen_id": asiento_referencia.get("id"),
-                        "n_comprobante_origen": asiento_referencia.get("n_comprobante"),
-                        "proveedor_nombre": proveedor_nombre_encontrado,
-                        "cuenta_destino": cuenta_orig_nombre,
-                        "codigo_destino": codigo_orig
-                    })
+        if lista_asientos:
+          for ast in lista_asientos:
+            desc_ast = str(ast.get("descripcion", "")).upper()
+            cta_contable_ast = str(ast.get("cuenta_contable", "")).upper()
+            ref_ast = str(ast.get("referencia", "")).upper()
 
-            st.session_state.matches_propuestos = propuestas
-            if propuestas:
-                st.success(f"🎯 ¡Se han cruzado exitosamente {len(propuestas)} movimiento(s) por coincidencia exacta de RIF!")
-            else:
-                st.warning("⚠️ No se encontró coincidencia de RIF entre los movimientos listados y la contabilidad.")
-        except Exception as e_scan:
-            st.error(f"Error en el análisis de cruce: {e_scan}")
-
-    # 2. SECCIÓN INTERACTIVA: Mostrar cada match con su fecha individual y aplicación del Banco Global único
-    if st.session_state.get("matches_propuestos"):
-        st.markdown("---")
-        st.markdown("#### ⚡ Coincidencias Detectadas y Fechas")
-        st.markdown("Configura la fecha de cada asiento. Todos los registros utilizarán automáticamente el **Banco Global** seleccionado abajo.")
-
-        # Selector Global de Banco para el Lote / Operaciones
-        if lista_cuentas_bancos_opciones:
-            banco_global_sel = st.selectbox(
-                "🌐 Seleccionar Banco Global para el Lote de Pagos (Haber)", 
-                options=lista_cuentas_bancos_opciones,
-                key="select_banco_global_lote"
+            # Buscar coincidencia de RIF tanto en la descripción como en la referencia o cuenta contable del asiento
+            match_rif_ast = re.search(
+                r"([VEJGP])\s*[-]?\s*(\d{6,10})",
+                f"{desc_ast} {cta_contable_ast} {ref_ast}",
+                re.IGNORECASE,
             )
-            codigo_banco_global = banco_global_sel.split(" - ")[0].strip()
-            nombre_banco_global = " - ".join(banco_global_sel.split(" - ")[1:]).strip()
-        else:
-            codigo_banco_global = "1.1.1.02.001"
-            nombre_banco_global = "Banco Banco de Venezuela (BDV)"
 
-        st.markdown("---")
+            if match_rif_ast:
+              rif_ast_limpio = (
+                  f"{match_rif_ast.group(1).upper()}{match_rif_ast.group(2)}"
+              )
 
-        for idx, prop in enumerate(list(st.session_state.matches_propuestos)):
-            with st.container():
-                try:
-                    fecha_defecto = pd.to_datetime(prop.get('fecha_movimiento')).date()
-                except Exception:
-                    fecha_defecto = datetime.today().date()
+              if rif_banco_limpio == rif_ast_limpio:
+                asiento_referencia = ast
+                proveedor_nombre_encontrado = (
+                    ast.get("cuenta_contable")
+                    or ast.get("descripcion")
+                    or "Proveedor Encontrado"
+                )
+                break
 
-                ref_banco_mostrar = prop.get('referencia_banco', prop.get('referencia', ''))
+        if asiento_referencia:
+          # Corrección en la selección de la cuenta del DEBE (Pasivo / Proveedores)
+          # Si el asiento de referencia tiene una cuenta de costos (5.x.x) o gastos (4.x.x),
+          # la ignoramos para el pago y usamos la cuenta de pasivo correspondiente.
+          cod_debe = cuenta_pasivo_default_codigo
+          cuenta_debe = cuenta_pasivo_default_nombre
 
-                st.success(
-                    f"✅ **Match #{idx + 1} | RIF (`{prop.get('rif_detectado', 'N/D')}`)**\n\n"
-                    f"• **Detalle Contabilidad:** `{prop.get('proveedor_nombre', 'N/D')}`\n"
-                    f"• **Banco Origen Reporte:** {prop.get('banco', 'N/D')} | Monto: **Bs. {prop.get('monto', 0.0):,.2f}**\n"
-                    f"• **Referencia:** `{ref_banco_mostrar}` | **Comprobante Base:** `{prop.get('n_comprobante_origen', 'N/D')}`"
+          cta_ast_codigo = str(asiento_referencia.get("plan_cuentas", ""))
+          cta_ast_nombre = str(asiento_referencia.get("cuenta_contable", ""))
+
+          # Si el asiento encontrado es un pasivo (empieza por 2), lo respetamos; si es costo/gasto, usamos proveedores
+          if cta_ast_codigo.startswith("2"):
+            cod_debe = cta_ast_codigo
+            cuenta_debe = cta_ast_nombre
+
+          propuestas.append({
+              "mov_id": mov_id,
+              "banco": banco_nombre,
+              "descripcion_banco": descripcion_banco,
+              "referencia_banco": ref_mov,
+              "rif_detectado": rif_banco_limpio,
+              "monto": monto_mov,
+              "fecha_movimiento": fecha_mov,
+              "asiento_origen_id": asiento_referencia.get("id"),
+              "n_comprobante_origen": asiento_referencia.get("n_comprobante"),
+              "proveedor_nombre": proveedor_nombre_encontrado,
+              "cuenta_destino": cuenta_debe,
+              "codigo_destino": cod_debe,
+              "cuenta_original_detectada": cta_ast_nombre,
+              "codigo_original_detectado": cta_ast_codigo,
+          })
+
+      st.session_state.matches_propuestos = propuestas
+      if propuestas:
+        st.success(
+            f"🎯 ¡Se han cruzado exitosamente {len(propuestas)} movimiento(s)"
+            " por coincidencia exacta de RIF!"
+        )
+      else:
+        st.warning(
+            "⚠️ No se encontró coincidencia de RIF entre los movimientos"
+            " listados y la contabilidad."
+        )
+    except Exception as e_scan:
+      st.error(f"Error en el análisis de cruce: {e_scan}")
+
+  # 2. SECCIÓN INTERACTIVA Y FRAME VISUAL HTML/CSS DE DETALLES
+  if st.session_state.get("matches_propuestos"):
+    st.markdown("---")
+    st.markdown(
+        "#### 📊 Inspección de Cuentas Contables Afectadas (Matches por RIF)"
+    )
+    st.markdown(
+        "Este panel te muestra de forma detallada qué cuenta de origen tenía"
+        " el asiento analizado y qué **cuenta de Pasivo** se aplicará en el"
+        " **DEBE** para cancelar la deuda."
+    )
+
+    # FRAME VISUAL CON HTML/CSS PARA VER LOS DETALLES DE LAS CUENTAS
+    html_cards = """
+        <style>
+            .match-container {
+                display: grid;
+                grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+                gap: 15px;
+                margin-bottom: 20px;
+            }
+            .match-card {
+                background-color: #1e2530;
+                border: 1px solid #2f3b4c;
+                border-radius: 10px;
+                padding: 16px;
+                color: #f0f2f6;
+                box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+                font-family: sans-serif;
+            }
+            .match-header {
+                font-size: 14px;
+                font-weight: bold;
+                color: #3b82f6;
+                margin-bottom: 8px;
+                border-bottom: 1px solid #2f3b4c;
+                padding-bottom: 6px;
+                display: flex;
+                justify-content: space-between;
+            }
+            .match-body p {
+                margin: 4px 0;
+                font-size: 13px;
+            }
+            .badge-pasivo {
+                background-color: #065f46;
+                color: #a7f3d0;
+                padding: 2px 6px;
+                border-radius: 4px;
+                font-weight: bold;
+            }
+            .badge-costo {
+                background-color: #7f1d1d;
+                color: #fecaca;
+                padding: 2px 6px;
+                border-radius: 4px;
+                font-weight: bold;
+            }
+        </style>
+        <div class="match-container">
+        """
+
+    for idx, prop in enumerate(st.session_state.matches_propuestos):
+      codigo_orig_det = prop.get("codigo_original_detectado", "")
+      es_pasivo_directo = codigo_orig_det.startswith("2")
+      badge_class = "badge-pasivo" if es_pasivo_directo else "badge-costo"
+      tipo_txt = "Pasivo Original" if es_pasivo_directo else "Costo / Gasto (Corregido a Pasivo)"
+
+      html_cards += f"""
+            <div class="match-card">
+                <div class="match-header">
+                    <span>Match #{idx + 1} | RIF: {prop.get('rif_detectado')}</span>
+                    <span class="{badge_class}">{tipo_txt}</span>
+                </div>
+                <div class="match-body">
+                    <p><b>Monto:</b> Bs. {prop.get('monto', 0.0):,.2f}</p>
+                    <p><b>Ref Banco:</b> {prop.get('referencia_banco')}</p>
+                    <hr style="border-color: #2f3b4c; margin: 8px 0;">
+                    <p style="color: #9ca3af; font-size: 11px;"><b>CUENTA ENCONTRADA EN FACTURA:</b></p>
+                    <p><code>{prop.get('codigo_original_detectado')}</code> - {prop.get('cuenta_original_detectada')}</p>
+                    <p style="color: #9ca3af; font-size: 11px; margin-top: 6px;"><b>CUENTA DE PAGO APLICADA (DEBE - PASIVO):</b></p>
+                    <p style="color: #34d399;"><b><code>{prop.get('codigo_destino')}</code> - {prop.get('cuenta_destino')}</b></p>
+                </div>
+            </div>
+            """
+
+    html_cards += "</div>"
+    st.markdown(html_cards, unsafe_allow_html=True)
+
+    st.markdown("---")
+    st.markdown("#### ⚡ Configuración y Ejecución de Pagos")
+
+    if lista_cuentas_bancos_opciones:
+      banco_global_sel = st.selectbox(
+          "🌐 Seleccionar Banco Global para el Lote de Pagos (Haber)",
+          options=lista_cuentas_bancos_opciones,
+          key="select_banco_global_lote",
+      )
+      codigo_banco_global = banco_global_sel.split(" - ")[0].strip()
+      nombre_banco_global = " - ".join(
+          banco_global_sel.split(" - ")[1:]
+      ).strip()
+    else:
+      codigo_banco_global = "1.1.1.02.001"
+      nombre_banco_global = "Banco de Venezuela (BDV)"
+
+    st.markdown("---")
+
+    for idx, prop in enumerate(list(st.session_state.matches_propuestos)):
+      with st.container():
+        try:
+          fecha_defecto = pd.to_datetime(prop.get("fecha_movimiento")).date()
+        except Exception:
+          fecha_defecto = datetime.today().date()
+
+        ref_banco_mostrar = prop.get(
+            "referencia_banco", prop.get("referencia", "")
+        )
+
+        st.success(
+            f"✅ **Match #{idx + 1} | RIF (`{prop.get('rif_detectado', 'N/D')}`)"
+            f"**\n\n• **Pasivo / Proveedor a Descargar (Debe):**"
+            f" `{prop.get('cuenta_destino', 'N/D')}` (`{prop.get('codigo_destino', 'N/D')}`)\n•"
+            f" **Banco Origen Reporte:** {prop.get('banco', 'N/D')} | Monto:"
+            f" **Bs. {prop.get('monto', 0.0):,.2f}**\n• **Referencia:**"
+            f" `{ref_banco_mostrar}`"
+        )
+
+        col_date, col_btn = st.columns([3, 2])
+        key_fecha = f"fecha_manual_{prop['mov_id']}_{idx}"
+
+        with col_date:
+          fecha_asiento_manual = st.date_input(
+              "📅 Fecha del Asiento", value=fecha_defecto, key=key_fecha
+          )
+
+        with col_btn:
+          st.write("")
+          st.write("")
+          if st.button(
+              "🚀 Generar Este Asiento",
+              key=f"btn_generar_pago_{prop['mov_id']}_{idx}",
+              type="primary",
+          ):
+            try:
+              fecha_str_manual = fecha_asiento_manual.strftime("%Y-%m-%d")
+              with db_connection.cursor() as cursor_pago:
+                cursor_pago.execute(f"""
+                                SELECT MAX(CAST(SUBSTRING_INDEX(n_comprobante, '-', -1) AS UNSIGNED)) as max_n 
+                                FROM `{db_segura}`.asientos_contables
+                            """)
+                res_max = cursor_pago.fetchone()
+                siguiente_num = (
+                    (res_max[0] or 1000) + 1
+                    if res_max and res_max[0]
+                    else 90001
+                )
+                n_comp_pago = f"PAGO-{siguiente_num}"
+
+                desc_pago = (
+                    f"Pago de Factura | Ref Banco:"
+                    f" {prop['descripcion_banco']}"
                 )
 
-                # Columnas ajustadas: solo fecha y botón de acción individual
-                col_date, col_btn = st.columns([3, 2])
-                key_fecha = f"fecha_manual_{prop['mov_id']}_{idx}"
-                
-                with col_date:
-                    fecha_asiento_manual = st.date_input(
-                        "📅 Fecha del Asiento", 
-                        value=fecha_defecto, 
-                        key=key_fecha
-                    )
-                
-                with col_btn:
-                    st.write("") # Espaciador visual
-                    st.write("") 
-                    if st.button(f"🚀 Generar Este Asiento", key=f"btn_generar_pago_{prop['mov_id']}_{idx}", type="primary"):
-                        try:
-                            fecha_str_manual = fecha_asiento_manual.strftime('%Y-%m-%d')
-                            with db_connection.cursor() as cursor_pago:
-                                cursor_pago.execute(f"SELECT MAX(CAST(SUBSTRING_INDEX(n_comprobante, '-', -1) AS UNSIGNED)) as max_n FROM `{db_segura}`.asientos_contables")
-                                res_max = cursor_pago.fetchone()
-                                siguiente_num = (res_max[0] or 1000) + 1 if res_max and res_max[0] else 90001
-                                n_comp_pago = f"PAGO-{siguiente_num}"
-                                
-                                desc_pago = f"Pago de Factura | Ref Banco: {prop['descripcion_banco']}"
-                                
-                                # DEBE: Proveedor
-                                cod_debe = prop.get('codigo_destino', "2.1.1.01.001")
-                                cuenta_debe = prop.get('cuenta_destino', "Proveedores Nacionales")
+                cod_debe = prop.get("codigo_destino", "2.1.1.01.001")
+                cuenta_debe = prop.get("cuenta_destino", "Proveedores Nacionales")
 
-                                # HABER: Usando exclusivamente el Banco Global seleccionado
-                                cod_haber = codigo_banco_global
-                                cuenta_haber = nombre_banco_global
+                cod_haber = codigo_banco_global
+                cuenta_haber = nombre_banco_global
 
-                                ref_banco = prop.get('referencia_banco', prop.get('referencia', ''))
+                ref_banco = prop.get(
+                    "referencia_banco", prop.get("referencia", "")
+                )
 
-                                # 1. Proveedor (DEBE)
-                                cursor_pago.execute(f"""
+                # 1. Proveedor / Pasivo (DEBE)
+                cursor_pago.execute(
+                    f"""
                                     INSERT INTO `{db_segura}`.asientos_contables 
                                     (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber)
                                     VALUES (%s, %s, %s, %s, %s, %s, %s, 0.00)
-                                """, (n_comp_pago, desc_pago, fecha_str_manual, cod_debe, cuenta_debe, ref_banco, prop['monto']))
+                                """,
+                    (
+                        n_comp_pago,
+                        desc_pago,
+                        fecha_str_manual,
+                        cod_debe,
+                        cuenta_debe,
+                        ref_banco,
+                        prop["monto"],
+                    ),
+                )
 
-                                # 2. Banco Global (HABER)
-                                cursor_pago.execute(f"""
+                # 2. Banco Global (HABER)
+                cursor_pago.execute(
+                    f"""
                                     INSERT INTO `{db_segura}`.asientos_contables 
                                     (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber)
                                     VALUES (%s, %s, %s, %s, %s, %s, 0.00, %s)
-                                """, (n_comp_pago, desc_pago, fecha_str_manual, cod_haber, cuenta_haber, ref_banco, prop['monto']))
+                                """,
+                    (
+                        n_comp_pago,
+                        desc_pago,
+                        fecha_str_manual,
+                        cod_haber,
+                        cuenta_haber,
+                        ref_banco,
+                        prop["monto"],
+                    ),
+                )
 
-                                cursor_pago.execute(f"""
+                cursor_pago.execute(
+                    f"""
                                     UPDATE `{db_segura}`.banco_movimientos 
                                     SET estado_conciliacion = 'Conciliado y Pagado', asiento_id = %s 
                                     WHERE id = %s
-                                """, (cursor_pago.lastrowid, prop['mov_id']))
+                                """,
+                    (cursor_pago.lastrowid, prop["mov_id"]),
+                )
 
-                                db_connection.commit()
-                                st.success(f"🎉 ¡Asiento generado con éxito (Comprobante: `{n_comp_pago}` - Banco Global: {cuenta_haber})!")
-                                st.session_state.matches_propuestos.pop(idx)
-                                st.rerun()
+                db_connection.commit()
+                st.success(
+                    "🎉 ¡Asiento generado contra el Pasivo con éxito!"
+                    f" (Comprobante: `{n_comp_pago}`)"
+                )
+                st.session_state.matches_propuestos.pop(idx)
+                st.rerun()
 
-                        except Exception as e_pago:
-                            db_connection.rollback()
-                            st.error(f"❌ Error al registrar el asiento de pago: {e_pago}")
-                st.markdown("---")
+            except Exception as e_pago:
+              db_connection.rollback()
+              st.error(f"❌ Error al registrar el asiento de pago: {e_pago}")
+      st.markdown("---")
 
-        # Botón general para procesar en lote usando el Banco Global
-        if st.button("🚀 Registrar Todos en Lote (Usando Banco Global)", type="primary", key="btn_registrar_todos_matches"):
-            try:
-                procesados_total = 0
-                with db_connection.cursor() as cursor_pago_lote:
-                    for idx, prop in enumerate(list(st.session_state.matches_propuestos)):
-                        key_fecha = f"fecha_manual_{prop['mov_id']}_{idx}"
+    if st.button(
+        "🚀 Registrar Todos en Lote (Contra Pasivo y Banco Global)",
+        type="primary",
+        key="btn_registrar_todos_matches",
+    ):
+      try:
+        procesados_total = 0
+        with db_connection.cursor() as cursor_pago_lote:
+          for idx, prop in enumerate(list(st.session_state.matches_propuestos)):
+            key_fecha = f"fecha_manual_{prop['mov_id']}_{idx}"
 
-                        fecha_seleccionada = st.session_state.get(key_fecha, pd.to_datetime(prop.get('fecha_movimiento')).date())
-                        fecha_str_lote = fecha_seleccionada.strftime('%Y-%m-%d')
+            fecha_seleccionada = st.session_state.get(
+                key_fecha,
+                pd.to_datetime(prop.get("fecha_movimiento")).date(),
+            )
+            fecha_str_lote = fecha_seleccionada.strftime("%Y-%m-%d")
 
-                        # Aplicando Banco Global para todos en lote
-                        cod_haber_lote = codigo_banco_global
-                        cuenta_haber_lote = nombre_banco_global
+            cod_haber_lote = codigo_banco_global
+            cuenta_haber_lote = nombre_banco_global
 
-                        cursor_pago_lote.execute(f"SELECT MAX(CAST(SUBSTRING_INDEX(n_comprobante, '-', -1) AS UNSIGNED)) as max_n FROM `{db_segura}`.asientos_contables")
-                        res_max = cursor_pago_lote.fetchone()
-                        siguiente_num = (res_max[0] or 1000) + 1 if res_max and res_max[0] else 90001
-                        n_comp_pago = f"PAGO-{siguiente_num}"
-                        
-                        desc_pago = f"Pago de Factura | Ref Banco: {prop['descripcion_banco']}"
-                        
-                        cod_debe = prop.get('codigo_destino', "2.1.1.01.001")
-                        cuenta_debe = prop.get('cuenta_destino', "Proveedores Nacionales")
-                        ref_banco = prop.get('referencia_banco', prop.get('referencia', ''))
+            cursor_pago_lote.execute(f"""
+                            SELECT MAX(CAST(SUBSTRING_INDEX(n_comprobante, '-', -1) AS UNSIGNED)) as max_n 
+                            FROM `{db_segura}`.asientos_contables
+                        """)
+            res_max = cursor_pago_lote.fetchone()
+            siguiente_num = (
+                (res_max[0] or 1000) + 1 if res_max and res_max[0] else 90001
+            )
+            n_comp_pago = f"PAGO-{siguiente_num}"
 
-                        # 1. Pasivo / Proveedor (DEBE)
-                        cursor_pago_lote.execute(f"""
-                            INSERT INTO `{db_segura}`.asientos_contables 
-                            (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber)
-                            VALUES (%s, %s, %s, %s, %s, %s, %s, 0.00)
-                        """, (n_comp_pago, desc_pago, fecha_str_lote, cod_debe, cuenta_debe, ref_banco, prop['monto']))
+            desc_pago = (
+                f"Pago de Factura | Ref Banco: {prop['descripcion_banco']}"
+            )
 
-                        # 2. Banco Global de contrapartida (HABER)
-                        cursor_pago_lote.execute(f"""
-                            INSERT INTO `{db_segura}`.asientos_contables 
-                            (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber)
-                            VALUES (%s, %s, %s, %s, %s, %s, 0.00, %s)
-                        """, (n_comp_pago, desc_pago, fecha_str_lote, cod_haber_lote, cuenta_haber_lote, ref_banco, prop['monto']))
+            cod_debe = prop.get("codigo_destino", "2.1.1.01.001")
+            cuenta_debe = prop.get("cuenta_destino", "Proveedores Nacionales")
+            ref_banco = prop.get("referencia_banco", prop.get("referencia", ""))
 
-                        cursor_pago_lote.execute(f"""
+            # 1. Pasivo (DEBE)
+            cursor_pago_lote.execute(
+                f"""
+                                INSERT INTO `{db_segura}`.asientos_contables 
+                                (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber)
+                                VALUES (%s, %s, %s, %s, %s, %s, %s, 0.00)
+                            """,
+                (
+                    n_comp_pago,
+                    desc_pago,
+                    fecha_str_lote,
+                    cod_debe,
+                    cuenta_debe,
+                    ref_banco,
+                    prop["monto"],
+                ),
+            )
+
+            # 2. Banco (HABER)
+            cursor_pago_lote.execute(
+                f"""
+                                INSERT INTO `{db_segura}`.asientos_contables 
+                                (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber)
+                                VALUES (%s, %s, %s, %s, %s, %s, 0.00, %s)
+                            """,
+                (
+                    n_comp_pago,
+                    desc_pago,
+                    fecha_str_lote,
+                    cod_haber_lote,
+                    cuenta_haber_lote,
+                    ref_banco,
+                    prop["monto"],
+                ),
+            )
+
+            cursor_pago_lote.execute(
+                f"""
                             UPDATE `{db_segura}`.banco_movimientos 
                             SET estado_conciliacion = 'Conciliado y Pagado', asiento_id = %s 
                             WHERE id = %s
-                        """, (cursor_pago_lote.lastrowid, prop['mov_id']))
+                        """,
+                (cursor_pago_lote.lastrowid, prop["mov_id"]),
+            )
 
-                        procesados_total += 1
+            procesados_total += 1
 
-                db_connection.commit()
-                st.session_state.matches_propuestos = []
-                st.success(f"🎉 ¡Se han registrado exitosamente los **{procesados_total}** asientos en lote utilizando el Banco Global!")
-                st.rerun()
+        db_connection.commit()
+        st.session_state.matches_propuestos = []
+        st.success(
+            "🎉 ¡Se han registrado exitosamente los"
+            f" **{procesados_total}** asientos en lote contra el Pasivo y el"
+            " Banco Global!"
+        )
+        st.rerun()
 
-            except Exception as e_lote_pago:
-                db_connection.rollback()
-                st.error(f"❌ Error crítico al registrar los pagos en lote: {e_lote_pago}")
-    else:
-        if not btn_escanear:
-            st.caption("💡 Haz clic en el botón superior para realizar el escaneo y cruce automático por RIF.")
-
+      except Exception as e_lote_pago:
+        db_connection.rollback()
+        st.error(
+            "❌ Error crítico al registrar los pagos en lote:"
+            f" {e_lote_pago}"
+        )
+  else:
+    if not btn_escanear:
+      st.caption(
+          "💡 Haz clic en el botón superior para realizar el escaneo y cruce"
+          " automático por RIF."
+      )
 
 def conciliacion_de_gastos_y_comisiones(db_connection, db_segura):
     """
