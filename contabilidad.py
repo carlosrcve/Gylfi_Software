@@ -7968,6 +7968,13 @@ def renderizar_tab_asientos_ventas(db_connection):
                 df[col] = df[col].apply(parsear_valor_latino)
         return df
 
+    # Función auxiliar para formato venezolano de montos
+    def formato_venezolano(val):
+        try:
+            return f"{float(val):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+        except:
+            return "0,00"
+
     # ----------------------------------------------------
     # CARGA Y VISTA PREVIA DEL EXCEL (LIBRO DE VENTAS)
     # ----------------------------------------------------
@@ -7986,7 +7993,7 @@ def renderizar_tab_asientos_ventas(db_connection):
             df_ventas = pd.read_excel(archivo_excel, dtype=str)
             df_ventas.columns = df_ventas.columns.str.strip()
             
-            # GARANTIZAR NOMBRES DE COLUMNAS ÚNICOS (Evita duplicados que devuelven Series)
+            # GARANTIZAR NOMBRES DE COLUMNAS ÚNICOS
             cols_vistas = []
             nuevas_cols = []
             for c in df_ventas.columns:
@@ -8001,12 +8008,6 @@ def renderizar_tab_asientos_ventas(db_connection):
             df_ventas.columns = nuevas_cols
 
             df_ventas = limpiar_y_forzar_numerico(df_ventas)
-
-            def formato_venezolano(val):
-                try:
-                    return f"{float(val):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-                except:
-                    return "0,00"
 
             df_ventas_visual = df_ventas.copy()
             for col in df_ventas_visual.columns:
@@ -8060,7 +8061,6 @@ def renderizar_tab_asientos_ventas(db_connection):
                                 for pos in posibles_nombres:
                                     if pos.lower() in c_clean:
                                         val = row[col]
-                                        # Asegurar que val sea escalar y no una Serie de pandas
                                         if isinstance(val, pd.Series):
                                             val = val.iloc[0]
                                         if pd.notna(val):
@@ -8178,7 +8178,7 @@ def renderizar_tab_asientos_ventas(db_connection):
                                 opcion_iva_debito = opt
                                 break
 
-                        # 1. Cuentas por Cobrar (DEBE)
+                        # 1. Cuentas por Cobrar (DEBE) - Guardamos en formato visual venezolano directamente
                         filas_asiento_temporal.append({
                             "n_comprobante": n_comprobante_actual,
                             "descripcion": descripcion_personalizada,
@@ -8188,8 +8188,8 @@ def renderizar_tab_asientos_ventas(db_connection):
                                 opcion_cxc, ""
                             ),
                             "referencia": nro_doc,
-                            "debe": float(total_ventas),
-                            "haber": 0.0,
+                            "debe": formato_venezolano(float(total_ventas)),
+                            "haber": formato_venezolano(0.0),
                         })
 
                         # 2. Ingresos (HABER)
@@ -8204,8 +8204,8 @@ def renderizar_tab_asientos_ventas(db_connection):
                                     opcion_ingreso, ""
                                 ),
                                 "referencia": nro_doc,
-                                "debe": 0.0,
-                                "haber": monto_ingreso,
+                                "debe": formato_venezolano(0.0),
+                                "haber": formato_venezolano(monto_ingreso),
                             })
 
                         # 3. IVA Débito Fiscal (HABER)
@@ -8219,8 +8219,8 @@ def renderizar_tab_asientos_ventas(db_connection):
                                     opcion_iva_debito, ""
                                 ),
                                 "referencia": nro_doc,
-                                "debe": 0.0,
-                                "haber": float(debito_fiscal),
+                                "debe": formato_venezolano(0.0),
+                                "haber": formato_venezolano(float(debito_fiscal)),
                             })
 
                     df_nuevo = pd.DataFrame(filas_asiento_temporal)
@@ -8243,9 +8243,14 @@ def renderizar_tab_asientos_ventas(db_connection):
     ):
         df_a_procesar = st.session_state["df_asientos_ventas_proceso"].copy()
 
-        # Forzar tipos estrictos limpios para evitar notación científica
-        df_a_procesar["debe"] = pd.to_numeric(df_a_procesar["debe"], errors="coerce").fillna(0.0)
-        df_a_procesar["haber"] = pd.to_numeric(df_a_procesar["haber"], errors="coerce").fillna(0.0)
+        # Asegurar que debe y haber sean texto con formato venezolano exacto al primer frame
+        for col_num in ["debe", "haber"]:
+            if col_num in df_a_procesar.columns:
+                df_a_procesar[col_num] = df_a_procesar[col_num].apply(
+                    lambda x: formato_venezolano(limpiar_y_forzar_numerico(pd.DataFrame({col_num: [x]}))[col_num].iloc[0]) 
+                    if not isinstance(x, str) or ("," not in x and "." not in x) else str(x)
+                )
+
         df_a_procesar["fecha"] = pd.to_datetime(df_a_procesar["fecha"], errors="coerce").dt.date
 
         st.markdown(
@@ -8280,6 +8285,7 @@ def renderizar_tab_asientos_ventas(db_connection):
             if val_actual and val_actual not in opciones_codigos_puros:
                 opciones_codigos_puros.append(val_actual)
 
+        # Usamos TextColumn para debe y haber, exactamente igual al primer frame
         df_editado = st.data_editor(
             df_a_procesar,
             num_rows="dynamic",
@@ -8293,8 +8299,8 @@ def renderizar_tab_asientos_ventas(db_connection):
                 ),
                 "cuenta_contable": st.column_config.TextColumn("cuenta_contable"),
                 "referencia": st.column_config.TextColumn("referencia"),
-                "debe": st.column_config.NumberColumn("debe", format="%.2f"),
-                "haber": st.column_config.NumberColumn("haber", format="%.2f"),
+                "debe": st.column_config.TextColumn("debe"),
+                "haber": st.column_config.TextColumn("haber"),
             },
             key=f"editor_asientos_ventas_{db_segura}",
         )
