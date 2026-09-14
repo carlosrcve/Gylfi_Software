@@ -7985,6 +7985,21 @@ def renderizar_tab_asientos_ventas(db_connection):
         try:
             df_ventas = pd.read_excel(archivo_excel, dtype=str)
             df_ventas.columns = df_ventas.columns.str.strip()
+            
+            # GARANTIZAR NOMBRES DE COLUMNAS ÚNICOS (Evita duplicados que devuelven Series)
+            cols_vistas = []
+            nuevas_cols = []
+            for c in df_ventas.columns:
+                c_str = str(c)
+                if c_str in cols_vistas:
+                    i = 1
+                    while f"{c_str}_{i}" in cols_vistas:
+                        i += 1
+                    c_str = f"{c_str}_{i}"
+                cols_vistas.append(c_str)
+                nuevas_cols.append(c_str)
+            df_ventas.columns = nuevas_cols
+
             df_ventas = limpiar_y_forzar_numerico(df_ventas)
 
             def formato_venezolano(val):
@@ -8026,7 +8041,7 @@ def renderizar_tab_asientos_ventas(db_connection):
             with col_cfg1:
                 n_comprobante_base = st.text_input(
                     "Número de Comprobante (Fijo para todas las líneas):",
-                    value="060001",
+                    value="050001",
                     key=f"prefijo_ventas_{db_segura}",
                 )
 
@@ -8045,6 +8060,9 @@ def renderizar_tab_asientos_ventas(db_connection):
                                 for pos in posibles_nombres:
                                     if pos.lower() in c_clean:
                                         val = row[col]
+                                        # Asegurar que val sea escalar y no una Serie de pandas
+                                        if isinstance(val, pd.Series):
+                                            val = val.iloc[0]
                                         if pd.notna(val):
                                             return val
                             return default_val
@@ -8086,6 +8104,8 @@ def renderizar_tab_asientos_ventas(db_connection):
                                 or "num" in c_clean
                             ) and "fecha" not in c_clean:
                                 val = row[col]
+                                if isinstance(val, pd.Series):
+                                    val = val.iloc[0]
                                 if pd.notna(val) and str(val).strip() != "":
                                     nro_doc = str(val).strip()
                                     break
@@ -8204,9 +8224,7 @@ def renderizar_tab_asientos_ventas(db_connection):
                             })
 
                     df_nuevo = pd.DataFrame(filas_asiento_temporal)
-                    st.session_state["df_asientos_ventas_proceso"] = (
-                        limpiar_y_forzar_numerico(df_nuevo)
-                    )
+                    st.session_state["df_asientos_ventas_proceso"] = df_nuevo
                     st.rerun()
 
                 except Exception as proc_err:
@@ -8223,14 +8241,11 @@ def renderizar_tab_asientos_ventas(db_connection):
         "df_asientos_ventas_proceso" in st.session_state
         and not st.session_state["df_asientos_ventas_proceso"].empty
     ):
-        df_a_procesar = st.session_state["df_asientos_ventas_proceso"]
-        df_a_procesar = limpiar_y_forzar_numerico(df_a_procesar)
+        df_a_procesar = st.session_state["df_asientos_ventas_proceso"].copy()
 
-        # Forzar tipos estrictos para evitar excepciones en st.data_editor
+        # Forzar tipos estrictos limpios para evitar notación científica
         df_a_procesar["debe"] = pd.to_numeric(df_a_procesar["debe"], errors="coerce").fillna(0.0)
         df_a_procesar["haber"] = pd.to_numeric(df_a_procesar["haber"], errors="coerce").fillna(0.0)
-        
-        # Convertir la columna fecha explícitamente a objetos datetime.date para que DateColumn no falle
         df_a_procesar["fecha"] = pd.to_datetime(df_a_procesar["fecha"], errors="coerce").dt.date
 
         st.markdown(
