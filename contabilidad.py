@@ -7716,7 +7716,6 @@ def conciliacion_de_gastos_y_comisiones(db_connection, db_segura):
 
 
 
-
 def renderizar_tab_asientos_ventas(db_connection):
     st.subheader("🤖 Asientos Automatizados - Libro de Ventas")
     st.markdown("""
@@ -7987,7 +7986,6 @@ def renderizar_tab_asientos_ventas(db_connection):
                 except:
                     return "0,00"
 
-            # Aplicar formato venezolano visual únicamente a "Total Ventas..." y "Ventas Exentas" (y variantes)
             df_ventas_visual = df_ventas.copy()
             for col in df_ventas_visual.columns:
                 c_lower = str(col).lower().strip()
@@ -8208,6 +8206,8 @@ def renderizar_tab_asientos_ventas(db_connection):
                     st.error(
                         f"Error procesando los datos de ventas: {proc_err}"
                     )
+        except Exception as excel_err:
+            st.error(f"Error al leer o procesar el archivo Excel: {excel_err}")
 
         # ----------------------------------------------------
         # SEGUNDO FRAME: ESTRUCTURA COMPLETA DE VENTAS
@@ -8265,7 +8265,6 @@ def renderizar_tab_asientos_ventas(db_connection):
                 key=f"editor_asientos_ventas_{db_segura}",
             )
             
-            # Guardar el dataframe editado de vuelta en el session state si es necesario
             st.session_state["df_asientos_ventas_proceso"] = df_editado
 
 
