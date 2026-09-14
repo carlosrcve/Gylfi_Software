@@ -6780,7 +6780,6 @@ def renderizar_tab_asientos_automatizados(db_connection):
                 df_a_procesar = st.session_state['df_asientos_proceso'].copy()
                 
                 # --- FUNCIÓN PARA LIMPIAR Y CONVERTIR MONTOS ---
-                # 1. Definir la función de limpieza de montos si no la tienes
                 def limpiar_monto(val):
                     if pd.isna(val):
                         return 0.0
@@ -6798,7 +6797,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
                     except ValueError:
                         return 0.0
 
-                # 2. Forzar que las columnas sean numéricas puras antes de hacer nada
+                # Forzar que las columnas sean numéricas puras antes de hacer nada
                 if 'debe' in df_a_procesar.columns:
                     df_a_procesar['debe'] = df_a_procesar['debe'].apply(limpiar_monto).astype(float)
                 if 'haber' in df_a_procesar.columns:
@@ -6842,7 +6841,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
                     key="editor_segundo_frame_ventas"
                 )
                 
-                # 1. Asegurar que los datos editados por el usuario sean numéricos puros
+                # Asegurar que los datos editados por el usuario sean numéricos puros y limpios
                 df_editado['debe'] = df_editado['debe'].apply(limpiar_monto).astype(float)
                 df_editado['haber'] = df_editado['haber'].apply(limpiar_monto).astype(float)
 
@@ -6853,9 +6852,9 @@ def renderizar_tab_asientos_automatizados(db_connection):
 
                 st.session_state['df_asientos_proceso'] = df_editado
                 
-                # 2. Ahora las sumas se hacen sobre números garantizados
-                tot_debe = df_editado['debe'].sum()
-                tot_haber = df_editado['haber'].sum()
+                # Forzar las sumas a floats nativos de Python para evitar errores en las métricas
+                tot_debe = float(df_editado['debe'].sum())
+                tot_haber = float(df_editado['haber'].sum())
                 
                 col_m1, col_m2 = st.columns(2)
                 col_m1.metric("Total Debe (Ventas)", f"{tot_debe:,.2f}")
@@ -6895,21 +6894,18 @@ def renderizar_tab_asientos_automatizados(db_connection):
                                     """, (anio, mes))
                                     res_bloqueo = cur_check.fetchone()
                                     
-                                    # Manejo por si devuelve tupla o diccionario
                                     cantidad_bloqueos = list(res_bloqueo.values())[0] if isinstance(res_bloqueo, dict) else res_bloqueo[0]
                                     
                                     if cantidad_bloqueos > 0:
                                         bloqueo_detectado = True
-                                        mensaje_bloqueo = f"❌ **Operación Denegada**: El período correspondiente al mes **{mes:02d}/{anio}** se encuentra **CERRADO y BLOQUEADO** en MySQL."
+                                        mensaje_bloqueo = f"❌ **Operación Denegada**: El período correspondiente al mes **{mes:02d}/{anio}** se encuentra **CERRADO y BLOQUEADO** in MySQL."
                                         break
                             except Exception as e:
-                                # Si la columna 'bloqueado' o la tabla no existe en MySQL, no bloquea por error de esquema
                                 pass 
 
                         if bloqueo_detectado:
                             st.error(mensaje_bloqueo)
                         else:
-                            # Procedimiento normal de guardado en MySQL si no hay bloqueos reales en la BD
                             with db_connection.cursor() as cursor:
                                 cursor.execute(f"""
                                     CREATE TABLE IF NOT EXISTS `{db_segura}`.asientos_contables (
