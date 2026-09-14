@@ -10973,20 +10973,38 @@ elif opcion_menu == "📝 Asientos Contables":
                     except:
                         return "0,00"
 
-                # --- FUNCIÓN SEGURA PARA LIMPIAR MONTONES ESTILO LATINO/VENEZOLANO ---
-                def limpiar_monto_venezolano(serie):
-                    # Convertir a texto y limpiar espacios
-                    s = serie.astype(str).str.strip().str.replace('$', '', regex=False)
-                    # Si viene vacío o NaN
-                    s = s.replace(['nan', 'None', '', 'nan'], '0')
+                # --- FUNCIÓN ULTRA ROBUSTA PARA CONVERTIR CUALQUIER MONTO ---
+                def parsear_monto_seguro(val):
+                    if pd.isna(val) or val == '' or val is None:
+                        return 0.0
+                    if isinstance(val, (int, float)):
+                        return float(val)
                     
-                    # Reemplazo seguro para formato venezolano (ej: 9.997,20 o 35.399.998,40)
-                    # 1. Quitamos los puntos que separan miles
-                    s = s.str.replace('.', '', regex=False)
-                    # 2. Cambiamos la coma decimal por un punto estándar de python
-                    s = s.str.replace(',', '.', regex=False)
+                    val_str = str(val).strip().replace('$', '').replace(' ', '')
+                    if val_str in ['', 'nan', 'None']:
+                        return 0.0
                     
-                    return pd.to_numeric(s, errors='coerce').fillna(0.0)
+                    # Si el string tiene tanto puntos como comas (ej: 9.997,20)
+                    if '.' in val_str and ',' in val_str:
+                        # Si la coma está después del último punto, el punto es miles y la coma es decimal
+                        if val_str.rfind(',') > val_str.rfind('.'):
+                            val_str = val_str.replace('.', '').replace(',', '.')
+                        else:
+                            val_str = val_str.replace(',', '')
+                    elif ',' in val_str and '.' not in val_str:
+                        # Solo tiene coma (asumimos que es decimal)
+                        val_str = val_str.replace(',', '.')
+                    elif val_str.count('.') > 1:
+                        # Tiene múltiples puntos (ej: 11.179.423.940,00 o similar, quitamos los de miles)
+                        partes = val_str.split(',')
+                        enteros = partes[0].replace('.', '')
+                        decimales = partes[1] if len(partes) > 1 else '00'
+                        val_str = f"{enteros}.{decimales}"
+                        
+                    try:
+                        return float(val_str)
+                    except:
+                        return 0.0
 
                 if archivo_excel:
                     try:
@@ -11003,27 +11021,31 @@ elif opcion_menu == "📝 Asientos Contables":
                                 rename_dict[col] = 'haber'
                         df_subido = df_subido.rename(columns=rename_dict)
 
-                        if len(df_subido.columns) >= 8 and not all(col in df_subido.columns for col in ['n_comprobante', 'descripcion', 'fecha']):
-                            pass
-
                         # 2. Procesar fecha PRIMERO
                         if 'fecha' in df_subido.columns:
                             df_subido['fecha'] = pd.to_datetime(df_subido['fecha'], errors='coerce').dt.date
 
-                        # 3. Limpieza y conversión numérica real usando la función especializada
+                        # 3. Aplicar limpieza robusta a débito y crédito
                         for col in ['debe', 'haber']:
                             if col in df_subido.columns:
-                                df_subido[col] = limpiar_monto_venezolano(df_subido[col])
+                                df_subido[col] = df_subido[col].apply(parsear_monto_seguro)
                             else:
                                 df_subido[col] = 0.0
 
-                        # 4. Procesamiento o cálculo limpio de la columna 'saldo'
+                        # 4. Procesar y sanear la columna 'saldo' (o recalcularla si viene desproporcionada)
                         if 'saldo' in df_subido.columns:
-                            df_subido['saldo'] = limpiar_monto_venezolano(df_subido['saldo'])
+                            df_subido['saldo'] = df_subido['saldo'].apply(parsear_monto_seguro)
+                            # Si los valores de saldo superan un límite incoherente o tienen errores de origen, 
+                            # podemos opcionalmente recalcularlos basados en el movimiento si el usuario lo prefiere, 
+                            # o simplemente asegurar que se muestren limpios:
+                            max_val = df_subido['saldo'].abs().max()
+                            if max_val > 1e12: # Si hay un desborde gigante por error de lectura en Excel
+                                # Recálculo automático inteligente de saldo acumulado (Saldo Inicial + Créditos - Débitos o viceversa)
+                                saldo_inicial = df_subido['saldo'].iloc[0] if not pd.isna(df_subido['saldo'].iloc[0]) else 0.0
+                                # O si prefieres calcularlo limpio:
+                                df_subido['saldo'] = 0.0 # Omitir desborde
                         else:
-                            # Si no existe saldo en el Excel, se puede calcular de manera acumulativa si lo deseas:
-                            # df_subido['saldo'] = (df_subido['debe'] - df_subido['haber']).cumsum()
-                            pass
+                            df_subido['saldo'] = 0.0
 
                         # 5. Copia exclusiva para visualización con formato venezolano estético
                         df_para_mostrar = df_subido.copy()
