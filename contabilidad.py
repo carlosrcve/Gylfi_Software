@@ -7972,12 +7972,10 @@ def renderizar_tab_asientos_ventas(db_connection):
 
     if archivo_excel is not None:
         try:
-            # Forzamos lectura a string para preservar formatos originales de celdas
             df_ventas = pd.read_excel(archivo_excel, dtype=str)
             df_ventas.columns = df_ventas.columns.str.strip()
             df_ventas = limpiar_y_forzar_numerico(df_ventas)
 
-            # Formateador de Estilo Venezolano
             def formato_venezolano(val):
                 try:
                     return f"{float(val):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
@@ -8207,63 +8205,67 @@ def renderizar_tab_asientos_ventas(db_connection):
         except Exception as excel_err:
             st.error(f"Error al leer o procesar el archivo Excel: {excel_err}")
 
-        # ----------------------------------------------------
-        # SEGUNDO FRAME: ESTRUCTURA COMPLETA DE VENTAS
-        # ----------------------------------------------------
-        if (
-            "df_asientos_ventas_proceso" in st.session_state
-            and not st.session_state["df_asientos_ventas_proceso"].empty
-        ):
-            df_a_procesar = st.session_state["df_asientos_ventas_proceso"]
-            df_a_procesar = limpiar_y_forzar_numerico(df_a_procesar)
+    # ----------------------------------------------------
+    # SEGUNDO FRAME: ESTRUCTURA COMPLETA DE VENTAS
+    # ----------------------------------------------------
+    if (
+        "df_asientos_ventas_proceso" in st.session_state
+        and not st.session_state["df_asientos_ventas_proceso"].empty
+    ):
+        df_a_procesar = st.session_state["df_asientos_ventas_proceso"]
+        df_a_procesar = limpiar_y_forzar_numerico(df_a_procesar)
 
-            st.markdown(
-                f"### 📋 Segundo Frame: Estructura del Asiento de Ventas ({len(df_a_procesar)} registros)"
+        st.markdown(
+            f"### 📋 Segundo Frame: Estructura del Asiento de Ventas ({len(df_a_procesar)} registros)"
+        )
+
+        def extraer_solo_codigo(val):
+            val_str = str(val).strip()
+            if " - " in val_str:
+                return val_str.split(" - ")[0].strip()
+            return val_str
+
+        for idx in df_a_procesar.index:
+            codigo_puro = extraer_solo_codigo(
+                df_a_procesar.at[idx, "plan_cuentas"]
+            )
+            df_a_procesar.at[idx, "plan_cuentas"] = codigo_puro
+            df_a_procesar.at[idx, "cuenta_contable"] = (
+                mapa_descripciones.get(codigo_puro, "")
             )
 
-            def extraer_solo_codigo(val):
-                val_str = str(val).strip()
-                if " - " in val_str:
-                    return val_str.split(" - ")[0].strip()
-                return val_str
+        opciones_codigos_puros = list(mapa_descripciones.keys())
+        if not opciones_codigos_puros:
+            opciones_codigos_puros = [
+                "1.1.2.01.001",
+                "4.1.1.01.001",
+                "2.1.2.01.001",
+            ]
 
-            for idx in df_a_procesar.index:
-                codigo_puro = extraer_solo_codigo(
-                    df_a_procesar.at[idx, "plan_cuentas"]
-                )
-                df_a_procesar.at[idx, "plan_cuentas"] = codigo_puro
-                df_a_procesar.at[idx, "cuenta_contable"] = (
-                    mapa_descripciones.get(codigo_puro, "")
-                )
+        df_editado = st.data_editor(
+            df_a_procesar,
+            num_rows="dynamic",
+            use_container_width=True,
+            column_config={
+                "n_comprobante": st.column_config.TextColumn("n_comprobante"),
+                "descripcion": st.column_config.TextColumn("descripcion"),
+                "fecha": st.column_config.DateColumn("fecha"),
+                "plan_cuentas": st.column_config.SelectboxColumn(
+                    "plan_cuentas", options=opciones_codigos_puros
+                ),
+                "cuenta_contable": st.column_config.TextColumn("cuenta_contable"),
+                "referencia": st.column_config.TextColumn("referencia"),
+                "debe": st.column_config.NumberColumn("debe", format="%.2f"),
+                "haber": st.column_config.NumberColumn("haber", format="%.2f"),
+            },
+            key=f"editor_asientos_ventas_{db_segura}",
+        )
+        
+        st.session_state["df_asientos_ventas_proceso"] = df_editado
 
-            opciones_codigos_puros = list(mapa_descripciones.keys())
-            if not opciones_codigos_puros:
-                opciones_codigos_puros = [
-                    "1.1.2.01.001",
-                    "4.1.1.01.001",
-                    "2.1.2.01.001",
-                ]
-
-            df_editado = st.data_editor(
-                df_a_procesar,
-                num_rows="dynamic",
-                use_container_width=True,
-                column_config={
-                    "n_comprobante": st.column_config.TextColumn("n_comprobante"),
-                    "descripcion": st.column_config.TextColumn("descripcion"),
-                    "fecha": st.column_config.DateColumn("fecha"),
-                    "plan_cuentas": st.column_config.SelectboxColumn(
-                        "plan_cuentas", options=opciones_codigos_puros
-                    ),
-                    "cuenta_contable": st.column_config.TextColumn("cuenta_contable"),
-                    "referencia": st.column_config.TextColumn("referencia"),
-                    "debe": st.column_config.NumberColumn("debe", format="%.2f"),
-                    "haber": st.column_config.NumberColumn("haber", format="%.2f"),
-                },
-                key=f"editor_asientos_ventas_{db_segura}",
-            )
-            
-            st.session_state["df_asientos_ventas_proceso"] = df_editado
+        # Botón para registrar los asientos en la base de datos
+        if st.button("💾 Guardar Asientos en el Libro Diario", key=f"btn_guardar_ventas_{db_segura}"):
+            st.success("¡Estructura lista para integración con el Libro Diario!")
 
 
 def gestionar_sidebar():
