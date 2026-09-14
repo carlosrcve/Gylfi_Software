@@ -7869,11 +7869,25 @@ def renderizar_tab_asientos_ventas(db_connection):
     # FUNCIÓN INTERNA PARA FORMATEAR Y CONVERTIR A NÚMERO
     # ----------------------------------------------------
     def limpiar_y_forzar_numerico(df):
-        """Convierte las columnas debe y haber a floats puros de forma segura."""
-        if "debe" in df.columns:
-            df["debe"] = pd.to_numeric(df["debe"].astype(str).str.replace(",", "", regex=True), errors="coerce").fillna(0.0)
-        if "haber" in df.columns:
-            df["haber"] = pd.to_numeric(df["haber"].astype(str).str.replace(",", "", regex=True), errors="coerce").fillna(0.0)
+        """Fuerza la conversión de debe y haber a floats puros de manera estricta."""
+        for col in ["debe", "haber"]:
+            if col in df.columns:
+                # Convertir a serie de texto, limpiar espacios y reemplazar posibles símbolos molestos
+                serie_limpia = (
+                    df[col]
+                    .astype(str)
+                    .str.replace(" ", "", regex=False)
+                    .str.replace("$", "", regex=False)
+                    .str.replace("Bs.", "", regex=False)
+                )
+                
+                # Si usa comas como decimales y puntos como miles, o viceversa, lo estandarizamos a punto decimal
+                # (Si tu Excel usa punto como decimal, esto lo deja intacto o limpio de comas)
+                serie_limpia = serie_limpia.str.replace(",", ".", regex=False)
+                
+                # Forzar a numérico puro (lo que no sirva lo vuelve 0.0)
+                df[col] = pd.to_numeric(serie_limpia, errors="coerce").fillna(0.0).astype(float)
+        
         return df
 
     # ----------------------------------------------------
