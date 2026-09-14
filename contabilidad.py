@@ -8499,18 +8499,18 @@ def renderizar_tab_asientos_ventas(db_connection):
 
     try:
         with db_connection.cursor() as cur_cuentas:
-            # Consultamos todas las cuentas de detalle del plan de cuentas (o filtradas por el grupo de bancos 1.1.1.02 o similares)
+            # Consultamos usando los nombres exactos de columnas de tu imagen: codigo, nombre, tipo
             cur_cuentas.execute(f"""
-                SELECT codigo_cuenta, descripcion_cuenta 
+                SELECT codigo, nombre 
                 FROM `{db_segura}`.plan_cuentas 
-                WHERE tipo_cuenta = 'Detalle' AND (codigo_cuenta LIKE '1.1.1.02%' OR codigo_cuenta LIKE '1.1.1.%')
+                WHERE tipo = 'Detalle' AND (codigo LIKE '1.1.1.02%' OR codigo LIKE '1.1.1.%')
             """)
             cuentas_plan_db = cur_cuentas.fetchall()
     except Exception as e:
         cuentas_plan_db = []
         st.warning(f"No se pudieron cargar las cuentas del plan contable automáticamente: {e}")
 
-    # Formatear opciones para la lista desplegable usando el plan de cuentas
+    # Formatear opciones para la lista desplegable usando las columnas reales
     opciones_cuentas_banco = [f"{row[0]} - {row[1]}" for row in cuentas_plan_db] if cuentas_plan_db else ["N/A - Sin cuentas registradas"]
 
     col_c1, col_c2 = st.columns([2, 1])
@@ -8539,7 +8539,7 @@ def renderizar_tab_asientos_ventas(db_connection):
                     """)
                     asientos_cx_cobrar = cursor_match.fetchall()
 
-                    # 2. Consultar Movimientos del Banco (asumiendo que los abonos o créditos vienen con monto > 0)
+                    # 2. Consultar Movimientos del Banco
                     cursor_match.execute(f"""
                         SELECT id, fecha_movimiento, descripcion, referencia, monto, cuenta_numero
                         FROM `{db_segura}`.banco_movimientos
@@ -8591,7 +8591,7 @@ def renderizar_tab_asientos_ventas(db_connection):
                                         "monto_banco": m_monto,
                                         "estado": "Conciliado por RIF"
                                     })
-                                    break # Salimos del loop del banco al hallar su match
+                                    break 
 
                     if coincidencias_encontradas:
                         df_matching = pd.DataFrame(coincidencias_encontradas)
@@ -8614,7 +8614,6 @@ def renderizar_tab_asientos_ventas(db_connection):
                     registros_asentados = 0
                     for _, row_m in st.session_state['df_matching_resultado'].iterrows():
                         
-                        # Buscamos la cuenta contable original de la factura para reversarla en el Haber
                         cur_cancela.execute(f"""
                             SELECT plan_cuentas, cuenta_contable, fecha 
                             FROM `{db_segura}`.asientos_contables 
@@ -8641,7 +8640,7 @@ def renderizar_tab_asientos_ventas(db_connection):
                                 monto_cobro
                             ))
                             
-                            # 2. Registrar el movimiento en el DEBE usando la cuenta bancaria exacta seleccionada del Plan de Cuentas
+                            # 2. Registrar el movimiento en el DEBE usando la cuenta seleccionada del plan de cuentas
                             cur_cancela.execute(f"""
                                 INSERT INTO `{db_segura}`.asientos_contables 
                                 (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber, bloqueado)
@@ -8649,13 +8648,13 @@ def renderizar_tab_asientos_ventas(db_connection):
                             """, (
                                 f"COL-{row_m['comprobante']}",
                                 f"Ingreso en Banco por cobranza - RIF: {row_m['rif']}",
-                                str(cuenta_contable_banco_activa),  # Código seleccionado del plan de cuentas (ej: 1.1.1.02.001)
-                                str(nombre_cuenta_banco_activa),    # Descripción de la cuenta del banco seleccionada
+                                str(cuenta_contable_banco_activa),
+                                str(nombre_cuenta_banco_activa),
                                 f"BANCO-{row_m['banco_mov_id']}",
                                 monto_cobro
                             ))
                             
-                            # 3. Actualizar el estado en banco_movimientos para indicar que ya fue conciliado
+                            # 3. Actualizar el estado en banco_movimientos
                             cur_cancela.execute(f"""
                                 UPDATE `{db_segura}`.banco_movimientos 
                                 SET estado_conciliacion = 'Conciliado', asiento_id = %s 
