@@ -6915,6 +6915,13 @@ def renderizar_tab_asientos_automatizados(db_connection):
 
 
 
+import re
+from datetime import datetime
+import pandas as pd
+import pymysql
+import streamlit as st
+
+
 def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
   """Tercer Frame: Conciliación automatizada cruzando por RIF, utilizando exclusivamente el Banco Global."""
   st.markdown("---")
@@ -6979,7 +6986,6 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
         ):
           lista_cuentas_bancos_opciones.append(f"{cod_str} - {nom_str}")
 
-        # Detectar pasivo por defecto
         if cod_str.startswith("2.1.1") and "PROVEEDOR" in nom_upper:
           cuenta_pasivo_default_codigo = cod_str
           cuenta_pasivo_default_nombre = nom_str
@@ -7038,7 +7044,6 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
         fecha_mov = row["fecha_movimiento"]
         ref_mov = str(row["referencia"] or "").strip()
 
-        # Extraer RIF del movimiento bancario (ej: J-12345678-9 o J123456789)
         match_rif_banco = re.search(
             r"([VEJGP])\s*[-]?\s*(\d{6,10})", descripcion_banco, re.IGNORECASE
         )
@@ -7058,7 +7063,6 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
             cta_contable_ast = str(ast.get("cuenta_contable", "")).upper()
             ref_ast = str(ast.get("referencia", "")).upper()
 
-            # Buscar coincidencia de RIF tanto en la descripción como en la referencia o cuenta contable del asiento
             match_rif_ast = re.search(
                 r"([VEJGP])\s*[-]?\s*(\d{6,10})",
                 f"{desc_ast} {cta_contable_ast} {ref_ast}",
@@ -7080,14 +7084,14 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
                 break
 
         if asiento_referencia:
-          cod_debe = cuenta_pasivo_default_codigo
-          cuenta_debe = cuenta_pasivo_default_nombre
-
           cta_ast_codigo = str(asiento_referencia.get("plan_cuentas", ""))
           cta_ast_nombre = str(asiento_referencia.get("cuenta_contable", ""))
 
-          # Si el asiento encontrado es un pasivo (empieza por 2), lo respetamos; si es costo/gasto, usamos proveedores
-          if cta_ast_codigo.startswith("2"):
+          # Respetamos estrictamente la cuenta contable original encontrada en el asiento
+          if not cta_ast_codigo or cta_ast_codigo == "None":
+            cod_debe = cuenta_pasivo_default_codigo
+            cuenta_debe = cuenta_pasivo_default_nombre
+          else:
             cod_debe = cta_ast_codigo
             cuenta_debe = cta_ast_nombre
 
@@ -7130,11 +7134,9 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
     )
     st.markdown(
         "Este panel te muestra de forma detallada qué cuenta de origen tenía"
-        " el asiento analizado y qué **cuenta de Pasivo** se aplicará en el"
-        " **DEBE** para cancelar la deuda."
+        " el asiento analizado y qué cuenta se aplicará en el **DEBE**."
     )
 
-    # Mostrar en filas de 3 columnas usando componentes nativos limpios
     matches = st.session_state.matches_propuestos
     for i in range(0, len(matches), 3):
       cols = st.columns(3)
@@ -7143,39 +7145,19 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
           prop = matches[i + j]
           with cols[j]:
             with st.container(border=True):
-              codigo_orig_det = prop.get("codigo_original_detectado", "")
-              es_pasivo_directo = codigo_orig_det.startswith("2")
-              tipo_txt = (
-                  "🟢 Pasivo Original"
-                  if es_pasivo_directo
-                  else "🟠 Costo/Gasto (Forzado a Pasivo)"
-              )
-
               st.markdown(
                   f"**Match #{i + j + 1}** | RIF: `{prop.get('rif_detectado')}`"
               )
-              st.caption(tipo_txt)
               st.markdown(f"**Monto:** Bs. {prop.get('monto', 0.0):,.2f}")
               st.markdown(f"**Ref Banco:** `{prop.get('referencia_banco')}`")
               st.divider()
               st.markdown(
                   "<span style='font-size:11px; color:gray;'>CUENTA"
-                  " ENCONTRADA EN FACTURA:</span>",
+                  " CONTABLE APLICADA (DEBE):</span>",
                   unsafe_allow_html=True,
               )
               st.code(
-                  f"{prop.get('codigo_original_detectado')} -"
-                  f" {prop.get('cuenta_original_detectada')}",
-                  language=None,
-              )
-              st.markdown(
-                  "<span style='font-size:11px; color:gray;'>CUENTA DE PAGO"
-                  " APLICADA (DEBE - PASIVO):</span>",
-                  unsafe_allow_html=True,
-              )
-              st.code(
-                  f"{prop.get('codigo_destino')} -"
-                  f" {prop.get('cuenta_destino')}",
+                  f"{prop.get('codigo_destino')} - {prop.get('cuenta_destino')}",
                   language=None,
               )
 
@@ -7211,7 +7193,7 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
 
         st.success(
             f"✅ **Match #{idx + 1} | RIF (`{prop.get('rif_detectado', 'N/D')}`)"
-            f"**\n\n• **Pasivo / Proveedor a Descargar (Debe):**"
+            f"**\n\n• **Cuenta a Afectar (Debe):**"
             f" `{prop.get('cuenta_destino', 'N/D')}` (`{prop.get('codigo_destino', 'N/D')}`)\n•"
             f" **Banco Origen Reporte:** {prop.get('banco', 'N/D')} | Monto:"
             f" **Bs. {prop.get('monto', 0.0):,.2f}**\n• **Referencia:**"
@@ -7254,8 +7236,8 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
                     f" {prop['descripcion_banco']}"
                 )
 
-                cod_debe = prop.get("codigo_destino", "2.1.1.01.001")
-                cuenta_debe = prop.get("cuenta_destino", "Proveedores Nacionales")
+                cod_debe = prop.get("codigo_destino")
+                cuenta_debe = prop.get("cuenta_destino")
 
                 cod_haber = codigo_banco_global
                 cuenta_haber = nombre_banco_global
@@ -7264,7 +7246,7 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
                     "referencia_banco", prop.get("referencia", "")
                 )
 
-                # 1. Proveedor / Pasivo (DEBE)
+                # 1. Cuenta original (DEBE)
                 cursor_pago.execute(
                     f"""
                                     INSERT INTO `{db_segura}`.asientos_contables 
@@ -7311,7 +7293,7 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
 
                 db_connection.commit()
                 st.success(
-                    "🎉 ¡Asiento generado contra el Pasivo con éxito!"
+                    "🎉 ¡Asiento generado con la cuenta original con éxito!"
                     f" (Comprobante: `{n_comp_pago}`)"
                 )
                 st.session_state.matches_propuestos.pop(idx)
@@ -7323,7 +7305,7 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
       st.markdown("---")
 
     if st.button(
-        "🚀 Registrar Todos en Lote (Contra Pasivo y Banco Global)",
+        "🚀 Registrar Todos en Lote (Contra Cuenta Original y Banco Global)",
         type="primary",
         key="btn_registrar_todos_matches",
     ):
@@ -7356,11 +7338,11 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
                 f"Pago de Factura | Ref Banco: {prop['descripcion_banco']}"
             )
 
-            cod_debe = prop.get("codigo_destino", "2.1.1.01.001")
-            cuenta_debe = prop.get("cuenta_destino", "Proveedores Nacionales")
+            cod_debe = prop.get("codigo_destino")
+            cuenta_debe = prop.get("cuenta_destino")
             ref_banco = prop.get("referencia_banco", prop.get("referencia", ""))
 
-            # 1. Pasivo (DEBE)
+            # 1. Cuenta (DEBE)
             cursor_pago_lote.execute(
                 f"""
                                 INSERT INTO `{db_segura}`.asientos_contables 
@@ -7411,8 +7393,8 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
         st.session_state.matches_propuestos = []
         st.success(
             "🎉 ¡Se han registrado exitosamente los"
-            f" **{procesados_total}** asientos en lote contra el Pasivo y el"
-            " Banco Global!"
+            f" **{procesados_total}** asientos en lote utilizando la cuenta"
+            " original y el Banco Global!"
         )
         st.rerun()
 
@@ -7429,6 +7411,10 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
           " automático por RIF."
       )
 
+
+
+
+      
 def conciliacion_de_gastos_y_comisiones(db_connection, db_segura):
     """
     Función de Conciliación Masiva con validación estricta de período bloqueado
