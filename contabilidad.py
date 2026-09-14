@@ -8226,9 +8226,12 @@ def renderizar_tab_asientos_ventas(db_connection):
         df_a_procesar = st.session_state["df_asientos_ventas_proceso"]
         df_a_procesar = limpiar_y_forzar_numerico(df_a_procesar)
 
-        # Forzar tipos de datos estrictos para evitar excepciones en st.data_editor
+        # Forzar tipos estrictos para evitar excepciones en st.data_editor
         df_a_procesar["debe"] = pd.to_numeric(df_a_procesar["debe"], errors="coerce").fillna(0.0)
         df_a_procesar["haber"] = pd.to_numeric(df_a_procesar["haber"], errors="coerce").fillna(0.0)
+        
+        # Convertir la columna fecha explícitamente a objetos datetime.date para que DateColumn no falle
+        df_a_procesar["fecha"] = pd.to_datetime(df_a_procesar["fecha"], errors="coerce").dt.date
 
         st.markdown(
             f"### 📋 Segundo Frame: Estructura del Asiento de Ventas ({len(df_a_procesar)} registros)"
@@ -8257,7 +8260,6 @@ def renderizar_tab_asientos_ventas(db_connection):
                 "2.1.2.01.001",
             ]
 
-        # Asegurar que todas las cuentas presentes en el DataFrame estén en las opciones permitidas
         for idx in df_a_procesar.index:
             val_actual = str(df_a_procesar.at[idx, "plan_cuentas"]).strip()
             if val_actual and val_actual not in opciones_codigos_puros:
