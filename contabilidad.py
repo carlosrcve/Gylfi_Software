@@ -6915,12 +6915,6 @@ def renderizar_tab_asientos_automatizados(db_connection):
 
 
 
-import re
-from datetime import datetime
-import pandas as pd
-import pymysql
-import streamlit as st
-
 
 def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
   """Tercer Frame: Conciliación automatizada cruzando por RIF, utilizando exclusivamente el Banco Global."""
@@ -7714,6 +7708,11 @@ def conciliacion_de_gastos_y_comisiones(db_connection, db_segura):
             st.error(f"❌ Error crítico al procesar los asientos en lote: {e_lote}")
 
 
+import pandas as pd
+import streamlit as st
+import io
+import pymysql
+
 def renderizar_tab_asientos_ventas(db_connection):
     st.subheader("🤖 Asientos Automatizados - Libro de Ventas")
     st.markdown("""
@@ -7975,7 +7974,7 @@ def renderizar_tab_asientos_ventas(db_connection):
                                 opcion_iva_debito = opt
                                 break
 
-                        # 1. Cuentas por Cobrar (DEBE)
+                        # 1. Cuentas por Cobrar (DEBE) -> Toma el Total Factura
                         filas_asiento_temporal.append({
                             "n_comprobante": n_comprobante_actual,
                             "descripcion": descripcion_personalizada,
@@ -7987,7 +7986,7 @@ def renderizar_tab_asientos_ventas(db_connection):
                             "haber": 0.0
                         })
 
-                        # 2. Ingresos (HABER)
+                        # 2. Ingresos (HABER) -> Si hay ventas exentas y no hay base imponible, toma ventas exentas directas
                         monto_ingreso = float(base_imponible + ventas_exentas)
                         if monto_ingreso > 0:
                             filas_asiento_temporal.append({
@@ -8001,7 +8000,7 @@ def renderizar_tab_asientos_ventas(db_connection):
                                 "haber": monto_ingreso
                             })
 
-                        # 3. IVA Débito Fiscal (HABER)
+                        # 3. IVA Débito Fiscal (HABER) -> Solo si es mayor a 0
                         if debito_fiscal > 0:
                             filas_asiento_temporal.append({
                                 "n_comprobante": n_comprobante_actual,
@@ -8039,7 +8038,6 @@ def renderizar_tab_asientos_ventas(db_connection):
                     df_a_procesar.at[idx, "plan_cuentas"] = codigo_puro
                     df_a_procesar.at[idx, "cuenta_contable"] = mapa_descripciones.get(codigo_puro, "")
                     
-                    # Asegurar conversión numérica correcta
                     df_a_procesar.at[idx, "debe"] = float(df_a_procesar.at[idx, "debe"] or 0.0)
                     df_a_procesar.at[idx, "haber"] = float(df_a_procesar.at[idx, "haber"] or 0.0)
 
@@ -8177,6 +8175,7 @@ def renderizar_tab_asientos_ventas(db_connection):
                         st.error(f"Error al guardar los asientos de ventas: {db_err}")
         except Exception as e:
             st.error(f"Error al leer el archivo Excel de ventas: {e}")
+
 
 def gestionar_sidebar():
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
