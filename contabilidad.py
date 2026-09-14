@@ -8259,10 +8259,14 @@ def renderizar_tab_asientos_ventas(db_connection):
     # SEGUNDO FRAME: ESTRUCTURA COMPLETA DE VENTAS
     # ----------------------------------------------------
     if 'df_asientos_ventas_proceso' in st.session_state and not st.session_state['df_asientos_ventas_proceso'].empty:
-        df_a_procesar = st.session_state['df_asientos_ventas_proceso']
+        df_a_procesar = st.session_state['df_asientos_ventas_proceso'].copy()
         
         st.markdown(f"### 📋 Segundo Frame: Estructura del Asiento de Ventas ({len(df_a_procesar)} registros)")
         
+        # --- ASEGURAR QUE MAPA_DESCRIPCIONES EXISTA ---
+        if 'mapa_descripciones' not in locals() and 'mapa_descripciones' not in globals():
+            mapa_descripciones = {} 
+
         # --- FUNCIÓN AUXILIAR PARA FORMATO VENEZOLANO ---
         def formato_venezolano(val):
             try:
@@ -8285,8 +8289,19 @@ def renderizar_tab_asientos_ventas(db_connection):
         if not opciones_codigos_puros:
             opciones_codigos_puros = ["1.1.2.01.001", "4.1.1.01.001", "2.1.2.01.001"]
 
-        df_editado = st.data_editor(
-            df_a_procesar,
+        # --- PREPARAR DATAFRAME PARA MOSTRAR CON FORMATO VENEZOLANO EN TEXTO ---
+        df_para_mostrar = df_a_procesar.copy()
+        for col in ['debe', 'haber']:
+            if col in df_para_mostrar.columns:
+                # Nos aseguramos que sean numéricos primero para aplicarles bien el formato
+                df_para_mostrar[col] = pd.to_numeric(
+                    df_para_mostrar[col].astype(str).str.replace('$', '', regex=False).str.replace('.', '', regex=False).str.replace(',', '.', regex=False), 
+                    errors='coerce'
+                ).fillna(0.0)
+                df_para_mostrar[col] = df_para_mostrar[col].apply(formato_venezolano)
+
+        df_editado_crudo = st.data_editor(
+            df_para_mostrar,
             num_rows="dynamic",
             use_container_width=True,
             column_config={
@@ -8300,18 +8315,26 @@ def renderizar_tab_asientos_ventas(db_connection):
                 ),
                 "cuenta_contable": st.column_config.TextColumn("Descripción Cuenta", disabled=True),
                 "referencia": st.column_config.TextColumn("Referencia"),
-                "debe": st.column_config.NumberColumn("Debe", format="%.2f"),
-                "haber": st.column_config.NumberColumn("Haber", format="%.2f"),
+                # Las transformamos a TextColumn para que respeten estrictamente el formato visual venezolano (ej. 335.814,78)
+                "debe": st.column_config.TextColumn("Debe"),
+                "haber": st.column_config.TextColumn("Haber"),
             },
             key="editor_segundo_frame_ventas"
         )
         
-        # --- BLINDAJE TOTAL DE TIPOS ---
-        # Limpiamos y convertimos masivamente a float de Python usando pd.to_numeric
+        # --- BLINDAJE Y RECONVERSIÓN DE FORMATO VENEZOLANO A FLOAT DE PYTHON ---
+        df_editado = df_editado_crudo.copy()
         for col in ['debe', 'haber']:
             if col in df_editado.columns:
-                # Reemplazamos símbolos de moneda y convertimos con coerción de errores a 0.0
-                col_limpia = df_editado[col].astype(str).str.replace('$', '', regex=False).str.strip()
+                # Limpiamos el formato venezolano (quitamos puntos de miles y cambiamos coma decimal por punto)
+                col_limpia = (
+                    df_editado[col]
+                    .astype(str)
+                    .str.replace('$', '', regex=False)
+                    .str.replace('.', '', regex=False)  # Remueve el separador de miles
+                    .str.replace(',', '.', regex=False)  # Cambia la coma decimal por punto para Python/MySQL
+                    .str.strip()
+                )
                 df_editado[col] = pd.to_numeric(col_limpia, errors='coerce').fillna(0.0).astype(float)
 
         for idx in df_editado.index:
@@ -8321,7 +8344,7 @@ def renderizar_tab_asientos_ventas(db_connection):
 
         st.session_state['df_asientos_proceso'] = df_editado
         
-        # Forzamos que la suma devuelva estrictamente un float nativo
+        # Forzamos que la suma devuelva estrictamente un float nativo y se muestre en formato venezolano en las métricas
         tot_debe = float(df_editado['debe'].sum())
         tot_haber = float(df_editado['haber'].sum())
         
