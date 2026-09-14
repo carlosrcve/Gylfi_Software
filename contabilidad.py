@@ -11501,34 +11501,52 @@ elif opcion_menu == "📝 Asientos Contables":
 
                 if archivo_banco:
                     if st.button("Procesar e Importar"):
+                        # 1. Asegurar el reseteo inmediato del cursor del archivo subido
+                        try:
+                            archivo_banco.seek(0)
+                        except Exception:
+                            pass
+
                         with st.spinner(f"Procesando archivo de {banco_sel}..."):
                             try:
-                                if conn:
+                                # 2. Verificar y reconectar la BD de forma segura
+                                local_conn = conn
+                                if local_conn:
                                     try:
-                                        conn.ping(reconnect=True)
+                                        local_conn.ping(reconnect=True)
                                     except Exception:
-                                        pass
+                                        # Si falla el ping, intentamos reconectar usando la base de datos actual
+                                        local_conn = conectar_db(db_actual)
+
+                                if not local_conn:
+                                    st.error("❌ No hay conexión activa con la base de datos para realizar la importación.")
+                                    st.stop()
 
                                 resultado = False
                                 
-                                # NOTA: Si tus funciones internas leen el excel directo, te sugeriría pasarles también la fila de cabecera detectada 
-                                # o asegurarte de que tus funciones `cargar_estado_cuenta_*` utilicen este mismo barrido si también sufren del mismo desfase.
+                                # 3. Llamada segura a la función correspondiente pasando la fila de cabecera detectada si tus funciones la soportan
                                 if banco_sel == "Banco de Venezuela (BDV)":
-                                    resultado = cargar_estado_cuenta_bdv(archivo_banco, conn)
+                                    resultado = cargar_estado_cuenta_bdv(archivo_banco, local_conn)
                                 elif banco_sel == "Banesco":
-                                    resultado = cargar_estado_cuenta_banesco(archivo_banco, conn)
+                                    resultado = cargar_estado_cuenta_banesco(archivo_banco, local_conn)
                                 elif banco_sel == "Mercantil":
-                                    resultado = cargar_estado_cuenta_mercantil(archivo_banco, conn)
+                                    resultado = cargar_estado_cuenta_mercantil(archivo_banco, local_conn)
                                 
+                                # 4. Limpiar cursor del archivo por seguridad tras la lectura
+                                try:
+                                    archivo_banco.seek(0)
+                                except Exception:
+                                    pass
+
                                 if resultado:
                                     st.success(f"✅ Movimientos de {banco_sel} importados con éxito.")
                                     st.balloons()
-                                    #st.rerun()
+                                    # st.rerun() # Descomenta si deseas recargar la app automáticamente
                                 else:
-                                    st.error(f"❌ No se pudieron procesar los datos de {banco_sel}.")
+                                    st.error(f"❌ No se pudieron procesar los datos de {banco_sel}. Revisa el formato del archivo.")
                                     
                             except Exception as e:
-                                st.error(f"Error crítico procesando {banco_sel}: {e}")
+                                st.error(f"⚠️ Error crítico procesando {banco_sel}: {e}")
     
         with tab3:
             st.subheader("📂 Estado de Cuenta Bancario")
