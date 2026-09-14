@@ -7708,10 +7708,6 @@ def conciliacion_de_gastos_y_comisiones(db_connection, db_segura):
             st.error(f"❌ Error crítico al procesar los asientos en lote: {e_lote}")
 
 
-import pandas as pd
-import streamlit as st
-import io
-import pymysql
 
 def renderizar_tab_asientos_ventas(db_connection):
     st.subheader("🤖 Asientos Automatizados - Libro de Ventas")
@@ -7870,6 +7866,17 @@ def renderizar_tab_asientos_ventas(db_connection):
         st.warning(f"⚠️ No se pudo consultar la tabla `clientes_comerciales`: {e}")
 
     # ----------------------------------------------------
+    # FUNCIÓN INTERNA PARA FORMATEAR Y CONVERTIR A NÚMERO
+    # ----------------------------------------------------
+    def limpiar_y_forzar_numerico(df):
+        """Convierte las columnas debe y haber a floats puros de forma segura."""
+        if "debe" in df.columns:
+            df["debe"] = pd.to_numeric(df["debe"].astype(str).str.replace(",", "", regex=True), errors="coerce").fillna(0.0)
+        if "haber" in df.columns:
+            df["haber"] = pd.to_numeric(df["haber"].astype(str).str.replace(",", "", regex=True), errors="coerce").fillna(0.0)
+        return df
+
+    # ----------------------------------------------------
     # CARGA Y VISTA PREVIA DEL EXCEL (LIBRO DE VENTAS)
     # ----------------------------------------------------
     st.markdown("---")
@@ -7931,22 +7938,22 @@ def renderizar_tab_asientos_ventas(db_connection):
                             nro_doc = str(idx + 1)
 
                         try:
-                            ventas_exentas = float(buscar_valor(["Ventas Exentas", "Exentas"], 0.0))
+                            ventas_exentas = float(str(buscar_valor(["Ventas Exentas", "Exentas"], 0.0)).replace(",", ""))
                         except Exception:
                             ventas_exentas = 0.0
 
                         try:
-                            base_imponible = float(buscar_valor(["Base Imponible"], 0.0))
+                            base_imponible = float(str(buscar_valor(["Base Imponible"], 0.0)).replace(",", ""))
                         except Exception:
                             base_imponible = 0.0
 
                         try:
-                            debito_fiscal = float(buscar_valor(["Débito Fiscal", "Debito Fiscal"], 0.0))
+                            debito_fiscal = float(str(buscar_valor(["Débito Fiscal", "Debito Fiscal"], 0.0)).replace(",", ""))
                         except Exception:
                             debito_fiscal = 0.0
 
                         try:
-                            total_ventas = float(buscar_valor(["Total Ventas Incluyendo el IVA", "Total Ventas"], base_imponible + ventas_exentas + debito_fiscal))
+                            total_ventas = float(str(buscar_valor(["Total Ventas Incluyendo el IVA", "Total Ventas"], base_imponible + ventas_exentas + debito_fiscal)).replace(",", ""))
                         except Exception:
                             total_ventas = base_imponible + ventas_exentas + debito_fiscal
 
@@ -7974,7 +7981,7 @@ def renderizar_tab_asientos_ventas(db_connection):
                                 opcion_iva_debito = opt
                                 break
 
-                        # 1. Cuentas por Cobrar (DEBE) -> Toma el Total Factura
+                        # 1. Cuentas por Cobrar (DEBE)
                         filas_asiento_temporal.append({
                             "n_comprobante": n_comprobante_actual,
                             "descripcion": descripcion_personalizada,
@@ -7986,7 +7993,7 @@ def renderizar_tab_asientos_ventas(db_connection):
                             "haber": 0.0
                         })
 
-                        # 2. Ingresos (HABER) -> Si hay ventas exentas y no hay base imponible, toma ventas exentas directas
+                        # 2. Ingresos (HABER)
                         monto_ingreso = float(base_imponible + ventas_exentas)
                         if monto_ingreso > 0:
                             filas_asiento_temporal.append({
@@ -8000,7 +8007,7 @@ def renderizar_tab_asientos_ventas(db_connection):
                                 "haber": monto_ingreso
                             })
 
-                        # 3. IVA Débito Fiscal (HABER) -> Solo si es mayor a 0
+                        # 3. IVA Débito Fiscal (HABER)
                         if debito_fiscal > 0:
                             filas_asiento_temporal.append({
                                 "n_comprobante": n_comprobante_actual,
@@ -8013,7 +8020,8 @@ def renderizar_tab_asientos_ventas(db_connection):
                                 "haber": float(debito_fiscal)
                             })
 
-                    st.session_state['df_asientos_ventas_proceso'] = pd.DataFrame(filas_asiento_temporal)
+                    df_nuevo = pd.DataFrame(filas_asiento_temporal)
+                    st.session_state['df_asientos_ventas_proceso'] = limpiar_y_forzar_numerico(df_nuevo)
                     st.rerun()
 
                 except Exception as proc_err:
@@ -8024,6 +8032,7 @@ def renderizar_tab_asientos_ventas(db_connection):
             # ----------------------------------------------------
             if 'df_asientos_ventas_proceso' in st.session_state and not st.session_state['df_asientos_ventas_proceso'].empty:
                 df_a_procesar = st.session_state['df_asientos_ventas_proceso']
+                df_a_procesar = limpiar_y_forzar_numerico(df_a_procesar)
                 
                 st.markdown(f"### 📋 Segundo Frame: Estructura del Asiento de Ventas ({len(df_a_procesar)} registros)")
                 
@@ -8037,9 +8046,6 @@ def renderizar_tab_asientos_ventas(db_connection):
                     codigo_puro = extraer_solo_codigo(df_a_procesar.at[idx, "plan_cuentas"])
                     df_a_procesar.at[idx, "plan_cuentas"] = codigo_puro
                     df_a_procesar.at[idx, "cuenta_contable"] = mapa_descripciones.get(codigo_puro, "")
-                    
-                    df_a_procesar.at[idx, "debe"] = float(df_a_procesar.at[idx, "debe"] or 0.0)
-                    df_a_procesar.at[idx, "haber"] = float(df_a_procesar.at[idx, "haber"] or 0.0)
 
                 opciones_codigos_puros = list(mapa_descripciones.keys())
                 if not opciones_codigos_puros:
@@ -8062,24 +8068,26 @@ def renderizar_tab_asientos_ventas(db_connection):
                         "referencia": st.column_config.TextColumn("Referencia"),
                         "debe": st.column_config.NumberColumn(
                             "Debe", 
-                            format="%,.2f",
-                            help="Monto del debe en formato numérico contable"
+                            format="%.2f",
+                            step=0.01,
+                            help="Monto del debe"
                         ),
                         "haber": st.column_config.NumberColumn(
                             "Haber", 
-                            format="%,.2f",
-                            help="Monto del haber en formato numérico contable"
+                            format="%.2f",
+                            step=0.01,
+                            help="Monto del haber"
                         ),
                     },
                     key="editor_segundo_frame_ventas"
                 )
                 
+                # Forzar limpieza numérica de nuevo al editar por el usuario
+                df_editado = limpiar_y_forzar_numerico(df_editado)
                 for idx in df_editado.index:
                     codigo_puro = extraer_solo_codigo(df_editado.at[idx, "plan_cuentas"])
                     df_editado.at[idx, "plan_cuentas"] = codigo_puro
                     df_editado.at[idx, "cuenta_contable"] = mapa_descripciones.get(codigo_puro, "")
-                    df_editado.at[idx, "debe"] = float(df_editado.at[idx, "debe"] or 0.0)
-                    df_editado.at[idx, "haber"] = float(df_editado.at[idx, "haber"] or 0.0)
 
                 st.session_state['df_asientos_ventas_proceso'] = df_editado
 
