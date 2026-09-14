@@ -8485,6 +8485,185 @@ def renderizar_tab_asientos_ventas(db_connection):
                 if hasattr(db_connection, 'rollback'):
                     db_connection.rollback()
                 st.error(f"❌ Error crítico al guardar en MySQL: {str(db_err)}")
+    # ----------------------------------------------------
+    # TERCER FRAME: CONCILIACIÓN Y CRUCE DE COBRANZAS (BANCO VS. CUENTAS POR COBRAR)
+    # ----------------------------------------------------
+    st.markdown("---")
+    st.markdown("### 🔄 Tercer Frame: Conciliación y Cruce de Cobros (Banco vs. Asientos Contables)")
+
+    try:
+        with db_connection.cursor() as cur_banco:
+            # 1. Obtener las cuentas bancarias disponibles desde banco_movimientos (usando cuenta_numero y banco_nombre)
+            cur_banco.execute(f"""
+                SELECT DISTINCT cuenta_numero, banco_nombre 
+                FROM `{db_segura}`.banco_movimientos 
+                WHERE cuenta_numero IS NOT NULL AND cuenta_numero != ''
+            """)
+            cuentas_banco_db = cur_banco.fetchall()
+    except Exception as e:
+        cuentas_banco_db = []
+        st.warning(f"No se pudieron cargar las cuentas bancarias automáticamente: {e}")
+
+    # Formatear opciones para la lista desplegable de cuentas bancarias
+    opciones_cuentas_banco = [f"{row[0]} - {row[1]}" for row in cuentas_banco_db] if cuentas_banco_db else ["N/A - Sin cuentas registradas"]
+
+    col_c1, col_c2 = st.columns([2, 1])
+    with col_c1:
+        cuenta_banco_seleccionada_str = st.selectbox(
+            "Seleccione la Cuenta Bancaria para el Cruce de Cobros:",
+            options=opciones_cuentas_banco,
+            key="select_cuenta_banco_tercer_frame"
+        )
+
+    # Extraer el número de cuenta puro de la selección
+    cuenta_banco_activa = cuenta_banco_seleccionada_str.split(" - ")[0].strip() if " - " in cuenta_banco_seleccionada_str else ""
+
+    if st.button("🔍 Ejecutar Matching / Cruce de Cobranzas", key="btn_ejecutar_matching_banco", use_container_width=False):
+        if not cuenta_banco_activa or cuenta_banco_activa == "N/A":
+            st.error("❌ Por favor, seleccione una cuenta bancaria válida antes de ejecutar el matching.")
+        else:
+            try:
+                with db_connection.cursor() as cursor_match:
+                    # 2. Consultar Asientos Contables de Cuentas por Cobrar (debe > 0 con RIF en descripcion)
+                    cursor_match.execute(f"""
+                        SELECT id, n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber
+                        FROM `{db_segura}`.asientos_contables
+                        WHERE debe > 0 AND (descripcion LIKE '%V-%' OR descripcion LIKE '%J-%' OR descripcion LIKE '%G-%' OR descripcion LIKE '%E-%')
+                    """)
+                    asientos_cx_cobrar = cursor_match.fetchall()
+
+                    # 3. Consultar Movimientos del Banco para la cuenta seleccionada (abonos/créditos representados con monto > 0)
+                    cursor_match.execute(f"""
+                        SELECT id, fecha_movimiento, descripcion, referencia, monto, cuenta_numero
+                        FROM `{db_segura}`.banco_movimientos
+                        WHERE cuenta_numero = %s AND monto > 0
+                    """, (cuenta_banco_activa,))
+                    movimientos_banco = cursor_match.fetchall()
+
+                    st.info(f"📊 Se encontraron **{len(asientos_cx_cobrar)}** registros contables de cobro potencial y **{len(movimientos_banco)}** movimientos en el banco para la cuenta `{cuenta_banco_activa}`.")
+
+                    # Algoritmo de Matching basado en la extracción del RIF de la columna 'descripcion'
+                    import re
+                    def extraer_rif_texto(texto):
+                        if not texto:
+                            return None
+                        # Patrón estándar venezolano para RIF
+                        match = re.search(r'\b([VJGEP]-\d{6,10}-\d|\b[VJGEP]\d{7,10})\b', str(texto), re.IGNORECASE)
+                        if match:
+                            return match.group(0).upper().strip()
+                        return None
+
+                    coincidencias_encontradas = []
+
+                    for asiento in asientos_cx_cobrar:
+                        a_id, a_comp, a_desc, a_fecha, a_plan, a_cta_cont, a_ref, a_debe, a_haber = asiento
+                        rif_asiento = extraer_rif_texto(a_desc)
+                        
+                        if not rif_asiento:
+                            continue
+
+                        for mov in movimientos_banco:
+                            m_id, m_fecha, m_desc, m_ref, m_monto, m_cta = mov
+                            rif_banco = extraer_rif_texto(m_desc)
+
+                            if not rif_banco:
+                                continue
+
+                            # Cruce estricto por coincidencia de RIF y proximidad/igualdad de montos
+                            if rif_asiento == rif_banco:
+                                diferencia_monto = abs(float(a_debe) - float(m_monto))
+                                if diferencia_monto < 0.05:
+                                    coincidencias_encontradas.append({
+                                        "asiento_id": a_id,
+                                        "comprobante": a_comp,
+                                        "rif": rif_asiento,
+                                        "descripcion_contable": a_desc,
+                                        "monto_factura": a_debe,
+                                        "banco_mov_id": m_id,
+                                        "fecha_banco": m_fecha,
+                                        "descripcion_banco": m_desc,
+                                        "monto_banco": m_monto,
+                                        "estado": "Conciliado por RIF"
+                                    })
+                                    break # Salimos del loop del banco al hallar su match
+
+                    if coincidencias_encontradas:
+                        df_matching = pd.DataFrame(coincidencias_encontradas)
+                        st.success(f"¡Se han conciliado exitosamente **{len(df_matching)}** facturas contra los movimientos del banco!")
+                        st.dataframe(df_matching, use_container_width=True)
+                        st.session_state['df_matching_resultado'] = df_matching
+                    else:
+                        st.warning("⚠️ No se encontraron coincidencias exactas por RIF y monto en las descripciones de ambas tablas.")
+
+            except Exception as err_match:
+                st.error(f"❌ Error ejecutando el proceso de matching: {str(err_match)}")
+
+    # ----------------------------------------------------
+    # ACCIÓN PARA REGISTRAR EL ASIENTO DE CANCELACIÓN (BANCO VS CXC)
+    # ----------------------------------------------------
+    if 'df_matching_resultado' in st.session_state and not st.session_state['df_matching_resultado'].empty:
+        if st.button("💾 Registrar Asientos de Cancelación de Facturas en el Libro Diario", key="btn_guardar_cancelacion_banco"):
+            try:
+                with db_connection.cursor() as cur_cancela:
+                    registros_asentados = 0
+                    for _, row_m in st.session_state['df_matching_resultado'].iterrows():
+                        
+                        # Buscamos la cuenta contable original de la factura para reversarla en el Haber
+                        cur_cancela.execute(f"""
+                            SELECT plan_cuentas, cuenta_contable, fecha 
+                            FROM `{db_segura}`.asientos_contables 
+                            WHERE id = %s
+                        """, (int(row_m['asiento_id']),))
+                        datos_originales = cur_cancela.fetchone()
+                        
+                        if datos_originales:
+                            cta_cxc = datos_originales[0]
+                            nom_cta = datos_originales[1]
+                            monto_cobro = float(row_m['monto_banco'])
+                            
+                            # 1. Registrar el movimiento en el HABER (disminuye la cuenta por cobrar del cliente)
+                            cur_cancela.execute(f"""
+                                INSERT INTO `{db_segura}`.asientos_contables 
+                                (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber, bloqueado)
+                                VALUES (%s, %s, NOW(), %s, %s, %s, 0.00, %s, 0)
+                            """, (
+                                f"COL-{row_m['comprobante']}",
+                                f"Cobro factura segun banco - RIF: {row_m['rif']} - Desc. Banco: {str(row_m['descripcion_banco'])[:50]}",
+                                str(cta_cxc),
+                                str(nom_cta),
+                                f"BANCO-{row_m['banco_mov_id']}",
+                                monto_cobro
+                            ))
+                            
+                            # 2. Registrar el movimiento en el DEBE (ingresa el dinero al Banco)
+                            cur_cancela.execute(f"""
+                                INSERT INTO `{db_segura}`.asientos_contables 
+                                (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber, bloqueado)
+                                VALUES (%s, %s, NOW(), %s, %s, %s, %s, 0.00, 0)
+                            """, (
+                                f"COL-{row_m['comprobante']}",
+                                f"Ingreso en Banco por cobranza - RIF: {row_m['rif']}",
+                                "1.1.1.01.001",  # Cuenta contable de Banco (ajustable si lo requieres)
+                                "Efectivo y Equivalentes de Efectivo - Bancos",
+                                f"BANCO-{row_m['banco_mov_id']}",
+                                monto_cobro
+                            ))
+                            
+                            # 3. Actualizar el estado en banco_movimientos para indicar que ya fue conciliado / asociado a un asiento
+                            cur_cancela.execute(f"""
+                                UPDATE `{db_segura}`.banco_movimientos 
+                                SET estado_conciliacion = 'Conciliado', asiento_id = %s 
+                                WHERE id = %s
+                            """, (int(row_m['asiento_id']), int(row_m['banco_mov_id'])))
+
+                            registros_asentados += 1
+
+                    db_connection.commit()
+                    st.success(f"✅ ¡Se registraron correctamente {registros_asentados} asientos de cancelación y se actualizaron los movimientos bancarios!")
+            except Exception as e_reg:
+                if hasattr(db_connection, 'rollback'):
+                    db_connection.rollback()
+                st.error(f"❌ Error al guardar los asientos de cancelación: {e_reg}")
 
 def gestionar_sidebar():
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
