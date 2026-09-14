@@ -6777,8 +6777,35 @@ def renderizar_tab_asientos_automatizados(db_connection):
             # SEGUNDO FRAME: ESTRUCTURA COMPLETA
             # ----------------------------------------------------
             if 'df_asientos_proceso' in st.session_state and not st.session_state['df_asientos_proceso'].empty:
-                df_a_procesar = st.session_state['df_asientos_proceso']
+                df_a_procesar = st.session_state['df_asientos_proceso'].copy()
                 
+                # --- FUNCIÓN PARA LIMPIAR Y CONVERTIR MONTOS ---
+                def limpiar_monto(val):
+                    if pd.isna(val):
+                        return 0.0
+                    if isinstance(val, (int, float)):
+                        return float(val)
+                    
+                    val_str = str(val).replace('$', '').strip()
+                    # Si tiene tanto punto como coma (ej: "335.891,00")
+                    if ',' in val_str and '.' in val_str:
+                        # Asume que el punto es miles y la coma es decimal
+                        val_str = val_str.replace('.', '').replace(',', '.')
+                    elif ',' in val_str:
+                        # Si solo tiene coma, la asumimos como decimal
+                        val_str = val_str.replace(',', '.')
+                    
+                    try:
+                        return float(val_str)
+                    except ValueError:
+                        return 0.0
+
+                # Aplicar la limpieza a las columnas 'debe' y 'haber' antes de procesar o mostrar
+                if 'debe' in df_a_procesar.columns:
+                    df_a_procesar['debe'] = df_a_procesar['debe'].apply(limpiar_monto)
+                if 'haber' in df_a_procesar.columns:
+                    df_a_procesar['haber'] = df_a_procesar['haber'].apply(limpiar_monto)
+
                 st.markdown(f"### 📋 Segundo Frame: Estructura Completa del Asiento Contable ({len(df_a_procesar)} registros)")
                 
                 def extraer_solo_codigo(val):
@@ -6823,6 +6850,8 @@ def renderizar_tab_asientos_automatizados(db_connection):
                     df_editado.at[idx, "cuenta_contable"] = mapa_descripciones.get(codigo_puro, "")
 
                 st.session_state['df_asientos_proceso'] = df_editado
+                
+                # El resto de tu código sigue exactamente igual...
 
                 tot_debe = df_editado['debe'].sum()
                 tot_haber = df_editado['haber'].sum()
@@ -8266,8 +8295,10 @@ def renderizar_tab_asientos_ventas(db_connection):
                 ),
                 "cuenta_contable": st.column_config.TextColumn("Descripción Cuenta", disabled=True),
                 "referencia": st.column_config.TextColumn("Referencia"),
-                "debe": st.column_config.NumberColumn("Debe", format="%,.2f"),
-                "haber": st.column_config.NumberColumn("Haber", format="%,.2f"),
+                # Usar formato estándar con separador de miles por coma y decimal por punto, 
+                # o asegurar que el tipo de dato en pandas sea float de 64 bits.
+                "debe": st.column_config.NumberColumn("Debe", format="$ %.2f"),
+                "haber": st.column_config.NumberColumn("Haber", format="$ %.2f"),
             },
             key="editor_segundo_frame_ventas"
         )
