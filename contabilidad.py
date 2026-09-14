@@ -7917,7 +7917,7 @@ def renderizar_tab_asientos_ventas(db_connection):
         st.warning(f"⚠️ No se pudo consultar la tabla `clientes_comerciales`: {e}")
 
     # ----------------------------------------------------
-    # FUNCIÓN INTERNA PARA FORMATEAR Y CONVERTIR A NÚMERO
+    # FUNCIÓN INTERNA PARA FORMATEAR Y CONVERTIR A NÚMERO ROBUSTA
     # ----------------------------------------------------
     def limpiar_y_forzar_numerico(df):
         if df is None or df.empty:
@@ -7931,28 +7931,30 @@ def renderizar_tab_asientos_ventas(db_connection):
             ]
 
             if any(term in c_lower for term in keywords) or col in ["debe", "haber"]:
-                # Si los datos vienen como string con formato de miles (ej: "335.891,00")
-                serie_str = df[col].astype(str).str.strip()
+                s = df[col].astype(str).str.strip()
+                s = s.str.replace(" ", "", regex=False).str.replace("$", "", regex=False).str.replace("Bs.", "", regex=False)
                 
-                # Verificamos si usa puntos como miles y coma como decimal
-                # Limpiamos quitando espacios y símbolos de moneda
-                serie_limpia = (
-                    serie_str.str.replace(" ", "", regex=False)
-                    .str.replace("$", "", regex=False)
-                    .str.replace("Bs.", "", regex=False)
-                )
-                
-                # Reemplazamos los puntos de miles por vacío y la coma decimal por punto estándar de Python
-                serie_limpia = (
-                    serie_limpia.str.replace(".", "", regex=False)
-                    .str.replace(",", ".", regex=False)
-                )
+                def parsear_valor_latino(val):
+                    if not val or val == "nan" or val == "None":
+                        return 0.0
+                    val = str(val).strip()
+                    try:
+                        if "," in val and "." in val:
+                            if val.rfind(",") > val.rfind("."):
+                                val = val.replace(".", "").replace(",", ".")
+                            else:
+                                val = val.replace(",", "")
+                        elif "," in val:
+                            val = val.replace(".", "").replace(",", ".")
+                        elif "." in val:
+                            partes = val.split(".")
+                            if len(partes) > 2 or len(partes[-1]) != 2:
+                                val = val.replace(".", "")
+                        return float(val)
+                    except:
+                        return 0.0
 
-                df[col] = (
-                    pd.to_numeric(serie_limpia, errors="coerce")
-                    .fillna(0.0)
-                    .astype(float)
-                )
+                df[col] = s.apply(parsear_valor_latino)
         return df
 
     # ----------------------------------------------------
@@ -7970,7 +7972,8 @@ def renderizar_tab_asientos_ventas(db_connection):
 
     if archivo_excel is not None:
         try:
-            df_ventas = pd.read_excel(archivo_excel)
+            # Forzamos lectura a string para preservar formatos originales de celdas
+            df_ventas = pd.read_excel(archivo_excel, dtype=str)
             df_ventas.columns = df_ventas.columns.str.strip()
             df_ventas = limpiar_y_forzar_numerico(df_ventas)
 
@@ -7987,7 +7990,7 @@ def renderizar_tab_asientos_ventas(db_connection):
                 es_total_ventas = "total" in c_lower and "venta" in c_lower
                 es_ventas_exentas = "exenta" in c_lower and "venta" in c_lower
                 
-                if es_total_ventas or es_ventas_exentas:
+                if es_total_ventas or es_ventas_exentas or "base" in c_lower or "debito" in c_lower:
                     df_ventas_visual[col] = df_ventas_visual[col].apply(formato_venezolano)
 
             configuracion_columnas_dataframe = {}
@@ -7996,7 +7999,7 @@ def renderizar_tab_asientos_ventas(db_connection):
                 es_total_ventas = "total" in c_lower and "venta" in c_lower
                 es_ventas_exentas = "exenta" in c_lower and "venta" in c_lower
                 
-                if es_total_ventas or es_ventas_exentas:
+                if es_total_ventas or es_ventas_exentas or "base" in c_lower or "debito" in c_lower:
                     configuracion_columnas_dataframe[col] = (
                         st.column_config.TextColumn(str(col))
                     )
