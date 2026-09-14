@@ -8250,18 +8250,31 @@ def renderizar_tab_asientos_ventas(db_connection):
             st.error(f"Error al leer o procesar el archivo Excel: {excel_err}")
 
     # ----------------------------------------------------
-    # SEGUNDO FRAME: ESTRUCTURA COMPLETA DE VENTAS (AJUSTADO A INGRESOS EXENTOS)
+    # SEGUNDO FRAME: ESTRUCTURA COMPLETA DE VENTAS (CORREGIDO)
     # ----------------------------------------------------
     if 'df_asientos_ventas_proceso' in st.session_state and not st.session_state['df_asientos_ventas_proceso'].empty:
         df_a_procesar = st.session_state['df_asientos_ventas_proceso'].copy()
         
         st.markdown(f"### 📋 Segundo Frame: Estructura del Asiento de Ventas ({len(df_a_procesar)} registros)")
         
+        # --- LIMPIAR DEBE Y HABER DESDE EL INICIO PARA EVITAR VALUEERROR ---
+        for col in ['debe', 'haber']:
+            if col in df_a_procesar.columns:
+                df_a_procesar[col] = (
+                    df_a_procesar[col]
+                    .astype(str)
+                    .str.replace('$', '', regex=False)
+                    .str.replace('€', '', regex=False)
+                    .str.replace('.', '', regex=False)   # Elimina separador de miles
+                    .str.replace(',', '.', regex=False)  # Cambia coma por punto decimal
+                    .str.strip()
+                )
+                df_a_procesar[col] = pd.to_numeric(df_a_procesar[col], errors='coerce').fillna(0.0)
+
         # --- ASEGURAR QUE MAPA_DESCRIPCIONES EXISTA Y TENGA LA CUENTA POR DEFECTO ---
         if 'mapa_descripciones' not in locals() and 'mapa_descripciones' not in globals():
             mapa_descripciones = {} 
         
-        # Forzar la descripción oficial del ingreso exento por si no estaba cargada
         mapa_descripciones["4.1.1.01.001"] = "Ingresos Exento I.V.A."
 
         # --- FUNCIÓN AUXILIAR PARA FORMATO VENEZOLANO ---
@@ -8299,43 +8312,34 @@ def renderizar_tab_asientos_ventas(db_connection):
             
             return None, None, None
 
-        # --- ASIGNACIÓN AUTOMÁTICA DE CUENTAS (Cuentas por Cobrar vs Ingresos Exentos) ---
+        # --- ASIGNACIÓN AUTOMÁTICA DE CUENTAS ---
         for idx in df_a_procesar.index:
             desc_actual = str(df_a_procesar.at[idx, "descripcion"]) if "descripcion" in df_a_procesar.columns else ""
             
             cod_cliente, desc_cliente, rif_oficial = obtener_datos_cliente_por_texto(desc_actual)
             
-            # Determinamos si esta línea es un Débito (Cliente) o un Haber (Ingreso Exento)
-            # Evaluamos el valor del haber para saber si es la línea del ingreso
+            # Como ya limpiamos arriba, esto ahora es un float seguro de Python
             haber_val = float(df_a_procesar.at[idx, "haber"]) if "haber" in df_a_procesar.columns else 0.0
             debe_val = float(df_a_procesar.at[idx, "debe"]) if "debe" in df_a_procesar.columns else 0.0
 
             if haber_val > 0 and debe_val == 0:
-                # Todo crédito va directo contra el ingreso exento que pediste
                 df_a_procesar.at[idx, "plan_cuentas"] = "4.1.1.01.001"
             else:
-                # Si es débito o línea de cliente, asignamos su cuenta comercial si la encuentra
                 if cod_cliente:
                     df_a_procesar.at[idx, "plan_cuentas"] = cod_cliente
                     if cod_cliente not in mapa_descripciones and desc_cliente:
                         mapa_descripciones[cod_cliente] = desc_cliente
 
-            # Inyectar RIF oficial en la descripción si aplica
             if rif_oficial and rif_oficial not in desc_actual:
                 if " - RIF:" not in desc_actual:
                     df_a_procesar.at[idx, "descripcion"] = f"{desc_actual} - RIF: {rif_oficial}"
 
             codigo_actual = extraer_solo_codigo(df_a_procesar.at[idx, "plan_cuentas"])
             
-            # Asignar descripción de la cuenta correspondiente
             if codigo_actual == "4.1.1.01.001":
                 df_a_procesar.at[idx, "cuenta_contable"] = "Ingresos Exento I.V.A."
             else:
                 df_a_procesar.at[idx, "cuenta_contable"] = mapa_descripciones.get(codigo_actual, desc_cliente if 'desc_cliente' in locals() else "")
-
-        opciones_codigos_puros = list(mapa_descripciones.keys())
-        if "4.1.1.01.001" not in opciones_codigos_puros:
-            opciones_codigos_puros.insert(0, "4.1.1.01.001")
 
         # --- PREPARAR DATAFRAME PARA MOSTRAR ---
         df_para_mostrar = df_a_procesar.copy()
