@@ -8250,7 +8250,7 @@ def renderizar_tab_asientos_ventas(db_connection):
             st.error(f"Error al leer o procesar el archivo Excel: {excel_err}")
 
     # ----------------------------------------------------
-    # SEGUNDO FRAME: ESTRUCTURA COMPLETA DE VENTAS (CORREGIDO Y OPTIMIZADO)
+    # SEGUNDO FRAME: ESTRUCTURA COMPLETA DE VENTAS (FORMATO ORIGINAL RESTAURADO)
     # ----------------------------------------------------
     if 'df_asientos_ventas_proceso' in st.session_state and not st.session_state['df_asientos_ventas_proceso'].empty:
         df_a_procesar = st.session_state['df_asientos_ventas_proceso'].copy()
@@ -8265,7 +8265,7 @@ def renderizar_tab_asientos_ventas(db_connection):
                     .astype(str)
                     .str.replace('$', '', regex=False)
                     .str.replace('€', '', regex=False)
-                    .str.replace('.', '', regex=False)   # Elimina separador de miles
+                    .str.replace('.', '', regex=False)   # Elimina separador de miles si lo trae
                     .str.replace(',', '.', regex=False)  # Cambia coma por punto decimal
                     .str.strip()
                 )
@@ -8277,7 +8277,7 @@ def renderizar_tab_asientos_ventas(db_connection):
         
         mapa_descripciones["4.1.1.01.001"] = "Ingresos Exento I.V.A."
 
-        # --- FUNCIÓN AUXILIAR PARA FORMATO VENEZOLANO ---
+        # --- FUNCIÓN AUXILIAR PARA FORMATO VENEZOLANO (Solo para métricas finales) ---
         def formato_venezolano(val):
             try:
                 return f"{float(val):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
@@ -8321,7 +8321,6 @@ def renderizar_tab_asientos_ventas(db_connection):
             haber_val = float(df_a_procesar.at[idx, "haber"]) if "haber" in df_a_procesar.columns else 0.0
             debe_val = float(df_a_procesar.at[idx, "debe"]) if "debe" in df_a_procesar.columns else 0.0
 
-            # Los créditos van directo contra el ingreso exento que pediste
             if haber_val > 0 and debe_val == 0:
                 df_a_procesar.at[idx, "plan_cuentas"] = "4.1.1.01.001"
             else:
@@ -8341,23 +8340,14 @@ def renderizar_tab_asientos_ventas(db_connection):
             else:
                 df_a_procesar.at[idx, "cuenta_contable"] = mapa_descripciones.get(codigo_actual, desc_cliente if 'desc_cliente' in locals() else "")
 
-        # --- ASEGURAR OPCIONES DE CÓDIGOS PARA EL SELECTBOX DE FORMA SEGURA ---
+        # --- OPCIONES DE CÓDIGOS PARA EL SELECTBOX ---
         opciones_codigos_puros = list(mapa_descripciones.keys())
         if not opciones_codigos_puros or "4.1.1.01.001" not in opciones_codigos_puros:
             opciones_codigos_puros = ["4.1.1.01.001"] + [op for op in opciones_codigos_puros if op != "4.1.1.01.001"]
 
-        # --- PREPARAR DATAFRAME PARA MOSTRAR ---
-        df_para_mostrar = df_a_procesar.copy()
-        for col in ['debe', 'haber']:
-            if col in df_para_mostrar.columns:
-                df_para_mostrar[col] = pd.to_numeric(
-                    df_para_mostrar[col].astype(str).str.replace('$', '', regex=False).str.replace('.', '', regex=False).str.replace(',', '.', regex=False), 
-                    errors='coerce'
-                ).fillna(0.0)
-                df_para_mostrar[col] = df_para_mostrar[col].apply(formato_venezolano)
-
+        # --- RENDERIZAR EL EDITOR CON LOS VALORES NUMÉRICOS ORIGINALES ---
         df_editado_crudo = st.data_editor(
-            df_para_mostrar,
+            df_a_procesar,
             num_rows="dynamic",
             use_container_width=True,
             column_config={
@@ -8371,8 +8361,8 @@ def renderizar_tab_asientos_ventas(db_connection):
                 ),
                 "cuenta_contable": st.column_config.TextColumn("Descripción Cuenta", disabled=True),
                 "referencia": st.column_config.TextColumn("Referencia"),
-                "debe": st.column_config.TextColumn("Debe"),
-                "haber": st.column_config.TextColumn("Haber"),
+                "debe": st.column_config.NumberColumn("Debe", format="%.2f"),
+                "haber": st.column_config.NumberColumn("Haber", format="%.2f"),
             },
             key="editor_segundo_frame_ventas"
         )
@@ -8381,15 +8371,7 @@ def renderizar_tab_asientos_ventas(db_connection):
         df_editado = df_editado_crudo.copy()
         for col in ['debe', 'haber']:
             if col in df_editado.columns:
-                col_limpia = (
-                    df_editado[col]
-                    .astype(str)
-                    .str.replace('$', '', regex=False)
-                    .str.replace('.', '', regex=False)  
-                    .str.replace(',', '.', regex=False)  
-                    .str.strip()
-                )
-                df_editado[col] = pd.to_numeric(col_limpia, errors='coerce').fillna(0.0).astype(float)
+                df_editado[col] = pd.to_numeric(df_editado[col], errors='coerce').fillna(0.0).astype(float)
 
         for idx in df_editado.index:
             codigo_puro = extraer_solo_codigo(df_editado.at[idx, "plan_cuentas"])
