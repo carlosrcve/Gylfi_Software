@@ -8250,16 +8250,19 @@ def renderizar_tab_asientos_ventas(db_connection):
             st.error(f"Error al leer o procesar el archivo Excel: {excel_err}")
 
     # ----------------------------------------------------
-    # SEGUNDO FRAME: ESTRUCTURA COMPLETA DE VENTAS (CORREGIDO PARA DETECTAR RIF POR NOMBRE/DESCRIPCIÓN)
+    # SEGUNDO FRAME: ESTRUCTURA COMPLETA DE VENTAS (AJUSTADO A INGRESOS EXENTOS)
     # ----------------------------------------------------
     if 'df_asientos_ventas_proceso' in st.session_state and not st.session_state['df_asientos_ventas_proceso'].empty:
         df_a_procesar = st.session_state['df_asientos_ventas_proceso'].copy()
         
         st.markdown(f"### 📋 Segundo Frame: Estructura del Asiento de Ventas ({len(df_a_procesar)} registros)")
         
-        # --- ASEGURAR QUE MAPA_DESCRIPCIONES EXISTA ---
+        # --- ASEGURAR QUE MAPA_DESCRIPCIONES EXISTA Y TENGA LA CUENTA POR DEFECTO ---
         if 'mapa_descripciones' not in locals() and 'mapa_descripciones' not in globals():
             mapa_descripciones = {} 
+        
+        # Forzar la descripción oficial del ingreso exento por si no estaba cargada
+        mapa_descripciones["4.1.1.01.001"] = "Ingresos Exento I.V.A."
 
         # --- FUNCIÓN AUXILIAR PARA FORMATO VENEZOLANO ---
         def formato_venezolano(val):
@@ -8274,18 +8277,13 @@ def renderizar_tab_asientos_ventas(db_connection):
                 return val_str.split(" - ")[0].strip()
             return val_str
 
-        # --- FUNCIÓN PARA BUSCAR EN CLIENTES_COMERCIALES POR COINCIDENCIA DE TEXTO ---
+        # --- FUNCIÓN PARA BUSCAR EN CLIENTES_COMERCIALES ---
         def obtener_datos_cliente_por_texto(texto_fila):
-            """
-            Busca en la tabla clientes_comerciales si alguna razon_social o descripcion_cuenta
-            coincide con el texto del asiento para extraer su cuenta y su RIF oficial.
-            """
             if not texto_fila or str(texto_fila).strip() in ["", "nan", "None"]:
                 return None, None, None
             
             try:
                 with db_connection.cursor() as cur_cc:
-                    # Traemos todos los clientes comerciales para hacer el match de manera segura en Python o SQL
                     cur_cc.execute(f"""
                         SELECT codigo_cuenta, descripcion_cuenta, rif, razon_social 
                         FROM `{db_segura}`.clientes_comerciales;
@@ -8294,7 +8292,6 @@ def renderizar_tab_asientos_ventas(db_connection):
                     
                     texto_upper = str(texto_fila).upper()
                     for codigo_cta, desc_cta, rif_cli, razon in resultados:
-                        # Verificamos si el nombre o la descripción del cliente están presentes en la línea del asiento
                         if (razon and str(razon).upper() in texto_upper) or (desc_cta and str(desc_cta).upper() in texto_upper):
                             return str(codigo_cta).strip(), str(desc_cta).strip(), str(rif_cli).strip()
             except Exception as e:
@@ -8302,35 +8299,45 @@ def renderizar_tab_asientos_ventas(db_connection):
             
             return None, None, None
 
-        # --- ASIGNAR AUTOMÁTICAMENTE LA CUENTA Y EL RIF DESDE CLIENTES_COMERCIALES ---
+        # --- ASIGNACIÓN AUTOMÁTICA DE CUENTAS (Cuentas por Cobrar vs Ingresos Exentos) ---
         for idx in df_a_procesar.index:
             desc_actual = str(df_a_procesar.at[idx, "descripcion"]) if "descripcion" in df_a_procesar.columns else ""
             
-            # Buscamos los datos del cliente cruzando la descripción actual con la tabla de clientes
             cod_cliente, desc_cliente, rif_oficial = obtener_datos_cliente_por_texto(desc_actual)
             
-            if cod_cliente:
-                df_a_procesar.at[idx, "plan_cuentas"] = cod_cliente
-                if cod_cliente not in mapa_descripciones and desc_cliente:
-                    mapa_descripciones[cod_cliente] = desc_cliente
-                
-                # Si encontramos el RIF oficial (ej. V12728824), lo inyectamos de forma limpia en la descripción
-                if rif_oficial and rif_oficial not in desc_actual:
-                    # Si ya tiene una descripción base, le agregamos el RIF al final o formato estándar
-                    if " - RIF:" not in desc_actual:
-                        df_a_procesar.at[idx, "descripcion"] = f"{desc_actual} - RIF: {rif_oficial}"
+            # Determinamos si esta línea es un Débito (Cliente) o un Haber (Ingreso Exento)
+            # Evaluamos el valor del haber para saber si es la línea del ingreso
+            haber_val = float(df_a_procesar.at[idx, "haber"]) if "haber" in df_a_procesar.columns else 0.0
+            debe_val = float(df_a_procesar.at[idx, "debe"]) if "debe" in df_a_procesar.columns else 0.0
+
+            if haber_val > 0 and debe_val == 0:
+                # Todo crédito va directo contra el ingreso exento que pediste
+                df_a_procesar.at[idx, "plan_cuentas"] = "4.1.1.01.001"
             else:
-                codigo_puro = extraer_solo_codigo(df_a_procesar.at[idx, "plan_cuentas"] if "plan_cuentas" in df_a_procesar.columns else "")
-                df_a_procesar.at[idx, "plan_cuentas"] = codigo_puro
+                # Si es débito o línea de cliente, asignamos su cuenta comercial si la encuentra
+                if cod_cliente:
+                    df_a_procesar.at[idx, "plan_cuentas"] = cod_cliente
+                    if cod_cliente not in mapa_descripciones and desc_cliente:
+                        mapa_descripciones[cod_cliente] = desc_cliente
+
+            # Inyectar RIF oficial en la descripción si aplica
+            if rif_oficial and rif_oficial not in desc_actual:
+                if " - RIF:" not in desc_actual:
+                    df_a_procesar.at[idx, "descripcion"] = f"{desc_actual} - RIF: {rif_oficial}"
 
             codigo_actual = extraer_solo_codigo(df_a_procesar.at[idx, "plan_cuentas"])
-            df_a_procesar.at[idx, "cuenta_contable"] = mapa_descripciones.get(codigo_actual, desc_cliente if 'desc_cliente' in locals() else "")
+            
+            # Asignar descripción de la cuenta correspondiente
+            if codigo_actual == "4.1.1.01.001":
+                df_a_procesar.at[idx, "cuenta_contable"] = "Ingresos Exento I.V.A."
+            else:
+                df_a_procesar.at[idx, "cuenta_contable"] = mapa_descripciones.get(codigo_actual, desc_cliente if 'desc_cliente' in locals() else "")
 
         opciones_codigos_puros = list(mapa_descripciones.keys())
-        if not opciones_codigos_puros:
-            opciones_codigos_puros = ["1.1.2.01.001", "4.1.1.01.001", "2.1.2.01.001"]
+        if "4.1.1.01.001" not in opciones_codigos_puros:
+            opciones_codigos_puros.insert(0, "4.1.1.01.001")
 
-        # --- PREPARAR DATAFRAME PARA MOSTRAR CON FORMATO VENEZOLANO EN TEXTO ---
+        # --- PREPARAR DATAFRAME PARA MOSTRAR ---
         df_para_mostrar = df_a_procesar.copy()
         for col in ['debe', 'haber']:
             if col in df_para_mostrar.columns:
@@ -8349,7 +8356,7 @@ def renderizar_tab_asientos_ventas(db_connection):
                 "descripcion": st.column_config.TextColumn("Descripción (Incluye RIF)"),
                 "fecha": st.column_config.TextColumn("Fecha"),
                 "plan_cuentas": st.column_config.SelectboxColumn(
-                    "Plan de Cuentas (Cuentas x Cobrar Cliente)",
+                    "Plan de Cuentas (Cliente o Ingreso Exento)",
                     options=opciones_codigos_puros,
                     required=True
                 ),
@@ -8361,7 +8368,7 @@ def renderizar_tab_asientos_ventas(db_connection):
             key="editor_segundo_frame_ventas"
         )
         
-        # --- BLINDAJE Y RECONVERSIÓN DE FORMATO VENEZOLANO A FLOAT DE PYTHON ---
+        # --- BLINDAJE Y RECONVERSIÓN A FLOAT ---
         df_editado = df_editado_crudo.copy()
         for col in ['debe', 'haber']:
             if col in df_editado.columns:
@@ -8378,7 +8385,10 @@ def renderizar_tab_asientos_ventas(db_connection):
         for idx in df_editado.index:
             codigo_puro = extraer_solo_codigo(df_editado.at[idx, "plan_cuentas"])
             df_editado.at[idx, "plan_cuentas"] = codigo_puro
-            df_editado.at[idx, "cuenta_contable"] = mapa_descripciones.get(codigo_puro, "")
+            if codigo_puro == "4.1.1.01.001":
+                df_editado.at[idx, "cuenta_contable"] = "Ingresos Exento I.V.A."
+            else:
+                df_editado.at[idx, "cuenta_contable"] = mapa_descripciones.get(codigo_puro, "")
 
         st.session_state['df_asientos_proceso'] = df_editado
         
@@ -8458,7 +8468,7 @@ def renderizar_tab_asientos_ventas(db_connection):
                                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 0)
                             """, (
                                 str(row["n_comprobante"]),
-                                str(row["descripcion"]), # Ahora incluirá el RIF (ej. - RIF: V12728824)
+                                str(row["descripcion"]), 
                                 fecha_str,
                                 str(codigo_limpio),
                                 str(row["cuenta_contable"]),
@@ -8469,13 +8479,12 @@ def renderizar_tab_asientos_ventas(db_connection):
                             registros_insertados += 1
                             
                         db_connection.commit()
-                        st.success(f"✅ ¡{registros_insertados} asientos de ventas con sus RIFs integrados guardados en la base de datos `{db_segura}`!")
+                        st.success(f"✅ ¡{registros_insertados} asientos de ventas guardados correctamente contra sus cuentas e ingresos exentos (`4.1.1.01.001`) en `{db_segura}`!")
                         
             except Exception as db_err:
                 if hasattr(db_connection, 'rollback'):
                     db_connection.rollback()
-                st.error(f"❌ Error crítico detallado al guardar en MySQL: {str(db_err)}")
-
+                st.error(f"❌ Error crítico al guardar en MySQL: {str(db_err)}")
 
 def gestionar_sidebar():
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
