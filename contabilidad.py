@@ -6914,9 +6914,10 @@ def renderizar_tab_asientos_automatizados(db_connection):
             st.error(f"Error al leer el archivo Excel: {e}")
 
 
+
 def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
     """
-    Tercer Frame: Conciliación automatizada cruzando por RIF, incluyendo la columna 'referencia' en asientos contables.
+    Tercer Frame: Conciliación automatizada cruzando por RIF, con selección interactiva del Banco de contrapartida.
     """
     st.markdown("---")
     st.markdown("### 🏦 Tercer Frame: Conciliación y Cruce por RIF")
@@ -6951,15 +6952,30 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
         except Exception as err_tabla:
             st.warning(f"⚠️ Nota de tabla banco: {err_tabla}")
 
-    # Cargar Plan de Cuentas para obtener códigos de cuenta reales
+    # Cargar Plan de Cuentas completo y filtrar posibles cuentas de Bancos / Caja
     dict_cuentas_codigo = {}
+    dict_codigo_cuenta = {}
+    lista_cuentas_bancos_opciones = []
+    
     try:
         with db_connection.cursor() as cursor_pc:
             cursor_pc.execute(f"SELECT codigo, nombre FROM `{db_segura}`.plan_cuentas;")
             for cod, nom in cursor_pc.fetchall():
-                dict_cuentas_codigo[str(nom).strip().upper()] = str(cod).strip()
+                cod_str = str(cod).strip()
+                nom_str = str(nom).strip()
+                dict_cuentas_codigo[nom_str.upper()] = cod_str
+                dict_codigo_cuenta[cod_str] = nom_str
+                
+                # Heurística para detectar cuentas de bancos/efectivo (ej. empiezan por 1.1.1 o contienen BANCO/CAJA)
+                nom_upper = nom_str.upper()
+                if cod_str.startswith("1.1.1") or "BANCO" in nom_upper or "BDV" in nom_upper or "CAJA" in nom_upper:
+                    lista_cuentas_bancos_opciones.append(f"{cod_str} - {nom_str}")
     except Exception:
         pass
+
+    # Si no encontró ninguna por filtro estricto, cargamos todo el plan de cuentas como respaldo
+    if not lista_cuentas_bancos_opciones:
+        lista_cuentas_bancos_opciones = [f"{c} - {n}" for c, n in dict_codigo_cuenta.items()]
 
     # Cargar movimientos bancarios pendientes
     df_movs_bd = pd.DataFrame()
@@ -7028,7 +7044,6 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
                     cuenta_orig_nombre = asiento_referencia.get("cuenta_contable", "Proveedores Nacionales")
                     codigo_orig = asiento_referencia.get("plan_cuentas") or dict_cuentas_codigo.get(str(cuenta_orig_nombre).strip().upper(), "2.1.1.01.001")
                     
-                    # Garantizamos que todas las llaves existan explícitamente
                     propuestas.append({
                         "mov_id": mov_id,
                         "banco": banco_nombre,
@@ -7052,11 +7067,26 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
         except Exception as e_scan:
             st.error(f"Error en el análisis de cruce: {e_scan}")
 
-    # 2. SECCIÓN INTERACTIVA: Mostrar cada match con su fecha individual y opción masiva
+    # 2. SECCIÓN INTERACTIVA: Mostrar cada match con su fecha individual y selección de banco
     if st.session_state.get("matches_propuestos"):
         st.markdown("---")
-        st.markdown("#### ⚡ Coincidencias Detectadas y Configuración de Fechas")
-        st.caption("Cada match cuenta con su propio selector de fecha independiente. Puedes ajustarlas antes de procesar individualmente o en lote.")
+        st.markdown("#### ⚡ Coincidencias Detectadas, Fechas y Selección de Banco Salida")
+        st.caption("Selecciona el banco de salida correspondiente para cada pago o utiliza el selector global para aplicarlo a todos en lote.")
+
+        # Selector Global de Banco para el Lote
+        if lista_cuentas_bancos_opciones:
+            banco_global_sel = st.selectbox(
+                "🌐 Seleccionar Banco Global para el Lote de Pagos (Haber)", 
+                options=lista_cuentas_bancos_opciones,
+                key="select_banco_global_lote"
+            )
+            codigo_banco_global = banco_global_sel.split(" - ")[0].strip()
+            nombre_banco_global = " - ".join(banco_global_sel.split(" - ")[1:]).strip()
+        else:
+            codigo_banco_global = "1.1.1.02.001"
+            nombre_banco_global = "Banco Banco de Venezuela (BDV)"
+
+        st.markdown("---")
 
         for idx, prop in enumerate(list(st.session_state.matches_propuestos)):
             with st.container():
@@ -7065,28 +7095,39 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
                 except Exception:
                     fecha_defecto = datetime.today().date()
 
-                # Respaldo seguro por si alguna llave vieja quedó guardada en la sesión del navegador
                 ref_banco_mostrar = prop.get('referencia_banco', prop.get('referencia', ''))
 
                 st.success(
                     f"✅ **Match #{idx + 1} | RIF (`{prop.get('rif_detectado', 'N/D')}`)**\n\n"
                     f"• **Detalle Contabilidad:** `{prop.get('proveedor_nombre', 'N/D')}`\n"
-                    f"• **Banco:** {prop.get('banco', 'N/D')} | Monto: **Bs. {prop.get('monto', 0.0):,.2f}**\n"
+                    f"• **Banco Origen Reporte:** {prop.get('banco', 'N/D')} | Monto: **Bs. {prop.get('monto', 0.0):,.2f}**\n"
                     f"• **Referencia:** `{ref_banco_mostrar}` | **Comprobante Base:** `{prop.get('n_comprobante_origen', 'N/D')}`"
                 )
 
-                col_date, col_btn = st.columns([2, 2])
+                col_date, col_banco, col_btn = st.columns([2, 3, 2])
                 key_fecha = f"fecha_manual_{prop['mov_id']}_{idx}"
+                key_banco_ind = f"banco_manual_{prop['mov_id']}_{idx}"
                 
                 with col_date:
                     fecha_asiento_manual = st.date_input(
-                        "📅 Fecha del Asiento Contable", 
+                        "📅 Fecha del Asiento", 
                         value=fecha_defecto, 
                         key=key_fecha
                     )
+
+                with col_banco:
+                    banco_ind_sel = st.selectbox(
+                        "🏦 Banco de Pago (Haber)",
+                        options=lista_cuentas_bancos_opciones,
+                        index=lista_cuentas_bancos_opciones.index(banco_global_sel) if banco_global_sel in lista_cuentas_bancos_opciones else 0,
+                        key=key_banco_ind
+                    )
+                    cod_banco_actual = banco_ind_sel.split(" - ")[0].strip()
+                    nom_banco_actual = " - ".join(banco_ind_sel.split(" - ")[1:]).strip()
                 
                 with col_btn:
                     st.write("") # Espaciador visual
+                    st.write("") 
                     if st.button(f"🚀 Generar Este Asiento", key=f"btn_generar_pago_{prop['mov_id']}_{idx}", type="primary"):
                         try:
                             fecha_str_manual = fecha_asiento_manual.strftime('%Y-%m-%d')
@@ -7097,8 +7138,15 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
                                 n_comp_pago = f"PAGO-{siguiente_num}"
                                 
                                 desc_pago = f"Pago de Factura | Ref Banco: {prop['descripcion_banco']}"
-                                nombre_banco_contable = f"Banco {prop['banco']}"
-                                codigo_banco_contable = dict_cuentas_codigo.get(nombre_banco_contable.upper(), "1.1.1.02.001")
+                                
+                                # DEBE: Proveedor
+                                cod_debe = prop.get('codigo_destino', "2.1.1.01.001")
+                                cuenta_debe = prop.get('cuenta_destino', "Proveedores Nacionales")
+
+                                # HABER: Banco seleccionado individualmente
+                                cod_haber = cod_banco_actual
+                                cuenta_haber = nom_banco_actual
+
                                 ref_banco = prop.get('referencia_banco', prop.get('referencia', ''))
 
                                 # 1. Proveedor (DEBE)
@@ -7106,14 +7154,14 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
                                     INSERT INTO `{db_segura}`.asientos_contables 
                                     (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber)
                                     VALUES (%s, %s, %s, %s, %s, %s, %s, 0.00)
-                                """, (n_comp_pago, desc_pago, fecha_str_manual, prop['codigo_destino'], prop['cuenta_destino'], ref_banco, prop['monto']))
+                                """, (n_comp_pago, desc_pago, fecha_str_manual, cod_debe, cuenta_debe, ref_banco, prop['monto']))
 
                                 # 2. Banco (HABER)
                                 cursor_pago.execute(f"""
                                     INSERT INTO `{db_segura}`.asientos_contables 
                                     (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber)
                                     VALUES (%s, %s, %s, %s, %s, %s, 0.00, %s)
-                                """, (n_comp_pago, desc_pago, fecha_str_manual, codigo_banco_contable, nombre_banco_contable, ref_banco, prop['monto']))
+                                """, (n_comp_pago, desc_pago, fecha_str_manual, cod_haber, cuenta_haber, ref_banco, prop['monto']))
 
                                 cursor_pago.execute(f"""
                                     UPDATE `{db_segura}`.banco_movimientos 
@@ -7122,7 +7170,7 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
                                 """, (cursor_pago.lastrowid, prop['mov_id']))
 
                                 db_connection.commit()
-                                st.success(f"🎉 ¡Asiento generado con éxito (Comprobante: `{n_comp_pago}` - Fecha: {fecha_str_manual})!")
+                                st.success(f"🎉 ¡Asiento generado con éxito (Comprobante: `{n_comp_pago}` - Banco: {cuenta_haber})!")
                                 st.session_state.matches_propuestos.pop(idx)
                                 st.rerun()
 
@@ -7131,15 +7179,21 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
                             st.error(f"❌ Error al registrar el asiento de pago: {e_pago}")
                 st.markdown("---")
 
-        # Botón general para procesar en lote respetando la fecha individual de cada match
-        if st.button("🚀 Registrar Todos en Lote (Usando la Fecha de Cada Match)", type="primary", key="btn_registrar_todos_matches"):
+        # Botón general para procesar en lote respetando la fecha y banco seleccionado de cada match
+        if st.button("🚀 Registrar Todos en Lote (Usando Fecha y Banco Seleccionado)", type="primary", key="btn_registrar_todos_matches"):
             try:
                 procesados_total = 0
                 with db_connection.cursor() as cursor_pago_lote:
                     for idx, prop in enumerate(list(st.session_state.matches_propuestos)):
                         key_fecha = f"fecha_manual_{prop['mov_id']}_{idx}"
+                        key_banco_ind = f"banco_manual_{prop['mov_id']}_{idx}"
+
                         fecha_seleccionada = st.session_state.get(key_fecha, pd.to_datetime(prop.get('fecha_movimiento')).date())
                         fecha_str_lote = fecha_seleccionada.strftime('%Y-%m-%d')
+
+                        banco_seleccionado_lote = st.session_state.get(key_banco_ind, banco_global_sel)
+                        cod_haber_lote = banco_seleccionado_lote.split(" - ")[0].strip()
+                        cuenta_haber_lote = " - ".join(banco_seleccionado_lote.split(" - ")[1:]).strip()
 
                         cursor_pago_lote.execute(f"SELECT MAX(CAST(SUBSTRING_INDEX(n_comprobante, '-', -1) AS UNSIGNED)) as max_n FROM `{db_segura}`.asientos_contables")
                         res_max = cursor_pago_lote.fetchone()
@@ -7147,8 +7201,9 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
                         n_comp_pago = f"PAGO-{siguiente_num}"
                         
                         desc_pago = f"Pago de Factura | Ref Banco: {prop['descripcion_banco']}"
-                        nombre_banco_contable = f"Banco {prop['banco']}"
-                        codigo_banco_contable = dict_cuentas_codigo.get(nombre_banco_contable.upper(), "1.1.1.02.001")
+                        
+                        cod_debe = prop.get('codigo_destino', "2.1.1.01.001")
+                        cuenta_debe = prop.get('cuenta_destino', "Proveedores Nacionales")
                         ref_banco = prop.get('referencia_banco', prop.get('referencia', ''))
 
                         # 1. Pasivo / Proveedor (DEBE)
@@ -7156,14 +7211,14 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
                             INSERT INTO `{db_segura}`.asientos_contables 
                             (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber)
                             VALUES (%s, %s, %s, %s, %s, %s, %s, 0.00)
-                        """, (n_comp_pago, desc_pago, fecha_str_lote, prop['codigo_destino'], prop['cuenta_destino'], ref_banco, prop['monto']))
+                        """, (n_comp_pago, desc_pago, fecha_str_lote, cod_debe, cuenta_debe, ref_banco, prop['monto']))
 
                         # 2. Banco contrapartida (HABER)
                         cursor_pago_lote.execute(f"""
                             INSERT INTO `{db_segura}`.asientos_contables 
                             (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber)
                             VALUES (%s, %s, %s, %s, %s, %s, 0.00, %s)
-                        """, (n_comp_pago, desc_pago, fecha_str_lote, codigo_banco_contable, nombre_banco_contable, ref_banco, prop['monto']))
+                        """, (n_comp_pago, desc_pago, fecha_str_lote, cod_haber_lote, cuenta_haber_lote, ref_banco, prop['monto']))
 
                         cursor_pago_lote.execute(f"""
                             UPDATE `{db_segura}`.banco_movimientos 
@@ -7175,7 +7230,7 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
 
                 db_connection.commit()
                 st.session_state.matches_propuestos = []
-                st.success(f"🎉 ¡Se han registrado exitosamente los **{procesados_total}** asientos en lote utilizando la fecha asignada de cada match!")
+                st.success(f"🎉 ¡Se han registrado exitosamente los **{procesados_total}** asientos en lote con sus respectivos bancos y fechas!")
                 st.rerun()
 
             except Exception as e_lote_pago:
