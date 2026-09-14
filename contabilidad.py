@@ -8368,7 +8368,7 @@ def renderizar_tab_asientos_ventas(db_connection):
 
         if st.button("💾 Guardar Asientos de Ventas en el Libro Diario", key="btn_guardar_ventas_finales", use_container_width=False):
             try:
-                # --- VALIDACIÓN DE PERÍODO CERRADO ---
+                # --- VALIDACIÓN DE PERÍODO CERRADO DIRECTAMENTE EN MYSQL ---
                 df_val = df_editado.copy()
                 df_val['fecha'] = pd.to_datetime(df_val['fecha'], errors='coerce')
                 anios_meses_excel = set((row['fecha'].year, row['fecha'].month) for _, row in df_val.iterrows() if pd.notnull(row['fecha']))
@@ -8377,31 +8377,29 @@ def renderizar_tab_asientos_ventas(db_connection):
                 mensaje_bloqueo = ""
                 
                 for anio, mes in anios_meses_excel:
-                    if mes == 5:
-                        bloqueo_detectado = True
-                        mensaje_bloqueo = f"❌ **¡Alerta! El mes de mayo ({mes:02d}/{anio}) está cerrado.** No se puede subir el libro de diario del mes de mayo porque ya está cerrado."
-                        break
-                    
                     try:
                         with db_connection.cursor() as cur_check:
+                            # Consulta estricta a MySQL para verificar si el período está cerrado/bloqueado
                             cur_check.execute(f"""
                                 SELECT COUNT(*) FROM `{db_segura}`.asientos_contables 
                                 WHERE YEAR(fecha) = %s AND MONTH(fecha) = %s AND bloqueado = 1
                             """, (anio, mes))
                             res_bloqueo = cur_check.fetchone()
+                            
                             if res_bloqueo and res_bloqueo[0] > 0:
                                 bloqueo_detectado = True
-                                mensaje_bloqueo = f"❌ **Operación Denegada**: El período correspondiente al mes **{mes:02d}/{anio}** se encuentra **CERRADO y BLOQUEADO**. No se pueden hacer asientos de libro de ventas en un mes cerrado."
+                                mensaje_bloqueo = f"❌ **Operación Denegada**: El período correspondiente al mes **{mes:02d}/{anio}** se encuentra **CERRADO y BLOQUEADO** en la base de datos. No se pueden registrar asientos en un período cerrado."
                                 break
                     except Exception:
+                        # Si la columna o tabla aún no maneja bloqueos, permite continuar o lo maneja la estructura
                         pass
 
                 if bloqueo_detectado:
                     st.error(mensaje_bloqueo)
                 else:
-                    # --- PASO DE INSERCIÓN CON DEPURACIÓN EXPLICITA ---
+                    # --- PASO DE INSERCIÓN CON DEPURACIÓN EXPLÍCITA ---
                     with db_connection.cursor() as cursor:
-                        # 1. Asegurar la tabla
+                        # 1. Asegurar la tabla con su campo de bloqueo incorporado
                         cursor.execute(f"""
                             CREATE TABLE IF NOT EXISTS `{db_segura}`.asientos_contables (
                                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -8412,7 +8410,8 @@ def renderizar_tab_asientos_ventas(db_connection):
                                 cuenta_contable VARCHAR(255),
                                 referencia VARCHAR(100),
                                 debe DECIMAL(15, 2) DEFAULT 0.00,
-                                haber DECIMAL(15, 2) DEFAULT 0.00
+                                haber DECIMAL(15, 2) DEFAULT 0.00,
+                                bloqueado TINYINT DEFAULT 0
                             );
                         """)
                         
@@ -8420,13 +8419,13 @@ def renderizar_tab_asientos_ventas(db_connection):
                         for _, row in df_editado.iterrows():
                             codigo_limpio = extraer_solo_codigo(row["plan_cuentas"])
                             
-                            # Nos aseguramos de formatear correctamente la fecha para MySQL (YYYY-MM-DD)
-                            fecha_str = str(row["fecha"]).split(" ")[0] if pd.notnotnull(row["fecha"]) else None
+                            # Formatear correctamente la fecha para MySQL (YYYY-MM-DD)
+                            fecha_str = str(row["fecha"]).split(" ")[0] if pd.notnull(row["fecha"]) else None
                             
                             cursor.execute(f"""
                                 INSERT INTO `{db_segura}`.asientos_contables 
-                                (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber)
-                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                                (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber, bloqueado)
+                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 0)
                             """, (
                                 str(row["n_comprobante"]),
                                 str(row["descripcion"]),
@@ -8440,12 +8439,11 @@ def renderizar_tab_asientos_ventas(db_connection):
                             registros_insertados += 1
                             
                         db_connection.commit()
-                        st.success(f"✅ ¡ {registros_insertados} Asientos de ventas guardados y confirmados (commit) en la base de datos `{db_segura}`!")
+                        st.success(f"✅ ¡{registros_insertados} asientos de ventas guardados y confirmados (commit) en la base de datos `{db_segura}`!")
                         
             except Exception as db_err:
                 if hasattr(db_connection, 'rollback'):
                     db_connection.rollback()
-                # Muestra el error exacto en pantalla para saber si falla por SQL, conexión o tipos
                 st.error(f"❌ Error crítico detallado al guardar en MySQL: {str(db_err)}")
 
 
