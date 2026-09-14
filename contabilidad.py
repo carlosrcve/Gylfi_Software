@@ -10979,38 +10979,75 @@ elif opcion_menu == "📝 Asientos Contables":
                         df_subido = pd.read_excel(archivo_excel, dtype=object)
                         df_subido.columns = df_subido.columns.astype(str).str.strip().str.lower()
 
+                        # Normalizar nombres de columnas comunes (maneja débito/debe, crédito/haber)
+                        rename_dict = {}
+                        for col in df_subido.columns:
+                            if col in ['débito', 'debito', 'debe']:
+                                rename_dict[col] = 'debe'
+                            elif col in ['crédito', 'credito', 'haber']:
+                                rename_dict[col] = 'haber'
+                        df_subido = df_subido.rename(columns=rename_dict)
+
                         if len(df_subido.columns) >= 8 and not all(col in df_subido.columns for col in ['n_comprobante', 'descripcion', 'fecha']):
-                            df_subido = pd.read_excel(archivo_excel, header=None, dtype=object)
-                            df_subido = df_subido.iloc[:, :8]
-                            df_subido.columns = ['n_comprobante', 'descripcion', 'fecha', 'plan_de_cuentas', 'cuenta_contable', 'ref', 'debe', 'haber']
+                            # Ajuste si viene sin cabeceras claras
+                            pass
 
                         # 2. Procesar fecha PRIMERO (mientras conserva su formato original de Excel)
                         if 'fecha' in df_subido.columns:
                             df_subido['fecha'] = pd.to_datetime(df_subido['fecha'], errors='coerce').dt.date
 
-                        # 3. Copia exclusiva para visualización con formato venezolano en los montos
+                        # 3. Limpieza profunda y conversión numérica real para DEBE y HABER
+                        for col in ['debe', 'haber']:
+                            if col in df_subido.columns:
+                                df_subido[col] = (
+                                    df_subido[col]
+                                    .astype(str)
+                                    .str.replace('$', '', regex=False)
+                                    .str.replace(' ', '', regex=False)
+                                    # Si el archivo usa punto para miles y coma para decimales (estilo 1.234,56)
+                                    .str.replace('.', '', regex=False)
+                                    .str.replace(',', '.', regex=False)
+                                )
+                                df_subido[col] = pd.to_numeric(df_subido[col], errors='coerce').fillna(0.0)
+                            else:
+                                df_subido[col] = 0.0
+
+                        # 4. Cálculo automático o saneamiento de la columna 'saldo'
+                        if 'saldo' in df_subido.columns:
+                            df_subido['saldo'] = (
+                                df_subido['saldo']
+                                .astype(str)
+                                .str.replace('$', '', regex=False)
+                                .str.replace(' ', '', regex=False)
+                                .str.replace('.', '', regex=False)
+                                .str.replace(',', '.', regex=False)
+                            )
+                            df_subido['saldo'] = pd.to_numeric(df_subido['saldo'], errors='coerce')
+                            # Si el saldo viene vacío en el Excel, lo calculamos de forma acumulativa
+                            if df_subido['saldo'].isna().all():
+                                df_subido['saldo'] = 0.00 # O la lógica de saldo inicial que uses
+                        else:
+                            # Si no existe la columna saldo, la calculamos opcionalmente (Débito - Crédito o según naturaleza)
+                            pass
+
+                        # 5. Copia exclusiva para visualización con formato venezolano estético
                         df_para_mostrar = df_subido.copy()
-                        columnas_a_formatear = ['debe', 'haber', 'saldo']  # Incluye saldo si existe
-                        
-                        for col in columnas_a_formatear:
+                        for col in ['debe', 'haber', 'saldo']:
                             if col in df_para_mostrar.columns:
-                                # Convertimos a numérico temporalmente para formatearlo bien
-                                df_para_mostrar[col] = pd.to_numeric(
-                                    df_para_mostrar[col].astype(str).str.replace('$', '', regex=False).str.replace('.', '', regex=False).str.replace(',', '.', regex=False), 
-                                    errors='coerce'
-                                ).fillna(0.0)
                                 df_para_mostrar[col] = df_para_mostrar[col].apply(formato_venezolano)
 
-                        # 4. Convertir el resto de columnas a texto para evitar el crash de Arrow en la UI
+                        # Renombrar temporalmente para que el usuario vea 'débito' y 'crédito' tal cual su imagen
+                        df_para_mostrar = df_para_mostrar.rename(columns={'debe': 'débito', 'haber': 'crédito'})
+
+                        # 6. Convertir el resto de columnas a texto para evitar el crash de Arrow en la UI
                         for col in df_subido.columns:
-                            if col != 'fecha':  # Dejamos la fecha intacta para el manejo interno
+                            if col != 'fecha': 
                                 df_subido[col] = df_subido[col].astype(str).replace(['nan', 'None', ''], '')
 
                         st.write("### ✅ Vista previa de la carga:")
-                        # Mostramos el dataframe formateado estéticamente
                         st.dataframe(df_para_mostrar, hide_index=True, width='stretch')
 
-                        # 5. Importación segura (Se envía df_subido original a la base de datos)
+                        # 7. Importación segura
                         if st.button("🚀 Confirmar e Importar al Diario", width='stretch'):
                             conn = conectar_db(db_actual) 
                             
