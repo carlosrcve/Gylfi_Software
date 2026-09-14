@@ -7080,9 +7080,6 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
                 break
 
         if asiento_referencia:
-          # Corrección en la selección de la cuenta del DEBE (Pasivo / Proveedores)
-          # Si el asiento de referencia tiene una cuenta de costos (5.x.x) o gastos (4.x.x),
-          # la ignoramos para el pago y usamos la cuenta de pasivo correspondiente.
           cod_debe = cuenta_pasivo_default_codigo
           cuenta_debe = cuenta_pasivo_default_nombre
 
@@ -7125,7 +7122,7 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
     except Exception as e_scan:
       st.error(f"Error en el análisis de cruce: {e_scan}")
 
-  # 2. SECCIÓN INTERACTIVA Y FRAME VISUAL HTML/CSS DE DETALLES
+  # 2. SECCIÓN INTERACTIVA CON TARJETAS NATIVAS DE STREAMLIT
   if st.session_state.get("matches_propuestos"):
     st.markdown("---")
     st.markdown(
@@ -7137,82 +7134,50 @@ def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
         " **DEBE** para cancelar la deuda."
     )
 
-    # FRAME VISUAL CON HTML/CSS PARA VER LOS DETALLES DE LAS CUENTAS
-    html_cards = """
-        <style>
-            .match-container {
-                display: grid;
-                grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-                gap: 15px;
-                margin-bottom: 20px;
-            }
-            .match-card {
-                background-color: #1e2530;
-                border: 1px solid #2f3b4c;
-                border-radius: 10px;
-                padding: 16px;
-                color: #f0f2f6;
-                box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-                font-family: sans-serif;
-            }
-            .match-header {
-                font-size: 14px;
-                font-weight: bold;
-                color: #3b82f6;
-                margin-bottom: 8px;
-                border-bottom: 1px solid #2f3b4c;
-                padding-bottom: 6px;
-                display: flex;
-                justify-content: space-between;
-            }
-            .match-body p {
-                margin: 4px 0;
-                font-size: 13px;
-            }
-            .badge-pasivo {
-                background-color: #065f46;
-                color: #a7f3d0;
-                padding: 2px 6px;
-                border-radius: 4px;
-                font-weight: bold;
-            }
-            .badge-costo {
-                background-color: #7f1d1d;
-                color: #fecaca;
-                padding: 2px 6px;
-                border-radius: 4px;
-                font-weight: bold;
-            }
-        </style>
-        <div class="match-container">
-        """
+    # Mostrar en filas de 3 columnas usando componentes nativos limpios
+    matches = st.session_state.matches_propuestos
+    for i in range(0, len(matches), 3):
+      cols = st.columns(3)
+      for j in range(3):
+        if i + j < len(matches):
+          prop = matches[i + j]
+          with cols[j]:
+            with st.container(border=True):
+              codigo_orig_det = prop.get("codigo_original_detectado", "")
+              es_pasivo_directo = codigo_orig_det.startswith("2")
+              tipo_txt = (
+                  "🟢 Pasivo Original"
+                  if es_pasivo_directo
+                  else "🟠 Costo/Gasto (Forzado a Pasivo)"
+              )
 
-    for idx, prop in enumerate(st.session_state.matches_propuestos):
-      codigo_orig_det = prop.get("codigo_original_detectado", "")
-      es_pasivo_directo = codigo_orig_det.startswith("2")
-      badge_class = "badge-pasivo" if es_pasivo_directo else "badge-costo"
-      tipo_txt = "Pasivo Original" if es_pasivo_directo else "Costo / Gasto (Corregido a Pasivo)"
-
-      html_cards += f"""
-            <div class="match-card">
-                <div class="match-header">
-                    <span>Match #{idx + 1} | RIF: {prop.get('rif_detectado')}</span>
-                    <span class="{badge_class}">{tipo_txt}</span>
-                </div>
-                <div class="match-body">
-                    <p><b>Monto:</b> Bs. {prop.get('monto', 0.0):,.2f}</p>
-                    <p><b>Ref Banco:</b> {prop.get('referencia_banco')}</p>
-                    <hr style="border-color: #2f3b4c; margin: 8px 0;">
-                    <p style="color: #9ca3af; font-size: 11px;"><b>CUENTA ENCONTRADA EN FACTURA:</b></p>
-                    <p><code>{prop.get('codigo_original_detectado')}</code> - {prop.get('cuenta_original_detectada')}</p>
-                    <p style="color: #9ca3af; font-size: 11px; margin-top: 6px;"><b>CUENTA DE PAGO APLICADA (DEBE - PASIVO):</b></p>
-                    <p style="color: #34d399;"><b><code>{prop.get('codigo_destino')}</code> - {prop.get('cuenta_destino')}</b></p>
-                </div>
-            </div>
-            """
-
-    html_cards += "</div>"
-    st.markdown(html_cards, unsafe_allow_html=True)
+              st.markdown(
+                  f"**Match #{i + j + 1}** | RIF: `{prop.get('rif_detectado')}`"
+              )
+              st.caption(tipo_txt)
+              st.markdown(f"**Monto:** Bs. {prop.get('monto', 0.0):,.2f}")
+              st.markdown(f"**Ref Banco:** `{prop.get('referencia_banco')}`")
+              st.divider()
+              st.markdown(
+                  "<span style='font-size:11px; color:gray;'>CUENTA"
+                  " ENCONTRADA EN FACTURA:</span>",
+                  unsafe_allow_html=True,
+              )
+              st.code(
+                  f"{prop.get('codigo_original_detectado')} -"
+                  f" {prop.get('cuenta_original_detectada')}",
+                  language=None,
+              )
+              st.markdown(
+                  "<span style='font-size:11px; color:gray;'>CUENTA DE PAGO"
+                  " APLICADA (DEBE - PASIVO):</span>",
+                  unsafe_allow_html=True,
+              )
+              st.code(
+                  f"{prop.get('codigo_destino')} -"
+                  f" {prop.get('cuenta_destino')}",
+                  language=None,
+              )
 
     st.markdown("---")
     st.markdown("#### ⚡ Configuración y Ejecución de Pagos")
