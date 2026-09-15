@@ -14578,19 +14578,9 @@ elif opcion_menu == "📚 Libros Fiscales":
                 porcentaje = float(row['porcentaje_retencion'])
                 ET.SubElement(detalle, "PorcentajeRetencion").text = f"{porcentaje:.2f}"
                 
-                # 5. LECTURA DINÁMICA Y CREACIÓN DE ETIQUETA DE SUSTRAENDO
-                sustraendo_val = 0.0
-                for col_name in ['sustraendo', 'Sustraendo', 'sustraendo_bs']:
-                    if col_name in row and pd.notna(row[col_name]):
-                        try:
-                            sustraendo_val = float(str(row[col_name]).strip())
-                            break
-                        except (ValueError, TypeError):
-                            pass
-                
-                # Si tiene sustraendo mayor a 0, creamos la etiqueta física en el XML
-                if sustraendo_val > 0.0:
-                    ET.SubElement(detalle, "Sustraendo").text = f"{sustraendo_val:.2f}"
+                # 5. Sustraendo directo idéntico al porcentaje
+                sustraendo = float(row.get('sustraendo', 0) or 0)
+                ET.SubElement(detalle, "Sustraendo").text = f"{sustraendo:.2f}"
 
             xml_str = ET.tostring(root, encoding='utf-8')
             parsed = minidom.parseString(xml_str)
