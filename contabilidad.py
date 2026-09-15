@@ -3161,6 +3161,7 @@ def cargar_libro_compras_db(df, nombre_db=None):
         return
 
     def clean_n(v):
+        if pd.isna(v) or v == '': return 0.0
         if isinstance(v, (int, float)): return round(float(v), 2)
         s = str(v).strip().replace('.', '').replace(',', '.')
         if s in ['nan', 'None', '', '-']: return 0.0
@@ -3169,18 +3170,18 @@ def cargar_libro_compras_db(df, nombre_db=None):
 
     def convertir_fecha(v):
         try:
+            if pd.isna(v): return pd.Timestamp.now().strftime('%Y-%m-%d')
             if hasattr(v, 'strftime'): 
                 return v.strftime('%Y-%m-%d')
             return pd.to_datetime(v).strftime('%Y-%m-%d')
-        except Exception as e:
-            st.error(f"Error convirtiendo fecha '{v}': {e}")
-            return "2026-06-06"
+        except:
+            return pd.Timestamp.now().strftime('%Y-%m-%d')
 
     def limpiar_texto(val):
         if pd.isna(val): return ""
         s = str(val).strip()
         if s.endswith('.0'): s = s[:-2]
-        return s
+        return s if s not in ['nan', 'None', 'NAT'] else ""
 
     cursor = None
     try:
@@ -3188,52 +3189,72 @@ def cargar_libro_compras_db(df, nombre_db=None):
         cursor = conn.cursor()
         
         cursor.execute(f"USE `{nombre_db}`;")
-        cursor.execute("SELECT DATABASE();")
-        db_conectada = cursor.fetchone()
-        db_nombre_actual = db_conectada['DATABASE()'] if isinstance(db_conectada, dict) else db_conectada[0]
-        st.info(f"🔍 Conectado y usando el esquema: **{db_nombre_actual}**")
-
-        registros_a_insertar = []
-        cols = list(df.columns)
         
-        if len(cols) < 11:
-            st.error(f"❌ El archivo cargado tiene {len(cols)} columnas, se esperan al menos 11.")
+        # --- BÚSQUEDA INTELIGENTE DE COLUMNAS POR COINCIDENCIA ---
+        cols_lower = {c.lower().strip(): c for c in df.columns}
+        
+        def buscar_col(posibles):
+            for p in posibles:
+                for col_l, col_orig in cols_lower.items():
+                    if p in col_l:
+                        return col_orig
+            return None
+
+        c_fecha = buscar_col(['fecha'])
+        c_tipo_doc = buscar_col(['tipo_documento', 'documento', 'tipo'])
+        c_factura = buscar_col(['factura', 'n_factura', 'numero_factura'])
+        c_control = buscar_col(['control', 'n_control', 'numero_control'])
+        c_proveedor = buscar_col(['proveedor', 'razon_social', 'nombre'])
+        c_rif = buscar_col(['rif'])
+        c_total = buscar_col(['total_compras', 'total', 'monto_total'])
+        c_exento = buscar_col(['compras_exentas', 'exento', 'importe_exento', 'total_exento'])
+        c_base = buscar_col(['base_imponible', 'base'])
+        c_alicuota = buscar_col(['iva_porcentaje', 'alicuota', 'porcentaje'])
+        c_iva = buscar_col(['credito_fiscales', 'iva_monto', 'iva', 'credito_fiscal'])
+
+        if not c_factura:
+            st.error("❌ No se pudo identificar la columna de 'N° de Factura' en el Excel. Revisa los nombres de las columnas.")
             return
 
-        # SQL DEFINITIVA: Excluye retencion_iva_realizada y cliente_id (12 campos exactos)
         sql = """REPLACE INTO libro_compras 
                 (fecha_operacion, tipo_documento, n_factura, n_control, proveedor, rif, 
                  total_compras, importe_exento, base_imponible, iva_porcentaje, iva_monto,
                  retencion_realizada, tipo_transaccion) 
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"""
 
+        registros_a_insertar = []
+
         for i, row in df.iterrows():
-            n_fact = limpiar_texto(row[cols[2]])
-            if not n_fact: continue
+            n_fact = limpiar_texto(row[c_factura]) if c_factura else ""
+            if not n_fact: 
+                continue # Salta filas sin número de factura válido
+
+            val_fecha = convertir_fecha(row[c_fecha]) if c_fecha else pd.Timestamp.now().strftime('%Y-%m-%d')
+            val_tipo = limpiar_texto(row[c_tipo_doc]).zfill(2) if c_tipo_doc else "01"
+            val_control = limpiar_texto(row[c_control]) if c_control else ""
+            val_prov = limpiar_texto(row[c_proveedor]).upper() if c_proveedor else "PROVEEDOR GENÉRICO"
+            val_rif = limpiar_texto(row[c_rif]).replace('-', '').replace('.', '') if c_rif else ""
+            
+            val_tot = clean_n(row[c_total]) if c_total else 0.0
+            val_exe = clean_n(row[c_exento]) if c_exento else 0.0
+            val_base = clean_n(row[c_base]) if c_base else 0.0
+            val_ali = clean_n(row[c_alicuota]) if c_alicuota else 16.0
+            val_iva = clean_n(row[c_iva]) if c_iva else 0.0
 
             valores = (
-                convertir_fecha(row[cols[0]]),                    # 0: Fecha de Operación
-                limpiar_texto(row[cols[1]]).zfill(2),             # 1: Tipo de Documento
-                n_fact,                                           # 2: Número de Factura
-                limpiar_texto(row[cols[3]]),                      # 3: Número de Control
-                limpiar_texto(row[cols[4]]).upper(),              # 4: Proveedor
-                limpiar_texto(row[cols[5]]).replace('-', '').replace('.', ''), # 5: R.I.F.
-                clean_n(row[cols[6]]),                            # 6: Total Compra
-                clean_n(row[cols[7]]),                            # 7: Compras Exentas
-                clean_n(row[cols[8]]),                            # 8: Base Imponible
-                clean_n(row[cols[9]]),                            # 9: Alícuota (%)
-                clean_n(row[cols[10]]),                           # 10: Crédito Fiscal (IVA Monto)
-                0.00,                                             # 11: retencion_realizada
-                "C"                                               # 12: tipo_transaccion
+                val_fecha, val_tipo, n_fact, val_control, val_prov, val_rif, 
+                val_tot, val_exe, val_base, val_ali, val_iva, 
+                0.00, # retencion_realizada
+                "C"   # tipo_transaccion
             )
             registros_a_insertar.append(valores)
 
         if registros_a_insertar:
             cursor.executemany(sql, registros_a_insertar)
             filas_afectadas = cursor.rowcount
-            st.success(f"🔥 ¡Proceso exitoso! Se guardaron {len(registros_a_insertar)} registros correctamente (Filas afectadas: {filas_afectadas}).")
+            st.success(f"🔥 ¡Proceso exitoso! Se guardaron {len(registros_a_insertar)} registros correctamente en MySQL.")
         else:
-            st.warning("⚠️ No se encontraron registros válidos con número de factura para insertar.")
+            st.warning("⚠️ No se encontraron registros válidos con número de factura para insertar. Revisa el contenido de tu Excel.")
             
     except Exception as e:
         if conn: conn.rollback()
@@ -3241,7 +3262,6 @@ def cargar_libro_compras_db(df, nombre_db=None):
     finally:
         if cursor: cursor.close()
         if conn: conn.close()
-
 
 def obtener_lista_proveedores_mapeo():
     conn = conectar_db(db_actual)
