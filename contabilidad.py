@@ -8492,10 +8492,10 @@ def renderizar_tab_asientos_ventas(db_connection):
                     db_connection.rollback()
                 st.error(f"❌ Error crítico al guardar en MySQL: {str(db_err)}")
     # ----------------------------------------------------
-    # TERCER FRAME: CONCILIACIÓN CON ESTRUCTURA NATIVA Y CUENTA DE BANCO VISIBLE
+    # TERCER FRAME: CONCILIACIÓN CON LAS COLUMNAS EXACTAS DE ASIENTOS CONTABLES
     # ----------------------------------------------------
     st.markdown("---")
-    st.markdown("### 🔄 Tercer Frame: Cruce de Cobranzas y Asientos Contables")
+    st.markdown("### 🔄 Tercer Frame: Cruce y Generación de Asientos Contables")
 
     try:
         with db_connection.cursor() as cur_cuentas:
@@ -8512,21 +8512,21 @@ def renderizar_tab_asientos_ventas(db_connection):
     opciones_cuentas_banco = [f"{row[0]} - {row[1]}" for row in cuentas_plan_db] if cuentas_plan_db else ["N/A - Sin cuentas"]
 
     cuenta_banco_seleccionada_str = st.selectbox(
-        "Seleccione la Cuenta Contable del Banco para el Depósito:",
+        "Seleccione la Cuenta Contable del Banco (Va al DEBE):",
         options=opciones_cuentas_banco,
-        key="select_cta_banco_asientos_nativo_def"
+        key="select_cta_banco_estricto"
     )
 
-    cuenta_contable_banco_activa = cuenta_banco_seleccionada_str.split(" - ")[0].strip() if " - " in cuenta_banco_seleccionada_str else ""
-    nombre_cuenta_banco_activa = cuenta_banco_seleccionada_str.split(" - ")[1].strip() if " - " in cuenta_banco_seleccionada_str else ""
+    cuenta_banco_codigo = cuenta_banco_seleccionada_str.split(" - ")[0].strip() if " - " in cuenta_banco_seleccionada_str else ""
+    cuenta_banco_nombre = cuenta_banco_seleccionada_str.split(" - ")[1].strip() if " - " in cuenta_banco_seleccionada_str else ""
 
-    if st.button("🔍 Cargar y Cruzar con Estructura de Asientos Contables", key="btn_cargar_asientos_nativo_def"):
-        if not cuenta_contable_banco_activa or cuenta_contable_banco_activa == "N/A":
+    if st.button("🔍 Cargar Vista de Asientos", key="btn_cargar_estricto"):
+        if not cuenta_banco_codigo or cuenta_banco_codigo == "N/A":
             st.error("❌ Seleccione una cuenta bancaria válida.")
         else:
             try:
                 with db_connection.cursor() as cur_asientos:
-                    # Traemos los asientos contables de los choferes al debe
+                    # Traemos los asientos de los choferes (cuentas por cobrar iniciales)
                     cur_asientos.execute(f"""
                         SELECT id, n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber, bloqueado
                         FROM `{db_segura}`.asientos_contables 
@@ -8549,11 +8549,14 @@ def renderizar_tab_asientos_ventas(db_connection):
                         return m.group(0).upper().replace("-", "").strip() if m else None
 
                     filas_frame = []
+                    # Diccionario auxiliar interno fuera del DataFrame para asociar el banco con el asiento
+                    st.session_state['mapeo_banco_aux'] = {}
+
                     for ast in asientos_db:
                         a_id, a_comp, a_desc, a_fec, a_plan, a_cta, a_ref, a_debe, a_haber, a_bloq = ast
                         rif_ast = extraer_rif(a_desc)
                         
-                        monto_banco_encontrado = float(a_debe)
+                        monto_encontrado = float(a_debe)
                         banco_mov_id = 0
                         ref_banco = a_ref
 
@@ -8562,11 +8565,18 @@ def renderizar_tab_asientos_ventas(db_connection):
                                 b_id, b_fec, b_desc, b_ref, b_monto = b
                                 if extraer_rif(b_desc) == rif_ast:
                                     banco_mov_id = b_id
-                                    monto_banco_encontrado = float(b_monto)
+                                    monto_encontrado = float(b_monto)
                                     ref_banco = f"BANCO-{b_id}"
                                     break
 
-                        # Fila con la estructura de asientos_contables incluyendo la cuenta de banco elegida visible
+                        # Guardamos el mapeo del banco asociado a este ID de asiento
+                        st.session_state['mapeo_banco_aux'][a_id] = {
+                            "banco_mov_id": banco_mov_id,
+                            "referencia": ref_banco,
+                            "monto": monto_encontrado
+                        }
+
+                        # ⚠️ ESTRICTAMENTE LAS COLUMNAS DE LA TABLA asientos_contables (Sin inventar nada extra)
                         filas_frame.append({
                             "procesar": True,
                             "id": a_id,
@@ -8577,94 +8587,98 @@ def renderizar_tab_asientos_ventas(db_connection):
                             "cuenta_contable": a_cta,
                             "referencia": ref_banco,
                             "debe": 0.00,
-                            "haber": monto_banco_encontrado,
-                            "bloqueado": a_bloq,
-                            "banco_mov_id": banco_mov_id,
-                            "cta_banco_destino": cuenta_contable_banco_activa,
-                            "nombre_banco_destino": nombre_cuenta_banco_activa
+                            "haber": monto_encontrado,
+                            "bloqueado": a_bloq
                         })
 
                     if filas_frame:
-                        st.session_state['df_asientos_nativo_def'] = pd.DataFrame(filas_frame)
-                        st.success(f"Se cargaron **{len(filas_frame)}** registros correctamente.")
+                        st.session_state['df_asientos_estricto'] = pd.DataFrame(filas_frame)
+                        st.success(f"Se cargaron **{len(filas_frame)}** registros con la estructura nativa exacta.")
                     else:
-                        st.warning("No se encontraron asientos contables de choferes para procesar.")
+                        st.warning("No se encontraron registros para procesar.")
 
             except Exception as e_c:
                 st.error(f"Error procesando los datos: {e_c}")
 
-    # Visualización con el data_editor
-    if 'df_asientos_nativo_def' in st.session_state and not st.session_state['df_asientos_nativo_def'].empty:
-        st.markdown("### 📋 Vista Estructurada con Cuenta Bancaria Asignada:")
+    # Visualización limpia respetando las columnas originales de la BD
+    if 'df_asientos_estricto' in st.session_state and not st.session_state['df_asientos_estricto'].empty:
+        st.markdown("### 📋 Tabla de Asientos Contables:")
         
-        df_editado_nativo = st.data_editor(
-            st.session_state['df_asientos_nativo_def'],
-            key="editor_asientos_nativo_def",
+        df_editado_estricto = st.data_editor(
+            st.session_state['df_asientos_estricto'],
+            key="editor_asientos_estricto",
             use_container_width=True
         )
 
-        if st.button("💾 Guardar y Registrar en la Base de Datos", key="btn_guardar_asientos_nativo_def"):
+        if st.button("💾 Guardar Asiento Doble en Base de Datos", key="btn_guardar_estricto"):
             try:
-                df_validos = df_editado_nativo[df_editado_nativo['procesar'] == True]
+                df_validos = df_editado_estricto[df_editado_estricto['procesar'] == True]
                 if df_validos.empty:
                     st.warning("No hay filas marcadas para procesar.")
                 else:
                     with db_connection.cursor() as cur_ins:
                         contador = 0
                         for _, row in df_validos.iterrows():
+                            asiento_id_orig = int(row['id'])
                             comp = row['n_comprobante']
-                            plan_cxc = row['plan_cuentas']
-                            nom_cxc = row['cuenta_contable']
-                            monto_haber = float(row['haber'])
-                            ref_banco = row['referencia']
-                            b_id = int(row['banco_mov_id'])
-                            asiento_origen_id = int(row['id'])
+                            fec = row['fecha']
                             
-                            # Tomamos la cuenta de banco que quedó configurada en la fila (por si la editaron individualmente o viene del selectbox)
-                            cta_banco_f = str(row['cta_banco_destino'])
-                            nom_banco_f = str(row['nombre_banco_destino'])
+                            # Datos del chofer (vienen de la fila editada)
+                            plan_chofer = row['plan_cuentas']
+                            cta_chofer = row['cuenta_contable']
+                            monto = float(row['haber'])  # Monto cobrado
+                            desc_original = row['descripcion']
+                            ref_fila = row['referencia']
 
-                            # 1. Insertar la línea al HABER (Cancelación de la CxC del Chofer)
+                            # Buscamos los datos auxiliares del banco para este ID
+                            aux_banco = st.session_state.get('mapeo_banco_aux', {}).get(asiento_id_orig, {})
+                            b_id = aux_banco.get("banco_mov_id", 0)
+
+                            # 1. LÍNEA AL DEBE: Cuenta del Banco seleccionada
                             cur_ins.execute(f"""
                                 INSERT INTO `{db_segura}`.asientos_contables 
                                 (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber, bloqueado)
-                                VALUES (%s, %s, NOW(), %s, %s, %s, 0.00, %s, 0)
+                                VALUES (%s, %s, %s, %s, %s, %s, %s, 0.00, 0)
                             """, (
                                 str(comp),
-                                f"Cancelacion cobro - {row['descripcion']}",
-                                str(plan_cxc),
-                                str(nom_cxc),
-                                str(ref_banco),
-                                monto_haber
+                                f"Ingreso Banco - {desc_original}",
+                                str(fec),
+                                str(cuenta_banco_codigo),
+                                str(cuenta_banco_nombre),
+                                str(ref_fila),
+                                monto
                             ))
 
-                            # 2. Insertar la línea al DEBE (Ingreso al Banco seleccionado)
+                            # 2. LÍNEA AL HABER: Cuenta por Cobrar del Chofer (Cancelación)
                             cur_ins.execute(f"""
                                 INSERT INTO `{db_segura}`.asientos_contables 
                                 (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber, bloqueado)
-                                VALUES (%s, %s, NOW(), %s, %s, %s, %s, 0.00, 0)
+                                VALUES (%s, %s, %s, %s, %s, %s, 0.00, %s, 0)
                             """, (
                                 str(comp),
-                                f"Ingreso bancario - {row['descripcion']}",
-                                cta_banco_f,
-                                nom_banco_f,
-                                str(ref_banco),
-                                monto_haber
+                                f"Cobro Chofer - {desc_original}",
+                                str(fec),
+                                str(plan_chofer),
+                                str(cta_chofer),
+                                str(ref_fila),
+                                monto
                             ))
 
-                            # 3. Actualizar el movimiento bancario como Conciliado si se encontró su ID
+                            # 3. Actualizar el movimiento bancario a Conciliado si aplica
                             if b_id > 0:
                                 cur_ins.execute(f"""
                                     UPDATE `{db_segura}`.banco_movimientos 
                                     SET estado_conciliacion = 'Conciliado', asiento_id = %s 
                                     WHERE id = %s
-                                """, (asiento_origen_id, b_id))
+                                """, (asiento_id_orig, b_id))
 
                             contador += 1
 
                         db_connection.commit()
-                        st.success(f"¡Listo! Se registraron **{contador * 2}** líneas contables en `asientos_contables` vinculadas a su respectiva cuenta bancaria.")
-                        del st.session_state['df_asientos_nativo_def']
+                        st.success(f"¡Listo! Se guardaron exitosamente **{contador}** asientos contables dobles (Banco al DEBE / Chofer al HABER).")
+                        del st.session_state['df_asientos_estricto']
+                        if 'mapeo_banco_aux' in st.session_state:
+                            del st.session_state['mapeo_banco_aux']
                         st.rerun()
 
             except Exception as e_sv:
