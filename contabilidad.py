@@ -14619,8 +14619,11 @@ elif opcion_menu == "📚 Libros Fiscales":
                                     0.00 AS sustraendo, 
                                     NULL AS n_comprob_islr
                                 FROM libro_compras lc
-                                LEFT JOIN proveedores p ON 
-                                    TRIM(REGEXP_REPLACE(lc.rif, '[^a-zA-Z0-9]', '')) COLLATE utf8mb4_unicode_ci = TRIM(REGEXP_REPLACE(p.rif, '[^a-zA-Z0-9]', '')) COLLATE utf8mb4_unicode_ci
+                                LEFT JOIN (
+                                    SELECT id, razon_social, direccion_fiscal, 
+                                           TRIM(REPLACE(REPLACE(rif, '-', ''), ' ', '')) AS rif_limpio
+                                    FROM proveedores
+                                ) p ON TRIM(REPLACE(REPLACE(lc.rif, '-', ''), ' ', '')) = p.rif_limpio
                                 WHERE (lc.retencion_realizada = 0 OR lc.retencion_realizada IS NULL)
                                 AND lc.fecha_operacion BETWEEN %s AND %s
                                 ORDER BY lc.fecha_operacion ASC
