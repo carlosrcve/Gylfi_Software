@@ -14578,7 +14578,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                 porcentaje = float(row['porcentaje_retencion'])
                 ET.SubElement(detalle, "PorcentajeRetencion").text = f"{porcentaje:.2f}"
                 
-                # 5. LECTURA DIRECTA DE LA COLUMNA SUSTRAENDO DE LA TABLA
+                # 5. SUSTRAENDO CON SU FORMATO EXACTO DE 2 DECIMALES
                 sustraendo_val = 0.0
                 if 'sustraendo' in row and pd.notna(row['sustraendo']):
                     try:
@@ -14586,7 +14586,6 @@ elif opcion_menu == "📚 Libros Fiscales":
                     except (ValueError, TypeError):
                         sustraendo_val = 0.0
                         
-                # Si la celda de la tabla tiene un valor mayor a 0 (como los 107.50), pintamos la etiqueta
                 if sustraendo_val > 0.0:
                     ET.SubElement(detalle, "Sustraendo").text = f"{sustraendo_val:.2f}"
 
