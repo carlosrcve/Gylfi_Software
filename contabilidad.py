@@ -3190,30 +3190,33 @@ def cargar_libro_compras_db(df, nombre_db=None):
         
         cursor.execute(f"USE `{nombre_db}`;")
         
-        # --- BÚSQUEDA INTELIGENTE DE COLUMNAS POR COINCIDENCIA ---
+        # --- BÚSQUEDA INTELIGENTE Y TOLERANTE DE COLUMNAS ---
         cols_lower = {c.lower().strip(): c for c in df.columns}
         
         def buscar_col(posibles):
             for p in posibles:
                 for col_l, col_orig in cols_lower.items():
-                    if p in col_l:
+                    # Limpiamos puntos y tildes para asegurar coincidencia exacta con los títulos del Excel
+                    col_clean = col_l.replace('.', '').replace('ó', 'o').replace('í', 'i').replace('ú', 'u').replace('é', 'e').replace('á', 'a')
+                    p_clean = p.replace('.', '').replace('ó', 'o').replace('í', 'i').replace('ú', 'u').replace('é', 'e').replace('á', 'a')
+                    if p_clean in col_clean:
                         return col_orig
             return None
 
         c_fecha = buscar_col(['fecha'])
-        c_tipo_doc = buscar_col(['tipo_documento', 'documento', 'tipo'])
-        c_factura = buscar_col(['factura', 'n_factura', 'numero_factura'])
-        c_control = buscar_col(['control', 'n_control', 'numero_control'])
-        c_proveedor = buscar_col(['proveedor', 'razon_social', 'nombre'])
-        c_rif = buscar_col(['rif'])
-        c_total = buscar_col(['total_compras', 'total', 'monto_total'])
+        c_tipo_doc = buscar_col(['tipo_de_documento', 'tipo_documento', 'documento', 'tipo'])
+        c_factura = buscar_col(['numero_de_documento', 'factura', 'n_factura', 'numero_factura'])
+        c_control = buscar_col(['numero_de_control', 'control', 'n_control', 'numero_control'])
+        c_proveedor = buscar_col(['nombre_o_razon_social', 'proveedor', 'razon_social', 'nombre'])
+        c_rif = buscar_col(['rif', 'r.i.f'])
+        c_total = buscar_col(['total_compra', 'total_compras', 'total', 'monto_total'])
         c_exento = buscar_col(['compras_exentas', 'exento', 'importe_exento', 'total_exento'])
         c_base = buscar_col(['base_imponible', 'base'])
-        c_alicuota = buscar_col(['iva_porcentaje', 'alicuota', 'porcentaje'])
+        c_alicuota = buscar_col(['alicuota', 'porcentaje', 'iva_porcentaje'])
         c_iva = buscar_col(['credito_fiscales', 'iva_monto', 'iva', 'credito_fiscal'])
 
         if not c_factura:
-            st.error("❌ No se pudo identificar la columna de 'N° de Factura' en el Excel. Revisa los nombres de las columnas.")
+            st.error(f"❌ Columnas leídas en tu Excel: {list(df.columns)}. No se pudo identificar la columna del número de factura.")
             return
 
         sql = """REPLACE INTO libro_compras 
