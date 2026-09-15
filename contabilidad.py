@@ -15148,13 +15148,13 @@ elif opcion_menu == "📚 Libros Fiscales":
                     f_xml_desde = col_xml1.date_input("Desde", value=d_tipo(2026, 4, 1), key="xml_desde")
                     f_xml_hasta = col_xml2.date_input("Hasta", value=d_tipo(2026, 4, 30), key="xml_hasta")
                     
-                    # Botón de procesamiento (usando width='content' en lugar de width='content')
+                    # Botón de procesamiento
                     if st.button("🚀 Procesar Datos XML", width='content'):
                         db_actual = st.session_state.get('DB_ACTUAL') 
-                        conn = conectar_db(db_actual) # Pasa explícitamente el nombre de la DB
+                        conn = conectar_db(db_actual) 
                         if conn:
-
-                            # Filtramos directamente por el periodo (ej: "202608") para asegurar los 10 comprobantes
+                            # CORRECCIÓN CLAVE PARA LAS 10 RETENCIONES: 
+                            # Extraemos el periodo en formato YYYYMM basado en la fecha 'Hasta' o 'Desde'
                             periodo_str = f_xml_hasta.strftime("%Y%m")
                             
                             query_xml = """
@@ -15170,30 +15170,58 @@ elif opcion_menu == "📚 Libros Fiscales":
                                     monto_retenido, 
                                     n_comprob_islr
                                 FROM retenciones_islr 
-                                WHERE periodo_retenido = %s
+                                WHERE DATE_FORMAT(fecha_operacion, '%Y%m') = %s
                             """
                             df_xml = ejecutar_consulta(query_xml, conn, params=(periodo_str,))
                             conn.close()
                             
                             if not df_xml.empty:
-                                periodo_xml = f_xml_hasta.strftime("%Y%m")
                                 # Guardamos el resultado en session_state
-                                st.session_state['xml_data'] = generar_xml_seniat(df_xml, DATOS_EMPRESA['rif'], periodo_xml)
-                                st.session_state['xml_filename'] = f"RET_ISLR_{periodo_xml}.xml"
+                                st.session_state['xml_data'] = generar_xml_seniat(df_xml, DATOS_EMPRESA['rif'], periodo_str)
+                                st.session_state['xml_filename'] = f"RET_ISLR_{periodo_str}.xml"
                                 st.success(f"✅ Datos procesados ({len(df_xml)} retenciones). Listo para descargar.")
                             else:
-                                st.warning("⚠️ No se encontraron retenciones en el rango seleccionado.")
+                                st.warning(f"⚠️ No se encontraron retenciones para el periodo {periodo_str}.")
                                 st.session_state['xml_data'] = None
 
-                    # Botón de descarga (se muestra solo si hay datos en el estado de la sesión)
+                    # Botón de descarga y Vista Previa con Estilo CSS/HTML
                     if st.session_state.get('xml_data'):
                         st.download_button(
                             label="📥 Descargar XML para el Portal SENIAT",
                             data=st.session_state['xml_data'],
                             file_name=st.session_state['xml_filename'],
                             mime="application/xml",
-                            width='content' # Actualizado de width='content'
+                            width='content'
                         )
+                        
+                        st.markdown("---")
+                        st.markdown("#### 👁️ Vista Previa del Código XML Generado")
+                        
+                        # Contenedor con diseño CSS profesional para mostrar el XML formateado
+                        xml_code_sucia = st.session_state['xml_data']
+                        if isinstance(xml_code_sucia, bytes):
+                            xml_code_sucia = xml_code_sucia.decode('utf-8')
+
+                        st.markdown("""
+                            <style>
+                            .xml-preview-box {
+                                background-color: #0e1117;
+                                color: #00ffcc;
+                                border: 1px solid #30363d;
+                                border-radius: 8px;
+                                padding: 15px;
+                                font-family: 'Courier New', Courier, monospace;
+                                font-size: 13px;
+                                max-height: 350px;
+                                overflow-y: auto;
+                                white-space: pre-wrap;
+                                word-wrap: break-word;
+                            }
+                            </style>
+                        """, unsafe_allow_html=True)
+
+                        # Renderizamos el bloque con marcado HTML seguro
+                        st.markdown(f'<div class="xml-preview-box">{xml_code_sucia}</div>', unsafe_allow_html=True)
 
 
     elif sub_opcion == "Comprobante de Retención IVA":
