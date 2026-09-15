@@ -8572,10 +8572,10 @@ def renderizar_tab_asientos_ventas(db_connection):
                             "banco_mov_id": banco_mov_id,
                             "referencia": ref_banco,
                             "monto": monto_encontrado,
-                            "bloqueado": a_bloq # Guardado solo en memoria para la BD
+                            "bloqueado": a_bloq 
                         }
 
-                        # 1️⃣ LÍNEA 1: EL BANCO (Va al DEBE) - SIN BLOQUEADO
+                        # 1️⃣ LÍNEA 1: EL BANCO (Va al DEBE) - CON COLUMNA BLOQUEADO INCLUIDA
                         filas_frame.append({
                             "procesar": True,
                             "id": a_id,
@@ -8586,10 +8586,11 @@ def renderizar_tab_asientos_ventas(db_connection):
                             "cuenta_contable": cuenta_banco_nombre,
                             "referencia": ref_banco,
                             "debe": monto_encontrado,
-                            "haber": 0.00
+                            "haber": 0.00,
+                            "bloqueado": a_bloq
                         })
 
-                        # 2️⃣ LÍNEA 2: EL CHOFER (Va al HABER) - SIN BLOQUEADO
+                        # 2️⃣ LÍNEA 2: EL CHOFER (Va al HABER) - CON COLUMNA BLOQUEADO INCLUIDA
                         filas_frame.append({
                             "procesar": True,
                             "id": a_id,
@@ -8600,7 +8601,8 @@ def renderizar_tab_asientos_ventas(db_connection):
                             "cuenta_contable": a_cta,
                             "referencia": ref_banco,
                             "debe": 0.00,
-                            "haber": monto_encontrado
+                            "haber": monto_encontrado,
+                            "bloqueado": a_bloq
                         })
 
                     if filas_frame:
@@ -8612,7 +8614,7 @@ def renderizar_tab_asientos_ventas(db_connection):
             except Exception as e_c:
                 st.error(f"Error procesando los datos: {e_c}")
 
-    # Visualización sin columna bloqueado y con formato numérico estándar limpio
+    # Visualización con columna bloqueado restaurada, formato numérico y totalizadores abajo
     if 'df_asientos_pd' in st.session_state and not st.session_state['df_asientos_pd'].empty:
         st.markdown("### 📋 Vista de Asientos Contables (Debe y Haber Equilibrados):")
         
@@ -8632,6 +8634,19 @@ def renderizar_tab_asientos_ventas(db_connection):
             }
         )
 
+        # 📊 Totalizador dinámico de las columnas Debe y Haber debajo del frame
+        total_debe = df_editado_pd['debe'].sum() if 'debe' in df_editado_pd else 0.0
+        total_haber = df_editado_pd['haber'].sum() if 'haber' in df_editado_pd else 0.0
+        
+        col_t1, col_t2, col_t3 = st.columns(3)
+        with col_t1:
+            st.metric(label="Total General Debe", value=f"{total_debe:,.2f}")
+        with col_t2:
+            st.metric(label="Total General Haber", value=f"{total_haber:,.2f}")
+        with col_t3:
+            diferencia_cuadre = total_debe - total_haber
+            st.metric(label="Diferencia (Cuadre)", value=f"{diferencia_cuadre:,.2f}", delta=None)
+
         if st.button("💾 Guardar Asientos en Base de Datos", key="btn_guardar_pd"):
             try:
                 df_validos = df_editado_pd[df_editado_pd['procesar'] == True]
@@ -8646,9 +8661,11 @@ def renderizar_tab_asientos_ventas(db_connection):
                             filas_asiento = df_validos[df_validos['id'] == asiento_id_orig]
                             
                             aux_datos = st.session_state.get('mapeo_banco_aux_pd', {}).get(int(asiento_id_orig), {})
-                            val_bloqueado = int(aux_datos.get("bloqueado", 0))
                             
                             for _, row in filas_asiento.iterrows():
+                                # Respetamos el valor de bloqueado que venga de la celda editada o del aux
+                                val_bloqueado = int(row['bloqueado']) if 'bloqueado' in row else int(aux_datos.get("bloqueado", 0))
+                                
                                 cur_ins.execute(f"""
                                     INSERT INTO `{db_segura}`.asientos_contables 
                                     (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber, bloqueado)
