@@ -14570,7 +14570,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                     fecha_str = str(fecha_obj)
                 ET.SubElement(detalle, "FechaOperacion").text = fecha_str
                 
-                # 4. Concepto, Monto Operación y Porcentaje (SIN SUSTRAENDO)
+                # 4. Concepto, Monto Operación y Porcentaje
                 codigo_concepto = str(row['codigo_concepto']).zfill(3)
                 ET.SubElement(detalle, "CodigoConcepto").text = codigo_concepto
                 ET.SubElement(detalle, "MontoOperacion").text = f"{float(row['monto_operacion']):.2f}"
