@@ -14569,26 +14569,21 @@ elif opcion_menu == "📚 Libros Fiscales":
                     fecha_str = str(fecha_obj)
                 ET.SubElement(detalle, "FechaOperacion").text = fecha_str
                 
-                # 4. Concepto y Porcentaje
+                # 4. Concepto, Monto Operación y Porcentaje
                 ET.SubElement(detalle, "CodigoConcepto").text = str(row['codigo_concepto']).zfill(3)
+                ET.SubElement(detalle, "MontoOperacion").text = f"{float(row['monto_operacion']):.2f}"
+                
                 porcentaje = float(row['porcentaje_retencion'])
                 ET.SubElement(detalle, "PorcentajeRetencion").text = f"{porcentaje:.2f}"
                 
-                # 5. AJUSTE DE BASE POR SOFTWARE (Para compensar la ausencia del sustraendo en el SENIAT)
-                monto_retenido_neto = float(row['monto_retenido']) # El neto real de tu BD con sustraendo restado
-                
-                if porcentaje > 0 and monto_retenido_neto > 0:
-                    # Dividimos el neto entre el porcentaje para forzar al SENIAT a llegar al valor correcto
-                    base_ajustada = monto_retenido_neto / (porcentaje / 100.0)
-                else:
-                    base_ajustada = float(row['monto_operacion'])
-                    
-                ET.SubElement(detalle, "MontoOperacion").text = f"{base_ajustada:.2f}"
+                # 5. ETIQUETA DE SUSTRAENDO EXPLÍCITA
+                sustraendo_val = float(row.get('sustraendo', 0.0) or 0.0)
+                if sustraendo_val > 0:
+                    ET.SubElement(detalle, "Sustraendo").text = f"{sustraendo_val:.2f}"
 
             xml_str = ET.tostring(root, encoding='utf-8')
             parsed = minidom.parseString(xml_str)
             return parsed.toprettyxml(indent="  ")
-
         # --- 🔘 TABLA DE REFERENCIA ---
         # --- 🔘 TABLA DE REFERENCIA ESTILO SENIAT ---
         # --- 🔘 TABLA DE REFERENCIA ESTILO SENIAT (INTEGRADA Y CALCULADA) ---
