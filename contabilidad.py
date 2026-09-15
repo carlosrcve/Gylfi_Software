@@ -14545,6 +14545,7 @@ elif opcion_menu == "📚 Libros Fiscales":
 
         import xml.etree.ElementTree as ET
         from xml.dom import minidom
+        import pandas as pd
 
         def generar_xml_seniat(df, rif_agente, periodo):
             root = ET.Element("RelacionRetencionesISLR")
@@ -14577,21 +14578,15 @@ elif opcion_menu == "📚 Libros Fiscales":
                 porcentaje = float(row['porcentaje_retencion'])
                 ET.SubElement(detalle, "PorcentajeRetencion").text = f"{porcentaje:.2f}"
                 
-                # 5. SUSTRAENDO OBLIGATORIO POR CÓDIGO
+                # 5. LECTURA DIRECTA DE LA COLUMNA SUSTRAENDO DE LA TABLA
                 sustraendo_val = 0.0
-                
-                # Intentamos leerlo del row por si acaso existe la columna
-                if 'sustraendo' in row and row['sustraendo'] is not None:
+                if 'sustraendo' in row and pd.notna(row['sustraendo']):
                     try:
                         sustraendo_val = float(str(row['sustraendo']).strip())
                     except (ValueError, TypeError):
                         sustraendo_val = 0.0
                         
-                # REGLA DE ORO: Si es Concepto 001 (Honorarios PNR) y no lo leyó, se lo ponemos a juro
-                if sustraendo_val == 0.0 and codigo_concepto == '001':
-                    sustraendo_val = 107.50
-                    
-                # Si tiene valor, pintamos la etiqueta en el XML
+                # Si la celda de la tabla tiene un valor mayor a 0 (como los 107.50), pintamos la etiqueta
                 if sustraendo_val > 0.0:
                     ET.SubElement(detalle, "Sustraendo").text = f"{sustraendo_val:.2f}"
 
