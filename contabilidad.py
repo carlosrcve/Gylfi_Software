@@ -8536,7 +8536,7 @@ def renderizar_tab_asientos_ventas(db_connection):
                     """)
                     asientos_cx_cobrar = cursor_match.fetchall()
 
-                    # 2. Consultar Movimientos del Banco
+                    # 2. Consultar Movimientos del Banco (SOLO MONTOS POSITIVOS DE INGRESOS)
                     cursor_match.execute(f"""
                         SELECT id, fecha_movimiento, descripcion, referencia, monto, cuenta_numero 
                         FROM `{db_segura}`.banco_movimientos 
@@ -8544,12 +8544,13 @@ def renderizar_tab_asientos_ventas(db_connection):
                     """)
                     movimientos_banco = cursor_match.fetchall()
 
-                    st.info(f"📊 Total analizado en base de datos: **{len(asientos_cx_cobrar)}** asientos contables con movimiento al debe y **{len(movimientos_banco)}** movimientos bancarios.")
+                    st.info(f"📊 Total analizado en base de datos: **{len(asientos_cx_cobrar)}** asientos contables al debe y **{len(movimientos_banco)}** movimientos bancarios positivos.")
 
                     import re
                     def extraer_rif_texto(texto):
                         if not texto:
                             return None
+                        # Expresión regular robusta para capturar RIFs venezolanos (V, J, E, G, P con o sin guiones)
                         match = re.search(r'\b([VJGEP]-?\d{6,10}-?\d?)\b', str(texto), re.IGNORECASE)
                         if match:
                             return match.group(0).upper().replace("-", "").strip()
@@ -8559,47 +8560,34 @@ def renderizar_tab_asientos_ventas(db_connection):
                     asientos_con_rif_detectado = 0
                     banco_con_rif_detectado = 0
 
-                    # Diagnóstico previo para tu tranquilidad visual
-                    lista_asientos_debug = []
-                    for asiento in asientos_cx_cobrar:
-                        a_id, a_comp, a_desc, a_fecha, a_plan, a_cta_cont, a_ref, a_debe, a_haber = asiento
-                        rif_as = extraer_rif_texto(a_desc)
-                        if rif_as:
-                            asientos_con_rif_detectado += 1
-                        lista_asientos_debug.append({"ID": a_id, "Comp": a_comp, "Desc": a_desc, "RIF Detectado": rif_as, "Debe": a_debe})
-
-                    for mov in movimientos_banco:
-                        m_id, m_fecha, m_desc, m_ref, m_monto, m_cta = mov
-                        rif_b = extraer_rif_texto(m_desc)
-                        if rif_b:
-                            banco_con_rif_detectado += 1
-
-                    st.write(f"🔍 *Depuración:* Se detectó RIF en **{asientos_con_rif_detectado}** asientos contables y en **{banco_con_rif_detectado}** movimientos bancarios.")
-
-                    # LÓGICA DE CRUCE FLEXIBLE (Por RIF si coincide, O por Monto exacto si los RIFs fallan)
+                    # Análisis y cruce inteligente por RIF y Monto
                     for asiento in asientos_cx_cobrar:
                         a_id, a_comp, a_desc, a_fecha, a_plan, a_cta_cont, a_ref, a_debe, a_haber = asiento
                         rif_asiento = extraer_rif_texto(a_desc)
+                        if rif_asiento:
+                            asientos_con_rif_detectado += 1
 
                         for mov in movimientos_banco:
                             m_id, m_fecha, m_desc, m_ref, m_monto, m_cta = mov
                             rif_banco = extraer_rif_texto(m_desc)
+                            if rif_banco and asiento == asientos_cx_cobrar[0]: # Contabilizar solo una vez los del banco
+                                banco_con_rif_detectado += 1
 
                             diferencia_monto = abs(float(a_debe) - float(m_monto))
                             
-                            # Criterio flexible: Coincidencia de monto exacta o muy cercana (< 0.05)
-                            # No exigimos que el banco tenga RIF obligatoriamente para hacer el match
-                            match_por_monto = (diferencia_monto < 0.05)
+                            # Criterio de match: 
+                            # 1. Coincidencia exacta de RIF y monto cercano (< 0.05)
+                            # 2. O si el monto es exactamente el mismo (por si el formato del texto del banco varía levemente)
+                            match_rif = (rif_asiento and rif_banco and rif_asiento == rif_banco and diferencia_monto < 0.05)
+                            match_monto = (diferencia_monto < 0.05)
 
-                            if match_por_monto:
-                                # Evitamos duplicar el mismo movimiento del banco si ya fue cruzado
+                            if match_rif or match_monto:
                                 ya_agregado = any(c['banco_mov_id'] == m_id for c in coincidencias_encontradas)
                                 if not ya_agregado:
-                                    rif_encontrado_str = rif_asiento if rif_asiento else (rif_banco if rif_banco else "NO DETECTADO")
                                     coincidencias_encontradas.append({
                                         "asiento_id": a_id,
                                         "comprobante": a_comp,
-                                        "rif_detectado": rif_encontrado_str,
+                                        "rif_detectado": rif_asiento if rif_asiento else (rif_banco if rif_banco else "NO DETECTADO"),
                                         "cuenta_cxc": a_plan,
                                         "nombre_cxc": a_cta_cont,
                                         "descripcion_contable": a_desc,
@@ -8612,12 +8600,14 @@ def renderizar_tab_asientos_ventas(db_connection):
                                     })
                                     break 
 
+                    st.write(f"🔍 *Depuración interna:* Se detectó RIF en **{asientos_con_rif_detectado}** asientos contables.")
+
                     if coincidencias_encontradas:
                         df_matching = pd.DataFrame(coincidencias_encontradas)
-                        st.success(f"¡Se han conciliado exitosamente **{len(df_matching)}** registros por coincidencia de monto!")
+                        st.success(f"¡Se han conciliado exitosamente **{len(df_matching)}** registros!")
                         st.session_state['df_matching_resultado'] = df_matching
                     else:
-                        st.warning("⚠️ No se hallaron cruces por monto. Revisa si los montos de los asientos al debe coinciden con los depósitos/pagos en el banco.")
+                        st.warning("⚠️ No se hallaron coincidencias. Revisa si los montos de los asientos al debe coinciden con los montos positivos de los pagos móviles o depósitos en la tabla del banco.")
 
             except Exception as err_match:
                 st.error(f"❌ Error ejecutando el proceso de matching: {str(err_match)}")
@@ -8698,7 +8688,6 @@ def renderizar_tab_asientos_ventas(db_connection):
                     db_connection.rollback()
                 st.error(f"❌ Error al guardar los asientos de cancelación: {e_reg}")
 
-    
 
 def gestionar_sidebar():
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
