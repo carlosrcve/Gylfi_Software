@@ -14570,14 +14570,25 @@ elif opcion_menu == "📚 Libros Fiscales":
                 ET.SubElement(detalle, "FechaOperacion").text = fecha_str
                 
                 # 4. Concepto, Monto Operación y Porcentaje
-                ET.SubElement(detalle, "CodigoConcepto").text = str(row['codigo_concepto']).zfill(3)
+                codigo_concepto = str(row['codigo_concepto']).zfill(3)
+                ET.SubElement(detalle, "CodigoConcepto").text = codigo_concepto
                 ET.SubElement(detalle, "MontoOperacion").text = f"{float(row['monto_operacion']):.2f}"
                 
                 porcentaje = float(row['porcentaje_retencion'])
                 ET.SubElement(detalle, "PorcentajeRetencion").text = f"{porcentaje:.2f}"
                 
-                # 5. ETIQUETA DE SUSTRAENDO EXPLÍCITA
-                sustraendo_val = float(row.get('sustraendo', 0.0) or 0.0)
+                # 5. SUSTRAENDO FORZADO Y EXPLÍCITO
+                # Intentamos leerlo del row, pero si es concepto 001 y no viene, le metemos los 107.50 a juro
+                sustraendo_val = 0.0
+                if 'sustraendo' in row and row['sustraendo'] is not None:
+                    try:
+                        sustraendo_val = float(row['sustraendo'])
+                    except ValueError:
+                        sustraendo_val = 0.0
+                        
+                if sustraendo_val == 0.0 and codigo_concepto == '001':
+                    sustraendo_val = 107.50  # Tu sustraendo fijo para honorarios de PNR
+                    
                 if sustraendo_val > 0:
                     ET.SubElement(detalle, "Sustraendo").text = f"{sustraendo_val:.2f}"
 
