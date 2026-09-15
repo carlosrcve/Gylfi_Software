@@ -8492,10 +8492,10 @@ def renderizar_tab_asientos_ventas(db_connection):
                     db_connection.rollback()
                 st.error(f"❌ Error crítico al guardar en MySQL: {str(db_err)}")
     # ----------------------------------------------------
-    # TERCER FRAME: CONCILIACIÓN CON LAS COLUMNAS DE ASIENTOS CONTABLES
+    # TERCER FRAME: CONCILIACIÓN CON ESTRUCTURA NATIVA Y CUENTA DE BANCO VISIBLE
     # ----------------------------------------------------
     st.markdown("---")
-    st.markdown("### 🔄 Tercer Frame: Cruce de Cobranzas (`asientos_contables`)")
+    st.markdown("### 🔄 Tercer Frame: Cruce de Cobranzas y Asientos Contables")
 
     try:
         with db_connection.cursor() as cur_cuentas:
@@ -8512,15 +8512,15 @@ def renderizar_tab_asientos_ventas(db_connection):
     opciones_cuentas_banco = [f"{row[0]} - {row[1]}" for row in cuentas_plan_db] if cuentas_plan_db else ["N/A - Sin cuentas"]
 
     cuenta_banco_seleccionada_str = st.selectbox(
-        "Seleccione la Cuenta Contable del Banco:",
+        "Seleccione la Cuenta Contable del Banco para el Depósito:",
         options=opciones_cuentas_banco,
-        key="select_cta_banco_asientos_nativo"
+        key="select_cta_banco_asientos_nativo_def"
     )
 
     cuenta_contable_banco_activa = cuenta_banco_seleccionada_str.split(" - ")[0].strip() if " - " in cuenta_banco_seleccionada_str else ""
     nombre_cuenta_banco_activa = cuenta_banco_seleccionada_str.split(" - ")[1].strip() if " - " in cuenta_banco_seleccionada_str else ""
 
-    if st.button("🔍 Cargar y Cruzar con Estructura de Asientos Contables", key="btn_cargar_asientos_nativo"):
+    if st.button("🔍 Cargar y Cruzar con Estructura de Asientos Contables", key="btn_cargar_asientos_nativo_def"):
         if not cuenta_contable_banco_activa or cuenta_contable_banco_activa == "N/A":
             st.error("❌ Seleccione una cuenta bancaria válida.")
         else:
@@ -8566,8 +8566,7 @@ def renderizar_tab_asientos_ventas(db_connection):
                                     ref_banco = f"BANCO-{b_id}"
                                     break
 
-                        # Construimos la fila respetando EXACTAMENTE las columnas de la tabla asientos_contables 
-                        # más los campos extras necesarios para el control del match y el banco.
+                        # Fila con la estructura de asientos_contables incluyendo la cuenta de banco elegida visible
                         filas_frame.append({
                             "procesar": True,
                             "id": a_id,
@@ -8577,32 +8576,34 @@ def renderizar_tab_asientos_ventas(db_connection):
                             "plan_cuentas": a_plan,
                             "cuenta_contable": a_cta,
                             "referencia": ref_banco,
-                            "debe": 0.00,                 # Al cancelar va al haber
-                            "haber": monto_banco_encontrado, # El monto real cobrado que cancela la cuenta
+                            "debe": 0.00,
+                            "haber": monto_banco_encontrado,
                             "bloqueado": a_bloq,
-                            "banco_mov_id": banco_mov_id  # Auxiliar interno para conciliar el banco
+                            "banco_mov_id": banco_mov_id,
+                            "cta_banco_destino": cuenta_contable_banco_activa,
+                            "nombre_banco_destino": nombre_cuenta_banco_activa
                         })
 
                     if filas_frame:
-                        st.session_state['df_asientos_nativo'] = pd.DataFrame(filas_frame)
-                        st.success(f"Se cargaron **{len(filas_frame)}** registros con la estructura nativa de `asientos_contables`.")
+                        st.session_state['df_asientos_nativo_def'] = pd.DataFrame(filas_frame)
+                        st.success(f"Se cargaron **{len(filas_frame)}** registros correctamente.")
                     else:
                         st.warning("No se encontraron asientos contables de choferes para procesar.")
 
             except Exception as e_c:
                 st.error(f"Error procesando los datos: {e_c}")
 
-    # Visualización con el data_editor usando las columnas exactas
-    if 'df_asientos_nativo' in st.session_state and not st.session_state['df_asientos_nativo'].empty:
-        st.markdown("### 📋 Vista Estructurada (`asientos_contables`):")
+    # Visualización con el data_editor
+    if 'df_asientos_nativo_def' in st.session_state and not st.session_state['df_asientos_nativo_def'].empty:
+        st.markdown("### 📋 Vista Estructurada con Cuenta Bancaria Asignada:")
         
         df_editado_nativo = st.data_editor(
-            st.session_state['df_asientos_nativo'],
-            key="editor_asientos_nativo",
+            st.session_state['df_asientos_nativo_def'],
+            key="editor_asientos_nativo_def",
             use_container_width=True
         )
 
-        if st.button("💾 Guardar y Registrar en la Base de Datos", key="btn_guardar_asientos_nativo"):
+        if st.button("💾 Guardar y Registrar en la Base de Datos", key="btn_guardar_asientos_nativo_def"):
             try:
                 df_validos = df_editado_nativo[df_editado_nativo['procesar'] == True]
                 if df_validos.empty:
@@ -8618,6 +8619,10 @@ def renderizar_tab_asientos_ventas(db_connection):
                             ref_banco = row['referencia']
                             b_id = int(row['banco_mov_id'])
                             asiento_origen_id = int(row['id'])
+                            
+                            # Tomamos la cuenta de banco que quedó configurada en la fila (por si la editaron individualmente o viene del selectbox)
+                            cta_banco_f = str(row['cta_banco_destino'])
+                            nom_banco_f = str(row['nombre_banco_destino'])
 
                             # 1. Insertar la línea al HABER (Cancelación de la CxC del Chofer)
                             cur_ins.execute(f"""
@@ -8633,7 +8638,7 @@ def renderizar_tab_asientos_ventas(db_connection):
                                 monto_haber
                             ))
 
-                            # 2. Insertar la línea al DEBE (Ingreso al Banco seleccionado en la cuenta contable de banco)
+                            # 2. Insertar la línea al DEBE (Ingreso al Banco seleccionado)
                             cur_ins.execute(f"""
                                 INSERT INTO `{db_segura}`.asientos_contables 
                                 (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber, bloqueado)
@@ -8641,8 +8646,8 @@ def renderizar_tab_asientos_ventas(db_connection):
                             """, (
                                 str(comp),
                                 f"Ingreso bancario - {row['descripcion']}",
-                                str(cuenta_contable_banco_activa),
-                                str(nombre_cuenta_banco_activa),
+                                cta_banco_f,
+                                nom_banco_f,
                                 str(ref_banco),
                                 monto_haber
                             ))
@@ -8658,8 +8663,8 @@ def renderizar_tab_asientos_ventas(db_connection):
                             contador += 1
 
                         db_connection.commit()
-                        st.success(f"¡Excelente! Se registraron **{contador * 2}** líneas contables nuevas en la tabla `asientos_contables` con sus respectivos débitos y créditos.")
-                        del st.session_state['df_asientos_nativo']
+                        st.success(f"¡Listo! Se registraron **{contador * 2}** líneas contables en `asientos_contables` vinculadas a su respectiva cuenta bancaria.")
+                        del st.session_state['df_asientos_nativo_def']
                         st.rerun()
 
             except Exception as e_sv:
