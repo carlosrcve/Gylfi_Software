@@ -8491,6 +8491,12 @@ def renderizar_tab_asientos_ventas(db_connection):
                 if hasattr(db_connection, 'rollback'):
                     db_connection.rollback()
                 st.error(f"❌ Error crítico al guardar en MySQL: {str(db_err)}")
+    
+    # ----------------------------------------------------
+    # TERCER FRAME: CONCILIACIÓN CON ASIENTO DOBLE LIMPIO
+    # ----------------------------------------------------
+    st.markdown("---")
+    st.markdown("### 🔄 Tercer Frame: Cruce y Asientos Contables (Partida Doble)")
     # Visualización limpia eliminando por completo cualquier rastro visual de la columna bloqueado
     if 'df_asientos_pd' in st.session_state and not st.session_state['df_asientos_pd'].empty:
         st.markdown("### 📋 Vista de Asientos Contables (Debe y Haber Equilibrados):")
@@ -14596,28 +14602,28 @@ elif opcion_menu == "📚 Libros Fiscales":
 
                             # 2. Consulta optimizada de facturas pendientes
                             query = """
-                            SELECT 
-                                lc.id AS id, 
-                                lc.fecha_operacion AS fecha_operacion,
-                                NULL AS id_sec, 
-                                lc.rif AS rif_retenido, 
-                                COALESCE(p.razon_social, 'PROVEEDOR NO ENCONTRADO') AS proveedor_nombre, 
-                                COALESCE(p.direccion_fiscal, 'DIRECCIÓN NO REGISTRADA') AS proveedor_direccion,
-                                lc.n_factura AS numero_factura, 
-                                lc.n_control AS numero_control, 
-                                NULL AS codigo_concepto, 
-                                lc.base_imponible AS monto_operacion, 
-                                0.00 AS porcentaje_retencion, 
-                                0.00 AS monto_retenido, 
-                                NULL AS periodo_retenido, 
-                                0.00 AS sustraendo, 
-                                NULL AS n_comprob_islr
-                            FROM libro_compras lc
-                            LEFT JOIN proveedores p ON 
-                                TRIM(REGEXP_REPLACE(lc.rif, '[^a-zA-Z0-9]', '')) = TRIM(REGEXP_REPLACE(p.rif, '[^a-zA-Z0-9]', ''))
-                            WHERE (lc.retencion_realizada = 0 OR lc.retencion_realizada IS NULL)
-                            AND lc.fecha_operacion BETWEEN %s AND %s
-                            ORDER BY lc.fecha_operacion ASC
+                                SELECT 
+                                    lc.id AS id, 
+                                    lc.fecha_operacion AS fecha_operacion,
+                                    NULL AS id_sec, 
+                                    lc.rif AS rif_retenido, 
+                                    COALESCE(p.razon_social, 'PROVEEDOR NO ENCONTRADO') AS proveedor_nombre, 
+                                    COALESCE(p.direccion_fiscal, 'DIRECCIÓN NO REGISTRADA') AS proveedor_direccion,
+                                    lc.n_factura AS numero_factura, 
+                                    lc.n_control AS numero_control, 
+                                    NULL AS codigo_concepto, 
+                                    lc.base_imponible AS monto_operacion, 
+                                    0.00 AS porcentaje_retencion, 
+                                    0.00 AS monto_retenido, 
+                                    NULL AS periodo_retenido, 
+                                    0.00 AS sustraendo, 
+                                    NULL AS n_comprob_islr
+                                FROM libro_compras lc
+                                LEFT JOIN proveedores p ON 
+                                    TRIM(REGEXP_REPLACE(lc.rif, '[^a-zA-Z0-9]', '')) COLLATE utf8mb4_unicode_ci = TRIM(REGEXP_REPLACE(p.rif, '[^a-zA-Z0-9]', '')) COLLATE utf8mb4_unicode_ci
+                                WHERE (lc.retencion_realizada = 0 OR lc.retencion_realizada IS NULL)
+                                AND lc.fecha_operacion BETWEEN %s AND %s
+                                ORDER BY lc.fecha_operacion ASC
                             """
 
                             st.session_state.df_retencion = ejecutar_consulta(
