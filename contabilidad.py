@@ -68,7 +68,7 @@ def conectar_db(nombre_db=None):
                     host="gateway01.us-east-1.prod.aws.tidbcloud.com",
                     port=4000,
                     user="4K4VAw4t4ZPFUTF.root",
-                    password="kEB5hwsXOU3m7snA",
+                    password="W3Zkbr4E2trGCfoX",
                     database="control_central", # Conectamos primero a central para asegurarnos de poder crearla si falta
                     connect_timeout=20,
                     charset='utf8mb4',
@@ -106,7 +106,7 @@ def conectar_db(nombre_db=None):
             host="gateway01.us-east-1.prod.aws.tidbcloud.com",
             port=4000,
             user="4K4VAw4t4ZPFUTF.root",
-            password="kEB5hwsXOU3m7snA",
+            password="W3Zkbr4E2trGCfoX",
             database=db_a_usar,
             connect_timeout=15,
             charset='utf8mb4',
@@ -15653,4 +15653,3 @@ elif "Proveedores" in opcion_menu:
 elif "Inventarios" in opcion_menu:
     # Invocamos el módulo exclusivo pasando la conexión a la base de datos
     modulo_inventario_pedacito_cielo(conn)  
-
