@@ -15138,53 +15138,109 @@ elif opcion_menu == "📚 Libros Fiscales":
             with tab6:
                 # --- SECCIÓN C: GENERAR ARCHIVO XML SENIAT ---
                 st.divider()
-                st.markdown("### 📡 Generar Archivo XML para Declaración SENIAT")
+                st.markdown("### 📡 Generar Archivo XML y Vista de Control SENIAT")
                 
-                # --- BLINDAJE LOCAL DE FECHAS ---
                 from datetime import date as d_tipo
 
                 with st.container(border=True):
                     col_xml1, col_xml2 = st.columns(2)
-                    f_xml_desde = col_xml1.date_input("Desde", value=d_tipo(2026, 4, 1), key="xml_desde")
-                    f_xml_hasta = col_xml2.date_input("Hasta", value=d_tipo(2026, 4, 30), key="xml_hasta")
+                    f_xml_desde = col_xml1.date_input("Desde", value=d_tipo(2026, 8, 1), key="xml_desde")
+                    f_xml_hasta = col_xml2.date_input("Hasta", value=d_tipo(2026, 8, 31), key="xml_hasta")
                     
-                    # Botón de procesamiento
                     # Botón de procesamiento
                     if st.button("🚀 Procesar Datos XML", width='content'):
                         db_actual = st.session_state.get('DB_ACTUAL') 
                         conn = conectar_db(db_actual) 
                         if conn:
-                            # Definimos el periodo de forma dinámica según el selector de fecha
                             periodo_str = f_xml_hasta.strftime("%Y%m") # Ej: "202608"
                             patron_comprobante = f"{periodo_str}%"
                             
-                            # Consulta dinámica utilizando el comodín %s correctamente
                             query_xml = """
                                 SELECT 
-                                    rif_retenido, 
-                                    numero_factura, 
-                                    numero_control, 
-                                    fecha_operacion,
-                                    codigo_concepto, 
-                                    monto_operacion, 
-                                    porcentaje_retencion,
-                                    sustraendo, 
-                                    monto_retenido, 
-                                    n_comprob_islr
+                                    n_comprob_islr AS `Fila / Doc`,
+                                    fecha_operacion AS `Fecha`,
+                                    numero_factura AS `N° Doc`,
+                                    numero_control AS `N° Control`,
+                                    rif_retenido AS `R.I.F.`,
+                                    nombre_proveedor AS `Nombre o Razón Social`,
+                                    codigo_concepto AS `Cód. Concepto (XML)`,
+                                    tipo_proveedor AS `Tipo Proveedor / Concepto`,
+                                    monto_operacion AS `Base Imponible (Bs.)`,
+                                    porcentaje_retencion AS `Alicuota ISLR`,
+                                    monto_retenido AS `Retención Neta (Bs.)`,
+                                    sustraendo AS `Sustraendo (Bs.)`
                                 FROM retenciones_islr 
                                 WHERE n_comprob_islr LIKE %s
                             """
+                            # Nota: Ajusta los nombres de las columnas según tu base de datos si varían ligeramente
                             df_xml = ejecutar_consulta(query_xml, conn, params=(patron_comprobante,))
                             conn.close()
                             
                             if not df_xml.empty:
-                                # Guardamos el resultado en session_state
+                                # Cálculos auxiliares para simular la vista del Excel
+                                df_xml['Base Imponible (Bs.)'] = df_xml['Base Imponible (Bs.)'].astype(float)
+                                df_xml['Alicuota ISLR'] = df_xml['PorcentajeRetencion'] if 'PorcentajeRetencion' in df_xml.columns else df_xml['Alicuota ISLR'].astype(float)
+                                df_xml['Sustraendo (Bs.)'] = df_xml['Sustraendo (Bs.)'].astype(float)
+                                df_xml['Retención Neta (Bs.)'] = df_xml['Retención Neta (Bs.)'].astype(float)
+                                
+                                # Retención Bruta estimada para el cuadro = Retención Neta + Sustraendo
+                                df_xml['Retención Bruta (Bs.)'] = df_xml['Retención Neta (Bs.)'] + df_xml['Sustraendo (Bs.)']
+
+                                # Guardamos en session_state para la tabla y el XML
+                                st.session_state['df_xml_view'] = df_xml
                                 st.session_state['xml_data'] = generar_xml_seniat(df_xml, DATOS_EMPRESA['rif'], periodo_str)
                                 st.session_state['xml_filename'] = f"RET_ISLR_{periodo_str}.xml"
-                                st.success(f"✅ Datos procesados ({len(df_xml)} retenciones). Listo para descargar.")
+                                st.success(f"✅ Datos procesados con éxito ({len(df_xml)} retenciones).")
                             else:
                                 st.warning(f"⚠️ No se encontraron retenciones para el periodo {periodo_str}.")
                                 st.session_state['xml_data'] = None
+                                st.session_state['df_xml_view'] = None
+
+                    # Si ya hay datos procesados, mostramos el diseño de tabla tipo Excel y los totales
+                    if st.session_state.get('df_xml_view') is not None:
+                        df_view = st.session_state['df_xml_view']
+                        
+                        st.markdown("#### 📊 Resumen de Retenciones del Periodo")
+                        
+                        # Mostrar la tabla formateada visualmente idéntica al Excel
+                        st.dataframe(
+                            df_view[[
+                                'Fila / Doc', 'Fecha', 'N° Doc', 'N° Control', 'R.I.F.', 
+                                'Nombre o Razón Social', 'Cód. Concepto (XML)', 'Base Imponible (Bs.)', 
+                                'Retención Bruta (Bs.)', 'Sustraendo (Bs.)', 'Retención Neta (Bs.)'
+                            ]],
+                            use_container_width=True,
+                            hide_index=True
+                        )
+                        
+                        # Fila de Totales estilo Excel
+                        tot_base = df_view['Base Imponible (Bs.)'].sum()
+                        tot_bruta = df_view['Retención Bruta (Bs.)'].sum()
+                        tot_sust = df_view['Sustraendo (Bs.)'].sum()
+                        tot_neta = df_view['Retención Neta (Bs.)'].sum()
+                        
+                        cols_tot = st.columns([4, 1.5, 1.5, 1.5])
+                        cols_tot[0].markdown("**TOTAL GENERAL A ENTERAR AL SENIAT:**")
+                        cols_tot[1].metric("Base Imb.", f"{tot_base:,.2f}")
+                        cols_tot[2].metric("Sustraendo", f"{tot_sust:,.2f}")
+                        cols_tot[3].metric("Retención Neta", f"{tot_neta:,.2f}")
+
+                        st.markdown("---")
+                        
+                        # Botón de descarga del XML limpio
+                        st.download_button(
+                            label="📥 Descargar Archivo XML para el Portal SENIAT",
+                            data=st.session_state['xml_data'],
+                            file_name=st.session_state['xml_filename'],
+                            mime="application/xml",
+                            width='content'
+                        )
+                        
+                        with st.expander("👁️ Ver Código XML Generado"):
+                            xml_code = st.session_state['xml_data']
+                            if isinstance(xml_code, bytes):
+                                xml_code = xml_code.decode('utf-8')
+                            st.code(xml_code, language="xml")
 
 
     elif sub_opcion == "Comprobante de Retención IVA":
