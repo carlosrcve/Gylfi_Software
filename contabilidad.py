@@ -4095,7 +4095,7 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
 
 
 
-# --- 2. VALIDACIÓN DE CONEXIÓN Y CARGA ---
+    # --- 2. VALIDACIÓN DE CONEXIÓN Y CARGA ---
     with tab1:
         st.write("Cargando Generar Nueva...")
         st.subheader("📝 Generar Nueva Retención")
@@ -4258,66 +4258,80 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                             
                             b16, i16, r16 = (base, impuesto, iva_retenido_fila) if not es_8 else (0.0, 0.0, 0.0)
                             b8, i8, r8 = (base, impuesto, iva_retenido_fila) if es_8 else (0.0, 0.0, 0.0)
+                            
                             fecha_corta = str(fila['fecha_operacion']).split(" ")[0]
                             ano_f, mes_f = fecha_corta.split("-")[0], fecha_corta.split("-")[1]
 
-                            # Cálculo de la retención de ISLR por cada fila (puedes ajustar el porcentaje y sustraendo según tu lógica)
-                            monto_operacion_islr = round(float(fila.get('base_imponible', 0) or 0), 2)
-                            porcentaje_islr = 1.0  # Porcentaje estándar de retención de ISLR (ej: 1% o 2%)
-                            monto_retenido_islr = round((monto_operacion_islr * porcentaje_islr) / 100, 2)
-                            
-                            # Generación de número de comprobante de ISLR si no lo tienes definido arriba
-                            nro_comp_islr = str(ano_f) + str(mes_f) + str(fila.get('id', '000001')).zfill(8)
+                            # Red de seguridad total contra vacíos o nulos para el tipo de persona
+                            rif_limpio_upper = str(rif_ret).strip().upper() if rif_ret else ""
+                            tipo_persona = "Natural" if rif_limpio_upper.startswith(('V', 'E', 'v', 'e')) else "Juridica"
 
-                            # 1. Aseguramos el valor de tipo_persona limpiando el RIF
-                            rif_limpio_upper = str(rif_ret).strip().upper()
-                            tipo_persona = "Natural" if rif_limpio_upper.startswith(('V', 'E')) else "Juridica"
-
-                            # 2. Sentencia INSERT incluyendo explícitamente 'tipo_persona' al final
-                            query_ins_islr = """
-                                INSERT INTO retenciones_islr (
-                                    id_sec,
-                                    rif_retenido,
-                                    numero_factura,
-                                    numero_control,
-                                    fecha_operacion,
-                                    codigo_concepto,
-                                    monto_operacion,
-                                    porcentaje_retencion,
-                                    monto_retenido,
-                                    periodo_retenido,
-                                    sustraendo,
-                                    n_comprob_islr,
-                                    proveedor_nombre,
-                                    proveedor_direccion,
+                            # Sentencia INSERT exclusiva para retenciones_iva
+                            query_ins_iva = """
+                                INSERT INTO retenciones_iva (
+                                    Razon_Social_del_Agente_de_Retencion, 
+                                    RIF_Agente_Retencion,  
+                                    Direccion_FiscalAgente_Retencion, 
+                                    E_Emision, 
+                                    F_Entrega, 
+                                    Razon_Social_Sujeto_Retenido, 
+                                    RIF_Sujeto_Retenido, 
+                                    Ano, 
+                                    Mes, 
+                                    N_Comprobante1, 
+                                    Fecha_Factura, 
+                                    Numero_Factura, 
+                                    Numero_Contro, 
+                                    Total_Comrpas, 
+                                    Compras_Excentas, 
+                                    Base_Imponible, 
+                                    Impuesto_Iva, 
+                                    IVA_Retenido, 
+                                    Base_Imponible_8, 
+                                    IVA_8, 
+                                    RET_IVA_8, 
+                                    Alicuota, 
+                                    Alicuota_75, 
+                                    N_Nota_Debito, 
                                     tipo_persona
                                 ) VALUES (
-                                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 
+                                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 
+                                    %s, %s, %s, %s, %s
                                 )
                             """
 
-                            # 3. Tupla de 15 parámetros exactos que hacen match con las 15 columnas de la imagen
-                            params_islr = (
-                                1,                                    # id_sec
-                                rif_ret,                              # rif_retenido
-                                str(fila['n_factura']),               # numero_factura
-                                str(fila['n_control']),               # numero_control
-                                fecha_corta,                          # fecha_operacion
-                                "001",                                # codigo_concepto
-                                monto_operacion_islr,                 # monto_operacion
-                                porcentaje_islr,                      # porcentaje_retencion
-                                monto_retenido_islr,                  # monto_retenido
-                                f"{ano_f}{mes_f}",                    # periodo_retenido
-                                0.00,                                 # sustraendo
-                                nro_comp_islr,                        # n_comprob_islr
-                                razon_social_ret,                     # proveedor_nombre
-                                domicilio_fiscal,                     # proveedor_direccion
-                                tipo_persona                          # tipo_persona (¡Obligatorio para evitar el error 1364!)
+                            params_iva = (
+                                empresa_nombre, 
+                                empresa_rif, 
+                                domicilio_fiscal,
+                                fecha_corta, 
+                                fecha_corta, 
+                                razon_social_ret, 
+                                rif_ret, 
+                                ano_f, 
+                                mes_f,
+                                nro_comp, 
+                                fecha_corta, 
+                                str(fila['n_factura']), 
+                                str(fila['n_control']),
+                                round(float(fila.get('total_compras', 0)), 2),
+                                round(float(fila.get('importe_exento', 0)), 2),
+                                round(b16, 2), 
+                                round(i16, 2), 
+                                round(iva_retenido_fila, 2),
+                                round(b8, 2), 
+                                round(i8, 2), 
+                                round(r8, 2),
+                                "16%", 
+                                f"{porcentaje_ret}%", 
+                                None, 
+                                tipo_persona
                             )
                             
-                            cursor.execute(query_ins_islr, params_islr)
+                            cursor.execute(query_ins_iva, params_iva)
                             
-                            # --- NUEVO: MARCAR LA FACTURA COMO RETENIDA EN EL LIBRO DE COMPRAS ---
+                            # Marcar la factura como retenida en el libro de compras
                             query_update = """
                                 UPDATE libro_compras 
                                 SET retencion_realizada = 1 
