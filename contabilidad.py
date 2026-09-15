@@ -15198,17 +15198,18 @@ elif opcion_menu == "📚 Libros Fiscales":
 
                                 df_view['Retención Bruta (Bs.)'] = df_view['Retención Neta (Bs.)'] + df_view['Sustraendo (Bs.)']
 
-                                # Guardamos la vista limpia en session_state
-                                st.session_state['df_xml_view'] = df_view
+                                # Guardamos los registros como una LISTA DE DICCIONARIOS PUROS DE PYTHON (Cero líos de pandas)
+                                st.session_state['xml_records'] = df_view.to_dict(orient='records')
+                                st.session_state['xml_cols_originales'] = list(df_view.columns)
                                 st.success(f"✅ Datos procesados con éxito ({len(df_xml_raw)} retenciones).")
                             else:
                                 st.warning(f"⚠️ No se encontraron retenciones para el periodo {periodo_str}.")
                                 st.session_state['xml_data'] = None
-                                st.session_state['df_xml_view'] = None
+                                st.session_state['xml_records'] = None
 
-                    # Si ya hay datos procesados, renderizamos directamente en HTML fila por fila
-                    if st.session_state.get('df_xml_view') is not None:
-                        df_view = st.session_state['df_xml_view']
+                    # Si ya hay datos procesados, renderizamos directamente usando registros puros de Python
+                    if st.session_state.get('xml_records') is not None:
+                        records = st.session_state['xml_records']
                         
                         st.markdown("#### 📊 Resumen de Retenciones del Periodo")
                         
@@ -15217,27 +15218,32 @@ elif opcion_menu == "📚 Libros Fiscales":
                             'Nombre o Razón Social', 'Cód. Concepto (XML)', 'Base Imponible (Bs.)', 
                             'Retención Bruta (Bs.)', 'Sustraendo (Bs.)', 'Retención Neta (Bs.)'
                         ]
-                        cols_disponibles = [c for c in cols_a_mostrar if c in df_view.columns]
+                        
+                        # Verificamos cuáles columnas de la lista ideal existen realmente en el primer registro
+                        sample_keys = records[0].keys() if records else []
+                        cols_disponibles = [c for c in cols_a_mostrar if c in sample_keys]
 
-                        # CONSTRUCCIÓN MANUAL DE FILAS HTML (Sin usar pd.DataFrame para el display)
+                        # CONSTRUCCIÓN MANUAL DE FILAS HTML USANDO SOLO PYTHON PURO
                         html_rows = ""
-                        for _, row in df_view.iterrows():
+                        for row in records:
                             html_rows += "<tr>"
                             for col in cols_disponibles:
                                 val = row.get(col, "")
-                                if col in ['Base Imponible (Bs.)', 'Retención Bruta (Bs.)', 'Sustraendo (Bs.)', 'Retención Neta (Bs.)', 'Alicuota ISLR']:
+                                if val is None:
+                                    val_str = ""
+                                elif col in ['Base Imponible (Bs.)', 'Retención Bruta (Bs.)', 'Sustraendo (Bs.)', 'Retención Neta (Bs.)', 'Alicuota ISLR']:
                                     try:
                                         val_str = f"{float(val):,.2f}"
                                     except:
                                         val_str = "0.00"
                                 else:
-                                    val_str = str(val) if pd.notnull(val) else ""
+                                    val_str = str(val)
                                 html_rows += f"<td>{val_str}</td>"
                             html_rows += "</tr>"
 
                         html_headers = "".join([f"<th>{col}</th>" for col in cols_disponibles])
 
-                        # RENDERIZAR HTML PURO (Cero errores de longitudes, cero PyArrow)
+                        # RENDERIZAR HTML PURO (Python nativo, sin dependencias de PyArrow ni errores de booleanos)
                         st.markdown(f"""
                             <style>
                                 .styled-table {{
@@ -15267,10 +15273,10 @@ elif opcion_menu == "📚 Libros Fiscales":
                             </div>
                         """, unsafe_allow_html=True)
                         
-                        # Fila de Totales estilo Excel
-                        tot_base = df_view['Base Imponible (Bs.)'].sum() if 'Base Imponible (Bs.)' in df_view.columns else 0.0
-                        tot_sust = df_view['Sustraendo (Bs.)'].sum() if 'Sustraendo (Bs.)' in df_view.columns else 0.0
-                        tot_neta = df_view['Retención Neta (Bs.)'].sum() if 'Retención Neta (Bs.)' in df_view.columns else 0.0
+                        # Fila de Totales estilo Excel sumando directamente desde los registros de Python
+                        tot_base = sum(float(r.get('Base Imponible (Bs.)', 0) or 0) for r in records)
+                        tot_sust = sum(float(r.get('Sustraendo (Bs.)', 0) or 0) for r in records)
+                        tot_neta = sum(float(r.get('Retención Neta (Bs.)', 0) or 0) for r in records)
                         
                         cols_tot = st.columns([4, 1.5, 1.5, 1.5])
                         cols_tot[0].markdown("**TOTAL GENERAL A ENTERAR AL SENIAT:**")
