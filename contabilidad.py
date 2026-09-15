@@ -15149,15 +15149,16 @@ elif opcion_menu == "📚 Libros Fiscales":
                     f_xml_hasta = col_xml2.date_input("Hasta", value=d_tipo(2026, 4, 30), key="xml_hasta")
                     
                     # Botón de procesamiento
+                    # Botón de procesamiento
                     if st.button("🚀 Procesar Datos XML", width='content'):
                         db_actual = st.session_state.get('DB_ACTUAL') 
                         conn = conectar_db(db_actual) 
                         if conn:
-                            # CORRECCIÓN CLAVE PARA LAS 10 RETENCIONES: 
-                            # Definimos el periodo de forma estricta según el año y mes seleccionado
+                            # Definimos el periodo de forma dinámica según el selector de fecha
                             periodo_str = f_xml_hasta.strftime("%Y%m") # Ej: "202608"
-                
-                            # Asegúrate de que la consulta busque los registros del periodo correspondiente (ej: '202608')
+                            patron_comprobante = f"{periodo_str}%"
+                            
+                            # Consulta dinámica utilizando el comodín %s correctamente
                             query_xml = """
                                 SELECT 
                                     rif_retenido, 
@@ -15171,9 +15172,9 @@ elif opcion_menu == "📚 Libros Fiscales":
                                     monto_retenido, 
                                     n_comprob_islr
                                 FROM retenciones_islr 
-                                WHERE n_comprob_islr LIKE '202608%'
+                                WHERE n_comprob_islr LIKE %s
                             """
-                            df_xml = ejecutar_consulta(query_xml, conn, params=(periodo_str,))
+                            df_xml = ejecutar_consulta(query_xml, conn, params=(patron_comprobante,))
                             conn.close()
                             
                             if not df_xml.empty:
@@ -15184,27 +15185,6 @@ elif opcion_menu == "📚 Libros Fiscales":
                             else:
                                 st.warning(f"⚠️ No se encontraron retenciones para el periodo {periodo_str}.")
                                 st.session_state['xml_data'] = None
-
-                    # Botón de descarga y Vista Previa enmarco limpio y nativo
-                    if st.session_state.get('xml_data'):
-                        st.download_button(
-                            label="📥 Descargar XML para el Portal SENIAT",
-                            data=st.session_state['xml_data'],
-                            file_name=st.session_state['xml_filename'],
-                            mime="application/xml",
-                            width='content'
-                        )
-                        
-                        st.markdown("---")
-                        st.markdown("#### 👁️ Vista Previa del Código XML Generado")
-                        
-                        xml_code_sucia = st.session_state['xml_data']
-                        if isinstance(xml_code_sucia, bytes):
-                            xml_code_sucia = xml_code_sucia.decode('utf-8')
-
-                        # Contenedor limpio tipo marco con soporte nativo de Streamlit
-                        with st.container(border=True):
-                            st.code(xml_code_sucia, language="xml")
 
 
     elif sub_opcion == "Comprobante de Retención IVA":
