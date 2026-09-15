@@ -14578,27 +14578,20 @@ elif opcion_menu == "📚 Libros Fiscales":
                 porcentaje = float(row['porcentaje_retencion'])
                 ET.SubElement(detalle, "PorcentajeRetencion").text = f"{porcentaje:.2f}"
                 
-                # 5. BUSCAR EL SUSTRAENDO OBLIGATORIO (CON ESCUDO ANTIFALLOS)
-                sustraendo_val = 0.0
-                
-                # Intentamos leerlo de cualquier variante de nombre de columna en el row
-                for col_name in ['sustraendo', 'Sustraendo', 'sustraendo_bs']:
-                    if col_name in row and pd.notna(row[col_name]):
-                        try:
-                            val_test = float(str(row[col_name]).strip())
-                            if val_test > 0:
-                                sustraendo_val = val_test
-                                break
-                        except (ValueError, TypeError):
-                            pass
-                            
-                # REGLA DE EMERGENCIA: Si es Concepto 001 y sigue en 0, se lo inyectamos a juro
-                if sustraendo_val == 0.0 and codigo_concepto == '001':
-                    sustraendo_val = 107.50
-                    
-                # Si tiene valor, pintamos la etiqueta con formato exacto de 2 decimales
-                if sustraendo_val > 0.0:
-                    ET.SubElement(detalle, "Sustraendo").text = f"{sustraendo_val:.2f}"
+                # 5. REGLA SUPREMA: SI ES CONCEPTO 001, OBLIGAMOS EL SUSTRAENDO A 107.50
+                if codigo_concepto == '001':
+                    ET.SubElement(detalle, "Sustraendo").text = "107.50"
+                else:
+                    # Para otros conceptos, revisamos si la base de datos trae un valor válido mayor a 0
+                    for col_name in ['sustraendo', 'Sustraendo', 'sustraendo_bs']:
+                        if col_name in row and pd.notna(row[col_name]):
+                            try:
+                                val_test = float(str(row[col_name]).strip())
+                                if val_test > 0:
+                                    ET.SubElement(detalle, "Sustraendo").text = f"{val_test:.2f}"
+                                    break
+                            except (ValueError, TypeError):
+                                pass
 
             xml_str = ET.tostring(root, encoding='utf-8')
             parsed = minidom.parseString(xml_str)
