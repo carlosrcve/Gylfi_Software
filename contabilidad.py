@@ -15184,7 +15184,18 @@ elif opcion_menu == "📚 Libros Fiscales":
                             conn.close()
                             
                             if not df_xml_raw.empty:
-                                # 1. GENERAMOS EL XML USANDO EL DATAFRAME ORIGINAL
+                                # 0. BLINDAJE DE DATAFRAME: Aseguramos que la columna 'sustraendo' exista y tenga valores limpios
+                                if 'sustraendo' not in df_xml_raw.columns:
+                                    df_xml_raw['sustraendo'] = 0.0
+                                
+                                # Rellenamos nulos y forzamos el sustraendo por código (Concepto 001 = 107.50)
+                                df_xml_raw['sustraendo'] = pd.to_numeric(df_xml_raw['sustraendo'], errors='coerce').fillna(0.0)
+                                
+                                # REGLA OBLIGATORIA: Si es concepto 001 y está en 0, le colocamos su sustraendo legal
+                                mask_001 = df_xml_raw['codigo_concepto'].astype(str).str.zfill(3) == '001'
+                                df_xml_raw.loc[mask_001 & (df_xml_raw['sustraendo'] == 0.0), 'sustraendo'] = 107.50
+
+                                # 1. AHORA SÍ GENERAMOS EL XML USANDO EL DATAFRAME BLINDADO
                                 st.session_state['xml_data'] = generar_xml_seniat(df_xml_raw, DATOS_EMPRESA['rif'], periodo_str)
                                 st.session_state['xml_filename'] = f"RET_ISLR_{periodo_str}.xml"
 
@@ -15218,7 +15229,7 @@ elif opcion_menu == "📚 Libros Fiscales":
 
                                 df_view['Retención Bruta (Bs.)'] = df_view['Retención Neta (Bs.)'] + df_view['Sustraendo (Bs.)']
 
-                                # Guardamos los registros como una LISTA DE DICCIONARIOS PUROS DE PYTHON (Cero líos de pandas)
+                                # Guardamos los registros como una LISTA DE DICCIONARIOS PUROS DE PYTHON
                                 st.session_state['xml_records'] = df_view.to_dict(orient='records')
                                 st.session_state['xml_cols_originales'] = list(df_view.columns)
                                 st.success(f"✅ Datos procesados con éxito ({len(df_xml_raw)} retenciones).")
