@@ -8491,134 +8491,15 @@ def renderizar_tab_asientos_ventas(db_connection):
                 if hasattr(db_connection, 'rollback'):
                     db_connection.rollback()
                 st.error(f"❌ Error crítico al guardar en MySQL: {str(db_err)}")
-    # ----------------------------------------------------
-    # TERCER FRAME: CONCILIACIÓN CON ASIENTO DOBLE LIMPIO
-    # ----------------------------------------------------
-    st.markdown("---")
-    st.markdown("### 🔄 Tercer Frame: Cruce y Asientos Contables (Partida Doble)")
-
-    try:
-        with db_connection.cursor() as cur_cuentas:
-            cur_cuentas.execute(f"""
-                SELECT codigo, nombre 
-                FROM `{db_segura}`.plan_cuentas 
-                WHERE tipo = 'Detalle' AND (codigo LIKE '1.1.1.02%' OR codigo LIKE '1.1.1.%')
-            """)
-            cuentas_plan_db = cur_cuentas.fetchall()
-    except Exception as e:
-        cuentas_plan_db = []
-        st.warning(f"No se pudieron cargar las cuentas del plan contable: {e}")
-
-    opciones_cuentas_banco = [f"{row[0]} - {row[1]}" for row in cuentas_plan_db] if cuentas_plan_db else ["N/A - Sin cuentas"]
-
-    cuenta_banco_seleccionada_str = st.selectbox(
-        "Seleccione la Cuenta Contable del Banco (Destino del Dinero):",
-        options=opciones_cuentas_banco,
-        key="select_cta_banco_partida_doble"
-    )
-
-    cuenta_banco_codigo = cuenta_banco_seleccionada_str.split(" - ")[0].strip() if " - " in cuenta_banco_seleccionada_str else ""
-    cuenta_banco_nombre = cuenta_banco_seleccionada_str.split(" - ")[1].strip() if " - " in cuenta_banco_seleccionada_str else ""
-
-    if st.button("🔍 Cargar Asientos en Partida Doble", key="btn_cargar_partida_doble"):
-        if not cuenta_banco_codigo or cuenta_banco_codigo == "N/A":
-            st.error("❌ Seleccione una cuenta bancaria válida.")
-        else:
-            try:
-                with db_connection.cursor() as cur_asientos:
-                    # Traemos los asientos de los choferes
-                    cur_asientos.execute(f"""
-                        SELECT id, n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber, bloqueado
-                        FROM `{db_segura}`.asientos_contables 
-                        WHERE debe > 0 AND (descripcion LIKE '%Choferes%' OR cuenta_contable LIKE '1.1.2.01%')
-                    """)
-                    asientos_db = cur_asientos.fetchall()
-
-                    # Traemos los movimientos del banco
-                    cur_asientos.execute(f"""
-                        SELECT id, fecha_movimiento, descripcion, referencia, monto 
-                        FROM `{db_segura}`.banco_movimientos 
-                        WHERE monto > 0
-                    """)
-                    banco_db = cur_asientos.fetchall()
-
-                    import re
-                    def extraer_rif(txt):
-                        if not txt: return None
-                        m = re.search(r'\b([VJGEP]-?\d{6,10}-?\d?)\b', str(txt), re.IGNORECASE)
-                        return m.group(0).upper().replace("-", "").strip() if m else None
-
-                    filas_frame = []
-                    st.session_state['mapeo_banco_aux_pd'] = {}
-
-                    for ast in asientos_db:
-                        a_id, a_comp, a_desc, a_fec, a_plan, a_cta, a_ref, a_debe, a_haber, a_bloq = ast
-                        rif_ast = extraer_rif(a_desc)
-                        
-                        monto_encontrado = float(a_debe)
-                        banco_mov_id = 0
-                        ref_banco = a_ref
-
-                        if rif_ast:
-                            for b in banco_db:
-                                b_id, b_fec, b_desc, b_ref, b_monto = b
-                                if extraer_rif(b_desc) == rif_ast:
-                                    banco_mov_id = b_id
-                                    monto_encontrado = float(b_monto)
-                                    ref_banco = f"BANCO-{b_id}"
-                                    break
-
-                        # Guardamos en memoria auxiliar todo incluido el bloqueado original
-                        st.session_state['mapeo_banco_aux_pd'][a_id] = {
-                            "banco_mov_id": banco_mov_id,
-                            "referencia": ref_banco,
-                            "monto": monto_encontrado,
-                            "bloqueado": a_bloq 
-                        }
-
-                        # 1️⃣ LÍNEA 1: EL BANCO (Va al DEBE) - SIN LA COLUMNA BLOQUEADO EN EL FRAME
-                        filas_frame.append({
-                            "procesar": True,
-                            "id": a_id,
-                            "n_comprobante": a_comp,
-                            "descripcion": f"Ingreso Banco - {a_desc}",
-                            "fecha": str(a_fec),
-                            "plan_cuentas": cuenta_banco_codigo,
-                            "cuenta_contable": cuenta_banco_nombre,
-                            "referencia": ref_banco,
-                            "debe": monto_encontrado,
-                            "haber": 0.00
-                        })
-
-                        # 2️⃣ LÍNEA 2: EL CHOFER (Va al HABER) - SIN LA COLUMNA BLOQUEADO EN EL FRAME
-                        filas_frame.append({
-                            "procesar": True,
-                            "id": a_id,
-                            "n_comprobante": a_comp,
-                            "descripcion": f"Cobro Chofer - {a_desc}",
-                            "fecha": str(a_fec),
-                            "plan_cuentas": a_plan,
-                            "cuenta_contable": a_cta,
-                            "referencia": ref_banco,
-                            "debe": 0.00,
-                            "haber": monto_encontrado
-                        })
-
-                    if filas_frame:
-                        st.session_state['df_asientos_pd'] = pd.DataFrame(filas_frame)
-                        st.success(f"Se cargaron **{len(filas_frame)}** líneas (asientos dobles equilibrados).")
-                    else:
-                        st.warning("No se encontraron registros para procesar.")
-
-            except Exception as e_c:
-                st.error(f"Error procesando los datos: {e_c}")
-
-    # Visualización limpia sin la columna bloqueado a la vista, con formato numérico y totalizadores abajo
+    # Visualización limpia eliminando por completo cualquier rastro visual de la columna bloqueado
     if 'df_asientos_pd' in st.session_state and not st.session_state['df_asientos_pd'].empty:
         st.markdown("### 📋 Vista de Asientos Contables (Debe y Haber Equilibrados):")
         
-        df_editado_pd = st.data_editor(
-            st.session_state['df_asientos_pd'],
+        # Creamos una copia visual sin la columna bloqueado para que Streamlit ni la pinte
+        df_para_mostrar = st.session_state['df_asientos_pd'].drop(columns=['bloqueado'], errors='ignore')
+        
+        df_editado_visual = st.data_editor(
+            df_para_mostrar,
             key="editor_asientos_pd",
             use_container_width=True,
             column_config={
@@ -8634,8 +8515,8 @@ def renderizar_tab_asientos_ventas(db_connection):
         )
 
         # 📊 Totalizador dinámico de las columnas Debe y Haber debajo del frame
-        total_debe = df_editado_pd['debe'].sum() if 'debe' in df_editado_pd else 0.0
-        total_haber = df_editado_pd['haber'].sum() if 'haber' in df_editado_pd else 0.0
+        total_debe = df_editado_visual['debe'].sum() if 'debe' in df_editado_visual else 0.0
+        total_haber = df_editado_visual['haber'].sum() if 'haber' in df_editado_visual else 0.0
         
         col_t1, col_t2, col_t3 = st.columns(3)
         with col_t1:
@@ -8648,7 +8529,8 @@ def renderizar_tab_asientos_ventas(db_connection):
 
         if st.button("💾 Guardar Asientos en Base de Datos", key="btn_guardar_pd"):
             try:
-                df_validos = df_editado_pd[df_editado_pd['procesar'] == True]
+                # Filtramos usando el dataframe visual editado
+                df_validos = df_editado_visual[df_editado_visual['procesar'] == True]
                 if df_validos.empty:
                     st.warning("No hay filas marcadas para procesar.")
                 else:
