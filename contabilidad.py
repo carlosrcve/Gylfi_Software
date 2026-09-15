@@ -14574,13 +14574,13 @@ elif opcion_menu == "📚 Libros Fiscales":
                 porcentaje = float(row['porcentaje_retencion'])
                 ET.SubElement(detalle, "PorcentajeRetencion").text = f"{porcentaje:.2f}"
                 
-                # 5. AJUSTE DE BASE PARA EL SENIAT
-                # Para que el portal calcule el monto retenido neto real (incluyendo el sustraendo),
-                # ajustamos el MontoOperacion en el XML para que al multiplicarse por el porcentaje dé exacto.
+                # 5. AJUSTE DE BASE PARA EL PORTAL DEL SENIAT
+                # Como el SENIAT calcula la retención multiplicando MontoOperacion * PorcentajeRetencion 
+                # sin aceptar etiquetas de sustraendo, ajustamos la base imponible en el XML dividiendo 
+                # el monto retenido neto de la base de datos entre el porcentaje.
                 monto_retenido_neto = float(row['monto_retenido'])
                 
                 if porcentaje > 0 and monto_retenido_neto > 0:
-                    # Base ajustada para que el cálculo ciego del SENIAT de el valor neto correcto
                     base_ajustada = monto_retenido_neto / (porcentaje / 100.0)
                 else:
                     base_ajustada = float(row['monto_operacion'])
