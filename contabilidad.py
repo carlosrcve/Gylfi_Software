@@ -3148,17 +3148,33 @@ def preparar_excel_descarga(df, conn):
 
 
 def cargar_libro_compras_db(df, nombre_db=None):
+    # Intentamos rescatar la base de datos de cualquier variable de sesión del control central
     if not nombre_db:
-        nombre_db = st.session_state.get("db_cliente")
+        nombre_db = (
+            st.session_state.get("db_cliente") or 
+            st.session_state.get("base_datos") or 
+            st.session_state.get("cliente_db") or 
+            st.session_state.get("empresa_seleccionada")
+        )
     
     if not nombre_db:
-        st.error("❌ No hay un cliente activo o base de datos seleccionada en la sesión actual.")
+        st.error("❌ No hay una base de datos o cliente activo en el control central de la sesión.")
+        # Muestra las claves disponibles en la sesión para ayudarte a depurar rápido
+        st.write("Keys actuales en `st.session_state`:", list(st.session_state.keys()))
         return
 
     conn = conectar_db(nombre_db) 
     if not conn:
         st.error(f"No se pudo establecer conexión con la base de datos del cliente: {nombre_db}")
         return
+
+    # Obtener el ID del cliente de la sesión de forma flexible
+    cliente_id_actual = (
+        st.session_state.get("cliente_id") or 
+        st.session_state.get("id_cliente") or 
+        st.session_state.get("id_empresa") or 
+        1
+    )
 
     def clean_n(v):
         if pd.isna(v) or v == '': return 0.0
@@ -3181,7 +3197,7 @@ def cargar_libro_compras_db(df, nombre_db=None):
         if pd.isna(val): return ""
         s = str(val).strip()
         if s.endswith('.0'): s = s[:-2]
-        return s if s not in ['nan', 'None', 'NAT', 'None'] else ""
+        return s if s not in ['nan', 'None', 'NAT'] else ""
 
     cursor = None
     try:
@@ -3197,16 +3213,14 @@ def cargar_libro_compras_db(df, nombre_db=None):
 
         registros_a_insertar = []
 
-        # Recorremos el DataFrame usando las posiciones exactas de tus columnas (índices 0 al 10)
         for i, row in df.iterrows():
-            # Obtenemos los valores por la posición de la columna en el Excel
             val_fecha_raw = row.iloc[0] if len(row) > 0 else None
             val_tipo_raw = row.iloc[1] if len(row) > 1 else "01"
             val_fact_raw = row.iloc[2] if len(row) > 2 else None
             
             n_fact = limpiar_texto(val_fact_raw)
             if not n_fact or n_fact.lower() in ['numero de documento', 'n° de documento', 'nan']: 
-                continue # Salta la cabecera o filas sin número de factura
+                continue 
 
             val_fecha = convertir_fecha(val_fecha_raw)
             val_tipo = limpiar_texto(val_tipo_raw).zfill(2)
@@ -3235,25 +3249,23 @@ def cargar_libro_compras_db(df, nombre_db=None):
                 0.00,                     # retencion_realizada
                 0.00,                     # retencion_iva_realizada
                 "C",                      # tipo_transaccion
-                None                      # cliente_id
+                cliente_id_actual         # cliente_id sincronizado con control central
             )
             registros_a_insertar.append(valores)
 
         if registros_a_insertar:
             cursor.executemany(sql, registros_a_insertar)
-            filas_afectadas = cursor.rowcount
-            st.success(f"🔥 ¡Proceso exitoso! Se guardaron {len(registros_a_insertar)} registros correctamente en MySQL.")
+            st.success(f"🔥 ¡Proceso exitoso! Se guardaron {len(registros_a_insertar)} registros en la BD `{nombre_db}`.")
         else:
-            st.warning("⚠️ No se encontraron registros válidos para insertar. Asegúrate de que el Excel tenga datos debajo de los encabezados.")
+            st.warning("⚠️ No se encontraron registros válidos para insertar en el archivo Excel.")
             
     except Exception as e:
         if conn: conn.rollback()
-        st.error(f"❌ Error crítico de escritura en la BD del cliente:")
+        st.error(f"❌ Error crítico de escritura en la BD:")
         st.exception(e)
     finally:
         if cursor: cursor.close()
         if conn: conn.close()
-
 def obtener_lista_proveedores_mapeo():
     conn = conectar_db(db_actual)
     cursor = conn.cursor()
