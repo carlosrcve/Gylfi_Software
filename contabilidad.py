@@ -3181,44 +3181,14 @@ def cargar_libro_compras_db(df, nombre_db=None):
         if pd.isna(val): return ""
         s = str(val).strip()
         if s.endswith('.0'): s = s[:-2]
-        return s if s not in ['nan', 'None', 'NAT'] else ""
+        return s if s not in ['nan', 'None', 'NAT', 'None'] else ""
 
     cursor = None
     try:
         conn.autocommit = True
         cursor = conn.cursor()
-        
         cursor.execute(f"USE `{nombre_db}`;")
-        
-        # --- BÚSQUEDA INTELIGENTE Y TOLERANTE DE COLUMNAS ---
-        cols_lower = {c.lower().strip(): c for c in df.columns}
-        
-        def buscar_col(posibles):
-            for p in posibles:
-                for col_l, col_orig in cols_lower.items():
-                    col_clean = col_l.replace('.', '').replace('ó', 'o').replace('í', 'i').replace('ú', 'u').replace('é', 'e').replace('á', 'a')
-                    p_clean = p.replace('.', '').replace('ó', 'o').replace('í', 'i').replace('ú', 'u').replace('é', 'e').replace('á', 'a')
-                    if p_clean in col_clean:
-                        return col_orig
-            return None
 
-        c_fecha = buscar_col(['fecha'])
-        c_tipo_doc = buscar_col(['tipo_de_documento', 'tipo_documento', 'documento', 'tipo'])
-        c_factura = buscar_col(['numero_de_documento', 'factura', 'n_factura', 'numero_factura'])
-        c_control = buscar_col(['numero_de_control', 'control', 'n_control', 'numero_control'])
-        c_proveedor = buscar_col(['nombre_o_razon_social', 'proveedor', 'razon_social', 'nombre'])
-        c_rif = buscar_col(['rif', 'r.i.f'])
-        c_total = buscar_col(['total_compra', 'total_compras', 'total', 'monto_total'])
-        c_exento = buscar_col(['compras_exentas', 'exento', 'importe_exento', 'total_exento'])
-        c_base = buscar_col(['base_imponible', 'base'])
-        c_alicuota = buscar_col(['alicuota', 'porcentaje', 'iva_porcentaje'])
-        c_iva = buscar_col(['credito_fiscales', 'iva_monto', 'iva', 'credito_fiscal'])
-
-        if not c_factura:
-            st.error(f"❌ Columnas leídas en tu Excel: {list(df.columns)}. No se pudo identificar la columna del número de factura.")
-            return
-
-        # SQL ACTUALIZADA: Coincide exactamente con el orden de las columnas de tu MySQL
         sql = """REPLACE INTO libro_compras 
                 (fecha_operacion, tipo_documento, n_factura, n_control, proveedor, rif, 
                  total_compras, importe_exento, base_imponible, iva_porcentaje, iva_monto,
@@ -3227,24 +3197,29 @@ def cargar_libro_compras_db(df, nombre_db=None):
 
         registros_a_insertar = []
 
+        # Recorremos el DataFrame usando las posiciones exactas de tus columnas (índices 0 al 10)
         for i, row in df.iterrows():
-            n_fact = limpiar_texto(row[c_factura]) if c_factura else ""
-            if not n_fact: 
-                continue 
-
-            val_fecha = convertir_fecha(row[c_fecha]) if c_fecha else pd.Timestamp.now().strftime('%Y-%m-%d')
-            val_tipo = limpiar_texto(row[c_tipo_doc]).zfill(2) if c_tipo_doc else "01"
-            val_control = limpiar_texto(row[c_control]) if c_control else ""
-            val_prov = limpiar_texto(row[c_proveedor]).upper() if c_proveedor else "PROVEEDOR GENÉRICO"
-            val_rif = limpiar_texto(row[c_rif]).replace('-', '').replace('.', '') if c_rif else ""
+            # Obtenemos los valores por la posición de la columna en el Excel
+            val_fecha_raw = row.iloc[0] if len(row) > 0 else None
+            val_tipo_raw = row.iloc[1] if len(row) > 1 else "01"
+            val_fact_raw = row.iloc[2] if len(row) > 2 else None
             
-            val_tot = clean_n(row[c_total]) if c_total else 0.0
-            val_exe = clean_n(row[c_exento]) if c_exento else 0.0
-            val_base = clean_n(row[c_base]) if c_base else 0.0
-            val_ali = clean_n(row[c_alicuota]) if c_alicuota else 16.0
-            val_iva = clean_n(row[c_iva]) if c_iva else 0.0
+            n_fact = limpiar_texto(val_fact_raw)
+            if not n_fact or n_fact.lower() in ['numero de documento', 'n° de documento', 'nan']: 
+                continue # Salta la cabecera o filas sin número de factura
 
-            # Tupla con los 15 valores exactos para los 15 campos de la tabla
+            val_fecha = convertir_fecha(val_fecha_raw)
+            val_tipo = limpiar_texto(val_tipo_raw).zfill(2)
+            val_control = limpiar_texto(row.iloc[3]) if len(row) > 3 else ""
+            val_prov = limpiar_texto(row.iloc[4]).upper() if len(row) > 4 else "PROVEEDOR GENÉRICO"
+            val_rif = limpiar_texto(row.iloc[5]).replace('-', '').replace('.', '') if len(row) > 5 else ""
+            
+            val_tot = clean_n(row.iloc[6]) if len(row) > 6 else 0.0
+            val_exe = clean_n(row.iloc[7]) if len(row) > 7 else 0.0
+            val_base = clean_n(row.iloc[8]) if len(row) > 8 else 0.0
+            val_ali = clean_n(row.iloc[9]) if len(row) > 9 else 16.0
+            val_iva = clean_n(row.iloc[10]) if len(row) > 10 else 0.0
+
             valores = (
                 val_fecha,                # fecha_operacion
                 val_tipo,                 # tipo_documento
@@ -3260,7 +3235,7 @@ def cargar_libro_compras_db(df, nombre_db=None):
                 0.00,                     # retencion_realizada
                 0.00,                     # retencion_iva_realizada
                 "C",                      # tipo_transaccion
-                None                      # cliente_id (o pon un ID numérico si lo requiere tu app)
+                None                      # cliente_id
             )
             registros_a_insertar.append(valores)
 
@@ -3269,7 +3244,7 @@ def cargar_libro_compras_db(df, nombre_db=None):
             filas_afectadas = cursor.rowcount
             st.success(f"🔥 ¡Proceso exitoso! Se guardaron {len(registros_a_insertar)} registros correctamente en MySQL.")
         else:
-            st.warning("⚠️ No se encontraron registros válidos con número de factura para insertar. Revisa el contenido de tu Excel.")
+            st.warning("⚠️ No se encontraron registros válidos para insertar. Asegúrate de que el Excel tenga datos debajo de los encabezados.")
             
     except Exception as e:
         if conn: conn.rollback()
