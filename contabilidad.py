@@ -15203,7 +15203,7 @@ elif opcion_menu == "📚 Libros Fiscales":
 
                         # Contenedor limpio tipo marco con soporte nativo de Streamlit
                         with st.container(border=True):
-                st.code(xml_code_sucia, language="xml")
+                            st.code(xml_code_sucia, language="xml")
 
 
     elif sub_opcion == "Comprobante de Retención IVA":
