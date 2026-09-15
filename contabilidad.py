@@ -3196,7 +3196,6 @@ def cargar_libro_compras_db(df, nombre_db=None):
         def buscar_col(posibles):
             for p in posibles:
                 for col_l, col_orig in cols_lower.items():
-                    # Limpiamos puntos y tildes para asegurar coincidencia exacta con los títulos del Excel
                     col_clean = col_l.replace('.', '').replace('ó', 'o').replace('í', 'i').replace('ú', 'u').replace('é', 'e').replace('á', 'a')
                     p_clean = p.replace('.', '').replace('ó', 'o').replace('í', 'i').replace('ú', 'u').replace('é', 'e').replace('á', 'a')
                     if p_clean in col_clean:
@@ -3219,18 +3218,19 @@ def cargar_libro_compras_db(df, nombre_db=None):
             st.error(f"❌ Columnas leídas en tu Excel: {list(df.columns)}. No se pudo identificar la columna del número de factura.")
             return
 
+        # SQL ACTUALIZADA: Coincide exactamente con el orden de las columnas de tu MySQL
         sql = """REPLACE INTO libro_compras 
                 (fecha_operacion, tipo_documento, n_factura, n_control, proveedor, rif, 
                  total_compras, importe_exento, base_imponible, iva_porcentaje, iva_monto,
-                 retencion_realizada, tipo_transaccion) 
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"""
+                 retencion_realizada, retencion_iva_realizada, tipo_transaccion, cliente_id) 
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"""
 
         registros_a_insertar = []
 
         for i, row in df.iterrows():
             n_fact = limpiar_texto(row[c_factura]) if c_factura else ""
             if not n_fact: 
-                continue # Salta filas sin número de factura válido
+                continue 
 
             val_fecha = convertir_fecha(row[c_fecha]) if c_fecha else pd.Timestamp.now().strftime('%Y-%m-%d')
             val_tipo = limpiar_texto(row[c_tipo_doc]).zfill(2) if c_tipo_doc else "01"
@@ -3244,11 +3244,23 @@ def cargar_libro_compras_db(df, nombre_db=None):
             val_ali = clean_n(row[c_alicuota]) if c_alicuota else 16.0
             val_iva = clean_n(row[c_iva]) if c_iva else 0.0
 
+            # Tupla con los 15 valores exactos para los 15 campos de la tabla
             valores = (
-                val_fecha, val_tipo, n_fact, val_control, val_prov, val_rif, 
-                val_tot, val_exe, val_base, val_ali, val_iva, 
-                0.00, # retencion_realizada
-                "C"   # tipo_transaccion
+                val_fecha,                # fecha_operacion
+                val_tipo,                 # tipo_documento
+                n_fact,                   # n_factura
+                val_control,              # n_control
+                val_prov,                 # proveedor
+                val_rif,                  # rif
+                val_tot,                  # total_compras
+                val_exe,                  # importe_exento
+                val_base,                 # base_imponible
+                val_ali,                  # iva_porcentaje
+                val_iva,                  # iva_monto
+                0.00,                     # retencion_realizada
+                0.00,                     # retencion_iva_realizada
+                "C",                      # tipo_transaccion
+                None                      # cliente_id (o pon un ID numérico si lo requiere tu app)
             )
             registros_a_insertar.append(valores)
 
@@ -3261,7 +3273,8 @@ def cargar_libro_compras_db(df, nombre_db=None):
             
     except Exception as e:
         if conn: conn.rollback()
-        st.error(f"❌ Error crítico de escritura en la BD del cliente: {e}")
+        st.error(f"❌ Error crítico de escritura en la BD del cliente:")
+        st.exception(e)
     finally:
         if cursor: cursor.close()
         if conn: conn.close()
