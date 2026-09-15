@@ -4263,8 +4263,13 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                             ano_f, mes_f = fecha_corta.split("-")[0], fecha_corta.split("-")[1]
 
                             # Red de seguridad total contra vacíos o nulos para el tipo de persona
+                            # Limpieza y evaluación segura del RIF
                             rif_limpio_upper = str(rif_ret).strip().upper() if rif_ret else ""
-                            tipo_persona = "Natural" if rif_limpio_upper.startswith(('V', 'E', 'v', 'e')) else "Juridica"
+
+                            if rif_limpio_upper.startswith(('V', 'E', 'v', 'e')):
+                                tipo_persona = "Natural"
+                            else:
+                                tipo_persona = "Juridica"
 
                             # Sentencia INSERT exclusiva para retenciones_iva
                             query_ins_iva = """
@@ -15002,7 +15007,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                                        COALESCE(p.razon_social, r.rif_retenido) AS nombre_completo, 
                                        COALESCE(p.direccion_fiscal, 'CARACAS, VENEZUELA') AS direccion_completa
                                 FROM retenciones_islr r
-                                LEFT JOIN proveedores p ON r.rif_retenido = p.rif
+                                LEFT JOIN proveedores p ON r.rif_retenido COLLATE utf8mb4_unicode_ci = p.rif COLLATE utf8mb4_unicode_ci
                                 ORDER BY r.id DESC
                             """
                             # Cargar datos al session_state
