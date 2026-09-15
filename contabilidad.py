@@ -15135,6 +15135,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                             st.warning("💡 Debes ingresar el número de factura.")
 
             # --- TAB 6: XML SENIAT ---
+            # --- TAB 6: XML SENIAT ---
             with tab6:
                 # --- SECCIÓN C: GENERAR ARCHIVO XML SENIAT ---
                 st.divider()
@@ -15155,21 +15156,9 @@ elif opcion_menu == "📚 Libros Fiscales":
                             periodo_str = f_xml_hasta.strftime("%Y%m") # Ej: "202608"
                             patron_comprobante = f"{periodo_str}%"
                             
-                            # Consulta ajustada con nombres de columnas reales de tu BD
+                            # Consulta usando * para evitar errores con nombres de columnas de texto
                             query_xml = """
-                                SELECT 
-                                    n_comprob_islr,
-                                    fecha_operacion,
-                                    numero_factura,
-                                    numero_control,
-                                    rif_retenido,
-                                    razon_social,
-                                    codigo_concepto,
-                                    tipo_proveedor,
-                                    monto_operacion,
-                                    porcentaje_retencion,
-                                    monto_retenido,
-                                    sustraendo
+                                SELECT * 
                                 FROM retenciones_islr 
                                 WHERE n_comprob_islr LIKE %s
                             """
@@ -15177,21 +15166,25 @@ elif opcion_menu == "📚 Libros Fiscales":
                             conn.close()
                             
                             if not df_xml.empty:
-                                # Renombramos las columnas para que coincidan con la vista visual del Excel
-                                df_xml = df_xml.rename(columns={
+                                # Buscamos dinámicamente cuál es la columna del nombre/razón social si tiene otro nombre
+                                col_nombre = next((c for c in ['razon_social', 'nombre_proveedor', 'nombre', 'contribuyente'] if c in df_xml.columns), df_xml.columns[5])
+
+                                # Renombramos las columnas con seguridad basándonos en lo que trajo la BD
+                                renombres = {
                                     'n_comprob_islr': 'Fila / Doc',
                                     'fecha_operacion': 'Fecha',
                                     'numero_factura': 'N° Doc',
                                     'numero_control': 'N° Control',
                                     'rif_retenido': 'R.I.F.',
-                                    'razon_social': 'Nombre o Razón Social',
+                                    col_nombre: 'Nombre o Razón Social',
                                     'codigo_concepto': 'Cód. Concepto (XML)',
                                     'tipo_proveedor': 'Tipo Proveedor / Concepto',
                                     'monto_operacion': 'Base Imponible (Bs.)',
                                     'porcentaje_retencion': 'Alicuota ISLR',
                                     'monto_retenido': 'Retención Neta (Bs.)',
                                     'sustraendo': 'Sustraendo (Bs.)'
-                                })
+                                }
+                                df_xml = df_xml.rename(columns=renombres)
 
                                 # Conversiones numéricas seguras
                                 df_xml['Base Imponible (Bs.)'] = df_xml['Base Imponible (Bs.)'].astype(float)
@@ -15241,7 +15234,7 @@ elif opcion_menu == "📚 Libros Fiscales":
 
                         st.markdown("---")
                         
-                        # BOTÓN DE DESCARGA RESTAURADO Y VISIBLE
+                        # Botón de descarga asegurado
                         st.download_button(
                             label="📥 Descargar Archivo XML para el Portal SENIAT",
                             data=st.session_state['xml_data'],
