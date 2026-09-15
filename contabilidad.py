@@ -14546,7 +14546,7 @@ elif opcion_menu == "📚 Libros Fiscales":
         import xml.etree.ElementTree as ET
         from xml.dom import minidom
 
-        def generar_xml_seniat(df, rif_agente, periodo):
+        def generar_xml_seniat_con_sustraendo(df, rif_agente, periodo):
             root = ET.Element("RelacionRetencionesISLR")
             root.set("RifAgente", rif_agente)
             root.set("Periodo", periodo)
@@ -14570,20 +14570,30 @@ elif opcion_menu == "📚 Libros Fiscales":
                 ET.SubElement(detalle, "FechaOperacion").text = fecha_str
                 
                 # 4. Concepto y Porcentaje
-                ET.SubElement(detalle, "CodigoConcepto").text = str(row['codigo_concepto']).zfill(3)
+                codigo_concepto = str(row['codigo_concepto']).zfill(3)
+                ET.SubElement(detalle, "CodigoConcepto").text = codigo_concepto
                 porcentaje = float(row['porcentaje_retencion'])
                 ET.SubElement(detalle, "PorcentajeRetencion").text = f"{porcentaje:.2f}"
                 
-                # 5. AJUSTE DE BASE PARA EL PORTAL DEL SENIAT
-                # Como el SENIAT calcula la retención multiplicando MontoOperacion * PorcentajeRetencion 
-                # sin aceptar etiquetas de sustraendo, ajustamos la base imponible en el XML dividiendo 
-                # el monto retenido neto de la base de datos entre el porcentaje.
-                monto_retenido_neto = float(row['monto_retenido'])
+                # 5. CÁLCULO DE LA BASE AJUSTADA CON SUSTRAENDO
+                monto_operacion_original = float(row['monto_operacion'])
                 
-                if porcentaje > 0 and monto_retenido_neto > 0:
-                    base_ajustada = monto_retenido_neto / (porcentaje / 100.0)
+                # Puedes definir tu variable de sustraendo según venga de la BD o por concepto
+                # (Ej: si la fila ya trae el sustraendo calculado, o si es el concepto 001 aplicas los 107.50)
+                sustraendo = float(row.get('sustraendo', 0.0)) 
+                
+                # Si no lo tienes directo en el row pero sabes que el concepto 001 lleva sustraendo:
+                if codigo_concepto == '001' and sustraendo == 0.0:
+                    sustraendo = 107.50  # El valor de tu sustraendo unitario
+                    
+                if porcentaje > 0:
+                    # El portal multiplica: Base * Porcentaje = Retención Neta
+                    # Por lo tanto, para que dé el neto correcto, la base en el XML debe ser: 
+                    # (Monto Operación Original - Sustraendo) / (Porcentaje / 100)
+                    monto_neto_esperado = monto_operacion_original - sustraendo
+                    base_ajustada = monto_neto_esperado / (porcentaje / 100.0)
                 else:
-                    base_ajustada = float(row['monto_operacion'])
+                    base_ajustada = monto_operacion_original
                     
                 ET.SubElement(detalle, "MontoOperacion").text = f"{base_ajustada:.2f}"
 
