@@ -14563,20 +14563,21 @@ elif opcion_menu == "📚 Libros Fiscales":
                 
                 # 3. Fecha Operación
                 fecha_obj = row['fecha_operacion']
-                fecha_str = fecha_obj.strftime("%d/%m/%Y") 
+                if hasattr(fecha_obj, 'strftime'):
+                    fecha_str = fecha_obj.strftime("%d/%m/%Y")
+                else:
+                    fecha_str = str(fecha_obj)
                 ET.SubElement(detalle, "FechaOperacion").text = fecha_str
                 
-                # 4. Concepto y Montos (SIN EL SUSTRAENDO)
+                # 4. Concepto, Base, Porcentaje y Monto Retenido Neto
                 ET.SubElement(detalle, "CodigoConcepto").text = str(row['codigo_concepto']).zfill(3)
                 ET.SubElement(detalle, "MontoOperacion").text = f"{float(row['monto_operacion']):.2f}"
                 ET.SubElement(detalle, "PorcentajeRetencion").text = f"{float(row['porcentaje_retencion']):.2f}"
-
-                # ELIMINA O COMENTA ESTA LÍNEA QUE TE ESTÁ DANDO EL ERROR:
-                # ET.SubElement(detalle, "Sustraendo").text = f"{float(sustraendo_val):.2f}"
                 
-                # NOTA: He eliminado Sustraendo, MontoRetenido y NumeroComprobante 
-                # porque el SENIAT dio "Elemento no esperado" para esos campos.
-                    
+                # AQUÍ ESTÁ LA CLAVE: El portal del SENIAT necesita el monto ya neto (con el sustraendo restado)
+                monto_neto = float(row['monto_retenido'])
+                ET.SubElement(detalle, "MontoRetenido").text = f"{monto_neto:.2f}"
+
             xml_str = ET.tostring(root, encoding='utf-8')
             parsed = minidom.parseString(xml_str)
             return parsed.toprettyxml(indent="  ")
