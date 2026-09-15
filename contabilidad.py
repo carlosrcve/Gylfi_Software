@@ -15154,7 +15154,9 @@ elif opcion_menu == "📚 Libros Fiscales":
                         conn = conectar_db(db_actual) # Pasa explícitamente el nombre de la DB
                         if conn:
 
-                            # Usamos parámetros para evitar inyecciones SQL aunque sea uso interno
+                            # Filtramos directamente por el periodo (ej: "202608") para asegurar los 10 comprobantes
+                            periodo_str = f_xml_hasta.strftime("%Y%m")
+                            
                             query_xml = """
                                 SELECT 
                                     rif_retenido, 
@@ -15168,11 +15170,9 @@ elif opcion_menu == "📚 Libros Fiscales":
                                     monto_retenido, 
                                     n_comprob_islr
                                 FROM retenciones_islr 
-                                WHERE fecha_operacion >= %s AND fecha_operacion <= CONCAT(%s, ' 23:59:59')
+                                WHERE periodo_retenido = %s
                             """
-                            
-                            # Pasamos las fechas como cadenas o dejamos que el conector maneje el límite superior del día
-                            df_xml = ejecutar_consulta(query_xml, conn, params=(f_xml_desde, f_xml_hasta))
+                            df_xml = ejecutar_consulta(query_xml, conn, params=(periodo_str,))
                             conn.close()
                             
                             if not df_xml.empty:
