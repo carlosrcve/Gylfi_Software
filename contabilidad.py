@@ -4269,7 +4269,11 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                             # Generación de número de comprobante de ISLR si no lo tienes definido arriba
                             nro_comp_islr = str(ano_f) + str(mes_f) + str(fila.get('id', '000001')).zfill(8)
 
-                            # Consulta INSERT exacta basada en las 14 columnas de la tabla retenciones_islr
+                            # 1. Aseguramos el valor de tipo_persona limpiando el RIF
+                            rif_limpio_upper = str(rif_ret).strip().upper()
+                            tipo_persona = "Natural" if rif_limpio_upper.startswith(('V', 'E')) else "Juridica"
+
+                            # 2. Sentencia INSERT incluyendo explícitamente 'tipo_persona' al final
                             query_ins_islr = """
                                 INSERT INTO retenciones_islr (
                                     id_sec,
@@ -4285,27 +4289,30 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                                     sustraendo,
                                     n_comprob_islr,
                                     proveedor_nombre,
-                                    proveedor_direccion
+                                    proveedor_direccion,
+                                    tipo_persona
                                 ) VALUES (
-                                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
                                 )
                             """
 
+                            # 3. Tupla de 15 parámetros exactos que hacen match con las 15 columnas de la imagen
                             params_islr = (
-                                1,                              # id_sec (correlativo por ítem)
-                                rif_ret,                        # rif_retenido
-                                str(fila['n_factura']),         # numero_factura
-                                str(fila['n_control']),         # numero_control
-                                fecha_corta,                    # fecha_operacion
-                                "001",                          # codigo_concepto (ajusta según el código de retención)
-                                monto_operacion_islr,           # monto_operacion
-                                porcentaje_islr,                # porcentaje_retencion
-                                monto_retenido_islr,            # monto_retenido
-                                f"{ano_f}{mes_f}",              # periodo_retenido (formato AAAAMM, ej: 202608)
-                                0.00,                           # sustraendo (coloca el valor del sustraendo si aplica)
-                                nro_comp_islr,                  # n_comprob_islr
-                                razon_social_ret,               # proveedor_nombre
-                                domicilio_fiscal                # proveedor_direccion
+                                1,                                    # id_sec
+                                rif_ret,                              # rif_retenido
+                                str(fila['n_factura']),               # numero_factura
+                                str(fila['n_control']),               # numero_control
+                                fecha_corta,                          # fecha_operacion
+                                "001",                                # codigo_concepto
+                                monto_operacion_islr,                 # monto_operacion
+                                porcentaje_islr,                      # porcentaje_retencion
+                                monto_retenido_islr,                  # monto_retenido
+                                f"{ano_f}{mes_f}",                    # periodo_retenido
+                                0.00,                                 # sustraendo
+                                nro_comp_islr,                        # n_comprob_islr
+                                razon_social_ret,                     # proveedor_nombre
+                                domicilio_fiscal,                     # proveedor_direccion
+                                tipo_persona                          # tipo_persona (¡Obligatorio para evitar el error 1364!)
                             )
                             
                             cursor.execute(query_ins_islr, params_islr)
