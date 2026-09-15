@@ -8571,10 +8571,11 @@ def renderizar_tab_asientos_ventas(db_connection):
                         st.session_state['mapeo_banco_aux_pd'][a_id] = {
                             "banco_mov_id": banco_mov_id,
                             "referencia": ref_banco,
-                            "monto": monto_encontrado
+                            "monto": monto_encontrado,
+                            "bloqueado": a_bloq # Guardamos bloqueado en memoria auxiliar para mantener la consistencia al guardar
                         }
 
-                        # 1️⃣ LÍNEA 1: EL BANCO (Va al DEBE) -> Usa exactamente las columnas de la tabla
+                        # 1️⃣ LÍNEA 1: EL BANCO (Va al DEBE)
                         filas_frame.append({
                             "procesar": True,
                             "id": a_id,
@@ -8585,11 +8586,10 @@ def renderizar_tab_asientos_ventas(db_connection):
                             "cuenta_contable": cuenta_banco_nombre,
                             "referencia": ref_banco,
                             "debe": monto_encontrado,
-                            "haber": 0.00,
-                            "bloqueado": a_bloq
+                            "haber": 0.00
                         })
 
-                        # 2️⃣ LÍNEA 2: EL CHOFER (Va al HABER) -> Usa exactamente las columnas de la tabla
+                        # 2️⃣ LÍNEA 2: EL CHOFER (Va al HABER)
                         filas_frame.append({
                             "procesar": True,
                             "id": a_id,
@@ -8600,8 +8600,7 @@ def renderizar_tab_asientos_ventas(db_connection):
                             "cuenta_contable": a_cta,
                             "referencia": ref_banco,
                             "debe": 0.00,
-                            "haber": monto_encontrado,
-                            "bloqueado": a_bloq
+                            "haber": monto_encontrado
                         })
 
                     if filas_frame:
@@ -8613,14 +8612,24 @@ def renderizar_tab_asientos_ventas(db_connection):
             except Exception as e_c:
                 st.error(f"Error procesando los datos: {e_c}")
 
-    # Visualización limpia respetando las 10 columnas puras de la BD
+    # Visualización limpia sin la columna bloqueado y con formato numérico en Debe y Haber
     if 'df_asientos_pd' in st.session_state and not st.session_state['df_asientos_pd'].empty:
         st.markdown("### 📋 Vista de Asientos Contables (Debe y Haber Equilibrados):")
         
         df_editado_pd = st.data_editor(
             st.session_state['df_asientos_pd'],
             key="editor_asientos_pd",
-            use_container_width=True
+            use_container_width=True,
+            column_config={
+                "debe": st.column_config.NumberColumn(
+                    "Debe",
+                    format="¤#,##0.00"
+                ),
+                "haber": st.column_config.NumberColumn(
+                    "Haber",
+                    format="¤#,##0.00"
+                )
+            }
         )
 
         if st.button("💾 Guardar Asientos en Base de Datos", key="btn_guardar_pd"):
@@ -8631,11 +8640,14 @@ def renderizar_tab_asientos_ventas(db_connection):
                 else:
                     with db_connection.cursor() as cur_ins:
                         contador_asientos = 0
-                        # Agrupamos por id de origen para registrar el bloque completo
                         ids_procesados = df_validos['id'].unique()
                         
                         for asiento_id_orig in ids_procesados:
                             filas_asiento = df_validos[df_validos['id'] == asiento_id_orig]
+                            
+                            # Recuperamos el valor de bloqueado guardado en memoria auxiliar
+                            aux_datos = st.session_state.get('mapeo_banco_aux_pd', {}).get(int(asiento_id_orig), {})
+                            val_bloqueado = int(aux_datos.get("bloqueado", 0))
                             
                             for _, row in filas_asiento.iterrows():
                                 cur_ins.execute(f"""
@@ -8651,12 +8663,11 @@ def renderizar_tab_asientos_ventas(db_connection):
                                     str(row['referencia']),
                                     float(row['debe']),
                                     float(row['haber']),
-                                    int(row['bloqueado'])
+                                    val_bloqueado
                                 ))
 
                             # Actualizar el movimiento bancario a Conciliado si aplica
-                            aux_banco = st.session_state.get('mapeo_banco_aux_pd', {}).get(int(asiento_id_orig), {})
-                            b_id = aux_banco.get("banco_mov_id", 0)
+                            b_id = aux_datos.get("banco_mov_id", 0)
                             if b_id > 0:
                                 cur_ins.execute(f"""
                                     UPDATE `{db_segura}`.banco_movimientos 
