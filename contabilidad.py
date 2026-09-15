@@ -15135,7 +15135,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                             st.warning("💡 Debes ingresar el número de factura.")
 
             # --- TAB 6: XML SENIAT ---
-            with tab6:
+           with tab6:
                 # --- SECCIÓN C: GENERAR ARCHIVO XML SENIAT ---
                 st.divider()
                 st.markdown("### 📡 Generar Archivo XML para Declaración SENIAT")
@@ -15154,9 +15154,9 @@ elif opcion_menu == "📚 Libros Fiscales":
                         conn = conectar_db(db_actual) 
                         if conn:
                             # CORRECCIÓN CLAVE PARA LAS 10 RETENCIONES: 
-                            # Extraemos el periodo en formato YYYYMM basado en la fecha 'Hasta' o 'Desde'
                             periodo_str = f_xml_hasta.strftime("%Y%m")
                             
+                            # Se usa '%%Y%%m' para evitar conflictos con el formateador de Python
                             query_xml = """
                                 SELECT 
                                     rif_retenido, 
@@ -15170,7 +15170,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                                     monto_retenido, 
                                     n_comprob_islr
                                 FROM retenciones_islr 
-                                WHERE DATE_FORMAT(fecha_operacion, '%Y%m') = %s
+                                WHERE DATE_FORMAT(fecha_operacion, '%%Y%%m') = %s
                             """
                             df_xml = ejecutar_consulta(query_xml, conn, params=(periodo_str,))
                             conn.close()
@@ -15184,7 +15184,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                                 st.warning(f"⚠️ No se encontraron retenciones para el periodo {periodo_str}.")
                                 st.session_state['xml_data'] = None
 
-                    # Botón de descarga y Vista Previa con Estilo CSS/HTML
+                    # Botón de descarga y Vista Previa enmarco limpio y nativo
                     if st.session_state.get('xml_data'):
                         st.download_button(
                             label="📥 Descargar XML para el Portal SENIAT",
@@ -15197,31 +15197,13 @@ elif opcion_menu == "📚 Libros Fiscales":
                         st.markdown("---")
                         st.markdown("#### 👁️ Vista Previa del Código XML Generado")
                         
-                        # Contenedor con diseño CSS profesional para mostrar el XML formateado
                         xml_code_sucia = st.session_state['xml_data']
                         if isinstance(xml_code_sucia, bytes):
                             xml_code_sucia = xml_code_sucia.decode('utf-8')
 
-                        st.markdown("""
-                            <style>
-                            .xml-preview-box {
-                                background-color: #0e1117;
-                                color: #00ffcc;
-                                border: 1px solid #30363d;
-                                border-radius: 8px;
-                                padding: 15px;
-                                font-family: 'Courier New', Courier, monospace;
-                                font-size: 13px;
-                                max-height: 350px;
-                                overflow-y: auto;
-                                white-space: pre-wrap;
-                                word-wrap: break-word;
-                            }
-                            </style>
-                        """, unsafe_allow_html=True)
-
-                        # Renderizamos el bloque con marcado HTML seguro
-                        st.markdown(f'<div class="xml-preview-box">{xml_code_sucia}</div>', unsafe_allow_html=True)
+                        # Contenedor limpio tipo marco con soporte nativo de Streamlit
+                        with st.container(border=True):
+                st.code(xml_code_sucia, language="xml")
 
 
     elif sub_opcion == "Comprobante de Retención IVA":
