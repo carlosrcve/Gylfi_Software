@@ -15168,8 +15168,10 @@ elif opcion_menu == "📚 Libros Fiscales":
                                     monto_retenido, 
                                     n_comprob_islr
                                 FROM retenciones_islr 
-                                WHERE fecha_operacion BETWEEN %s AND %s
+                                WHERE fecha_operacion >= %s AND fecha_operacion <= CONCAT(%s, ' 23:59:59')
                             """
+                            
+                            # Pasamos las fechas como cadenas o dejamos que el conector maneje el límite superior del día
                             df_xml = ejecutar_consulta(query_xml, conn, params=(f_xml_desde, f_xml_hasta))
                             conn.close()
                             
