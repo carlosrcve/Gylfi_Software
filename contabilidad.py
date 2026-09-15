@@ -4262,13 +4262,17 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                             fecha_corta = str(fila['fecha_operacion']).split(" ")[0]
                             ano_f, mes_f = fecha_corta.split("-")[0], fecha_corta.split("-")[1]
 
+                            # Determinamos el tipo de persona según el prefijo del RIF (V/E para Natural, J/G/C para Jurídica)
+                            rif_limpio_upper = rif_ret.strip().upper()
+                            tipo_persona = "Natural" if rif_limpio_upper.startswith(('V', 'E')) else "Juridica"
+
                             query_ins = """
                                 INSERT INTO retenciones_iva (
                                     Razon_Social_del_Agente_de_Retencion, RIF_Agente_Retencion,  
                                     Direccion_FiscalAgente_Retencion, E_Emision, F_Entrega, Razon_Social_Sujeto_Retenido, 
                                     RIF_Sujeto_Retenido, Ano, Mes, N_Comprobante1, Fecha_Factura, Numero_Factura, 
                                     Numero_Contro, Total_Comrpas, Compras_Excentas, Base_Imponible, Impuesto_Iva, 
-                                    IVA_Retenido, Base_Imponible_8, IVA_8, RET_IVA_8, Alicuota, Alicuota_75, N_Nota_Debito
+                                    IVA_Retenido, Base_Imponible_8, IVA_8, RET_IVA_8, Alicuota, Alicuota_75, N_Nota_Debito, tipo_persona
                                 ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                             """
 
@@ -4280,7 +4284,7 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                                 round(float(fila.get('importe_exento', 0)), 2),
                                 round(b16, 2), round(i16, 2), round(iva_retenido_fila, 2),
                                 round(b8, 2), round(i8, 2), round(r8, 2),
-                                "16%", "75%", None
+                                "16%", "75%", None, tipo_persona
                             )
                             cursor.execute(query_ins, params)
                             
