@@ -15154,9 +15154,9 @@ elif opcion_menu == "📚 Libros Fiscales":
                         conn = conectar_db(db_actual) 
                         if conn:
                             # CORRECCIÓN CLAVE PARA LAS 10 RETENCIONES: 
-                            periodo_str = f_xml_hasta.strftime("%Y%m")
+                            # Definimos el periodo de forma estricta según el año y mes seleccionado
+                            periodo_str = f_xml_hasta.strftime("%Y%m") # Ej: "202608"
                             
-                            # Se usa '%%Y%%m' para evitar conflictos con el formateador de Python
                             query_xml = """
                                 SELECT 
                                     rif_retenido, 
@@ -15170,9 +15170,9 @@ elif opcion_menu == "📚 Libros Fiscales":
                                     monto_retenido, 
                                     n_comprob_islr
                                 FROM retenciones_islr 
-                                WHERE fecha_operacion >= %s AND fecha_operacion <= CONCAT(%s, ' 23:59:59')
+                                WHERE DATE_FORMAT(fecha_operacion, '%%Y%%m') = %s
                             """
-                            df_xml = ejecutar_consulta(query_xml, conn, params=(f_xml_desde, f_xml_hasta))
+                            df_xml = ejecutar_consulta(query_xml, conn, params=(periodo_str,))
                             conn.close()
                             
                             if not df_xml.empty:
