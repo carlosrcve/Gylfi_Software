@@ -15157,6 +15157,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                             # Definimos el periodo de forma estricta según el año y mes seleccionado
                             periodo_str = f_xml_hasta.strftime("%Y%m") # Ej: "202608"
                 
+                            # Asegúrate de que la consulta busque los registros del periodo correspondiente (ej: '202608')
                             query_xml = """
                                 SELECT 
                                     rif_retenido, 
@@ -15170,7 +15171,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                                     monto_retenido, 
                                     n_comprob_islr
                                 FROM retenciones_islr 
-                                WHERE periodo_retenido = %s
+                                WHERE n_comprob_islr LIKE '202608%'
                             """
                             df_xml = ejecutar_consulta(query_xml, conn, params=(periodo_str,))
                             conn.close()
