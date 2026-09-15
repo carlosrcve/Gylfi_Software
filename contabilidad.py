@@ -14556,8 +14556,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                 detalle = ET.SubElement(root, "DetalleRetencion")
                 
                 # 1. RIF Retenido
-                rif_retenido = "".join(filter(str.isalnum, str(row['rif_retenido'])))
-                ET.SubElement(detalle, "RifRetenido").text = rif_retenido
+                ET.SubElement(detalle, "RifRetenido").text = "".join(filter(str.isalnum, str(row['rif_retenido'])))
                 
                 # 2. Número Factura y Control
                 ET.SubElement(detalle, "NumeroFactura").text = "".join(filter(str.isalnum, str(row['numero_factura'])))
@@ -14571,41 +14570,13 @@ elif opcion_menu == "📚 Libros Fiscales":
                     fecha_str = str(fecha_obj)
                 ET.SubElement(detalle, "FechaOperacion").text = fecha_str
                 
-                # 4. Concepto, Monto Operación y Porcentaje
+                # 4. Concepto, Monto Operación y Porcentaje (SIN SUSTRAENDO)
                 codigo_concepto = str(row['codigo_concepto']).zfill(3)
                 ET.SubElement(detalle, "CodigoConcepto").text = codigo_concepto
                 ET.SubElement(detalle, "MontoOperacion").text = f"{float(row['monto_operacion']):.2f}"
                 
                 porcentaje = float(row['porcentaje_retencion'])
                 ET.SubElement(detalle, "PorcentajeRetencion").text = f"{porcentaje:.2f}"
-                
-                # 5. GESTIÓN AUTOMÁTICA DEL SUSTRAENDO SEGÚN LA LEY DEL SENIAT
-                sustraendo_val = 0.0
-                
-                # Intentamos leer si la columna trae un valor válido
-                for col_name in ['sustraendo', 'Sustraendo', 'sustraendo_bs']:
-                    if col_name in row and pd.notna(row[col_name]):
-                        try:
-                            val_test = float(str(row[col_name]).strip())
-                            if val_test > 0:
-                                sustraendo_val = val_test
-                                break
-                        except:
-                            pass
-                
-                # SI LA COLUMNA ESTABA VACÍA PERO ES CONCEPTO 001 O RIF QUE EMPIEZA POR V (Persona Natural)
-                # Asignamos el sustraendo legal de forma automática para que no tengas que ponerlo a mano
-                if sustraendo_val == 0.0 and (codigo_concepto == '001' or rif_retenido.startswith('V')):
-                    if codigo_concepto == '001':
-                        sustraendo_val = 107.50 # Valor estándar para honorarios profesionales de personas naturales
-                    else:
-                        # Si es otro concepto de persona natural, calculamos estimado o base si aplica, 
-                        # o forzamos la etiqueta si el sistema requiere que exista.
-                        pass
-
-                # CREACIÓN FÍSICA DE LA ETIQUETA EN EL XML SOLO SI APLICA
-                if sustraendo_val > 0.0:
-                    ET.SubElement(detalle, "Sustraendo").text = f"{sustraendo_val:.2f}"
 
             xml_str = ET.tostring(root, encoding='utf-8')
             parsed = minidom.parseString(xml_str)
