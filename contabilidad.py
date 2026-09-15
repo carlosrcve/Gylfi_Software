@@ -14569,14 +14569,15 @@ elif opcion_menu == "📚 Libros Fiscales":
                     fecha_str = str(fecha_obj)
                 ET.SubElement(detalle, "FechaOperacion").text = fecha_str
                 
-                # 4. Concepto, Base, Porcentaje y Monto Retenido Neto
+                # 4. Concepto, Base y Porcentaje
                 ET.SubElement(detalle, "CodigoConcepto").text = str(row['codigo_concepto']).zfill(3)
                 ET.SubElement(detalle, "MontoOperacion").text = f"{float(row['monto_operacion']):.2f}"
                 ET.SubElement(detalle, "PorcentajeRetencion").text = f"{float(row['porcentaje_retencion']):.2f}"
                 
-                # AQUÍ ESTÁ LA CLAVE: El portal del SENIAT necesita el monto ya neto (con el sustraendo restado)
-                monto_neto = float(row['monto_retenido'])
-                ET.SubElement(detalle, "MontoRetenido").text = f"{monto_neto:.2f}"
+                # 5. SUSTRAENDO OFICIAL (Solo se incluye si es mayor a 0 para que el portal lo reste y cuadre exacto)
+                sustraendo_val = float(row.get('sustraendo', 0.0) or 0.0)
+                if sustraendo_val > 0:
+                    ET.SubElement(detalle, "Sustraendo").text = f"{sustraendo_val:.2f}"
 
             xml_str = ET.tostring(root, encoding='utf-8')
             parsed = minidom.parseString(xml_str)
