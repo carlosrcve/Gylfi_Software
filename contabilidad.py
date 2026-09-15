@@ -4258,35 +4258,57 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                             
                             b16, i16, r16 = (base, impuesto, iva_retenido_fila) if not es_8 else (0.0, 0.0, 0.0)
                             b8, i8, r8 = (base, impuesto, iva_retenido_fila) if es_8 else (0.0, 0.0, 0.0)
-                            
                             fecha_corta = str(fila['fecha_operacion']).split(" ")[0]
                             ano_f, mes_f = fecha_corta.split("-")[0], fecha_corta.split("-")[1]
 
-                            # Determinamos el tipo de persona según el prefijo del RIF (V/E para Natural, J/G/C para Jurídica)
-                            rif_limpio_upper = rif_ret.strip().upper()
-                            tipo_persona = "Natural" if rif_limpio_upper.startswith(('V', 'E')) else "Juridica"
+                            # Cálculo de la retención de ISLR por cada fila (puedes ajustar el porcentaje y sustraendo según tu lógica)
+                            monto_operacion_islr = round(float(fila.get('base_imponible', 0) or 0), 2)
+                            porcentaje_islr = 1.0  # Porcentaje estándar de retención de ISLR (ej: 1% o 2%)
+                            monto_retenido_islr = round((monto_operacion_islr * porcentaje_islr) / 100, 2)
+                            
+                            # Generación de número de comprobante de ISLR si no lo tienes definido arriba
+                            nro_comp_islr = str(ano_f) + str(mes_f) + str(fila.get('id', '000001')).zfill(8)
 
-                            query_ins = """
-                                INSERT INTO retenciones_iva (
-                                    Razon_Social_del_Agente_de_Retencion, RIF_Agente_Retencion,  
-                                    Direccion_FiscalAgente_Retencion, E_Emision, F_Entrega, Razon_Social_Sujeto_Retenido, 
-                                    RIF_Sujeto_Retenido, Ano, Mes, N_Comprobante1, Fecha_Factura, Numero_Factura, 
-                                    Numero_Contro, Total_Comrpas, Compras_Excentas, Base_Imponible, Impuesto_Iva, 
-                                    IVA_Retenido, Base_Imponible_8, IVA_8, RET_IVA_8, Alicuota, Alicuota_75, N_Nota_Debito, tipo_persona
-                                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                            # Consulta INSERT exacta basada en las 14 columnas de la tabla retenciones_islr
+                            query_ins_islr = """
+                                INSERT INTO retenciones_islr (
+                                    id_sec,
+                                    rif_retenido,
+                                    numero_factura,
+                                    numero_control,
+                                    fecha_operacion,
+                                    codigo_concepto,
+                                    monto_operacion,
+                                    porcentaje_retencion,
+                                    monto_retenido,
+                                    periodo_retenido,
+                                    sustraendo,
+                                    n_comprob_islr,
+                                    proveedor_nombre,
+                                    proveedor_direccion
+                                ) VALUES (
+                                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                                )
                             """
 
-                            params = (
-                                empresa_nombre, empresa_rif, domicilio_fiscal,
-                                fecha_corta, fecha_corta, razon_social_ret, rif_ret, ano_f, mes_f,
-                                nro_comp, fecha_corta, str(fila['n_factura']), str(fila['n_control']),
-                                round(float(fila.get('total_compras', 0)), 2),
-                                round(float(fila.get('importe_exento', 0)), 2),
-                                round(b16, 2), round(i16, 2), round(iva_retenido_fila, 2),
-                                round(b8, 2), round(i8, 2), round(r8, 2),
-                                "16%", "75%", None, tipo_persona
+                            params_islr = (
+                                1,                              # id_sec (correlativo por ítem)
+                                rif_ret,                        # rif_retenido
+                                str(fila['n_factura']),         # numero_factura
+                                str(fila['n_control']),         # numero_control
+                                fecha_corta,                    # fecha_operacion
+                                "001",                          # codigo_concepto (ajusta según el código de retención)
+                                monto_operacion_islr,           # monto_operacion
+                                porcentaje_islr,                # porcentaje_retencion
+                                monto_retenido_islr,            # monto_retenido
+                                f"{ano_f}{mes_f}",              # periodo_retenido (formato AAAAMM, ej: 202608)
+                                0.00,                           # sustraendo (coloca el valor del sustraendo si aplica)
+                                nro_comp_islr,                  # n_comprob_islr
+                                razon_social_ret,               # proveedor_nombre
+                                domicilio_fiscal                # proveedor_direccion
                             )
-                            cursor.execute(query_ins, params)
+                            
+                            cursor.execute(query_ins_islr, params_islr)
                             
                             # --- NUEVO: MARCAR LA FACTURA COMO RETENIDA EN EL LIBRO DE COMPRAS ---
                             query_update = """
