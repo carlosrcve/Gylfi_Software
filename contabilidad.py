@@ -14578,14 +14578,17 @@ elif opcion_menu == "📚 Libros Fiscales":
                 porcentaje = float(row['porcentaje_retencion'])
                 ET.SubElement(detalle, "PorcentajeRetencion").text = f"{porcentaje:.2f}"
                 
-                # 5. SUSTRAENDO CON SU FORMATO EXACTO DE 2 DECIMALES
+                # 5. LECTURA BLINDADA DEL SUSTRAENDO PARA EL XML
                 sustraendo_val = 0.0
-                if 'sustraendo' in row and pd.notna(row['sustraendo']):
-                    try:
-                        sustraendo_val = float(str(row['sustraendo']).strip())
-                    except (ValueError, TypeError):
-                        sustraendo_val = 0.0
-                        
+                if 'sustair_endo' in row or 'sustraendo' in row:
+                    val_s = row.get('sustraendo') if 'sustraendo' in row else row.get('sustair_endo')
+                    if pd.notna(val_s):
+                        try:
+                            sustraendo_val = float(str(val_s).strip())
+                        except (ValueError, TypeError):
+                            sustraendo_val = 0.0
+
+                # Si el sustraendo es mayor a 0, lo pintamos exactamente como pediste
                 if sustraendo_val > 0.0:
                     ET.SubElement(detalle, "Sustraendo").text = f"{sustraendo_val:.2f}"
 
