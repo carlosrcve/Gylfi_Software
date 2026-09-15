@@ -15173,7 +15173,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                                 rename_map = {}
                                 
                                 for col in df_view.columns:
-                                    c_low = col.lower()
+                                    c_low = str(col).lower()
                                     if 'comprob' in c_low: rename_map[col] = 'Fila / Doc'
                                     elif 'fecha' in c_low: rename_map[col] = 'Fecha'
                                     elif 'factura' in c_low: rename_map[col] = 'N° Doc'
@@ -15219,15 +15219,18 @@ elif opcion_menu == "📚 Libros Fiscales":
                         ]
                         cols_disponibles = [c for c in cols_a_mostrar if c in df_view.columns]
 
-                        # CONVERSIÓN A TEXTO PLANO
-                        df_display = pd.DataFrame()
+                        # CONVERSIÓN SEGURA COLUMNA POR COLUMNA (Evita errores de asignación de pandas)
+                        dict_data = {}
                         for col in cols_disponibles:
+                            serie = df_view[col]
                             if col in ['Base Imponible (Bs.)', 'Retención Bruta (Bs.)', 'Sustraendo (Bs.)', 'Retención Neta (Bs.)', 'Alicuota ISLR']:
-                                df_display[col] = df_view[col].apply(lambda x: f"{float(x):,.2f}" if pd.notnull(x) else "0.00")
+                                dict_data[col] = [f"{float(val):,.2f}" if pd.notnull(val) else "0.00" for val in serie]
                             else:
-                                df_display[col] = df_view[col].fillna("").astype(str)
+                                dict_data[col] = [str(val) if pd.notnull(val) else "" for val in serie]
 
-                        # RENDERIZAR USANDO HTML PURO (Cero dependencia de PyArrow, Cero Errores)
+                        df_display = pd.DataFrame(dict_data)
+
+                        # RENDERIZAR USANDO HTML PURO (Cero conflictos de tipos y visualización perfecta)
                         html_table = df_display.to_html(classes="styled-table", index=False, escape=False)
                         st.markdown(f"""
                             <style>
