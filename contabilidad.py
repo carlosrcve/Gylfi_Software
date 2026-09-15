@@ -15135,6 +15135,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                             st.warning("💡 Debes ingresar el número de factura.")
 
             # --- TAB 6: XML SENIAT ---
+            # --- TAB 6: XML SENIAT ---
             with tab6:
                 # --- SECCIÓN C: GENERAR ARCHIVO XML SENIAT ---
                 st.divider()
@@ -15155,7 +15156,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                             periodo_str = f_xml_hasta.strftime("%Y%m") # Ej: "202608"
                             patron_comprobante = f"{periodo_str}%"
                             
-                            # Consulta usando * para traer todas las columnas con sus nombres originales de la BD
+                            # Consulta usando * para traer todo de forma segura
                             query_xml = """
                                 SELECT * 
                                 FROM retenciones_islr 
@@ -15165,39 +15166,37 @@ elif opcion_menu == "📚 Libros Fiscales":
                             conn.close()
                             
                             if not df_xml_raw.empty:
-                                # 1. GENERAMOS EL XML USANDO EL DATAFRAME ORIGINAL (con nombres intactos como 'rif_retenido', etc.)
+                                # 1. GENERAMOS EL XML USANDO EL DATAFRAME ORIGINAL
                                 st.session_state['xml_data'] = generar_xml_seniat(df_xml_raw, DATOS_EMPRESA['rif'], periodo_str)
                                 st.session_state['xml_filename'] = f"RET_ISLR_{periodo_str}.xml"
 
-                                # 2. CREAMOS UNA COPIA PARA LA VISTA VISUAL TIPO EXCEL
+                                # 2. MAPEO INTELIGENTE Y FLEXIBLE PARA LA VISTA VISUAL
                                 df_view = df_xml_raw.copy()
+                                rename_map = {}
                                 
-                                # Detectamos dinámicamente la columna del nombre del proveedor
-                                col_nombre = next((c for c in ['razon_social', 'nombre_proveedor', 'nombre', 'contribuyente'] if c in df_view.columns), df_view.columns[5])
+                                for col in df_view.columns:
+                                    c_low = col.lower()
+                                    if 'comprob' in c_low: rename_map[col] = 'Fila / Doc'
+                                    elif 'fecha' in c_low: rename_map[col] = 'Fecha'
+                                    elif 'factura' in c_low: rename_map[col] = 'N° Doc'
+                                    elif 'control' in c_low: rename_map[col] = 'N° Control'
+                                    elif 'rif' in c_low and 'retenido' in c_low: rename_map[col] = 'R.I.F.'
+                                    elif any(k in c_low for k in ['razon', 'nombre', 'contribuyente', 'proveedor']): rename_map[col] = 'Nombre o Razón Social'
+                                    elif 'concepto' in c_low: rename_map[col] = 'Cód. Concepto (XML)'
+                                    elif 'monto_operacion' in c_low or 'base' in c_low: rename_map[col] = 'Base Imponible (Bs.)'
+                                    elif 'porcentaje' in c_low or 'alicuota' in c_low: rename_map[col] = 'Alicuota ISLR'
+                                    elif 'retenido' in c_low and 'monto' in c_low: rename_map[col] = 'Retención Neta (Bs.)'
+                                    elif 'sustraendo' in c_low: rename_map[col] = 'Sustraendo (Bs.)'
 
-                                # Renombramos solo para la vista en pantalla estilo Excel
-                                renombres = {
-                                    'n_comprob_islr': 'Fila / Doc',
-                                    'fecha_operacion': 'Fecha',
-                                    'numero_factura': 'N° Doc',
-                                    'numero_control': 'N° Control',
-                                    'rif_retenido': 'R.I.F.',
-                                    col_nombre: 'Nombre o Razón Social',
-                                    'codigo_concepto': 'Cód. Concepto (XML)',
-                                    'tipo_proveedor': 'Tipo Proveedor / Concepto',
-                                    'monto_operacion': 'Base Imponible (Bs.)',
-                                    'porcentaje_retencion': 'Alicuota ISLR',
-                                    'monto_retenido': 'Retención Neta (Bs.)',
-                                    'sustraendo': 'Sustraendo (Bs.)'
-                                }
-                                df_view = df_view.rename(columns=renombres)
+                                df_view = df_view.rename(columns=rename_map)
 
-                                # Conversiones numéricas seguras para el cuadro
-                                df_view['Base Imponible (Bs.)'] = df_view['Base Imponible (Bs.)'].astype(float)
-                                df_view['Alicuota ISLR'] = df_view['Alicuota ISLR'].astype(float)
-                                df_view['Sustraendo (Bs.)'] = df_view['Sustraendo (Bs.)'].astype(float)
-                                df_view['Retención Neta (Bs.)'] = df_view['Retención Neta (Bs.)'].astype(float)
-                                
+                                # Asegurar conversiones numéricas de forma segura si las columnas existen
+                                for col_num in ['Base Imponible (Bs.)', 'Alicuota ISLR', 'Sustraendo (Bs.)', 'Retención Neta (Bs.)']:
+                                    if col_num in df_view.columns:
+                                        df_view[col_num] = df_view[col_num].astype(float)
+                                    else:
+                                        df_view[col_num] = 0.0
+
                                 # Retención Bruta estimada para el cuadro = Retención Neta + Sustraendo
                                 df_view['Retención Bruta (Bs.)'] = df_view['Retención Neta (Bs.)'] + df_view['Sustraendo (Bs.)']
 
@@ -15215,20 +15214,24 @@ elif opcion_menu == "📚 Libros Fiscales":
                         
                         st.markdown("#### 📊 Resumen de Retenciones del Periodo")
                         
+                        # Seleccionar únicamente las columnas que existan de manera segura
+                        cols_a_mostrar = [
+                            'Fila / Doc', 'Fecha', 'N° Doc', 'N° Control', 'R.I.F.', 
+                            'Nombre o Razón Social', 'Cód. Concepto (XML)', 'Base Imponible (Bs.)', 
+                            'Retención Bruta (Bs.)', 'Sustraendo (Bs.)', 'Retención Neta (Bs.)'
+                        ]
+                        cols_disponibles = [c for c in cols_a_mostrar if c in df_view.columns]
+
                         st.dataframe(
-                            df_view[[
-                                'Fila / Doc', 'Fecha', 'N° Doc', 'N° Control', 'R.I.F.', 
-                                'Nombre o Razón Social', 'Cód. Concepto (XML)', 'Base Imponible (Bs.)', 
-                                'Retención Bruta (Bs.)', 'Sustraendo (Bs.)', 'Retención Neta (Bs.)'
-                            ]],
+                            df_view[cols_disponibles],
                             use_container_width=True,
                             hide_index=True
                         )
                         
                         # Fila de Totales estilo Excel
-                        tot_base = df_view['Base Imponible (Bs.)'].sum()
-                        tot_sust = df_view['Sustraendo (Bs.)'].sum()
-                        tot_neta = df_view['Retención Neta (Bs.)'].sum()
+                        tot_base = df_view['Base Imponible (Bs.)'].sum() if 'Base Imponible (Bs.)' in df_view.columns else 0.0
+                        tot_sust = df_view['Sustraendo (Bs.)'].sum() if 'Sustraendo (Bs.)' in df_view.columns else 0.0
+                        tot_neta = df_view['Retención Neta (Bs.)'].sum() if 'Retención Neta (Bs.)' in df_view.columns else 0.0
                         
                         cols_tot = st.columns([4, 1.5, 1.5, 1.5])
                         cols_tot[0].markdown("**TOTAL GENERAL A ENTERAR AL SENIAT:**")
