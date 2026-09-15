@@ -15135,6 +15135,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                             st.warning("💡 Debes ingresar el número de factura.")
 
             # --- TAB 6: XML SENIAT ---
+            # --- TAB 6: XML SENIAT ---
             with tab6:
                 # --- SECCIÓN C: GENERAR ARCHIVO XML SENIAT ---
                 st.divider()
@@ -15155,7 +15156,6 @@ elif opcion_menu == "📚 Libros Fiscales":
                             periodo_str = f_xml_hasta.strftime("%Y%m") # Ej: "202608"
                             patron_comprobante = f"{periodo_str}%"
                             
-                            # Consulta usando * para traer todo de forma segura
                             query_xml = """
                                 SELECT * 
                                 FROM retenciones_islr 
@@ -15189,7 +15189,7 @@ elif opcion_menu == "📚 Libros Fiscales":
 
                                 df_view = df_view.rename(columns=rename_map)
 
-                                # BLINDAJE DE TIPOS DE DATOS PARA EVITAR ERROR DE PYARROW
+                                # Cálculos numéricos iniciales
                                 cols_num = ['Base Imponible (Bs.)', 'Alicuota ISLR', 'Sustraendo (Bs.)', 'Retención Neta (Bs.)']
                                 for col_num in cols_num:
                                     if col_num in df_view.columns:
@@ -15197,14 +15197,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                                     else:
                                         df_view[col_num] = 0.0
 
-                                # Retención Bruta estimada para el cuadro = Retención Neta + Sustraendo
                                 df_view['Retención Bruta (Bs.)'] = df_view['Retención Neta (Bs.)'] + df_view['Sustraendo (Bs.)']
-
-                                # Asegurar que las columnas de texto sean puramente string (evita objetos mixtos)
-                                cols_str = ['Fila / Doc', 'Fecha', 'N° Doc', 'N° Control', 'R.I.F.', 'Nombre o Razón Social', 'Cód. Concepto (XML)']
-                                for col_s in cols_str:
-                                    if col_s in df_view.columns:
-                                        df_view[col_s] = df_view[col_s].astype(str)
 
                                 # Guardamos la vista en session_state
                                 st.session_state['df_xml_view'] = df_view
@@ -15216,7 +15209,7 @@ elif opcion_menu == "📚 Libros Fiscales":
 
                     # Si ya hay datos procesados, mostramos la tabla tipo Excel, los totales y el botón de descarga
                     if st.session_state.get('df_xml_view') is not None:
-                        df_view = st.session_state['df_xml_view']
+                        df_view = st.session_state['df_xml_view'].copy()
                         
                         st.markdown("#### 📊 Resumen de Retenciones del Periodo")
                         
@@ -15226,6 +15219,13 @@ elif opcion_menu == "📚 Libros Fiscales":
                             'Retención Bruta (Bs.)', 'Sustraendo (Bs.)', 'Retención Neta (Bs.)'
                         ]
                         cols_disponibles = [c for c in cols_a_mostrar if c in df_view.columns]
+
+                        # BLINDAJE ABSOLUTO DE TIPOS PARA PYARROW JUSTO ANTES DE PINTAR
+                        for col in cols_disponibles:
+                            if col in ['Base Imponible (Bs.)', 'Retención Bruta (Bs.)', 'Sustraendo (Bs.)', 'Retención Neta (Bs.)', 'Alicuota ISLR']:
+                                df_view[col] = pd.to_numeric(df_view[col], errors='coerce').fillna(0.0)
+                            else:
+                                df_view[col] = df_view[col].fillna("").astype(str)
 
                         st.dataframe(
                             df_view[cols_disponibles],
