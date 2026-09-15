@@ -14167,7 +14167,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                     #st.rerun()
 
         with tab4: # Cargar desde Excel y Editor de Tabla
-            st.subheader("📊 Carga Masiva desde Excel")
+            st.subheader("📊 Carga Masiva desde Excel (LIBROS DE COMPRAS)")
             archivo_ex = st.file_uploader("Sube tu archivo Excel", type=['xlsx'])
             
             # 1. CARGA Y LIMPIEZA INICIAL
@@ -14176,38 +14176,31 @@ elif opcion_menu == "📚 Libros Fiscales":
                 df_excel.columns = df_excel.columns.str.strip().str.lower().str.replace(" ", "_")
                 
                 # --- BLINDAJE ANTI-ERROR DE PYARROW ---
-                # Forzamos a que TODAS las columnas de texto/identificadores sean string puro
                 for col in df_excel.columns:
-                    # Si la columna contiene números de control, facturas, RIF, etc., los pasamos a texto
                     if any(k in col for k in ['control', 'factura', 'rif', 'documento', 'proveedor']):
                         df_excel[col] = df_excel[col].astype(str).replace({'nan': '', 'None': ''})
-            # -------------------------------------
                         
                 st.session_state.df_carga_excel = df_excel
 
             # 2. VISUALIZACIÓN Y EDICIÓN
-            if "df_carga_excel" in st.session_state:
-                df_temp = st.session_state.df_carga_excel
+            if "df_carga_excel" in st.session_state and not st.session_state.df_carga_excel.empty:
+                df_temp = st.session_state.df_carga_excel.copy()
                 
                 # A. Limpieza de fecha inteligente
                 col_fecha = next((c for c in df_temp.columns if 'fecha' in c.lower()), None)
                 if col_fecha:
-                    # Renombramos si es necesario
-                    if col_fecha != 'fecha_de_operación':
-                        df_temp = df_temp.rename(columns={col_fecha: 'fecha_de_operación'})
+                    # Normalizamos siempre a 'fecha_operacion' para que coincida con la BD
+                    df_temp = df_temp.rename(columns={col_fecha: 'fecha_operacion'})
                     
-                    # --- LIMPIEZA DE FECHA (EL BLINDAJE FINAL) ---
-                    # Forzamos formato YYYY-MM-DD y eliminamos horas. Si falla, ponemos la fecha de hoy.
-                    df_temp['fecha_de_operación'] = pd.to_datetime(df_temp['fecha_de_operación'], errors='coerce')\
-                                                        .dt.strftime('%Y-%m-%d')\
-                                                        .fillna(pd.Timestamp.now().strftime('%Y-%m-%d'))
+                    df_temp['fecha_operacion'] = pd.to_datetime(df_temp['fecha_operacion'], errors='coerce')\
+                                                .dt.strftime('%Y-%m-%d')\
+                                                .fillna(pd.Timestamp.now().strftime('%Y-%m-%d'))
                     
                     st.session_state.df_carga_excel = df_temp
 
-                # B. Preparación de Vista (Solo para mostrar, no para cálculos)
+                # B. Preparación de Vista (Solo para mostrar)
                 df_visual = st.session_state.df_carga_excel.copy()
                 
-                # Formateo contable para la vista
                 cols_para_formatear = ['total_compras', 'compras_exentas', 'base_imponible', 'credito_fiscales']
                 for col in cols_para_formatear:
                     if col in df_visual.columns:
@@ -14217,66 +14210,61 @@ elif opcion_menu == "📚 Libros Fiscales":
                         )
                         
                 st.subheader("👁️ Vista de los datos cargados")
-                st.dataframe(df_visual, width='stretch', hide_index=True)
-
+                st.dataframe(df_visual, use_container_width=True, hide_index=True)
 
                 # D. Totales
                 st.markdown("---")
                 def f_bs(v): return f"Bs. {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
-                # USAMOS st.session_state.df_carga_excel (que es donde realmente tienes los datos)
-                if "df_carga_excel" in st.session_state:
-                    # Creamos una copia para trabajar en los cálculos sin alterar la original
-                    df_calc = st.session_state.df_carga_excel.copy()
-                    
-                    # Renombramos columnas para los cálculos (usando el diccionario que definiste)
-                    renombres = {
-                        'importe_exento': 'compras_exentas',
-                        'iva_monto': 'credito_fiscales',
-                        'total_exento': 'compras_exentas'
-                    }
-                    df_calc = df_calc.rename(columns=renombres)
+                df_calc = st.session_state.df_carga_excel.copy()
+                
+                renombres = {
+                    'importe_exento': 'compras_exentas',
+                    'iva_monto': 'credito_fiscales',
+                    'total_exento': 'compras_exentas'
+                }
+                df_calc = df_calc.rename(columns=renombres)
 
-                    # Asegurar que las columnas existan numéricamente
-                    for col in ['total_compras', 'compras_exentas', 'base_imponible', 'credito_fiscales']:
-                        if col not in df_calc.columns:
-                            df_calc[col] = 0.0
-                        else:
-                            # Forzamos conversión a número, limpiando errores
-                            df_calc[col] = pd.to_numeric(df_calc[col], errors='coerce').fillna(0.0)
+                for col in ['total_compras', 'compras_exentas', 'base_imponible', 'credito_fiscales']:
+                    if col not in df_calc.columns:
+                        df_calc[col] = 0.0
+                    else:
+                        df_calc[col] = pd.to_numeric(df_calc[col], errors='coerce').fillna(0.0)
 
-                    # --- MÉTRICAS ---
-                    m1, m2, m3, m4 = st.columns(4)
-                    m1.metric("TOTAL COMPRAS", f_bs(df_calc['total_compras'].sum()))
-                    m2.metric("TOTAL EXENTO", f_bs(df_calc['compras_exentas'].sum()))
-                    m3.metric("TOTAL BASE", f_bs(df_calc['base_imponible'].sum()))
-                    m4.metric("TOTAL IVA", f_bs(df_calc['credito_fiscales'].sum()))
+                # --- MÉTRICAS ---
+                m1, m2, m3, m4 = st.columns(4)
+                m1.metric("TOTAL COMPRAS", f_bs(df_calc['total_compras'].sum()))
+                m2.metric("TOTAL EXENTO", f_bs(df_calc['compras_exentas'].sum()))
+                m3.metric("TOTAL BASE", f_bs(df_calc['base_imponible'].sum()))
+                m4.metric("TOTAL IVA", f_bs(df_calc['credito_fiscales'].sum()))
 
-            # E. BOTÓN DE GUARDADO FINAL (Llamando a tu función con los datos ya limpios)
-            if st.button("🚀 Guardar carga masiva en DB", type="primary"):
-                if "df_carga_excel" in st.session_state and not st.session_state.df_carga_excel.empty:
-                    with st.spinner("⏳ Guardando registros..."):
+                st.markdown("---")
+
+                # E. BOTÓN DE GUARDADO FINAL (Fuera de las métricas, asegurando visibilidad)
+                if st.button("🚀 Guardar carga masiva en DB", type="primary"):
+                    with st.spinner("⏳ Guardando registros en la base de datos..."):
                         try:
-                            # Copiamos para no alterar la sesión visual
                             df_to_save = st.session_state.df_carga_excel.copy()
                             
-                            # BLINDAJE: Si la columna 'retencion_iva_realizada' no viene en el Excel, 
-                            # la creamos en 0.0 para que MySQL no lance el error de columna desconocida.
+                            # Asegurar banderas de retención si no existen
+                            if 'retencion_realizada' not in df_to_save.columns:
+                                df_to_save['retencion_realizada'] = 0.0
+                            
                             if 'retencion_iva_realizada' not in df_to_save.columns:
                                 df_to_save['retencion_iva_realizada'] = 0.0
-                            else:
-                                df_to_save['retencion_iva_realizada'] = pd.to_numeric(
-                                    df_to_save['retencion_iva_realizada'], errors='coerce'
-                                ).fillna(0.0)
 
-                            # PASAMOS EL DATAFRAME BLINDADO A TU FUNCIÓN
+                            # LLAMADA A TU FUNCIÓN DE BD
                             cargar_libro_compras_db(df_to_save, db_actual)
-                            st.success("✅ ¡Proceso finalizado correctamente!")
+                            
+                            st.success("✅ ¡Proceso finalizado y guardado correctamente en la base de datos!")
+                            
+                            # Opcional: limpiar estado para evitar doble clic o duplicados
+                            # del st.session_state.df_carga_excel
                             
                         except Exception as e:
-                            st.error(f"❌ Error al guardar en DB: {e}")
-                else:
-                    st.warning("⚠️ No hay datos cargados para guardar.")
+                            st.error(f"❌ Error crítico al guardar en DB: {e}")
+            else:
+                st.info("ℹ️ Por favor, sube un archivo Excel válido para comenzar la carga masiva.")
 
         # --- TAB 5: BANDEJA DE ENTRADA INTELIGENTE (PDFs POR LOTES) ---
         with tab5:
