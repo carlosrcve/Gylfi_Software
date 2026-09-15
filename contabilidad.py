@@ -15135,7 +15135,6 @@ elif opcion_menu == "📚 Libros Fiscales":
                             st.warning("💡 Debes ingresar el número de factura.")
 
             # --- TAB 6: XML SENIAT ---
-            # --- TAB 6: XML SENIAT ---
             with tab6:
                 # --- SECCIÓN C: GENERAR ARCHIVO XML SENIAT ---
                 st.divider()
@@ -15190,15 +15189,22 @@ elif opcion_menu == "📚 Libros Fiscales":
 
                                 df_view = df_view.rename(columns=rename_map)
 
-                                # Asegurar conversiones numéricas de forma segura si las columnas existen
-                                for col_num in ['Base Imponible (Bs.)', 'Alicuota ISLR', 'Sustraendo (Bs.)', 'Retención Neta (Bs.)']:
+                                # BLINDAJE DE TIPOS DE DATOS PARA EVITAR ERROR DE PYARROW
+                                cols_num = ['Base Imponible (Bs.)', 'Alicuota ISLR', 'Sustraendo (Bs.)', 'Retención Neta (Bs.)']
+                                for col_num in cols_num:
                                     if col_num in df_view.columns:
-                                        df_view[col_num] = df_view[col_num].astype(float)
+                                        df_view[col_num] = pd.to_numeric(df_view[col_num], errors='coerce').fillna(0.0)
                                     else:
                                         df_view[col_num] = 0.0
 
                                 # Retención Bruta estimada para el cuadro = Retención Neta + Sustraendo
                                 df_view['Retención Bruta (Bs.)'] = df_view['Retención Neta (Bs.)'] + df_view['Sustraendo (Bs.)']
+
+                                # Asegurar que las columnas de texto sean puramente string (evita objetos mixtos)
+                                cols_str = ['Fila / Doc', 'Fecha', 'N° Doc', 'N° Control', 'R.I.F.', 'Nombre o Razón Social', 'Cód. Concepto (XML)']
+                                for col_s in cols_str:
+                                    if col_s in df_view.columns:
+                                        df_view[col_s] = df_view[col_s].astype(str)
 
                                 # Guardamos la vista en session_state
                                 st.session_state['df_xml_view'] = df_view
@@ -15214,7 +15220,6 @@ elif opcion_menu == "📚 Libros Fiscales":
                         
                         st.markdown("#### 📊 Resumen de Retenciones del Periodo")
                         
-                        # Seleccionar únicamente las columnas que existan de manera segura
                         cols_a_mostrar = [
                             'Fila / Doc', 'Fecha', 'N° Doc', 'N° Control', 'R.I.F.', 
                             'Nombre o Razón Social', 'Cód. Concepto (XML)', 'Base Imponible (Bs.)', 
