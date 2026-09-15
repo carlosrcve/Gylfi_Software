@@ -15206,7 +15206,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                                 st.session_state['xml_data'] = None
                                 st.session_state['df_xml_view'] = None
 
-                    # Si ya hay datos procesados, mostramos la tabla, los totales y el botón de descarga
+                    # Si ya hay datos procesados, mostramos la tabla en HTML puro, los totales y el botón de descarga
                     if st.session_state.get('df_xml_view') is not None:
                         df_view = st.session_state['df_xml_view']
                         
@@ -15219,18 +15219,40 @@ elif opcion_menu == "📚 Libros Fiscales":
                         ]
                         cols_disponibles = [c for c in cols_a_mostrar if c in df_view.columns]
 
-                        # CONVERSIÓN GLOBAL A TEXTO PLANO PARA EVITAR CUALQUIER CONFLICTO DE TIPOS CON PYARROW
-                        df_display = df_view[cols_disponibles].copy()
-                        for col in df_display.columns:
-                            if col in ['Base Imponible (Bs.)', 'Retención Bruta (Bs.)', 'Sustraendo (Bs.)', 'Retención Net (Bs.)', 'Alicuota ISLR', 'Retención Neta (Bs.)']:
-                                df_display[col] = df_display[col].apply(lambda x: f"{float(x):,.2f}" if pd.notnull(x) else "0.00")
+                        # CONVERSIÓN A TEXTO PLANO
+                        df_display = pd.DataFrame()
+                        for col in cols_disponibles:
+                            if col in ['Base Imponible (Bs.)', 'Retención Bruta (Bs.)', 'Sustraendo (Bs.)', 'Retención Neta (Bs.)', 'Alicuota ISLR']:
+                                df_display[col] = df_view[col].apply(lambda x: f"{float(x):,.2f}" if pd.notnull(x) else "0.00")
                             else:
-                                df_display[col] = df_display[col].fillna("").astype(str)
+                                df_display[col] = df_view[col].fillna("").astype(str)
 
-                        # Usamos st.table en lugar de st.dataframe para renderizado HTML directo sin validación estricta de flecha
-                        st.table(df_display)
+                        # RENDERIZAR USANDO HTML PURO (Cero dependencia de PyArrow, Cero Errores)
+                        html_table = df_display.to_html(classes="styled-table", index=False, escape=False)
+                        st.markdown(f"""
+                            <style>
+                                .styled-table {{
+                                    width: 100%;
+                                    border-collapse: collapse;
+                                    margin: 25px 0;
+                                    font-size: 0.9em;
+                                    font-family: sans-serif;
+                                    box-shadow: 0 0 20px rgba(0, 0, 0, 0.15);
+                                }}
+                                .styled-table th, .styled-table td {{
+                                    padding: 12px 15px;
+                                    text-align: left;
+                                }}
+                                .styled-table tbody tr {{
+                                    border-bottom: 1px solid #dddddd;
+                                }}
+                            </style>
+                            <div style="overflow-x:auto;">
+                                {html_table}
+                            </div>
+                        """, unsafe_allow_html=True)
                         
-                        # Fila de Totales estilo Excel (calculada con los valores numéricos reales)
+                        # Fila de Totales estilo Excel
                         tot_base = df_view['Base Imponible (Bs.)'].sum() if 'Base Imponible (Bs.)' in df_view.columns else 0.0
                         tot_sust = df_view['Sustraendo (Bs.)'].sum() if 'Sustraendo (Bs.)' in df_view.columns else 0.0
                         tot_neta = df_view['Retención Neta (Bs.)'].sum() if 'Retención Neta (Bs.)' in df_view.columns else 0.0
