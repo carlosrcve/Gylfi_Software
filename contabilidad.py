@@ -14613,8 +14613,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                                     lc.n_control AS numero_control, 
                                     NULL AS codigo_concepto, 
                                     lc.base_imponible AS monto_operacion, 
-                                    0.00 AS porcentaje_retencion, 
-                                    0.00 AS monto_retenido, 
+                                    0.00 AS porcentaje_retencion, 0.00 AS monto_retenido, 
                                     NULL AS periodo_retenido, 
                                     0.00 AS sustraendo, 
                                     NULL AS n_comprob_islr
@@ -14623,7 +14622,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                                     SELECT razon_social, direccion_fiscal, 
                                            TRIM(REPLACE(REPLACE(rif, '-', ''), ' ', '')) AS rif_limpio
                                     FROM proveedores
-                                ) p ON TRIM(REPLACE(REPLACE(lc.rif, '-', ''), ' ', '')) = p.rif_limpio
+                                ) p ON TRIM(REPLACE(REPLACE(lc.rif, '-', ''), ' ', '')) COLLATE utf8mb4_unicode_ci = p.rif_limpio COLLATE utf8mb4_unicode_ci
                                 WHERE (lc.retencion_realizada = 0 OR lc.retencion_realizada IS NULL)
                                 AND lc.fecha_operacion BETWEEN %s AND %s
                                 ORDER BY lc.fecha_operacion ASC
