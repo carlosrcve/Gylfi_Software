@@ -8568,6 +8568,7 @@ def renderizar_tab_asientos_ventas(db_connection):
                                     ref_banco = f"BANCO-{b_id}"
                                     break
 
+                        # Guardamos en memoria auxiliar todo incluido el bloqueado original
                         st.session_state['mapeo_banco_aux_pd'][a_id] = {
                             "banco_mov_id": banco_mov_id,
                             "referencia": ref_banco,
@@ -8575,7 +8576,7 @@ def renderizar_tab_asientos_ventas(db_connection):
                             "bloqueado": a_bloq 
                         }
 
-                        # 1️⃣ LÍNEA 1: EL BANCO (Va al DEBE) - CON COLUMNA BLOQUEADO INCLUIDA
+                        # 1️⃣ LÍNEA 1: EL BANCO (Va al DEBE) - SIN LA COLUMNA BLOQUEADO EN EL FRAME
                         filas_frame.append({
                             "procesar": True,
                             "id": a_id,
@@ -8586,11 +8587,10 @@ def renderizar_tab_asientos_ventas(db_connection):
                             "cuenta_contable": cuenta_banco_nombre,
                             "referencia": ref_banco,
                             "debe": monto_encontrado,
-                            "haber": 0.00,
-                            "bloqueado": a_bloq
+                            "haber": 0.00
                         })
 
-                        # 2️⃣ LÍNEA 2: EL CHOFER (Va al HABER) - CON COLUMNA BLOQUEADO INCLUIDA
+                        # 2️⃣ LÍNEA 2: EL CHOFER (Va al HABER) - SIN LA COLUMNA BLOQUEADO EN EL FRAME
                         filas_frame.append({
                             "procesar": True,
                             "id": a_id,
@@ -8601,8 +8601,7 @@ def renderizar_tab_asientos_ventas(db_connection):
                             "cuenta_contable": a_cta,
                             "referencia": ref_banco,
                             "debe": 0.00,
-                            "haber": monto_encontrado,
-                            "bloqueado": a_bloq
+                            "haber": monto_encontrado
                         })
 
                     if filas_frame:
@@ -8614,7 +8613,7 @@ def renderizar_tab_asientos_ventas(db_connection):
             except Exception as e_c:
                 st.error(f"Error procesando los datos: {e_c}")
 
-    # Visualización con columna bloqueado restaurada, formato numérico y totalizadores abajo
+    # Visualización limpia sin la columna bloqueado a la vista, con formato numérico y totalizadores abajo
     if 'df_asientos_pd' in st.session_state and not st.session_state['df_asientos_pd'].empty:
         st.markdown("### 📋 Vista de Asientos Contables (Debe y Haber Equilibrados):")
         
@@ -8660,12 +8659,11 @@ def renderizar_tab_asientos_ventas(db_connection):
                         for asiento_id_orig in ids_procesados:
                             filas_asiento = df_validos[df_validos['id'] == asiento_id_orig]
                             
+                            # Recuperamos el valor real de bloqueado desde el diccionario auxiliar de memoria
                             aux_datos = st.session_state.get('mapeo_banco_aux_pd', {}).get(int(asiento_id_orig), {})
+                            val_bloqueado = int(aux_datos.get("bloqueado", 0))
                             
                             for _, row in filas_asiento.iterrows():
-                                # Respetamos el valor de bloqueado que venga de la celda editada o del aux
-                                val_bloqueado = int(row['bloqueado']) if 'bloqueado' in row else int(aux_datos.get("bloqueado", 0))
-                                
                                 cur_ins.execute(f"""
                                     INSERT INTO `{db_segura}`.asientos_contables 
                                     (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber, bloqueado)
