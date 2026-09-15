@@ -8492,10 +8492,10 @@ def renderizar_tab_asientos_ventas(db_connection):
                     db_connection.rollback()
                 st.error(f"❌ Error crítico al guardar en MySQL: {str(db_err)}")
     # ----------------------------------------------------
-    # TERCER FRAME: CONCILIACIÓN Y CRUCE DE COBRANZAS (BANCO VS. CUENTAS POR COBRAR CHOFERES)
+    # TERCER FRAME: CONCILIACIÓN USANDO LA TABLA ASIENTOS CONTABLES
     # ----------------------------------------------------
     st.markdown("---")
-    st.markdown("### 🔄 Tercer Frame: Conciliación de Cobranzas por Chofer (Banco vs. Asientos Contables)")
+    st.markdown("### 🔄 Tercer Frame: Cruce de Cobranzas en el Libro Diario (`asientos_contables`)")
 
     try:
         with db_connection.cursor() as cur_cuentas:
@@ -8507,176 +8507,162 @@ def renderizar_tab_asientos_ventas(db_connection):
             cuentas_plan_db = cur_cuentas.fetchall()
     except Exception as e:
         cuentas_plan_db = []
-        st.warning(f"No se pudieron cargar las cuentas del plan contable automáticamente: {e}")
+        st.warning(f"No se pudieron cargar las cuentas del plan contable: {e}")
 
-    opciones_cuentas_banco = [f"{row[0]} - {row[1]}" for row in cuentas_plan_db] if cuentas_plan_db else ["N/A - Sin cuentas registradas"]
+    opciones_cuentas_banco = [f"{row[0]} - {row[1]}" for row in cuentas_plan_db] if cuentas_plan_db else ["N/A - Sin cuentas"]
 
-    col_c1, col_c2 = st.columns([2, 1])
-    with col_c1:
-        cuenta_banco_seleccionada_str = st.selectbox(
-            "Seleccione la Cuenta Bancaria para el Cruce de Cobros:",
-            options=opciones_cuentas_banco,
-            key="select_cuenta_banco_tercer_frame"
-        )
+    cuenta_banco_seleccionada_str = st.selectbox(
+        "Seleccione la Cuenta Contable del Banco para el Depósito:",
+        options=opciones_cuentas_banco,
+        key="select_cta_banco_frame_real"
+    )
 
     cuenta_contable_banco_activa = cuenta_banco_seleccionada_str.split(" - ")[0].strip() if " - " in cuenta_banco_seleccionada_str else ""
     nombre_cuenta_banco_activa = cuenta_banco_seleccionada_str.split(" - ")[1].strip() if " - " in cuenta_banco_seleccionada_str else ""
 
-    if st.button("🔍 Ejecutar Cruce por RIF de Choferes", key="btn_ejecutar_matching_banco", use_container_width=False):
+    if st.button("🔍 Cargar Asientos Contables de Choferes para Conciliar", key="btn_cargar_asientos_reales"):
         if not cuenta_contable_banco_activa or cuenta_contable_banco_activa == "N/A":
-            st.error("❌ Por favor, seleccione una cuenta bancaria válida del plan de cuentas antes de continuar.")
+            st.error("❌ Seleccione una cuenta bancaria válida.")
         else:
             try:
-                with db_connection.cursor() as cursor_match:
-                    # 1. Capturamos los asientos contables de CxC de los choferes (al debe > 0)
-                    cursor_match.execute(f"""
-                        SELECT id, n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber 
+                with db_connection.cursor() as cur_asientos:
+                    # Traemos los asientos contables reales al debe de los choferes
+                    cur_asientos.execute(f"""
+                        SELECT id, n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber, bloqueado
                         FROM `{db_segura}`.asientos_contables 
-                        WHERE debe > 0 AND (descripcion LIKE '%Choferes%' OR descripcion LIKE '%Rif:%' OR cuenta_contable LIKE '1.1.2.01%')
+                        WHERE debe > 0 AND (descripcion LIKE '%Choferes%' OR cuenta_contable LIKE '1.1.2.01%')
                     """)
-                    asientos_cx_cobrar = cursor_match.fetchall()
+                    asientos_db = cur_asientos.fetchall()
 
-                    # 2. Consultar Movimientos del Banco (Ingresos positivos)
-                    cursor_match.execute(f"""
-                        SELECT id, fecha_movimiento, descripcion, referencia, monto, cuenta_numero 
+                    # Traemos los movimientos del banco para hacer el match por RIF
+                    cur_asientos.execute(f"""
+                        SELECT id, fecha_movimiento, descripcion, referencia, monto 
                         FROM `{db_segura}`.banco_movimientos 
                         WHERE monto > 0
                     """)
-                    movimientos_banco = cursor_match.fetchall()
-
-                    st.info(f"📊 Analizando **{len(asientos_cx_cobrar)}** asientos de cuentas por cobrar de choferes frente a **{len(movimientos_banco)}** movimientos bancarios.")
+                    banco_db = cur_asientos.fetchall()
 
                     import re
-                    def extraer_rif_texto(texto):
-                        if not texto:
-                            return None
-                        match = re.search(r'\b([VJGEP]-?\d{6,10}-?\d?)\b', str(texto), re.IGNORECASE)
-                        if match:
-                            return match.group(0).upper().replace("-", "").strip()
-                        return None
+                    def extraer_rif(txt):
+                        if not txt: return None
+                        m = re.search(r'\b([VJGEP]-?\d{6,10}-?\d?)\b', str(txt), re.IGNORECASE)
+                        return m.group(0).upper().replace("-", "").strip() if m else None
 
-                    coincidencias_encontradas = []
-                    asientos_con_rif = 0
+                    filas_frame = []
+                    for ast in asientos_db:
+                        a_id, a_comp, a_desc, a_fec, a_plan, a_cta, a_ref, a_debe, a_haber, a_bloq = ast
+                        rif_ast = extraer_rif(a_desc)
+                        
+                        # Buscar movimiento en banco con el mismo RIF
+                        monto_banco_encontrado = float(a_debe) # Por defecto el monto del asiento
+                        banco_mov_id = 0
+                        desc_banco_str = "Sin coincidencia en banco"
 
-                    # 3. Cruzar cada asiento de chofer con el movimiento bancario que tenga su mismo RIF
-                    for asiento in asientos_cx_cobrar:
-                        a_id, a_comp, a_desc, a_fecha, a_plan, a_cta_cont, a_ref, a_debe, a_haber = asiento
-                        rif_asiento = extraer_rif_texto(a_desc)
+                        if rif_ast:
+                            for b in banco_db:
+                                b_id, b_fec, b_desc, b_ref, b_monto = b
+                                if extraer_rif(b_desc) == rif_ast:
+                                    banco_mov_id = b_id
+                                    monto_banco_encontrado = float(b_monto)
+                                    desc_banco_str = b_desc
+                                    break
 
-                        if rif_asiento:
-                            asientos_con_rif += 1
-                            for mov in movimientos_banco:
-                                m_id, m_fecha, m_desc, m_ref, m_monto, m_cta = mov
-                                rif_banco = extraer_rif_texto(m_desc)
+                        filas_frame.append({
+                            "procesar": True,
+                            "asiento_id": a_id,
+                            "n_comprobante": a_comp,
+                            "descripcion": a_desc,
+                            "fecha": str(a_fec),
+                            "plan_cuentas": a_plan,
+                            "cuenta_contable": a_cta,
+                            "referencia": a_ref,
+                            "monto_factura": float(a_debe),
+                            "banco_mov_id": banco_mov_id,
+                            "monto_banco": monto_banco_encontrado,
+                            "banco_info": desc_banco_str
+                        })
 
-                                if rif_banco and rif_asiento == rif_banco:
-                                    ya_agregado = any(c['banco_mov_id'] == m_id for c in coincidencias_encontradas)
-                                    if not ya_agregado:
-                                        coincidencias_encontradas.append({
-                                            "procesar": True,
-                                            "asiento_id": a_id,
-                                            "comprobante": a_comp,
-                                            "rif": rif_asiento,
-                                            "cuenta_cxc": a_plan,
-                                            "nombre_cxc": a_cta_cont,
-                                            "descripcion_contable": a_desc,
-                                            "monto_factura": float(a_debe),
-                                            "banco_mov_id": m_id,
-                                            "fecha_banco": str(m_fecha),
-                                            "descripcion_banco": m_desc,
-                                            "monto_banco": float(m_monto)
-                                        })
-                                        break
-
-                    st.write(f"🔍 *Depuración:* Se detectó RIF en **{asientos_con_rif}** asientos de choferes.")
-
-                    if coincidencias_encontradas:
-                        df_matching = pd.DataFrame(coincidencias_encontradas)
-                        st.success(f"¡Se han cruzado exitosamente **{len(df_matching)}** cobros de choferes por coincidencia de RIF!")
-                        st.session_state['df_matching_resultado'] = df_matching
+                    if filas_frame:
+                        st.session_state['df_asientos_reales'] = pd.DataFrame(filas_frame)
+                        st.success(f"Se cargaron **{len(filas_frame)}** registros directos de la tabla `asientos_contables`.")
                     else:
-                        st.warning("⚠️ No se encontraron coincidencias por RIF entre los asientos de los choferes y los movimientos del banco.")
+                        st.warning("No se encontraron asientos contables de choferes al debe.")
 
-            except Exception as err_match:
-                st.error(f"❌ Error ejecutando el matching por choferes: {str(err_match)}")
+            except Exception as e_c:
+                st.error(f"Error cargando asientos: {e_c}")
 
-    # ----------------------------------------------------
-    # VISUALIZACIÓN EDITABLE Y REGISTRO DE CANCELACIÓN EN ASIENTOS CONTABLES
-    # ----------------------------------------------------
-    if 'df_matching_resultado' in st.session_state and not st.session_state['df_matching_resultado'].empty:
-        st.markdown("### 📋 Verifique el cruce por chofer antes de registrar los asientos en el Libro Diario:")
+    # Visualización y edición del frame real
+    if 'df_asientos_reales' in st.session_state and not st.session_state['df_asientos_reales'].empty:
+        st.markdown("### 📋 Tabla de Asientos Contables Detectados vs. Banco:")
         
-        df_editado = st.data_editor(
-            st.session_state['df_matching_resultado'],
-            key="editor_matching_cxc",
-            use_container_width=True,
-            num_rows="fixed"
+        df_editado_real = st.data_editor(
+            st.session_state['df_asientos_reales'],
+            key="editor_asientos_reales",
+            use_container_width=True
         )
 
-        if st.button("💾 Registrar Asientos de Cancelación en la Tabla `asientos_contables`", key="btn_guardar_cancelacion_banco"):
+        if st.button("💾 Guardar Cruce y Asentar en Libro Diario", key="btn_guardar_asientos_reales"):
             try:
-                df_a_guardar = df_editado[df_editado['procesar'] == True]
-
-                if df_a_guardar.empty:
-                    st.warning("⚠️ No hay registros marcados para procesar.")
+                df_validos = df_editado_real[df_editado_real['procesar'] == True]
+                if df_validos.empty:
+                    st.warning("No hay filas seleccionadas para procesar.")
                 else:
-                    with db_connection.cursor() as cur_cancela:
-                        registros_asentados = 0
-                        for _, row_m in df_a_guardar.iterrows():
-                            
-                            comp = row_m['comprobante']
-                            cta_cxc = row_m['cuenta_cxc']
-                            nom_cxc = row_m['nombre_cxc']
-                            monto_cobro = float(row_m['monto_banco'])
-                            ref_banco_str = f"BANCO-{row_m['banco_mov_id']}"
-                            
-                            # 1. Insertar línea al HABER en asientos_contables para cancelar la cuenta por cobrar del chofer
-                            cur_cancela.execute(f"""
+                    with db_connection.cursor() as cur_ins:
+                        contador = 0
+                        for _, row in df_validos.iterrows():
+                            comp = row['n_comprobante']
+                            plan_cxc = row['plan_cuentas']
+                            nom_cxc = row['cuenta_contable']
+                            monto = float(row['monto_banco'])
+                            b_id = int(row['banco_mov_id'])
+                            ref_banco = f"BANCO-{b_id}" if b_id > 0 else "BANCO-COBRO"
+
+                            # 1. Asiento al HABER para la cuenta por cobrar del chofer (Cancela la deuda)
+                            cur_ins.execute(f"""
                                 INSERT INTO `{db_segura}`.asientos_contables 
                                 (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber, bloqueado)
                                 VALUES (%s, %s, NOW(), %s, %s, %s, 0.00, %s, 0)
                             """, (
                                 str(comp),
-                                f"Cancelacion factura chofer segun banco - RIF: {row_m['rif']}",
-                                str(cta_cxc),
+                                f"Cancelacion cobro chofer - {row['descripcion']}",
+                                str(plan_cxc),
                                 str(nom_cxc),
-                                ref_banco_str,
-                                monto_cobro
+                                ref_banco,
+                                monto
                             ))
-                            
-                            # 2. Insertar línea al DEBE en asientos_contables para reflejar el ingreso en la cuenta del banco
-                            cur_cancela.execute(f"""
+
+                            # 2. Asiento al DEBE para la cuenta del Banco (Entra el dinero)
+                            cur_ins.execute(f"""
                                 INSERT INTO `{db_segura}`.asientos_contables 
                                 (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber, bloqueado)
                                 VALUES (%s, %s, NOW(), %s, %s, %s, %s, 0.00, 0)
                             """, (
                                 str(comp),
-                                f"Ingreso bancario por cobranza chofer - RIF: {row_m['rif']}",
+                                f"Ingreso bancario por cobranza - {row['descripcion']}",
                                 str(cuenta_contable_banco_activa),
                                 str(nombre_cuenta_banco_activa),
-                                ref_banco_str,
-                                monto_cobro
+                                ref_banco,
+                                monto
                             ))
-                            
-                            # 3. Marcar el movimiento del banco como Conciliado y vincularlo
-                            cur_cancela.execute(f"""
-                                UPDATE `{db_segura}`.banco_movimientos 
-                                SET estado_conciliacion = 'Conciliado', asiento_id = %s 
-                                WHERE id = %s
-                            """, (int(row_m['asiento_id']), int(row_m['banco_mov_id'])))
 
-                            registros_asentados += 1
+                            # 3. Marcar el movimiento del banco como conciliado si existe
+                            if b_id > 0:
+                                cur_ins.execute(f"""
+                                    UPDATE `{db_segura}`.banco_movimientos 
+                                    SET estado_conciliacion = 'Conciliado', asiento_id = %s 
+                                    WHERE id = %s
+                                """, (int(row['asiento_id']), b_id))
+
+                            contador += 1
 
                         db_connection.commit()
-                        st.success(f"✅ ¡Se insertaron **{registros_asentados * 2}** líneas deasientos (Haberes de Choferes y Debes de Banco) asociadas al comprobante original en la tabla `asientos_contables`!")
-                        
-                        del st.session_state['df_matching_resultado']
+                        st.success(f"¡Listo! Se registraron exitosamente **{contador}** comprobantes de cancelación (Partida Doble generada en `asientos_contables`).")
+                        del st.session_state['df_asientos_reales']
                         st.rerun()
 
-            except Exception as e_reg:
-                if hasattr(db_connection, 'rollback'):
-                    db_connection.rollback()
-                st.error(f"❌ Error al registrar los asientos contables: {e_reg}")
+            except Exception as e_sv:
+                if hasattr(db_connection, 'rollback'): db_connection.rollback()
+                st.error(f"Error al guardar los asientos: {e_sv}")
 
 
 def gestionar_sidebar():
