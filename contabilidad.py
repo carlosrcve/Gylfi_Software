@@ -15135,7 +15135,6 @@ elif opcion_menu == "📚 Libros Fiscales":
                             st.warning("💡 Debes ingresar el número de factura.")
 
             # --- TAB 6: XML SENIAT ---
-            # --- TAB 6: XML SENIAT ---
             with tab6:
                 # --- SECCIÓN C: GENERAR ARCHIVO XML SENIAT ---
                 st.divider()
@@ -15156,20 +15155,27 @@ elif opcion_menu == "📚 Libros Fiscales":
                             periodo_str = f_xml_hasta.strftime("%Y%m") # Ej: "202608"
                             patron_comprobante = f"{periodo_str}%"
                             
-                            # Consulta usando * para evitar errores con nombres de columnas de texto
+                            # Consulta usando * para traer todas las columnas con sus nombres originales de la BD
                             query_xml = """
                                 SELECT * 
                                 FROM retenciones_islr 
                                 WHERE n_comprob_islr LIKE %s
                             """
-                            df_xml = ejecutar_consulta(query_xml, conn, params=(patron_comprobante,))
+                            df_xml_raw = ejecutar_consulta(query_xml, conn, params=(patron_comprobante,))
                             conn.close()
                             
-                            if not df_xml.empty:
-                                # Buscamos dinámicamente cuál es la columna del nombre/razón social si tiene otro nombre
-                                col_nombre = next((c for c in ['razon_social', 'nombre_proveedor', 'nombre', 'contribuyente'] if c in df_xml.columns), df_xml.columns[5])
+                            if not df_xml_raw.empty:
+                                # 1. GENERAMOS EL XML USANDO EL DATAFRAME ORIGINAL (con nombres intactos como 'rif_retenido', etc.)
+                                st.session_state['xml_data'] = generar_xml_seniat(df_xml_raw, DATOS_EMPRESA['rif'], periodo_str)
+                                st.session_state['xml_filename'] = f"RET_ISLR_{periodo_str}.xml"
 
-                                # Renombramos las columnas con seguridad basándonos en lo que trajo la BD
+                                # 2. CREAMOS UNA COPIA PARA LA VISTA VISUAL TIPO EXCEL
+                                df_view = df_xml_raw.copy()
+                                
+                                # Detectamos dinámicamente la columna del nombre del proveedor
+                                col_nombre = next((c for c in ['razon_social', 'nombre_proveedor', 'nombre', 'contribuyente'] if c in df_view.columns), df_view.columns[5])
+
+                                # Renombramos solo para la vista en pantalla estilo Excel
                                 renombres = {
                                     'n_comprob_islr': 'Fila / Doc',
                                     'fecha_operacion': 'Fecha',
@@ -15184,22 +15190,20 @@ elif opcion_menu == "📚 Libros Fiscales":
                                     'monto_retenido': 'Retención Neta (Bs.)',
                                     'sustraendo': 'Sustraendo (Bs.)'
                                 }
-                                df_xml = df_xml.rename(columns=renombres)
+                                df_view = df_view.rename(columns=renombres)
 
-                                # Conversiones numéricas seguras
-                                df_xml['Base Imponible (Bs.)'] = df_xml['Base Imponible (Bs.)'].astype(float)
-                                df_xml['Alicuota ISLR'] = df_xml['Alicuota ISLR'].astype(float)
-                                df_xml['Sustraendo (Bs.)'] = df_xml['Sustraendo (Bs.)'].astype(float)
-                                df_xml['Retención Neta (Bs.)'] = df_xml['Retención Neta (Bs.)'].astype(float)
+                                # Conversiones numéricas seguras para el cuadro
+                                df_view['Base Imponible (Bs.)'] = df_view['Base Imponible (Bs.)'].astype(float)
+                                df_view['Alicuota ISLR'] = df_view['Alicuota ISLR'].astype(float)
+                                df_view['Sustraendo (Bs.)'] = df_view['Sustraendo (Bs.)'].astype(float)
+                                df_view['Retención Neta (Bs.)'] = df_view['Retención Neta (Bs.)'].astype(float)
                                 
                                 # Retención Bruta estimada para el cuadro = Retención Neta + Sustraendo
-                                df_xml['Retención Bruta (Bs.)'] = df_xml['Retención Neta (Bs.)'] + df_xml['Sustraendo (Bs.)']
+                                df_view['Retención Bruta (Bs.)'] = df_view['Retención Neta (Bs.)'] + df_view['Sustraendo (Bs.)']
 
-                                # Guardamos en session_state para la tabla y el XML
-                                st.session_state['df_xml_view'] = df_xml
-                                st.session_state['xml_data'] = generar_xml_seniat(df_xml, DATOS_EMPRESA['rif'], periodo_str)
-                                st.session_state['xml_filename'] = f"RET_ISLR_{periodo_str}.xml"
-                                st.success(f"✅ Datos procesados con éxito ({len(df_xml)} retenciones).")
+                                # Guardamos la vista en session_state
+                                st.session_state['df_xml_view'] = df_view
+                                st.success(f"✅ Datos procesados con éxito ({len(df_xml_raw)} retenciones).")
                             else:
                                 st.warning(f"⚠️ No se encontraron retenciones para el periodo {periodo_str}.")
                                 st.session_state['xml_data'] = None
