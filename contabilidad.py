@@ -15206,7 +15206,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                                 st.session_state['xml_data'] = None
                                 st.session_state['df_xml_view'] = None
 
-                    # Si ya hay datos procesados, mostramos la tabla en HTML puro, los totales y el botón de descarga
+                    # Si ya hay datos procesados, renderizamos directamente en HTML fila por fila
                     if st.session_state.get('df_xml_view') is not None:
                         df_view = st.session_state['df_xml_view']
                         
@@ -15219,19 +15219,25 @@ elif opcion_menu == "📚 Libros Fiscales":
                         ]
                         cols_disponibles = [c for c in cols_a_mostrar if c in df_view.columns]
 
-                        # CONVERSIÓN SEGURA COLUMNA POR COLUMNA (Evita errores de asignación de pandas)
-                        dict_data = {}
-                        for col in cols_disponibles:
-                            serie = df_view[col]
-                            if col in ['Base Imponible (Bs.)', 'Retención Bruta (Bs.)', 'Sustraendo (Bs.)', 'Retención Neta (Bs.)', 'Alicuota ISLR']:
-                                dict_data[col] = [f"{float(val):,.2f}" if pd.notnull(val) else "0.00" for val in serie]
-                            else:
-                                dict_data[col] = [str(val) if pd.notnull(val) else "" for val in serie]
+                        # CONSTRUCCIÓN MANUAL DE FILAS HTML (Sin usar pd.DataFrame para el display)
+                        html_rows = ""
+                        for _, row in df_view.iterrows():
+                            html_rows += "<tr>"
+                            for col in cols_disponibles:
+                                val = row.get(col, "")
+                                if col in ['Base Imponible (Bs.)', 'Retención Bruta (Bs.)', 'Sustraendo (Bs.)', 'Retención Neta (Bs.)', 'Alicuota ISLR']:
+                                    try:
+                                        val_str = f"{float(val):,.2f}"
+                                    except:
+                                        val_str = "0.00"
+                                else:
+                                    val_str = str(val) if pd.notnull(val) else ""
+                                html_rows += f"<td>{val_str}</td>"
+                            html_rows += "</tr>"
 
-                        df_display = pd.DataFrame(dict_data)
+                        html_headers = "".join([f"<th>{col}</th>" for col in cols_disponibles])
 
-                        # RENDERIZAR USANDO HTML PURO (Cero conflictos de tipos y visualización perfecta)
-                        html_table = df_display.to_html(classes="styled-table", index=False, escape=False)
+                        # RENDERIZAR HTML PURO (Cero errores de longitudes, cero PyArrow)
                         st.markdown(f"""
                             <style>
                                 .styled-table {{
@@ -15249,9 +15255,15 @@ elif opcion_menu == "📚 Libros Fiscales":
                                 .styled-table tbody tr {{
                                     border-bottom: 1px solid #dddddd;
                                 }}
+                                .styled-table th {{
+                                    background-color: #f8f9fa;
+                                }}
                             </style>
                             <div style="overflow-x:auto;">
-                                {html_table}
+                                <table class="styled-table">
+                                    <thead><tr>{html_headers}</tr></thead>
+                                    <tbody>{html_rows}</tbody>
+                                </table>
                             </div>
                         """, unsafe_allow_html=True)
                         
