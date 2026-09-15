@@ -15135,7 +15135,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                             st.warning("💡 Debes ingresar el número de factura.")
 
             # --- TAB 6: XML SENIAT ---
-           with tab6:
+            with tab6:
                 # --- SECCIÓN C: GENERAR ARCHIVO XML SENIAT ---
                 st.divider()
                 st.markdown("### 📡 Generar Archivo XML para Declaración SENIAT")
