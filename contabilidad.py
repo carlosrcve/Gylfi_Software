@@ -14620,7 +14620,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                                     NULL AS n_comprob_islr
                                 FROM libro_compras lc
                                 LEFT JOIN (
-                                    SELECT id, razon_social, direccion_fiscal, 
+                                    SELECT razon_social, direccion_fiscal, 
                                            TRIM(REPLACE(REPLACE(rif, '-', ''), ' ', '')) AS rif_limpio
                                     FROM proveedores
                                 ) p ON TRIM(REPLACE(REPLACE(lc.rif, '-', ''), ' ', '')) = p.rif_limpio
