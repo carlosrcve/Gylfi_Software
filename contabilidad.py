@@ -14545,7 +14545,6 @@ elif opcion_menu == "📚 Libros Fiscales":
 
         import xml.etree.ElementTree as ET
         from xml.dom import minidom
-        import pandas as pd
 
         def generar_xml_seniat(df, rif_agente, periodo):
             root = ET.Element("RelacionRetencionesISLR")
@@ -14578,26 +14577,29 @@ elif opcion_menu == "📚 Libros Fiscales":
                 porcentaje = float(row['porcentaje_retencion'])
                 ET.SubElement(detalle, "PorcentajeRetencion").text = f"{porcentaje:.2f}"
                 
-                # 5. SUSTRAENDO DINÁMICO PARA CUALQUIER PERSONA NATURAL
+                # 5. SUSTRAENDO OBLIGATORIO POR CÓDIGO
                 sustraendo_val = 0.0
-                if 'sustraendo' in row and pd.notna(row['sustraendo']):
+                
+                # Intentamos leerlo del row por si acaso existe la columna
+                if 'sustraendo' in row and row['sustraendo'] is not None:
                     try:
-                        # Limpiamos por si viene con espacios o caracteres raros
                         sustraendo_val = float(str(row['sustraendo']).strip())
                     except (ValueError, TypeError):
                         sustraendo_val = 0.0
                         
-                # Si la fila tiene un sustraendo válido mayor a 0, se pinta obligatoriamente
+                # REGLA DE ORO: Si es Concepto 001 (Honorarios PNR) y no lo leyó, se lo ponemos a juro
+                if sustraendo_val == 0.0 and codigo_concepto == '001':
+                    sustraendo_val = 107.50
+                    
+                # Si tiene valor, pintamos la etiqueta en el XML
                 if sustraendo_val > 0.0:
                     ET.SubElement(detalle, "Sustraendo").text = f"{sustraendo_val:.2f}"
 
             xml_str = ET.tostring(root, encoding='utf-8')
             parsed = minidom.parseString(xml_str)
             return parsed.toprettyxml(indent="  ")
+    
         # --- 🔘 TABLA DE REFERENCIA ---
-        # --- 🔘 TABLA DE REFERENCIA ESTILO SENIAT ---
-        # --- 🔘 TABLA DE REFERENCIA ESTILO SENIAT (INTEGRADA Y CALCULADA) ---
-        # --- 🔘 TABLA DE REFERENCIA ESTILO SENIAT (CON UMBRALES CALCULADOS) ---
         with st.expander("📊 Ver Tabla de Referencia de Sustraendos (Manual SENIAT)", expanded=False):
             
             # Calculamos el umbral legal para PNR (83.33 UT)
