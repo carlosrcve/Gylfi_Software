@@ -8492,7 +8492,7 @@ def renderizar_tab_asientos_ventas(db_connection):
                     db_connection.rollback()
                 st.error(f"❌ Error crítico al guardar en MySQL: {str(db_err)}")
     # ----------------------------------------------------
-    # TERCER FRAME: CONCILIACIÓN CON ASIENTO DOBLE (DEBE / HABER) EXACTO
+    # TERCER FRAME: CONCILIACIÓN CON ASIENTO DOBLE LIMPIO
     # ----------------------------------------------------
     st.markdown("---")
     st.markdown("### 🔄 Tercer Frame: Cruce y Asientos Contables (Partida Doble)")
@@ -8572,10 +8572,10 @@ def renderizar_tab_asientos_ventas(db_connection):
                             "banco_mov_id": banco_mov_id,
                             "referencia": ref_banco,
                             "monto": monto_encontrado,
-                            "bloqueado": a_bloq # Guardamos bloqueado en memoria auxiliar para mantener la consistencia al guardar
+                            "bloqueado": a_bloq # Guardado solo en memoria para la BD
                         }
 
-                        # 1️⃣ LÍNEA 1: EL BANCO (Va al DEBE)
+                        # 1️⃣ LÍNEA 1: EL BANCO (Va al DEBE) - SIN BLOQUEADO
                         filas_frame.append({
                             "procesar": True,
                             "id": a_id,
@@ -8589,7 +8589,7 @@ def renderizar_tab_asientos_ventas(db_connection):
                             "haber": 0.00
                         })
 
-                        # 2️⃣ LÍNEA 2: EL CHOFER (Va al HABER)
+                        # 2️⃣ LÍNEA 2: EL CHOFER (Va al HABER) - SIN BLOQUEADO
                         filas_frame.append({
                             "procesar": True,
                             "id": a_id,
@@ -8612,7 +8612,7 @@ def renderizar_tab_asientos_ventas(db_connection):
             except Exception as e_c:
                 st.error(f"Error procesando los datos: {e_c}")
 
-    # Visualización limpia sin la columna bloqueado y con formato numérico en Debe y Haber
+    # Visualización sin columna bloqueado y con formato numérico estándar limpio
     if 'df_asientos_pd' in st.session_state and not st.session_state['df_asientos_pd'].empty:
         st.markdown("### 📋 Vista de Asientos Contables (Debe y Haber Equilibrados):")
         
@@ -8623,11 +8623,11 @@ def renderizar_tab_asientos_ventas(db_connection):
             column_config={
                 "debe": st.column_config.NumberColumn(
                     "Debe",
-                    format="¤#,##0.00"
+                    format="%,.2f"
                 ),
                 "haber": st.column_config.NumberColumn(
                     "Haber",
-                    format="¤#,##0.00"
+                    format="%,.2f"
                 )
             }
         )
@@ -8645,7 +8645,6 @@ def renderizar_tab_asientos_ventas(db_connection):
                         for asiento_id_orig in ids_procesados:
                             filas_asiento = df_validos[df_validos['id'] == asiento_id_orig]
                             
-                            # Recuperamos el valor de bloqueado guardado en memoria auxiliar
                             aux_datos = st.session_state.get('mapeo_banco_aux_pd', {}).get(int(asiento_id_orig), {})
                             val_bloqueado = int(aux_datos.get("bloqueado", 0))
                             
@@ -8666,7 +8665,6 @@ def renderizar_tab_asientos_ventas(db_connection):
                                     val_bloqueado
                                 ))
 
-                            # Actualizar el movimiento bancario a Conciliado si aplica
                             b_id = aux_datos.get("banco_mov_id", 0)
                             if b_id > 0:
                                 cur_ins.execute(f"""
