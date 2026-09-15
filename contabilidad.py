@@ -15155,31 +15155,47 @@ elif opcion_menu == "📚 Libros Fiscales":
                             periodo_str = f_xml_hasta.strftime("%Y%m") # Ej: "202608"
                             patron_comprobante = f"{periodo_str}%"
                             
+                            # Consulta ajustada con nombres de columnas reales de tu BD
                             query_xml = """
                                 SELECT 
-                                    n_comprob_islr AS `Fila / Doc`,
-                                    fecha_operacion AS `Fecha`,
-                                    numero_factura AS `N° Doc`,
-                                    numero_control AS `N° Control`,
-                                    rif_retenido AS `R.I.F.`,
-                                    nombre_proveedor AS `Nombre o Razón Social`,
-                                    codigo_concepto AS `Cód. Concepto (XML)`,
-                                    tipo_proveedor AS `Tipo Proveedor / Concepto`,
-                                    monto_operacion AS `Base Imponible (Bs.)`,
-                                    porcentaje_retencion AS `Alicuota ISLR`,
-                                    monto_retenido AS `Retención Neta (Bs.)`,
-                                    sustraendo AS `Sustraendo (Bs.)`
+                                    n_comprob_islr,
+                                    fecha_operacion,
+                                    numero_factura,
+                                    numero_control,
+                                    rif_retenido,
+                                    razon_social,
+                                    codigo_concepto,
+                                    tipo_proveedor,
+                                    monto_operacion,
+                                    porcentaje_retencion,
+                                    monto_retenido,
+                                    sustraendo
                                 FROM retenciones_islr 
                                 WHERE n_comprob_islr LIKE %s
                             """
-                            # Nota: Ajusta los nombres de las columnas según tu base de datos si varían ligeramente
                             df_xml = ejecutar_consulta(query_xml, conn, params=(patron_comprobante,))
                             conn.close()
                             
                             if not df_xml.empty:
-                                # Cálculos auxiliares para simular la vista del Excel
+                                # Renombramos las columnas para que coincidan con la vista visual del Excel
+                                df_xml = df_xml.rename(columns={
+                                    'n_comprob_islr': 'Fila / Doc',
+                                    'fecha_operacion': 'Fecha',
+                                    'numero_factura': 'N° Doc',
+                                    'numero_control': 'N° Control',
+                                    'rif_retenido': 'R.I.F.',
+                                    'razon_social': 'Nombre o Razón Social',
+                                    'codigo_concepto': 'Cód. Concepto (XML)',
+                                    'tipo_proveedor': 'Tipo Proveedor / Concepto',
+                                    'monto_operacion': 'Base Imponible (Bs.)',
+                                    'porcentaje_retencion': 'Alicuota ISLR',
+                                    'monto_retenido': 'Retención Neta (Bs.)',
+                                    'sustraendo': 'Sustraendo (Bs.)'
+                                })
+
+                                # Conversiones numéricas seguras
                                 df_xml['Base Imponible (Bs.)'] = df_xml['Base Imponible (Bs.)'].astype(float)
-                                df_xml['Alicuota ISLR'] = df_xml['PorcentajeRetencion'] if 'PorcentajeRetencion' in df_xml.columns else df_xml['Alicuota ISLR'].astype(float)
+                                df_xml['Alicuota ISLR'] = df_xml['Alicuota ISLR'].astype(float)
                                 df_xml['Sustraendo (Bs.)'] = df_xml['Sustraendo (Bs.)'].astype(float)
                                 df_xml['Retención Neta (Bs.)'] = df_xml['Retención Neta (Bs.)'].astype(float)
                                 
@@ -15196,13 +15212,12 @@ elif opcion_menu == "📚 Libros Fiscales":
                                 st.session_state['xml_data'] = None
                                 st.session_state['df_xml_view'] = None
 
-                    # Si ya hay datos procesados, mostramos el diseño de tabla tipo Excel y los totales
+                    # Si ya hay datos procesados, mostramos la tabla tipo Excel, los totales y el botón de descarga
                     if st.session_state.get('df_xml_view') is not None:
                         df_view = st.session_state['df_xml_view']
                         
                         st.markdown("#### 📊 Resumen de Retenciones del Periodo")
                         
-                        # Mostrar la tabla formateada visualmente idéntica al Excel
                         st.dataframe(
                             df_view[[
                                 'Fila / Doc', 'Fecha', 'N° Doc', 'N° Control', 'R.I.F.', 
@@ -15215,7 +15230,6 @@ elif opcion_menu == "📚 Libros Fiscales":
                         
                         # Fila de Totales estilo Excel
                         tot_base = df_view['Base Imponible (Bs.)'].sum()
-                        tot_bruta = df_view['Retención Bruta (Bs.)'].sum()
                         tot_sust = df_view['Sustraendo (Bs.)'].sum()
                         tot_neta = df_view['Retención Neta (Bs.)'].sum()
                         
@@ -15227,7 +15241,7 @@ elif opcion_menu == "📚 Libros Fiscales":
 
                         st.markdown("---")
                         
-                        # Botón de descarga del XML limpio
+                        # BOTÓN DE DESCARGA RESTAURADO Y VISIBLE
                         st.download_button(
                             label="📥 Descargar Archivo XML para el Portal SENIAT",
                             data=st.session_state['xml_data'],
