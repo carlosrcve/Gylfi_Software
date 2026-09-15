@@ -14578,17 +14578,25 @@ elif opcion_menu == "📚 Libros Fiscales":
                 porcentaje = float(row['porcentaje_retencion'])
                 ET.SubElement(detalle, "PorcentajeRetencion").text = f"{porcentaje:.2f}"
                 
-                # 5. LECTURA BLINDADA DEL SUSTRAENDO PARA EL XML
+                # 5. BUSCAR EL SUSTRAENDO OBLIGATORIO (CON ESCUDO ANTIFALLOS)
                 sustraendo_val = 0.0
-                if 'sustair_endo' in row or 'sustraendo' in row:
-                    val_s = row.get('sustraendo') if 'sustraendo' in row else row.get('sustair_endo')
-                    if pd.notna(val_s):
+                
+                # Intentamos leerlo de cualquier variante de nombre de columna en el row
+                for col_name in ['sustraendo', 'Sustraendo', 'sustraendo_bs']:
+                    if col_name in row and pd.notna(row[col_name]):
                         try:
-                            sustraendo_val = float(str(val_s).strip())
+                            val_test = float(str(row[col_name]).strip())
+                            if val_test > 0:
+                                sustraendo_val = val_test
+                                break
                         except (ValueError, TypeError):
-                            sustraendo_val = 0.0
-
-                # Si el sustraendo es mayor a 0, lo pintamos exactamente como pediste
+                            pass
+                            
+                # REGLA DE EMERGENCIA: Si es Concepto 001 y sigue en 0, se lo inyectamos a juro
+                if sustraendo_val == 0.0 and codigo_concepto == '001':
+                    sustraendo_val = 107.50
+                    
+                # Si tiene valor, pintamos la etiqueta con formato exacto de 2 decimales
                 if sustraendo_val > 0.0:
                     ET.SubElement(detalle, "Sustraendo").text = f"{sustraendo_val:.2f}"
 
