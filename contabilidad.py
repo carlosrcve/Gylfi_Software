@@ -3147,14 +3147,27 @@ def preparar_excel_descarga(df, conn):
 
 
 
-def cargar_libro_compras_db(df, conn):
+def cargar_libro_compras_db(df, conn_o_db=None):
+    # Detectamos si pasaron el nombre de la BD (string), un objeto de conexión, o si hay que buscarlo en sesión
+    if conn_o_db is None:
+        nombre_db = st.session_state.get("db_cliente")
+        conn = conectar_db(nombre_db)
+    elif isinstance(conn_o_db, str):
+        conn = conectar_db(conn_o_db)
+    else:
+        conn = conn_o_db  # Ya es el objeto de conexión activo
+
+    if not conn:
+        st.error("❌ No se pudo establecer conexión con la base de datos.")
+        return 0
+
     cursor = conn.cursor()
     exitos = 0
     
-    # 1. Definimos el mapeo dinámico de nombres de columna para evitar errores de índice
+    # 1. Mapeo de nombres de columna dinámico
     cols = {name.lower().strip(): i for i, name in enumerate(df.columns)}
     
-    # Funciones de limpieza idénticas y seguras
+    # Funciones de limpieza
     def f_n(v):
         try:
             if v is None or v == "" or str(v).lower() == 'nan': return 0.0
@@ -3176,7 +3189,6 @@ def cargar_libro_compras_db(df, conn):
             return pd.to_datetime(v).strftime('%Y-%m-%d')
         except: return "2026-06-05"
 
-    # Consulta SQL adaptada exactamente a la estructura de tu tabla 'libro_compras' en MySQL
     sql = """INSERT INTO libro_compras 
               (fecha_operacion, tipo_documento, n_factura, n_control, proveedor, rif, 
                total_compras, importe_exento, base_imponible, iva_porcentaje, iva_monto,
@@ -3192,7 +3204,6 @@ def cargar_libro_compras_db(df, conn):
               base_imponible = VALUES(base_imponible),
               iva_monto = VALUES(iva_monto)"""
     
-    # Buscamos índices inteligentes usando las variantes comunes de los títulos de compras
     def get_col_idx(posibles, default_idx):
         for p in posibles:
             for col_name, idx in cols.items():
@@ -3214,7 +3225,6 @@ def cargar_libro_compras_db(df, conn):
 
     data = df.astype(str).replace('nan', '').values
     for i, fila in enumerate(data):
-        # Filtro: saltar encabezados o filas sin número de factura o RIF válido
         fact_val = str(fila[idx_fact]).replace('.0', '').strip()
         rif_val = str(fila[idx_rif]).strip()
         if "FECHA" in str(fila[idx_fecha]).upper() or not fact_val or fact_val.lower() == 'nan': 
@@ -3238,9 +3248,9 @@ def cargar_libro_compras_db(df, conn):
             val_base, 
             val_alicuota, 
             val_iva, 
-            0.00, # retencion_realizada por defecto
-            0.00, # retencion_iva_realizada por defecto
-            "C"   # tipo_transaccion (Compra)
+            0.00, 
+            0.00, 
+            "C"   
         )
         
         cursor.execute(sql, valores)
@@ -3250,7 +3260,6 @@ def cargar_libro_compras_db(df, conn):
     conn.commit()
     cursor.close()
     return exitos
-
 
     
 def obtener_lista_proveedores_mapeo():
