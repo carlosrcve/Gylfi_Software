@@ -15170,9 +15170,9 @@ elif opcion_menu == "📚 Libros Fiscales":
                                     monto_retenido, 
                                     n_comprob_islr
                                 FROM retenciones_islr 
-                                WHERE DATE_FORMAT(fecha_operacion, '%%Y%%m') = %s
+                                WHERE fecha_operacion >= %s AND fecha_operacion <= CONCAT(%s, ' 23:59:59')
                             """
-                            df_xml = ejecutar_consulta(query_xml, conn, params=(periodo_str,))
+                            df_xml = ejecutar_consulta(query_xml, conn, params=(f_xml_desde, f_xml_hasta))
                             conn.close()
                             
                             if not df_xml.empty:
