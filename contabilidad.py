@@ -8587,19 +8587,19 @@ def renderizar_tab_asientos_ventas(db_connection):
 
                             diferencia_monto = abs(float(a_debe) - float(m_monto))
                             
-                            # Condición 1: Coincidencia por RIF y Monto cercano (< 0.05)
-                            # Condición 2 (Respaldo): Si el monto es exactamente igual, lo relacionamos de una vez por si el RIF no se lee igual en el banco.
-                            match_por_rif = (rif_asiento and rif_banco and rif_asiento == rif_banco and diferencia_monto < 0.05)
-                            match_por_monto_exacto = (diferencia_monto == 0.00)
+                            # Criterio flexible: Coincidencia de monto exacta o muy cercana (< 0.05)
+                            # No exigimos que el banco tenga RIF obligatoriamente para hacer el match
+                            match_por_monto = (diferencia_monto < 0.05)
 
-                            if match_por_rif or match_por_monto_exacto:
-                                # Evitamos duplicar el mismo movimiento si ya fue cruzado
+                            if match_por_monto:
+                                # Evitamos duplicar el mismo movimiento del banco si ya fue cruzado
                                 ya_agregado = any(c['banco_mov_id'] == m_id for c in coincidencias_encontradas)
                                 if not ya_agregado:
+                                    rif_encontrado_str = rif_asiento if rif_asiento else (rif_banco if rif_banco else "NO DETECTADO")
                                     coincidencias_encontradas.append({
                                         "asiento_id": a_id,
                                         "comprobante": a_comp,
-                                        "rif_detectado": rif_asiento if rif_asiento else "NO DETECTADO (Match por Monto)",
+                                        "rif_detectado": rif_encontrado_str,
                                         "cuenta_cxc": a_plan,
                                         "nombre_cxc": a_cta_cont,
                                         "descripcion_contable": a_desc,
@@ -8614,10 +8614,10 @@ def renderizar_tab_asientos_ventas(db_connection):
 
                     if coincidencias_encontradas:
                         df_matching = pd.DataFrame(coincidencias_encontradas)
-                        st.success(f"¡Se han conciliado exitosamente **{len(df_matching)}** registros!")
+                        st.success(f"¡Se han conciliado exitosamente **{len(df_matching)}** registros por coincidencia de monto!")
                         st.session_state['df_matching_resultado'] = df_matching
                     else:
-                        st.warning("⚠️ No se hallaron cruces automáticos. Revisa los montos o los textos de las descripciones en la base de datos.")
+                        st.warning("⚠️ No se hallaron cruces por monto. Revisa si los montos de los asientos al debe coinciden con los depósitos/pagos en el banco.")
 
             except Exception as err_match:
                 st.error(f"❌ Error ejecutando el proceso de matching: {str(err_match)}")
