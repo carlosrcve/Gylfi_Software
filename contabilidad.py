@@ -2928,9 +2928,9 @@ def ejecutar_mayor_analitico(db_nombre, cuenta, fecha_desde, fecha_hasta):
 
         df_final = pd.concat([fila_inicial, df_movs], ignore_index=True)
         
-        # Aseguramos formato limpio para todo el dataframe final
-        if not df_final.empty:
-            df_final['fecha'] = pd.to_datetime(df_final['fecha'], errors='coerce').dt.strftime('%Y-%m-%d')
+        # CORTE DEFINITIVO DE HORA EN TEXTO PURO
+        if not df_final.empty and 'fecha' in df_final.columns:
+            df_final['fecha'] = df_final['fecha'].astype(str).str.split().str[0]
 
         saldo_final_real = float(df_final['Saldo'].iloc[-1]) if not df_final.empty else saldo_inicial_periodo
         
