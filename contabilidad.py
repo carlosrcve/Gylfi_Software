@@ -2843,7 +2843,6 @@ def consultar_libro_diario_db(conn_activa=None, fecha_inicio=None, fecha_fin=Non
                 pass
 
 
-
 import pandas as pd
 
 def ejecutar_mayor_analitico(db_nombre, cuenta, fecha_desde, fecha_hasta):
@@ -2869,11 +2868,9 @@ def ejecutar_mayor_analitico(db_nombre, cuenta, fecha_desde, fecha_hasta):
         """, (db_actual,))
         tiene_saldos_iniciales = cursor.fetchone()[0] > 0
         
-        # Preparamos ambas versiones: con formato (puntos) y solo números (como en el balance)
         cuenta_limpia = str(cuenta).strip()
         cuenta_solo_numeros = "".join(filter(str.isdigit, cuenta_limpia))
 
-        # Cálculo del Saldo Inicial acumulado previo a f_inicio (Buscando ambas variantes)
         if tiene_saldos_iniciales:
             query_saldo = f"""
                 SELECT 
@@ -2893,7 +2890,6 @@ def ejecutar_mayor_analitico(db_nombre, cuenta, fecha_desde, fecha_hasta):
 
         saldo_inicial_periodo = float(res_saldo.iloc[0, 0]) if not res_saldo.empty else 0.0
 
-        # Consulta de movimientos en el rango seleccionado (Buscando formato con puntos y sin puntos)
         query_movs = f"""
             SELECT fecha, n_comprobante, descripcion, referencia, debe, haber 
             FROM `{db_actual}`.asientos_contables 
@@ -2915,12 +2911,13 @@ def ejecutar_mayor_analitico(db_nombre, cuenta, fecha_desde, fecha_hasta):
             df_movs['debe'] = pd.to_numeric(df_movs['debe'], errors='coerce').fillna(0.0)
             df_movs['haber'] = pd.to_numeric(df_movs['haber'], errors='coerce').fillna(0.0)
             df_movs['Saldo'] = saldo_inicial_periodo + (df_movs['debe'] - df_movs['haber']).cumsum()
-            df_movs['fecha'] = pd.to_datetime(df_movs['fecha'], errors='coerce')
+            # Dejamos la fecha limpia como string YYYY-MM-DD de una vez
+            df_movs['fecha'] = pd.to_datetime(df_movs['fecha'], errors='coerce').dt.strftime('%Y-%m-%d')
         else:
             df_movs = pd.DataFrame(columns=['fecha', 'n_comprobante', 'descripcion', 'referencia', 'debe', 'haber', 'Saldo'])
 
         fila_inicial = pd.DataFrame([{
-            'fecha': pd.to_datetime(fecha_desde),
+            'fecha': str(fecha_desde),
             'n_comprobante': 'S/I',
             'descripcion': f'SALDO INICIAL AL {fecha_desde}',
             'referencia': 'INICIAL',
@@ -2931,7 +2928,7 @@ def ejecutar_mayor_analitico(db_nombre, cuenta, fecha_desde, fecha_hasta):
 
         df_final = pd.concat([fila_inicial, df_movs], ignore_index=True)
         
-        # APLICAMOS EL FORMATO YYYY-MM-DD A LA COLUMNA FECHA
+        # Aseguramos formato limpio para todo el dataframe final
         if not df_final.empty:
             df_final['fecha'] = pd.to_datetime(df_final['fecha'], errors='coerce').dt.strftime('%Y-%m-%d')
 
