@@ -2843,7 +2843,6 @@ def consultar_libro_diario_db(conn_activa=None, fecha_inicio=None, fecha_fin=Non
                 pass
 
 
-import pandas as pd
 
 def ejecutar_mayor_analitico(db_nombre, cuenta, fecha_desde, fecha_hasta):
     if cuenta and " - " in str(cuenta):
@@ -2890,8 +2889,9 @@ def ejecutar_mayor_analitico(db_nombre, cuenta, fecha_desde, fecha_hasta):
 
         saldo_inicial_periodo = float(res_saldo.iloc[0, 0]) if not res_saldo.empty else 0.0
 
+        # CAMBIO CLAVE: Usamos DATE_FORMAT para que MySQL entregue la fecha como texto YYYY-MM-DD pelado
         query_movs = f"""
-            SELECT fecha, n_comprobante, descripcion, referencia, debe, haber 
+            SELECT DATE_FORMAT(fecha, '%Y-%m-%d') AS fecha, n_comprobante, descripcion, referencia, debe, haber 
             FROM `{db_actual}`.asientos_contables 
             WHERE (
                 TRIM(plan_cuentas) = TRIM(%s) OR 
@@ -2911,8 +2911,7 @@ def ejecutar_mayor_analitico(db_nombre, cuenta, fecha_desde, fecha_hasta):
             df_movs['debe'] = pd.to_numeric(df_movs['debe'], errors='coerce').fillna(0.0)
             df_movs['haber'] = pd.to_numeric(df_movs['haber'], errors='coerce').fillna(0.0)
             df_movs['Saldo'] = saldo_inicial_periodo + (df_movs['debe'] - df_movs['haber']).cumsum()
-            # Dejamos la fecha limpia como string YYYY-MM-DD de una vez
-            df_movs['fecha'] = pd.to_datetime(df_movs['fecha'], errors='coerce').dt.strftime('%Y-%m-%d')
+            df_movs['fecha'] = df_movs['fecha'].astype(str)
         else:
             df_movs = pd.DataFrame(columns=['fecha', 'n_comprobante', 'descripcion', 'referencia', 'debe', 'haber', 'Saldo'])
 
@@ -2928,12 +2927,8 @@ def ejecutar_mayor_analitico(db_nombre, cuenta, fecha_desde, fecha_hasta):
 
         df_final = pd.concat([fila_inicial, df_movs], ignore_index=True)
         
-        # LIMPIEZA TOTAL DE HORA EN AMBOS DATAFRAMES (Texto puro YYYY-MM-DD)
         if not df_final.empty and 'fecha' in df_final.columns:
-            df_final['fecha'] = df_final['fecha'].astype(str).str.split().str[0].replace(['NaT', 'nan', 'NaT 00:00:00'], '')
-            
-        if not df_movs.empty and 'fecha' in df_movs.columns:
-            df_movs['fecha'] = df_movs['fecha'].astype(str).str.split().str[0].replace(['NaT', 'nan', 'NaT 00:00:00'], '')
+            df_final['fecha'] = df_final['fecha'].astype(str).str.split().str[0].replace(['NaT', 'nan', 'NaT 00:00:00', 'None'], '')
 
         saldo_final_real = float(df_final['Saldo'].iloc[-1]) if not df_final.empty else saldo_inicial_periodo
         
