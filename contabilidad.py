@@ -2844,6 +2844,8 @@ def consultar_libro_diario_db(conn_activa=None, fecha_inicio=None, fecha_fin=Non
 
 
 
+import pandas as pd
+
 def ejecutar_mayor_analitico(db_nombre, cuenta, fecha_desde, fecha_hasta):
     if cuenta and " - " in str(cuenta):
         cuenta = str(cuenta).split(" - ")[0].strip()
@@ -2928,6 +2930,11 @@ def ejecutar_mayor_analitico(db_nombre, cuenta, fecha_desde, fecha_hasta):
         }])
 
         df_final = pd.concat([fila_inicial, df_movs], ignore_index=True)
+        
+        # APLICAMOS EL FORMATO YYYY-MM-DD A LA COLUMNA FECHA
+        if not df_final.empty:
+            df_final['fecha'] = pd.to_datetime(df_final['fecha'], errors='coerce').dt.strftime('%Y-%m-%d')
+
         saldo_final_real = float(df_final['Saldo'].iloc[-1]) if not df_final.empty else saldo_inicial_periodo
         
         return df_final, df_movs, saldo_final_real
