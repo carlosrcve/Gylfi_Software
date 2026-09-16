@@ -3826,7 +3826,7 @@ def generar_comprobante_pdf(datos, conn):
 
     # --- 4. TABLA TÉCNICA ---
     pdf.set_font("helvetica", "B", 7)
-    headers = ["Fecha", "Nº Factura", "Base Objeto", "Sustraendo", "% Ret.", "Imp. Determinado.", "Monto Ret."]
+    headers = ["Fecha", "Nº Factura", "Base Imponible", "Sustraendo", "% Ret.", "Imp. Determinado.", "Monto Ret."]
     widths = [20, 35, 30, 25, 20, 30, 30]
     
     for i, h in enumerate(headers):
