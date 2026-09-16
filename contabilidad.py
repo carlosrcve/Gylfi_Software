@@ -2627,7 +2627,13 @@ def mostrar_interfaz_mayor(f_ini_g, f_fin_g, db_nombre):
                 m3.metric("SALDO FINAL", f"Bs. {s_final:,.2f}")
 
                 fmt = {'debe': '{:,.2f}', 'haber': '{:,.2f}', 'Saldo': '{:,.2f}'}
-                st.dataframe(reporte.style.format(fmt), use_container_width=True, hide_index=True)
+                
+                # Hacemos una copia para la vista y matamos el formato de hora en texto plano
+                reporte_vista = reporte.copy()
+                if 'fecha' in reporte_vista.columns:
+                    reporte_vista['fecha'] = reporte_vista['fecha'].astype(str).str.split().str[0].str.replace('00:00:00', '').str.strip()
+
+                st.dataframe(reporte_vista.style.format(fmt), use_container_width=True, hide_index=True)
                 
                 # Botón PDF y demás lógica intacta...
 
