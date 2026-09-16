@@ -14654,18 +14654,22 @@ elif opcion_menu == "📚 Libros Fiscales":
             f_xml_desde_n = col_fecha1.date_input("Desde", value=d_tipo(2026, 10, 1), key="nueva_desde")
             f_xml_hasta_n = col_fecha2.date_input("Hasta", value=d_tipo(2026, 10, 31), key="nueva_hasta")
 
+            # Inicializar listas de control en sesión si no existen
+            if "facturas_procesadas_ids" not in st.session_state:
+                st.session_state.facturas_procesadas_ids = []
+            if "historial_retenciones_sesion" not in st.session_state:
+                st.session_state.historial_retenciones_sesion = []
+
             col_c1, col_c2 = st.columns(2)
             with col_c1:
                 if st.button("🔍 Consultar Facturas y Proveedores", use_container_width=True):
                     conn = conectar_db(db_actual)
                     if conn:
                         try:
-                            # 1. Cargamos el directorio fiscal en session_state de una vez
                             st.session_state.df_prov_fiscal = ejecutar_consulta(
                                 "SELECT rif, razon_social, direccion_fiscal FROM proveedores", conn
                             )
 
-                            # 2. Consulta optimizada de facturas pendientes
                             query = """
                                 SELECT 
                                     lc.id AS id, 
@@ -14693,11 +14697,13 @@ elif opcion_menu == "📚 Libros Fiscales":
                                 ORDER BY lc.fecha_operacion ASC
                             """
 
-                            st.session_state.df_retencion = ejecutar_consulta(
-                                query, 
-                                conn, 
-                                params=(f_xml_desde_n, f_xml_hasta_n)
-                            )
+                            df_temp = ejecutar_consulta(query, conn, params=(f_xml_desde_n, f_xml_hasta_n))
+                            
+                            # Limpiamos de una vez las que ya se hayan procesado en esta sesión
+                            if not df_temp.empty and st.session_state.facturas_procesadas_ids:
+                                df_temp = df_temp[~df_temp['id'].isin(st.session_state.facturas_procesadas_ids)]
+
+                            st.session_state.df_retencion = df_temp
                             st.success("✅ Facturas y Directorio de Proveedores cargados con éxito.")
                         except Exception as e:
                             st.error(f"❌ Error al consultar la base de datos: {e}")
@@ -14705,7 +14711,6 @@ elif opcion_menu == "📚 Libros Fiscales":
                             conn.close()
 
             with col_c2:
-                # Botón de respaldo manual por si desean refrescarlo por separado
                 if st.button("🔄 Refrescar Directorio Manualmente", use_container_width=True):
                     conn = conectar_db(db_actual)
                     if conn:
@@ -14713,11 +14718,25 @@ elif opcion_menu == "📚 Libros Fiscales":
                         conn.close()
                         st.info("📂 Directorio actualizado manualmente.")
 
-            # Inicialización de estados
+            # Inicialización de estados de PDF
             if "pdf_listo" not in st.session_state:
                 st.session_state.pdf_listo = False
             if "datos_pdf" not in st.session_state:
                 st.session_state.datos_pdf = None
+
+            # --- MENSAJE INFORMATIVO DE RETENCIONES REALIZADAS EN LA SESIÓN ---
+            if st.session_state.historial_retenciones_sesion:
+                st.success("📌 **Facturas inhabilitadas / Retenciones aplicadas en esta sesión:**")
+                for item in st.session_state.historial_retenciones_sesion:
+                    st.markdown(f"- 📄 **Factura N°:** {item['factura']} | **Proveedor:** {item['proveedor']} | **Comprobante N°:** `{item['comprobante']}` | **Monto Retenido:** Bs. {item['monto']:,.2f}")
+                st.markdown("---")
+
+            # Filtrar el DataFrame en tiempo real por si quedan IDs procesados
+            if "df_retencion" in st.session_state and not st.session_state.df_retencion.empty:
+                if st.session_state.facturas_procesadas_ids:
+                    st.session_state.df_retencion = st.session_state.df_retencion[
+                        ~st.session_state.df_retencion['id'].isin(st.session_state.facturas_procesadas_ids)
+                    ]
 
             if "df_retencion" in st.session_state and not st.session_state.df_retencion.empty:
                 columnas_a_mostrar = [
@@ -14746,18 +14765,9 @@ elif opcion_menu == "📚 Libros Fiscales":
                         val_sugerido = f_data['fecha_operacion'].strftime("%Y%m") + str(id_seguro).zfill(8)
                         n_comprob_manual = c2.text_input("N° Comprobante (Manual)", value=val_sugerido)
                         
-                        dir_bd = str(f_data.get('proveedor_direccion') or "")
-                        nombre_raw = str(f_data.get('proveedor_nombre') or "")
-                        
-                        valor_razon = nombre_raw if nombre_raw != 'PROVEEDOR NO ENCONTRADO' else ""
-                        valor_dir = dir_bd if dir_bd not in ["DIRECCIÓN NO REGISTRADA", "NONE", ""] else ""
-
-
-                        # 1. Recuperamos los valores iniciales de la factura (asegúrate de que existan antes)
                         valor_razon = str(f_data.get('proveedor_nombre', ''))
                         valor_dir = str(f_data.get('proveedor_direccion', ''))
 
-                        # 2. Si no se encontró en la BD, limpiamos para que los inputs queden listos para escribir
                         if valor_razon == 'PROVEEDOR NO ENCONTRADO':
                             st.warning("⚠️ Proveedor no encontrado en el directorio. Por favor ingrese los datos manualmente:")
                             valor_razon = ""
@@ -14766,7 +14776,6 @@ elif opcion_menu == "📚 Libros Fiscales":
                         if valor_dir in ["DIRECCIÓN NO REGISTRADA", "NONE", ""]:
                             valor_dir = ""
 
-                        # 3. Campos de texto directos
                         razon_r = st.text_input("Razón Social", value=valor_razon, key=f"razon_{id_seguro}")
                         
                         if valor_dir.strip() != "":
@@ -14800,7 +14809,6 @@ elif opcion_menu == "📚 Libros Fiscales":
                         btn_procesar = st.form_submit_button("🚀 Procesar y Guardar")
                         
                         if btn_procesar:
-                            conn = conectar_db(st.session_state.get('DB_ACTUAL'))
                             m_final = round(float((float(base_r) * (float(porc_r) / 100)) - float(sust_r)), 2)
                             
                             if comprobar_existencia_comprobante(n_comprob_manual):
@@ -14815,6 +14823,17 @@ elif opcion_menu == "📚 Libros Fiscales":
                                 )
                                 
                                 if exito:
+                                    # 1. Guardamos el ID en la lista negra local de la sesión para que se bloquee y desaparezca
+                                    st.session_state.facturas_procesadas_ids.append(id_seguro)
+                                    
+                                    # 2. Agregamos al historial para el mensaje de resumen
+                                    st.session_state.historial_retenciones_sesion.append({
+                                        "factura": str(f_data['numero_factura']),
+                                        "proveedor": razon_r,
+                                        "comprobante": n_comprob_manual,
+                                        "monto": m_final
+                                    })
+
                                     st.session_state.datos_pdf = {
                                         "agente": DATOS_EMPRESA,
                                         "sujeto": {"rif": rif_r, "nombre": razon_r, "direccion": dir_r},
@@ -14829,7 +14848,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                                         "n_comprobante": n_comprob_manual
                                     }
                                     st.session_state.pdf_listo = True
-                                    st.success(f"✅ Comprobante N° {n_comprob_manual} registrado.")
+                                    st.success(f"✅ Comprobante N° {n_comprob_manual} registrado y factura inhabilitada de la lista.")
                                     st.rerun()
 
             # Bloque de descarga
@@ -14854,6 +14873,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                     st.session_state.pdf_listo = False
                     st.session_state.datos_pdf = None
                     st.rerun()
+            
             with tab3:
                 # --- SECCIÓN: EDITOR DE HISTORIAL ---
                 st.divider()
