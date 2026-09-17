@@ -15187,8 +15187,8 @@ elif opcion_menu == "📚 Libros Fiscales":
 
                 # --- FORMULARIO DE DESBLOQUEO ---
                 with st.form("form_desbloqueo", clear_on_submit=True):
-                    col1, col2, col3= st.columns(2)
-                    nombre__proveedor_input = col1.text_input("Nombre del Proveedor:")
+                    col1, col2, col3= st.columns(3)
+                    nombre_proveedor_input = col1.text_input("Nombre del Proveedor:")
                     rif_input = col2.text_input("RIF del Proveedor:")
                     factura_input = col3.text_input("Número de factura:")
                     
