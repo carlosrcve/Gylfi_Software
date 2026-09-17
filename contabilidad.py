@@ -15177,15 +15177,37 @@ elif opcion_menu == "📚 Libros Fiscales":
                         db_actual = st.session_state.get('DB_ACTUAL')
                         if db_actual:
                             conn = conectar_db(db_actual)
-                            # Filtramos para que solo muestre las que efectivamente tienen montos retenidos activos (> 0)
                             query_listado = """
                                 SELECT rif_retenido, numero_factura, proveedor_nombre, monto_retenido 
                                 FROM retenciones_islr 
                                 WHERE monto_retenido > 0 OR porcentaje_retencion > 0
                             """
                             df = ejecutar_consulta(query_listado, conn)
-                            st.dataframe(df, use_container_width=True)
                             conn.close()
+
+                            if not df.empty:
+                                # Forzamos que la columna sea numérica por si viene como texto de la base de datos
+                                df['monto_retenido'] = pd.to_numeric(df['monto_retenido'], errors='coerce').fillna(0.0)
+                                
+                                # Creamos una copia formateada visualmente si prefieres verla con formato tipo moneda,
+                                # O bien dejamos que Streamlit la maneje numéricamente aplicando un formato de columna.
+                                # Una forma limpia en Streamlit moderno es usar st.dataframe con column_config:
+                                st.dataframe(
+                                    df, 
+                                    use_container_width=True,
+                                    column_config={
+                                        "rif_retenido": "RIF",
+                                        "numero_factura": "N° Factura",
+                                        "proveedor_nombre": "Proveedor",
+                                        "monto_retenido": st.column_config.NumberColumn(
+                                            "Monto Retenido",
+                                            format="Bs. %.2f"
+                                        )
+                                    },
+                                    hide_index=True
+                                )
+                            else:
+                                st.info("No hay facturas retenidas registradas actualmente.")
                         else:
                             st.error("No se detectó una base de datos activa en la sesión.")
                     except Exception as e:
@@ -15202,16 +15224,13 @@ elif opcion_menu == "📚 Libros Fiscales":
                     if btn_habilitar:
                         if factura_input:
                             db_actual = st.session_state.get('DB_ACTUAL')
-                            # Pasamos explícitamente el db_actual a la función
                             resultado = resetear_estado_retencion(factura_input, db_actual)
                             
                             if resultado is True:
-                                # Limpiamos la lista negra de la sesión actual para sincronizar
                                 if "facturas_procesadas_ids" in st.session_state:
                                     st.session_state.facturas_procesadas_ids = []
                                     
                                 st.success(f"✅ Factura {factura_input} habilitada correctamente. Ya puedes volver a consultarla.")
-                                # Forzamos un rerun para que desaparezca de la tabla de inmediato
                                 st.rerun()
                             else:
                                 st.error("❌ No se pudo habilitar. Verifica el número.")
