@@ -15419,14 +15419,23 @@ elif opcion_menu == "📚 Libros Fiscales":
 
                         st.markdown("---")
                         
-                        # Botón de descarga asegurado
-                        st.download_button(
+                        # Botón de descarga con detección de clic e impresión de mensaje formateado
+                        btn_descarga = st.download_button(
                             label="📥 Descargar Archivo XML para el Portal SENIAT",
                             data=st.session_state['xml_data'],
                             file_name=st.session_state['xml_filename'],
                             mime="application/xml",
                             width='content'
                         )
+                        
+                        if btn_descarga:
+                            # Formateamos el total neto con el formato venezolano (puntos para miles, coma para decimales)
+                            monto_neto_formateado = f"{tot_neta:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                            
+                            st.success(
+                                f"✅ **Descarga exitosa**, su archivo está listo para subir al SENIAT. "
+                                f"Considere que las retenciones del mes a procesar ascienden a un monto de **{monto_neto_formateado} Bs.**"
+                            )
                         
                         with st.expander("👁️ Ver Código XML Generado"):
                             xml_code = st.session_state['xml_data']
