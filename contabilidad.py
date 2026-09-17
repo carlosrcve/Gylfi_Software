@@ -15419,7 +15419,7 @@ elif opcion_menu == "📚 Libros Fiscales":
 
                         st.markdown("---")
                         
-                        # Botón de descarga con detección de clic e impresión de mensaje formateado
+                        # Botón de descarga con detección de clic e impresión de mensaje formateado en HTML/CSS
                         btn_descarga = st.download_button(
                             label="📥 Descargar Archivo XML para el Portal SENIAT",
                             data=st.session_state['xml_data'],
@@ -15432,10 +15432,47 @@ elif opcion_menu == "📚 Libros Fiscales":
                             # Formateamos el total neto con el formato venezolano (puntos para miles, coma para decimales)
                             monto_neto_formateado = f"{tot_neta:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
                             
-                            st.success(
-                                f"✅ **Descarga exitosa**, su archivo está listo para subir al SENIAT. "
-                                f"Considere que las retenciones del mes a procesar ascienden a un monto de **{monto_neto_formateado} Bs.**"
-                            )
+                            # Renderizado con diseño CSS personalizado
+                            st.markdown(f"""
+                                <style>
+                                    .seniat-alert-box {{
+                                        background-color: #e8f5e9;
+                                        border-left: 6px solid #2e7d32;
+                                        border-radius: 4px;
+                                        padding: 16px 20px;
+                                        margin: 15px 0;
+                                        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+                                        font-family: sans-serif;
+                                    }}
+                                    .seniat-alert-title {{
+                                        color: #1b5e20;
+                                        font-size: 1.05em;
+                                        font-weight: bold;
+                                        margin-bottom: 6px;
+                                        display: flex;
+                                        align-items: center;
+                                        gap: 8px;
+                                    }}
+                                    .seniat-alert-text {{
+                                        color: #2c3e50;
+                                        font-size: 0.95em;
+                                        line-height: 1.5;
+                                        margin: 0;
+                                    }}
+                                    .seniat-monto {{
+                                        color: #d32f2f;
+                                        font-weight: bold;
+                                    }}
+                                </style>
+                                <div class="seniat-alert-box">
+                                    <div class="seniat-alert-title">
+                                        <span>✅</span> Descarga exitosa
+                                    </div>
+                                    <p class="seniat-alert-text">
+                                        Su archivo está listo para subir al SENIAT. Considere que las retenciones del mes a procesar ascienden a un monto de <span class="seniat-monto">{monto_neto_formateado} Bs.</span>
+                                    </p>
+                                </div>
+                            """, unsafe_allow_html=True)
                         
                         with st.expander("👁️ Ver Código XML Generado"):
                             xml_code = st.session_state['xml_data']
