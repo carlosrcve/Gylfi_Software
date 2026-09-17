@@ -15186,26 +15186,27 @@ elif opcion_menu == "📚 Libros Fiscales":
                             conn.close()
 
                             if not df.empty:
-                                # Convertimos a numérico y aplicamos formato personalizado: 1.447,58
+                                # 1. Convertimos a numérico y aplicamos el formato personalizado estilo venezolano: 1.447,58
                                 df['monto_retenido'] = pd.to_numeric(df['monto_retenido'], errors='coerce').fillna(0.0)
                                 df['monto_retenido'] = df['monto_retenido'].apply(lambda x: f"{x:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
                                 
+                                # 2. Aplicamos estilo de Pandas para forzar la alineación a la derecha y centrar la cabecera del monto
+                                df_styled = df.style.set_properties(
+                                    subset=['monto_retenido'], 
+                                    **{'text-align': 'right'}
+                                ).set_table_styles([
+                                    {'selector': 'th.col3', 'props': [('text-align', 'right')]} # Alinea la cabecera de la columna monto
+                                ])
+
+                                # 3. Mostramos la tabla con el Styler
                                 st.dataframe(
-                                    df, 
+                                    df_styled, 
                                     use_container_width=True,
                                     column_config={
                                         "rif_retenido": "RIF",
                                         "numero_factura": "N° Factura",
                                         "proveedor_nombre": "Proveedor",
-                                        "monto_retenido": st.column_config.TextColumn(
-                                            "Monto Retenido",
-                                            help="Monto total retenido",
-                                            max_chars=50,
-                                            validate="^.*$",
-                                            # Alineamos los datos a la derecha visualmente
-                                            # (Nota: En algunas versiones de Streamlit esto se controla mediante el argumento visual o CSS, 
-                                            # pero TextColumn permite estructurarlo correctamente)
-                                        )
+                                        "monto_retenido": "Monto Retenido"
                                     },
                                     hide_index=True
                                 )
