@@ -15186,12 +15186,10 @@ elif opcion_menu == "📚 Libros Fiscales":
                             conn.close()
 
                             if not df.empty:
-                                # Forzamos que la columna sea numérica por si viene como texto de la base de datos
+                                # Convertimos a numérico y aplicamos formato personalizado: 1.447,58
                                 df['monto_retenido'] = pd.to_numeric(df['monto_retenido'], errors='coerce').fillna(0.0)
+                                df['monto_retenido'] = df['monto_retenido'].apply(lambda x: f"{x:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
                                 
-                                # Creamos una copia formateada visualmente si prefieres verla con formato tipo moneda,
-                                # O bien dejamos que Streamlit la maneje numéricamente aplicando un formato de columna.
-                                # Una forma limpia en Streamlit moderno es usar st.dataframe con column_config:
                                 st.dataframe(
                                     df, 
                                     use_container_width=True,
@@ -15199,10 +15197,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                                         "rif_retenido": "RIF",
                                         "numero_factura": "N° Factura",
                                         "proveedor_nombre": "Proveedor",
-                                        "monto_retenido": st.column_config.NumberColumn(
-                                            "Monto Retenido",
-                                            format="Bs. %.2f"
-                                        )
+                                        "monto_retenido": "Monto Retenido"
                                     },
                                     hide_index=True
                                 )
