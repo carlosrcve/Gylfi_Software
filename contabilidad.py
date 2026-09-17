@@ -4270,15 +4270,6 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                             fecha_corta = str(fila['fecha_operacion']).split(" ")[0]
                             ano_f, mes_f = fecha_corta.split("-")[0], fecha_corta.split("-")[1]
 
-                            # Red de seguridad total contra vacíos o nulos para el tipo de persona
-                            # Limpieza y evaluación segura del RIF
-                            rif_limpio_upper = str(rif_ret).strip().upper() if rif_ret else ""
-
-                            if rif_limpio_upper.startswith(('V', 'E', 'v', 'e')):
-                                tipo_persona = "Natural"
-                            else:
-                                tipo_persona = "Juridica"
-
                             # Sentencia INSERT exclusiva para retenciones_iva
                             query_ins_iva = """
                                 INSERT INTO retenciones_iva (
@@ -4305,8 +4296,7 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                                     RET_IVA_8, 
                                     Alicuota, 
                                     Alicuota_75, 
-                                    N_Nota_Debito, 
-                                    tipo_persona
+                                    N_Nota_Debito
                                 ) VALUES (
                                     %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 
                                     %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 
@@ -4338,8 +4328,7 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                                 round(r8, 2),
                                 "16%", 
                                 f"{porcentaje_ret}%", 
-                                None, 
-                                tipo_persona
+                                None
                             )
                             
                             cursor.execute(query_ins_iva, params_iva)
@@ -14911,7 +14900,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                                     st.session_state.pdf_listo = True
                                     st.success(f"✅ Comprobante N° {n_comprob_manual} registrado y factura inhabilitada de la lista.")
                                     st.rerun()
-                                    
+
             # Bloque de descarga
             if st.session_state.pdf_listo and st.session_state.datos_pdf:
                 st.write("---")
