@@ -8714,7 +8714,7 @@ def resetear_estado_retencion(numero_factura, db_nombre=None):
         if conn:
             try: conn.close()
             except: pass
-            
+
 def gestionar_sidebar():
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
     user_id = st.session_state.get('user_id', st.session_state.get('cliente_id', 'N/A'))
@@ -15187,9 +15187,10 @@ elif opcion_menu == "📚 Libros Fiscales":
 
                 # --- FORMULARIO DE DESBLOQUEO ---
                 with st.form("form_desbloqueo", clear_on_submit=True):
-                    col1, col2 = st.columns(2)
-                    rif_input = col1.text_input("RIF del Proveedor:")
-                    factura_input = col2.text_input("Número de factura:")
+                    col1, col2, col3= st.columns(2)
+                    nombre__proveedor_input = col1.text_input("Nombre del Proveedor:")
+                    rif_input = col2.text_input("RIF del Proveedor:")
+                    factura_input = col3.text_input("Número de factura:")
                     
                     btn_habilitar = st.form_submit_button("🔓 Habilitar Factura para Retención", type="primary")
 
