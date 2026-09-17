@@ -8669,6 +8669,49 @@ def renderizar_tab_asientos_ventas(db_connection):
                 st.error(f"Error al guardar en la base de datos: {e_sv}")
 
 
+
+def resetear_estado_retencion(numero_factura, db_nombre=None):
+    # Determinamos la base de datos actual usando la misma lógica de tu aplicación
+    db_actual = db_nombre if db_nombre and db_nombre != 'none' else st.session_state.get('DB_ACTUAL')
+    if not db_actual or db_actual == 'none':
+        db_actual = st.session_state.get('empresa_actual')
+
+    conn = None
+    cursor = None
+    try:
+        # Conectamos a la base de datos específica (o control_central si manejas esa lógica global)
+        conn = conectar_db(db_actual)
+        if not conn:
+            return False
+            
+        cursor = conn.cursor()
+        
+        # Limpiamos los campos que indican que la factura ya fue procesada
+        sql = """
+            UPDATE retenciones_islr 
+            SET monto_retenido = 0.00, 
+                porcentaje_retencion = 0.00 
+            WHERE numero_factura = %s
+        """
+        cursor.execute(sql, (numero_factura,))
+        conn.commit()
+        return True
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        return False
+    finally:
+        if cursor:
+            try:
+                cursor.close()
+            except:
+                pass
+        if conn:
+            try:
+                conn.close()
+            except:
+                pass
+
 def gestionar_sidebar():
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
     user_id = st.session_state.get('user_id', st.session_state.get('cliente_id', 'N/A'))
