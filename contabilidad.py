@@ -15177,7 +15177,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                         db_actual = st.session_state.get('DB_ACTUAL')
                         if db_actual:
                             conn = conectar_db(db_actual)
-                            df = ejecutar_consulta("SELECT rif_retenido, numero_factura FROM retenciones_islr", conn)
+                            df = ejecutar_consulta("SELECT rif_retenido, numero_factura, proveedor_nombre FROM retenciones_islr", conn)
                             st.dataframe(df, width='stretch')
                             conn.close()
                         else:
@@ -15187,10 +15187,9 @@ elif opcion_menu == "📚 Libros Fiscales":
 
                 # --- FORMULARIO DE DESBLOQUEO ---
                 with st.form("form_desbloqueo", clear_on_submit=True):
-                    col1, col2, col3= st.columns(3)
-                    nombre_proveedor_input = col1.text_input("Nombre del Proveedor:")
-                    rif_input = col2.text_input("RIF del Proveedor:")
-                    factura_input = col3.text_input("Número de factura:")
+                    col1, col2= st.columns(2)
+                    rif_input = col1.text_input("RIF del Proveedor:")
+                    factura_input = col2.text_input("Número de factura:")
                     
                     btn_habilitar = st.form_submit_button("🔓 Habilitar Factura para Retención", type="primary")
 
