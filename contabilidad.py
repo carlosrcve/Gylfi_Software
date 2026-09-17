@@ -4118,63 +4118,24 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
             st.error("❌ No se pudo establecer conexión.")
             st.stop()
 
-        # La conexión ya fue validada por 'if not conn:', 
-        # no es necesario realizar un .ping() adicional.
         st.write(f"Conectado a: **{db_actual}**")
 
-        # Filtros (Corregida la indentación y las keys independientes)
-        col_b1, col_b2 = st.columns(2)
-        f_desde = col_b1.date_input("Desde", st.session_state.get('f_inicio_global', dt.date.today()), key="ret_iva_desde")
-        f_hasta = col_b2.date_input("Hasta", st.session_state.get('f_fin_global', dt.date.today()), key="ret_iva_hasta")
-
-        # --- 3. LÓGICA DE PROCESAMIENTO ---
-        df_facturas = obtener_facturas_pendientes(conn, f_desde, f_hasta)
-
-        if not df_facturas.empty:
-            # Agregamos una columna de checkbox para seleccionar
-            if 'Seleccionar' not in df_facturas.columns:
-                df_facturas.insert(0, "Seleccionar", False)
-
-            # Muestra el editor y captura los cambios
-            df_editado = st.data_editor(
-                df_facturas,
-                column_config={"Seleccionar": st.column_config.CheckboxColumn(required=True)},
-                hide_index=True,
-                width="stretch"  # <-- Actualizado de use_container_width=True
-            )
-
-            # Filtramos solo las marcadas
-            seleccion = df_editado[df_editado["Seleccionar"] == True]
+        # --- MANEJADOR DE PANTALLA DE ÉXITO (PRIORITARIO) ---
+        if st.session_state.get('mostrar_exito'):
+            st.success(f"### ✅ Comprobante `{st.session_state.get('last_iva', {}).get('nro_comp')}` generado.")
+            st.balloons()
             
-            if not seleccion.empty:
-                st.session_state['facturas_seleccionadas'] = seleccion
-                st.success(f"Facturas seleccionadas: {len(seleccion)}")
-            else:
-                st.session_state['facturas_seleccionadas'] = None
+            if 'last_iva' in st.session_state:
+                st.divider()
+                st.write("#### Detalle del grupo procesado:")
+                
+                # Intentamos mostrar las facturas previamente seleccionadas guardadas en sesión
+                facturas_guardadas = st.session_state.get('facturas_seleccionadas')
+                porcentaje_actual = st.session_state.get('porcentaje_ret', 75)
 
-        facturas_seleccionadas = st.session_state.get('facturas_seleccionadas')
-        if facturas_seleccionadas is not None and not facturas_seleccionadas.empty:
-            total_base_agrupado = facturas_seleccionadas['base_imponible'].sum()
-            total_iva_agrupado = facturas_seleccionadas['iva_monto'].sum()
-            total_facturas_agrupado = facturas_seleccionadas['total_compras'].sum()
-            total_exento_agrupado = facturas_seleccionadas['importe_exento'].sum()
-            
-            factura_principal = facturas_seleccionadas.iloc[0]
-            val_sugerido = str(factura_principal['fecha_operacion']).replace("-", "")[:6] + str(factura_principal['id']).zfill(8)
-
-            st.write("### 📝 Datos del Comprobante (Grupo)")
-
-            # Caso Éxito
-            if st.session_state.get('mostrar_exito'):
-                st.success(f"### ✅ Comprobante `{st.session_state.get('last_iva', {}).get('nro_comp')}` generado.")
-                st.balloons()
-                if 'last_iva' in st.session_state:
-                    st.divider()
-                    st.write("#### Detalle del grupo procesado:")
-                    porcentaje_actual = st.session_state.get('porcentaje_ret', 75)
-
+                if facturas_guardadas is not None and not facturas_guardadas.empty:
                     lista_de_facturas = []
-                    for _, fila in facturas_seleccionadas.iterrows():
+                    for _, fila in facturas_guardadas.iterrows():
                         iva = float(fila.get('impuesto_iva', 0))
                         monto_ret = (iva * porcentaje_actual) / 100
                         
@@ -4187,176 +4148,215 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                             'iva': iva,
                             'm_ret': monto_ret
                         })
+                    
+                    # Opcional: mostrar una tabla resumen rápida de lo procesado
+                    df_resumen_procesado = pd.DataFrame(lista_de_facturas)
+                    st.dataframe(df_resumen_procesado, hide_index=True, width="stretch")
 
-                # Botón para resetear
-                if st.button("🔄 Registrar otro grupo", key="btn_reset_retencion"):
-                    st.session_state['facturas_seleccionadas'] = None
-                    st.session_state['mostrar_exito'] = False
-                    st.rerun()
+            # Botón para resetear e iniciar un nuevo grupo
+            if st.button("🔄 Registrar otro grupo", key="btn_reset_retencion"):
+                st.session_state['facturas_seleccionadas'] = None
+                st.session_state['mostrar_exito'] = False
+                st.rerun()
+                
+            # Interrumpimos el flujo para que no cargue la tabla de pendientes mientras ve el éxito
+            st.stop()
+
+        # --- 3. LÓGICA DE PROCESAMIENTO NORMAL (PENDIENTES) ---
+        col_b1, col_b2 = st.columns(2)
+        f_desde = col_b1.date_input("Desde", st.session_state.get('f_inicio_global', dt.date.today()), key="ret_iva_desde")
+        f_hasta = col_b2.date_input("Hasta", st.session_state.get('f_fin_global', dt.date.today()), key="ret_iva_hasta")
+
+        df_facturas = obtener_facturas_pendientes(conn, f_desde, f_hasta)
+
+        if not df_facturas.empty:
+            if 'Seleccionar' not in df_facturas.columns:
+                df_facturas.insert(0, "Seleccionar", False)
+
+            df_editado = st.data_editor(
+                df_facturas,
+                column_config={"Seleccionar": st.column_config.CheckboxColumn(required=True)},
+                hide_index=True,
+                width="stretch"
+            )
+
+            seleccion = df_editado[df_editado["Seleccionar"] == True]
+            
+            if not seleccion.empty:
+                st.session_state['facturas_seleccionadas'] = seleccion
+                st.success(f"Facturas seleccionadas: {len(seleccion)}")
             else:
-                # Formulario
-                factura_principal = facturas_seleccionadas.iloc[0]
-                val_sugerido = str(factura_principal['fecha_operacion']).replace("-", "")[:6] + str(factura_principal['id']).zfill(8)
+                st.session_state['facturas_seleccionadas'] = None
+
+        facturas_seleccionadas = st.session_state.get('facturas_seleccionadas')
+        
+        if facturas_seleccionadas is not None and not facturas_seleccionadas.empty:
+            total_base_agrupado = facturas_seleccionadas['base_imponible'].sum()
+            total_iva_agrupado = facturas_seleccionadas['iva_monto'].sum()
+            total_facturas_agrupado = facturas_seleccionadas['total_compras'].sum()
+            total_exento_agrupado = facturas_seleccionadas['importe_exento'].sum()
+            
+            factura_principal = facturas_seleccionadas.iloc[0]
+            val_sugerido = str(factura_principal['fecha_operacion']).replace("-", "")[:6] + str(factura_principal['id']).zfill(8)
+
+            st.write("### 📝 Datos del Comprobante (Grupo)")
+            
+            factura_principal = facturas_seleccionadas.iloc[0]
+            val_sugerido = str(factura_principal['fecha_operacion']).replace("-", "")[:6] + str(factura_principal['id']).zfill(8)
+            
+            st.info(f"Agrupando {len(facturas_seleccionadas)} facturas de **{factura_principal['proveedor']}**")
+            
+            with st.form("form_retencion_iva"):
+                c1, c2, c3 = st.columns(3)
+                razon_social_ret = c1.text_input("Sujeto Retenido", value=factura_principal['proveedor'])
+                rif_ret = c2.text_input("RIF Retenido", value=factura_principal['rif'])
+                nro_comp = c3.text_input("N° Comprobante (14 dígitos)", value=val_sugerido, key=f"nro_{val_sugerido}")
                 
-                st.info(f"Agrupando {len(facturas_seleccionadas)} facturas de **{factura_principal['proveedor']}**")
+                st.write("*(Los montos abajo representan la suma de todas las facturas seleccionadas)*")
                 
-                with st.form("form_retencion_iva"):
-                    c1, c2, c3 = st.columns(3)
-                    razon_social_ret = c1.text_input("Sujeto Retenido", value=factura_principal['proveedor'])
-                    rif_ret = c2.text_input("RIF Retenido", value=factura_principal['rif'])
-                    nro_comp = c3.text_input("N° Comprobante (14 dígitos)", value=val_sugerido, key=f"nro_{val_sugerido}")
-                    
-                    st.write("*(Los montos abajo representan la suma de todas las facturas seleccionadas)*")
-                    
-                    c7, c8, c9, c_ex = st.columns(4)
-                    base_i = c7.number_input("Base Imponible Total", value=float(total_base_agrupado), format="%.2f")
-                    iva_i = c8.number_input("Impuesto IVA Total", value=float(total_iva_agrupado), format="%.2f")
-                    monto_exento_val = c_ex.number_input("Monto Exento Total", value=float(total_exento_agrupado), format="%.2f")
-                    total_c = c9.number_input("Total Facturas", value=float(total_facturas_agrupado), format="%.2f")
-                    
-                    c10, c11 = st.columns(2)
-                    porcentaje_ret = c10.selectbox("Porcentaje de Retención", [75, 100])
-                    iva_retenido = (float(iva_i) * porcentaje_ret) / 100
-                    c11.metric("IVA a Retener Total", f"Bs. {iva_retenido:,.2f}")
+                c7, c8, c9, c_ex = st.columns(4)
+                base_i = c7.number_input("Base Imponible Total", value=float(total_base_agrupado), format="%.2f")
+                iva_i = c8.number_input("Impuesto IVA Total", value=float(total_iva_agrupado), format="%.2f")
+                monto_exento_val = c_ex.number_input("Monto Exento Total", value=float(total_exento_agrupado), format="%.2f")
+                total_c = c9.number_input("Total Facturas", value=float(total_facturas_agrupado), format="%.2f")
+                
+                c10, c11 = st.columns(2)
+                porcentaje_ret = c10.selectbox("Porcentaje de Retención", [75, 100])
+                st.session_state['porcentaje_ret'] = porcentaje_ret # Guardamos en sesión
+                iva_retenido = (float(iva_i) * porcentaje_ret) / 100
+                c11.metric("IVA a Retener Total", f"Bs. {iva_retenido:,.2f}")
 
-                    db_actual_form = st.session_state.get('DB_ACTUAL')
-                    empresa_data = obtener_datos_agente_db(db_actual_form)
+                db_actual_form = st.session_state.get('DB_ACTUAL')
+                empresa_data = obtener_datos_agente_db(db_actual_form)
 
-                    if not empresa_data:
-                        st.error("⚠️ No se pudieron cargar los datos de la empresa.")
-                    else:
-                        empresa_seleccionada = st.selectbox(
-                            "Empresa", 
-                            options=[empresa_data], 
-                            format_func=lambda x: x['nombre_empresa']
-                        )
-                        st.session_state['id_empresa_seleccionada'] = empresa_seleccionada
+                if not empresa_data:
+                    st.error("⚠️ No se pudieron cargar los datos de la empresa.")
+                else:
+                    empresa_seleccionada = st.selectbox(
+                        "Empresa", 
+                        options=[empresa_data], 
+                        format_func=lambda x: x['nombre_empresa']
+                    )
+                    st.session_state['id_empresa_seleccionada'] = empresa_seleccionada
 
-                    enviado = st.form_submit_button("💾 Guardar y Generar Documentos")
+                enviado = st.form_submit_button("💾 Guardar y Generar Documentos")
 
-                if enviado:
-                    empresa_data_env = st.session_state.get('id_empresa_seleccionada') or st.session_state.get('id_empresa_actual')
-                    db_nombre = st.session_state.get('DB_ACTUAL')
-                    
-                    if not empresa_data_env or not db_nombre:
-                        st.error("❌ Faltan datos de empresa o base de datos.")
-                        st.stop()
+            if enviado:
+                empresa_data_env = st.session_state.get('id_empresa_seleccionada') or st.session_state.get('id_empresa_actual')
+                db_nombre = st.session_state.get('DB_ACTUAL')
+                
+                if not empresa_data_env or not db_nombre:
+                    st.error("❌ Faltan datos de empresa o base de datos.")
+                    st.stop()
 
+                conn_env = conectar_db(db_nombre)
+                if not conn_env:
                     conn_env = conectar_db(db_nombre)
-                    if not conn_env:
-                        conn_env = conectar_db(db_nombre)
 
-                    id_final = empresa_data_env.get('id') if isinstance(empresa_data_env, dict) else empresa_data_env
-                    empresa_nombre = empresa_data_env.get('nombre_empresa') or empresa_data_env.get('razon_social') or "EMPRESA"
-                    empresa_rif = empresa_data_env.get('rif') or "000000000"
+                empresa_nombre = empresa_data_env.get('nombre_empresa') or empresa_data_env.get('razon_social') or "EMPRESA"
+                empresa_rif = empresa_data_env.get('rif') or "000000000"
+                domicilio_fiscal = empresa_data_env.get('direccion') or "DIRECCIÓN NO REGISTRADA"
+
+                cursor = None
+                try:
+                    cursor = conn_env.cursor()
                     
-                    # CORREGIDO: Se elimina 'domicilio_fiscal' porque no existe en la tabla clientes
-                    domicilio_fiscal = empresa_data_env.get('direccion') or "DIRECCIÓN NO REGISTRADA"
-
-                    cursor = None
-                    try:
-                        cursor = conn_env.cursor()
+                    for _, fila in facturas_seleccionadas.iterrows():
+                        base = float(fila.get('base_imponible', 0) or 0)
+                        impuesto = float(fila.get('iva_monto', 0) or 0)
+                        ratio = round(impuesto / base, 2) if base > 0 else 0
+                        es_8 = ratio <= 0.08
+                        iva_retenido_fila = (impuesto * porcentaje_ret) / 100
                         
-                        for _, fila in facturas_seleccionadas.iterrows():
-                            base = float(fila.get('base_imponible', 0) or 0)
-                            impuesto = float(fila.get('iva_monto', 0) or 0)
-                            ratio = round(impuesto / base, 2) if base > 0 else 0
-                            es_8 = ratio <= 0.08
-                            iva_retenido_fila = (impuesto * porcentaje_ret) / 100
-                            
-                            b16, i16, r16 = (base, impuesto, iva_retenido_fila) if not es_8 else (0.0, 0.0, 0.0)
-                            b8, i8, r8 = (base, impuesto, iva_retenido_fila) if es_8 else (0.0, 0.0, 0.0)
-                            
-                            fecha_corta = str(fila['fecha_operacion']).split(" ")[0]
-                            ano_f, mes_f = fecha_corta.split("-")[0], fecha_corta.split("-")[1]
+                        b16, i16, r16 = (base, impuesto, iva_retenido_fila) if not es_8 else (0.0, 0.0, 0.0)
+                        b8, i8, r8 = (base, impuesto, iva_retenido_fila) if es_8 else (0.0, 0.0, 0.0)
+                        
+                        fecha_corta = str(fila['fecha_operacion']).split(" ")[0]
+                        ano_f, mes_f = fecha_corta.split("-")[0], fecha_corta.split("-")[1]
 
-                            # Red de seguridad total contra vacíos o nulos para el tipo de persona
-
-                            # Sentencia INSERT exclusiva para retenciones_iva
-                            query_ins_iva = """
-                                INSERT INTO retenciones_iva (
-                                    Razon_Social_del_Agente_de_Retencion, 
-                                    RIF_Agente_Retencion,  
-                                    Direccion_FiscalAgente_Retencion, 
-                                    E_Emision, 
-                                    F_Entrega, 
-                                    Razon_Social_Sujeto_Retenido, 
-                                    RIF_Sujeto_Retenido, 
-                                    Ano, 
-                                    Mes, 
-                                    N_Comprobante1, 
-                                    Fecha_Factura, 
-                                    Numero_Factura, 
-                                    Numero_Contro, 
-                                    Total_Comrpas, 
-                                    Compras_Excentas, 
-                                    Base_Imponible, 
-                                    Impuesto_Iva, 
-                                    IVA_Retenido, 
-                                    Base_Imponible_8, 
-                                    IVA_8, 
-                                    RET_IVA_8, 
-                                    Alicuota, 
-                                    Alicuota_75, 
-                                    N_Nota_Debito
-                                ) VALUES (
-                                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 
-                                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 
-                                    %s, %s, %s, %s
-                                )
-                            """
-
-                            params_iva = (
-                                empresa_nombre, 
-                                empresa_rif, 
-                                domicilio_fiscal,
-                                fecha_corta, 
-                                fecha_corta, 
-                                razon_social_ret, 
-                                rif_ret, 
-                                ano_f, 
-                                mes_f,
-                                nro_comp, 
-                                fecha_corta, 
-                                str(fila['n_factura']), 
-                                str(fila['n_control']),
-                                round(float(fila.get('total_compras', 0)), 2),
-                                round(float(fila.get('importe_exento', 0)), 2),
-                                round(b16, 2), 
-                                round(i16, 2), 
-                                round(iva_retenido_fila, 2),
-                                round(b8, 2), 
-                                round(i8, 2), 
-                                round(r8, 2),
-                                "16%", 
-                                f"{porcentaje_ret}%", 
-                                None
+                        query_ins_iva = """
+                            INSERT INTO retenciones_iva (
+                                Razon_Social_del_Agente_de_Retencion, 
+                                RIF_Agente_Retencion,  
+                                Direccion_FiscalAgente_Retencion, 
+                                E_Emision, 
+                                F_Entrega, 
+                                Razon_Social_Sujeto_Retenido, 
+                                RIF_Sujeto_Retenido, 
+                                Ano, 
+                                Mes, 
+                                N_Comprobante1, 
+                                Fecha_Factura, 
+                                Numero_Factura, 
+                                Numero_Contro, 
+                                Total_Comrpas, 
+                                Compras_Excentas, 
+                                Base_Imponible, 
+                                Impuesto_Iva, 
+                                IVA_Retenido, 
+                                Base_Imponible_8, 
+                                IVA_8, 
+                                RET_IVA_8, 
+                                Alicuota, 
+                                Alicuota_75, 
+                                N_Nota_Debito
+                            ) VALUES (
+                                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 
+                                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 
+                                %s, %s, %s, %s
                             )
-                            
-                            cursor.execute(query_ins_iva, params_iva)
-                            
-                            # Marcar la factura como retenida en el libro de compras
-                            query_update = """
-                                UPDATE libro_compras 
-                                SET retencion_realizada = 1 
-                                WHERE id = %s
-                            """
-                            cursor.execute(query_update, (fila['id'],))
+                        """
 
-                        conn_env.commit()
-                        st.session_state['last_iva'] = {'nro_comp': nro_comp}
-                        st.session_state['mostrar_exito'] = True
-                        st.rerun()
+                        params_iva = (
+                            empresa_nombre, 
+                            empresa_rif, 
+                            domicilio_fiscal,
+                            fecha_corta, 
+                            fecha_corta, 
+                            razon_social_ret, 
+                            rif_ret, 
+                            ano_f, 
+                            mes_f,
+                            nro_comp, 
+                            fecha_corta, 
+                            str(fila['n_factura']), 
+                            str(fila['n_control']),
+                            round(float(fila.get('total_compras', 0)), 2),
+                            round(float(fila.get('importe_exento', 0)), 2),
+                            round(b16, 2), 
+                            round(i16, 2), 
+                            round(iva_retenido_fila, 2),
+                            round(b8, 2), 
+                            round(i8, 2), 
+                            round(r8, 2),
+                            "16%", 
+                            f"{porcentaje_ret}%", 
+                            None
+                        )
+                        
+                        cursor.execute(query_ins_iva, params_iva)
+                        
+                        query_update = """
+                            UPDATE libro_compras 
+                            SET retencion_realizada = 1 
+                            WHERE id = %s
+                        """
+                        cursor.execute(query_update, (fila['id'],))
 
-                    except Exception as e:
-                        if conn_env: 
-                            conn_env.rollback()
-                        st.error(f"❌ Error al procesar: {e}")
-                    finally:
-                        if cursor: 
-                            cursor.close()
-                        if conn_env: 
-                            conn_env.close()
+                    conn_env.commit()
+                    st.session_state['last_iva'] = {'nro_comp': nro_comp}
+                    st.session_state['mostrar_exito'] = True
+                    st.rerun()
+
+                except Exception as e:
+                    if conn_env: 
+                        conn_env.rollback()
+                    st.error(f"❌ Error al procesar: {e}")
+                finally:
+                    if cursor: 
+                        cursor.close()
+                    if conn_env: 
+                        conn_env.close()
 
                 
         with tab2:
