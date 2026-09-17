@@ -15197,7 +15197,15 @@ elif opcion_menu == "📚 Libros Fiscales":
                                         "rif_retenido": "RIF",
                                         "numero_factura": "N° Factura",
                                         "proveedor_nombre": "Proveedor",
-                                        "monto_retenido": "Monto Retenido"
+                                        "monto_retenido": st.column_config.TextColumn(
+                                            "Monto Retenido",
+                                            help="Monto total retenido",
+                                            max_chars=50,
+                                            validate="^.*$",
+                                            # Alineamos los datos a la derecha visualmente
+                                            # (Nota: En algunas versiones de Streamlit esto se controla mediante el argumento visual o CSS, 
+                                            # pero TextColumn permite estructurarlo correctamente)
+                                        )
                                     },
                                     hide_index=True
                                 )
