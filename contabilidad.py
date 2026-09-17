@@ -14790,8 +14790,23 @@ elif opcion_menu == "📚 Libros Fiscales":
                     "numero_factura", "numero_control", "monto_operacion"
                 ]
                 
+                # 1. Creamos una copia de trabajo para formatear visualmente sin dañar los datos originales de la sesión
+                df_temp = st.session_state.df_retencion[columnas_a_mostrar].copy()
+                
+                if 'monto_operacion' in df_temp.columns:
+                    df_temp['monto_operacion'] = pd.to_numeric(df_temp['monto_operacion'], errors='coerce').fillna(0.0)
+                    df_temp['monto_operacion'] = df_temp['monto_operacion'].apply(lambda x: f"{x:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+
+                # 2. Aplicamos estilo de Pandas para forzar la alineación a la derecha en la columna de monto
+                df_styled = df_temp.style.set_properties(
+                    subset=['monto_operacion'], 
+                    **{'text-align': 'right'}
+                ).set_table_styles([
+                    {'selector': 'th.col5', 'props': [('text-align', 'right')]} # Alinea la cabecera de la columna monto_operacion
+                ])
+                
                 sel_f = st.dataframe(
-                    st.session_state.df_retencion[columnas_a_mostrar], 
+                    df_styled, 
                     on_select="rerun", 
                     selection_mode="single-row", 
                     hide_index=True, 
@@ -14896,7 +14911,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                                     st.session_state.pdf_listo = True
                                     st.success(f"✅ Comprobante N° {n_comprob_manual} registrado y factura inhabilitada de la lista.")
                                     st.rerun()
-
+                                    
             # Bloque de descarga
             if st.session_state.pdf_listo and st.session_state.datos_pdf:
                 st.write("---")
