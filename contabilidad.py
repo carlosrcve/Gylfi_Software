@@ -15172,13 +15172,19 @@ elif opcion_menu == "📚 Libros Fiscales":
                 st.info("Utiliza esta opción si marcaste una factura como 'Retenida' por error.")
 
                 # --- COMUNICACIÓN DINÁMICA MULTI-CLIENTE ---
-                with st.expander("🔍 Listado de Facturas en la BD"):
+                with st.expander("🔍 Listado de Facturas Retenidas en la BD"):
                     try:
                         db_actual = st.session_state.get('DB_ACTUAL')
                         if db_actual:
                             conn = conectar_db(db_actual)
-                            df = ejecutar_consulta("SELECT rif_retenido, numero_factura, proveedor_nombre FROM retenciones_islr", conn)
-                            st.dataframe(df, width='stretch')
+                            # Filtramos para que solo muestre las que efectivamente tienen montos retenidos activos (> 0)
+                            query_listado = """
+                                SELECT rif_retenido, numero_factura, proveedor_nombre, monto_retenido 
+                                FROM retenciones_islr 
+                                WHERE monto_retenido > 0 OR porcentaje_retencion > 0
+                            """
+                            df = ejecutar_consulta(query_listado, conn)
+                            st.dataframe(df, use_container_width=True)
                             conn.close()
                         else:
                             st.error("No se detectó una base de datos activa en la sesión.")
@@ -15187,7 +15193,7 @@ elif opcion_menu == "📚 Libros Fiscales":
 
                 # --- FORMULARIO DE DESBLOQUEO ---
                 with st.form("form_desbloqueo", clear_on_submit=True):
-                    col1, col2= st.columns(2)
+                    col1, col2 = st.columns(2)
                     rif_input = col1.text_input("RIF del Proveedor:")
                     factura_input = col2.text_input("Número de factura:")
                     
@@ -15200,14 +15206,13 @@ elif opcion_menu == "📚 Libros Fiscales":
                             resultado = resetear_estado_retencion(factura_input, db_actual)
                             
                             if resultado is True:
-                                # Limpiamos el ID de la memoria de la sesión actual si es que estaba registrado ahí
+                                # Limpiamos la lista negra de la sesión actual para sincronizar
                                 if "facturas_procesadas_ids" in st.session_state:
-                                    # Opcional: si guardas IDs numéricos en la lista de sesión, 
-                                    # puedes vaciarla por completo o buscar el ID correspondiente.
-                                    # Vaciarla asegura que vuelva a cargar fresca al presionar consultar:
                                     st.session_state.facturas_procesadas_ids = []
                                     
                                 st.success(f"✅ Factura {factura_input} habilitada correctamente. Ya puedes volver a consultarla.")
+                                # Forzamos un rerun para que desaparezca de la tabla de inmediato
+                                st.rerun()
                             else:
                                 st.error("❌ No se pudo habilitar. Verifica el número.")
                         else:
