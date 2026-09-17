@@ -8671,7 +8671,6 @@ def renderizar_tab_asientos_ventas(db_connection):
 
 
 def resetear_estado_retencion(numero_factura, db_nombre=None):
-    # Determinamos la base de datos actual usando la misma lógica de tu aplicación
     db_actual = db_nombre if db_nombre and db_nombre != 'none' else st.session_state.get('DB_ACTUAL')
     if not db_actual or db_actual == 'none':
         db_actual = st.session_state.get('empresa_actual')
@@ -8679,21 +8678,29 @@ def resetear_estado_retencion(numero_factura, db_nombre=None):
     conn = None
     cursor = None
     try:
-        # Conectamos a la base de datos específica (o control_central si manejas esa lógica global)
         conn = conectar_db(db_actual)
         if not conn:
             return False
             
         cursor = conn.cursor()
         
-        # Limpiamos los campos que indican que la factura ya fue procesada
-        sql = """
+        # 1. Limpiamos la tabla de retenciones_islr
+        sql_ret = """
             UPDATE retenciones_islr 
             SET monto_retenido = 0.00, 
                 porcentaje_retencion = 0.00 
             WHERE numero_factura = %s
         """
-        cursor.execute(sql, (numero_factura,))
+        cursor.execute(sql_ret, (numero_factura,))
+        
+        # 2. IMPORTANTE: Liberamos también el libro de compras para que la consulta principal la vuelva a traer
+        sql_lc = """
+            UPDATE libro_compras 
+            SET retencion_realizada = 0 
+            WHERE n_factura = %s
+        """
+        cursor.execute(sql_lc, (numero_factura,))
+        
         conn.commit()
         return True
     except Exception as e:
@@ -8702,16 +8709,12 @@ def resetear_estado_retencion(numero_factura, db_nombre=None):
         return False
     finally:
         if cursor:
-            try:
-                cursor.close()
-            except:
-                pass
+            try: cursor.close()
+            except: pass
         if conn:
-            try:
-                conn.close()
-            except:
-                pass
-
+            try: conn.close()
+            except: pass
+            
 def gestionar_sidebar():
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
     user_id = st.session_state.get('user_id', st.session_state.get('cliente_id', 'N/A'))
@@ -15171,7 +15174,6 @@ elif opcion_menu == "📚 Libros Fiscales":
                 # --- COMUNICACIÓN DINÁMICA MULTI-CLIENTE ---
                 with st.expander("🔍 Listado de Facturas en la BD"):
                     try:
-                        # Usamos la conexión dinámica según el cliente en sesión
                         db_actual = st.session_state.get('DB_ACTUAL')
                         if db_actual:
                             conn = conectar_db(db_actual)
@@ -15193,11 +15195,19 @@ elif opcion_menu == "📚 Libros Fiscales":
 
                     if btn_habilitar:
                         if factura_input:
-                            # Importante: Asegúrate de que resetear_estado_retencion también 
-                            # use la DB_ACTUAL internamente o reciba el parámetro
-                            resultado = resetear_estado_retencion(factura_input)
+                            db_actual = st.session_state.get('DB_ACTUAL')
+                            # Pasamos explícitamente el db_actual a la función
+                            resultado = resetear_estado_retencion(factura_input, db_actual)
+                            
                             if resultado is True:
-                                st.success(f"✅ Factura {factura_input} habilitada correctamente.")
+                                # Limpiamos el ID de la memoria de la sesión actual si es que estaba registrado ahí
+                                if "facturas_procesadas_ids" in st.session_state:
+                                    # Opcional: si guardas IDs numéricos en la lista de sesión, 
+                                    # puedes vaciarla por completo o buscar el ID correspondiente.
+                                    # Vaciarla asegura que vuelva a cargar fresca al presionar consultar:
+                                    st.session_state.facturas_procesadas_ids = []
+                                    
+                                st.success(f"✅ Factura {factura_input} habilitada correctamente. Ya puedes volver a consultarla.")
                             else:
                                 st.error("❌ No se pudo habilitar. Verifica el número.")
                         else:
