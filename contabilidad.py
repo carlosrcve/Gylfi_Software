@@ -4120,16 +4120,14 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
 
         st.write(f"Conectado a: **{db_actual}**")
 
-        # --- MANEJADOR DE PANTALLA DE ÉXITO (PRIORITARIO) ---
+        # --- MANEJADOR DE PANTALLA DE ÉXITO (PERSISTENTE) ---
         if st.session_state.get('mostrar_exito'):
-            st.success(f"### ✅ Comprobante `{st.session_state.get('last_iva', {}).get('nro_comp')}` generado.")
-            st.balloons()
+            st.success(f"### ✅ Comprobante `{st.session_state.get('last_iva', {}).get('nro_comp')}` generado y guardado exitosamente.")
             
-            if 'last_iva' in st.session_state:
+            if 'last_iva' in st.session_state and 'facturas_seleccionadas' in st.session_state:
                 st.divider()
-                st.write("#### Detalle del grupo procesado:")
+                st.write("#### 📄 Detalle del Comprobante Generado:")
                 
-                # Intentamos mostrar las facturas previamente seleccionadas guardadas en sesión
                 facturas_guardadas = st.session_state.get('facturas_seleccionadas')
                 porcentaje_actual = st.session_state.get('porcentaje_ret', 75)
 
@@ -4140,27 +4138,25 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                         monto_ret = (iva * porcentaje_actual) / 100
                         
                         lista_de_facturas.append({
-                            'fecha': fila['fecha_operacion'],
-                            'n_fact': fila['n_factura'],
-                            'n_cont': fila['n_control'],
-                            'total': fila['total_compras'],
-                            'base': fila['base_imponible'],
-                            'iva': iva,
-                            'm_ret': monto_ret
+                            'Fecha': fila['fecha_operacion'],
+                            'N° Factura': fila['n_factura'],
+                            'N° Control': fila['n_control'],
+                            'Total Compras': fila['total_compras'],
+                            'Base Imponible': fila['base_imponible'],
+                            'IVA': iva,
+                            'IVA Retenido': monto_ret
                         })
                     
-                    # Opcional: mostrar una tabla resumen rápida de lo procesado
                     df_resumen_procesado = pd.DataFrame(lista_de_facturas)
                     st.dataframe(df_resumen_procesado, hide_index=True, width="stretch")
-
-            # Botón para resetear e iniciar un nuevo grupo
-            if st.button("🔄 Registrar otro grupo", key="btn_reset_retencion"):
+            
+            # Botón para limpiar y registrar otro grupo cuando el usuario lo decida
+            if st.button("🔄 Registrar otro grupo de facturas", key="btn_reset_retencion"):
                 st.session_state['facturas_seleccionadas'] = None
                 st.session_state['mostrar_exito'] = False
                 st.rerun()
-                
-            # Interrumpimos el flujo para que no cargue la tabla de pendientes mientras ve el éxito
-            st.stop()
+            
+            st.divider()
 
         # --- 3. LÓGICA DE PROCESAMIENTO NORMAL (PENDIENTES) ---
         col_b1, col_b2 = st.columns(2)
@@ -4186,7 +4182,9 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                 st.session_state['facturas_seleccionadas'] = seleccion
                 st.success(f"Facturas seleccionadas: {len(seleccion)}")
             else:
-                st.session_state['facturas_seleccionadas'] = None
+                # Solo limpiamos si no estamos mostrando un éxito reciente
+                if not st.session_state.get('mostrar_exito'):
+                    st.session_state['facturas_seleccionadas'] = None
 
         facturas_seleccionadas = st.session_state.get('facturas_seleccionadas')
         
@@ -4200,10 +4198,6 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
             val_sugerido = str(factura_principal['fecha_operacion']).replace("-", "")[:6] + str(factura_principal['id']).zfill(8)
 
             st.write("### 📝 Datos del Comprobante (Grupo)")
-            
-            factura_principal = facturas_seleccionadas.iloc[0]
-            val_sugerido = str(factura_principal['fecha_operacion']).replace("-", "")[:6] + str(factura_principal['id']).zfill(8)
-            
             st.info(f"Agrupando {len(facturas_seleccionadas)} facturas de **{factura_principal['proveedor']}**")
             
             with st.form("form_retencion_iva"):
@@ -4222,7 +4216,7 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                 
                 c10, c11 = st.columns(2)
                 porcentaje_ret = c10.selectbox("Porcentaje de Retención", [75, 100])
-                st.session_state['porcentaje_ret'] = porcentaje_ret # Guardamos en sesión
+                st.session_state['porcentaje_ret'] = porcentaje_ret 
                 iva_retenido = (float(iva_i) * porcentaje_ret) / 100
                 c11.metric("IVA a Retener Total", f"Bs. {iva_retenido:,.2f}")
 
@@ -4357,7 +4351,6 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                         cursor.close()
                     if conn_env: 
                         conn_env.close()
-
                 
         with tab2:
             st.write("Cargando PDF...")
