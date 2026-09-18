@@ -4001,33 +4001,33 @@ def obtener_detalle_comprobante(id_registro):
         cursor = conn.cursor()
         
         # CONSULTA EXPLÍCITA: Escribimos los nombres exactos de tu tabla
-        # CONSULTA AGRUPADA: Sumamos las bases y los impuestos
-        # CONSULTA CORREGIDA: Sin agrupamiento para ver todas las facturas
         query = """
-        SELECT 
-            id, 
-            Razon_Social_del_Agente_de_Retencion, 
-            RIF_Agente_Retencion, 
-            E_Emision, 
-            F_Entrega, 
-            Razon_Social_Sujeto_Retenido, 
-            RIF_Sujeto_Retenido, 
-            Ano, 
-            Mes, 
-            N_Comprobante1, 
-            Fecha_Factura, 
-            Numero_Factura, 
-            Numero_Contro, 
-            Total_Comrpas, 
-            Compras_Excentas, 
-            Base_Imponible, 
-            Base_Imponible_8, 
-            Impuesto_Iva, 
-            IVA_Retenido, 
-            IVA_8, 
-            RET_IVA_8
-        FROM retenciones_iva 
-        WHERE N_Comprobante1 = (SELECT N_Comprobante1 FROM retenciones_iva WHERE id = %s)
+            SELECT 
+                r.id, 
+                r.Razon_Social_del_Agente_de_Retencion, 
+                r.RIF_Agente_Retencion, 
+                r.E_Emision, 
+                r.F_Entrega, 
+                r.Razon_Social_Sujeto_Retenido, 
+                r.RIF_Sujeto_Retenido, 
+                r.Ano, 
+                r.Mes, 
+                r.N_Comprobante1, 
+                r.Fecha_Factura, 
+                r.Numero_Factura, 
+                r.Numero_Contro, 
+                r.Total_Comrpas, 
+                r.Compras_Excentas, 
+                r.Base_Imponible, 
+                r.Base_Imponible_8, 
+                r.Impuesto_Iva, 
+                r.IVA_Retenido, 
+                r.IVA_8, 
+                r.RET_IVA_8,
+                p.direccion_fiscal AS direccion_fiscal_proveedor
+            FROM retenciones_iva r
+            LEFT JOIN proveedores p ON r.RIF_Sujeto_Retenido = p.rif
+            WHERE r.N_Comprobante1 = (SELECT N_Comprobante1 FROM retenciones_iva WHERE id = %s)
         """
         
         df = pd.read_sql(query, conn, params=(id_registro,))
