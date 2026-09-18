@@ -4501,8 +4501,6 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                             pdf.set_font("Arial", "B", 11); pdf.text(202, 47, str(d.get('N_Comprobante1', '')))
 
                             # ------- BLOQUE 2: DIRECCIÓN Y FECHAS ----------------------
-                        
-                            # 1. Dibujamos el rectángulo principal del bloque
                             pdf.rect(15, 55, 175, 15)
 
                             # 2. Ponemos la etiqueta del campo en la parte superior del recuadro
@@ -4519,7 +4517,6 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                             domicilio_real = str(datos_empresa.get('direccion', 'NO REGISTRADO'))
 
                             # 5. Imprimimos con multi_cell controlando el ancho (170) y la altura de línea (3.2)
-                            # Usamos 3.2 o 3.3 para que si la dirección es larga de 2 líneas quepa holgada en los 15px de alto del recuadro.
                             pdf.multi_cell(170, 3.2, domicilio_real)
 
                             # ------- BLOQUE 3:  ----------------------
