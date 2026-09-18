@@ -4503,22 +4503,23 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                             pdf.set_font("Arial", "B", 11); pdf.text(202, 47, str(d.get('N_Comprobante1', '')))
 
                             # ------- BLOQUE 2: DIRECCIÓN Y FECHAS ----------------------
+                            # 1. Dibujamos el recuadro existente en (15, 55) con ancho 175 y alto 15
                             pdf.rect(15, 55, 175, 15)
 
-                            # 2. Ponemos la etiqueta del campo en la parte superior del recuadro
+                            # 2. Cambiamos la etiqueta superior para indicar que es la dirección del proveedor
                             pdf.set_font("Arial", "", 8)
-                            pdf.text(17, 59, "Dirección Fiscal del Agente de Retención:")
+                            pdf.text(17, 59, "Dirección Fiscal del Sujeto Retenido (Proveedor):")
 
-                            # 3. Configuramos la fuente para el texto de la dirección
+                            # 3. Configuramos la fuente pequeña para el texto
                             pdf.set_font("Arial", "", 7)
 
                             # 4. Posicionamos justo debajo de la etiqueta (y=61) y un poco más adentro (x=17)
                             pdf.set_xy(17, 61) 
 
-                            # Obtenemos la dirección desde el diccionario de la empresa
-                            domicilio_real = str(datos_empresa.get('direccion_fiscal', 'NO REGISTRADO'))
+                            # 5. Obtenemos la dirección del proveedor desde el registro de la consulta (d)
+                            domicilio_real = str(d.get('direccion_fiscal_proveedor', 'NO REGISTRADO'))
 
-                            # 5. Imprimimos con multi_cell controlando el ancho (170) y la altura de línea (3.2)
+                            # 6. Imprimimos con multi_cell usando el ancho del recuadro (170)
                             pdf.multi_cell(170, 3.2, domicilio_real)
 
                             # ------- BLOQUE 3:  ----------------------
