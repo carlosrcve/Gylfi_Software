@@ -4501,25 +4501,26 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                             pdf.set_font("Arial", "B", 11); pdf.text(202, 47, str(d.get('N_Comprobante1', '')))
 
                             # ------- BLOQUE 2: DIRECCIÓN Y FECHAS ----------------------
-
+                        
+                            # 1. Dibujamos el rectángulo principal del bloque
                             pdf.rect(15, 55, 175, 15)
 
-                            # 2. Ponemos la etiqueta del campo
+                            # 2. Ponemos la etiqueta del campo en la parte superior del recuadro
                             pdf.set_font("Arial", "", 8)
-                            pdf.text(17, 59, "Direccion Fiscal del Agente Retencion:")
+                            pdf.text(17, 59, "Dirección Fiscal del Agente de Retención:")
 
-                            # 3. Configuramos la fuente para la dirección
+                            # 3. Configuramos la fuente para el texto de la dirección
                             pdf.set_font("Arial", "", 7)
 
-                            # 4. Usamos set_xy y multi_cell para que el texto se ajuste dentro del recuadro
-                            # La posición x=17, y=61 es donde empieza la dirección dentro del rectángulo
+                            # 4. Posicionamos justo debajo de la etiqueta (y=61) y un poco más adentro (x=17)
                             pdf.set_xy(17, 61) 
 
-                            # Obtenemos la dirección desde la base de datos (con valor por defecto si está vacío)
+                            # Obtenemos la dirección desde el diccionario de la empresa
                             domicilio_real = str(datos_empresa.get('direccion', 'NO REGISTRADO'))
 
-                            # multi_cell(ancho, alto, texto) - el ancho 170 es para que no toque el borde derecho
-                            pdf.multi_cell(170, 3.5, domicilio_real)
+                            # 5. Imprimimos con multi_cell controlando el ancho (170) y la altura de línea (3.2)
+                            # Usamos 3.2 o 3.3 para que si la dirección es larga de 2 líneas quepa holgada en los 15px de alto del recuadro.
+                            pdf.multi_cell(170, 3.2, domicilio_real)
 
                             # ------- BLOQUE 3:  ----------------------
 
