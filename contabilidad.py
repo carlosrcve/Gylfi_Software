@@ -6278,9 +6278,9 @@ def _obtener_datos_agente_db_real(valor_busqueda):
         
         # CORREGIDO: Eliminado 'domicilio_fiscal' de ambas consultas porque no existe en la tabla
         if isinstance(valor_busqueda, str):
-            query = "SELECT id, nombre_empresa, rif FROM clientes WHERE db_nombre = %s"
+            query = "SELECT id, nombre_empresa, rif,direccion FROM clientes WHERE db_nombre = %s"
         else:
-            query = "SELECT id, nombre_empresa, rif FROM clientes WHERE id = %s"
+            query = "SELECT id, nombre_empresa, rif,direccion FROM clientes WHERE id = %s"
         
         cursor.execute(query, (valor_busqueda,))
         datos = cursor.fetchone()
