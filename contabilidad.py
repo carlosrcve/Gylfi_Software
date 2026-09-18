@@ -4514,7 +4514,7 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                             pdf.set_xy(17, 61) 
 
                             # Obtenemos la dirección desde el diccionario de la empresa
-                            domicilio_real = str(datos_empresa.get('direccion', 'NO REGISTRADO'))
+                            domicilio_real = str(datos_empresa.get('direccion_fiscal', 'NO REGISTRADO'))
 
                             # 5. Imprimimos con multi_cell controlando el ancho (170) y la altura de línea (3.2)
                             pdf.multi_cell(170, 3.2, domicilio_real)
