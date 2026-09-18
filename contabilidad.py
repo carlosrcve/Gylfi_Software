@@ -6265,7 +6265,6 @@ def obtener_datos_agente_db(valor_busqueda):
     return _obtener_datos_agente_db_real(valor_busqueda)
 
 def _obtener_datos_agente_db_real(valor_busqueda):
-    # Forzamos a que use la conexión principal
     conn_central = conectar_db() 
     if not conn_central: 
         st.warning("⚠️ No se pudo conectar a la base de datos central en obtener_datos_agente_db.")
@@ -6273,14 +6272,13 @@ def _obtener_datos_agente_db_real(valor_busqueda):
 
     cursor = None
     try:
-        # Usando pymysql.cursors.DictCursor de manera consistente
         cursor = conn_central.cursor(pymysql.cursors.DictCursor)
         
-        # CORREGIDO: Eliminado 'domicilio_fiscal' de ambas consultas porque no existe en la tabla
+        # Usamos SELECT * para evitar errores de columnas que no existen
         if isinstance(valor_busqueda, str):
-            query = "SELECT id, nombre_empresa, rif FROM clientes WHERE db_nombre = %s"
+            query = "SELECT * FROM clientes WHERE db_nombre = %s"
         else:
-            query = "SELECT id, nombre_empresa, rif FROM clientes WHERE id = %s"
+            query = "SELECT * FROM clientes WHERE id = %s"
         
         cursor.execute(query, (valor_busqueda,))
         datos = cursor.fetchone()
