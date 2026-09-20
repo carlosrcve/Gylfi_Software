@@ -4054,6 +4054,53 @@ def obtener_detalle_comprobante(id_registro):
                 pass
 
 
+def eliminar_registro_retencion(id_registro):
+    db_actual = st.session_state.get('DB_ACTUAL')
+    conn = conectar_db(db_actual)
+    cursor = None
+    
+    if not conn:
+        st.error("⚠️ No se pudo conectar a la base de datos de la empresa actual.")
+        return False
+
+    try:
+        cursor = conn.cursor()
+        
+        # Registro de actividad seguro usando .get() para evitar KeyErrors en sesión
+        usuario = st.session_state.get('usuario', 'Sistema')
+        cliente_id = st.session_state.get('cliente_id', 'N/A')
+        registrar_log_automatico(conn, "ELIMINAR_RETENCION", f"Usuario {usuario} eliminó registro de retención {id_registro} para el cliente {cliente_id}")
+        
+        # Ejecutamos la eliminación en la base de datos de la empresa (db_actual)
+        query = "DELETE FROM retenciones_iva WHERE id = %s"
+        cursor.execute(query, (id_registro,))
+        conn.commit()
+        
+        return True
+
+    except Exception as e:
+        st.error(f"❌ Error al eliminar el registro de retención: {e}")
+        if conn:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+        return False
+
+    finally:
+        if cursor:
+            try:
+                cursor.close()
+            except Exception:
+                pass
+                
+        if conn:
+            try:
+                # Mantenemos el patrón seguro de conexión
+                conn.ping(reconnect=True)
+            except Exception:
+                pass
+
 def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
     st.subheader(f"📑 Emisión de Comprobantes de Retención IVA: {EMPRESA}")
 
@@ -6420,6 +6467,8 @@ def procesar_excel_proveedores_db(df):
             cursor.close()
         if conn:
             conn.close()
+
+
 
 def renderizar_tab_asientos_automatizados(db_connection):
     st.subheader("🤖 Asientos Automatizados (Comprobantes Contables)")
