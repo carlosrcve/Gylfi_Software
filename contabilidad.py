@@ -4965,7 +4965,10 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                 else:
                     conn = conectar_db(db_nombre)
                     try:
-                        cursor = conn.cursor(dictionary=True)
+                        # CORREGIDO PARA PYMYSQL: Usamos cursorclass DictCursor en lugar de dictionary=True
+                        import pymysql
+                        cursor = conn.cursor(pymysql.cursors.DictCursor)
+                        
                         query_txt = "SELECT * FROM retenciones_iva WHERE E_Emision BETWEEN %s AND %s"
                         cursor.execute(query_txt, (fecha_inicio.strftime('%Y-%m-%d'), fecha_fin.strftime('%Y-%m-%d')))
                         registros_txt = cursor.fetchall()
