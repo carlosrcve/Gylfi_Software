@@ -13547,11 +13547,11 @@ elif sub_opcion == "Estado de Resultados":
                         pdf = PDF()
                         pdf.add_page()
                         for _, row in df_er.iterrows():
-                            pdf.set_font("Arial", 'B' if row['nivel'] <= 2 else '', 8)
-                            indent = "  " * (int(row['nivel']) - 1)
-                            pdf.cell(30, 7, str(row['codigo']), 1)
-                            pdf.cell(110, 7, f"{indent}{row['nombre']}"[:60], 1)
-                            pdf.cell(50, 7, f"{abs(row['Saldo Final']):,.2f}", 1, 1, 'R')
+                              pdf.set_font("Arial", 'B' if row['nivel'] <= 2 else '', 8)
+                              indent = "    " * (int(row['nivel']) - 1)
+                              pdf.cell(30, 7, str(row['codigo']), 1)
+                              pdf.cell(110, 7, f"{indent}{row['nombre']}"[:60], 1)
+                              pdf.cell(50, 7, f"{abs(row['Saldo Final']):,.2f}", 1, 1, 'R')
 
                         # TOTALES EN PDF
                         pdf.set_fill_color(0, 0, 0)
@@ -13561,16 +13561,18 @@ elif sub_opcion == "Estado de Resultados":
                         pdf.cell(140, 10, texto_res, 1, 0, 'R', True)
                         pdf.cell(50, 10, f"{utilidad:,.2f}", 1, 1, 'R', True)
 
-                        pdf_bytes = pdf.output(dest='S').encode('latin-1')
+                        # Conversión directa y segura a bytes
+                        pdf_bytes = bytes(pdf.output())
+                        
                         st.download_button(
                             label="⬇️ Descargar PDF Ahora",
                             data=pdf_bytes,
                             file_name=f"Estado_Resultados_{EMPRESA}.pdf",
                             mime="application/pdf",
                             width='stretch'
-                        )
-                    except Exception as e_pdf:
-                        st.error(f"Error PDF: {e_pdf}")
+                    )
+                except Exception as e_pdf:
+                    st.error(f"Error PDF: {e_pdf}")
 
             else:
                 st.info("No se encontraron movimientos de resultados en este periodo.")
