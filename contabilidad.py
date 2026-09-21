@@ -8989,7 +8989,7 @@ if menu_lateral == "📊 Auditoría Contable":
         nombre_sel = st.session_state.get('CLIENTE_NOMBRE', '')
         modulos_disponibles = [
             "🏠 Inicio", "📂 Plan de Cuentas", "📝 Asientos Contables", 
-            "📖 Mayor Analítico", "📊 Estados Financieros", "📚 Libros Fiscales", "👤 Proveedores"
+            "📖 Mayor Analítico", "📊 Estados Financieros", "📚 Libros Fiscales", "👤 Proveedores","👤 Clientes"
         ]
 
         if "PEDACITO" in str(nombre_sel).upper() and "CIELO" in str(nombre_sel).upper():
@@ -15975,7 +15975,408 @@ elif "Proveedores" in opcion_menu:
             except Exception:
                 pass
 
+elif "Clientes" in opcion_menu:
+    st.title("👤 Gestión de Directorio de Clientes")
+    
+    # 0. ASEGURAR QUE db_actual ESTÉ DEFINIDA
+    db_actual = st.session_state.get('DB_ACTUAL')
+    
+    if not db_actual or db_actual == 'none':
+        st.warning("⚠️ Por favor, seleccione un Cliente/Empresa en el panel lateral.")
+        st.stop()
 
+    # 1. Obtenemos la conexión
+    conn_empresa = conectar_db(db_actual)
+    
+    try:
+        # DEFINICIÓN ESTRICTA DE TABS (4 PESTAÑAS)
+        tab1, tab2, tab3, tab4 = st.tabs([
+            "📥 Cargar desde Excel", 
+            "📋 Directorio Actual", 
+            "📥 Bandeja Clientes PDF",
+            "🗑️ Gestión / Eliminar Tabla"
+        ])
+        
+        # 3. Lógica de Pestaña 1
+        with tab1:
+            st.markdown("### Subir Archivo Masivo de Clientes")
+            file_c = st.file_uploader("Seleccione el archivo Excel", type=["xlsx"], key="file_cli_up")
+                
+            if file_c:
+                # Leemos el excel completo asegurando que no queden espacios vacíos raros
+                df_subida = pd.read_excel(file_c)
+                
+                # Limpiamos filas completamente vacías por si el Excel tiene basura abajo
+                df_subida = df_subida.dropna(how='all')
+                
+                st.write(f"Vista previa (Total de filas detectadas en el archivo: {len(df_subida)}):")
+                
+                # Mostramos la tabla con scroll vertical amplio para que puedas verlas todas
+                st.dataframe(df_subida, use_container_width=True, height=450)
+                
+                if st.button("🚀 Procesar y Guardar", type="primary", key="btn_procesar_excel_cli"):
+                    procesar_excel_clientes_db(df_subida)
+                    
+                    # 💡 IMPORTANTE: Borramos el caché para forzar que la pestaña 2 recargue de la BD
+                    if "df_clientes_cache" in st.session_state:
+                        del st.session_state.df_clientes_cache
+                        
+                    st.success("✅ ¡Actualizado y sincronizado!")
+                    st.balloons()
+
+        # 4. Lógica de Pestaña 2
+        with tab2:
+            st.markdown("### 📋 Directorio Actual de Clientes")
+            
+            # 1. Asegurar conexión activa y fresca de forma segura para PyMySQL
+            db_actual = st.session_state.get('DB_ACTUAL')
+            
+            if 'conn_empresa' not in locals() or conn_empresa is None:
+                conn_empresa = conectar_db(db_actual)
+            else:
+                # Verificamos si la conexión sigue abierta usando .open (propiedad de PyMySQL)
+                is_open = getattr(conn_empresa, 'open', False)
+                if not is_open:
+                    conn_empresa = conectar_db(db_actual)
+
+            # 2. Autoverificación de columnas de manera independiente y segura para clientes_comerciales
+            if conn_empresa:
+                try:
+                    with conn_empresa.cursor() as cursor_check:
+                        cursor_check.execute("SHOW COLUMNS FROM clientes_comerciales LIKE 'codigo_cuenta'")
+                        if not cursor_check.fetchone():
+                            cursor_check.execute("ALTER TABLE clientes_comerciales ADD COLUMN codigo_cuenta VARCHAR(50) DEFAULT ''")
+                            conn_empresa.commit()
+                        
+                        cursor_check.execute("SHOW COLUMNS FROM clientes_comerciales LIKE 'descripcion_cuenta'")
+                        if not cursor_check.fetchone():
+                            cursor_check.execute("ALTER TABLE clientes_comerciales ADD COLUMN descripcion_cuenta VARCHAR(255) DEFAULT ''")
+                            conn_empresa.commit()
+                except Exception as ex_alter:
+                    st.warning(f"Aviso de estructura: {ex_alter}")
+
+            # 3. Consulta de datos fresca
+            columnas_reales = ["rif", "tipo_persona", "razon_social", "direccion_fiscal", "codigo_cuenta", "descripcion_cuenta"]
+            df_temp = consultar_tabla_db(conn_empresa, "clientes_comerciales")
+            
+            if df_temp is None or not isinstance(df_temp, pd.DataFrame) or df_temp.empty:
+                df_para_mostrar = pd.DataFrame(columns=columnas_reales)
+            else:
+                df_para_mostrar = df_temp.copy()
+                for col in columnas_reales:
+                    if col not in df_para_mostrar.columns:
+                        df_para_mostrar[col] = ""
+
+            for col in df_para_mostrar.columns:
+                df_para_mostrar[col] = df_para_mostrar[col].astype(str).replace(['None', 'nan', 'NAT'], '')
+
+            # 4. Editor de datos interactivo
+            df_editado = st.data_editor(
+                df_para_mostrar, 
+                key="editor_clientes_dinamico", 
+                num_rows="dynamic",
+                use_container_width=True,
+                hide_index=True,
+                height=450,
+                column_config={
+                    "rif": st.column_config.TextColumn("RIF", required=True),
+                    "tipo_persona": st.column_config.SelectboxColumn("Tipo", options=["PN", "PJ"], required=True),
+                    "razon_social": st.column_config.TextColumn("Razón Social", required=True),
+                    "direccion_fiscal": st.column_config.TextColumn("Dirección Fiscal", required=True),
+                    "codigo_cuenta": st.column_config.TextColumn("Código Cuenta"),
+                    "descripcion_cuenta": st.column_config.TextColumn("Descripción Cuenta")
+                }
+            )
+            
+            # Botones de acción
+            col_b1, col_b2 = st.columns(2)
+            with col_b1:
+                if st.button("💾 Guardar Todo en BD", key="btn_guardar_clientes", use_container_width=True):
+                    try:
+                        actualizar_tabla_completa_db(conn_empresa, "clientes_comerciales", df_editado)
+                        st.success("¡Directorio de clientes actualizado con éxito!")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"❌ Error al guardar: {e}")
+
+            with col_b2:
+                if st.button("🔄 Recargar desde BD", key="btn_recargar_clientes", use_container_width=True):
+                    st.rerun()
+
+        # 5. Zona de respaldo
+        st.markdown("---") 
+        if not df_para_mostrar.empty:
+            import io
+            output = io.BytesIO()
+            with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                df_para_mostrar.to_excel(writer, index=False, sheet_name='Clientes')
+            st.download_button(
+                "📥 Descargar Respaldo de Clientes", 
+                data=output.getvalue(), 
+                file_name="Respaldo_Clientes.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+
+        # ------------------------------------------
+        # TAB 3: Bandeja Clientes PDF (Cola masiva)
+        # ------------------------------------------
+        with tab3:
+            st.subheader("📥 Bandeja de Entrada - Registro Masivo de Clientes (PDF)")
+            st.info("Arrastra o selecciona múltiples documentos de clientes en PDF. El sistema extraerá automáticamente el RIF, la Razón Social y la Dirección Fiscal.")
+
+            # Inicializamos la cola y el registro de IDs en session_state si no existen
+            if "cola_clientes_pdfs" not in st.session_state:
+                st.session_state.cola_clientes_pdfs = []
+            if "cli_procesados_ids" not in st.session_state:
+                st.session_state.cli_procesados_ids = set()
+            if "datos_cli_extraidos" not in st.session_state:
+                st.session_state.datos_cli_extraidos = {}
+
+            # 1. Subida múltiple de archivos PDF para clientes
+            archivos_cli_pdf = st.file_uploader(
+                "Sube tus documentos de clientes en PDF", 
+                type=['pdf'], 
+                accept_multiple_files=True,
+                key="uploader_cli_pdf_cola"
+            )
+
+            # Añadir a la cola evitando duplicados
+            if archivos_cli_pdf:
+                nombres_existentes_cli = [item['nombre'] for item in st.session_state.cola_clientes_pdfs]
+                for archivo in archivos_cli_pdf:
+                    file_id = getattr(archivo, "file_id", archivo.name)
+                    if archivo.name not in nombres_existentes_cli and file_id not in st.session_state.cli_procesados_ids:
+                        st.session_state.cola_clientes_pdfs.append({
+                            "id": file_id,
+                            "nombre": archivo.name,
+                            "objeto": archivo,
+                            "estado": "Pendiente"
+                        })
+
+            # 2. Visualización de la cola actual de clientes
+            if st.session_state.cola_clientes_pdfs:
+                st.markdown(f"### 📋 Cola de Clientes ({len(st.session_state.cola_clientes_pdfs)} en espera)")
+                
+                # Botón para limpiar toda la cola de clientes
+                if st.button("🗑️ Vaciar Cola de Clientes", key="btn_vaciar_cola_cli"):
+                    st.session_state.cola_clientes_pdfs = []
+                    st.session_state.cli_procesados_ids = set()
+                    st.session_state.datos_cli_extraidos = {}
+                    st.rerun()
+
+                # Mostrar listado rápido en tabla
+                import pandas as pd
+                df_cola_cli = pd.DataFrame([{
+                    "Archivo": item["nombre"], 
+                    "Estado": item["estado"]
+                } for item in st.session_state.cola_clientes_pdfs])
+                
+                st.dataframe(df_cola_cli, use_container_width=True)
+                st.markdown("---")
+
+                # ==========================================
+                # 3. AUDITORÍA Y REGISTRO INDIVIDUAL DE CLIENTE
+                # ==========================================
+                st.markdown("### 📝 Auditoría, Extracción y Registro en la Tabla de Clientes")
+                
+                docs_cli_pendientes = [item for item in st.session_state.cola_clientes_pdfs if item["estado"] == "Pendiente"]
+                
+                if docs_cli_pendientes:
+                    nombres_cli_pendientes = [item["nombre"] for item in docs_cli_pendientes]
+                    doc_cli_seleccionado = st.selectbox(
+                        "Selecciona un cliente pendiente para revisar y registrar:", 
+                        nombres_cli_pendientes,
+                        key="select_doc_cli_auditoria"
+                    )
+
+                    # Encontrar el objeto correspondiente
+                    doc_cli_obj = next((item for item in docs_cli_pendientes if item["nombre"] == doc_cli_seleccionado), None)
+
+                    if doc_cli_obj:
+                        sufijo_cli = doc_cli_obj['nombre']
+
+                        # Asegurar que las keys dinámicas existan en session_state desde el inicio
+                        keys_defaults_cli = {
+                            f"rif_cli_{sufijo_cli}": "",
+                            f"razon_cli_{sufijo_cli}": "",
+                            f"dir_cli_{sufijo_cli}": "",
+                            f"tipo_cli_{sufijo_cli}": "Jurídica",
+                            f"cc_cli_{sufijo_cli}": "",
+                            f"dc_cli_{sufijo_cli}": ""
+                        }
+                        for k, v in keys_defaults_cli.items():
+                            if k not in st.session_state:
+                                st.session_state[k] = v
+
+                        # Botón para disparar la extracción local llamando a la función específica
+                        if st.button("⚡ Extraer Datos del Cliente", key=f"btn_extraer_cli_{sufijo_cli}"):
+                            with st.spinner("Leyendo RIF, Razón Social y Dirección del PDF..."):
+                                archivo_pdf = doc_cli_obj["objeto"]
+                                
+                                if hasattr(archivo_pdf, "seek"):
+                                    archivo_pdf.seek(0)
+                                    
+                                # Extracción usando la función inteligente (puedes cambiar a tu función de extracción de clientes si la tienes separada)
+                                datos_cliente = extraer_datos_cliente_pdf(archivo_pdf)
+
+                                if datos_cliente is None:
+                                    st.warning("⚠️ El documento no pudo ser leído correctamente ni por texto nativo ni por OCR. Por favor, completa los datos manualmente.")
+                                    st.session_state[f"rif_cli_{sufijo_cli}"] = ""
+                                    st.session_state[f"razon_cli_{sufijo_cli}"] = ""
+                                    st.session_state[f"dir_cli_{sufijo_cli}"] = ""
+                                else:
+                                    st.session_state[f"rif_cli_{sufijo_cli}"] = datos_cliente.get("rif", "")
+                                    st.session_state[f"razon_cli_{sufijo_cli}"] = datos_cliente.get("cliente", "")
+                                    st.session_state[f"dir_cli_{sufijo_cli}"] = datos_cliente.get("direccion_fiscal", "")
+                                    st.success(f"¡Datos extraídos con éxito para: {datos_cliente['cliente']}!")
+                                    st.rerun()
+
+                        st.info(f"Completando información para el archivo: **{sufijo_cli}**")
+                        
+                        # Campos de entrada estructurados
+                        col_i1, col_i2 = st.columns(2)
+                        
+                        with col_i1:
+                            rif = st.text_input("RIF", key=f"rif_cli_{sufijo_cli}")
+                            tipo_persona = st.selectbox(
+                                "Tipo de Persona", 
+                                options=["PN", "PJ", "No Residente", "Gobierno"],
+                                index=1,
+                                key=f"tipo_cli_{sufijo_cli}"
+                            )
+                            razon_social = st.text_input("Razón Social", key=f"razon_cli_{sufijo_cli}")
+                        
+                        with col_i2:
+                            direccion_fiscal = st.text_area("Dirección Fiscal", key=f"dir_cli_{sufijo_cli}")
+                            codigo_cuenta = st.text_input("Código de Cuenta Contable", key=f"cc_cli_{sufijo_cli}")
+                            descripcion_cuenta = st.text_input("Descripción de Cuenta", key=f"dc_cli_{sufijo_cli}")
+
+                        # Botón final para insertar en la tabla 'clientes_comerciales'
+                        if st.button("💾 Guardar Cliente en Base de Datos", type="primary", key=f"btn_guardar_cli_{sufijo_cli}"):
+                            db_nombre = st.session_state.get('DB_ACTUAL')
+                            if not db_nombre:
+                                st.error("Error: No se ha seleccionado una base de datos activa.")
+                            else:
+                                conn = conectar_db(db_nombre)
+                                if conn is None:
+                                    st.error(f"❌ No se pudo conectar a la base de datos '{db_nombre}'.")
+                                else:
+                                    try:
+                                        cursor = conn.cursor()
+                                        
+                                        query_cli = """
+                                            INSERT INTO clientes_comerciales (
+                                                rif, tipo_persona, razon_social, 
+                                                direccion_fiscal, codigo_cuenta, descripcion_cuenta
+                                            ) VALUES (%s, %s, %s, %s, %s, %s)
+                                            ON DUPLICATE KEY UPDATE
+                                                tipo_persona = VALUES(tipo_persona),
+                                                razon_social = VALUES(razon_social),
+                                                direccion_fiscal = VALUES(direccion_fiscal),
+                                                codigo_cuenta = VALUES(codigo_cuenta),
+                                                descripcion_cuenta = VALUES(descripcion_cuenta)
+                                        """
+                                        
+                                        valores_cli = (
+                                            rif, tipo_persona, razon_social,
+                                            direccion_fiscal, codigo_cuenta, descripcion_cuenta
+                                        )
+                                        
+                                        cursor.execute(query_cli, valores_cli)
+                                        conn.commit()
+                                        cursor.close()
+                                        
+                                        # Actualizar estado en la cola local
+                                        for item in st.session_state.cola_clientes_pdfs:
+                                            if item["nombre"] == doc_cli_obj["nombre"]:
+                                                item["estado"] = "Registrado"
+                                                st.session_state.cli_procesados_ids.add(item["id"])
+                                                break
+                                                
+                                        st.success(f"¡Cliente '{razon_social}' (RIF: {rif}) guardado correctamente!")
+                                        st.rerun()
+                                        
+                                    except Exception as e:
+                                        st.error(f"Error al registrar el cliente en la base de datos: {e}")
+                                    finally:
+                                        if conn and hasattr(conn, 'close'):
+                                            conn.close()
+                else:
+                    st.success("🎉 ¡Todos los clientes en la cola ya han sido procesados y registrados!")
+
+            else:
+                st.info("No hay archivos en la cola de clientes. Sube algunos PDFs arriba para comenzar.")
+
+        # 5. Lógica de Pestaña 4 (Gestión y borrado seguro de clientes_comerciales)
+        with tab4:
+            st.subheader("⚠️ Zona de Peligro: Gestión de la Tabla Clientes")
+            st.warning("Esta acción eliminará por completo los registros de la tabla de clientes comerciales para la empresa seleccionada actualmente.")
+            
+            if "mensaje_exito_clientes" in st.session_state:
+                st.success(st.session_state.mensaje_exito_clientes)
+
+            confirmacion_borrado = st.checkbox(
+                "Confirmo que deseo vaciar/eliminar la tabla de clientes comerciales de esta empresa", 
+                key="check_confirm_drop_cli_seguro"
+            )
+            
+            if st.button("🗑️ Ejecutar Borrado de Clientes", type="primary", key="btn_ejecutar_borrado_cli"):
+                if confirmacion_borrado:
+                    db_seleccionada = st.session_state.get('DB_ACTUAL')
+                    
+                    if not db_seleccionada or db_seleccionada == 'none':
+                        st.error("❌ No hay ninguna empresa/base de datos activa seleccionada en el panel lateral.")
+                    else:
+                        conn_gestion = None
+                        try:
+                            conn_gestion = conectar_db(db_seleccionada)
+                            
+                            if conn_gestion is None:
+                                st.error(f"❌ No se pudo establecer conexión con la base de datos: {db_seleccionada}")
+                            else:
+                                cursor = conn_gestion.cursor()
+                                
+                                # Ejecutar la eliminación y recreación de la tabla correcta
+                                cursor.execute("DROP TABLE IF EXISTS clientes_comerciales;")
+                                cursor.execute("""
+                                    CREATE TABLE clientes_comerciales (
+                                        rif VARCHAR(50) NOT NULL PRIMARY KEY,
+                                        tipo_persona VARCHAR(50) NOT NULL,
+                                        razon_social VARCHAR(255) NOT NULL,
+                                        direccion_fiscal TEXT NOT NULL,
+                                        codigo_cuenta VARCHAR(100) DEFAULT '',
+                                        descripcion_cuenta VARCHAR(255) DEFAULT ''
+                                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+                                """)
+                                
+                                conn_gestion.commit()
+                                cursor.close()
+                                
+                                if "df_clientes_cache" in st.session_state:
+                                    del st.session_state.df_clientes_cache
+                                    
+                                st.balloons()
+                                
+                                mensaje_exito = f"🎉 ¡La tabla de clientes comerciales de la base de datos '{db_seleccionada}' ha sido ELIMINADA satisfactoriamente con éxito!"
+                                st.session_state.mensaje_exito_clientes = mensaje_exito
+                                
+                                st.rerun()
+                                
+                        except Exception as e:
+                            st.error(f"❌ Error crítico al procesar la BD '{db_seleccionada}': {e}")
+                        finally:
+                            if conn_gestion and hasattr(conn_gestion, 'close'):
+                                conn_gestion.close()
+                else:
+                    st.warning("⚠️ Debes marcar la casilla de confirmación antes de ejecutar el borrado.")
+          
+    finally:
+        # 6. Cierre de conexión garantizado
+        if conn_empresa:
+            try:
+                conn_empresa.close()
+            except Exception:
+                pass
 
 elif "Inventarios" in opcion_menu:
     # Invocamos el módulo exclusivo pasando la conexión a la base de datos
