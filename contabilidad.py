@@ -13266,6 +13266,7 @@ elif sub_opcion == "Balance General":
                 )
 
                 # --- PDF ---
+                # --- PDF ---
                 if col_pdf.button("📄 Generar PDF Profesional", width='stretch', type="primary"):
                     try:
                         from fpdf import FPDF
@@ -13293,9 +13294,14 @@ elif sub_opcion == "Balance General":
                         pdf.add_page()
                         for _, row in df_bg.iterrows():
                             pdf.set_font("Arial", 'B' if row['nivel'] <= 2 else '', 8)
-                            indent = "  " * (int(row['nivel']) - 1)
-                            pdf.cell(30, 7, str(row['codigo']), 1)
-                            pdf.cell(110, 7, f"{indent}{row['nombre']}"[:60], 1)
+                            indent = "    " * (int(row['nivel']) - 1)
+                            
+                            # Limpieza opcional de caracteres especiales en el código o nombre
+                            cod_str = str(row['codigo']).replace('Σ', 'TOTAL')
+                            nombre_str = f"{indent}{row['nombre']}"[:60]
+
+                            pdf.cell(30, 7, cod_str, 1)
+                            pdf.cell(110, 7, nombre_str, 1)
                             pdf.cell(50, 7, f"{abs(row['Saldo Final']):,.2f}", 1, 1, 'R')
 
                         # Franja de validación en PDF
@@ -13306,7 +13312,9 @@ elif sub_opcion == "Balance General":
                         pdf.cell(140, 10, "TOTAL ECUACIÓN PATRIMONIAL (ACT - PAS - PAT)", 1, 0, 'R', True)
                         pdf.cell(50, 10, f"{total_verificacion:,.2f}", 1, 1, 'R', True)
 
-                        pdf_bytes = pdf.output(dest='S').encode('latin-1')
+                        # Conversión segura a bytes nativos compatibles con st.download_button
+                        pdf_bytes = bytes(pdf.output())
+                        
                         st.download_button(
                             label="⬇️ Descargar PDF Ahora",
                             data=pdf_bytes,
