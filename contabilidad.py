@@ -13509,8 +13509,13 @@ elif sub_opcion == "Estado de Resultados":
 
                 # --- EXCEL ---
                 output_er = io.BytesIO()
+                
+                # Seleccionamos y filtramos exclusivamente las columnas visuales del reporte
+                df_excel = df_er[['codigo', 'Cuenta', 'Saldo Final']].copy()
+                df_excel.columns = ['Código', 'Cuenta / Descripción', 'Saldo Final (Bs.)']
+
                 with pd.ExcelWriter(output_er, engine='xlsxwriter') as writer:
-                    df_er.to_excel(writer, index=False, sheet_name='Estado_Resultados')
+                    df_excel.to_excel(writer, index=False, sheet_name='Estado_Resultados')
                 
                 col_ex.download_button(
                     label="📥 Descargar Excel",
