@@ -13075,7 +13075,9 @@ elif sub_opcion == "Balance de Comprobación":
                             pdf.cell(24, 8, f"{t_haber:,.2f}", 1, 0, 'R', True)
                             pdf.cell(24, 8, f"{t_final:,.2f}", 1, 1, 'R', True)
 
-                            pdf_bytes = pdf.output(dest='S').encode('latin-1')
+                            # Generar bytes directamente sin encode('latin-1')
+                            pdf_bytes = pdf.output(dest='S')
+                            
                             st.download_button(
                                 label="⬇️ Descargar PDF Ahora", 
                                 data=pdf_bytes, 
