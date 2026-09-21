@@ -13054,7 +13054,11 @@ elif sub_opcion == "Balance de Comprobación":
                             for _, row in df_display.iterrows():
                                 pdf.set_font("Arial", 'B' if row['nivel'] <= 2 else '', 7)
                                 indent = "  " * (int(row['nivel']) - 1)
-                                pdf.cell(25, 6, str(row['codigo']), 1)
+                                
+                                # Evitar error con caracteres especiales reemplazando 'Σ' si estuviera en la fila
+                                cod_str = str(row['codigo']).replace('Σ', 'TOTAL')
+                                
+                                pdf.cell(25, 6, cod_str, 1)
                                 pdf.cell(70, 6, f"{indent}{row['nombre']}"[:45], 1)
                                 pdf.cell(24, 6, f"{row['Saldo Inicial']:,.2f}", 1, 0, 'R')
                                 pdf.cell(24, 6, f"{row['Debe']:,.2f}", 1, 0, 'R')
