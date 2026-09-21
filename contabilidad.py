@@ -13571,8 +13571,8 @@ elif sub_opcion == "Estado de Resultados":
                             mime="application/pdf",
                             width='stretch'
                     )
-                except Exception as e_pdf:
-                    st.error(f"Error PDF: {e_pdf}")
+                    except Exception as e_pdf:
+                        st.error(f"Error PDF: {e_pdf}")
 
             else:
                 st.info("No se encontraron movimientos de resultados en este periodo.")
