@@ -14043,6 +14043,25 @@ elif opcion_menu == "📚 Libros Fiscales":
                 t4.metric("Total IVA", f_bs(cambios_df['iva_monto'].sum()))
                 st.markdown("---")
                 
+                # --- BOTÓN DE DESCARGA EN EXCEL ---
+                st.markdown("### 📥 Descargar Reporte")
+                import io
+                
+                buffer = io.BytesIO()
+                with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+                    cambios_df.to_excel(writer, index=False, sheet_name='Libro de Compras')
+                buffer.seek(0)
+                
+                st.download_button(
+                    label="📊 Descargar Libro de Compras en Excel",
+                    data=buffer,
+                    file_name="libro_compras_filtrado.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    key="btn_download_excel_compras"
+                )
+                
+                st.markdown("---")
+                
                 # BOTÓN ÚNICO DE GUARDAR
                 if st.button("💾 Guardar todos los cambios en DB", type="primary", key="btn_guardar_final"):
                     db_actual = st.session_state.get('DB_ACTUAL')
@@ -14080,7 +14099,6 @@ elif opcion_menu == "📚 Libros Fiscales":
                                     query_update = f"UPDATE libro_compras SET {set_clause} WHERE id = %s"
                                     
                                     for _, row in df_update.iterrows():
-                                        # Aquí aplicamos limpiar_dato a cada campo
                                         valores = [limpiar_dato(row[c]) for c in cols_update] + [int(row['id'])]
                                         cursor.execute(query_update, tuple(valores))
 
@@ -14091,14 +14109,13 @@ elif opcion_menu == "📚 Libros Fiscales":
                                     placeholders = ", ".join(["%s"] * len(df_insert_final.columns))
                                     query_insert = f"INSERT INTO libro_compras ({cols_insert}) VALUES ({placeholders})"
                                     
-                                    # Aplicamos limpiar_dato a todos los datos de inserción
                                     datos_nuevos = [tuple(limpiar_dato(x) for x in row) for _, row in df_insert_final.iterrows()]
                                     cursor.executemany(query_insert, datos_nuevos)
                                 
                                 conn.commit()
                                 st.balloons()
                                 st.success("✅ ¡Cambios sincronizados correctamente con MySQL!")
-                                st.rerun() # <--- Añade esto para refrescar los datos recién guardados
+                                st.rerun()
                                 
                             except Exception as e:
                                 if conn: conn.rollback()
