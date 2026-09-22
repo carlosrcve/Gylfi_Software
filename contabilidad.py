@@ -13734,14 +13734,16 @@ elif opcion_menu == "📚 Libros Fiscales":
             if "df_ventas_editor" in st.session_state:
                 df_mostrar = st.session_state.df_ventas_editor.copy()
                 
-                # --- 1. TABLA DE CONSULTA (Visualización con formato contable) ---
+                # --- 1. TABLA DE CONSULTA (Visualización con formato contable blindado) ---
                 df_visual = df_mostrar.copy()
                 cols_moneda = ['total_ventas_con_iva', 'ventas_exentas', 'base_imponible', 'debito_fiscal']
+                
                 for col in cols_moneda:
-                    # Formateo visual: 1.234,56
-                    df_visual[col] = df_visual[col].apply(
-                        lambda x: "{:,.2f}".format(x).replace(",", "X").replace(".", ",").replace("X", ".")
-                    )
+                    # BLINDAJE: Solo aplica el formato si la columna realmente existe en el DataFrame
+                    if col in df_visual.columns:
+                        df_visual[col] = df_visual[col].apply(
+                            lambda x: "{:,.2f}".format(x).replace(",", "X").replace(".", ",").replace("X", ".") if pd.notnull(x) else "0,00"
+                        )
                 
                 st.subheader("👁️ Vista de Consulta")
                 st.dataframe(df_visual, width='stretch', hide_index=True)
@@ -13753,7 +13755,6 @@ elif opcion_menu == "📚 Libros Fiscales":
                     # KEY DINÁMICO para evitar el error de duplicados
                     key_editor = f"editor_ventas_{db_actual}"
                     
-                    # Dentro del st.expander...
                     editado_v = st.data_editor(
                         df_mostrar,
                         key=key_editor,
@@ -13775,16 +13776,12 @@ elif opcion_menu == "📚 Libros Fiscales":
                         }
                     )
 
-                # --- 3. IMPORTANTE: USAR EL KEY DINÁMICO PARA GUARDAR ---
-                # Cuando guardes abajo, recuerda que ahora el key es key_editor
-                # Ejemplo: cambios = st.session_state[key_editor]
-
-                # --- 5. SECCIÓN DE TOTALES ---
+                # --- 5. SECCIÓN DE TOTALES (Blindada contra columnas faltantes) ---
                 st.markdown("---")
-                t_ventas = df_mostrar['total_ventas_con_iva'].sum()
-                t_exento = df_mostrar['ventas_exentas'].sum()
-                t_base = df_mostrar['base_imponible'].sum()
-                t_iva = df_mostrar['debito_fiscal'].sum()
+                t_ventas = df_mostrar['total_ventas_con_iva'].sum() if 'total_ventas_con_iva' in df_mostrar.columns else 0.0
+                t_exento = df_mostrar['ventas_exentas'].sum() if 'ventas_exentas' in df_mostrar.columns else 0.0
+                t_base = df_mostrar['base_imponible'].sum() if 'base_imponible' in df_mostrar.columns else 0.0
+                t_iva = df_mostrar['debito_fiscal'].sum() if 'debito_fiscal' in df_mostrar.columns else 0.0
 
                 def f_moneda(v): return f"{v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
@@ -13797,15 +13794,11 @@ elif opcion_menu == "📚 Libros Fiscales":
                 st.markdown("---")
 
                 # --- 6. ACCIONES: DESCARGA Y GUARDADO ---
-                # --- 6. ACCIONES: DESCARGA Y GUARDADO ---
                 col_btn1, col_btn2 = st.columns([1, 1])
 
                 with col_btn1:
                     if "df_ventas_editor" in st.session_state:
-                        # Papi, en vez de usar conn_query, abrimos una conexión nueva solo para la descarga
-                        # Esto elimina el NameError por completo.
                         conn_temp = conectar_db(db_actual)
-                        
                         try:
                             datos_excel = preparar_excel_descarga(df_mostrar, conn_temp)
                             st.download_button(
@@ -13816,7 +13809,6 @@ elif opcion_menu == "📚 Libros Fiscales":
                                 width='stretch'
                             )
                         finally:
-                            # Cerramos la conexión temp inmediatamente después de generar los datos
                             conn_temp.close()
 
                 with col_btn2:
