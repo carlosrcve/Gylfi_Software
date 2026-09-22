@@ -13946,7 +13946,6 @@ elif opcion_menu == "📚 Libros Fiscales":
         tab1, tab2, tab3, tab4, tab5 = tabs
 
         # --- LÓGICA DE NAVEGACIÓN ---
-
         with tab1: # Consultar y Editar
             st.subheader("🔍 Consulta y Edición: Libro de Compras")
             
@@ -14047,6 +14046,9 @@ elif opcion_menu == "📚 Libros Fiscales":
                 st.markdown("### 📥 Descargar Reporte")
                 import io
                 
+                # Construir el nombre del archivo dinámicamente con las fechas seleccionadas
+                nombre_archivo = f"Libro de compras del {desde_c.strftime('%Y-%m-%d')} al {hasta_c.strftime('%Y-%m-%d')}.xlsx"
+                
                 buffer = io.BytesIO()
                 with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
                     cambios_df.to_excel(writer, index=False, sheet_name='Libro de Compras')
@@ -14055,7 +14057,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                 st.download_button(
                     label="📊 Descargar Libro de Compras en Excel",
                     data=buffer,
-                    file_name="libro_compras_filtrado.xlsx",
+                    file_name=nombre_archivo,
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     key="btn_download_excel_compras"
                 )
