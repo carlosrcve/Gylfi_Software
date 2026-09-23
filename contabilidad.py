@@ -12729,7 +12729,7 @@ elif opcion_menu == "📝 Asientos Contables":
             st.warning("⚠️ Por favor, selecciona un Cliente/Empresa primero.")
             st.stop()
 
-        # --- ASEGURAR QUE LA TABLA EXISTA EN MYSQL ---
+        # --- BLINDAJE Y AUTO-CREACIÓN DE LA COLUMNA CARPETA ---
         try:
             conn_alt = conectar_db(db_actual)
             if conn_alt:
@@ -12741,10 +12741,13 @@ elif opcion_menu == "📝 Asientos Contables":
                     AND TABLE_NAME = 'documentos_cloud' 
                     AND COLUMN_NAME = 'carpeta'
                 """)
-                existe = cur_alt.fetchone()[0]
+                resultado = cur_alt.fetchone()
+                existe = resultado[0] if resultado else 0
+                
                 if existe == 0:
                     cur_alt.execute("ALTER TABLE documentos_cloud ADD COLUMN carpeta VARCHAR(150) DEFAULT 'General' AFTER empresa_db")
                     conn_alt.commit()
+                    
                 cur_alt.close()
                 conn_alt.close()
         except Exception as ex_alt:
