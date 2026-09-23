@@ -12729,12 +12729,14 @@ elif opcion_menu == "📝 Asientos Contables":
             st.warning("⚠️ Por favor, selecciona un Cliente/Empresa primero.")
             st.stop()
 
+        import os
+        from datetime import datetime
+
         # --- BLINDAJE Y AUTO-CREACIÓN DE LA COLUMNA CARPETA ---
         try:
             conn_alt = conectar_db(db_actual)
             if conn_alt:
                 cur_alt = conn_alt.cursor()
-                # Verificamos si la columna carpeta ya existe; si no, la añadimos
                 cur_alt.execute("""
                     SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS 
                     WHERE TABLE_SCHEMA = DATABASE() 
@@ -12775,7 +12777,6 @@ elif opcion_menu == "📝 Asientos Contables":
             col_c1, col_c2 = st.columns(2)
             
             with col_c1:
-                # Opción para seleccionar carpeta existente o escribir una nueva
                 modo_carpeta = st.radio("Gestión de Carpeta", ["Seleccionar existente", "Crear nueva carpeta"], horizontal=True)
                 
                 if modo_carpeta == "Crear nueva carpeta":
@@ -12798,7 +12799,6 @@ elif opcion_menu == "📝 Asientos Contables":
 
             if st.button("💾 Guardar en la Carpeta", type="primary"):
                 if archivos_subidos:
-                    # Limpiar nombre de carpeta para evitar errores en rutas de Linux/Windows
                     carpeta_limpia = "".join([c for c in carpeta_activa if c.isalnum() or c in (' ', '_', '-')]).strip()
                     if not carpeta_limpia:
                         carpeta_limpia = "General"
@@ -12815,11 +12815,9 @@ elif opcion_menu == "📝 Asientos Contables":
                             nombre_limpio = f"{timestamp_str}_{archivo.name}"
                             ruta_completa = os.path.join(dir_carpeta_fisica, nombre_limpio)
                             
-                            # Guardar físicamente
                             with open(ruta_completa, "wb") as f:
                                 f.write(archivo.getbuffer())
                             
-                            # Registrar en MySQL incluyendo la carpeta
                             query_insert = """
                                 INSERT INTO documentos_cloud (empresa_db, carpeta, categoria, nombre_archivo, ruta_archivo) 
                                 VALUES (%s, %s, %s, %s, %s)
@@ -12849,7 +12847,6 @@ elif opcion_menu == "📝 Asientos Contables":
                 df_docs = ejecutar_consulta(query_select, conn_doc, params=(str(db_actual),))
                 
                 if df_docs is not None and not df_docs.empty:
-                    # Agrupar visualmente por carpeta
                     carpetas_unicas = df_docs['carpeta'].unique()
                     
                     for carp in carpetas_unicas:
@@ -12863,7 +12860,6 @@ elif opcion_menu == "📝 Asientos Contables":
                                 cols[1].text(f"📂 {row['categoria']}")
                                 cols[2].text(str(row['fecha_subida'])[:10])
                                 
-                                # Botón de descarga directa
                                 if os.path.exists(row['ruta_archivo']):
                                     with open(row['ruta_archivo'], "rb") as file_to_download:
                                         cols[3].download_button(
@@ -12876,7 +12872,6 @@ elif opcion_menu == "📝 Asientos Contables":
                                 else:
                                     cols[3].text("⚠️ No hallado")
                                     
-                                # Botón de eliminación
                                 if cols[4].button("🗑️", key=f"del_{row['id']}"):
                                     try:
                                         if os.path.exists(row['ruta_archivo']):
