@@ -12729,30 +12729,26 @@ elif opcion_menu == "📝 Asientos Contables":
             st.warning("⚠️ Por favor, selecciona un Cliente/Empresa primero.")
             st.stop()
 
-        import os
-        from datetime import datetime
-
         # --- ASEGURAR QUE LA TABLA EXISTA EN MYSQL ---
         try:
-            conn_init = conectar_db(db_actual)
-            if conn_init:
-                cur_init = conn_init.cursor()
-                cur_init.execute("""
-                    CREATE TABLE IF NOT EXISTS documentos_cloud (
-                        id INT AUTO_INCREMENT PRIMARY KEY,
-                        empresa_db VARCHAR(100),
-                        carpeta VARCHAR(150) DEFAULT 'General',
-                        categoria VARCHAR(100),
-                        nombre_archivo VARCHAR(255),
-                        ruta_archivo TEXT,
-                        fecha_subida TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                    )
+            conn_alt = conectar_db(db_actual)
+            if conn_alt:
+                cur_alt = conn_alt.cursor()
+                # Verificamos si la columna carpeta ya existe; si no, la añadimos
+                cur_alt.execute("""
+                    SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS 
+                    WHERE TABLE_SCHEMA = DATABASE() 
+                    AND TABLE_NAME = 'documentos_cloud' 
+                    AND COLUMN_NAME = 'carpeta'
                 """)
-                conn_init.commit()
-                cur_init.close()
-                conn_init.close()
-        except Exception as e:
-            st.warning(f"Nota sobre la tabla documentos_cloud: {e}")
+                existe = cur_alt.fetchone()[0]
+                if existe == 0:
+                    cur_alt.execute("ALTER TABLE documentos_cloud ADD COLUMN carpeta VARCHAR(150) DEFAULT 'General' AFTER empresa_db")
+                    conn_alt.commit()
+                cur_alt.close()
+                conn_alt.close()
+        except Exception as ex_alt:
+            st.warning(f"Aviso de migración de tabla: {ex_alt}")
 
         # Directorio base persistente
         DIRECTORIO_SUBIDAS = "documentos_clientes"
