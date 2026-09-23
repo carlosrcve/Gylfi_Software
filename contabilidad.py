@@ -12853,7 +12853,7 @@ elif opcion_menu == "📝 Asientos Contables":
                     # Agrupar visualmente por carpeta
                     carpetas_unicas = df_docs['carpeta'].unique()
                     
-                    ffor carp in carpetas_unicas:
+                    for carp in carpetas_unicas:
                         num_archivos = len(df_docs[df_docs['carpeta'] == carp])
                         with st.expander(f"📁 Carpeta: {carp} ({num_archivos} archivos)", expanded=True):
                             df_carp = df_docs[df_docs['carpeta'] == carp]
