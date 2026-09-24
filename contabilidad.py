@@ -1,4 +1,4 @@
-     # contabilidad.py
+# contabilidad.py
 import os
 import streamlit as st
 import pymysql
@@ -12129,8 +12129,9 @@ elif opcion_menu == "📝 Asientos Contables":
         tab1, tab2, tab3 = st.tabs(["📂 Directorio de Proveedores", "🧾 Órdenes de Pago (CxP)", "🔗 Conciliación Bancaria"])
         
         with tab1:
-            st.markdown("### 📋 Registro y Directorio de Proveedores")
-            # --- BLINDAJE DE TABLA PROVEEDORES_CARGA ---
+            st.markdown("### 📋 Registro y Configuración de Proveedores (Tesorería)")
+        
+            # --- BLINDAJE Y CREACIÓN DE LA TABLA NUEVA 'proveedores_carga' ---
             try:
                 conn_p = conectar_db(db_actual)
                 if conn_p:
@@ -12141,6 +12142,8 @@ elif opcion_menu == "📝 Asientos Contables":
                             empresa_db VARCHAR(100) NOT NULL,
                             nombre VARCHAR(200) NOT NULL,
                             rif VARCHAR(50) NOT NULL,
+                            codigo_cuenta VARCHAR(50),
+                            descripcion_cuenta VARCHAR(255),
                             telefono VARCHAR(50),
                             email VARCHAR(100),
                             banco VARCHAR(100),
@@ -12154,25 +12157,68 @@ elif opcion_menu == "📝 Asientos Contables":
                     cur_p.close()
                     conn_p.close()
             except Exception as ex_prov:
-                st.warning(f"Aviso en tabla proveedores: {ex_prov}")
+                st.warning(f"Aviso en tabla proveedores_carga: {ex_prov}")
 
-            # --- FORMULARIO DE REGISTRO ---
-            with st.form("form_nuevo_proveedor", clear_on_submit=True):
+            # --- CARGAR DATOS DESDE LA TABLA HISTÓRICA 'proveedores' ---
+            lista_maestros = []
+            dict_maestros = {}
+            try:
+                conn_m = conectar_db(db_actual)
+                if conn_m:
+                    # Extraemos los datos solicitados de la tabla antigua/maestra 'proveedores'
+                    df_maestro = ejecutar_consulta("SELECT rif, razon_social, codigo_cuenta, descripcion_cuenta FROM proveedores", conn_m)
+                    conn_m.close()
+                    if df_maestro is not None and not df_maestro.empty:
+                        for _, row in df_maestro.iterrows():
+                            label_m = f"{row['razon_social']} (RIF: {row['rif']})"
+                            lista_maestros.append(label_m)
+                            dict_maestros[label_m] = {
+                                "razon_social": row['razon_social'] or "",
+                                "rif": row['rif'] or "",
+                                "codigo_cuenta": row.get('codigo_cuenta', '') or "",
+                                "descripcion_cuenta": row.get('descripcion_cuenta', '') or ""
+                            }
+            except Exception as e:
+                st.info("ℹ️ La tabla histórica 'proveedores' no devolvió registros o no existe en esta base de datos.")
+
+            # --- FORMULARIO DE REGISTRO HACIA 'proveedores_carga' ---
+            with st.form("form_nuevo_proveedor_carga", clear_on_submit=True):
                 col_p1, col_p2 = st.columns(2)
                 
                 with col_p1:
-                    nombre_prov = st.text_input("Nombre / Razón Social del Proveedor").strip()
-                    rif_prov = st.text_input("RIF o Documento de Identidad (ej: J-12345678-9)").strip()
+                    st.markdown("#### 🏢 Datos Maestros (Desde la tabla 'proveedores')")
+                    if lista_maestros:
+                        # Menú desplegable alimentado por la tabla histórica 'proveedores'
+                        prov_seleccionado = st.selectbox("Seleccionar Proveedor Registrado", lista_maestros)
+                        
+                        # Autocompletar variables con los datos de la selección
+                        datos_sel = dict_maestros.get(prov_seleccionado, {})
+                        nombre_prov = datos_sel.get("razon_social", "")
+                        rif_prov = datos_sel.get("rif", "")
+                        cod_cuenta_prov = datos_sel.get("codigo_cuenta", "")
+                        desc_cuenta_prov = datos_sel.get("descripcion_cuenta", "")
+                        
+                        # Mostrar de forma clara al usuario qué cuenta contable trae asociada
+                        st.info(f"📌 **Cuenta Contable:** `{cod_cuenta_prov}` - {desc_cuenta_prov}")
+                    else:
+                        st.warning("⚠️ No se encontraron registros en la tabla 'proveedores'. Ingresa los datos manualmente.")
+                        nombre_prov = st.text_input("Nombre / Razón Social del Proveedor").strip()
+                        rif_prov = st.text_input("RIF o Documento de Identidad (ej: J-12345678-9)").strip()
+                        cod_cuenta_prov = st.text_input("Código de Cuenta Contable").strip()
+                        desc_cuenta_prov = st.text_input("Descripción de Cuenta Contable").strip()
+
                     telefono_prov = st.text_input("Teléfono de Contacto").strip()
                     email_prov = st.text_input("Correo Electrónico").strip()
                     
                 with col_p2:
+                    st.markdown("#### 🏦 Datos Bancarios y Destino")
                     banco_prov = st.selectbox("Banco Destino", ["Banesco", "Mercantil", "Provincial", "BOD / 100% Banco", "Banco de Venezuela", "BNC", "Otros / Extranjero"])
                     nro_cuenta_prov = st.text_input("Número de Cuenta (20 dígitos)").strip()
                     tipo_cuenta_prov = st.selectbox("Tipo de Cuenta", ["Corriente", "Ahorro", "Divisas"])
                     
-                btn_guardar_prov = st.form_submit_button("💾 Guardar Proveedor", type="primary")
+                btn_guardar_prov = st.form_submit_button("💾 Guardar en Tabla Proveedores Carga", type="primary")
                 
+                # --- ACCIÓN DE GUARDADO EXCLUSIVA EN 'proveedores_carga' ---
                 if btn_guardar_prov:
                     if nombre_prov and rif_prov:
                         try:
@@ -12180,36 +12226,48 @@ elif opcion_menu == "📝 Asientos Contables":
                             cursor_ins = conn_ins.cursor() if conn_ins else None
                             if cursor_ins:
                                 query_ins = """
-                                    INSERT INTO proveedores_carga (empresa_db, nombre, rif, telefono, email, banco, nro_cuenta, tipo_cuenta)
-                                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                                    INSERT INTO proveedores_carga 
+                                    (empresa_db, nombre, rif, codigo_cuenta, descripcion_cuenta, telefono, email, banco, nro_cuenta, tipo_cuenta)
+                                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                                 """
-                                cursor_ins.execute(query_ins, (str(db_actual), nombre_prov, rif_prov, telefono_prov, email_prov, banco_prov, nro_cuenta_prov, tipo_cuenta_prov))
+                                cursor_ins.execute(query_ins, (
+                                    str(db_actual), 
+                                    nombre_prov, 
+                                    rif_prov, 
+                                    cod_cuenta_prov, 
+                                    desc_cuenta_prov, 
+                                    telefono_prov, 
+                                    email_prov, 
+                                    banco_prov, 
+                                    nro_cuenta_prov, 
+                                    tipo_cuenta_prov
+                                ))
                                 conn_ins.commit()
                                 cursor_ins.close()
                                 conn_ins.close()
-                                st.success(f"✅ ¡Proveedor '{nombre_prov}' registrado con éxito!")
+                                st.success(f"✅ ¡Proveedor '{nombre_prov}' guardado con éxito en la tabla `proveedores_carga`!")
                                 st.rerun()
                         except Exception as e:
-                            st.error(f"❌ Error al guardar el proveedor: {e}")
+                            st.error(f"❌ Error al guardar en `proveedores_carga`: {e}")
                     else:
-                        st.warning("⚠️ El Nombre y el RIF son obligatorios para registrar al proveedor.")
+                        st.warning("⚠️ Debe existir un nombre y un RIF válido para procesar el registro.")
 
             st.divider()
 
-            # --- LISTADO DE PROVEEDORES REGISTRADOS ---
-            st.markdown("### 🗂️ Proveedores Activos")
+            # --- LISTADO DE LA TABLA 'proveedores_carga' ---
+            st.markdown("### 🗂️ Proveedores Almacenados en `proveedores_carga`")
             try:
                 conn_list = conectar_db(db_actual)
                 if conn_list:
-                    df_prov = ejecutar_consulta("SELECT id, nombre, rif, telefono, banco, nro_cuenta FROM proveedores_carga WHERE empresa_db = %s ORDER BY nombre ASC", conn_list, params=(str(db_actual),))
+                    df_prov = ejecutar_consulta("SELECT id, nombre, rif, codigo_cuenta, descripcion_cuenta, banco, nro_cuenta FROM proveedores_carga WHERE empresa_db = %s ORDER BY nombre ASC", conn_list, params=(str(db_actual),))
                     conn_list.close()
                     
                     if df_prov is not None and not df_prov.empty:
                         st.dataframe(df_prov, use_container_width=True, hide_index=True)
                     else:
-                        st.info("ℹ️ No hay proveedores registrados todavía para esta empresa.")
+                        st.info("ℹ️ La tabla `proveedores_carga` está vacía para esta empresa actualmente.")
             except Exception as e:
-                st.error(f"Error al cargar la lista de proveedores: {e}")
+                st.error(f"Error al cargar la lista: {e}")
             
         with tab2:
             st.markdown("### 🧾 Gestión y Generación de Órdenes de Pago")
@@ -16750,5 +16808,3 @@ elif "Clientes" in opcion_menu:
 elif "Inventarios" in opcion_menu:
     # Invocamos el módulo exclusivo pasando la conexión a la base de datos
     modulo_inventario_pedacito_cielo(conn)  
-               
-
