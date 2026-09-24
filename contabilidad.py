@@ -11136,14 +11136,14 @@ elif opcion_menu == "📝 Asientos Contables":
         if 'DB_ACTUAL' in st.session_state and st.session_state['DB_ACTUAL']:
             db_nombre = st.session_state['DB_ACTUAL']
             tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
-    "📖 Ver Libro Diario", 
-    "📤 Importar Excel", 
-    "🗑️ Vaciar Asiento de Diarios",
-    "🤖 Asientos Costos Automatizados",
-    "📈 Asientos Ingresos Automatizados", 
-    "🔗 Matching Asientos Contables",
-    "⚙️ Gastos y Comisiones Banco"  # 👈 Nueva pestaña 7 añadida
-])
+                "📖 Ver Libro Diario", 
+                "📤 Importar Excel", 
+                "🗑️ Vaciar Asiento de Diarios",
+                "🤖 Asientos Costos Automatizados",
+                "📈 Asientos Ingresos Automatizados", 
+                "🔗 Matching Asientos Contables",
+                "⚙️ Gastos y Comisiones Banco"  # 👈 Nueva pestaña 7 añadida
+            ])
 
             def exportar_a_excel(df):
                 output = io.BytesIO()
