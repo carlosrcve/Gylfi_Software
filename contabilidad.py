@@ -12508,7 +12508,7 @@ elif opcion_menu == "📝 Asientos Contables":
                     else:
                         st.info("🎉 ¡Excelente! No hay órdenes de pago pendientes por conciliar. Todas están al día frente al banco.")
 
-                    # 2. Historial de Pagos Conciliados y Reporte Global
+                    # 2. Historial de Pagos Conciliados y Reporte Global (En Excel)
                     st.divider()
                     st.markdown("### 📜 Historial de Pagos Conciliados (Reporte para Auditoría)")
                     query_conciliados = """
@@ -12523,11 +12523,19 @@ elif opcion_menu == "📝 Asientos Contables":
 
                     if df_conciliados is not None and not df_conciliados.empty:
                         st.dataframe(df_conciliados, use_container_width=True, hide_index=True)
+                        
+                        # --- CONVERSIÓN A EXCEL (.xlsx) USANDO IO.BYTESIO ---
+                        import io
+                        output_excel = io.BytesIO()
+                        with pd.ExcelWriter(output_excel, engine='openpyxl') as writer:
+                            df_conciliados.to_excel(writer, index=False, sheet_name='Pagos Conciliados')
+                        excel_data = output_excel.getvalue()
+                        
                         st.download_button(
-                            label="📥 Descargar Reporte de Pagos Conciliados (CSV)",
-                            data=df_conciliados.to_csv(index=False).encode('utf-8'),
-                            file_name=f"reporte_pagos_conciliados_{db_actual}.csv",
-                            mime="text/csv"
+                            label="📥 Descargar Reporte de Pagos Conciliados (Excel)",
+                            data=excel_data,
+                            file_name=f"reporte_pagos_conciliados_{db_actual}.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                         )
                     else:
                         st.info("ℹ️ Aún no hay pagos conciliados registrados en el historial.")
