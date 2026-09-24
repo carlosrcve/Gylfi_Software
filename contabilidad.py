@@ -12543,29 +12543,73 @@ elif opcion_menu == "📝 Asientos Contables":
                 st.error(f"Error en el módulo de conciliación: {e}")
 
         with tab4:
-            st.markdown("### ✏️ Modificar o Eliminar Registros Específicos")
-            st.markdown("Selecciona qué tabla deseas administrar para corregir datos o borrar registros erróneos.")
+            st.markdown("### ✏️ Modificar y Actualizar Registros")
+            st.markdown("Selecciona el registro que deseas corregir o actualizar campo por campo, o elimínalo si es necesario.")
             
-            sub_gestion = st.radio("Elige la tabla a administrar:", ["Proveedores Carga", "Órdenes de Pago"], horizontal=True)
+            sub_gestion = st.radio("Elige la tabla a administrar:", ["Proveedores Carga", "Órdenes de Pago"], horizontal=True, key="radio_gestion_tab4")
             
             if sub_gestion == "Proveedores Carga":
-                st.markdown("#### 🏢 Administrar Proveedores de Carga")
+                st.markdown("#### 🏢 Editar / Actualizar Proveedor de Carga")
                 try:
                     conn_ed1 = conectar_db(db_actual)
                     if conn_ed1:
-                        df_pc = ejecutar_consulta("SELECT id, nombre, rif, banco, nro_cuenta FROM proveedores_carga WHERE empresa_db = %s", conn_ed1, params=(str(db_actual),))
+                        df_pc = ejecutar_consulta("SELECT id, empresa_db, nombre, rif, codigo_cuenta, descripcion_cuenta, telefono, email, banco, nro_cuenta, tipo_cuenta FROM proveedores_carga WHERE empresa_db = %s", conn_ed1, params=(str(db_actual),))
                         conn_ed1.close()
                         
                         if df_pc is not None and not df_pc.empty:
-                            dict_pc = {f"ID: {r['id']} - {r['nombre']} (RIF: {r['rif']})": r['id'] for _, r in df_pc.iterrows()}
-                            sel_pc_label = st.selectbox("Selecciona el Proveedor a gestionar", list(dict_pc.keys()), key="sel_pc_edit")
-                            id_pc_sel = dict_pc[sel_pc_label]
+                            dict_pc = {f"ID: {r['id']} - {r['nombre']} (RIF: {r['rif']})": r for _, r in df_pc.iterrows()}
+                            sel_pc_label = st.selectbox("Selecciona el Proveedor a modificar", list(dict_pc.keys()), key="sel_pc_edit_full")
                             
-                            col_e1, col_e2 = st.columns(2)
-                            with col_e1:
-                                if st.button("🗑️ Eliminar este Proveedor", type="secondary", key="btn_del_pc"):
-                                    conn_del = conectar_db(db_actual)
-                                    if conn_del:
+                            # Datos actuales de la fila seleccionada
+                            fila_pc = dict_pc[sel_pc_label]
+                            id_pc_sel = fila_pc['id']
+                            
+                            with st.form("form_editar_proveedor_carga"):
+                                st.markdown(f"**Modificando el registro ID:** `{id_pc_sel}`")
+                                
+                                col_ed1, col_ed2 = st.columns(2)
+                                with col_ed1:
+                                    nuevo_nombre = st.text_input("Razón Social / Nombre", value=fila_pc['nombre'] or "").strip()
+                                    nuevo_rif = st.text_input("RIF", value=fila_pc['rif'] or "").strip()
+                                    nuevo_tel = st.text_input("Teléfono", value=fila_pc['telefono'] or "").strip()
+                                    nuevo_email = st.text_input("Correo Electrónico", value=fila_pc['email'] or "").strip()
+                                    
+                                with col_ed2:
+                                    nuevo_banco = st.selectbox("Banco Destino", ["Banesco", "Mercantil", "Provincial", "BOD / 100% Banco", "Banco de Venezuela", "BNC", "Otros / Extranjero"], index=0 if not fila_pc['banco'] else ["Banesco", "Mercantil", "Provincial", "BOD / 100% Banco", "Banco de Venezuela", "BNC", "Otros / Extranjero"].index(fila_pc['banco']) if fila_pc['banco'] in ["Banesco", "Mercantil", "Provincial", "BOD / 100% Banco", "Banco de Venezuela", "BNC", "Otros / Extranjero"] else 0)
+                                    nueva_cuenta = st.text_input("Número de Cuenta", value=fila_pc['nro_cuenta'] or "").strip()
+                                    nuevo_tipo_cta = st.selectbox("Tipo de Cuenta", ["Corriente", "Ahorro", "Divisas"], index=0 if not fila_pc['tipo_cuenta'] else ["Corriente", "Ahorro", "Divisas"].index(fila_pc['tipo_cuenta']) if fila_pc['tipo_cuenta'] in ["Corriente", "Ahorro", "Divisas"] else 0)
+                                    nuevo_cod_cta = st.text_input("Código Cuenta Contable", value=fila_pc['codigo_cuenta'] or "").strip()
+                                
+                                col_btn1, col_btn2 = st.columns(2)
+                                with col_btn1:
+                                    btn_actualizar_pc = st.form_submit_button("💾 Actualizar Toda la Línea", type="primary")
+                                with col_btn2:
+                                    btn_eliminar_pc = st.form_submit_button("🗑️ Eliminar este Registro", type="secondary")
+                                    
+                                if btn_actualizar_pc:
+                                    if nuevo_nombre and nuevo_rif:
+                                        try:
+                                            conn_up = conectar_db(db_actual)
+                                            cur_up = conn_up.cursor()
+                                            query_update_pc = """
+                                                UPDATE proveedores_carga 
+                                                SET nombre = %s, rif = %s, telefono = %s, email = %s, banco = %s, nro_cuenta = %s, tipo_cuenta = %s, codigo_cuenta = %s
+                                                WHERE id = %s AND empresa_db = %s
+                                            """
+                                            cur_up.execute(query_update_pc, (nuevo_nombre, nuevo_rif, nuevo_tel, nuevo_email, nuevo_banco, nueva_cuenta, nuevo_tipo_cta, nuevo_cod_cta, id_pc_sel, str(db_actual)))
+                                            conn_up.commit()
+                                            cur_up.close()
+                                            conn_up.close()
+                                            st.success("✅ ¡Proveedor actualizado con éxito!")
+                                            st.rerun()
+                                        except Exception as ex_up:
+                                            st.error(f"❌ Error al actualizar: {ex_up}")
+                                    else:
+                                        st.warning("⚠️ El nombre y el RIF no pueden estar vacíos.")
+                                        
+                                if btn_eliminar_pc:
+                                    try:
+                                        conn_del = conectar_db(db_actual)
                                         cur_d = conn_del.cursor()
                                         cur_d.execute("DELETE FROM proveedores_carga WHERE id = %s AND empresa_db = %s", (id_pc_sel, str(db_actual)))
                                         conn_del.commit()
@@ -12573,38 +12617,80 @@ elif opcion_menu == "📝 Asientos Contables":
                                         conn_del.close()
                                         st.success("🗑️ Proveedor eliminado con éxito.")
                                         st.rerun()
-                            with col_e2:
-                                st.info("ℹ️ Para modificar datos, puedes eliminar el registro y volverlo a crear en la Pestaña 1 de forma limpia.")
+                                    except Exception as ex_del:
+                                        st.error(f"❌ Error al eliminar: {ex_del}")
                         else:
                             st.info("No hay proveedores registrados para modificar.")
                 except Exception as e:
                     st.error(f"Error en gestión de proveedores: {e}")
                     
             else:
-                st.markdown("#### 🧾 Administrar Órdenes de Pago")
+                st.markdown("#### 🧾 Editar / Actualizar Órdenes de Pago")
                 try:
                     conn_ed2 = conectar_db(db_actual)
                     if conn_ed2:
-                        df_op_edit = ejecutar_consulta("SELECT id, nro_factura, monto_neto, estado FROM ordenes_pago WHERE empresa_db = %s", conn_ed2, params=(str(db_actual),))
+                        df_op_edit = ejecutar_consulta("SELECT id, nro_factura, monto_bruto, retencion_islr, retencion_iva, monto_neto, estado, observaciones FROM ordenes_pago WHERE empresa_db = %s", conn_ed2, params=(str(db_actual),))
                         conn_ed2.close()
                         
                         if df_op_edit is not None and not df_op_edit.empty:
-                            dict_ope = {f"ID: {r['id']} - Factura: {r['nro_factura']} (Neto: ${r['monto_neto']:,.2f} - {r['estado']})": r['id'] for _, r in df_op_edit.iterrows()}
-                            sel_ope_label = st.selectbox("Selecciona la Orden de Pago a gestionar", list(dict_ope.keys()), key="sel_ope_edit")
-                            id_ope_sel = dict_ope[sel_ope_label]
+                            dict_ope = {f"ID: {r['id']} - Factura: {r['nro_factura']} (Neto: ${r['monto_neto']:,.2f} - {r['estado']})": r for _, r in df_op_edit.iterrows()}
+                            sel_ope_label = st.selectbox("Selecciona la Orden de Pago a modificar", list(dict_ope.keys()), key="sel_ope_edit_full")
                             
-                            col_eo1, col_eo2 = st.columns(2)
-                            with col_eo1:
-                                if st.button("🗑️ Eliminar esta Orden de Pago", type="secondary", key="btn_del_ope"):
-                                    conn_del_op = conectar_db(db_actual)
-                                    if conn_del_op:
-                                        cur_do = conn_del_op.cursor()
-                                        cur_do.execute("DELETE FROM ordenes_pago WHERE id = %s AND empresa_db = %s", (id_ope_sel, str(db_actual)))
-                                        conn_del_op.commit()
-                                        cur_do.close()
-                                        conn_del_op.close()
+                            fila_ope = dict_ope[sel_ope_label]
+                            id_ope_sel = fila_ope['id']
+                            
+                            with st.form("form_editar_orden_pago"):
+                                st.markdown(f"**Modificando la Orden ID:** `{id_ope_sel}`")
+                                
+                                col_eo1, col_eo2 = st.columns(2)
+                                with col_eo1:
+                                    nuevo_nro_fact = st.text_input("Número de Factura", value=fila_ope['nro_factura'] or "").strip()
+                                    nuevo_monto_bruto = st.number_input("Monto Bruto", value=float(fila_ope['monto_bruto']), min_value=0.00, step=100.00, format="%.2f")
+                                with col_eo2:
+                                    nueva_ret_islr = st.number_input("Retención ISLR", value=float(fila_ope['retencion_islr']), min_value=0.00, step=10.00, format="%.2f")
+                                    nueva_ret_iva = st.number_input("Retención IVA", value=float(fila_ope['retencion_iva']), min_value=0.00, step=10.00, format="%.2f")
+                                
+                                nuevo_neto_calc = nuevo_monto_bruto - nueva_ret_islr - nueva_ret_iva
+                                st.info(f"💵 **Nuevo Monto Neto Calculado:** ${nuevo_neto_calc:,.2f}")
+                                
+                                nuevas_obs = st.text_area("Observaciones", value=fila_ope['observaciones'] or "").strip()
+                                
+                                col_bop1, col_bop2 = st.columns(2)
+                                with col_bop1:
+                                    btn_act_op = st.form_submit_button("💾 Actualizar Orden de Pago", type="primary")
+                                with col_bop2:
+                                    btn_del_op = st.form_submit_button("🗑️ Eliminar Orden", type="secondary")
+                                    
+                                if btn_act_op:
+                                    try:
+                                        conn_uop = conectar_db(db_actual)
+                                        cur_uop = conn_uop.cursor()
+                                        query_up_op = """
+                                            UPDATE ordenes_pago 
+                                            SET nro_factura = %s, monto_bruto = %s, retencion_islr = %s, retencion_iva = %s, monto_neto = %s, observaciones = %s
+                                            WHERE id = %s AND empresa_db = %s
+                                        """
+                                        cur_uop.execute(query_up_op, (nuevo_nro_fact, nuevo_monto_bruto, nueva_ret_islr, nueva_ret_iva, nuevo_neto_calc, nuevas_obs, id_ope_sel, str(db_actual)))
+                                        conn_uop.commit()
+                                        cur_uop.close()
+                                        conn_uop.close()
+                                        st.success("✅ ¡Orden de pago actualizada con éxito!")
+                                        st.rerun()
+                                    except Exception as ex_uop:
+                                        st.error(f"❌ Error al actualizar la orden: {ex_uop}")
+                                        
+                                if btn_del_op:
+                                    try:
+                                        conn_dop = conectar_db(db_actual)
+                                        cur_dop = conn_dop.cursor()
+                                        cur_dop.execute("DELETE FROM ordenes_pago WHERE id = %s AND empresa_db = %s", (id_ope_sel, str(db_actual)))
+                                        conn_dop.commit()
+                                        cur_dop.close()
+                                        conn_dop.close()
                                         st.success("🗑️ Orden de pago eliminada con éxito.")
                                         st.rerun()
+                                    except Exception as ex_dop:
+                                        st.error(f"❌ Error al eliminar la orden: {ex_op_del}")
                         else:
                             st.info("No hay órdenes de pago registradas para administrar.")
                 except Exception as e:
