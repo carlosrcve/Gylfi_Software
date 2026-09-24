@@ -1,4 +1,4 @@
-# contabilidad.py
+     # contabilidad.py
 import os
 import streamlit as st
 import pymysql
@@ -8999,7 +8999,7 @@ if menu_lateral == "📊 Auditoría Contable":
         st.session_state['opcion_menu_auditoria'] = opcion_menu
 
         if opcion_menu == "📝 Asientos Contables":
-            sub_opcion = st.radio("Acciones:", ["Subir Datos", "Conciliación Bancaria", "Consultar Comprobante", "Consultar Saldos Iniciales", "Consultar Cierre Contable","Gestor Documental"], key="sub_asientos")
+            sub_opcion = st.radio("Acciones:", ["Subir Datos", "Conciliación Bancaria","Tesorería y Proveedores", "Consultar Comprobante", "Consultar Saldos Iniciales", "Consultar Cierre Contable","Gestor Documental"], key="sub_asientos")
         elif opcion_menu == "📊 Estados Financieros":
             st.markdown("---")
             sub_opcion = st.radio("Reportes Financieros:", ["Balance de Comprobación", "Balance General", "Estado de Resultados"], key="sub_estados")
@@ -12120,6 +12120,312 @@ elif opcion_menu == "📝 Asientos Contables":
                             st.error("❌ Error de conexión con la base de datos.")
                     except Exception as e:
                         st.error(f"❌ Error crítico al procesar la solicitud: {e}")
+
+
+    elif sub_opcion == "Tesorería y Proveedores":
+        st.subheader("💳 Módulo de Tesorería y Cruce con Proveedores")
+        
+        # Pestañas internas para ordenar la interfaz y no saturar
+        tab1, tab2, tab3 = st.tabs(["📂 Directorio de Proveedores", "🧾 Órdenes de Pago (CxP)", "🔗 Conciliación Bancaria"])
+        
+        with tab1:
+            st.markdown("### 📋 Registro y Directorio de Proveedores")
+            # --- BLINDAJE DE TABLA PROVEEDORES_CARGA ---
+            try:
+                conn_p = conectar_db(db_actual)
+                if conn_p:
+                    cur_p = conn_p.cursor()
+                    cur_p.execute("""
+                        CREATE TABLE IF NOT EXISTS proveedores_carga (
+                            id INT AUTO_INCREMENT PRIMARY KEY,
+                            empresa_db VARCHAR(100) NOT NULL,
+                            nombre VARCHAR(200) NOT NULL,
+                            rif VARCHAR(50) NOT NULL,
+                            telefono VARCHAR(50),
+                            email VARCHAR(100),
+                            banco VARCHAR(100),
+                            nro_cuenta VARCHAR(100),
+                            tipo_cuenta VARCHAR(50),
+                            fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                            INDEX (empresa_db)
+                        )
+                    """)
+                    conn_p.commit()
+                    cur_p.close()
+                    conn_p.close()
+            except Exception as ex_prov:
+                st.warning(f"Aviso en tabla proveedores: {ex_prov}")
+
+            # --- FORMULARIO DE REGISTRO ---
+            with st.form("form_nuevo_proveedor", clear_on_submit=True):
+                col_p1, col_p2 = st.columns(2)
+                
+                with col_p1:
+                    nombre_prov = st.text_input("Nombre / Razón Social del Proveedor").strip()
+                    rif_prov = st.text_input("RIF o Documento de Identidad (ej: J-12345678-9)").strip()
+                    telefono_prov = st.text_input("Teléfono de Contacto").strip()
+                    email_prov = st.text_input("Correo Electrónico").strip()
+                    
+                with col_p2:
+                    banco_prov = st.selectbox("Banco Destino", ["Banesco", "Mercantil", "Provincial", "BOD / 100% Banco", "Banco de Venezuela", "BNC", "Otros / Extranjero"])
+                    nro_cuenta_prov = st.text_input("Número de Cuenta (20 dígitos)").strip()
+                    tipo_cuenta_prov = st.selectbox("Tipo de Cuenta", ["Corriente", "Ahorro", "Divisas"])
+                    
+                btn_guardar_prov = st.form_submit_button("💾 Guardar Proveedor", type="primary")
+                
+                if btn_guardar_prov:
+                    if nombre_prov and rif_prov:
+                        try:
+                            conn_ins = conectar_db(db_actual)
+                            cursor_ins = conn_ins.cursor() if conn_ins else None
+                            if cursor_ins:
+                                query_ins = """
+                                    INSERT INTO proveedores_carga (empresa_db, nombre, rif, telefono, email, banco, nro_cuenta, tipo_cuenta)
+                                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                                """
+                                cursor_ins.execute(query_ins, (str(db_actual), nombre_prov, rif_prov, telefono_prov, email_prov, banco_prov, nro_cuenta_prov, tipo_cuenta_prov))
+                                conn_ins.commit()
+                                cursor_ins.close()
+                                conn_ins.close()
+                                st.success(f"✅ ¡Proveedor '{nombre_prov}' registrado con éxito!")
+                                st.rerun()
+                        except Exception as e:
+                            st.error(f"❌ Error al guardar el proveedor: {e}")
+                    else:
+                        st.warning("⚠️ El Nombre y el RIF son obligatorios para registrar al proveedor.")
+
+            st.divider()
+
+            # --- LISTADO DE PROVEEDORES REGISTRADOS ---
+            st.markdown("### 🗂️ Proveedores Activos")
+            try:
+                conn_list = conectar_db(db_actual)
+                if conn_list:
+                    df_prov = ejecutar_consulta("SELECT id, nombre, rif, telefono, banco, nro_cuenta FROM proveedores_carga WHERE empresa_db = %s ORDER BY nombre ASC", conn_list, params=(str(db_actual),))
+                    conn_list.close()
+                    
+                    if df_prov is not None and not df_prov.empty:
+                        st.dataframe(df_prov, use_container_width=True, hide_index=True)
+                    else:
+                        st.info("ℹ️ No hay proveedores registrados todavía para esta empresa.")
+            except Exception as e:
+                st.error(f"Error al cargar la lista de proveedores: {e}")
+            
+        with tab2:
+            st.markdown("### 🧾 Gestión y Generación de Órdenes de Pago")
+            # --- BLINDAJE DE TABLA ORDENES DE PAGO ---
+            try:
+                conn_op_tb = conectar_db(db_actual)
+                if conn_op_tb:
+                    cur_op_tb = conn_op_tb.cursor()
+                    cur_op_tb.execute("""
+                        CREATE TABLE IF NOT EXISTS ordenes_pago (
+                            id INT AUTO_INCREMENT PRIMARY KEY,
+                            empresa_db VARCHAR(100) NOT NULL,
+                            proveedor_id INT NOT NULL,
+                            nro_factura VARCHAR(100) NOT NULL,
+                            monto_bruto DECIMAL(18, 2) NOT NULL,
+                            retencion_islr DECIMAL(18, 2) DEFAULT 0.00,
+                            retencion_iva DECIMAL(18, 2) DEFAULT 0.00,
+                            monto_neto DECIMAL(18, 2) NOT NULL,
+                            referencia_banco VARCHAR(100) DEFAULT NULL,
+                            estado VARCHAR(50) DEFAULT 'Pendiente',
+                            fecha_emision DATE,
+                            fecha_pago DATE DEFAULT NULL,
+                            observaciones TEXT,
+                            fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                            INDEX (empresa_db)
+                        )
+                    """)
+                    conn_op_tb.commit()
+                    cur_op_tb.close()
+                    conn_op_tb.close()
+            except Exception as ex_op_tb:
+                st.warning(f"Aviso en tabla ordenes_pago: {ex_op_tb}")
+
+            # --- CARGAR PROVEEDORES PARA EL SELECTBOX ---
+            lista_provs = []
+            dict_provs = {}
+            try:
+                conn_cp = conectar_db(db_actual)
+                if conn_cp:
+                    df_cp = ejecutar_consulta("SELECT id, nombre, rif FROM proveedores_carga WHERE empresa_db = %s ORDER BY nombre ASC", conn_cp, params=(str(db_actual),))
+                    conn_cp.close()
+                    if df_cp is not None and not df_cp.empty:
+                        for _, row in df_cp.iterrows():
+                            label_p = f"{row['nombre']} (RIF: {row['rif']})"
+                            lista_provs.append(label_p)
+                            dict_provs[label_p] = row['id']
+            except Exception as e:
+                st.error(f"Error cargando proveedores: {e}")
+
+            if not lista_provs:
+                st.warning("⚠️ Primero debes registrar al menos un proveedor en la Pestaña 1 para poder emitir órdenes de pago.")
+            else:
+                with st.form("form_nueva_orden_pago", clear_on_submit=True):
+                    st.markdown("#### Emitir Nueva Orden de Pago / Cruce")
+                    
+                    col_op1, col_op2 = st.columns(2)
+                    
+                    with col_op1:
+                        prov_seleccionado = st.selectbox("Seleccionar Proveedor", lista_provs)
+                        nro_factura_op = st.text_input("Número de Factura del Proveedor").strip()
+                        fecha_emision_op = st.date_input("Fecha de Emisión de la Factura")
+                        
+                    with col_op2:
+                        monto_bruto_op = st.number_input("Monto Bruto de la Factura ($ / Bs)", min_value=0.00, step=100.00, format="%.2f")
+                        ret_islr_op = st.number_input("Menos: Retención ISLR", min_value=0.00, step=10.00, format="%.2f")
+                        ret_iva_op = st.number_input("Menos: Retención IVA", min_value=0.00, step=10.00, format="%.2f")
+                    
+                    # Cálculo automático en tiempo real visual (informativo)
+                    monto_neto_calculado = monto_bruto_op - ret_islr_op - ret_iva_op
+                    st.info(f"💵 **Monto Neto Real a Pagar (Transferencia):** {monto_neto_calculado:,.2f}")
+                    
+                    observaciones_op = st.text_area("Observaciones o Concepto del Pago").strip()
+                    
+                    btn_generar_op = st.form_submit_button("🚀 Generar Orden de Pago", type="primary")
+                    
+                    if btn_generar_op:
+                        if nro_factura_op and monto_bruto_op > 0:
+                            id_proveedor_real = dict_provs.get(prov_seleccionado)
+                            try:
+                                conn_ins_op = conectar_db(db_actual)
+                                cursor_ins_op = conn_ins_op.cursor() if conn_ins_op else None
+                                if cursor_ins_op:
+                                    query_op = """
+                                        INSERT INTO ordenes_pago (empresa_db, proveedor_id, nro_factura, monto_bruto, retencion_islr, retencion_iva, monto_neto, fecha_emision, observaciones, estado)
+                                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'Pendiente')
+                                    """
+                                    cursor_ins_op.execute(query_op, (
+                                        str(db_actual), 
+                                        id_proveedor_real, 
+                                        nro_factura_op, 
+                                        monto_bruto_op, 
+                                        ret_islr_op, 
+                                        ret_iva_op, 
+                                        monto_neto_calculado, 
+                                        fecha_emision_op, 
+                                        observaciones_op
+                                    ))
+                                    conn_ins_op.commit()
+                                    cursor_ins_op.close()
+                                    conn_ins_op.close()
+                                    st.success("✅ ¡Orden de pago generada y lista para cruzar con el banco!")
+                                    st.rerun()
+                            except Exception as ex_ins_op:
+                                st.error(f"❌ Error al registrar la orden de pago: {ex_ins_op}")
+                        else:
+                            st.warning("⚠️ Debes indicar el número de factura y un monto bruto válido.")
+
+            st.divider()
+
+            # --- TABLA DE ÓRDENES REGISTRADAS ---
+            st.markdown("### 📊 Historial de Órdenes de Pago (Cuentas por Pagar)")
+            try:
+                conn_list_op = conectar_db(db_actual)
+                if conn_list_op:
+                    query_list_ops = """
+                        SELECT op.id, p.nombre AS proveedor, op.nro_factura, op.monto_bruto, 
+                               op.retencion_islr, op.retencion_iva, op.monto_neto, op.estado, op.fecha_emision
+                        FROM ordenes_pago op
+                        JOIN proveedores_carga p ON op.proveedor_id = p.id
+                        WHERE op.empresa_db = %s
+                        ORDER BY op.id DESC
+                    """
+                    df_ops = ejecutar_consulta(query_list_ops, conn_list_op, params=(str(db_actual),))
+                    conn_list_op.close()
+                    
+                    if df_ops is not None and not df_ops.empty:
+                        st.dataframe(df_ops, use_container_width=True, hide_index=True)
+                    else:
+                        st.info("ℹ️ No hay órdenes de pago registradas todavía.")
+            except Exception as e:
+                st.error(f"Error al cargar el historial de órdenes: {e}")
+            
+        with tab3:
+            st.markdown("### Cruce de Pagos con el Banco (Match)")
+            st.markdown("### 🔗 Conciliación y Cruce de Pagos (Match Bancario)")
+            st.markdown("Cruza las órdenes de pago pendientes con las referencias de los movimientos del banco para cerrar las cuentas.")
+
+            try:
+                conn_match = conectar_db(db_actual)
+                if conn_match:
+                    # 1. Consultar órdenes pendientes
+                    query_pendientes = """
+                        SELECT op.id, p.nombre AS proveedor, op.nro_factura, op.monto_neto, op.fecha_emision, op.estado
+                        FROM ordenes_pago op
+                        JOIN proveedores_carga p ON op.proveedor_id = p.id
+                        WHERE op.empresa_db = %s AND op.estado = 'Pendiente'
+                        ORDER BY op.fecha_emision DESC
+                    """
+                    df_pendientes = ejecutar_consulta(query_pendientes, conn_match, params=(str(db_actual),))
+
+                    if df_pendientes is not None and not df_pendientes.empty:
+                        st.markdown(f"📋 Tienes **{len(df_pendientes)}** orden(es) de pago pendiente(s) de conciliación.")
+                        
+                        # Mostrar tabla de pendientes para referencia visual
+                        st.dataframe(df_pendientes, use_container_width=True, hide_index=True)
+                        
+                        st.divider()
+                        st.markdown("#### ⚡ Realizar el Cruce de Pago (Conciliación)")
+                        
+                        # Selector de orden a conciliar
+                        dict_ops_pend = {}
+                        for _, row in df_pendientes.iterrows():
+                            label_op = f"ID: {row['id']} | Prov: {row['proveedor']} | Factura: {row['nro_factura']} | Neto: ${row['monto_neto']:,.2f}"
+                            dict_ops_pend[label_op] = row['id']
+                        
+                        selected_op_label = st.selectbox("Selecciona la Orden de Pago a Conciliar", list(dict_ops_pend.keys()))
+                        id_op_a_cruzar = dict_ops_pend[selected_op_label]
+                        
+                        col_m1, col_m2 = st.columns(2)
+                        with col_m1:
+                            referencia_bancaria = st.text_input("Número de Referencia Bancaria / Transferencia").strip()
+                        with col_m2:
+                            fecha_pago_real = st.date_input("Fecha en que se efectuó el pago")
+                            
+                        if st.button("🤝 Confirmar Cruce y Conciliar Pago", type="primary"):
+                            if referencia_bancaria:
+                                try:
+                                    cursor_m = conn_match.cursor()
+                                    query_update_match = """
+                                        UPDATE ordenes_pago 
+                                        SET referencia_banco = %s, fecha_pago = %s, estado = 'Conciliado'
+                                        WHERE id = %s AND empresa_db = %s
+                                    """
+                                    cursor_m.execute(query_update_match, (referencia_bancaria, fecha_pago_real, id_op_a_cruzar, str(db_actual)))
+                                    conn_match.commit()
+                                    cursor_m.close()
+                                    
+                                    st.success(f"✅ ¡Pago conciliado con éxito! La orden #{id_op_a_cruzar} ha sido cruzada con la referencia {referencia_bancaria}.")
+                                    st.rerun()
+                                except Exception as ex_m:
+                                    st.error(f"❌ Error al ejecutar el cruce: {ex_m}")
+                            else:
+                                st.warning("⚠️ Debes introducir la referencia bancaria del pago para validar el cruce.")
+                    else:
+                        st.info("🎉 ¡Excelente! No hay órdenes de pago pendientes por conciliar. Todas están al día.")
+
+                    # 2. Historial de Pagos Conciliados
+                    st.divider()
+                    st.markdown("### 📜 Historial de Pagos Conciliados")
+                    query_conciliados = """
+                        SELECT op.id, p.nombre AS proveedor, op.nro_factura, op.monto_neto, op.referencia_banco, op.fecha_pago, op.estado
+                        FROM ordenes_pago op
+                        JOIN proveedores_carga p ON op.proveedor_id = p.id
+                        WHERE op.empresa_db = %s AND op.estado = 'Conciliado'
+                        ORDER BY op.fecha_pago DESC
+                    """
+                    df_conciliados = ejecutar_consulta(query_conciliados, conn_match, params=(str(db_actual),))
+                    conn_match.close()
+
+                    if df_conciliados is not None and not df_conciliados.empty:
+                        st.dataframe(df_conciliados, use_container_width=True, hide_index=True)
+                    else:
+                        st.info("ℹ️ Aún no hay pagos conciliados registrados.")
+
+            except Exception as e:
+                st.error(f"Error en el módulo de conciliación: {e}")
 
 
     elif sub_opcion == "Consultar Comprobante":
@@ -16444,3 +16750,5 @@ elif "Clientes" in opcion_menu:
 elif "Inventarios" in opcion_menu:
     # Invocamos el módulo exclusivo pasando la conexión a la base de datos
     modulo_inventario_pedacito_cielo(conn)  
+               
+
