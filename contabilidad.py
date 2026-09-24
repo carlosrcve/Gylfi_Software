@@ -12153,7 +12153,13 @@ elif opcion_menu == "📝 Asientos Contables":
                             INDEX (empresa_db)
                         )
                     """)
-                    conn_p.commit()
+                    # Por si la tabla ya existía de antes sin el campo rif, aseguramos alterarla si no lo tiene
+                    try:
+                        cur_p.execute("ALTER TABLE proveedores_carga ADD COLUMN rif VARCHAR(50) NOT NULL AFTER nombre;")
+                        conn_p.commit()
+                    except Exception:
+                        pass # Si ya existe el campo, continúa sin problema
+                    
                     cur_p.close()
                     conn_p.close()
             except Exception as ex_prov:
@@ -12165,7 +12171,6 @@ elif opcion_menu == "📝 Asientos Contables":
             try:
                 conn_m = conectar_db(db_actual)
                 if conn_m:
-                    # Extraemos los datos solicitados de la tabla antigua/maestra 'proveedores'
                     df_maestro = ejecutar_consulta("SELECT rif, razon_social, codigo_cuenta, descripcion_cuenta FROM proveedores", conn_m)
                     conn_m.close()
                     if df_maestro is not None and not df_maestro.empty:
@@ -12188,18 +12193,15 @@ elif opcion_menu == "📝 Asientos Contables":
                 with col_p1:
                     st.markdown("#### 🏢 Datos Maestros (Desde la tabla 'proveedores')")
                     if lista_maestros:
-                        # Menú desplegable alimentado por la tabla histórica 'proveedores'
                         prov_seleccionado = st.selectbox("Seleccionar Proveedor Registrado", lista_maestros)
                         
-                        # Autocompletar variables con los datos de la selección
                         datos_sel = dict_maestros.get(prov_seleccionado, {})
                         nombre_prov = datos_sel.get("razon_social", "")
                         rif_prov = datos_sel.get("rif", "")
                         cod_cuenta_prov = datos_sel.get("codigo_cuenta", "")
                         desc_cuenta_prov = datos_sel.get("descripcion_cuenta", "")
                         
-                        # Mostrar de forma clara al usuario qué cuenta contable trae asociada
-                        st.info(f"📌 **Cuenta Contable:** `{cod_cuenta_prov}` - {desc_cuenta_prov}")
+                        st.info(f"📌 **Cuenta Contable:** `{cod_cuenta_prov}` - {desc_cuenta_prov}\n\n🆔 **RIF:** `{rif_prov}`")
                     else:
                         st.warning("⚠️ No se encontraron registros en la tabla 'proveedores'. Ingresa los datos manualmente.")
                         nombre_prov = st.text_input("Nombre / Razón Social del Proveedor").strip()
@@ -12218,7 +12220,6 @@ elif opcion_menu == "📝 Asientos Contables":
                     
                 btn_guardar_prov = st.form_submit_button("💾 Guardar en Tabla Proveedores Carga", type="primary")
                 
-                # --- ACCIÓN DE GUARDADO EXCLUSIVA EN 'proveedores_carga' ---
                 if btn_guardar_prov:
                     if nombre_prov and rif_prov:
                         try:
@@ -12259,6 +12260,7 @@ elif opcion_menu == "📝 Asientos Contables":
             try:
                 conn_list = conectar_db(db_actual)
                 if conn_list:
+                    # Consulta con el campo 'rif' incluido correctamente
                     df_prov = ejecutar_consulta("SELECT id, nombre, rif, codigo_cuenta, descripcion_cuenta, banco, nro_cuenta FROM proveedores_carga WHERE empresa_db = %s ORDER BY nombre ASC", conn_list, params=(str(db_actual),))
                     conn_list.close()
                     
