@@ -8999,7 +8999,7 @@ if menu_lateral == "📊 Auditoría Contable":
         st.session_state['opcion_menu_auditoria'] = opcion_menu
 
         if opcion_menu == "📝 Asientos Contables":
-            sub_opcion = st.radio("Acciones:", ["Inicio","Subir Datos", "Conciliación Bancaria","Tesorería y Proveedores", "Consultar Comprobante", "Consultar Saldos Iniciales", "Consultar Cierre Contable","Gestor Documental"], key="sub_asientos")
+            sub_opcion = st.radio("Acciones:", ["Subir Datos", "Conciliación Bancaria","Tesorería y Proveedores", "Consultar Comprobante", "Consultar Saldos Iniciales", "Consultar Cierre Contable","Gestor Documental"], key="sub_asientos")
         elif opcion_menu == "📊 Estados Financieros":
             st.markdown("---")
             sub_opcion = st.radio("Reportes Financieros:", ["Balance de Comprobación", "Balance General", "Estado de Resultados"], key="sub_estados")
@@ -9027,7 +9027,7 @@ if menu_lateral == "📊 Auditoría Contable":
 if 'df_gastos_c6' in locals() and df_gastos_c6.empty:
     st.sidebar.warning("⚠️ El DataFrame de Gastos C6 está vacío.")
 
-if "🏠 Inicio" in opcion_menu:
+if opcion_menu == "🏠 Inicio":
     # --- INYECCIÓN DE CSS ---
     st.markdown("""<style>
             .block-container { max-width: 100% !important; padding-left: 3rem !important; padding-right: 3rem !important; }
