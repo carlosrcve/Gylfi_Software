@@ -12266,7 +12266,6 @@ elif opcion_menu == "📝 Asientos Contables":
             try:
                 conn_list = conectar_db(db_actual)
                 if conn_list:
-                    # Consulta con el campo 'rif' incluido correctamente
                     df_prov = ejecutar_consulta("SELECT id, nombre, rif, codigo_cuenta, descripcion_cuenta, banco, nro_cuenta FROM proveedores_carga WHERE empresa_db = %s ORDER BY nombre ASC", conn_list, params=(str(db_actual),))
                     conn_list.close()
                     
@@ -12409,7 +12408,6 @@ elif opcion_menu == "📝 Asientos Contables":
                 st.error(f"Error al cargar el historial de órdenes: {e}")
             
         with tab3:
-            st.markdown("### Cruce de Pagos con el Banco (Match)")
             st.markdown("### 🔗 Conciliación y Cruce de Pagos (Match Bancario)")
             st.markdown("Cruza las órdenes de pago pendientes con las referencias de los movimientos del banco para cerrar las cuentas.")
 
@@ -12491,6 +12489,7 @@ elif opcion_menu == "📝 Asientos Contables":
                         st.info("ℹ️ Aún no hay pagos conciliados registrados.")
             except Exception as e:
                 st.error(f"Error en el módulo de conciliación: {e}")
+
         with tab4:
             st.markdown("### ✏️ Modificar o Eliminar Registros Específicos")
             st.markdown("Selecciona qué tabla deseas administrar para corregir datos o borrar registros erróneos.")
@@ -12558,6 +12557,7 @@ elif opcion_menu == "📝 Asientos Contables":
                             st.info("No hay órdenes de pago registradas para administrar.")
                 except Exception as e:
                     st.error(f"Error en gestión de órdenes: {e}")
+
         with tab5:
             st.markdown("### 🗑️ Mantenimiento y Borrado Masivo")
             st.warning("⚠️ **¡ZONA DE PELIGRO!** Las acciones aquí eliminan por completo los registros de las tablas para la empresa actual. Esta acción no se puede deshacer.")
@@ -12602,7 +12602,6 @@ elif opcion_menu == "📝 Asientos Contables":
                         st.error(f"❌ Error al ejecutar el mantenimiento: {ex_maint}")
                 else:
                     st.warning("⚠️ Debes marcar la casilla de confirmación de seguridad para proceder.")
-
 
     elif sub_opcion == "Consultar Comprobante":
         st.subheader("🔍 Buscador de Comprobantes")
