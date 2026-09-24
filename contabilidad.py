@@ -12125,8 +12125,14 @@ elif opcion_menu == "📝 Asientos Contables":
     elif sub_opcion == "Tesorería y Proveedores":
         st.subheader("💳 Módulo de Tesorería y Cruce con Proveedores")
         
-        # Pestañas internas para ordenar la interfaz y no saturar
-        tab1, tab2, tab3 = st.tabs(["📂 Directorio de Proveedores", "🧾 Órdenes de Pago (CxP)", "🔗 Conciliación Bancaria"])
+        # 5 Pestañas organizadas para cubrir todo el ciclo y mantenimiento
+        tab1, tab2, tab3, tab4, tab5 = st.tabs([
+            "📂 Directorio de Proveedores", 
+            "🧾 Órdenes de Pago (CxP)", 
+            "🔗 Conciliación Bancaria", 
+            "✏️ Modificar / Eliminar", 
+            "🗑️ Mantenimiento Masivo"
+        ])
         
         with tab1:
             st.markdown("### 📋 Registro y Configuración de Proveedores (Tesorería)")
@@ -12483,9 +12489,119 @@ elif opcion_menu == "📝 Asientos Contables":
                         st.dataframe(df_conciliados, use_container_width=True, hide_index=True)
                     else:
                         st.info("ℹ️ Aún no hay pagos conciliados registrados.")
-
             except Exception as e:
                 st.error(f"Error en el módulo de conciliación: {e}")
+        with tab4:
+            st.markdown("### ✏️ Modificar o Eliminar Registros Específicos")
+            st.markdown("Selecciona qué tabla deseas administrar para corregir datos o borrar registros erróneos.")
+            
+            sub_gestion = st.radio("Elige la tabla a administrar:", ["Proveedores Carga", "Órdenes de Pago"], horizontal=True)
+            
+            if sub_gestion == "Proveedores Carga":
+                st.markdown("#### 🏢 Administrar Proveedores de Carga")
+                try:
+                    conn_ed1 = conectar_db(db_actual)
+                    if conn_ed1:
+                        df_pc = ejecutar_consulta("SELECT id, nombre, rif, banco, nro_cuenta FROM proveedores_carga WHERE empresa_db = %s", conn_ed1, params=(str(db_actual),))
+                        conn_ed1.close()
+                        
+                        if df_pc is not None and not df_pc.empty:
+                            dict_pc = {f"ID: {r['id']} - {r['nombre']} (RIF: {r['rif']})": r['id'] for _, r in df_pc.iterrows()}
+                            sel_pc_label = st.selectbox("Selecciona el Proveedor a gestionar", list(dict_pc.keys()), key="sel_pc_edit")
+                            id_pc_sel = dict_pc[sel_pc_label]
+                            
+                            col_e1, col_e2 = st.columns(2)
+                            with col_e1:
+                                if st.button("🗑️ Eliminar este Proveedor", type="secondary", key="btn_del_pc"):
+                                    conn_del = conectar_db(db_actual)
+                                    if conn_del:
+                                        cur_d = conn_del.cursor()
+                                        cur_d.execute("DELETE FROM proveedores_carga WHERE id = %s AND empresa_db = %s", (id_pc_sel, str(db_actual)))
+                                        conn_del.commit()
+                                        cur_d.close()
+                                        conn_del.close()
+                                        st.success("🗑️ Proveedor eliminado con éxito.")
+                                        st.rerun()
+                            with col_e2:
+                                st.info("ℹ️ Para modificar datos, puedes eliminar el registro y volverlo a crear en la Pestaña 1 de forma limpia.")
+                        else:
+                            st.info("No hay proveedores registrados para modificar.")
+                except Exception as e:
+                    st.error(f"Error en gestión de proveedores: {e}")
+                    
+            else:
+                st.markdown("#### 🧾 Administrar Órdenes de Pago")
+                try:
+                    conn_ed2 = conectar_db(db_actual)
+                    if conn_ed2:
+                        df_op_edit = ejecutar_consulta("SELECT id, nro_factura, monto_neto, estado FROM ordenes_pago WHERE empresa_db = %s", conn_ed2, params=(str(db_actual),))
+                        conn_ed2.close()
+                        
+                        if df_op_edit is not None and not df_op_edit.empty:
+                            dict_ope = {f"ID: {r['id']} - Factura: {r['nro_factura']} (Neto: ${r['monto_neto']:,.2f} - {r['estado']})": r['id'] for _, r in df_op_edit.iterrows()}
+                            sel_ope_label = st.selectbox("Selecciona la Orden de Pago a gestionar", list(dict_ope.keys()), key="sel_ope_edit")
+                            id_ope_sel = dict_ope[sel_ope_label]
+                            
+                            col_eo1, col_eo2 = st.columns(2)
+                            with col_eo1:
+                                if st.button("🗑️ Eliminar esta Orden de Pago", type="secondary", key="btn_del_ope"):
+                                    conn_del_op = conectar_db(db_actual)
+                                    if conn_del_op:
+                                        cur_do = conn_del_op.cursor()
+                                        cur_do.execute("DELETE FROM ordenes_pago WHERE id = %s AND empresa_db = %s", (id_ope_sel, str(db_actual)))
+                                        conn_del_op.commit()
+                                        cur_do.close()
+                                        conn_del_op.close()
+                                        st.success("🗑️ Orden de pago eliminada con éxito.")
+                                        st.rerun()
+                        else:
+                            st.info("No hay órdenes de pago registradas para administrar.")
+                except Exception as e:
+                    st.error(f"Error en gestión de órdenes: {e}")
+        with tab5:
+            st.markdown("### 🗑️ Mantenimiento y Borrado Masivo")
+            st.warning("⚠️ **¡ZONA DE PELIGRO!** Las acciones aquí eliminan por completo los registros de las tablas para la empresa actual. Esta acción no se puede deshacer.")
+            
+            tipo_borrado = st.selectbox("Selecciona qué deseas limpiar de forma masiva", [
+                "--- Seleccionar opción ---", 
+                "Eliminar todos los Proveedores Carga", 
+                "Eliminar todas las Órdenes de Pago", 
+                "⚠️ ¡Reiniciar TODO el Módulo de Tesorería!"
+            ])
+            
+            confirmar_seguridad = st.checkbox("Confirmo que deseo ejecutar este borrado masivo")
+            
+            if st.button("🔥 Ejecutar Borrado Masivo", type="primary"):
+                if confirmar_seguridad:
+                    try:
+                        conn_maint = conectar_db(db_actual)
+                        if conn_maint:
+                            cur_m = conn_maint.cursor()
+                            
+                            if tipo_borrado == "Eliminar todos los Proveedores Carga":
+                                cur_m.execute("DELETE FROM proveedores_carga WHERE empresa_db = %s", (str(db_actual),))
+                                msg = "Todos los proveedores de carga han sido eliminados."
+                            elif tipo_borrado == "Eliminar todas las Órdenes de Pago":
+                                cur_m.execute("DELETE FROM ordenes_pago WHERE empresa_db = %s", (str(db_actual),))
+                                msg = "Todas las órdenes de pago han sido eliminadas."
+                            elif tipo_borrado == "⚠️ ¡Reiniciar TODO el Módulo de Tesorería!":
+                                cur_m.execute("DELETE FROM proveedores_carga WHERE empresa_db = %s", (str(db_actual),))
+                                cur_m.execute("DELETE FROM ordenes_pago WHERE empresa_db = %s", (str(db_actual),))
+                                msg = "Módulo de tesorería reiniciado por completo."
+                            else:
+                                st.warning("Selecciona una opción válida de borrado.")
+                                msg = None
+                                
+                            if msg:
+                                conn_maint.commit()
+                                cur_m.close()
+                                conn_maint.close()
+                                st.success(f"✅ {msg}")
+                                st.rerun()
+                    except Exception as ex_maint:
+                        st.error(f"❌ Error al ejecutar el mantenimiento: {ex_maint}")
+                else:
+                    st.warning("⚠️ Debes marcar la casilla de confirmación de seguridad para proceder.")
 
 
     elif sub_opcion == "Consultar Comprobante":
