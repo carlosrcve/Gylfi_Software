@@ -13158,6 +13158,23 @@ elif opcion_menu == "📝 Asientos Contables":
             # --- PESTAÑA 1: REGISTRO DE ACTIVOS FIJOS ---
             with t_reg:
                 st.markdown("### 📝 Registrar Nuevo Activo Fijo")
+                
+                # Consultar el plan de cuentas para asociar la codificación contable
+                conn = conectar_db(db_nombre)
+                df_cuentas = pd.DataFrame()
+                if conn:
+                    try:
+                        df_cuentas = pd.read_sql("SELECT codigo, nombre, tipo FROM plan_cuentas", conn)
+                    except Exception as e:
+                        st.warning(f"No se pudo cargar el plan de cuentas: {e}")
+                    finally:
+                        conn.close()
+                
+                # Opciones para selectbox formateadas como "Código - Nombre"
+                opciones_cuentas = []
+                if not df_cuentas.empty:
+                    opciones_cuentas = [f"{row['codigo']} - {row['nombre']}" for _, row in df_cuentas.iterrows()]
+
                 with st.form("form_crear_activo", clear_on_submit=True):
                     col1, col2 = st.columns(2)
                     with col1:
@@ -13166,19 +13183,26 @@ elif opcion_menu == "📝 Asientos Contables":
                         rubro = st.selectbox("Rubro del Activo Fijo", [
                             "Muebles y Enseres", 
                             "Equipos de Computación", 
-                            "Maquinaria y Equipo",
-                            "Equipo Audiovisuales",
+                            "Maquinaria y Equipo", 
                             "Vehículos", 
                             "Edificaciones",
                             "Herramientas"
                         ])
                         fecha_adquisicion = st.date_input("Fecha de Adquisición", value=datetime.today())
                         
+                        # Nuevos campos de codificación contable vinculados al plan de cuentas
+                        st.markdown("#### 🔗 Vinculación Contable")
+                        cta_activo_sel = st.selectbox("Cuenta Contable del Activo", opciones_cuentas if opciones_cuentas else ["Sin cuentas registradas"])
+                        
                     with col2:
-                        costo_activo = st.number_input("Costo del Activo ($)", min_value=0.0, step=100.0, format="%.2f")
-                        valor_residual = st.number_input("Valor Residual / Salvamento ($)", min_value=0.0, step=10.0, format="%.2f", value=0.0)
-                        vida_util_meses = st.number_input("Vida Útil (en meses)", min_value=1, step=12, value=60) # Por defecto 5 años (60 meses)
+                        costo_activo = st.number_input("Costo del Activo", min_value=0.0, step=100.0, format="%.2f")
+                        valor_residual = st.number_input("Valor Residual / Salvamento", min_value=0.0, step=10.0, format="%.2f", value=0.0)
+                        vida_util_meses = st.number_input("Vida Útil (en meses)", min_value=1, step=12, value=60)
                         metodo_depreciacion = st.selectbox("Método de Depreciación", ["Línea Recta"])
+                        
+                        st.markdown("<br>", unsafe_allow_html=True) # Espaciador visual
+                        cta_gasto_sel = st.selectbox("Cuenta de Gasto Depreciación", opciones_cuentas if opciones_cuentas else ["Sin cuentas registradas"])
+                        cta_acum_sel = st.selectbox("Cuenta de Depreciación Acumulada", opciones_cuentas if opciones_cuentas else ["Sin cuentas registradas"])
                     
                     btn_guardar = st.form_submit_button("💾 Guardar Activo Fijo", use_container_width=True)
                     
@@ -13186,22 +13210,29 @@ elif opcion_menu == "📝 Asientos Contables":
                         if not nombre_activo.strip():
                             st.error("❌ El nombre del activo es obligatorio.")
                         else:
+                            # Extraer solo el código contable (ej. "1.01.02" de "1.01.02 - Maquinaria")
+                            cod_activo_db = cta_activo_sel.split(" - ")[0] if " - " in cta_activo_sel else ""
+                            cod_gasto_db = cta_gasto_sel.split(" - ")[0] if " - " in cta_gasto_sel else ""
+                            cod_acum_db = cta_acum_sel.split(" - ")[0] if " - " in cta_acum_sel else ""
+
                             conn = conectar_db(db_nombre)
                             if conn:
                                 try:
                                     cursor = conn.cursor()
+                                    # Asegúrate de que tu tabla 'activo_fijo' tenga las columnas para almacenar estos códigos
                                     query = """
                                         INSERT INTO activo_fijo 
-                                        (codigo_placa, nombre_activo, rubro, fecha_adquisicion, costo_activo, valor_residual, vida_util_meses, metodo_depreciacion)
-                                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                                        (codigo_placa, nombre_activo, rubro, fecha_adquisicion, costo_activo, valor_residual, vida_util_meses, metodo_depreciacion, cuenta_activo, cuenta_gasto, cuenta_acumulada)
+                                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                                     """
                                     cursor.execute(query, (
                                         codigo_placa, nombre_activo, rubro, fecha_adquisicion, 
-                                        costo_activo, valor_residual, vida_util_meses, metodo_depreciacion
+                                        costo_activo, valor_residual, vida_util_meses, metodo_depreciacion,
+                                        cod_activo_db, cod_gasto_db, cod_acum_db
                                     ))
                                     conn.commit()
                                     cursor.close()
-                                    st.success(f"✅ ¡Activo '{nombre_activo}' registrado con éxito!")
+                                    st.success(f"✅ ¡Activo '{nombre_activo}' registrado y vinculado contablemente con éxito!")
                                 except Exception as e:
                                     st.error(f"Error al guardar en la base de datos: {e}")
                                 finally:
