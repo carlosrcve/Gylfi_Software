@@ -13599,7 +13599,7 @@ elif opcion_menu == "📝 Asientos Contables":
             st.markdown("### 🛠️ Gestión y Corrección de Asientos Contables")
             st.markdown("Busque un comprobante registrado (por ejemplo, los de depreciación) para editar sus líneas o eliminar registros erróneos.")
             
-            # Función auxiliar interna para formato contable latino (14.789,58)
+            # Función auxiliar para formato contable latino (14.789,58)
             def formato_moneda_latam(valor):
                 try:
                     if pd.isna(valor):
@@ -13608,6 +13608,19 @@ elif opcion_menu == "📝 Asientos Contables":
                     return s.replace(",", "X").replace(".", ",").replace("X", ".")
                 except:
                     return "0,00"
+
+            # Función inversa para reconvertir texto latino ("7.530,13") a float de Python (7530.13)
+            def parsear_moneda_latam(valor_str):
+                if pd.isna(valor_str):
+                    return 0.0
+                if isinstance(valor_str, (int, float)):
+                    return float(valor_str)
+                try:
+                    # Limpiamos puntos de miles y cambiamos coma decimal por punto
+                    limpio = str(valor_str).replace(".", "").replace(",", ".")
+                    return float(limpio)
+                except:
+                    return 0.0
 
             # 1. Selector de Comprobante a Consultar
             conn = conectar_db(db_nombre)
@@ -13640,38 +13653,48 @@ elif opcion_menu == "📝 Asientos Contables":
                 
                 if not df_lineas_comp.empty:
                     st.markdown(f"#### 📄 Editando Comprobante: `{comp_a_editar}`")
-                    st.info("💡 Puede editar directamente las celdas de la tabla a continuación (como la descripción, cuentas o montos) y luego hacer clic en guardar cambios.")
+                    st.info("💡 Puede editar los valores numéricos usando el formato latino (ej: `7.530,13`) directamente en la tabla.")
                     
-                    # Asegurar formato numérico en el DataFrame antes de pasarlo al editor
-                    if 'debe' in df_lineas_comp.columns:
-                        df_lineas_comp['debe'] = pd.to_numeric(df_lineas_comp['debe'], errors='coerce').fillna(0.0)
-                    if 'haber' in df_lineas_comp.columns:
-                        df_lineas_comp['haber'] = pd.to_numeric(df_lineas_comp['haber'], errors='coerce').fillna(0.0)
+                    # Asegurar formato numérico base y crear copias formateadas en texto para visualización en el editor
+                    df_lineas_comp['debe'] = pd.to_numeric(df_lineas_comp['debe'], errors='coerce').fillna(0.0)
+                    df_lineas_comp['haber'] = pd.to_numeric(df_lineas_comp['haber'], errors='coerce').fillna(0.0)
+                    
+                    # Creamos columnas visuales en formato texto para que el editor las muestre con el punto de miles y coma decimal
+                    df_editor_view = df_lineas_comp.copy()
+                    df_editor_view['Debe'] = df_editor_view['debe'].apply(formato_moneda_latam)
+                    df_editor_view['Haber'] = df_editor_view['haber'].apply(formato_moneda_latam)
+                    
+                    # Ocultamos o removemos las columnas raw originales para dejar espacio a las de texto formateado
+                    df_editor_view = df_editor_view.drop(columns=['debe', 'haber'])
 
-                    # 2. Editor de Datos Interactivo (Data Editor)
-                    df_editado = st.data_editor(
-                        df_lineas_comp,
-                        num_rows="dynamic", # Permite agregar o eliminar filas visualmente si es necesario
+                    # 2. Editor de Datos Interactivo
+                    df_editado_raw = st.data_editor(
+                        df_editor_view,
+                        num_rows="dynamic",
                         use_container_width=True,
                         hide_index=True,
                         key=f"editor_asientos_{comp_a_editar}",
                         column_config={
-                            "id": st.column_config.Column("ID", disabled=True), # El ID no se debe modificar porque es la llave primaria
+                            "id": st.column_config.Column("ID", disabled=True),
                             "n_comprobante": st.column_config.TextColumn("N° Comprobante"),
                             "fecha": st.column_config.DateColumn("Fecha"),
                             "descripcion": st.column_config.TextColumn("Descripción"),
                             "cuenta_contable": st.column_config.TextColumn("Cuenta Contable"),
-                            "debe": st.column_config.NumberColumn("Debe", format="%.2f", min_value=0.0, step=0.01),
-                            "haber": st.column_config.NumberColumn("Haber", format="%.2f", min_value=0.0, step=0.01),
+                            "Debe": st.column_config.TextColumn("Debe (Formato Latam)"),
+                            "Haber": st.column_config.TextColumn("Haber (Formato Latam)"),
                             "bloqueado": st.column_config.CheckboxColumn("Bloqueado")
                         }
                     )
                     
-                    # Verificación rápida de la partida doble en tiempo real con los datos editados
-                    t_debe_ed = df_editado['debe'].sum() if 'debe' in df_editado.columns else 0.0
-                    t_haber_ed = df_editado['haber'].sum() if 'haber' in df_editado.columns else 0.0
+                    # Reconstruimos los valores numéricos reales parseando el texto ingresado por el usuario
+                    df_editado = df_editado_raw.copy()
+                    df_editado['debe'] = df_editado['Debe'].apply(parsear_moneda_latam)
+                    df_editado['haber'] = df_editado['Haber'].apply(parsear_moneda_latam)
                     
-                    # Aplicamos el formato latino (14.789,58) a los totales mostrados en las métricas
+                    # Verificación rápida de la partida doble en tiempo real
+                    t_debe_ed = df_editado['debe'].sum()
+                    t_haber_ed = df_editado['haber'].sum()
+                    
                     col_e1, col_e2, col_e3 = st.columns(3)
                     col_e1.metric("Total Debe Actualizado", formato_moneda_latam(t_debe_ed))
                     col_e2.metric("Total Haber Actualizado", formato_moneda_latam(t_haber_ed))
@@ -13692,19 +13715,20 @@ elif opcion_menu == "📝 Asientos Contables":
                             if conn:
                                 try:
                                     cursor = conn.cursor()
-                                    # Estrategia segura: Actualizamos los registros existentes por su ID y agregamos nuevos si se añadieron filas
                                     ids_actuales_en_bd = df_lineas_comp['id'].tolist()
                                     ids_en_editor = df_editado['id'].dropna().tolist()
                                     
-                                    # 1. Eliminar de la BD las filas que el usuario borró en el editor
+                                    # Eliminar filas borradas
                                     ids_a_eliminar = [i for i in ids_actuales_en_bd if i not in ids_en_editor]
                                     for id_del in ids_a_eliminar:
                                         cursor.execute("DELETE FROM asientos_contables WHERE id = %s", (int(id_del),))
                                     
-                                    # 2. Actualizar o insertar cada fila del editor
+                                    # Actualizar o insertar filas
                                     for _, row in df_editado.iterrows():
+                                        val_debe = float(row.get('debe', 0.0))
+                                        val_haber = float(row.get('haber', 0.0))
+                                        
                                         if pd.isna(row.get('id')) or row['id'] == '':
-                                            # Es una fila nueva añadida
                                             query_ins = """
                                                 INSERT INTO asientos_contables 
                                                 (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber, bloqueado)
@@ -13717,12 +13741,11 @@ elif opcion_menu == "📝 Asientos Contables":
                                                 row.get('plan_cuentas', ''),
                                                 row.get('cuenta_contable', ''),
                                                 row.get('referencia', ''),
-                                                float(row.get('debe', 0.0)),
-                                                float(row.get('haber', 0.0)),
+                                                val_debe,
+                                                val_haber,
                                                 int(row.get('bloqueado', 0))
                                             ))
                                         else:
-                                            # Actualizar fila existente
                                             query_upd = """
                                                 UPDATE asientos_contables SET 
                                                     n_comprobante = %s,
@@ -13743,8 +13766,8 @@ elif opcion_menu == "📝 Asientos Contables":
                                                 row['plan_cuentas'],
                                                 row['cuenta_contable'],
                                                 row['referencia'],
-                                                float(row['debe']),
-                                                float(row['haber']),
+                                                val_debe,
+                                                val_haber,
                                                 int(row.get('bloqueado', 0)),
                                                 int(row['id'])
                                             ))
@@ -13759,7 +13782,6 @@ elif opcion_menu == "📝 Asientos Contables":
                                     conn.close()
                                     
                     with col_bt2:
-                        # Botón de emergencia para borrar todo el comprobante de un solo golpe si estuvo completamente errado
                         if st.button("🗑️ Eliminar Todo este Comprobante", type="secondary", use_container_width=True):
                             conn = conectar_db(db_nombre)
                             if conn:
