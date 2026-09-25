@@ -13595,11 +13595,12 @@ elif opcion_menu == "📝 Asientos Contables":
                             finally:
                                 conn.close()
         # --- PESTAÑA 6: MODIFICAR, EDITAR O ELIMINAR ASIENTOS CONTABLES ---
+        # --- PESTAÑA 6: MODIFICAR, EDITAR O ELIMINAR ASIENTOS CONTABLES ---
         with t_mod:
             st.markdown("### 🛠️ Gestión y Corrección de Asientos Contables")
-            st.markdown("Busque un comprobante registrado (por ejemplo, los de depreciación) para editar sus líneas o eliminar registros erróneos.")
+            st.markdown("Busque un comprobante registrado para editar sus líneas o eliminar registros erróneos.")
             
-            # Función auxiliar para formato contable latino (14.789,58)
+            # Función auxiliar para formato contable latino (7.530,13)
             def formato_moneda_latam(valor):
                 try:
                     if pd.isna(valor):
@@ -13616,7 +13617,6 @@ elif opcion_menu == "📝 Asientos Contables":
                 if isinstance(valor_str, (int, float)):
                     return float(valor_str)
                 try:
-                    # Limpiamos puntos de miles y cambiamos coma decimal por punto
                     limpio = str(valor_str).replace(".", "").replace(",", ".")
                     return float(limpio)
                 except:
@@ -13655,19 +13655,16 @@ elif opcion_menu == "📝 Asientos Contables":
                     st.markdown(f"#### 📄 Editando Comprobante: `{comp_a_editar}`")
                     st.info("💡 Puede editar los valores numéricos usando el formato latino (ej: `7.530,13`) directamente en la tabla.")
                     
-                    # Asegurar formato numérico base y crear copias formateadas en texto para visualización en el editor
+                    # Asegurar formato numérico base
                     df_lineas_comp['debe'] = pd.to_numeric(df_lineas_comp['debe'], errors='coerce').fillna(0.0)
                     df_lineas_comp['haber'] = pd.to_numeric(df_lineas_comp['haber'], errors='coerce').fillna(0.0)
                     
-                    # Creamos columnas visuales en formato texto para que el editor las muestre con el punto de miles y coma decimal
+                    # Creamos una copia para el editor manteniendo los nombres originales 'debe' y 'haber' convertidos a texto
                     df_editor_view = df_lineas_comp.copy()
-                    df_editor_view['Debe'] = df_editor_view['debe'].apply(formato_moneda_latam)
-                    df_editor_view['Haber'] = df_editor_view['haber'].apply(formato_moneda_latam)
-                    
-                    # Ocultamos o removemos las columnas raw originales para dejar espacio a las de texto formateado
-                    df_editor_view = df_editor_view.drop(columns=['debe', 'haber'])
+                    df_editor_view['debe'] = df_editor_view['debe'].apply(formato_moneda_latam)
+                    df_editor_view['haber'] = df_editor_view['haber'].apply(formato_moneda_latam)
 
-                    # 2. Editor de Datos Interactivo
+                    # 2. Editor de Datos Interactivo con encabezados limpios
                     df_editado_raw = st.data_editor(
                         df_editor_view,
                         num_rows="dynamic",
@@ -13680,16 +13677,16 @@ elif opcion_menu == "📝 Asientos Contables":
                             "fecha": st.column_config.DateColumn("Fecha"),
                             "descripcion": st.column_config.TextColumn("Descripción"),
                             "cuenta_contable": st.column_config.TextColumn("Cuenta Contable"),
-                            "Debe": st.column_config.TextColumn("Debe (Formato Latam)"),
-                            "Haber": st.column_config.TextColumn("Haber (Formato Latam)"),
+                            "debe": st.column_config.TextColumn("debe"),
+                            "haber": st.column_config.TextColumn("haber"),
                             "bloqueado": st.column_config.CheckboxColumn("Bloqueado")
                         }
                     )
                     
-                    # Reconstruimos los valores numéricos reales parseando el texto ingresado por el usuario
+                    # Reconstruimos los valores numéricos reales parseando el texto ingresado
                     df_editado = df_editado_raw.copy()
-                    df_editado['debe'] = df_editado['Debe'].apply(parsear_moneda_latam)
-                    df_editado['haber'] = df_editado['Haber'].apply(parsear_moneda_latam)
+                    df_editado['debe'] = df_editado['debe'].apply(parsear_moneda_latam)
+                    df_editado['haber'] = df_editado['haber'].apply(parsear_moneda_latam)
                     
                     # Verificación rápida de la partida doble en tiempo real
                     t_debe_ed = df_editado['debe'].sum()
