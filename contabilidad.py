@@ -13334,8 +13334,13 @@ elif opcion_menu == "📝 Asientos Contables":
                         e_placa = st.text_input("Código de Placa", value=str(activo_actual['codigo_placa']))
                         e_nombre = st.text_input("Nombre del Activo", value=str(activo_actual['nombre_activo']))
                         e_rubro = st.text_input("Rubro", value=str(activo_actual['rubro']))
-                        e_costo = st.number_input("Costo del Activo ($)", value=float(activo_actual['costo_activo']))
-                        e_residual = st.number_input("Valor Residual ($)", value=float(activo_actual['valor_residual']))
+                        
+                        # Convertir la fecha actual de la BD a objeto date para el date_input
+                        fecha_bd = pd.to_datetime(activo_actual['fecha_adquisicion']).date()
+                        e_fecha_adq = st.date_input("Fecha de Adquisición", value=fecha_bd)
+                        
+                        e_costo = st.number_input("Costo del Activo", value=float(activo_actual['costo_activo']))
+                        e_residual = st.number_input("Valor Residual", value=float(activo_actual['valor_residual']))
                         e_vida = st.number_input("Vida Útil (Meses)", value=int(activo_actual['vida_util_meses']))
                         
                         col_btn1, col_btn2 = st.columns(2)
@@ -13349,10 +13354,10 @@ elif opcion_menu == "📝 Asientos Contables":
                                     cursor = conn.cursor()
                                     q_upd = """
                                         UPDATE activo_fijo 
-                                        SET codigo_placa=%s, nombre_activo=%s, rubro=%s, costo_activo=%s, valor_residual=%s, vida_util_meses=%s 
+                                        SET codigo_placa=%s, nombre_activo=%s, rubro=%s, fecha_adquisicion=%s, costo_activo=%s, valor_residual=%s, vida_util_meses=%s 
                                         WHERE id=%s
                                     """
-                                    cursor.execute(q_upd, (e_placa, e_nombre, e_rubro, e_costo, e_residual, e_vida, id_seleccionado))
+                                    cursor.execute(q_upd, (e_placa, e_nombre, e_rubro, e_fecha_adq, e_costo, e_residual, e_vida, id_seleccionado))
                                     conn.commit()
                                     cursor.close()
                                     st.success("✅ ¡Activo actualizado correctamente!")
