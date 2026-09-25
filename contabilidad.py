@@ -2802,12 +2802,12 @@ def consultar_libro_diario_db(conn_activa=None, fecha_inicio=None, fecha_fin=Non
         return pd.DataFrame()
 
     try:
-        # 3. Preparar consulta asegurando el uso de la base de datos correcta
+        # 3. Preparar consulta limpia sin anteponer el esquema (la conexión ya está en esa BD)
         if fecha_inicio and fecha_fin:
-            query = f"SELECT * FROM `{db_a_usar}`.asientos_contables WHERE fecha BETWEEN %s AND %s ORDER BY id ASC"
+            query = "SELECT * FROM asientos_contables WHERE fecha BETWEEN %s AND %s ORDER BY id ASC"
             params = (fecha_inicio, fecha_fin)
         else:
-            query = f"SELECT * FROM `{db_a_usar}`.asientos_contables ORDER BY id ASC"
+            query = "SELECT * FROM asientos_contables ORDER BY id ASC"
             params = None
         
         # 4. Ejecución con pandas
