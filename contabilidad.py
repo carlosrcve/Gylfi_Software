@@ -13632,8 +13632,13 @@ elif opcion_menu == "📝 Asientos Contables":
                     st.markdown(f"#### 📄 Editando Comprobante: `{comp_a_editar}`")
                     st.info("💡 Puede editar directamente las celdas de la tabla a continuación (como la descripción, cuentas o montos) y luego hacer clic en guardar cambios.")
                     
+                    # Asegurar formato numérico en el DataFrame antes de pasarlo al editor
+                    if 'debe' in df_lineas_comp.columns:
+                        df_lineas_comp['debe'] = pd.to_numeric(df_lineas_comp['debe'], errors='coerce').fillna(0.0)
+                    if 'haber' in df_lineas_comp.columns:
+                        df_lineas_comp['haber'] = pd.to_numeric(df_lineas_comp['haber'], errors='coerce').fillna(0.0)
+
                     # 2. Editor de Datos Interactivo (Data Editor)
-                    # Configuramos qué columnas se pueden editar de forma segura
                     df_editado = st.data_editor(
                         df_lineas_comp,
                         num_rows="dynamic", # Permite agregar o eliminar filas visualmente si es necesario
@@ -13644,8 +13649,10 @@ elif opcion_menu == "📝 Asientos Contables":
                             "id": st.column_config.Column("ID", disabled=True), # El ID no se debe modificar porque es la llave primaria
                             "n_comprobante": st.column_config.TextColumn("N° Comprobante"),
                             "fecha": st.column_config.DateColumn("Fecha"),
-                            "debe": st.column_config.NumberColumn("Debe", format="%.2f"),
-                            "haber": st.column_config.NumberColumn("Haber", format="%.2f"),
+                            "descripcion": st.column_config.TextColumn("Descripción"),
+                            "cuenta_contable": st.column_config.TextColumn("Cuenta Contable"),
+                            "debe": st.column_config.NumberColumn("Debe", format="%.2f", min_value=0.0, step=0.01),
+                            "haber": st.column_config.NumberColumn("Haber", format="%.2f", min_value=0.0, step=0.01),
                             "bloqueado": st.column_config.CheckboxColumn("Bloqueado")
                         }
                     )
