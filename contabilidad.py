@@ -13254,23 +13254,58 @@ elif opcion_menu == "📝 Asientos Contables":
                             "Activo": row['nombre_activo'],
                             "Rubro": row['rubro'],
                             "Adquisición": row['fecha_adquisicion'],
-                            "Costo ($)": costo,
-                            "Residual ($)": residual,
+                            "Costo": costo,
+                            "Residual": residual,
                             "Vida Útil (Meses)": vida_util,
-                            "Meses Transcurridos": meses_antiguedad,
-                            "Dep. Mensual ($)": round(dep_mensual, 2),
-                            "Dep. Acumulada ($)": round(dep_acumulada, 2),
-                            "Costo Neto ($)": round(costo_neto, 2)
+                            "Meses Transcl.": meses_antiguedad,
+                            "Dep. Mensual": dep_mensual,
+                            "Dep. Acumulada": dep_acumulada,
+                            "Costo Neto": costo_neto
                         })
                         
                     df_reporte = pd.DataFrame(resultados)
-                    st.dataframe(df_reporte, use_container_width=True, hide_index=True)
                     
+                    # Fila de totales para agregar al final del DataFrame
+                    total_costo = df_reporte['Costo'].sum()
+                    total_dep_mensual = df_reporte['Dep. Mensual'].sum()
+                    total_dep_acum = df_reporte['Dep. Acumulada'].sum()
+                    total_neto = df_reporte['Costo Neto'].sum()
+                    
+                    df_totales = pd.DataFrame([{
+                        "ID": "TOTALES",
+                        "Placa": "",
+                        "Activo": "",
+                        "Rubro": "",
+                        "Adquisición": "",
+                        "Costo": total_costo,
+                        "Residual": df_reporte['Residual'].sum(),
+                        "Vida Útil (Meses)": "",
+                        "Meses Transcl.": "",
+                        "Dep. Mensual": total_dep_mensual,
+                        "Dep. Acumulada": total_dep_acum,
+                        "Costo Neto": total_neto
+                    }])
+                    
+                    df_final_mostrar = pd.concat([df_reporte, df_totales], ignore_index=True)
+                    
+                    # Aplicar formato numérico a las columnas financieras
+                    format_dict = {
+                        "Costo": "{:,.2f}",
+                        "Residual": "{:,.2f}",
+                        "Dep. Mensual": "{:,.2f}",
+                        "Dep. Acumulada": "{:,.2f}",
+                        "Costo Neto": "{:,.2f}"
+                    }
+                    
+                    st.dataframe(df_final_mostrar.style.format(format_dict, na_rep=""), use_container_width=True, hide_index=True)
+                    
+                    # Totales generales en métricas (sin signo dólar)
                     st.divider()
-                    m1, m2, m3 = st.columns(3)
-                    m1.metric("Total Costo Histórico", f"${df_reporte['Costo ($)'].sum():,.2f}")
-                    m2.metric("Total Depreciación Acumulada", f"${df_reporte['Dep. Acumulada ($)'].sum():,.2f}")
-                    m3.metric("Total Valor en Libros (Neto)", f"${df_reporte['Costo Neto ($)'].sum():,.2f}")
+                    m1, m2, m3, m4 = st.columns(4)
+                    m1.metric("Total Costo Histórico", f"{total_costo:,.2f}")
+                    m2.metric("Total Dep. Mensual", f"{total_dep_mensual:,.2f}")
+                    m3.metric("Total Dep. Acumulada", f"{total_dep_acum:,.2f}")
+                    m4.metric("Total Valor en Libros", f"{total_neto:,.2f}")
                 else:
                     st.info("No hay activos fijos registrados para calcular la depreciación.")
 
