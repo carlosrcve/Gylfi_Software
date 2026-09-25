@@ -13599,6 +13599,16 @@ elif opcion_menu == "📝 Asientos Contables":
             st.markdown("### 🛠️ Gestión y Corrección de Asientos Contables")
             st.markdown("Busque un comprobante registrado (por ejemplo, los de depreciación) para editar sus líneas o eliminar registros erróneos.")
             
+            # Función auxiliar interna para formato contable latino (14.789,58)
+            def formato_moneda_latam(valor):
+                try:
+                    if pd.isna(valor):
+                        return "0,00"
+                    s = f"{float(valor):,.2f}"
+                    return s.replace(",", "X").replace(".", ",").replace("X", ".")
+                except:
+                    return "0,00"
+
             # 1. Selector de Comprobante a Consultar
             conn = conectar_db(db_nombre)
             lista_comprobantes = []
@@ -13661,9 +13671,10 @@ elif opcion_menu == "📝 Asientos Contables":
                     t_debe_ed = df_editado['debe'].sum() if 'debe' in df_editado.columns else 0.0
                     t_haber_ed = df_editado['haber'].sum() if 'haber' in df_editado.columns else 0.0
                     
+                    # Aplicamos el formato latino (14.789,58) a los totales mostrados en las métricas
                     col_e1, col_e2, col_e3 = st.columns(3)
-                    col_e1.metric("Total Debe Actualizado", f"{t_debe_ed:,.2f}")
-                    col_e2.metric("Total Haber Actualizado", f"{t_haber_ed:,.2f}")
+                    col_e1.metric("Total Debe Actualizado", formato_moneda_latam(t_debe_ed))
+                    col_e2.metric("Total Haber Actualizado", formato_moneda_latam(t_haber_ed))
                     
                     if abs(t_debe_ed - t_haber_ed) < 0.01:
                         col_e3.success("⚖️ Cuadrado")
