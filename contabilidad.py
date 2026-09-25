@@ -13166,7 +13166,8 @@ elif opcion_menu == "📝 Asientos Contables":
                         rubro = st.selectbox("Rubro del Activo Fijo", [
                             "Muebles y Enseres", 
                             "Equipos de Computación", 
-                            "Maquinaria y Equipo", 
+                            "Maquinaria y Equipo",
+                            "Equipo Audiovisuales",
                             "Vehículos", 
                             "Edificaciones",
                             "Herramientas"
