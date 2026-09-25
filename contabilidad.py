@@ -13147,12 +13147,13 @@ elif opcion_menu == "📝 Asientos Contables":
         else:
             st.markdown(f"## 🏢 Módulo de Activos Fijos y Depreciación")
             
-            # Pestañas de la 1 a la 4
-            t_reg, t_dep, t_aux, t_lim = st.tabs([
+            # Pestañas de la 1 a la 5 con sus respectivos iconos
+            t_reg, t_dep, t_aux, t_lim, t_cont = st.tabs([
                 "📥 1. Registro de Activos", 
                 "📊 2. Cálculo de Depreciación", 
                 "📖 3. Auxiliar y Modificación", 
-                "🗑️ 4. Limpieza Total"
+                "🗑️ 4. Limpieza Total",
+                "🧾 5. Contabilización"
             ])
             
             # --- PESTAÑA 1: REGISTRO DE ACTIVOS FIJOS ---
