@@ -8999,7 +8999,7 @@ if menu_lateral == "📊 Auditoría Contable":
         st.session_state['opcion_menu_auditoria'] = opcion_menu
 
         if opcion_menu == "📝 Asientos Contables":
-            sub_opcion = st.radio("Acciones:", ["Subir Datos", "Conciliación Bancaria","Tesorería y Proveedores", "Consultar Comprobante", "Consultar Saldos Iniciales", "Consultar Cierre Contable","Gestor Documental"], key="sub_asientos")
+            sub_opcion = st.radio("Acciones:", ["Subir Datos", "Conciliación Bancaria","Tesorería y Proveedores", "Activo Fijo", "Consultar Comprobante", "Consultar Saldos Iniciales", "Consultar Cierre Contable","Gestor Documental"], key="sub_asientos")
         elif opcion_menu == "📊 Estados Financieros":
             st.markdown("---")
             sub_opcion = st.radio("Reportes Financieros:", ["Balance de Comprobación", "Balance General", "Estado de Resultados"], key="sub_estados")
@@ -13137,6 +13137,235 @@ elif opcion_menu == "📝 Asientos Contables":
                                                 pass
                         else:
                             st.info("💡 Debe marcar la casilla de arriba para habilitar el botón de borrado.")
+
+    elif sub_opcion == "Activo Fijo":
+        # Asegúrate de que 'db_nombre' esté disponible en tu sesión
+        db_nombre = st.session_state.get('DB_ACTUAL')
+
+        if not db_nombre:
+            st.warning("⚠️ Por favor, selecciona una empresa en el panel lateral para gestionar los Activos Fijos.")
+        else:
+            st.markdown(f"## 🏢 Módulo de Activos Fijos y Depreciación")
+            
+            # Pestañas de la 1 a la 4
+            t_reg, t_dep, t_aux, t_lim = st.tabs([
+                "📥 1. Registro de Activos", 
+                "📊 2. Cálculo de Depreciación", 
+                "📖 3. Auxiliar y Modificación", 
+                "🗑️ 4. Limpieza Total"
+            ])
+            
+            # --- PESTAÑA 1: REGISTRO DE ACTIVOS FIJOS ---
+            with t_reg:
+                st.markdown("### 📝 Registrar Nuevo Activo Fijo")
+                with st.form("form_crear_activo", clear_on_submit=True):
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        codigo_placa = st.text_input("Código de Placa / Inventario", placeholder="Ej: ACT-001")
+                        nombre_activo = st.text_input("Nombre del Activo Fijo*", placeholder="Ej: Escritorio Ejecutivo")
+                        rubro = st.selectbox("Rubro del Activo Fijo", [
+                            "Muebles y Enseres", 
+                            "Equipos de Computación", 
+                            "Maquinaria y Equipo", 
+                            "Vehículos", 
+                            "Edificaciones",
+                            "Herramientas"
+                        ])
+                        fecha_adquisicion = st.date_input("Fecha de Adquisición", value=datetime.today())
+                        
+                    with col2:
+                        costo_activo = st.number_input("Costo del Activo ($)", min_value=0.0, step=100.0, format="%.2f")
+                        valor_residual = st.number_input("Valor Residual / Salvamento ($)", min_value=0.0, step=10.0, format="%.2f", value=0.0)
+                        vida_util_meses = st.number_input("Vida Útil (en meses)", min_value=1, step=12, value=60) # Por defecto 5 años (60 meses)
+                        metodo_depreciacion = st.selectbox("Método de Depreciación", ["Línea Recta"])
+                    
+                    btn_guardar = st.form_submit_button("💾 Guardar Activo Fijo", use_container_width=True)
+                    
+                    if btn_guardar:
+                        if not nombre_activo.strip():
+                            st.error("❌ El nombre del activo es obligatorio.")
+                        else:
+                            conn = conectar_db(db_nombre)
+                            if conn:
+                                try:
+                                    cursor = conn.cursor()
+                                    query = """
+                                        INSERT INTO activo_fijo 
+                                        (codigo_placa, nombre_activo, rubro, fecha_adquisicion, costo_activo, valor_residual, vida_util_meses, metodo_depreciacion)
+                                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                                    """
+                                    cursor.execute(query, (
+                                        codigo_placa, nombre_activo, rubro, fecha_adquisicion, 
+                                        costo_activo, valor_residual, vida_util_meses, metodo_depreciacion
+                                    ))
+                                    conn.commit()
+                                    cursor.close()
+                                    st.success(f"✅ ¡Activo '{nombre_activo}' registrado con éxito!")
+                                except Exception as e:
+                                    st.error(f"Error al guardar en la base de datos: {e}")
+                                finally:
+                                    conn.close()
+
+            # --- PESTAÑA 2: CÁLCULO DE DEPRECIACIÓN ---
+            with t_dep:
+                st.markdown("### 📈 Cálculo de Depreciación (Mensual y Acumulada)")
+                
+                col_f1, col_f2 = st.columns([2, 2])
+                with col_f1:
+                    fecha_cierre = st.date_input("Fecha de Cierre para el Cálculo", value=datetime.today(), key="f_cierre_activo")
+                    
+                conn = conectar_db(db_nombre)
+                df_activos = pd.DataFrame()
+                if conn:
+                    try:
+                        df_activos = pd.read_sql("SELECT * FROM activo_fijo", conn)
+                    except Exception as e:
+                        st.error(f"Error al consultar los activos: {e}")
+                    finally:
+                        conn.close()
+                        
+                if not df_activos.empty:
+                    resultados = []
+                    for _, row in df_activos.iterrows():
+                        f_adq = pd.to_datetime(row['fecha_adquisicion'])
+                        f_cier = pd.to_datetime(fecha_cierre)
+                        
+                        if f_cier >= f_adq:
+                            meses_antiguedad = (f_cier.year - f_adq.year) * 12 + (f_cier.month - f_adq.month)
+                            if f_cier.day >= f_adq.day:
+                                meses_antiguedad += 1
+                            meses_antiguedad = max(0, meses_antiguedad)
+                        else:
+                            meses_antiguedad = 0
+                        
+                        costo = float(row['costo_activo'])
+                        residual = float(row['valor_residual'])
+                        vida_util = int(row['vida_util_meses'])
+                        
+                        dep_mensual = (costo - residual) / vida_util if vida_util > 0 else 0.0
+                        dep_acumulada = min(dep_mensual * meses_antiguedad, costo - residual)
+                        dep_acumulada = max(0.0, dep_acumulada)
+                        costo_neto = costo - dep_acumulada
+                        
+                        resultados.append({
+                            "ID": row['id'],
+                            "Placa": row['codigo_placa'],
+                            "Activo": row['nombre_activo'],
+                            "Rubro": row['rubro'],
+                            "Adquisición": row['fecha_adquisicion'],
+                            "Costo ($)": costo,
+                            "Residual ($)": residual,
+                            "Vida Útil (Meses)": vida_util,
+                            "Meses Transcurridos": meses_antiguedad,
+                            "Dep. Mensual ($)": round(dep_mensual, 2),
+                            "Dep. Acumulada ($)": round(dep_acumulada, 2),
+                            "Costo Neto ($)": round(costo_neto, 2)
+                        })
+                        
+                    df_reporte = pd.DataFrame(resultados)
+                    st.dataframe(df_reporte, use_container_width=True, hide_index=True)
+                    
+                    st.divider()
+                    m1, m2, m3 = st.columns(3)
+                    m1.metric("Total Costo Histórico", f"${df_reporte['Costo ($)'].sum():,.2f}")
+                    m2.metric("Total Depreciación Acumulada", f"${df_reporte['Dep. Acumulada ($)'].sum():,.2f}")
+                    m3.metric("Total Valor en Libros (Neto)", f"${df_reporte['Costo Neto ($)'].sum():,.2f}")
+                else:
+                    st.info("No hay activos fijos registrados para calcular la depreciación.")
+
+            # --- PESTAÑA 3: AUXILIAR, MODIFICAR Y ELIMINAR ---
+            with t_aux:
+                st.markdown("### 📖 Auxiliar de Activos Fijos (Editar o Eliminar por Fila)")
+                
+                conn = conectar_db(db_nombre)
+                df_aux = pd.DataFrame()
+                if conn:
+                    try:
+                        df_aux = pd.read_sql("SELECT * FROM activo_fijo", conn)
+                    finally:
+                        conn.close()
+                        
+                if not df_aux.empty:
+                    opciones_dict = {f"ID {row['id']} - {row['nombre_activo']} ({row['codigo_placa']})": row['id'] for _, row in df_aux.iterrows()}
+                    
+                    seleccion_editar = st.selectbox("Seleccione un activo para modificar o eliminar:", list(opciones_dict.keys()))
+                    id_seleccionado = opciones_dict[seleccion_editar]
+                    
+                    activo_actual = df_aux[df_aux['id'] == id_seleccionado].iloc[0]
+                    
+                    with st.form("form_editar_activo"):
+                        st.write(f"Editando Activo ID: {id_seleccionado}")
+                        e_placa = st.text_input("Código de Placa", value=str(activo_actual['codigo_placa']))
+                        e_nombre = st.text_input("Nombre del Activo", value=str(activo_actual['nombre_activo']))
+                        e_rubro = st.text_input("Rubro", value=str(activo_actual['rubro']))
+                        e_costo = st.number_input("Costo del Activo ($)", value=float(activo_actual['costo_activo']))
+                        e_residual = st.number_input("Valor Residual ($)", value=float(activo_actual['valor_residual']))
+                        e_vida = st.number_input("Vida Útil (Meses)", value=int(activo_actual['vida_util_meses']))
+                        
+                        col_btn1, col_btn2 = st.columns(2)
+                        actualizar = col_btn1.form_submit_button("🔄 Actualizar Cambios", use_container_width=True)
+                        eliminar_uno = col_btn2.form_submit_button("🗑️ Eliminar este Activo", use_container_width=True)
+                        
+                        if actualizar:
+                            conn = conectar_db(db_nombre)
+                            if conn:
+                                try:
+                                    cursor = conn.cursor()
+                                    q_upd = """
+                                        UPDATE activo_fijo 
+                                        SET codigo_placa=%s, nombre_activo=%s, rubro=%s, costo_activo=%s, valor_residual=%s, vida_util_meses=%s 
+                                        WHERE id=%s
+                                    """
+                                    cursor.execute(q_upd, (e_placa, e_nombre, e_rubro, e_costo, e_residual, e_vida, id_seleccionado))
+                                    conn.commit()
+                                    cursor.close()
+                                    st.success("✅ ¡Activo actualizado correctamente!")
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"Error al actualizar: {e}")
+                                finally:
+                                    conn.close()
+                                    
+                        if eliminar_uno:
+                            conn = conectar_db(db_nombre)
+                            if conn:
+                                try:
+                                    cursor = conn.cursor()
+                                    cursor.execute("DELETE FROM activo_fijo WHERE id = %s", (id_seleccionado,))
+                                    conn.commit()
+                                    cursor.close()
+                                    st.warning("🗑️ Activo eliminado del auxiliar.")
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"Error al eliminar: {e}")
+                                finally:
+                                    conn.close()
+                else:
+                    st.info("El auxiliar de activos fijos está vacío.")
+
+            # --- PESTAÑA 4: LIMPIEZA TOTAL ---
+            with t_lim:
+                st.markdown("### ⚙️ Gestión de Limpieza Total del Auxiliar")
+                with st.container(border=True):
+                    st.error("⚠️ **ZONA DE PELIGRO**: Esta acción eliminará por completo **todos** los registros de activos fijos de esta empresa.")
+                    
+                    confirmar_limpieza = st.checkbox("Estoy seguro de vaciar todo el auxiliar de activo fijo.")
+                    
+                    if confirmar_limpieza:
+                        if st.button("🧨 ELIMINAR TODO EL AUXILIAR DE ACTIVOS", type="primary"):
+                            conn = conectar_db(db_nombre)
+                            if conn:
+                                try:
+                                    cursor = conn.cursor()
+                                    cursor.execute("DELETE FROM activo_fijo")
+                                    conn.commit()
+                                    cursor.close()
+                                    st.success("✅ Se han eliminado todos los activos fijos de la base de datos.")
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"Error al vaciar la tabla: {e}")
+                                finally:
+                                    conn.close()
 
     elif sub_opcion == "Consultar Cierre Contable":
         st.subheader("🔒 Gestión de Asientos de Cierre")
