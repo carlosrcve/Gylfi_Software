@@ -13148,12 +13148,14 @@ elif opcion_menu == "📝 Asientos Contables":
             st.markdown(f"## 🏢 Módulo de Activos Fijos y Depreciación")
             
             # Pestañas de la 1 a la 5 con sus respectivos iconos
-            t_reg, t_dep, t_aux, t_lim, t_cont = st.tabs([
+            t_reg, t_dep, t_aux, t_lim, t_cont, t_mod = st.tabs([
                 "📥 1. Registro de Activos", 
                 "📊 2. Cálculo de Depreciación", 
                 "📖 3. Auxiliar y Modificación", 
                 "🗑️ 4. Limpieza Total",
-                "🧾 5. Contabilización"
+                "🧾 5. Contabilización",
+                "🗑️ 6. Editar/Modificar Asientos Depreciación"
+
             ])
             
             # --- PESTAÑA 1: REGISTRO DE ACTIVOS FIJOS ---
@@ -13592,6 +13594,168 @@ elif opcion_menu == "📝 Asientos Contables":
                                 st.error(f"❌ Error al guardar en base de datos: {e}")
                             finally:
                                 conn.close()
+        # --- PESTAÑA 6: MODIFICAR, EDITAR O ELIMINAR ASIENTOS CONTABLES ---
+        with t_mod:
+            st.markdown("### 🛠️ Gestión y Corrección de Asientos Contables")
+            st.markdown("Busque un comprobante registrado (por ejemplo, los de depreciación) para editar sus líneas o eliminar registros erróneos.")
+            
+            # 1. Selector de Comprobante a Consultar
+            conn = conectar_db(db_nombre)
+            lista_comprobantes = []
+            if conn:
+                try:
+                    df_comps = pd.read_sql("SELECT DISTINCT n_comprobante, fecha FROM asientos_contables ORDER BY fecha DESC", conn)
+                    if not df_comps.empty:
+                        lista_comprobantes = df_comps['n_comprobante'].tolist()
+                except Exception as e:
+                    st.error(f"Error al cargar comprobantes: {e}")
+                finally:
+                    conn.close()
+            
+            if not lista_comprobantes:
+                st.info("ℹ️ No se encontraron comprobantes registrados en la base de datos.")
+            else:
+                comp_a_editar = st.selectbox("Seleccione el Número de Comprobante a Revisar / Modificar", lista_comprobantes, key="select_comp_editar")
+                
+                # Cargar las líneas del comprobante seleccionado
+                conn = conectar_db(db_nombre)
+                df_lineas_comp = pd.DataFrame()
+                if conn:
+                    try:
+                        df_lineas_comp = pd.read_sql("SELECT * FROM asientos_contables WHERE n_comprobante = %s", conn, params=(comp_a_editar,))
+                    except Exception as e:
+                        st.error(f"Error al cargar líneas del comprobante: {e}")
+                    finally:
+                        conn.close()
+                
+                if not df_lineas_comp.empty:
+                    st.markdown(f"#### 📄 Editando Comprobante: `{comp_a_editar}`")
+                    st.info("💡 Puede editar directamente las celdas de la tabla a continuación (como la descripción, cuentas o montos) y luego hacer clic en guardar cambios.")
+                    
+                    # 2. Editor de Datos Interactivo (Data Editor)
+                    # Configuramos qué columnas se pueden editar de forma segura
+                    df_editado = st.data_editor(
+                        df_lineas_comp,
+                        num_rows="dynamic", # Permite agregar o eliminar filas visualmente si es necesario
+                        use_container_width=True,
+                        hide_index=True,
+                        key=f"editor_asientos_{comp_a_editar}",
+                        column_config={
+                            "id": st.column_config.Column("ID", disabled=True), # El ID no se debe modificar porque es la llave primaria
+                            "n_comprobante": st.column_config.TextColumn("N° Comprobante"),
+                            "fecha": st.column_config.DateColumn("Fecha"),
+                            "debe": st.column_config.NumberColumn("Debe", format="%.2f"),
+                            "haber": st.column_config.NumberColumn("Haber", format="%.2f"),
+                            "bloqueado": st.column_config.CheckboxColumn("Bloqueado")
+                        }
+                    )
+                    
+                    # Verificación rápida de la partida doble en tiempo real con los datos editados
+                    t_debe_ed = df_editado['debe'].sum() if 'debe' in df_editado.columns else 0.0
+                    t_haber_ed = df_editado['haber'].sum() if 'haber' in df_editado.columns else 0.0
+                    
+                    col_e1, col_e2, col_e3 = st.columns(3)
+                    col_e1.metric("Total Debe Actualizado", f"{t_debe_ed:,.2f}")
+                    col_e2.metric("Total Haber Actualizado", f"{t_haber_ed:,.2f}")
+                    
+                    if abs(t_debe_ed - t_haber_ed) < 0.01:
+                        col_e3.success("⚖️ Cuadrado")
+                    else:
+                        col_e3.error("⚠️ Descuadrado")
+                    
+                    st.divider()
+                    
+                    # 3. Botones de Acción (Guardar Cambios o Eliminar Comprobante)
+                    col_bt1, col_bt2 = st.columns(2)
+                    
+                    with col_bt1:
+                        if st.button("💾 Guardar Cambios en la Base de Datos", type="primary", use_container_width=True):
+                            conn = conectar_db(db_nombre)
+                            if conn:
+                                try:
+                                    cursor = conn.cursor()
+                                    # Estrategia segura: Actualizamos los registros existentes por su ID y agregamos nuevos si se añadieron filas
+                                    ids_actuales_en_bd = df_lineas_comp['id'].tolist()
+                                    ids_en_editor = df_editado['id'].dropna().tolist()
+                                    
+                                    # 1. Eliminar de la BD las filas que el usuario borró en el editor
+                                    ids_a_eliminar = [i for i in ids_actuales_en_bd if i not in ids_en_editor]
+                                    for id_del in ids_a_eliminar:
+                                        cursor.execute("DELETE FROM asientos_contables WHERE id = %s", (int(id_del),))
+                                    
+                                    # 2. Actualizar o insertar cada fila del editor
+                                    for _, row in df_editado.iterrows():
+                                        if pd.isna(row.get('id')) or row['id'] == '':
+                                            # Es una fila nueva añadida
+                                            query_ins = """
+                                                INSERT INTO asientos_contables 
+                                                (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber, bloqueado)
+                                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                            """
+                                            cursor.execute(query_ins, (
+                                                row.get('n_comprobante', comp_a_editar),
+                                                row.get('descripcion', ''),
+                                                str(row.get('fecha', datetime.today())),
+                                                row.get('plan_cuentas', ''),
+                                                row.get('cuenta_contable', ''),
+                                                row.get('referencia', ''),
+                                                float(row.get('debe', 0.0)),
+                                                float(row.get('haber', 0.0)),
+                                                int(row.get('bloqueado', 0))
+                                            ))
+                                        else:
+                                            # Actualizar fila existente
+                                            query_upd = """
+                                                UPDATE asientos_contables SET 
+                                                    n_comprobante = %s,
+                                                    descripcion = %s,
+                                                    fecha = %s,
+                                                    plan_cuentas = %s,
+                                                    cuenta_contable = %s,
+                                                    referencia = %s,
+                                                    debe = %s,
+                                                    haber = %s,
+                                                    bloqueado = %s
+                                                WHERE id = %s
+                                            """
+                                            cursor.execute(query_upd, (
+                                                row['n_comprobante'],
+                                                row['descripcion'],
+                                                str(row['fecha']),
+                                                row['plan_cuentas'],
+                                                row['cuenta_contable'],
+                                                row['referencia'],
+                                                float(row['debe']),
+                                                float(row['haber']),
+                                                int(row.get('bloqueado', 0)),
+                                                int(row['id'])
+                                            ))
+                                            
+                                    conn.commit()
+                                    cursor.close()
+                                    st.success(f"✅ ¡Los cambios en el comprobante `{comp_a_editar}` se han guardado correctamente!")
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"❌ Error al actualizar los registros: {e}")
+                                finally:
+                                    conn.close()
+                                    
+                    with col_bt2:
+                        # Botón de emergencia para borrar todo el comprobante de un solo golpe si estuvo completamente errado
+                        if st.button("🗑️ Eliminar Todo este Comprobante", type="secondary", use_container_width=True):
+                            conn = conectar_db(db_nombre)
+                            if conn:
+                                try:
+                                    cursor = conn.cursor()
+                                    cursor.execute("DELETE FROM asientos_contables WHERE n_comprobante = %s", (comp_a_editar,))
+                                    conn.commit()
+                                    cursor.close()
+                                    st.warning(f"⚠️ El comprobante `{comp_a_editar}` ha sido eliminado por completo de la base de datos.")
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"❌ Error al eliminar el comprobante: {e}")
+                                finally:
+                                    conn.close()
 
     elif sub_opcion == "Consultar Cierre Contable":
         st.subheader("🔒 Gestión de Asientos de Cierre")
