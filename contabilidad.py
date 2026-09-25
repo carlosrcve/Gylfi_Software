@@ -13446,10 +13446,7 @@ elif opcion_menu == "📝 Asientos Contables":
             elif df_activos_cont.empty:
                 st.info("ℹ️ No hay activos fijos registrados para contabilizar.")
             else:
-                # Armar opciones legibles para los selectbox (ej: "1.1.01 - Caja General")
-                # Verificamos los nombres de columnas comunes en plan_cuentas (código y nombre/descripción)
                 cols_cuentas = df_cuentas.columns.tolist()
-                # Intentamos detectar columnas típicas o usar las primeras disponibles
                 col_codigo = next((c for c in cols_cuentas if 'codigo' in c.lower() or 'cuenta' in c.lower()), cols_cuentas[0])
                 col_nombre = next((c for c in cols_cuentas if 'nombre' in c.lower() or 'descripcion' in c.lower() or 'desc' in c.lower()), cols_cuentas[1] if len(cols_cuentas) > 1 else cols_cuentas[0])
                 
@@ -13484,7 +13481,6 @@ elif opcion_menu == "📝 Asientos Contables":
                                     residual = float(row['valor_residual'])
                                     vida_util = int(row['vida_util_meses'])
                                     
-                                    # Depreciación mensual individual
                                     dep_mensual = (costo - residual) / vida_util if vida_util > 0 else 0.0
                                     
                                     if dep_mensual > 0:
@@ -13492,20 +13488,19 @@ elif opcion_menu == "📝 Asientos Contables":
                                         desc_detallada = f"{descripcion_asiento} - {row['nombre_activo']} (Placa: {referencia_placa})"
                                         
                                         # 1. Insertar línea al DEBE (Gasto Depreciación)
-                                        query_debe = """
+                                        query_asiento = """
                                             INSERT INTO asientos_contables 
                                             (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber, bloqueado)
                                             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                                         """
-                                        # Nota: Ajustamos plan_cuentas/cuenta_contable según los campos de tu tabla
-                                        cursor.execute(query_debe, (
+                                        cursor.execute(query_asiento, (
                                             n_comprobante, desc_detallada, fecha_asiento, 
                                             cod_gasto, cod_gasto, referencia_placa, 
                                             dep_mensual, 0.00, 0
                                         ))
                                         
                                         # 2. Insertar línea al HABER (Depreciación Acumulada)
-                                        cursor.execute(query_debe, (
+                                        cursor.execute(query_asiento, (
                                             n_comprobante, desc_detallada, fecha_asiento, 
                                             cod_acum, cod_acum, referencia_placa, 
                                             0.00, dep_mensual, 0
@@ -13515,11 +13510,55 @@ elif opcion_menu == "📝 Asientos Contables":
                                         
                                 conn.commit()
                                 cursor.close()
-                                st.success(f"✅ ¡Se han generado exitosamente {contador_asientos} asientos contables de depreciación bajo el comprobante `{n_comprobante}`!")
+                                
+                                # Guardamos el comprobante en la sesión
+                                st.session_state['ultimo_comprobante_generado'] = n_comprobante
+                                st.success(f"✅ ¡Se han generado exitosamente {contador_asientos} asientos contables bajo el comprobante `{n_comprobante}`!")
                             except Exception as e:
                                 st.error(f"❌ Error al registrar los asientos contables: {e}")
                             finally:
                                 conn.close()
+                
+                # --- VISUALIZACIÓN DIRECTA DEL FRAME / TABLA (FUERA DEL FORMULARIO) ---
+                # Si acabas de generar el comprobante (o ya está en memoria), se dibuja de frente la tabla con el resultado
+                if 'ultimo_comprobante_generado' in st.session_state:
+                    st.divider()
+                    st.markdown(f"### 📋 Detalle del Comprobante Generado: `{st.session_state['ultimo_comprobante_generado']}`")
+                    
+                    conn = conectar_db(db_nombre)
+                    df_ver_asientos = pd.DataFrame()
+                    if conn:
+                        try:
+                            query_consulta = "SELECT * FROM asientos_contables WHERE n_comprobante = %s"
+                            df_ver_asientos = pd.read_sql(query_consulta, conn, params=(st.session_state['ultimo_comprobante_generado'],))
+                        except Exception as e:
+                            st.error(f"Error al consultar los asientos: {e}")
+                        finally:
+                            conn.close()
+                    
+                    if not df_ver_asientos.empty:
+                        format_asientos = {
+                            "debe": "{:,.2f}",
+                            "haber": "{:,.2f}"
+                        }
+                        st.dataframe(
+                            df_ver_asientos.style.format(format_asientos, na_rep=""), 
+                            use_container_width=True, 
+                            hide_index=True
+                        )
+                        
+                        # Totales de control para verificar la partida doble de frente
+                        t_debe = df_ver_asientos['debe'].sum()
+                        t_haber = df_ver_asientos['haber'].sum()
+                        
+                        col_t1, col_t2, col_t3 = st.columns(3)
+                        col_t1.metric("Total Debe", f"{t_debe:,.2f}")
+                        col_t2.metric("Total Haber", f"{t_haber:,.2f}")
+                        
+                        if abs(t_debe - t_haber) < 0.01:
+                            col_t3.success("⚖️ Partida Doble Cuadrada")
+                        else:
+                            col_t3.error("⚠️ Descuadre en Partida Doble")
 
     elif sub_opcion == "Consultar Cierre Contable":
         st.subheader("🔒 Gestión de Asientos de Cierre")
