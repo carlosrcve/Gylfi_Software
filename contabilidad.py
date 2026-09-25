@@ -13426,7 +13426,7 @@ elif opcion_menu == "📝 Asientos Contables":
         # --- PESTAÑA 5: CONTABILIZACIÓN DE DEPRECIACIÓN ---
         with t_cont:
             st.markdown("### 🧾 Generar Asientos Contables de Depreciación")
-            st.markdown("Seleccione las cuentas correspondientes del **Plan de Cuentas** para registrar automáticamente la depreciación mensual en la tabla `asientos_contables`.")
+            st.markdown("El sistema registrará automáticamente la depreciación mensual utilizando la cuenta contable asignada a cada activo fijo.")
             
             # Cargar plan de cuentas y activos
             conn = conectar_db(db_nombre)
@@ -13459,16 +13459,17 @@ elif opcion_menu == "📝 Asientos Contables":
                         fecha_asiento = st.date_input("Fecha del Asiento Contable", value=datetime.today())
                         
                     with col_c2:
-                        cuenta_gasto_sel = st.selectbox("Cuenta de Gasto Depreciación (DEBE)", list(opciones_cuentas.keys()))
-                        cuenta_acum_sel = st.selectbox("Cuenta de Depreciación Acumulada (HABER)", list(opciones_cuentas.keys()))
+                        # Cuenta de Gasto general para la depreciación del periodo (Ej: Gasto Depreciación Equipos / Edificios)
+                        cuenta_gasto_sel = st.selectbox("Cuenta de Gasto Depreciación por Defecto (DEBE)", list(opciones_cuentas.keys()))
                     
                     descripcion_asiento = st.text_input("Descripción del Asiento", value=f"Asiento de depreciación mensual correspondiente al periodo")
                     
-                    btn_generar_asientos = st.form_submit_button("🚀 Generar Asientos Contables en Lote", use_container_width=True)
+                    st.info("ℹ️ Nota: El sistema buscará la cuenta de depreciación acumulada asociada a cada activo en su registro individual.")
+                    
+                    btn_generar_asientos = st.form_submit_button("🚀 Generar Asientos Contables por Activo", use_container_width=True)
                     
                     if btn_generar_asientos:
-                        cod_gasto = opciones_cuentas[cuenta_gasto_sel]
-                        cod_acum = opciones_cuentas[cuenta_acum_sel]
+                        cod_gasto_default = opciones_cuentas[cuenta_gasto_sel]
                         
                         conn = conectar_db(db_nombre)
                         if conn:
@@ -13487,6 +13488,12 @@ elif opcion_menu == "📝 Asientos Contables":
                                         referencia_placa = str(row['codigo_placa']) if row['codigo_placa'] else f"ID-{row['id']}"
                                         desc_detallada = f"{descripcion_asiento} - {row['nombre_activo']} (Placa: {referencia_placa})"
                                         
+                                        # Verificamos si el activo tiene una columna de cuenta específica en su tabla, 
+                                        # de lo contrario, puedes adaptarlo a la columna exacta que maneje tu base de datos (ej. row['cuenta_depreciacion'] o por rubro)
+                                        # Asumimos que la columna en 'activo_fijo' podría llamarse 'cuenta_contable' o 'cuenta_depreciacion'.
+                                        # Si en tu tabla se llama distinto, dime el nombre exacto de la columna en MySQL.
+                                        cuenta_acum_activo = row.get('cuenta_contable') or row.get('cuenta_depreciacion') or cod_gasto_default
+                                        
                                         # 1. Insertar línea al DEBE (Gasto Depreciación)
                                         query_asiento = """
                                             INSERT INTO asientos_contables 
@@ -13495,14 +13502,14 @@ elif opcion_menu == "📝 Asientos Contables":
                                         """
                                         cursor.execute(query_asiento, (
                                             n_comprobante, desc_detallada, fecha_asiento, 
-                                            cod_gasto, cod_gasto, referencia_placa, 
+                                            cod_gasto_default, cod_gasto_default, referencia_placa, 
                                             dep_mensual, 0.00, 0
                                         ))
                                         
-                                        # 2. Insertar línea al HABER (Depreciación Acumulada)
+                                        # 2. Insertar línea al HABER (Depreciación Acumulada específica del activo)
                                         cursor.execute(query_asiento, (
                                             n_comprobante, desc_detallada, fecha_asiento, 
-                                            cod_acum, cod_acum, referencia_placa, 
+                                            cuenta_acum_activo, cuenta_acum_activo, referencia_placa, 
                                             0.00, dep_mensual, 0
                                         ))
                                         
@@ -13511,16 +13518,14 @@ elif opcion_menu == "📝 Asientos Contables":
                                 conn.commit()
                                 cursor.close()
                                 
-                                # Guardamos el comprobante en la sesión
                                 st.session_state['ultimo_comprobante_generado'] = n_comprobante
-                                st.success(f"✅ ¡Se han generado exitosamente {contador_asientos} asientos contables bajo el comprobante `{n_comprobante}`!")
+                                st.success(f"✅ ¡Se han generado exitosamente {contador_asientos} asientos contables con sus respectivas cuentas bajo el comprobante `{n_comprobante}`!")
                             except Exception as e:
                                 st.error(f"❌ Error al registrar los asientos contables: {e}")
                             finally:
                                 conn.close()
                 
-                # --- VISUALIZACIÓN DIRECTA DEL FRAME / TABLA (FUERA DEL FORMULARIO) ---
-                # Si acabas de generar el comprobante (o ya está en memoria), se dibuja de frente la tabla con el resultado
+                # --- VISUALIZACIÓN DIRECTA DEL FRAME / TABLA ---
                 if 'ultimo_comprobante_generado' in st.session_state:
                     st.divider()
                     st.markdown(f"### 📋 Detalle del Comprobante Generado: `{st.session_state['ultimo_comprobante_generado']}`")
@@ -13547,7 +13552,6 @@ elif opcion_menu == "📝 Asientos Contables":
                             hide_index=True
                         )
                         
-                        # Totales de control para verificar la partida doble de frente
                         t_debe = df_ver_asientos['debe'].sum()
                         t_haber = df_ver_asientos['haber'].sum()
                         
