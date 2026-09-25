@@ -13288,7 +13288,7 @@ elif opcion_menu == "📝 Asientos Contables":
                     
                     df_final_mostrar = pd.concat([df_reporte, df_totales], ignore_index=True)
                     
-                    # Aplicar formato numérico a las columnas financieras
+                    # Aplicar formato numérico a las columnas financieras para visualización
                     format_dict = {
                         "Costo": "{:,.2f}",
                         "Residual": "{:,.2f}",
@@ -13298,6 +13298,21 @@ elif opcion_menu == "📝 Asientos Contables":
                     }
                     
                     st.dataframe(df_final_mostrar.style.format(format_dict, na_rep=""), use_container_width=True, hide_index=True)
+                    
+                    # --- BOTÓN DE DESCARGA EN EXCEL ---
+                    import io
+                    output = io.BytesIO()
+                    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                        df_final_mostrar.to_excel(writer, index=False, sheet_name='Activos Fijos')
+                    excel_data = output.getvalue()
+                    
+                    st.download_button(
+                        label="📥 Descargar Auxiliar en Excel",
+                        data=excel_data,
+                        file_name=f"auxiliar_activos_fijos_{datetime.today().strftime('%Y-%m-%d')}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        use_container_width=True
+                    )
                     
                     # Totales generales en métricas (sin signo dólar)
                     st.divider()
