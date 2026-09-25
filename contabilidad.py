@@ -13425,8 +13425,12 @@ elif opcion_menu == "📝 Asientos Contables":
 
         # --- PESTAÑA 5: CONTABILIZACIÓN DE DEPRECIACIÓN ---
         with t_cont:
-            st.markdown("### 🧾 Generar Asientos Contables de Depreciación")
-            st.markdown("El sistema registrará automáticamente la depreciación mensual utilizando la cuenta contable asignada a cada activo fijo.")
+            st.markdown("### 🧾 Generación de Asientos de Depreciación por Activo Individual")
+            st.markdown("Seleccione cada activo, asigne sus cuentas correspondientes y agréguelo al lote antes de registrar el comprobante final.")
+            
+            # Inicializar la tabla temporal en la sesión si no existe
+            if 'lote_depreciacion_temp' not in st.session_state:
+                st.session_state['lote_depreciacion_temp'] = []
             
             # Cargar plan de cuentas y activos
             conn = conectar_db(db_nombre)
@@ -13442,127 +13446,152 @@ elif opcion_menu == "📝 Asientos Contables":
                     conn.close()
             
             if df_cuentas.empty:
-                st.warning("⚠️ No se encontraron registros en la tabla `plan_cuentas`. Por favor configure su plan de cuentas primero.")
+                st.warning("⚠️ No se encontraron registros en la tabla `plan_cuentas`. Configure su plan de cuentas primero.")
             elif df_activos_cont.empty:
-                st.info("ℹ️ No hay activos fijos registrados para contabilizar.")
+                st.info("ℹ️ No hay activos fijos registrados.")
             else:
                 cols_cuentas = df_cuentas.columns.tolist()
                 col_codigo = next((c for c in cols_cuentas if 'codigo' in c.lower() or 'cuenta' in c.lower()), cols_cuentas[0])
                 col_nombre = next((c for c in cols_cuentas if 'nombre' in c.lower() or 'descripcion' in c.lower() or 'desc' in c.lower()), cols_cuentas[1] if len(cols_cuentas) > 1 else cols_cuentas[0])
                 
                 opciones_cuentas = {f"{row[col_codigo]} - {row[col_nombre]}": row[col_codigo] for _, row in df_cuentas.iterrows()}
+                opciones_activos = {f"{row.get('codigo_placa', row.get('id'))} - {row.get('nombre_activo', 'Sin Nombre')}": row for _, row in df_activos_cont.iterrows()}
                 
-                with st.form("form_contabilizar_depreciacion"):
-                    col_c1, col_c2 = st.columns(2)
-                    with col_c1:
-                        n_comprobante = st.text_input("Número de Comprobante", value=f"DEP-{datetime.today().strftime('%Y%m')}")
-                        fecha_asiento = st.date_input("Fecha del Asiento Contable", value=datetime.today())
+                # Datos generales del comprobante
+                col_g1, col_g2, col_g3 = st.columns(3)
+                with col_g1:
+                    n_comprobante = st.text_input("Número de Comprobante", value=f"DEP-{datetime.today().strftime('%Y%m')}")
+                with col_g2:
+                    fecha_asiento = st.date_input("Fecha del Asiento", value=datetime.today())
+                with col_g3:
+                    descripcion_general = st.text_input("Glosa / Descripción General", value="Depreciación mensual de activos fijos")
+
+                st.divider()
+                
+                # Formulario para agregar un activo individual al lote
+                with st.form("form_agregar_activo_lote"):
+                    st.markdown("#### ➕ Agregar Activo al Lote")
+                    
+                    activo_sel_label = st.selectbox("Seleccione el Activo Fijo", list(opciones_activos.keys()))
+                    activo_data = opciones_activos[activo_sel_label]
+                    
+                    # Calcular depreciación estimada de este activo
+                    costo = float(activo_data.get('costo_activo', 0.0))
+                    residual = float(activo_data.get('valor_residual', 0.0))
+                    vida_util = int(activo_data.get('vida_util_meses', 1))
+                    dep_mensual = (costo - residual) / vida_util if vida_util > 0 else 0.0
+                    
+                    st.info(f"📊 **Cálculo automático:** Costo: `{costo:,.2f}` | Residual: `{residual:,.2f}` | Vida Útil: `{vida_util} meses` | **Depreciación Mensual: `{dep_mensual:,.2f}`**")
+                    
+                    col_f1, col_f2 = st.columns(2)
+                    with col_f1:
+                        cta_gasto_sel = st.selectbox("Cuenta de Gasto (DEBE)", list(opciones_cuentas.keys()))
+                    with col_f2:
+                        # Si el activo ya trae una cuenta asociada en su registro, la intentamos preseleccionar por comodidad
+                        cta_acum_sel = st.selectbox("Cuenta de Depreciación Acumulada (HABER)", list(opciones_cuentas.keys()))
+                    
+                    btn_agregar = st.form_submit_button("📥 Agregar este Activo al Frame del Lote", use_container_width=True)
+                    
+                    if btn_agregar:
+                        cod_gasto = opciones_cuentas[cta_gasto_sel]
+                        cod_acum = opciones_cuentas[cta_acum_sel]
+                        ref_placa = str(activo_data.get('codigo_placa', f"ID-{activo_data.get('id')}"))
+                        nombre_act = activo_data.get('nombre_activo', 'Activo')
                         
-                    with col_c2:
-                        # Cuenta de Gasto general para la depreciación del periodo (Ej: Gasto Depreciación Equipos / Edificios)
-                        cuenta_gasto_sel = st.selectbox("Cuenta de Gasto Depreciación por Defecto (DEBE)", list(opciones_cuentas.keys()))
-                    
-                    descripcion_asiento = st.text_input("Descripción del Asiento", value=f"Asiento de depreciación mensual correspondiente al periodo")
-                    
-                    st.info("ℹ️ Nota: El sistema buscará la cuenta de depreciación acumulada asociada a cada activo en su registro individual.")
-                    
-                    btn_generar_asientos = st.form_submit_button("🚀 Generar Asientos Contables por Activo", use_container_width=True)
-                    
-                    if btn_generar_asientos:
-                        cod_gasto_default = opciones_cuentas[cuenta_gasto_sel]
+                        # Guardamos las dos líneas contables (Debe y Haber) en la lista temporal
+                        item_debe = {
+                            "n_comprobante": n_comprobante,
+                            "fecha": str(fecha_asiento),
+                            "descripcion": f"{descripcion_general} - {nombre_act} (Placa: {ref_placa})",
+                            "cuenta_contable": cod_gasto,
+                            "referencia": ref_placa,
+                            "debe": dep_mensual,
+                            "haber": 0.00
+                        }
+                        item_haber = {
+                            "n_comprobante": n_comprobante,
+                            "fecha": str(fecha_asiento),
+                            "descripcion": f"{descripcion_general} - {nombre_act} (Placa: {ref_placa})",
+                            "cuenta_contable": cod_acum,
+                            "referencia": ref_placa,
+                            "debe": 0.00,
+                            "haber": dep_mensual
+                        }
                         
+                        st.session_state['lote_depreciacion_temp'].append(item_debe)
+                        st.session_state['lote_depreciacion_temp'].append(item_haber)
+                        st.success(f"✅ ¡{nombre_act} agregado al lote correctamente!")
+                        st.rerun()
+
+            # --- EXAMINAR EL FRAME / TABLA ACUMULADA ---
+            if st.session_state['lote_depreciacion_temp']:
+                st.divider()
+                st.markdown("### 📋 Vista Previa del Lote Acumulado (Frame)")
+                
+                df_lote = pd.DataFrame(st.session_state['lote_depreciacion_temp'])
+                
+                format_lote = {
+                    "debe": "{:,.2f}",
+                    "haber": "{:,.2f}"
+                }
+                st.dataframe(df_lote.style.format(format_lote, na_rep=""), use_container_width=True, hide_index=True)
+                
+                # Totales de control del lote
+                t_debe_lote = df_lote['debe'].sum()
+                t_haber_lote = df_lote['haber'].sum()
+                
+                col_m1, col_m2, col_m3 = st.columns(3)
+                col_m1.metric("Total Debe Lote", f"{t_debe_lote:,.2f}")
+                col_m2.metric("Total Haber Lote", f"{t_haber_lote:,.2f}")
+                
+                if abs(t_debe_lote - t_haber_lote) < 0.01:
+                    col_m3.success("⚖️ Partida Doble Cuadrada")
+                else:
+                    col_m3.error("⚠️ Descuadre en Partida Doble")
+                
+                col_b1, col_b2 = st.columns(2)
+                
+                # Botón para limpiar la tabla temporal si se equivocaron
+                with col_b1:
+                    if st.button("🗑️ Limpiar / Vaciar Lote", use_container_width=True):
+                        st.session_state['lote_depreciacion_temp'] = []
+                        st.rerun()
+                
+                # Botón FINAL para registrar todo en la base de datos
+                with col_b2:
+                    if st.button("🚀 Registrar Todo el Lote en Base de Datos", type="primary", use_container_width=True):
                         conn = conectar_db(db_nombre)
                         if conn:
                             try:
                                 cursor = conn.cursor()
-                                contador_asientos = 0
-                                
-                                for _, row in df_activos_cont.iterrows():
-                                    costo = float(row['costo_activo'])
-                                    residual = float(row['valor_residual'])
-                                    vida_util = int(row['vida_util_meses'])
-                                    
-                                    dep_mensual = (costo - residual) / vida_util if vida_util > 0 else 0.0
-                                    
-                                    if dep_mensual > 0:
-                                        referencia_placa = str(row['codigo_placa']) if row['codigo_placa'] else f"ID-{row['id']}"
-                                        desc_detallada = f"{descripcion_asiento} - {row['nombre_activo']} (Placa: {referencia_placa})"
-                                        
-                                        # Verificamos si el activo tiene una columna de cuenta específica en su tabla, 
-                                        # de lo contrario, puedes adaptarlo a la columna exacta que maneje tu base de datos (ej. row['cuenta_depreciacion'] o por rubro)
-                                        # Asumimos que la columna en 'activo_fijo' podría llamarse 'cuenta_contable' o 'cuenta_depreciacion'.
-                                        # Si en tu tabla se llama distinto, dime el nombre exacto de la columna en MySQL.
-                                        cuenta_acum_activo = row.get('cuenta_contable') or row.get('cuenta_depreciacion') or cod_gasto_default
-                                        
-                                        # 1. Insertar línea al DEBE (Gasto Depreciación)
-                                        query_asiento = """
-                                            INSERT INTO asientos_contables 
-                                            (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber, bloqueado)
-                                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                                        """
-                                        cursor.execute(query_asiento, (
-                                            n_comprobante, desc_detallada, fecha_asiento, 
-                                            cod_gasto_default, cod_gasto_default, referencia_placa, 
-                                            dep_mensual, 0.00, 0
-                                        ))
-                                        
-                                        # 2. Insertar línea al HABER (Depreciación Acumulada específica del activo)
-                                        cursor.execute(query_asiento, (
-                                            n_comprobante, desc_detallada, fecha_asiento, 
-                                            cuenta_acum_activo, cuenta_acum_activo, referencia_placa, 
-                                            0.00, dep_mensual, 0
-                                        ))
-                                        
-                                        contador_asientos += 1
-                                        
+                                query_insert = """
+                                    INSERT INTO asientos_contables 
+                                    (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber, bloqueado)
+                                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                """
+                                for fila in st.session_state['lote_depreciacion_temp']:
+                                    cursor.execute(query_insert, (
+                                        fila['n_comprobante'],
+                                        fila['descripcion'],
+                                        fila['fecha'],
+                                        fila['cuenta_contable'], # plan_cuentas
+                                        fila['cuenta_contable'], # cuenta_contable
+                                        fila['referencia'],
+                                        fila['debe'],
+                                        fila['haber'],
+                                        0
+                                    ))
                                 conn.commit()
                                 cursor.close()
                                 
-                                st.session_state['ultimo_comprobante_generado'] = n_comprobante
-                                st.success(f"✅ ¡Se han generado exitosamente {contador_asientos} asientos contables con sus respectivas cuentas bajo el comprobante `{n_comprobante}`!")
+                                st.success(f"🎉 ¡Comprobante `{n_comprobante}` registrado exitosamente con todas sus cuentas individuales!")
+                                # Limpiamos la lista temporal tras el éxito
+                                st.session_state['lote_depreciacion_temp'] = []
+                                st.rerun()
                             except Exception as e:
-                                st.error(f"❌ Error al registrar los asientos contables: {e}")
+                                st.error(f"❌ Error al guardar en base de datos: {e}")
                             finally:
                                 conn.close()
-                
-                # --- VISUALIZACIÓN DIRECTA DEL FRAME / TABLA ---
-                if 'ultimo_comprobante_generado' in st.session_state:
-                    st.divider()
-                    st.markdown(f"### 📋 Detalle del Comprobante Generado: `{st.session_state['ultimo_comprobante_generado']}`")
-                    
-                    conn = conectar_db(db_nombre)
-                    df_ver_asientos = pd.DataFrame()
-                    if conn:
-                        try:
-                            query_consulta = "SELECT * FROM asientos_contables WHERE n_comprobante = %s"
-                            df_ver_asientos = pd.read_sql(query_consulta, conn, params=(st.session_state['ultimo_comprobante_generado'],))
-                        except Exception as e:
-                            st.error(f"Error al consultar los asientos: {e}")
-                        finally:
-                            conn.close()
-                    
-                    if not df_ver_asientos.empty:
-                        format_asientos = {
-                            "debe": "{:,.2f}",
-                            "haber": "{:,.2f}"
-                        }
-                        st.dataframe(
-                            df_ver_asientos.style.format(format_asientos, na_rep=""), 
-                            use_container_width=True, 
-                            hide_index=True
-                        )
-                        
-                        t_debe = df_ver_asientos['debe'].sum()
-                        t_haber = df_ver_asientos['haber'].sum()
-                        
-                        col_t1, col_t2, col_t3 = st.columns(3)
-                        col_t1.metric("Total Debe", f"{t_debe:,.2f}")
-                        col_t2.metric("Total Haber", f"{t_haber:,.2f}")
-                        
-                        if abs(t_debe - t_haber) < 0.01:
-                            col_t3.success("⚖️ Partida Doble Cuadrada")
-                        else:
-                            col_t3.error("⚠️ Descuadre en Partida Doble")
 
     elif sub_opcion == "Consultar Cierre Contable":
         st.subheader("🔒 Gestión de Asientos de Cierre")
