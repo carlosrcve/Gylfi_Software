@@ -13422,6 +13422,104 @@ elif opcion_menu == "📝 Asientos Contables":
                                 finally:
                                     conn.close()
 
+        # --- PESTAÑA 5: CONTABILIZACIÓN DE DEPRECIACIÓN ---
+        with t_cont:
+            st.markdown("### 🧾 Generar Asientos Contables de Depreciación")
+            st.markdown("Seleccione las cuentas correspondientes del **Plan de Cuentas** para registrar automáticamente la depreciación mensual en la tabla `asientos_contables`.")
+            
+            # Cargar plan de cuentas y activos
+            conn = conectar_db(db_nombre)
+            df_cuentas = pd.DataFrame()
+            df_activos_cont = pd.DataFrame()
+            if conn:
+                try:
+                    df_cuentas = pd.read_sql("SELECT * FROM plan_cuentas", conn)
+                    df_activos_cont = pd.read_sql("SELECT * FROM activo_fijo", conn)
+                except Exception as e:
+                    st.error(f"Error al cargar datos de la base de datos: {e}")
+                finally:
+                    conn.close()
+            
+            if df_cuentas.empty:
+                st.warning("⚠️ No se encontraron registros en la tabla `plan_cuentas`. Por favor configure su plan de cuentas primero.")
+            elif df_activos_cont.empty:
+                st.info("ℹ️ No hay activos fijos registrados para contabilizar.")
+            else:
+                # Armar opciones legibles para los selectbox (ej: "1.1.01 - Caja General")
+                # Verificamos los nombres de columnas comunes en plan_cuentas (código y nombre/descripción)
+                cols_cuentas = df_cuentas.columns.tolist()
+                # Intentamos detectar columnas típicas o usar las primeras disponibles
+                col_codigo = next((c for c in cols_cuentas if 'codigo' in c.lower() or 'cuenta' in c.lower()), cols_cuentas[0])
+                col_nombre = next((c for c in cols_cuentas if 'nombre' in c.lower() or 'descripcion' in c.lower() or 'desc' in c.lower()), cols_cuentas[1] if len(cols_cuentas) > 1 else cols_cuentas[0])
+                
+                opciones_cuentas = {f"{row[col_codigo]} - {row[col_nombre]}": row[col_codigo] for _, row in df_cuentas.iterrows()}
+                
+                with st.form("form_contabilizar_depreciacion"):
+                    col_c1, col_c2 = st.columns(2)
+                    with col_c1:
+                        n_comprobante = st.text_input("Número de Comprobante", value=f"DEP-{datetime.today().strftime('%Y%m')}")
+                        fecha_asiento = st.date_input("Fecha del Asiento Contable", value=datetime.today())
+                        
+                    with col_c2:
+                        cuenta_gasto_sel = st.selectbox("Cuenta de Gasto Depreciación (DEBE)", list(opciones_cuentas.keys()))
+                        cuenta_acum_sel = st.selectbox("Cuenta de Depreciación Acumulada (HABER)", list(opciones_cuentas.keys()))
+                    
+                    descripcion_asiento = st.text_input("Descripción del Asiento", value=f"Asiento de depreciación mensual correspondiente al periodo")
+                    
+                    btn_generar_asientos = st.form_submit_button("🚀 Generar Asientos Contables en Lote", use_container_width=True)
+                    
+                    if btn_generar_asientos:
+                        cod_gasto = opciones_cuentas[cuenta_gasto_sel]
+                        cod_acum = opciones_cuentas[cuenta_acum_sel]
+                        
+                        conn = conectar_db(db_nombre)
+                        if conn:
+                            try:
+                                cursor = conn.cursor()
+                                contador_asientos = 0
+                                
+                                for _, row in df_activos_cont.iterrows():
+                                    costo = float(row['costo_activo'])
+                                    residual = float(row['valor_residual'])
+                                    vida_util = int(row['vida_util_meses'])
+                                    
+                                    # Depreciación mensual individual
+                                    dep_mensual = (costo - residual) / vida_util if vida_util > 0 else 0.0
+                                    
+                                    if dep_mensual > 0:
+                                        referencia_placa = str(row['codigo_placa']) if row['codigo_placa'] else f"ID-{row['id']}"
+                                        desc_detallada = f"{descripcion_asiento} - {row['nombre_activo']} (Placa: {referencia_placa})"
+                                        
+                                        # 1. Insertar línea al DEBE (Gasto Depreciación)
+                                        query_debe = """
+                                            INSERT INTO asientos_contables 
+                                            (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber, bloqueado)
+                                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                        """
+                                        # Nota: Ajustamos plan_cuentas/cuenta_contable según los campos de tu tabla
+                                        cursor.execute(query_debe, (
+                                            n_comprobante, desc_detallada, fecha_asiento, 
+                                            cod_gasto, cod_gasto, referencia_placa, 
+                                            dep_mensual, 0.00, 0
+                                        ))
+                                        
+                                        # 2. Insertar línea al HABER (Depreciación Acumulada)
+                                        cursor.execute(query_debe, (
+                                            n_comprobante, desc_detallada, fecha_asiento, 
+                                            cod_acum, cod_acum, referencia_placa, 
+                                            0.00, dep_mensual, 0
+                                        ))
+                                        
+                                        contador_asientos += 1
+                                        
+                                conn.commit()
+                                cursor.close()
+                                st.success(f"✅ ¡Se han generado exitosamente {contador_asientos} asientos contables de depreciación bajo el comprobante `{n_comprobante}`!")
+                            except Exception as e:
+                                st.error(f"❌ Error al registrar los asientos contables: {e}")
+                            finally:
+                                conn.close()
+
     elif sub_opcion == "Consultar Cierre Contable":
         st.subheader("🔒 Gestión de Asientos de Cierre")
         st.markdown("Genera y consulta los asientos de cierre contable **mensuales** (regularización de cuentas de resultados) y el **cierre anual** (determinación de la utilidad neta y traslado al patrimonio).")
