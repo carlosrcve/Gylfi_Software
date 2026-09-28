@@ -12449,8 +12449,7 @@ elif opcion_menu == "📝 Asientos Contables":
                         st.dataframe(df_display, use_container_width=True, hide_index=True)
                         
                         st.markdown("---")
-                        
-                        # Selector principal para elegir la orden ANTES de mostrar los frames
+                        # Selector principal para elegir la orden
                         opciones_ordenes = {f"ID: {row['id']} | Factura: {row['nro_factura']} | Proveedor: {row['proveedor']} | Estado: {row['estado']}": row for _, row in df_ops.iterrows()}
                         seleccion_op_key = st.selectbox("🔍 Selecciona una Orden de Pago para generar sus registros fiscales y contables:", list(opciones_ordenes.keys()))
                         
@@ -12458,9 +12457,9 @@ elif opcion_menu == "📝 Asientos Contables":
                             sel_data = opciones_ordenes[seleccion_op_key]
                             
                             st.markdown(f"### ⚙️ Previsualización Generada para la Orden #{sel_data['id']}")
-                            st.info(f"Factura: **{sel_data['nro_factura']}** | Proveedor: **{sel_data['proveedor']}**")
+                            st.info(f"Factura: **{sel_data['nro_factura']}** | Proveedor: **{sel_data['proveedor']}** | Estado Actual: **{sel_data['estado']}**")
                             
-                            # Generación de los 3 frames al haber seleccionado la orden
+                            # Generación de los 3 frames siempre visibles al seleccionar la orden
                             col_f1, col_f2, col_f3 = st.columns(3)
                             
                             with col_f1:
@@ -12502,81 +12501,85 @@ elif opcion_menu == "📝 Asientos Contables":
         referencia: OP-{sel_data['nro_factura']}
         descripcion: Compra: {sel_data['proveedor']}
         monto: {sel_data['monto_neto']:,.2f}
-        estado: Pendiente
+        estado: {sel_data['estado']}
                                 """, language="yaml")
 
                             st.markdown("---")
                             
-                            # El botón de guardar aparece únicamente si está Pendiente
-                            if sel_data['estado'] == 'Pendiente':
-                                if st.button("🚀 Confirmar y Guardar Definitivamente en Libros, Contabilidad y Banco", type="primary", use_container_width=True):
-                                    try:
-                                        conn_proc = conectar_db(db_actual)
-                                        if conn_proc:
-                                            cur_proc = conn_proc.cursor()
-                                            
-                                            # 1. Insertar en libro_compras
-                                            cur_proc.execute("""
-                                                INSERT INTO libro_compras (
-                                                    empresa_db, proveedor_id, nro_factura, fecha_emision, 
-                                                    monto_bruto, retencion_islr, retencion_iva, monto_neto
-                                                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                                            """, (
-                                                str(db_actual), sel_data['proveedor_id'], sel_data['nro_factura'], 
-                                                sel_data['fecha_emision'], sel_data['monto_bruto'], 
-                                                sel_data['retencion_islr'], sel_data['retencion_iva'], sel_data['monto_neto']
-                                            ))
-                                            
-                                            # 2. Insertar Asientos Contables
-                                            n_comp = f"OP-{sel_data['nro_factura']}"
-                                            fecha_op = sel_data['fecha_emision']
-                                            
+                            # Botón disponible siempre (si ya está conciliada, avisa pero permite volver a ejecutar si se desea)
+                            if sel_data['estado'] == 'Conciliado':
+                                st.warning("⚠️ Esta orden ya se encuentra **Conciliada**. Si vuelves a presionar el botón, se duplicarán los asientos en contabilidad y libro de compras a menos que sea estrictamente necesario.")
+                            
+                            btn_texto = "🚀 Forzar / Re-procesar Registros en Libros, Contabilidad y Banco" if sel_data['estado'] == 'Conciliado' else "🚀 Confirmar y Guardar Definitivamente en Libros, Contabilidad y Banco"
+                            
+                            if st.button(btn_texto, type="primary", use_container_width=True):
+                                try:
+                                    conn_proc = conectar_db(db_actual)
+                                    if conn_proc:
+                                        cur_proc = conn_proc.cursor()
+                                        
+                                        # 1. Insertar en libro_compras
+                                        cur_proc.execute("""
+                                            INSERT INTO libro_compras (
+                                                empresa_db, proveedor_id, nro_factura, fecha_emision, 
+                                                monto_bruto, retencion_islr, retencion_iva, monto_neto
+                                            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                                        """, (
+                                            str(db_actual), sel_data['proveedor_id'], sel_data['nro_factura'], 
+                                            sel_data['fecha_emision'], sel_data['monto_bruto'], 
+                                            sel_data['retencion_islr'], sel_data['retencion_iva'], sel_data['monto_neto']
+                                        ))
+                                        
+                                        # 2. Insertar Asientos Contables
+                                        n_comp = f"OP-{sel_data['nro_factura']}"
+                                        fecha_op = sel_data['fecha_emision']
+                                        
+                                        cur_proc.execute("""
+                                            INSERT INTO asientos_contables (empresa_db, n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber, bloqueado)
+                                            VALUES (%s, %s, %s, %s, 'Gastos Operativos', 'Gasto Proveedor', %s, %s, 0.00, 0)
+                                        """, (str(db_actual), n_comp, sel_data['observaciones'] or f"Factura {sel_data['nro_factura']}", fecha_op, sel_data['nro_factura'], sel_data['monto_bruto']))
+
+                                        cur_proc.execute("""
+                                            INSERT INTO asientos_contables (empresa_db, n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber, bloqueado)
+                                            VALUES (%s, %s, %s, %s, 'Pasivo Circulante', 'Cuentas por Pagar Proveedores', %s, 0.00, %s, 0)
+                                        """, (str(db_actual), n_comp, f"CxP Proveedor {sel_data['proveedor']}", fecha_op, sel_data['nro_factura'], sel_data['monto_neto']))
+
+                                        if sel_data['retencion_islr'] > 0:
                                             cur_proc.execute("""
                                                 INSERT INTO asientos_contables (empresa_db, n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber, bloqueado)
-                                                VALUES (%s, %s, %s, %s, 'Gastos Operativos', 'Gasto Proveedor', %s, %s, 0.00, 0)
-                                            """, (str(db_actual), n_comp, sel_data['observaciones'] or f"Factura {sel_data['nro_factura']}", fecha_op, sel_data['nro_factura'], sel_data['monto_bruto']))
+                                                VALUES (%s, %s, %s, %s, 'Pasivo Fiscal', 'Retención ISLR Por Pagar', %s, 0.00, %s, 0)
+                                            """, (str(db_actual), n_comp, "Retención ISLR s/Factura", fecha_op, sel_data['nro_factura'], sel_data['retencion_islr']))
 
+                                        if sel_data['retencion_iva'] > 0:
                                             cur_proc.execute("""
                                                 INSERT INTO asientos_contables (empresa_db, n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber, bloqueado)
-                                                VALUES (%s, %s, %s, %s, 'Pasivo Circulante', 'Cuentas por Pagar Proveedores', %s, 0.00, %s, 0)
-                                            """, (str(db_actual), n_comp, f"CxP Proveedor {sel_data['proveedor']}", fecha_op, sel_data['nro_factura'], sel_data['monto_neto']))
+                                                VALUES (%s, %s, %s, %s, 'Pasivo Fiscal', 'Retención IVA Por Pagar', %s, 0.00, %s, 0)
+                                            """, (str(db_actual), n_comp, "Retención IVA s/Factura", fecha_op, sel_data['nro_factura'], sel_data['retencion_iva']))
 
-                                            if sel_data['retencion_islr'] > 0:
-                                                cur_proc.execute("""
-                                                    INSERT INTO asientos_contables (empresa_db, n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber, bloqueado)
-                                                    VALUES (%s, %s, %s, %s, 'Pasivo Fiscal', 'Retención ISLR Por Pagar', %s, 0.00, %s, 0)
-                                                """, (str(db_actual), n_comp, "Retención ISLR s/Factura", fecha_op, sel_data['nro_factura'], sel_data['retencion_islr']))
+                                        # 3. Insertar en banco_movimientos
+                                        cur_proc.execute("""
+                                            INSERT INTO banco_movimientos (
+                                                empresa_db, proveedor_id, concepto, monto, tipo, estado, fecha
+                                            ) VALUES (%s, %s, %s, %s, 'Compromiso', 'Pendiente', %s)
+                                        """, (
+                                            str(db_actual), sel_data['proveedor_id'], 
+                                            f"Compromiso Pago: {sel_data['proveedor']} (Fac: {sel_data['nro_factura']})", 
+                                            sel_data['monto_neto'], fecha_op
+                                        ))
 
-                                            if sel_data['retencion_iva'] > 0:
-                                                cur_proc.execute("""
-                                                    INSERT INTO asientos_contables (empresa_db, n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber, bloqueado)
-                                                    VALUES (%s, %s, %s, %s, 'Pasivo Fiscal', 'Retención IVA Por Pagar', %s, 0.00, %s, 0)
-                                                """, (str(db_actual), n_comp, "Retención IVA s/Factura", fecha_op, sel_data['nro_factura'], sel_data['retencion_iva']))
+                                        # 4. Actualizar estado de la orden de pago a Conciliado
+                                        cur_proc.execute("""
+                                            UPDATE ordenes_pago SET estado = 'Conciliado' WHERE id = %s
+                                        """, (sel_data['id'],))
 
-                                            # 3. Insertar en banco_movimientos
-                                            cur_proc.execute("""
-                                                INSERT INTO banco_movimientos (
-                                                    empresa_db, proveedor_id, concepto, monto, tipo, estado, fecha
-                                                ) VALUES (%s, %s, %s, %s, 'Compromiso', 'Pendiente', %s)
-                                            """, (
-                                                str(db_actual), sel_data['proveedor_id'], 
-                                                f"Compromiso Pago: {sel_data['proveedor']} (Fac: {sel_data['nro_factura']})", 
-                                                sel_data['monto_neto'], fecha_op
-                                            ))
-
-                                            # 4. Actualizar estado de la orden de pago a Conciliado
-                                            cur_proc.execute("""
-                                                UPDATE ordenes_pago SET estado = 'Conciliado' WHERE id = %s
-                                            """, (sel_data['id'],))
-
-                                            conn_proc.commit()
-                                            cur_proc.close()
-                                            conn_proc.close()
-                                            
-                                            st.success("🎉 ¡Registrado con éxito en Libro de Compras, Asientos Contables y Banco!")
-                                            st.rerun()
-                                    except Exception as ex_proc:
-                                        st.error(f"❌ Error al procesar el registro: {ex_proc}")
+                                        conn_proc.commit()
+                                        cur_proc.close()
+                                        conn_proc.close()
+                                        
+                                        st.success("🎉 ¡Proceso ejecutado exitosamente!")
+                                        st.rerun()
+                                except Exception as ex_proc:
+                                    st.error(f"❌ Error al procesar el registro: {ex_proc}")
                             else:
                                 st.info("ℹ️ Esta orden de pago ya se encuentra procesada / conciliada.")
                     else:
