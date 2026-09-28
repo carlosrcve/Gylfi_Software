@@ -12320,7 +12320,6 @@ elif opcion_menu == "📝 Asientos Contables":
                     with col_f1_2:
                         monto_bruto_op = st.number_input("Monto Total de la Factura (Bruto con IVA)", min_value=0.00, step=100.00, format="%.2f")
                         monto_exento_op = st.number_input("Compra Exenta / No Sujeta", min_value=0.00, step=10.00, format="%.2f")
-                        # Agregados los campos explícitos de Base Imponible y Monto IVA que faltaban
                         base_imponible_input = st.number_input("Base Imponible (Dejar en 0.00 para cálculo automático)", min_value=0.00, step=100.00, format="%.2f")
                         monto_iva_ingresado = st.number_input("Monto del IVA (Dejar en 0.00 para cálculo automático)", min_value=0.00, step=10.00, format="%.2f")
 
@@ -12337,27 +12336,9 @@ elif opcion_menu == "📝 Asientos Contables":
                     with col_f2_2:
                         ret_iva_op = st.number_input("Menos: Retención IVA", min_value=0.00, step=10.00, format="%.2f")
 
-                    # ==========================================
-                    # 3️⃣ FRAME 3: Cálculo y Retención de ISLR
-                    # ==========================================
-                    st.markdown("---")
-                    st.markdown("##### 3️⃣ Cálculo y Retención de ISLR (Decreto 1808)")
-                    col_f3_1, col_f3_2, col_f3_3 = st.columns(3)
-                    
-                    with col_f3_1:
-                        tipo_persona_op = st.selectbox("Tipo de Persona", ["Persona Jurídica", "Persona Natural Residente", "Persona Natural No Residente"])
-                        islr_porc_op = st.number_input("Porcentaje ISLR (%)", min_value=0.00, max_value=100.00, value=1.00, step=0.50, format="%.2f")
-                    
-                    with col_f3_2:
-                        islr_sustraendo_op = st.number_input("Sustraendo ISLR", min_value=0.00, step=1.00, format="%.2f")
-                    
-                    with col_f3_3:
-                        observaciones_op = st.text_area("Observaciones o Concepto del Pago").strip()
-
-                    # --- Lógica de Cálculos automáticos o manuales ---
+                    # --- Cálculos automáticos intermedios para sugerencias ---
                     monto_gravable_estimado = max(0.00, monto_bruto_op - monto_exento_op)
                     
-                    # Si el usuario no especificó la base imponible o el IVA de forma manual, se calculan automáticamente
                     if base_imponible_input == 0.00 and monto_iva_ingresado == 0.00 and monto_gravable_estimado > 0:
                         base_imponible_calc = monto_gravable_estimado / (1.0 + (iva_porc_op / 100.0))
                         monto_iva_calc = monto_gravable_estimado - base_imponible_calc
@@ -12365,14 +12346,35 @@ elif opcion_menu == "📝 Asientos Contables":
                         base_imponible_calc = base_imponible_input if base_imponible_input > 0 else max(0.00, monto_gravable_estimado - monto_iva_ingresado)
                         monto_iva_calc = monto_iva_ingresado if monto_iva_ingresado > 0 else (base_imponible_calc * (iva_porc_op / 100.0))
 
-                    # Cálculo de Retención ISLR = (Base Imponible * % Porcentaje) - Sustraendo
-                    islr_calculado_bruto = (base_imponible_calc * (islr_porc_op / 100.0)) - islr_sustraendo_op
-                    ret_islr_op = max(0.00, islr_calculado_bruto)
+                    # ==========================================
+                    # 3️⃣ FRAME 3: Cálculo y Retención de ISLR (Decreto 1808) - CORREGIDO CON CASILLA
+                    # ==========================================
+                    st.markdown("---")
+                    st.markdown("##### 3️⃣ Cálculo y Retención de ISLR (Decreto 1808)")
+                    col_f3_1, col_f3_2, col_f3_3, col_f3_4 = st.columns(4)
                     
+                    with col_f3_1:
+                        tipo_persona_op = st.selectbox("Tipo de Persona", ["Persona Jurídica", "Persona Natural Residente", "Persona Natural No Residente"])
+                        islr_porc_op = st.number_input("Porcentaje ISLR (%)", min_value=0.00, max_value=100.00, value=1.00, step=0.50, format="%.2f")
+                    
+                    with col_f3_2:
+                        islr_sustraendo_op = st.number_input("Sustraendo ISLR", min_value=0.00, step=1.00, format="%.2f")
+                        
+                    # Cálculo sugerido automático de ISLR
+                    islr_calculado_sugerido = max(0.00, (base_imponible_calc * (islr_porc_op / 100.0)) - islr_sustraendo_op)
+                    
+                    with col_f3_3:
+                        # Casilla interactiva solicitada para el monto de la retención de ISLR
+                        ret_islr_op = st.number_input("Menos: Retención ISLR", min_value=0.00, value=float(f"{islr_calculado_sugerido:.2f}"), step=1.00, format="%.2f")
+                        
+                    with col_f3_4:
+                        observaciones_op = st.text_area("Observaciones o Concepto del Pago").strip()
+
+                    # Monto neto a pagar final restando retenciones
                     monto_neto_calculado = monto_bruto_op - ret_islr_op - ret_iva_op
                     
                     st.markdown("---")
-                    st.info(f"📊 **Base Imponible:** {base_imponible_calc:,.2f} | IVA ({iva_porc_op}%): {monto_iva_calc:,.2f} | ISLR: {ret_islr_op:,.2f} | 💵 **Neto a Pagar:** {monto_neto_calculado:,.2f}")
+                    st.info(f"📊 **Base Imponible:** {base_imponible_calc:,.2f} | IVA ({iva_porc_op}%): {monto_iva_calc:,.2f} | ISLR S/Sugerido: {islr_calculado_sugerido:,.2f} | 💵 **Neto a Pagar:** {monto_neto_calculado:,.2f}")
                     
                     btn_guardar_cola = st.form_submit_button("📥 Guardar Orden en Cola", type="primary")
                     
@@ -12400,7 +12402,7 @@ elif opcion_menu == "📝 Asientos Contables":
                                     conn_ins.commit()
                                     cur_ins.close()
                                     conn_ins.close()
-                                    st.success("✅ ¡Orden de pago guardada en cola con sus montos fiscales exitosamente!")
+                                    st.success("✅ ¡Orden de pago guardada en cola con su retención de ISLR exitosamente!")
                                     st.rerun()
                             except Exception as ex_cola:
                                 st.error(f"❌ Error al guardar la orden en cola: {ex_cola}")
