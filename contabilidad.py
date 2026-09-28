@@ -11947,14 +11947,16 @@ elif opcion_menu == "📝 Asientos Contables":
                                 with col_f1:
                                     st.markdown("#### 1️⃣ Frame: `libro_compras`")
                                     st.code(f"""fecha_operacion: {sel_data['fecha_emision']}
-        tipo_documento: Factura
+        tipo_documento: 01
         n_factura: {sel_data['nro_factura']}
         n_control: {sel_data['nro_control']}
         proveedor: {sel_data['proveedor']}
         rif: {sel_data['rif_proveedor']}
-        total_compras: {sel_data['monto_bruto']:,.2f}
+        total_compra: {sel_data['monto_bruto']:,.2f}
+        compras_exentas: {sel_data['monto_exento']:,.2f}
         base_imponible: {sel_data['base_imponible']:,.2f}
-        iva_monto: {sel_data['monto_iva']:,.2f}
+        alicuota_porcentaje: {sel_data['iva_porcentaje']:,.2f}
+        credito_fiscal: {sel_data['monto_iva']:,.2f}
         retencion_islr: {sel_data['retencion_islr']:,.2f}""", language="yaml")
 
                                 with col_f2:
