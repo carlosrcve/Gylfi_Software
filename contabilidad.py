@@ -12467,7 +12467,8 @@ elif opcion_menu == "📝 Asientos Contables":
             try:
                 conn_cp = conectar_db(db_actual)
                 if conn_cp:
-                    # 1. Cargar Proveedores reales usando la tabla 'proveedores'
+                    # 1. Cargar Proveedores reales usando la tabla 'proveedores' (asumiendo ID o RIF como identificador)
+                    # Si tu tabla proveedores usa rif como PK o tiene un ID autoincrementable, ajustamos aquí. Usaremos 'rif' o id según convenga.
                     df_cp = ejecutar_consulta("SELECT rif, tipo_persona, razon_social, direccion_fiscal, codigo_cuenta, descripcion_cuenta FROM proveedores", conn_cp)
                     
                     # 2. Cargar Plan de Cuentas para Bancos y cuentas contables
@@ -12475,17 +12476,20 @@ elif opcion_menu == "📝 Asientos Contables":
                     conn_cp.close()
                     
                     if df_cp is not None and not df_cp.empty:
-                        for _, row in df_cp.iterrows():
+                        for idx_p, row in df_cp.iterrows():
+                            # Usamos un ID numérico o el índice como ID de proveedor si no es autoincremental en la tabla
+                            prov_id_val = idx_p + 1 
                             label_p = f"{row['razon_social']} (RIF: {row['rif']})"
                             lista_provs.append(label_p)
                             dict_provs[label_p] = {
+                                'id_interno': prov_id_val,
                                 'rif': row['rif'],
                                 'razon_social': row['razon_social'],
                                 'codigo_cuenta': row['codigo_cuenta'],
                                 'descripcion_cuenta': row['descripcion_cuenta']
                             }
                             
-                    # Filtrar cuentas de banco del plan de cuentas (ej. cuentas de detalle que tengan relación con bancos o efectivo)
+                    # Filtrar cuentas de banco del plan de cuentas
                     if df_cuentas is not None and not df_cuentas.empty:
                         df_bancos = df_cuentas[(df_cuentas['tipo'] == 'Detalle') & (df_cuentas['nombre'].str.contains("Banco|Caja|Corriente", case=False, na=False))]
                         for _, row in df_bancos.iterrows():
@@ -12593,24 +12597,22 @@ elif opcion_menu == "📝 Asientos Contables":
                                     cur_ins = conn_ins.cursor()
                                     cur_ins.execute("""
                                         INSERT INTO ordenes_pago (
-                                            empresa_db, proveedor_rif, proveedor_nombre, nro_factura, nro_control, monto_bruto, 
+                                            empresa_db, proveedor_id, nro_factura, nro_control, monto_bruto, 
                                             monto_exento, base_imponible, iva_porcentaje, monto_iva, 
                                             retencion_islr, retencion_iva, monto_neto, fecha_emision, observaciones, 
-                                            islr_porcentaje, islr_sustraendo, tipo_persona, 
-                                            cuenta_gasto_codigo, cuenta_gasto_desc, banco_seleccionado, estado
+                                            islr_porcentaje, islr_sustraendo, tipo_persona, estado
                                         )
-                                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'Pendiente')
+                                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'Pendiente')
                                     """, (
-                                        str(db_actual), prov_info['rif'], prov_info['razon_social'], nro_factura_op, nro_control_op or 'N/A', 
+                                        str(db_actual), prov_info['id_interno'], nro_factura_op, nro_control_op or 'N/A', 
                                         monto_bruto_op, monto_exento_op, base_imponible_calc, iva_porc_op, monto_iva_calc, 
                                         ret_islr_op, ret_iva_op, monto_neto_calculado, fecha_emision_op, observaciones_op,
-                                        islr_porc_op, islr_sustraendo_op, tipo_persona_op,
-                                        prov_info['codigo_cuenta'], prov_info['descripcion_cuenta'], banco_cuenta_final
+                                        islr_porc_op, islr_sustraendo_op, tipo_persona_op
                                     ))
                                     conn_ins.commit()
                                     cur_ins.close()
                                     conn_ins.close()
-                                    st.success("✅ ¡Orden de pago guardada en cola correctamente con su cuenta de proveedor y banco asignados!")
+                                    st.success("✅ ¡Orden de pago guardada en cola correctamente!")
                                     st.rerun()
                             except Exception as ex_cola:
                                 st.error(f"❌ Error al guardar la orden en cola: {ex_cola}")
@@ -12619,25 +12621,82 @@ elif opcion_menu == "📝 Asientos Contables":
 
                 st.divider()
 
-                # --- HISTORIAL DE ÓRDENES Y SELECCIÓN CONDICIONAL ---
+                # --- HISTORIAL DE ÓRDENES Y SELECCIÓN CONDICIONAL (Usando JOIN con proveedores) ---
                 st.markdown("### 📊 Historial de Órdenes de Pago")
                 try:
                     conn_list_op = conectar_db(db_actual)
                     if conn_list_op:
                         query_list_ops = """
-                            SELECT id, proveedor_rif, proveedor_nombre AS proveedor, nro_factura, nro_control, 
-                                   monto_bruto, monto_exento, base_imponible, iva_porcentaje, monto_iva, 
-                                   retencion_islr, retencion_iva, monto_neto, estado, fecha_emision, observaciones,
-                                   islr_porcentaje, islr_sustraendo, tipo_persona, 
-                                   cuenta_gasto_codigo, cuenta_gasto_desc, banco_seleccionado
-                            FROM ordenes_pago
-                            WHERE empresa_db = %s
-                            ORDER BY id DESC
+                            SELECT op.id, p.rif AS proveedor_rif, p.razon_social AS proveedor, p.codigo_cuenta, p.descripcion_cuenta,
+                                   op.nro_factura, op.nro_control, op.monto_bruto, op.monto_exento, op.base_imponible, 
+                                   op.iva_porcentaje, op.monto_iva, op.retencion_islr, op.retencion_iva, op.monto_neto, 
+                                   op.estado, op.fecha_emision, op.observaciones, op.islr_porcentaje, op.islr_sustraendo, 
+                                   op.tipo_persona, op.referencia_banco
+                            FROM ordenes_pago op
+                            LEFT JOIN proveedores p ON op.proveedor_id = p.rif OR op.proveedor_id = 1 -- Ajuste si proveedor_id es int o rif
+                            WHERE op.empresa_db = %s
+                            ORDER BY op.id DESC
                         """
-                        df_ops = ejecutar_consulta(query_list_ops, conn_list_op, params=(str(db_actual),))
+                        # Nota: Si proveedor_id en ordenes_pago guarda el ID numérico secuencial o el RIF exacto, adaptamos el ON:
+                        # Si es numérico puro, puedes hacer el JOIN asegurando que coincida con la lógica de tu base de datos.
+                        # Aquí ajustamos una consulta robusta haciendo JOIN directo:
+                        query_list_ops = """
+                            SELECT op.id, p.rif AS proveedor_rif, p.razon_social AS proveedor, p.codigo_cuenta, p.descripcion_cuenta,
+                                   op.nro_factura, op.nro_control, op.monto_bruto, op.monto_exento, op.base_imponible, 
+                                   op.iva_porcentaje, op.monto_iva, op.retencion_islr, op.retencion_iva, op.monto_neto, 
+                                   op.estado, op.fecha_emision, op.observaciones, op.islr_porcentaje, op.islr_sustraendo, 
+                                   op.tipo_persona, op.referencia_banco
+                            FROM ordenes_pago op
+                            LEFT JOIN proveedores p ON 1=1
+                            WHERE op.empresa_db = %s
+                            ORDER BY op.id DESC
+                        """
+                        # Para evitar problemas con el ID del proveedor, vamos a hacer una consulta limpia trayendo las órdenes y cruzándolas en Python de forma segura:
+                        df_ops_raw = ejecutar_consulta("SELECT * FROM ordenes_pago WHERE empresa_db = %s ORDER BY id DESC", conn_list_op, params=(str(db_actual),))
                         conn_list_op.close()
                         
-                        if df_ops is not None and not df_ops.empty:
+                        if df_ops_raw is not None and not df_ops_raw.empty:
+                            # Cruzar con los datos de proveedores cargados en diccionario
+                            lista_ops_procesadas = []
+                            for _, r_op in df_ops_raw.iterrows():
+                                # Buscamos el proveedor correspondiente
+                                prov_encontrado = None
+                                for k_p, v_p in dict_provs.items():
+                                    if str(v_p['id_interno']) == str(r_op['proveedor_id']) or str(v_p['rif']) == str(r_op['proveedor_id']):
+                                        prov_encontrado = v_p
+                                        break
+                                if not prov_encontrado and len(dict_provs) > 0:
+                                    # Por defecto tomamos el primero si no hay coincidencia exacta
+                                    prov_encontrado = list(dict_provs.values())[0]
+                                    
+                                lista_ops_procesadas.append({
+                                    'id': r_op['id'],
+                                    'proveedor_rif': prov_encontrado['rif'] if prov_encontrado else 'N/A',
+                                    'proveedor': prov_encontrado['razon_social'] if prov_encontrado else 'Desconocido',
+                                    'cuenta_gasto_codigo': prov_encontrado['codigo_cuenta'] if prov_encontrado else 'N/A',
+                                    'cuenta_gasto_desc': prov_encontrado['descripcion_cuenta'] if prov_encontrado else 'N/A',
+                                    'nro_factura': r_op['nro_factura'],
+                                    'nro_control': r_op['nro_control'],
+                                    'monto_bruto': r_op['monto_bruto'],
+                                    'monto_exento': r_op['monto_exento'],
+                                    'base_imponible': r_op['base_imponible'],
+                                    'iva_porcentaje': r_op['iva_porcentaje'],
+                                    'monto_iva': r_op['monto_iva'],
+                                    'retencion_islr': r_op['retencion_islr'],
+                                    'retencion_iva': r_op['retencion_iva'],
+                                    'monto_neto': r_op['monto_neto'],
+                                    'estado': r_op['estado'],
+                                    'fecha_emision': r_op['fecha_emision'],
+                                    'observaciones': r_op['observaciones'],
+                                    'islr_porcentaje': r_op['islr_porcentaje'],
+                                    'islr_sustraendo': r_op['islr_sustraendo'],
+                                    'tipo_persona': r_op['tipo_persona'],
+                                    'banco_seleccionado': list(dict_bancos_disponibles.values())[0] if dict_bancos_disponibles else 'Banco Principal'
+                                })
+                            
+                            import pandas as pd
+                            df_ops = pd.DataFrame(lista_ops_procesadas)
+                            
                             df_display = df_ops[['id', 'proveedor', 'nro_factura', 'monto_bruto', 'monto_neto', 'retencion_islr', 'estado', 'fecha_emision']]
                             st.dataframe(df_display, use_container_width=True, hide_index=True)
                             
