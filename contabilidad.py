@@ -12449,17 +12449,27 @@ elif opcion_menu == "📝 Asientos Contables":
                         st.dataframe(df_display, use_container_width=True, hide_index=True)
                         
                         st.markdown("---")
-                        # Selector principal para elegir la orden
-                        opciones_ordenes = {f"ID: {row['id']} | Factura: {row['nro_factura']} | Proveedor: {row['proveedor']} | Estado: {row['estado']}": row for _, row in df_ops.iterrows()}
-                        seleccion_op_key = st.selectbox("🔍 Selecciona una Orden de Pago para generar sus registros fiscales y contables:", list(opciones_ordenes.keys()))
                         
-                        if seleccion_op_key:
+                        # Diccionario y selector principal
+                        opciones_ordenes = {f"ID: {row['id']} | Factura: {row['nro_factura']} | Proveedor: {row['proveedor']} | Estado: {row['estado']}": row for _, row in df_ops.iterrows()}
+                        
+                        # Usamos un valor por defecto vacío o permitimos seleccionar
+                        seleccion_op_key = st.selectbox(
+                            "🔍 Selecciona una Orden de Pago para generar sus registros fiscales y contables:", 
+                            options=list(opciones_ordenes.keys()),
+                            index=None,  # Empieza sin nada seleccionado para que aparezcan los 3 frames SOLO al elegir
+                            placeholder="Haz clic aquí para elegir una orden del historial..."
+                        )
+                        
+                        # LOS TRES FRAMES SOLO APARECEN CUANDO SE SELECCIONA UNA ORDEN
+                        if seleccion_op_key is not None:
                             sel_data = opciones_ordenes[seleccion_op_key]
                             
+                            st.markdown("---")
                             st.markdown(f"### ⚙️ Previsualización Generada para la Orden #{sel_data['id']}")
                             st.info(f"Factura: **{sel_data['nro_factura']}** | Proveedor: **{sel_data['proveedor']}** | Estado Actual: **{sel_data['estado']}**")
                             
-                            # Generación de los 3 frames siempre visibles al seleccionar la orden
+                            # Generación de los 3 frames al haber seleccionado la orden
                             col_f1, col_f2, col_f3 = st.columns(3)
                             
                             with col_f1:
@@ -12506,11 +12516,11 @@ elif opcion_menu == "📝 Asientos Contables":
 
                             st.markdown("---")
                             
-                            # Botón disponible siempre (si ya está conciliada, avisa pero permite volver a ejecutar si se desea)
                             if sel_data['estado'] == 'Conciliado':
-                                st.warning("⚠️ Esta orden ya se encuentra **Conciliada**. Si vuelves a presionar el botón, se duplicarán los asientos en contabilidad y libro de compras a menos que sea estrictamente necesario.")
-                            
-                            btn_texto = "🚀 Forzar / Re-procesar Registros en Libros, Contabilidad y Banco" if sel_data['estado'] == 'Conciliado' else "🚀 Confirmar y Guardar Definitivamente en Libros, Contabilidad y Banco"
+                                st.warning("⚠️ Esta orden ya se encuentra **Conciliada**.")
+                                btn_texto = "🚀 Forzar / Re-procesar Registros en Libros, Contabilidad y Banco"
+                            else:
+                                btn_texto = "🚀 Confirmar y Guardar Definitivamente en Libros, Contabilidad y Banco"
                             
                             if st.button(btn_texto, type="primary", use_container_width=True):
                                 try:
@@ -12580,8 +12590,6 @@ elif opcion_menu == "📝 Asientos Contables":
                                         st.rerun()
                                 except Exception as ex_proc:
                                     st.error(f"❌ Error al procesar el registro: {ex_proc}")
-                            else:
-                                st.info("ℹ️ Esta orden de pago ya se encuentra procesada / conciliada.")
                     else:
                         st.info("ℹ️ No hay órdenes de pago registradas todavía.")
             except Exception as e:
