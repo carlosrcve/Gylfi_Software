@@ -11685,8 +11685,7 @@ elif opcion_menu == "📝 Asientos Contables":
                 except:
                     pass
 
-        with tab2:
-            st.markdown("### 🧾 Gestión y Generación de Órdenes de Pago y Cruce")
+        st.markdown("### 🧾 Gestión y Generación de Órdenes de Pago y Cruce")
 
             # --- CARGAR PROVEEDORES PARA EL SELECTBOX ---
             lista_provs = []
@@ -11785,7 +11784,7 @@ elif opcion_menu == "📝 Asientos Contables":
                     
                     monto_neto_calculado = monto_bruto_op - ret_iva_op - ret_islr_op
                     
-                    # Contenedor visual destacado con el Monto Total de la Factura corregido
+                    # Cuadro 4 separado y limpio con el Monto Total de la Factura y el Neto definitivo
                     st.info(f"📊 **Monto Total Factura:** {monto_bruto_op:,.2f} | **IVA ({iva_porc_op}%):** {monto_iva_calc:,.2f} | **ISLR S/Sugerido:** {ret_islr_op:,.2f} | 💵 **Neto a Pagar:** {monto_neto_calculado:,.2f}")
                     
                     btn_guardar_cola = st.form_submit_button("📥 Guardar Orden en Cola", type="primary")
