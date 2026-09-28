@@ -12516,7 +12516,7 @@ elif opcion_menu == "📝 Asientos Contables":
                     with col_f2_2:
                         ret_iva_op = st.number_input("Menos: Retención IVA", min_value=0.00, step=10.00, format="%.2f")
 
-                    # --- Cálculos automáticos intermedios para sugerencias ---
+                    # --- Cálculos automáticos intermedios ---
                     monto_gravable_estimado = max(0.00, monto_bruto_op - monto_exento_op)
                     
                     if base_imponible_input == 0.00 and monto_iva_ingresado == 0.00 and monto_gravable_estimado > 0:
@@ -12527,7 +12527,7 @@ elif opcion_menu == "📝 Asientos Contables":
                         monto_iva_calc = monto_iva_ingresado if monto_iva_ingresado > 0 else (base_imponible_calc * (iva_porc_op / 100.0))
 
                     # ==========================================
-                    # 3️⃣ FRAME 3: Cálculo y Retención de ISLR (Decreto 1808) - CORREGIDO CON CASILLA
+                    # 3️⃣ FRAME 3: Cálculo y Retención de ISLR (Decreto 1808)
                     # ==========================================
                     st.markdown("---")
                     st.markdown("##### 3️⃣ Cálculo y Retención de ISLR (Decreto 1808)")
@@ -12540,21 +12540,24 @@ elif opcion_menu == "📝 Asientos Contables":
                     with col_f3_2:
                         islr_sustraendo_op = st.number_input("Sustraendo ISLR", min_value=0.00, step=1.00, format="%.2f")
                         
-                    # Cálculo sugerido automático de ISLR
                     islr_calculado_sugerido = max(0.00, (base_imponible_calc * (islr_porc_op / 100.0)) - islr_sustraendo_op)
                     
                     with col_f3_3:
-                        # Casilla interactiva solicitada para el monto de la retención de ISLR
                         ret_islr_op = st.number_input("Menos: Retención ISLR", min_value=0.00, value=float(f"{islr_calculado_sugerido:.2f}"), step=1.00, format="%.2f")
                         
                     with col_f3_4:
                         observaciones_op = st.text_area("Observaciones o Concepto del Pago").strip()
 
-                    # Monto neto a pagar final restando retenciones
-                    monto_neto_calculado = monto_bruto_op - ret_islr_op - ret_iva_op
-                    
+                    # ==========================================
+                    # 4️⃣ FRAME 4: Totalización del Pago y Desglose Operacional
+                    # ==========================================
                     st.markdown("---")
-                    st.info(f"📊 **Base Imponible:** {base_imponible_calc:,.2f} | IVA ({iva_porc_op}%): {monto_iva_calc:,.2f} | ISLR S/Sugerido: {islr_calculado_sugerido:,.2f} | 💵 **Neto a Pagar:** {monto_neto_calculado:,.2f}")
+                    st.markdown("##### 4️⃣ Totalización del Pago y Desglose Operacional")
+                    
+                    monto_neto_calculado = monto_bruto_op - ret_iva_op - ret_islr_op
+                    
+                    # Cuadro 4 separado y limpio con el Monto Total de la Factura y el Neto definitivo
+                    st.info(f"📊 **Monto Total Factura:** {monto_bruto_op:,.2f} | **IVA ({iva_porc_op}%):** {monto_iva_calc:,.2f} | **ISLR S/Sugerido:** {ret_islr_op:,.2f} | 💵 **Neto a Pagar:** {monto_neto_calculado:,.2f}")
                     
                     btn_guardar_cola = st.form_submit_button("📥 Guardar Orden en Cola", type="primary")
                     
@@ -12582,7 +12585,7 @@ elif opcion_menu == "📝 Asientos Contables":
                                     conn_ins.commit()
                                     cur_ins.close()
                                     conn_ins.close()
-                                    st.success("✅ ¡Orden de pago guardada en cola con su retención de ISLR exitosamente!")
+                                    st.success("✅ ¡Orden de pago guardada en cola con su cálculo total exitosamente!")
                                     st.rerun()
                             except Exception as ex_cola:
                                 st.error(f"❌ Error al guardar la orden en cola: {ex_cola}")
@@ -12637,36 +12640,36 @@ elif opcion_menu == "📝 Asientos Contables":
                                 with col_f1:
                                     st.markdown("#### 1️⃣ Frame: `libro_compras`")
                                     st.code(f"""
-            fecha_operacion: {sel_data['fecha_emision']}
-            tipo_documento: Factura
-            n_factura: {sel_data['nro_factura']}
-            n_control: {sel_data['nro_control']}
-            proveedor: {sel_data['proveedor']}
-            rif: {sel_data['rif_proveedor']}
-            total_compras: {sel_data['monto_bruto']:,.2f}
-            base_imponible: {sel_data['base_imponible']:,.2f}
-            iva_monto: {sel_data['monto_iva']:,.2f}
-            retencion_islr: {sel_data['retencion_islr']:,.2f}
+        fecha_operacion: {sel_data['fecha_emision']}
+        tipo_documento: Factura
+        n_factura: {sel_data['nro_factura']}
+        n_control: {sel_data['nro_control']}
+        proveedor: {sel_data['proveedor']}
+        rif: {sel_data['rif_proveedor']}
+        total_compras: {sel_data['monto_bruto']:,.2f}
+        base_imponible: {sel_data['base_imponible']:,.2f}
+        iva_monto: {sel_data['monto_iva']:,.2f}
+        retencion_islr: {sel_data['retencion_islr']:,.2f}
                                     """, language="yaml")
 
                                 with col_f2:
                                     st.markdown("#### 2️⃣ Frame: `asientos_contables`")
                                     st.code(f"""
-            [Debe - Base Gasto / Compras] -> {sel_data['base_imponible']:,.2f}
-            [Debe - Crédito Fiscal IVA] -> {sel_data['monto_iva']:,.2f}
-            [Haber - Cuentas por Pagar] -> {sel_data['monto_neto']:,.2f}
-            [Haber - Retención ISLR ({sel_data['islr_porcentaje']}%)] -> {sel_data['retencion_islr']:,.2f}
-            [Haber - Retención IVA] -> {sel_data['retencion_iva']:,.2f}
+        [Debe - Base Gasto / Compras] -> {sel_data['base_imponible']:,.2f}
+        [Debe - Crédito Fiscal IVA] -> {sel_data['monto_iva']:,.2f}
+        [Haber - Cuentas por Pagar] -> {sel_data['monto_neto']:,.2f}
+        [Haber - Retención ISLR ({sel_data['islr_porcentaje']}%)] -> {sel_data['retencion_islr']:,.2f}
+        [Haber - Retención IVA] -> {sel_data['retencion_iva']:,.2f}
                                     """, language="yaml")
 
                                 with col_f3:
                                     st.markdown("#### 3️⃣ Frame: `banco_movimientos`")
                                     st.code(f"""
-            banco_nombre: Control Interno Principal
-            referencia: OP-{sel_data['nro_factura']}
-            descripcion: Compra: {sel_data['proveedor']}
-            monto: {sel_data['monto_neto']:,.2f}
-            estado_conciliacion: {sel_data['estado']}
+        banco_nombre: Control Interno Principal
+        referencia: OP-{sel_data['nro_factura']}
+        descripcion: Compra: {sel_data['proveedor']}
+        monto: {sel_data['monto_neto']:,.2f}
+        estado_conciliacion: {sel_data['estado']}
                                     """, language="yaml")
 
                                 st.markdown("---")
