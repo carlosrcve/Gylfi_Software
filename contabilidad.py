@@ -12301,6 +12301,7 @@ elif opcion_menu == "📝 Asientos Contables":
                 st.warning("⚠️ Primero debes registrar al menos un proveedor en la Pestaña 1 para poder emitir órdenes de pago.")
             else:
                 # --- FORMULARIO DE REGISTRO / COLA DE ORDEN DE PAGO ---
+                # --- FORMULARIO DE REGISTRO / COLA DE ORDEN DE PAGO ---
                 with st.form("form_nueva_orden_pago"):
                     st.markdown("#### Emitir Nueva Orden de Pago (En Cola)")
                     
@@ -12314,18 +12315,28 @@ elif opcion_menu == "📝 Asientos Contables":
                         monto_bruto_op = st.number_input("Monto Total de la Factura (Bruto con IVA)", min_value=0.00, step=100.00, format="%.2f")
                     
                     with col_op2:
-                        base_imponible_calc = st.number_input("Base Imponible", min_value=0.00, step=10.00, format="%.2f")
                         monto_exento_op = st.number_input("Compra Exenta / No Sujeta", min_value=0.00, step=10.00, format="%.2f")
                         iva_porc_op = st.selectbox("Porcentaje de IVA", [16.0, 8.0, 0.0], index=0)
+                        
+                        # --- CAMPO DE MONTO DEL IVA AGREGADO ---
+                        monto_iva_ingresado = st.number_input("Monto del IVA", min_value=0.00, step=10.00, format="%.2f")
+                        
                         ret_islr_op = st.number_input("Menos: Retención ISLR", min_value=0.00, step=10.00, format="%.2f")
                         ret_iva_op = st.number_input("Menos: Retención IVA", min_value=0.00, step=10.00, format="%.2f")
                     
-                    # Cálculo automático fiscal
+                    # Cálculo automático fiscal de respaldo / validación
                     monto_gravable_estimado = max(0.00, monto_bruto_op - monto_exento_op)
-                    # Desglosando base e IVA del monto gravable ingresado (asumiendo monto_bruto incluye el IVA)
-                    base_imponible_calc = monto_gravable_estimado / (1.0 + (iva_porc_op / 100.0))
-                    monto_iva_calc = monto_gravable_estimado - base_imponible_calc
+                    base_imponible_calc = max(0.00, monto_gravable_estimado - monto_iva_ingresado)
                     
+                    # Si el usuario deja el IVA en 0 pero hay monto bruto y base estimada, lo autocalculamos opcionalmente, 
+                    # o respetamos el monto ingresado explícitamente:
+                    if monto_iva_ingresado == 0.00 and monto_gravable_estimado > 0:
+                        base_imponible_calc = monto_gravable_estimado / (1.0 + (iva_porc_op / 100.0))
+                        monto_iva_calc = monto_gravable_estimado - base_imponible_calc
+                    else:
+                        monto_iva_calc = monto_iva_ingresado
+                        base_imponible_calc = monto_gravable_estimado - monto_iva_calc
+
                     monto_neto_calculado = monto_bruto_op - ret_islr_op - ret_iva_op
                     
                     st.info(f"📊 **Base Imponible:** {base_imponible_calc:,.2f} | IVA ({iva_porc_op}%): {monto_iva_calc:,.2f} | 💵 **Neto a Pagar:** {monto_neto_calculado:,.2f}")
