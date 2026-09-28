@@ -12546,7 +12546,7 @@ elif opcion_menu == "📝 Asientos Contables":
         with tab2:
             st.markdown("### 🧾 Gestión y Generación de Órdenes de Pago y Cruce")
 
-            # --- CARGAR PROVEEDORES Y PLAN DE CUENTAS DIRECTO DE LA BD ---
+            # --- CARGAR PROVEEDORES DIRECTO DE LA TABLA PROVEEDORES_CARGA ---
             lista_provs = []
             dict_provs = {}
             lista_cuentas_detalle = []
@@ -12555,12 +12555,14 @@ elif opcion_menu == "📝 Asientos Contables":
             try:
                 conn_cp = conectar_db(db_actual)
                 if conn_cp:
-                    df_cp = ejecutar_consulta(
-                        "SELECT id, nombre, rif, codigo_cuenta, descripcion_cuenta FROM proveedores_carga WHERE empresa_db = %s ORDER BY nombre ASC", 
+                    import pandas as pd
+                    # Leemos directamente la tabla que nos mostraste en la imagen
+                    df_cp = pd.read_sql(
+                        "SELECT id, nombre, rif, telefono, email FROM proveedores_carga WHERE empresa_db = %s ORDER BY nombre ASC", 
                         conn_cp, 
                         params=(str(db_actual),)
                     )
-                    df_cuentas = ejecutar_consulta(
+                    df_cuentas = pd.read_sql(
                         "SELECT id, codigo, nombre, nivel, tipo, padre FROM plan_cuentas WHERE tipo = 'Detalle'", 
                         conn_cp
                     )
@@ -12568,6 +12570,7 @@ elif opcion_menu == "📝 Asientos Contables":
                     
                     # 1. Procesar Proveedores
                     if df_cp is not None and not df_cp.empty:
+                        st.success(f"✅ ¡Se cargaron {len(df_cp)} proveedores correctamente desde `proveedores_carga`!")
                         for _, row in df_cp.iterrows():
                             prov_id_val = row['id']
                             label_p = f"{row['nombre']} (RIF: {row['rif']})"
@@ -12577,9 +12580,11 @@ elif opcion_menu == "📝 Asientos Contables":
                                 'id_interno': prov_id_val,
                                 'rif': row['rif'],
                                 'nombre': row['nombre'],
-                                'codigo_cuenta': str(row.get('codigo_cuenta', 'N/A')),
-                                'descripcion_cuenta': str(row.get('descripcion_cuenta', 'N/A'))
+                                'telefono': row.get('telefono', ''),
+                                'email': row.get('email', '')
                             }
+                    else:
+                        st.warning(f"⚠️ No hay proveedores en `proveedores_carga` para la empresa `{db_actual}`.")
                     
                     # 2. Procesar Plan de Cuentas
                     if df_cuentas is not None and not df_cuentas.empty:
@@ -12592,7 +12597,7 @@ elif opcion_menu == "📝 Asientos Contables":
                                     'nombre': str(row['nombre']).strip()
                                 }
             except Exception as e:
-                st.error(f"Error cargando datos de BD: {e}")
+                st.error(f"❌ Error cargando datos de BD: {e}")
 
             # --- HISTORIAL DE ÓRDENES (CARGA DIRECTA SIN BLOQUEOS) ---
             st.markdown("### 📊 Historial de Órdenes de Pago")
