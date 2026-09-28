@@ -11715,7 +11715,7 @@ elif opcion_menu == "📝 Asientos Contables":
             except Exception as err_pc:
                 st.error(f"Error cargando plan_cuentas: {err_pc}")
 
-            # --- RED DE SEGURIDAD (Solo actúa si la BD falla o está vacía) ---
+            # --- RED DE SEGURIDAD ---
             if not opciones_desplegable:
                 st.error(f"❌ La tabla 'plan_cuentas' en `{db_actual}` no tiene cuentas con tipo = 'Detalle'.")
                 opciones_desplegable = ["1.1.1.01.001 - Caja Chica", "1.1.1.02.001 - Banco de Venezuela"]
@@ -11724,21 +11724,21 @@ elif opcion_menu == "📝 Asientos Contables":
                     "1.1.1.02.001 - Banco de Venezuela": {'codigo': "1.1.1.02.001", 'nombre': "Banco de Venezuela"}
                 }
 
-            # --- CARGAR PROVEEDORES PARA EL SELECTBOX ---
+            # --- CARGAR PROVEEDORES CORRECTAMENTE (SIN CAMPOS FANTASMAS) ---
             lista_provs = []
             dict_provs = {}
             dict_provs_info = {}
             try:
                 conn_cp = conectar_db(db_actual)
                 if conn_cp:
-                    df_cp = ejecutar_consulta("SELECT id, nombre, rif FROM proveedores_carga WHERE empresa_db = %s ORDER BY nombre ASC", conn_cp, params=(str(db_actual),))
+                    df_cp = ejecutar_consulta("SELECT id, razon_social, rif FROM proveedores ORDER BY razon_social ASC", conn_cp)
                     conn_cp.close()
                     if df_cp is not None and not df_cp.empty:
                         for _, row in df_cp.iterrows():
-                            label_p = f"{row['nombre']} (RIF: {row['rif']})"
+                            label_p = f"{row['razon_social']} (RIF: {row['rif']})"
                             lista_provs.append(label_p)
                             dict_provs[label_p] = row['id']
-                            dict_provs_info[row['id']] = {'nombre': row['nombre'], 'rif': row['rif']}
+                            dict_provs_info[row['id']] = {'nombre': row['razon_social'], 'rif': row['rif']}
             except Exception as e:
                 st.error(f"Error cargando proveedores: {e}")
 
