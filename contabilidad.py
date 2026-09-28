@@ -12305,38 +12305,40 @@ elif opcion_menu == "📝 Asientos Contables":
                     st.markdown("#### Emitir Nueva Orden de Pago (En Cola)")
                     
                     # ==========================================
-                    # 1️⃣ FRAME 1: Datos Básicos de la Factura
+                    # 1️⃣ FRAME 1: Datos Básicos y Fiscales de la Factura
                     # ==========================================
                     st.markdown("---")
-                    st.markdown("##### 1️⃣ Datos Generales de la Factura")
+                    st.markdown("##### 1️⃣ Datos Generales y Fiscales de la Factura")
                     col_f1_1, col_f1_2 = st.columns(2)
                     
                     with col_f1_1:
                         prov_seleccionado = st.selectbox("Seleccionar Proveedor", lista_provs)
                         nro_factura_op = st.text_input("Número de Factura del Proveedor").strip()
                         nro_control_op = st.text_input("Número de Control (Ej: 00-00001234)").strip()
+                        fecha_emision_op = st.date_input("Fecha de Emisión de la Factura")
                     
                     with col_f1_2:
-                        fecha_emision_op = st.date_input("Fecha de Emisión de la Factura")
                         monto_bruto_op = st.number_input("Monto Total de la Factura (Bruto con IVA)", min_value=0.00, step=100.00, format="%.2f")
                         monto_exento_op = st.number_input("Compra Exenta / No Sujeta", min_value=0.00, step=10.00, format="%.2f")
+                        # Agregados los campos explícitos de Base Imponible y Monto IVA que faltaban
+                        base_imponible_input = st.number_input("Base Imponible (Dejar en 0.00 para cálculo automático)", min_value=0.00, step=100.00, format="%.2f")
+                        monto_iva_ingresado = st.number_input("Monto del IVA (Dejar en 0.00 para cálculo automático)", min_value=0.00, step=10.00, format="%.2f")
 
                     # ==========================================
                     # 2️⃣ FRAME 2: Cálculo y Retención del IVA
                     # ==========================================
                     st.markdown("---")
-                    st.markdown("##### 2️⃣ Cálculo y Retención de IVA")
+                    st.markdown("##### 2️⃣ Configuración de IVA")
                     col_f2_1, col_f2_2 = st.columns(2)
                     
                     with col_f2_1:
-                        iva_porc_op = st.selectbox("Porcentaje de IVA", [16.0, 8.0, 0.0], index=0)
-                        monto_iva_ingresado = st.number_input("Monto del IVA (Sugerido o manual)", min_value=0.00, step=10.00, format="%.2f")
+                        iva_porc_op = st.selectbox("Porcentaje de IVA Aplicado", [16.0, 8.0, 0.0], index=0)
                     
                     with col_f2_2:
                         ret_iva_op = st.number_input("Menos: Retención IVA", min_value=0.00, step=10.00, format="%.2f")
 
                     # ==========================================
-                    # 3️⃣ FRAME 3: Cálculo y Retención de ISLR (Actualizado con Nuevas Columnas)
+                    # 3️⃣ FRAME 3: Cálculo y Retención de ISLR
                     # ==========================================
                     st.markdown("---")
                     st.markdown("##### 3️⃣ Cálculo y Retención de ISLR (Decreto 1808)")
@@ -12348,28 +12350,25 @@ elif opcion_menu == "📝 Asientos Contables":
                     
                     with col_f3_2:
                         islr_sustraendo_op = st.number_input("Sustraendo ISLR", min_value=0.00, step=1.00, format="%.2f")
-                        # Cálculo automático base de la retención ISLR sobre la Base Imponible
                     
                     with col_f3_3:
-                        # Opción de edición manual o cálculo automático asistido
                         observaciones_op = st.text_area("Observaciones o Concepto del Pago").strip()
 
-                    # --- Cálculos automáticos fiscales ---
+                    # --- Lógica de Cálculos automáticos o manuales ---
                     monto_gravable_estimado = max(0.00, monto_bruto_op - monto_exento_op)
                     
-                    if monto_iva_ingresado == 0.00 and monto_gravable_estimado > 0:
+                    # Si el usuario no especificó la base imponible o el IVA de forma manual, se calculan automáticamente
+                    if base_imponible_input == 0.00 and monto_iva_ingresado == 0.00 and monto_gravable_estimado > 0:
                         base_imponible_calc = monto_gravable_estimado / (1.0 + (iva_porc_op / 100.0))
                         monto_iva_calc = monto_gravable_estimado - base_imponible_calc
                     else:
-                        monto_iva_calc = monto_iva_ingresado
-                        base_imponible_calc = max(0.00, monto_gravable_estimado - monto_iva_calc)
+                        base_imponible_calc = base_imponible_input if base_imponible_input > 0 else max(0.00, monto_gravable_estimado - monto_iva_ingresado)
+                        monto_iva_calc = monto_iva_ingresado if monto_iva_ingresado > 0 else (base_imponible_calc * (iva_porc_op / 100.0))
 
                     # Cálculo de Retención ISLR = (Base Imponible * % Porcentaje) - Sustraendo
                     islr_calculado_bruto = (base_imponible_calc * (islr_porc_op / 100.0)) - islr_sustraendo_op
                     ret_islr_op = max(0.00, islr_calculado_bruto)
                     
-                    st.markdown(f"*(Retención ISLR calculada automáticamente: {ret_islr_op:,.2f})*")
-
                     monto_neto_calculado = monto_bruto_op - ret_islr_op - ret_iva_op
                     
                     st.markdown("---")
@@ -12401,7 +12400,7 @@ elif opcion_menu == "📝 Asientos Contables":
                                     conn_ins.commit()
                                     cur_ins.close()
                                     conn_ins.close()
-                                    st.success("✅ ¡Orden de pago guardada en cola con parámetros de ISLR exitosamente!")
+                                    st.success("✅ ¡Orden de pago guardada en cola con sus montos fiscales exitosamente!")
                                     st.rerun()
                             except Exception as ex_cola:
                                 st.error(f"❌ Error al guardar la orden en cola: {ex_cola}")
