@@ -11685,7 +11685,8 @@ elif opcion_menu == "📝 Asientos Contables":
                 except:
                     pass
 
-        st.markdown("### 🧾 Gestión y Generación de Órdenes de Pago y Cruce")
+        with tab2:
+            st.markdown("### 🧾 Gestión y Generación de Órdenes de Pago y Cruce")
 
             # --- CARGAR PROVEEDORES PARA EL SELECTBOX ---
             lista_provs = []
