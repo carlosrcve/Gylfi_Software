@@ -11946,7 +11946,7 @@ elif opcion_menu == "📝 Asientos Contables":
                                 
                                 with col_f1:
                                     st.markdown("#### 1️⃣ Frame: `libro_compras`")
-                                    st.code(f"""fecha_operacion: {sel_data['fecha_emision']}
+        st.code(f"""fecha_operacion: {sel_data['fecha_emision']}
         tipo_documento: 01
         n_factura: {sel_data['nro_factura']}
         n_control: {sel_data['nro_control']}
