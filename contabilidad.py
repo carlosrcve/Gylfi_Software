@@ -11778,23 +11778,22 @@ elif opcion_menu == "📝 Asientos Contables":
                         observaciones_op = st.text_area("Observaciones o Concepto del Pago").strip()
 
                     # ==========================================
-                    # 4️⃣ FRAME 4: Monto Total del Pago (Neto a Pagar)
+                    # 4️⃣ FRAME 4: Monto Total del Pago (Integrado a la Casilla Bruta)
                     # ==========================================
                     st.markdown("---")
-                    st.markdown("##### 4️⃣ Totalización y Monto Neto del Pago")
+                    st.markdown("##### 4️⃣ Totalización del Pago")
                     
-                    # Cálculo del Neto a Pagar
+                    # Cálculo del Neto aplicando la fórmula exacta solicitada
                     monto_neto_calculado = monto_bruto_op - ret_iva_op - ret_islr_op
                     
-                    col_f4_1, col_f4_2, col_f4_3 = st.columns(3)
-                    with col_f4_1:
-                        st.metric(label="Monto Bruto Total", value=f"{monto_bruto_op:,.2f}")
-                    with col_f4_2:
-                        st.metric(label="Total Retenciones (IVA + ISLR)", value=f"{(ret_iva_op + ret_islr_op):,.2f}", delta=f"-{(ret_iva_op + ret_islr_op):,.2f}", delta_color="inverse")
-                    with col_f4_3:
-                        st.metric(label="💵 Neto a Pagar al Proveedor", value=f"{monto_neto_calculado:,.2f}")
+                    # Casilla exacta mostrando el desglose operacional que pediste
+                    st.markdown(f"**Monto Total de la Factura (Bruto con IVA):** {monto_bruto_op:,.2f}  \n"
+                                f"➖ **Menos: Retención IVA:** {ret_iva_op:,.2f}  \n"
+                                f"➖ **Menos: Retención ISLR:** {ret_islr_op:,.2f}")
+                    
+                    st.success(f"💵 **Neto a Pagar Final:** {monto_neto_calculado:,.2f}")
 
-                    st.info(f"📊 **Desglose Fiscal:** Base Imponible: {base_imponible_calc:,.2f} | IVA ({iva_porc_op}%): {monto_iva_calc:,.2f} | Ret. IVA: {ret_iva_op:,.2f} | Ret. ISLR: {ret_islr_op:,.2f}")
+                    st.info(f"📊 **Desglose Fiscal:** Base Imponible: {base_imponible_calc:,.2f} | IVA ({iva_porc_op}%): {monto_iva_calc:,.2f}")
                     
                     btn_guardar_cola = st.form_submit_button("📥 Guardar Orden en Cola", type="primary")
                     
@@ -11822,7 +11821,7 @@ elif opcion_menu == "📝 Asientos Contables":
                                     conn_ins.commit()
                                     cur_ins.close()
                                     conn_ins.close()
-                                    st.success("✅ ¡Orden de pago guardada en cola con su cuadro totalizador exitosamente!")
+                                    st.success("✅ ¡Orden de pago guardada en cola con su cálculo total exitosamente!")
                                     st.rerun()
                             except Exception as ex_cola:
                                 st.error(f"❌ Error al guardar la orden en cola: {ex_cola}")
