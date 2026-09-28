@@ -12582,12 +12582,12 @@ elif opcion_menu == "📝 Asientos Contables":
                     if df_cp is not None and not df_cp.empty:
                         for idx_p, row in df_cp.iterrows():
                             prov_id_val = idx_p + 1 
-                            label_p = f"{row['razon_social']} (RIF: {row['rif']})"
+                            label_p = f"{row['nombre']} (RIF: {row['rif']})"
                             lista_provs.append(label_p)
                             dict_provs[label_p] = {
                                 'id_interno': prov_id_val,
                                 'rif': row['rif'],
-                                'razon_social': row['razon_social'],
+                                'nombre': row['nombre'],
                                 'codigo_cuenta': row['codigo_cuenta'],
                                 'descripcion_cuenta': row['descripcion_cuenta']
                             }
@@ -12628,7 +12628,7 @@ elif opcion_menu == "📝 Asientos Contables":
                             lista_ops_procesadas.append({
                                 'id': r_op['id'],
                                 'proveedor_rif': prov_encontrado['rif'] if prov_encontrado else 'N/A',
-                                'proveedor': prov_encontrado['razon_social'] if prov_encontrado else 'Desconocido',
+                                'proveedor': prov_encontrado['nombre'] if prov_encontrado else 'Desconocido',
                                 'cuenta_gasto_codigo': prov_encontrado['codigo_cuenta'] if prov_encontrado else 'N/A',
                                 'cuenta_gasto_desc': prov_encontrado['descripcion_cuenta'] if prov_encontrado else 'N/A',
                                 'nro_factura': r_op['nro_factura'],
