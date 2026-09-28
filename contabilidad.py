@@ -12363,7 +12363,6 @@ elif opcion_menu == "📝 Asientos Contables":
             try:
                 conn_cp = conectar_db(db_actual)
                 if conn_cp:
-                    # Aseguramos traer también el RIF y la cuenta contable asociada si existe en la tabla proveedores_carga
                     df_cp = ejecutar_consulta("SELECT id, nombre, rif FROM proveedores_carga WHERE empresa_db = %s ORDER BY nombre ASC", conn_cp, params=(str(db_actual),))
                     conn_cp.close()
                     if df_cp is not None and not df_cp.empty:
@@ -12410,7 +12409,6 @@ elif opcion_menu == "📝 Asientos Contables":
                             id_prov_real = dict_provs.get(prov_seleccionado)
                             info_p = dict_provs_info.get(id_prov_real, {})
                             
-                            # Guardamos los datos temporalmente en session_state para mostrar los 3 frames fuera del form
                             st.session_state.preview_op_data = {
                                 "id_proveedor": id_prov_real,
                                 "nombre_proveedor": info_p.get("nombre"),
@@ -12427,49 +12425,68 @@ elif opcion_menu == "📝 Asientos Contables":
                         else:
                             st.warning("⚠️ Debes indicar el número de factura y un monto bruto válido.")
 
-                # --- MOSTRAR LOS 3 FRAMES DE PREVISUALIZACIÓN SI EXISTEN DATOS ---
+                # --- MOSTRAR LOS 3 FRAMES DE PREVISUALIZACIÓN CON TUS COLUMNAS EXACTAS ---
                 if st.session_state.preview_op_data:
                     data = st.session_state.preview_op_data
                     
                     st.divider()
-                    st.markdown("### 👁️ Previsualización de Impacto Integral antes de Aprobar")
-                    st.info("Revisa los 3 marcos generados automáticamente. Si todo es correcto, haz clic en **'Aprobar y Registrar'** al final de la página.")
+                    st.markdown("### 👁️ Previsualización de Impacto Integral (Estructura de Tablas Reales)")
+                    st.info("Revisa cómo se poblarán exactamente las tablas fiscales, contables y de tesorería. Si todo está conforme, haz clic en **'Aprobar y Registrar'**.")
                     
                     col_f1, col_f2, col_f3 = st.columns(3)
                     
                     with col_f1:
-                        st.markdown("#### 1️⃣ Libro de Compras")
-                        st.caption("Impacto en Libro de Compras (SENIAT)")
-                        st.write(f"**Proveedor:** {data['nombre_proveedor']}")
-                        st.write(f"**RIF:** {data['rif_proveedor']}")
-                        st.write(f"**Factura:** {data['nro_factura']}")
-                        st.write(f"**Base / Bruto:** {data['monto_bruto']:,.2f}")
-                        st.write(f"**Ret. ISLR:** {data['ret_islr']:,.2f}")
-                        st.write(f"**Ret. IVA:** {data['ret_iva']:,.2f}")
-                        st.markdown(f"**Neto Fiscal:** `{data['monto_neto']:,.2f}`")
+                        st.markdown("#### 1️⃣ Tabla: `libro_compras`")
+                        st.caption("Estructura fiscal SENIAT")
+                        st.code(f"""
+                                    fecha_operacion: {data['fecha_emision']}
+                                    tipo_documento: Factura
+                                    n_factura: {data['nro_factura']}
+                                    n_control: N/D
+                                    proveedor: {data['nombre_proveedor']}
+                                    rif: {data['rif_proveedor']}
+                                    tipo_transaccion: Nacional
+                                    total_compras: {data['monto_bruto']:,.2f}
+                                    base_imponible: {data['monto_bruto']:,.2f}
+                                    iva_porcentaje: 16.0%
+                                    iva_monto: 0.00
+                                    etencion_realizada (ISLR): {data['ret_islr']:,.2f}
+                                    retencion_iva_realizada: {data['ret_iva']:,.2f}
+                                """, language="yaml")
 
                     with col_f2:
-                        st.markdown("#### 2️⃣ Asiento Contable")
-                        st.caption("Partida Doble Automática")
-                        st.markdown(f"""
-                        * **DÉBITO:** Gasto / Costo Proveedor  
-                          `{data['monto_bruto']:,.2f}`
-                        * **CRÉDITO:** Cuentas por Pagar  
-                          `{data['monto_neto']:,.2f}`
-                        * **CRÉDITO:** Retención ISLR Por Pagar  
-                          `{data['ret_islr']:,.2f}`
-                        * **CRÉDITO:** Retención IVA Por Pagar  
-                          `{data['ret_iva']:,.2f}`
-                        """)
+                        st.markdown("#### 2️⃣ Tabla: `asientos_contables`")
+                        st.caption("Partida doble por líneas (4 registros)")
+                        st.code(f"""
+                                    [Línea 1 - Débito Gasto]
+                                    - cuenta: Gasto Proveedor
+                                    - debe: {data['monto_bruto']:,.2f} | haber: 0.00
+
+                                    [Línea 2 - Crédito CxP]
+                                    - cuenta: Cuentas por Pagar
+                                    - debe: 0.00 | haber: {data['monto_neto']:,.2f}
+
+                                    [Línea 3 - Crédito ISLR]
+                                    - cuenta: Retención ISLR Por Pagar
+                                    - debe: 0.00 | haber: {data['ret_islr']:,.2f}
+
+                                    [Línea 4 - Crédito IVA]
+                                    - cuenta: Retención IVA Por Pagar
+                                    - debe: 0.00 | haber: {data['ret_iva']:,.2f}
+                                """, language="yaml")
 
                     with col_f3:
-                        st.markdown("#### 3️⃣ Control Interno Banco")
-                        st.caption("Bandeja de Tesorería Interna")
-                        st.write(f"**Tipo:** Compromiso de Pago")
-                        st.write(f"**Beneficiario:** {data['nombre_proveedor']}")
-                        st.write(f"**Concepto:** {data['observaciones'] or 'Factura Nro: ' + data['nro_factura']}")
-                        st.markdown(f"**Monto Proyectado:** `{data['monto_neto']:,.2f}`")
-                        st.write(f"**Estatus:** Pendiente de Cruce")
+                        st.markdown("#### 3️⃣ Tabla: `banco_movimientos`")
+                        st.caption("Control interno de tesorería")
+                        st.code(f"""
+                                    banco_nombre: Control Interno Principal
+                                    cuenta_numero: N/A
+                                    fecha_movimiento: {data['fecha_emision']}
+                                    referencia: OP-{data['nro_factura']}
+                                    descripcion: Compra: {data['nombre_proveedor']}
+                                    monto: {data['monto_neto']:,.2f}
+                                    estado_conciliacion: Pendiente
+                                """, language="yaml")
 
                     st.markdown("---")
                     
@@ -12481,13 +12498,13 @@ elif opcion_menu == "📝 Asientos Contables":
                                 if conn_fin:
                                     cursor_fin = conn_fin.cursor()
                                     
-                                    # --- INSERCIÓN GLOBAL EN LAS TABLAS DEFINITIVAS ---
+                                    # Inserción en ordenes_pago de respaldo
                                     cursor_fin.execute("""
                                         INSERT INTO ordenes_pago (empresa_db, proveedor_id, nro_factura, monto_bruto, retencion_islr, retencion_iva, monto_neto, fecha_emision, observaciones, estado)
                                         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'Pendiente')
                                     """, (str(db_actual), data['id_proveedor'], data['nro_factura'], data['monto_bruto'], data['ret_islr'], data['ret_iva'], data['monto_neto'], data['fecha_emision'], data['observaciones']))
 
-                                    # 1. Inserción exacta en libro_compras con tus campos fiscales
+                                    # 1. Inserción exacta en libro_compras con campos fiscales
                                     cursor_fin.execute("""
                                         INSERT INTO libro_compras (
                                             empresa_db, fecha_operacion, tipo_documento, n_factura, n_control, 
@@ -12505,26 +12522,22 @@ elif opcion_menu == "📝 Asientos Contables":
                                     n_comp = f"OP-{data['nro_factura']}"
                                     fecha_op = data['fecha_emision']
 
-                                    # Línea Débito: Gasto / Costo
                                     cursor_fin.execute("""
                                         INSERT INTO asientos_contables (empresa_db, n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber, bloqueado)
                                         VALUES (%s, %s, %s, %s, 'Gastos Operativos', 'Gasto Proveedor', %s, %s, 0.00, 0)
                                     """, (str(db_actual), n_comp, data['observaciones'] or f"Factura {data['nro_factura']}", fecha_op, data['nro_factura'], data['monto_bruto']))
 
-                                    # Línea Crédito: Cuentas por Pagar (Neto)
                                     cursor_fin.execute("""
                                         INSERT INTO asientos_contables (empresa_db, n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber, bloqueado)
                                         VALUES (%s, %s, %s, %s, 'Pasivo Circulante', 'Cuentas por Pagar Proveedores', %s, 0.00, %s, 0)
                                     """, (str(db_actual), n_comp, f"CxP Proveedor {data['nombre_proveedor']}", fecha_op, data['nro_factura'], data['monto_neto']))
 
-                                    # Crédito Retención ISLR (si aplica)
                                     if data['ret_islr'] > 0:
                                         cursor_fin.execute("""
                                             INSERT INTO asientos_contables (empresa_db, n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber, bloqueado)
                                             VALUES (%s, %s, %s, %s, 'Pasivo Fiscal', 'Retención ISLR Por Pagar', %s, 0.00, %s, 0)
                                         """, (str(db_actual), n_comp, "Retención ISLR s/Factura", fecha_op, data['nro_factura'], data['ret_islr']))
 
-                                    # Crédito Retención IVA (si aplica)
                                     if data['ret_iva'] > 0:
                                         cursor_fin.execute("""
                                             INSERT INTO asientos_contables (empresa_db, n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber, bloqueado)
