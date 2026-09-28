@@ -12576,9 +12576,9 @@ elif opcion_menu == "📝 Asientos Contables":
                             if not lista_cuentas_detalle:
                                 st.error("❌ No se encontraron cuentas de detalle en la tabla `plan_cuentas`. Verifica que existan registros con `tipo = 'Detalle'`.")
                             else:
-                                # --- SELECTORES DESPLEGABLES ALIMENTADOS DESDE PLAN_CUENTAS ---
                                 # --- SELECTORES DESPLEGABLES INTERACTIVOS ALIMENTADOS DESDE PLAN_CUENTAS ---
                                 col_sel_1, col_sel_2, col_sel_3 = st.columns(3)
+                                
                                 with col_sel_1:
                                     sug_gasto = f"{sel_data['cuenta_gasto_codigo']} - {sel_data['cuenta_gasto_desc']}"
                                     idx_sug_gasto = lista_cuentas_detalle.index(sug_gasto) if sug_gasto in lista_cuentas_detalle else 0
@@ -12590,12 +12590,11 @@ elif opcion_menu == "📝 Asientos Contables":
                                     cta_iva_elegida = st.selectbox("Cuenta Contable Crédito Fiscal IVA", lista_cuentas_detalle, index=default_iva_idx, key=f"iva_{sel_data['id']}")
 
                                 with col_sel_3:
-                                    # Lista desplegable interactiva para seleccionar el Banco / Caja desde plan_cuentas
                                     sug_banco = [c for c in lista_cuentas_detalle if "Banco" in c or "Caja" in c or "Corriente" in c]
                                     default_banco_idx = lista_cuentas_detalle.index(sug_banco[0]) if sug_banco and sug_banco[0] in lista_cuentas_detalle else 0
                                     cta_banco_elegida = st.selectbox("Cuenta de Pago (Caja / Banco)", lista_cuentas_detalle, index=default_banco_idx, key=f"banco_{sel_data['id']}")
 
-                                # Extraer códigos y nombres reales seleccionados de los diccionarios de plan_cuentas
+                                # Extraer códigos y nombres reales seleccionados
                                 info_gasto = dict_cuentas_detalle.get(cta_gasto_elegida, {'codigo': '5.1.1.01.001', 'nombre': cta_gasto_elegida})
                                 info_iva = dict_cuentas_detalle.get(cta_iva_elegida, {'codigo': '1.1.4.01.001', 'nombre': 'I.V.A. Crédito Fiscal'})
                                 info_banco = dict_cuentas_detalle.get(cta_banco_elegida, {'codigo': '1.1.1.01.001', 'nombre': 'Caja Chica'})
@@ -12604,8 +12603,7 @@ elif opcion_menu == "📝 Asientos Contables":
                                 
                                 with col_f1:
                                     st.markdown("#### 1️⃣ Frame: `libro_compras`")
-                                    st.code(f"""
-fecha_operacion: {sel_data['fecha_emision']}
+                                    st.code(f"""fecha_operacion: {sel_data['fecha_emision']}
 tipo_documento: Factura
 n_factura: {sel_data['nro_factura']}
 n_control: {sel_data['nro_control']}
@@ -12614,14 +12612,11 @@ rif: {sel_data['proveedor_rif']}
 total_compras: {sel_data['monto_bruto']:,.2f}
 base_imponible: {sel_data['base_imponible']:,.2f}
 iva_monto: {sel_data['monto_iva']:,.2f}
-retencion_islr: {sel_data['retencion_islr']:,.2f}
-                                    """, language="yaml")
+retencion_islr: {sel_data['retencion_islr']:,.2f}""", language="yaml")
 
                                 with col_f2:
                                     st.markdown("#### 2️⃣ Frame: `asientos_contables`")
-                                    # Aquí se usa la variable interactiva info_banco que el usuario seleccionó del desplegable
-                                    st.code(f"""
-- n_comprobante: OP-{sel_data['nro_factura']}
+                                    st.code(f"""- n_comprobante: OP-{sel_data['nro_factura']}
   fecha: {sel_data['fecha_emision']}
   descripcion: "Factura {sel_data['nro_factura']} - {sel_data['proveedor']}"
   asientos:
@@ -12658,21 +12653,17 @@ retencion_islr: {sel_data['retencion_islr']:,.2f}
       referencia: OP-{sel_data['nro_factura']}
       debe: 0.00
       haber: {sel_data['monto_neto']:,.2f}
-      bloqueado: 0
-                                    """, language="yaml")
+      bloqueado: 0""", language="yaml")
 
                                 with col_f3:
                                     st.markdown("#### 3️⃣ Frame: `banco_movimientos`")
-                                    st.code(f"""
-banco_nombre: {info_banco['nombre']}
+                                    st.code(f"""banco_nombre: {info_banco['nombre']}
 referencia: OP-{sel_data['nro_factura']}
 descripcion: Pago Factura: {sel_data['proveedor']}
 monto: {sel_data['monto_neto']:,.2f}
-estado_conciliacion: {sel_data['estado']}
-                                    """, language="yaml")
+estado_conciliacion: {sel_data['estado']}""", language="yaml")
             except Exception as ex_hist:
                 st.error(f"❌ Error al consultar el historial de órdenes de pago: {ex_hist}")
-            
         with tab3:
             st.markdown("### 🔗 Conciliación, Cruce Bancario y Emisión de Comprobante")
             st.markdown("Cruza las órdenes de pago pendientes con las referencias del estado de cuenta bancario para cerrar el ciclo y generar el comprobante oficial.")
