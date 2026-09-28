@@ -11745,7 +11745,7 @@ elif opcion_menu == "📝 Asientos Contables":
                     with col_f2_2:
                         ret_iva_op = st.number_input("Menos: Retención IVA", min_value=0.00, step=10.00, format="%.2f")
 
-                    # --- Cálculos automáticos intermedios para sugerencias ---
+                    # --- Cálculos automáticos intermedios ---
                     monto_gravable_estimado = max(0.00, monto_bruto_op - monto_exento_op)
                     
                     if base_imponible_input == 0.00 and monto_iva_ingresado == 0.00 and monto_gravable_estimado > 0:
@@ -11778,22 +11778,15 @@ elif opcion_menu == "📝 Asientos Contables":
                         observaciones_op = st.text_area("Observaciones o Concepto del Pago").strip()
 
                     # ==========================================
-                    # 4️⃣ FRAME 4: Monto Total del Pago (Integrado a la Casilla Bruta)
+                    # 4️⃣ FRAME 4: Totalización del Pago y Desglose Operacional
                     # ==========================================
                     st.markdown("---")
                     st.markdown("##### 4️⃣ Totalización del Pago y Desglose Operacional")
                     
-                    # Cálculo del Neto aplicando la fórmula exacta solicitada
                     monto_neto_calculado = monto_bruto_op - ret_iva_op - ret_islr_op
                     
-                    # Casilla exacta mostrando el desglose operacional que pediste
-                    st.markdown(f"**Monto Total de la Factura (Bruto con IVA):** {monto_bruto_op:,.2f}  \n"
-                                f"➖ **Menos: Retención IVA:** {ret_iva_op:,.2f}  \n"
-                                f"➖ **Menos: Retención ISLR:** {ret_islr_op:,.2f}")
-                    
-                    st.success(f"💵 **Neto a Pagar Final:** {monto_neto_calculado:,.2f}")
-
-                    st.info(f"📊 **Desglose Fiscal:** Base Imponible: {base_imponible_calc:,.2f} | IVA ({iva_porc_op}%): {monto_iva_calc:,.2f}")
+                    # Contenedor visual destacado con el Monto Total de la Factura corregido
+                    st.info(f"📊 **Monto Total Factura:** {monto_bruto_op:,.2f} | **IVA ({iva_porc_op}%):** {monto_iva_calc:,.2f} | **ISLR S/Sugerido:** {ret_islr_op:,.2f} | 💵 **Neto a Pagar:** {monto_neto_calculado:,.2f}")
                     
                     btn_guardar_cola = st.form_submit_button("📥 Guardar Orden en Cola", type="primary")
                     
@@ -11876,36 +11869,36 @@ elif opcion_menu == "📝 Asientos Contables":
                                 with col_f1:
                                     st.markdown("#### 1️⃣ Frame: `libro_compras`")
                                     st.code(f"""
-            fecha_operacion: {sel_data['fecha_emision']}
-            tipo_documento: Factura
-            n_factura: {sel_data['nro_factura']}
-            n_control: {sel_data['nro_control']}
-            proveedor: {sel_data['proveedor']}
-            rif: {sel_data['rif_proveedor']}
-            total_compras: {sel_data['monto_bruto']:,.2f}
-            base_imponible: {sel_data['base_imponible']:,.2f}
-            iva_monto: {sel_data['monto_iva']:,.2f}
-            retencion_islr: {sel_data['retencion_islr']:,.2f}
+        fecha_operacion: {sel_data['fecha_emision']}
+        tipo_documento: Factura
+        n_factura: {sel_data['nro_factura']}
+        n_control: {sel_data['nro_control']}
+        proveedor: {sel_data['proveedor']}
+        rif: {sel_data['rif_proveedor']}
+        total_compras: {sel_data['monto_bruto']:,.2f}
+        base_imponible: {sel_data['base_imponible']:,.2f}
+        iva_monto: {sel_data['monto_iva']:,.2f}
+        retencion_islr: {sel_data['retencion_islr']:,.2f}
                                     """, language="yaml")
 
                                 with col_f2:
                                     st.markdown("#### 2️⃣ Frame: `asientos_contables`")
                                     st.code(f"""
-            [Debe - Base Gasto / Compras] -> {sel_data['base_imponible']:,.2f}
-            [Debe - Crédito Fiscal IVA] -> {sel_data['monto_iva']:,.2f}
-            [Haber - Cuentas por Pagar] -> {sel_data['monto_neto']:,.2f}
-            [Haber - Retención ISLR ({sel_data['islr_porcentaje']}%)] -> {sel_data['retencion_islr']:,.2f}
-            [Haber - Retención IVA] -> {sel_data['retencion_iva']:,.2f}
+        [Debe - Base Gasto / Compras] -> {sel_data['base_imponible']:,.2f}
+        [Debe - Crédito Fiscal IVA] -> {sel_data['monto_iva']:,.2f}
+        [Haber - Cuentas por Pagar] -> {sel_data['monto_neto']:,.2f}
+        [Haber - Retención ISLR ({sel_data['islr_porcentaje']}%)] -> {sel_data['retencion_islr']:,.2f}
+        [Haber - Retención IVA] -> {sel_data['retencion_iva']:,.2f}
                                     """, language="yaml")
 
                                 with col_f3:
                                     st.markdown("#### 3️⃣ Frame: `banco_movimientos`")
                                     st.code(f"""
-            banco_nombre: Control Interno Principal
-            referencia: OP-{sel_data['nro_factura']}
-            descripcion: Compra: {sel_data['proveedor']}
-            monto: {sel_data['monto_neto']:,.2f}
-            estado_conciliacion: {sel_data['estado']}
+        banco_nombre: Control Interno Principal
+        referencia: OP-{sel_data['nro_factura']}
+        descripcion: Compra: {sel_data['proveedor']}
+        monto: {sel_data['monto_neto']:,.2f}
+        estado_conciliacion: {sel_data['estado']}
                                     """, language="yaml")
 
                                 st.markdown("---")
