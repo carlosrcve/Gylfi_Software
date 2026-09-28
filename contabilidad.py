@@ -12547,55 +12547,53 @@ elif opcion_menu == "📝 Asientos Contables":
             st.markdown("### 🧾 Gestión y Generación de Órdenes de Pago y Cruce")
 
             # --- CARGAR PROVEEDORES Y PLAN DE CUENTAS DIRECTO DE LA BD ---
-        lista_provs = []
-        dict_provs = {}
-        lista_cuentas_detalle = []
-        dict_cuentas_detalle = {}
-        
-        try:
-            conn_cp = conectar_db(db_actual)
-            if conn_cp:
-                cur_cp = conn_cp.cursor(dictionary=True)
-                
-                # 1. Cargar proveedores de la empresa actual
-                cur_cp.execute(
-                    "SELECT id, nombre, rif, codigo_cuenta, descripcion_cuenta FROM proveedores_carga WHERE empresa_db = %s ORDER BY nombre ASC", 
-                    (str(db_actual),)
-                )
-                rows_provs = cur_cp.fetchall()
-                
-                if rows_provs:
-                    for row in rows_provs:
-                        prov_id_val = row['id']
-                        label_p = f"{row['nombre']} (RIF: {row['rif']})"
-                        if label_p not in lista_provs:
-                            lista_provs.append(label_p)
-                        dict_provs[label_p] = {
-                            'id_interno': prov_id_val,
-                            'rif': row['rif'],
-                            'nombre': row['nombre'],
-                            'codigo_cuenta': row.get('codigo_cuenta', 'N/A'),
-                            'descripcion_cuenta': row.get('descripcion_cuenta', 'N/A')
-                        }
-
-                # 2. Cargar plan de cuentas de detalle
-                cur_cp.execute("SELECT id, codigo, nombre, nivel, tipo, padre FROM plan_cuentas WHERE tipo = 'Detalle'")
-                rows_cuentas = cur_cp.fetchall()
-                
-                if rows_cuentas:
-                    for row in rows_cuentas:
-                        c_label = f"{str(row['codigo']).strip()} - {str(row['nombre']).strip()}"
-                        if c_label not in lista_cuentas_detalle:
-                            lista_cuentas_detalle.append(c_label)
-                            dict_cuentas_detalle[c_label] = {
-                                'codigo': str(row['codigo']).strip(),
-                                'nombre': str(row['nombre']).strip()
+            lista_provs = []
+            dict_provs = {}
+            lista_cuentas_detalle = []
+            dict_cuentas_detalle = {}
+            
+            try:
+                conn_cp = conectar_db(db_actual)
+                if conn_cp:
+                    # Usamos tu función ejecutar_consulta tal cual como la usas en el resto del sistema
+                    df_cp = ejecutar_consulta(
+                        "SELECT id, nombre, rif, codigo_cuenta, descripcion_cuenta FROM proveedores_carga WHERE empresa_db = %s ORDER BY nombre ASC", 
+                        conn_cp, 
+                        params=(str(db_actual),)
+                    )
+                    df_cuentas = ejecutar_consulta(
+                        "SELECT id, codigo, nombre, nivel, tipo, padre FROM plan_cuentas WHERE tipo = 'Detalle'", 
+                        conn_cp
+                    )
+                    conn_cp.close()
+                    
+                    # 1. Procesar Proveedores
+                    if df_cp is not None and not df_cp.empty:
+                        for _, row in df_cp.iterrows():
+                            prov_id_val = row['id']
+                            label_p = f"{row['nombre']} (RIF: {row['rif']})"
+                            if label_p not in lista_provs:
+                                lista_provs.append(label_p)
+                            dict_provs[label_p] = {
+                                'id_interno': prov_id_val,
+                                'rif': row['rif'],
+                                'nombre': row['nombre'],
+                                'codigo_cuenta': str(row.get('codigo_cuenta', 'N/A')),
+                                'descripcion_cuenta': str(row.get('descripcion_cuenta', 'N/A'))
                             }
-                
-                cur_cp.close()
-                conn_cp.close()
-        except Exception as e:
-            st.error(f"Error cargando datos de BD: {e}")
+                    
+                    # 2. Procesar Plan de Cuentas
+                    if df_cuentas is not None and not df_cuentas.empty:
+                        for _, row in df_cuentas.iterrows():
+                            c_label = f"{str(row['codigo']).strip()} - {str(row['nombre']).strip()}"
+                            if c_label not in lista_cuentas_detalle:
+                                lista_cuentas_detalle.append(c_label)
+                                dict_cuentas_detalle[c_label] = {
+                                    'codigo': str(row['codigo']).strip(),
+                                    'nombre': str(row['nombre']).strip()
+                                }
+            except Exception as e:
+                st.error(f"Error cargando datos de BD: {e}")
 
             # --- HISTORIAL DE ÓRDENES Y SELECCIÓN CONDICIONAL ---
             st.markdown("### 📊 Historial de Órdenes de Pago")
