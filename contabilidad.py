@@ -11889,7 +11889,7 @@ elif opcion_menu == "📝 Asientos Contables":
                                 col_sel_1, col_sel_2, col_sel_3 = st.columns(3)
 
                                 with col_sel_1:
-                                    # Sin errores de 'codigo_cuenta'
+                                    # Seleccionador seguro sin buscar columnas fantasmas
                                     cta_gasto_elegida = st.selectbox(
                                         "Cuenta Contable de Gasto", 
                                         options=opciones_desplegable, 
