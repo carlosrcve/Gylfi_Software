@@ -12555,20 +12555,23 @@ elif opcion_menu == "📝 Asientos Contables":
             try:
                 conn_cp = conectar_db(db_actual)
                 if conn_cp:
-                    # Consultamos la tabla real de proveedores y el plan de cuentas
-                    df_cp = ejecutar_consulta("SELECT id, razon_social, rif FROM proveedores ORDER BY razon_social ASC", conn_cp)
+                    # Consultamos los campos reales de la tabla proveedores (sin 'id')
+                    df_cp = ejecutar_consulta("SELECT rif, razon_social, codigo_cuenta, descripcion_cuenta FROM proveedores ORDER BY razon_social ASC", conn_cp)
                     df_cuentas = ejecutar_consulta("SELECT id, codigo, nombre, nivel, tipo, padre FROM plan_cuentas WHERE tipo = 'Detalle'", conn_cp)
                     conn_cp.close()
                     
                     if df_cp is not None and not df_cp.empty:
-                        for _, row in df_cp.iterrows():
+                        for idx_p, row in df_cp.iterrows():
+                            prov_id_val = idx_p + 1 
                             label_p = f"{row['razon_social']} (RIF: {row['rif']})"
                             if label_p not in lista_provs:
                                 lista_provs.append(label_p)
                             dict_provs[label_p] = {
-                                'id_interno': row['id'],
+                                'id_interno': prov_id_val,
                                 'rif': row['rif'],
-                                'nombre': row['razon_social']
+                                'nombre': row['razon_social'],
+                                'codigo_cuenta': row['codigo_cuenta'],
+                                'descripcion_cuenta': row['descripcion_cuenta']
                             }
                     
                     if df_cuentas is not None and not df_cuentas.empty:
