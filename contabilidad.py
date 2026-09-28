@@ -12387,7 +12387,7 @@ elif opcion_menu == "📝 Asientos Contables":
                             
                             col_f1, col_f2, col_f3 = st.columns(3)
                             
-                           with col_f1:
+                            with col_f1:
                                 st.markdown("#### 1️⃣ Frame: `libro_compras`")
                                 st.code(f"""
             fecha_operacion: {sel_data['fecha_emision']}
