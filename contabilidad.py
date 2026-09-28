@@ -12555,23 +12555,22 @@ elif opcion_menu == "📝 Asientos Contables":
             try:
                 conn_cp = conectar_db(db_actual)
                 if conn_cp:
-                    df_cp = ejecutar_consulta("SELECT id, nombre, rif FROM proveedores_carga WHERE empresa_db = %s ORDER BY nombre ASC", conn_cp, params=(str(db_actual),))
+                    # Consultamos la tabla real de proveedores y el plan de cuentas
+                    df_cp = ejecutar_consulta("SELECT id, razon_social, rif FROM proveedores ORDER BY razon_social ASC", conn_cp)
                     df_cuentas = ejecutar_consulta("SELECT id, codigo, nombre, nivel, tipo, padre FROM plan_cuentas WHERE tipo = 'Detalle'", conn_cp)
                     conn_cp.close()
                     
                     if df_cp is not None and not df_cp.empty:
-                        for idx_p, row in df_cp.iterrows():
-                            prov_id_val = idx_p + 1 
-                            label_p = f"{row['nombre']} (RIF: {row['rif']})"
-                            lista_provs.append(label_p)
+                        for _, row in df_cp.iterrows():
+                            label_p = f"{row['razon_social']} (RIF: {row['rif']})"
+                            if label_p not in lista_provs:
+                                lista_provs.append(label_p)
                             dict_provs[label_p] = {
-                                'id_interno': prov_id_val,
+                                'id_interno': row['id'],
                                 'rif': row['rif'],
-                                'nombre': row['nombre'],
-                                'codigo_cuenta': row['codigo_cuenta'],
-                                'descripcion_cuenta': row['descripcion_cuenta']
+                                'nombre': row['razon_social']
                             }
-                        
+                    
                     if df_cuentas is not None and not df_cuentas.empty:
                         for _, row in df_cuentas.iterrows():
                             c_label = f"{str(row['codigo']).strip()} - {str(row['nombre']).strip()}"
