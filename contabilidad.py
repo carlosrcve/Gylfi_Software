@@ -12426,8 +12426,8 @@ elif opcion_menu == "📝 Asientos Contables":
 
             st.divider()
 
-            # --- HISTORIAL DE ÓRDENES Y SELECCIÓN PARA LOS 3 FRAMES ---
-            st.markdown("### 📊 Historial de Órdenes de Pago (Selecciona una para procesar)")
+            # --- HISTORIAL DE ÓRDENES Y SELECCIÓN CONDICIONAL ---
+            st.markdown("### 📊 Historial de Órdenes de Pago")
             try:
                 conn_list_op = conectar_db(db_actual)
                 if conn_list_op:
@@ -12444,69 +12444,72 @@ elif opcion_menu == "📝 Asientos Contables":
                     conn_list_op.close()
                     
                     if df_ops is not None and not df_ops.empty:
-                        # Mostrar tabla limpia para visualización de usuario
+                        # Mostrar tabla general del historial
                         df_display = df_ops[['id', 'proveedor', 'nro_factura', 'monto_bruto', 'retencion_islr', 'retencion_iva', 'monto_neto', 'estado', 'fecha_emision']]
                         st.dataframe(df_display, use_container_width=True, hide_index=True)
                         
                         st.markdown("---")
-                        st.markdown("#### ⚙️ Procesar Orden Seleccionada")
                         
-                        # Selector por ID de la orden en cola
+                        # Selector principal para elegir la orden ANTES de mostrar los frames
                         opciones_ordenes = {f"ID: {row['id']} | Factura: {row['nro_factura']} | Proveedor: {row['proveedor']} | Estado: {row['estado']}": row for _, row in df_ops.iterrows()}
-                        seleccion_op_key = st.selectbox("Selecciona la Orden de Pago del Historial", list(opciones_ordenes.keys()))
+                        seleccion_op_key = st.selectbox("🔍 Selecciona una Orden de Pago para generar sus registros fiscales y contables:", list(opciones_ordenes.keys()))
                         
                         if seleccion_op_key:
                             sel_data = opciones_ordenes[seleccion_op_key]
                             
-                            st.info(f"🔍 Visualizando los 3 frames fiscales, contables y de tesorería para la orden **#{sel_data['id']}** (Factura: {sel_data['nro_factura']})")
+                            st.markdown(f"### ⚙️ Previsualización Generada para la Orden #{sel_data['id']}")
+                            st.info(f"Factura: **{sel_data['nro_factura']}** | Proveedor: **{sel_data['proveedor']}**")
                             
+                            # Generación de los 3 frames al haber seleccionado la orden
                             col_f1, col_f2, col_f3 = st.columns(3)
                             
                             with col_f1:
                                 st.markdown("#### 1️⃣ Frame: `libro_compras`")
                                 st.code(f"""
-fecha_operacion: {sel_data['fecha_emision']}
-tipo_documento: Factura
-n_factura: {sel_data['nro_factura']}
-proveedor: {sel_data['proveedor']}
-rif: {sel_data['rif_proveedor']}
-total_compras: {sel_data['monto_bruto']:,.2f}
-base_imponible: {sel_data['monto_bruto']:,.2f}
-ret_islr: {sel_data['retencion_islr']:,.2f}
-ret_iva: {sel_data['retencion_iva']:,.2f}
+        fecha_operacion: {sel_data['fecha_emision']}
+        tipo_documento: Factura
+        n_factura: {sel_data['nro_factura']}
+        proveedor: {sel_data['proveedor']}
+        rif: {sel_data['rif_proveedor']}
+        total_compras: {sel_data['monto_bruto']:,.2f}
+        base_imponible: {sel_data['monto_bruto']:,.2f}
+        ret_islr: {sel_data['retencion_islr']:,.2f}
+        ret_iva: {sel_data['retencion_iva']:,.2f}
                                 """, language="yaml")
 
                             with col_f2:
                                 n_comp_prev = f"OP-{sel_data['nro_factura']}"
                                 st.markdown("#### 2️⃣ Frame: `asientos_contables`")
                                 st.code(f"""
-[Debe - Gasto Proveedor]
-- Comprobante: {n_comp_prev}
-- Debe: {sel_data['monto_bruto']:,.2f}
+        [Debe - Gasto Proveedor]
+        - Comprobante: {n_comp_prev}
+        - Debe: {sel_data['monto_bruto']:,.2f}
 
-[Haber - Cuentas por Pagar]
-- Haber: {sel_data['monto_neto']:,.2f}
+        [Haber - Cuentas por Pagar]
+        - Haber: {sel_data['monto_neto']:,.2f}
 
-[Haber - Retención ISLR]
-- Haber: {sel_data['retencion_islr']:,.2f}
+        [Haber - Retención ISLR]
+        - Haber: {sel_data['retencion_islr']:,.2f}
 
-[Haber - Retención IVA]
-- Haber: {sel_data['retencion_iva']:,.2f}
+        [Haber - Retención IVA]
+        - Haber: {sel_data['retencion_iva']:,.2f}
                                 """, language="yaml")
 
                             with col_f3:
                                 st.markdown("#### 3️⃣ Frame: `banco_movimientos`")
                                 st.code(f"""
-banco_nombre: Control Interno Principal
-referencia: OP-{sel_data['nro_factura']}
-descripcion: Compra: {sel_data['proveedor']}
-monto: {sel_data['monto_neto']:,.2f}
-estado: Pendiente
+        banco_nombre: Control Interno Principal
+        referencia: OP-{sel_data['nro_factura']}
+        descripcion: Compra: {sel_data['proveedor']}
+        monto: {sel_data['monto_neto']:,.2f}
+        estado: Pendiente
                                 """, language="yaml")
 
                             st.markdown("---")
+                            
+                            # El botón de guardar aparece únicamente si está Pendiente
                             if sel_data['estado'] == 'Pendiente':
-                                if st.button("🚀 Guardar en Libros, Contabilidad y Banco", type="primary", use_container_width=True):
+                                if st.button("🚀 Confirmar y Guardar Definitivamente en Libros, Contabilidad y Banco", type="primary", use_container_width=True):
                                     try:
                                         conn_proc = conectar_db(db_actual)
                                         if conn_proc:
@@ -12561,7 +12564,7 @@ estado: Pendiente
                                                 sel_data['monto_neto'], fecha_op
                                             ))
 
-                                            # 4. Actualizar estado de la orden de pago a Procesado/Conciliado
+                                            # 4. Actualizar estado de la orden de pago a Conciliado
                                             cur_proc.execute("""
                                                 UPDATE ordenes_pago SET estado = 'Conciliado' WHERE id = %s
                                             """, (sel_data['id'],))
@@ -12575,7 +12578,7 @@ estado: Pendiente
                                     except Exception as ex_proc:
                                         st.error(f"❌ Error al procesar el registro: {ex_proc}")
                             else:
-                                st.info("ℹ️ Esta orden de pago ya fue procesada anteriormente.")
+                                st.info("ℹ️ Esta orden de pago ya se encuentra procesada / conciliada.")
                     else:
                         st.info("ℹ️ No hay órdenes de pago registradas todavía.")
             except Exception as e:
