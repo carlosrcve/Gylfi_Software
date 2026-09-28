@@ -12655,11 +12655,43 @@ elif opcion_menu == "📝 Asientos Contables":
                                 with col_f2:
                                     st.markdown("#### 2️⃣ Frame: `asientos_contables`")
                                     st.code(f"""
-        [Debe - Base Gasto / Compras] -> {sel_data['base_imponible']:,.2f}
-        [Debe - Crédito Fiscal IVA] -> {sel_data['monto_iva']:,.2f}
-        [Haber - Cuentas por Pagar] -> {sel_data['monto_neto']:,.2f}
-        [Haber - Retención ISLR ({sel_data['islr_porcentaje']}%)] -> {sel_data['retencion_islr']:,.2f}
-        [Haber - Retención IVA] -> {sel_data['retencion_iva']:,.2f}
+        - n_comprobante: OP-{sel_data['nro_factura']}
+          fecha: {sel_data['fecha_emision']}
+          asientos:
+            - plan_cuentas: Gastos Operativos
+              cuenta_contable: Gasto / Compras
+              referencia: {sel_data['nro_factura']}
+              debe: {sel_data['base_imponible']:,.2f}
+              haber: 0.00
+              bloqueado: 0
+
+            - plan_cuentas: Activo Circulante
+              cuenta_contable: Crédito Fiscal IVA
+              referencia: {sel_data['nro_factura']}
+              debe: {sel_data['monto_iva']:,.2f}
+              haber: 0.00
+              bloqueado: 0
+
+            - plan_cuentas: Pasivo Circulante
+              cuenta_contable: Cuentas por Pagar Proveedores
+              referencia: {sel_data['nro_factura']}
+              debe: 0.00
+              haber: {sel_data['monto_neto']:,.2f}
+              bloqueado: 0
+
+            - plan_cuentas: Pasivo Fiscal
+              cuenta_contable: Retención ISLR Por Pagar
+              referencia: {sel_data['nro_factura']}
+              debe: 0.00
+              haber: {sel_data['retencion_islr']:,.2f}
+              bloqueado: 0
+
+            - plan_cuentas: Pasivo Fiscal
+              cuenta_contable: Retención IVA Por Pagar
+              referencia: {sel_data['nro_factura']}
+              debe: 0.00
+              haber: {sel_data['retencion_iva']:,.2f}
+              bloqueado: 0
                                     """, language="yaml")
 
                                 with col_f3:
