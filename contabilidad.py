@@ -12681,14 +12681,15 @@ elif opcion_menu == "📝 Asientos Contables":
                             
                             opciones_ordenes = {f"ID: {row['id']} | Factura: {row['nro_factura']} | Proveedor: {row['proveedor']} | Estado: {row['estado']}": row for _, row in df_ops.iterrows()}
                             
+                            # Forzamos una selección por defecto (la primera de la lista) para que NUNCA sea None
+                            lista_keys_op = list(opciones_ordenes.keys())
                             seleccion_op_key = st.selectbox(
                                 "🔍 Selecciona una Orden de Pago para configurar sus cuentas y procesar:", 
-                                options=list(opciones_ordenes.keys()),
-                                index=None, 
-                                placeholder="Haz clic aquí para elegir una orden del historial..."
+                                options=lista_keys_op,
+                                index=0
                             )
                             
-                            if seleccion_op_key is not None:
+                            if seleccion_op_key:
                                 sel_data = opciones_ordenes[seleccion_op_key]
                                 
                                 st.markdown("---")
@@ -12718,7 +12719,7 @@ elif opcion_menu == "📝 Asientos Contables":
                                     # Extraer códigos y nombres limpios de los selectores
                                     info_gasto = dict_cuentas_detalle.get(cta_gasto_elegida, {'codigo': '5.1.1.01.001', 'nombre': cta_gasto_elegida})
                                     info_iva = dict_cuentas_detalle.get(cta_iva_elegida, {'codigo': '1.1.4.01.001', 'nombre': 'I.V.A. Crédito Fiscal'})
-                                    info_banco = dict_cuentas_detalle.get(cta_banco_elegida, {'codigo': '1.1.1.02.001', 'nombre': 'Caja Chica'})
+                                    info_banco = dict_cuentas_detalle.get(cta_banco_elegida, {'codigo': '1.1.1.01.001', 'nombre': 'Caja Chica'})
 
                                     col_f1, col_f2, col_f3 = st.columns(3)
                                     
@@ -12755,7 +12756,7 @@ retencion_islr: {sel_data['retencion_islr']:,.2f}
       cuenta_contable: {info_iva['nombre']}
       referencia: {sel_data['nro_factura']}
       debe: {sel_data['monto_iva']:,.2f}
-      haber: 0.00
+      haber: {sel_data['retencion_islr']:,.2f}
       bloqueado: 0
 
     - plan_cuentas: 2.1.2.01.005
