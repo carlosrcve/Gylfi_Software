@@ -12439,54 +12439,54 @@ elif opcion_menu == "📝 Asientos Contables":
                         st.markdown("#### 1️⃣ Tabla: `libro_compras`")
                         st.caption("Estructura fiscal SENIAT")
                         st.code(f"""
-                                    fecha_operacion: {data['fecha_emision']}
-                                    tipo_documento: Factura
-                                    n_factura: {data['nro_factura']}
-                                    n_control: N/D
-                                    proveedor: {data['nombre_proveedor']}
-                                    rif: {data['rif_proveedor']}
-                                    tipo_transaccion: Nacional
-                                    total_compras: {data['monto_bruto']:,.2f}
-                                    base_imponible: {data['monto_bruto']:,.2f}
-                                    iva_porcentaje: 16.0%
-                                    iva_monto: 0.00
-                                    etencion_realizada (ISLR): {data['ret_islr']:,.2f}
-                                    retencion_iva_realizada: {data['ret_iva']:,.2f}
-                                """, language="yaml")
+        fecha_operacion: {data['fecha_emision']}
+        tipo_documento: Factura
+        n_factura: {data['nro_factura']}
+        n_control: N/D
+        proveedor: {data['nombre_proveedor']}
+        rif: {data['rif_proveedor']}
+        tipo_transaccion: Nacional
+        total_compras: {data['monto_bruto']:,.2f}
+        base_imponible: {data['monto_bruto']:,.2f}
+        iva_porcentaje: 16.0%
+        iva_monto: 0.00
+        etencion_realizada (ISLR): {data['ret_islr']:,.2f}
+        retencion_iva_realizada: {data['ret_iva']:,.2f}
+                        """, language="yaml")
 
                     with col_f2:
                         st.markdown("#### 2️⃣ Tabla: `asientos_contables`")
                         st.caption("Partida doble por líneas (4 registros)")
                         st.code(f"""
-                                    [Línea 1 - Débito Gasto]
-                                    - cuenta: Gasto Proveedor
-                                    - debe: {data['monto_bruto']:,.2f} | haber: 0.00
+        [Línea 1 - Débito Gasto]
+        - cuenta: Gasto Proveedor
+        - debe: {data['monto_bruto']:,.2f} | haber: 0.00
 
-                                    [Línea 2 - Crédito CxP]
-                                    - cuenta: Cuentas por Pagar
-                                    - debe: 0.00 | haber: {data['monto_neto']:,.2f}
+        [Línea 2 - Crédito CxP]
+        - cuenta: Cuentas por Pagar
+        - debe: 0.00 | haber: {data['monto_neto']:,.2f}
 
-                                    [Línea 3 - Crédito ISLR]
-                                    - cuenta: Retención ISLR Por Pagar
-                                    - debe: 0.00 | haber: {data['ret_islr']:,.2f}
+        [Línea 3 - Crédito ISLR]
+        - cuenta: Retención ISLR Por Pagar
+        - debe: 0.00 | haber: {data['ret_islr']:,.2f}
 
-                                    [Línea 4 - Crédito IVA]
-                                    - cuenta: Retención IVA Por Pagar
-                                    - debe: 0.00 | haber: {data['ret_iva']:,.2f}
-                                """, language="yaml")
+        [Línea 4 - Crédito IVA]
+        - cuenta: Retención IVA Por Pagar
+        - debe: 0.00 | haber: {data['ret_iva']:,.2f}
+                        """, language="yaml")
 
                     with col_f3:
                         st.markdown("#### 3️⃣ Tabla: `banco_movimientos`")
                         st.caption("Control interno de tesorería")
                         st.code(f"""
-                                    banco_nombre: Control Interno Principal
-                                    cuenta_numero: N/A
-                                    fecha_movimiento: {data['fecha_emision']}
-                                    referencia: OP-{data['nro_factura']}
-                                    descripcion: Compra: {data['nombre_proveedor']}
-                                    monto: {data['monto_neto']:,.2f}
-                                    estado_conciliacion: Pendiente
-                                """, language="yaml")
+        banco_nombre: Control Interno Principal
+        cuenta_numero: N/A
+        fecha_movimiento: {data['fecha_emision']}
+        referencia: OP-{data['nro_factura']}
+        descripcion: Compra: {data['nombre_proveedor']}
+        monto: {data['monto_neto']:,.2f}
+        estado_conciliacion: Pendiente
+                        """, language="yaml")
 
                     st.markdown("---")
                     
