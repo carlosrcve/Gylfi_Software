@@ -12575,7 +12575,7 @@ elif opcion_menu == "📝 Asientos Contables":
             try:
                 conn_cp = conectar_db(db_actual)
                 if conn_cp:
-                    df_cp = ejecutar_consulta("SELECT rif, tipo_persona, razon_social, direccion_fiscal, codigo_cuenta, descripcion_cuenta FROM proveedores", conn_cp)
+                    df_cp = ejecutar_consulta("SELECT id, nombre, rif FROM proveedores_carga WHERE empresa_db = %s ORDER BY nombre ASC", conn_cp, params=(str(db_actual),))
                     df_cuentas = ejecutar_consulta("SELECT id, codigo, nombre, nivel, tipo, padre FROM plan_cuentas WHERE tipo = 'Detalle'", conn_cp)
                     conn_cp.close()
                     
