@@ -11781,7 +11781,7 @@ elif opcion_menu == "📝 Asientos Contables":
                     # 4️⃣ FRAME 4: Monto Total del Pago (Integrado a la Casilla Bruta)
                     # ==========================================
                     st.markdown("---")
-                    st.markdown("##### 4️⃣ Totalización del Pago")
+                    st.markdown("##### 4️⃣ Totalización del Pago y Desglose Operacional")
                     
                     # Cálculo del Neto aplicando la fórmula exacta solicitada
                     monto_neto_calculado = monto_bruto_op - ret_iva_op - ret_islr_op
