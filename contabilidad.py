@@ -12463,21 +12463,21 @@ elif opcion_menu == "📝 Asientos Contables":
             lista_provs = []
             dict_provs = {}
             dict_bancos_disponibles = {}
+            lista_cuentas_plan = []
+            dict_cuentas_plan = {}
             
             try:
                 conn_cp = conectar_db(db_actual)
                 if conn_cp:
-                    # 1. Cargar Proveedores reales usando la tabla 'proveedores' (asumiendo ID o RIF como identificador)
-                    # Si tu tabla proveedores usa rif como PK o tiene un ID autoincrementable, ajustamos aquí. Usaremos 'rif' o id según convenga.
+                    # 1. Cargar Proveedores reales usando la tabla 'proveedores'
                     df_cp = ejecutar_consulta("SELECT rif, tipo_persona, razon_social, direccion_fiscal, codigo_cuenta, descripcion_cuenta FROM proveedores", conn_cp)
                     
-                    # 2. Cargar Plan de Cuentas para Bancos y cuentas contables
+                    # 2. Cargar Plan de Cuentas completo
                     df_cuentas = ejecutar_consulta("SELECT id, codigo, nombre, nivel, tipo, padre FROM plan_cuentas", conn_cp)
                     conn_cp.close()
                     
                     if df_cp is not None and not df_cp.empty:
                         for idx_p, row in df_cp.iterrows():
-                            # Usamos un ID numérico o el índice como ID de proveedor si no es autoincremental en la tabla
                             prov_id_val = idx_p + 1 
                             label_p = f"{row['razon_social']} (RIF: {row['rif']})"
                             lista_provs.append(label_p)
@@ -12489,8 +12489,16 @@ elif opcion_menu == "📝 Asientos Contables":
                                 'descripcion_cuenta': row['descripcion_cuenta']
                             }
                             
-                    # Filtrar cuentas de banco del plan de cuentas
                     if df_cuentas is not None and not df_cuentas.empty:
+                        for _, row in df_cuentas.iterrows():
+                            c_label = f"{row['codigo']} - {row['nombre']}"
+                            lista_cuentas_plan.append(c_label)
+                            dict_cuentas_plan[c_label] = {
+                                'codigo': row['codigo'],
+                                'nombre': row['nombre']
+                            }
+                            
+                        # Filtrar cuentas de banco (detalle y nombres afines)
                         df_bancos = df_cuentas[(df_cuentas['tipo'] == 'Detalle') & (df_cuentas['nombre'].str.contains("Banco|Caja|Corriente", case=False, na=False))]
                         for _, row in df_bancos.iterrows():
                             banco_label = f"{row['codigo']} - {row['nombre']}"
@@ -12506,9 +12514,6 @@ elif opcion_menu == "📝 Asientos Contables":
                 with st.form("form_nueva_orden_pago"):
                     st.markdown("#### Emitir Nueva Orden de Pago (En Cola)")
                     
-                    # ==========================================
-                    # 1️⃣ FRAME 1: Datos Básicos y Fiscales de la Factura
-                    # ==========================================
                     st.markdown("---")
                     st.markdown("##### 1️⃣ Datos Generales y Fiscales de la Factura")
                     col_f1_1, col_f1_2 = st.columns(2)
@@ -12525,11 +12530,8 @@ elif opcion_menu == "📝 Asientos Contables":
                         base_imponible_input = st.number_input("Base Imponible (Dejar en 0.00 para cálculo automático)", min_value=0.00, step=100.00, format="%.2f")
                         monto_iva_ingresado = st.number_input("Monto del IVA (Dejar en 0.00 para cálculo automático)", min_value=0.00, step=10.00, format="%.2f")
 
-                    # ==========================================
-                    # 2️⃣ FRAME 2: Configuración de IVA y Banco (Manual)
-                    # ==========================================
                     st.markdown("---")
-                    st.markdown("##### 2️⃣ Configuración de IVA y Selección de Banco")
+                    st.markdown("##### 2️⃣ Configuración de IVA y Selección de Contrapartida (Pago)")
                     col_f2_1, col_f2_2, col_f2_3 = st.columns(3)
                     
                     with col_f2_1:
@@ -12539,12 +12541,10 @@ elif opcion_menu == "📝 Asientos Contables":
                         ret_iva_op = st.number_input("Menos: Retención IVA", min_value=0.00, step=10.00, format="%.2f")
                         
                     with col_f2_3:
-                        lista_bancos_keys = list(dict_bancos_disponibles.keys()) if dict_bancos_disponibles else ["No hay bancos registrados en Plan de Cuentas"]
-                        banco_elegido_key = st.selectbox("Seleccionar Banco (Contrapartida)", lista_bancos_keys)
+                        lista_bancos_keys = list(dict_bancos_disponibles.keys()) if dict_bancos_disponibles else (lista_cuentas_plan if lista_cuentas_plan else ["No hay cuentas"])
+                        banco_elegido_key = st.selectbox("Cuenta de Pago / Banco (Haber)", lista_bancos_keys)
 
-                    # --- Cálculos automáticos intermedios ---
                     monto_gravable_estimado = max(0.00, monto_bruto_op - monto_exento_op)
-                    
                     if base_imponible_input == 0.00 and monto_iva_ingresado == 0.00 and monto_gravable_estimado > 0:
                         base_imponible_calc = monto_gravable_estimado / (1.0 + (iva_porc_op / 100.0))
                         monto_iva_calc = monto_gravable_estimado - base_imponible_calc
@@ -12552,9 +12552,6 @@ elif opcion_menu == "📝 Asientos Contables":
                         base_imponible_calc = base_imponible_input if base_imponible_input > 0 else max(0.00, monto_gravable_estimado - monto_iva_ingresado)
                         monto_iva_calc = monto_iva_ingresado if monto_iva_ingresado > 0 else (base_imponible_calc * (iva_porc_op / 100.0))
 
-                    # ==========================================
-                    # 3️⃣ FRAME 3: Cálculo y Retención de ISLR (Decreto 1808)
-                    # ==========================================
                     st.markdown("---")
                     st.markdown("##### 3️⃣ Cálculo y Retención de ISLR (Decreto 1808)")
                     col_f3_1, col_f3_2, col_f3_3, col_f3_4 = st.columns(4)
@@ -12574,12 +12571,8 @@ elif opcion_menu == "📝 Asientos Contables":
                     with col_f3_4:
                         observaciones_op = st.text_area("Observaciones o Concepto del Pago").strip()
 
-                    # ==========================================
-                    # 4️⃣ FRAME 4: Totalización del Pago y Desglose Operacional
-                    # ==========================================
                     st.markdown("---")
                     st.markdown("##### 4️⃣ Totalización del Pago y Desglose Operacional")
-                    
                     monto_neto_calculado = monto_bruto_op - ret_iva_op - ret_islr_op
                     
                     st.info(f"📊 **Monto Total Factura:** {monto_bruto_op:,.2f} | **IVA ({iva_porc_op}%):** {monto_iva_calc:,.2f} | **ISLR:** {ret_islr_op:,.2f} | 💵 **Neto a Pagar:** {monto_neto_calculado:,.2f}")
@@ -12589,8 +12582,6 @@ elif opcion_menu == "📝 Asientos Contables":
                     if btn_guardar_cola:
                         if nro_factura_op and monto_bruto_op > 0:
                             prov_info = dict_provs.get(prov_seleccionado)
-                            banco_cuenta_final = dict_bancos_disponibles.get(banco_elegido_key, banco_elegido_key)
-                            
                             try:
                                 conn_ins = conectar_db(db_actual)
                                 if conn_ins:
@@ -12621,52 +12612,23 @@ elif opcion_menu == "📝 Asientos Contables":
 
                 st.divider()
 
-                # --- HISTORIAL DE ÓRDENES Y SELECCIÓN CONDICIONAL (Usando JOIN con proveedores) ---
+                # --- HISTORIAL DE ÓRDENES Y SELECCIÓN CONDICIONAL ---
                 st.markdown("### 📊 Historial de Órdenes de Pago")
                 try:
                     conn_list_op = conectar_db(db_actual)
                     if conn_list_op:
-                        query_list_ops = """
-                            SELECT op.id, p.rif AS proveedor_rif, p.razon_social AS proveedor, p.codigo_cuenta, p.descripcion_cuenta,
-                                   op.nro_factura, op.nro_control, op.monto_bruto, op.monto_exento, op.base_imponible, 
-                                   op.iva_porcentaje, op.monto_iva, op.retencion_islr, op.retencion_iva, op.monto_neto, 
-                                   op.estado, op.fecha_emision, op.observaciones, op.islr_porcentaje, op.islr_sustraendo, 
-                                   op.tipo_persona, op.referencia_banco
-                            FROM ordenes_pago op
-                            LEFT JOIN proveedores p ON op.proveedor_id = p.rif OR op.proveedor_id = 1 -- Ajuste si proveedor_id es int o rif
-                            WHERE op.empresa_db = %s
-                            ORDER BY op.id DESC
-                        """
-                        # Nota: Si proveedor_id en ordenes_pago guarda el ID numérico secuencial o el RIF exacto, adaptamos el ON:
-                        # Si es numérico puro, puedes hacer el JOIN asegurando que coincida con la lógica de tu base de datos.
-                        # Aquí ajustamos una consulta robusta haciendo JOIN directo:
-                        query_list_ops = """
-                            SELECT op.id, p.rif AS proveedor_rif, p.razon_social AS proveedor, p.codigo_cuenta, p.descripcion_cuenta,
-                                   op.nro_factura, op.nro_control, op.monto_bruto, op.monto_exento, op.base_imponible, 
-                                   op.iva_porcentaje, op.monto_iva, op.retencion_islr, op.retencion_iva, op.monto_neto, 
-                                   op.estado, op.fecha_emision, op.observaciones, op.islr_porcentaje, op.islr_sustraendo, 
-                                   op.tipo_persona, op.referencia_banco
-                            FROM ordenes_pago op
-                            LEFT JOIN proveedores p ON 1=1
-                            WHERE op.empresa_db = %s
-                            ORDER BY op.id DESC
-                        """
-                        # Para evitar problemas con el ID del proveedor, vamos a hacer una consulta limpia trayendo las órdenes y cruzándolas en Python de forma segura:
                         df_ops_raw = ejecutar_consulta("SELECT * FROM ordenes_pago WHERE empresa_db = %s ORDER BY id DESC", conn_list_op, params=(str(db_actual),))
                         conn_list_op.close()
                         
                         if df_ops_raw is not None and not df_ops_raw.empty:
-                            # Cruzar con los datos de proveedores cargados en diccionario
                             lista_ops_procesadas = []
                             for _, r_op in df_ops_raw.iterrows():
-                                # Buscamos el proveedor correspondiente
                                 prov_encontrado = None
                                 for k_p, v_p in dict_provs.items():
                                     if str(v_p['id_interno']) == str(r_op['proveedor_id']) or str(v_p['rif']) == str(r_op['proveedor_id']):
                                         prov_encontrado = v_p
                                         break
                                 if not prov_encontrado and len(dict_provs) > 0:
-                                    # Por defecto tomamos el primero si no hay coincidencia exacta
                                     prov_encontrado = list(dict_provs.values())[0]
                                     
                                 lista_ops_procesadas.append({
@@ -12690,8 +12652,7 @@ elif opcion_menu == "📝 Asientos Contables":
                                     'observaciones': r_op['observaciones'],
                                     'islr_porcentaje': r_op['islr_porcentaje'],
                                     'islr_sustraendo': r_op['islr_sustraendo'],
-                                    'tipo_persona': r_op['tipo_persona'],
-                                    'banco_seleccionado': list(dict_bancos_disponibles.values())[0] if dict_bancos_disponibles else 'Banco Principal'
+                                    'tipo_persona': r_op['tipo_persona']
                                 })
                             
                             import pandas as pd
@@ -12705,7 +12666,7 @@ elif opcion_menu == "📝 Asientos Contables":
                             opciones_ordenes = {f"ID: {row['id']} | Factura: {row['nro_factura']} | Proveedor: {row['proveedor']} | Estado: {row['estado']}": row for _, row in df_ops.iterrows()}
                             
                             seleccion_op_key = st.selectbox(
-                                "🔍 Selecciona una Orden de Pago para generar sus registros fiscales y contables:", 
+                                "🔍 Selecciona una Orden de Pago para configurar sus cuentas y procesar:", 
                                 options=list(opciones_ordenes.keys()),
                                 index=None, 
                                 placeholder="Haz clic aquí para elegir una orden del historial..."
@@ -12715,9 +12676,34 @@ elif opcion_menu == "📝 Asientos Contables":
                                 sel_data = opciones_ordenes[seleccion_op_key]
                                 
                                 st.markdown("---")
-                                st.markdown(f"### ⚙️ Previsualización Generada para la Orden #{sel_data['id']}")
-                                st.info(f"Factura: **{sel_data['nro_factura']}** | Proveedor: **{sel_data['proveedor']}** | Cuenta Gasto Prov: **{sel_data['cuenta_gasto_codigo']} - {sel_data['cuenta_gasto_desc']}** | Banco: **{sel_data['banco_seleccionado']}**")
+                                st.markdown(f"### ⚙️ Configuración y Previsualización de Asientos para la Orden #{sel_data['id']}")
+                                st.info(f"Factura: **{sel_data['nro_factura']}** | Proveedor: **{sel_data['proveedor']}**")
                                 
+                                # --- SELECTORES DESPLEGABLES PARA CUENTAS CONTABLES ---
+                                col_sel_1, col_sel_2, col_sel_3 = st.columns(3)
+                                with col_sel_1:
+                                    # Cuenta de Gasto (pre-sugerida del proveedor pero modificable)
+                                    sug_gasto = f"{sel_data['cuenta_gasto_codigo']} - {sel_data['cuenta_gasto_desc']}"
+                                    idx_sug_gasto = lista_cuentas_plan.index(sug_gasto) if sug_gasto in lista_cuentas_plan else 0
+                                    cta_gasto_elegida = st.selectbox("Cuenta Contable de Gasto / Costo", lista_cuentas_plan, index=idx_sug_gasto)
+                                
+                                with col_sel_2:
+                                    # Cuenta de IVA Crédito Fiscal (Desplegable flexible para clientes que asumen el IVA por distintas cuentas)
+                                    sug_iva = [c for c in lista_cuentas_plan if "Crédito Fiscal" in c or "I.V.A." in c]
+                                    default_iva_idx = lista_cuentas_plan.index(sug_iva[0]) if sug_iva and sug_iva[0] in lista_cuentas_plan else 0
+                                    cta_iva_elegida = st.selectbox("Cuenta Contable Crédito Fiscal IVA", lista_cuentas_plan, index=default_iva_idx)
+
+                                with col_sel_3:
+                                    # Cuenta de Banco / Caja de Pago (Haber con monto_neto)
+                                    sug_banco = [c for c in lista_cuentas_plan if "Banco" in c or "Caja" in c or "Corriente" in c]
+                                    default_banco_idx = lista_cuentas_plan.index(sug_banco[0]) if sug_banco and sug_banco[0] in lista_cuentas_plan else 0
+                                    cta_banco_elegida = st.selectbox("Cuenta de Pago (Caja / Banco)", lista_cuentas_plan, index=default_banco_idx)
+
+                                # Extraer códigos y nombres limpios de los selectores
+                                info_gasto = dict_cuentas_plan.get(cta_gasto_elegida, {'codigo': '5.1.1.01.001', 'nombre': cta_gasto_elegida})
+                                info_iva = dict_cuentas_plan.get(cta_iva_elegida, {'codigo': '1.1.4.01.001', 'nombre': 'I.V.A. Crédito Fiscal'})
+                                info_banco = dict_cuentas_plan.get(cta_banco_elegida, {'codigo': '1.1.1.02.001', 'nombre': 'Caja Chica'})
+
                                 col_f1, col_f2, col_f3 = st.columns(3)
                                 
                                 with col_f1:
@@ -12742,46 +12728,46 @@ elif opcion_menu == "📝 Asientos Contables":
           fecha: {sel_data['fecha_emision']}
           descripcion: "Factura {sel_data['nro_factura']} - {sel_data['proveedor']}"
           asientos:
-            - plan_cuentas: Costos / Gastos (Proveedor)
-              cuenta_contable: {sel_data['cuenta_gasto_codigo']} - {sel_data['cuenta_gasto_desc']}
+            - plan_cuentas: {info_gasto['codigo']}
+              cuenta_contable: {info_gasto['nombre']}
               referencia: {sel_data['nro_factura']}
               debe: {sel_data['base_imponible']:,.2f}
               haber: 0.00
               bloqueado: 0
 
-            - plan_cuentas: Activo Circulante
-              cuenta_contable: Crédito Fiscal IVA
+            - plan_cuentas: {info_iva['codigo']}
+              cuenta_contable: {info_iva['nombre']}
               referencia: {sel_data['nro_factura']}
               debe: {sel_data['monto_iva']:,.2f}
               haber: 0.00
               bloqueado: 0
 
-            - plan_cuentas: Activo Circulante (Bancos)
-              cuenta_contable: {sel_data['banco_seleccionado']}
-              referencia: OP-{sel_data['nro_factura']}
-              debe: 0.00
-              haber: {sel_data['monto_neto']:,.2f}
-              bloqueado: 0
-
-            - plan_cuentas: Pasivo Fiscal
-              cuenta_contable: Retención ISLR Por Pagar ({sel_data['islr_porcentaje']}%)
+            - plan_cuentas: 2.1.2.01.005
+              cuenta_contable: Retencion ISLR Proveedores
               referencia: {sel_data['nro_factura']}
               debe: 0.00
               haber: {sel_data['retencion_islr']:,.2f}
               bloqueado: 0
 
-            - plan_cuentas: Pasivo Fiscal
-              cuenta_contable: Retención IVA Por Pagar
+            - plan_cuentas: 2.1.2.01.003
+              cuenta_contable: Retencioes IVA en Compras
               referencia: {sel_data['nro_factura']}
               debe: 0.00
               haber: {sel_data['retencion_iva']:,.2f}
+              bloqueado: 0
+
+            - plan_cuentas: {info_banco['codigo']}
+              cuenta_contable: {info_banco['nombre']}
+              referencia: OP-{sel_data['nro_factura']}
+              debe: 0.00
+              haber: {sel_data['monto_neto']:,.2f}
               bloqueado: 0
                                     """, language="yaml")
 
                                 with col_f3:
                                     st.markdown("#### 3️⃣ Frame: `banco_movimientos`")
                                     st.code(f"""
-        banco_nombre: {sel_data['banco_seleccionado']}
+        banco_nombre: {info_banco['nombre']}
         referencia: OP-{sel_data['nro_factura']}
         descripcion: Pago Factura: {sel_data['proveedor']}
         monto: {sel_data['monto_neto']:,.2f}
@@ -12807,7 +12793,7 @@ elif opcion_menu == "📝 Asientos Contables":
                                                 INSERT INTO libro_compras (
                                                     fecha_operacion, tipo_documento, n_factura, n_control, n_factura_afectada, 
                                                     proveedor, rif, tipo_transaccion, total_compras, importe_exento, 
-                                                    base_imponible, iva_porcentaje, iva_monto, etencion_realizada, 
+                                                    base_imponible, iva_porcentaje, iva_monto, retencion_realizada, 
                                                     retencion_iva_realizada, n_comprobante_retencion, monto_iva_retenido, 
                                                     fecha_comprobante, created_at, updated_at
                                                 ) VALUES (
@@ -12826,54 +12812,51 @@ elif opcion_menu == "📝 Asientos Contables":
                                                 sel_data['retencion_iva'], sel_data['fecha_emision']
                                             ))
                                             
-                                            # 2. Insertar Asientos Contables usando la cuenta del proveedor y el banco seleccionado
+                                            # 2. Insertar Asientos Contables con los códigos exactos del Plan de Cuentas
                                             n_comp = f"OP-{sel_data['nro_factura']}"
                                             fecha_op = sel_data['fecha_emision']
-                                            cta_gasto_codigo = sel_data['cuenta_gasto_codigo']
-                                            cta_gasto_desc = sel_data['cuenta_gasto_desc']
-                                            banco_sel = sel_data['banco_seleccionado']
                                             
+                                            # Debe: Gasto/Costo (Base Imponible)
                                             if sel_data['base_imponible'] > 0:
                                                 cur_proc.execute("""
                                                     INSERT INTO asientos_contables (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber, bloqueado)
-                                                    VALUES (%s, %s, %s, 'Costos / Gastos', %s, %s, %s, 0.00, 0)
-                                                """, (n_comp, sel_data['observaciones'] or f"Factura {sel_data['nro_factura']}", fecha_op, f"{cta_gasto_codigo} - {cta_gasto_desc}", sel_data['nro_factura'], sel_data['base_imponible']))
+                                                    VALUES (%s, %s, %s, %s, %s, %s, %s, 0.00, 0)
+                                                """, (n_comp, sel_data['observaciones'] or f"Factura {sel_data['nro_factura']} - {sel_data['proveedor']}", fecha_op, info_gasto['codigo'], info_gasto['nombre'], sel_data['nro_factura'], sel_data['base_imponible']))
 
+                                            # Debe: Crédito Fiscal IVA (Monto IVA)
                                             if sel_data['monto_iva'] > 0:
                                                 cur_proc.execute("""
                                                     INSERT INTO asientos_contables (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber, bloqueado)
-                                                    VALUES (%s, %s, %s, 'Activo Circulante', 'Crédito Fiscal IVA', %s, %s, 0.00, 0)
-                                                """, (n_comp, f"IVA Crédito Fiscal s/Factura {sel_data['nro_factura']}", fecha_op, sel_data['nro_factura'], sel_data['monto_iva']))
+                                                    VALUES (%s, %s, %s, %s, %s, %s, %s, 0.00, 0)
+                                                """, (n_comp, f"IVA Crédito Fiscal s/Factura {sel_data['nro_factura']}", fecha_op, info_iva['codigo'], info_iva['nombre'], sel_data['nro_factura'], sel_data['monto_iva']))
 
-                                            cur_proc.execute("""
-                                                INSERT INTO asientos_contables (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber, bloqueado)
-                                                VALUES (%s, %s, %s, 'Activo Circulante (Bancos)', %s, %s, 0.00, %s, 0)
-                                            """, (n_comp, f"Pago Factura {sel_data['nro_factura']} a {sel_data['proveedor']}", fecha_op, banco_sel, sel_data['nro_factura'], sel_data['monto_neto']))
-
+                                            # Haber: Retención ISLR
                                             if sel_data['retencion_islr'] > 0:
                                                 cur_proc.execute("""
                                                     INSERT INTO asientos_contables (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber, bloqueado)
-                                                    VALUES (%s, %s, %s, 'Pasivo Fiscal', %s, %s, 0.00, %s, 0)
-                                                """, (n_comp, f"Retención ISLR ({sel_data['islr_porcentaje']}%) s/Factura", fecha_op, f"Retención ISLR Por Pagar ({sel_data['islr_porcentaje']}%)", sel_data['nro_factura'], sel_data['retencion_islr']))
+                                                    VALUES (%s, %s, %s, '2.1.2.01.005', 'Retencion ISLR Proveedores', %s, 0.00, %s, 0)
+                                                """, (n_comp, f"Retención ISLR s/Factura {sel_data['nro_factura']}", fecha_op, sel_data['nro_factura'], sel_data['retencion_islr']))
 
+                                            # Haber: Retención IVA
                                             if sel_data['retencion_iva'] > 0:
                                                 cur_proc.execute("""
                                                     INSERT INTO asientos_contables (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber, bloqueado)
-                                                    VALUES (%s, %s, %s, 'Pasivo Fiscal', 'Retención IVA Por Pagar', %s, 0.00, %s, 0)
-                                                """, (n_comp, "Retención IVA s/Factura", fecha_op, sel_data['nro_factura'], sel_data['retencion_iva']))
+                                                    VALUES (%s, %s, %s, '2.1.2.01.003', 'Retencioes IVA en Compras', %s, 0.00, %s, 0)
+                                                """, (n_comp, f"Retención IVA s/Factura {sel_data['nro_factura']}", fecha_op, sel_data['nro_factura'], sel_data['retencion_iva']))
 
-                                            # 3. Insertar en banco_movimientos
+                                            # Haber: Banco / Caja (Monto Neto)
                                             cur_proc.execute("""
-                                                INSERT INTO banco_movimientos (
-                                                    banco_nombre, fecha_movimiento, referencia, descripcion, monto, estado_conciliacion
-                                                ) VALUES (%s, %s, %s, %s, %s, %s)
-                                            """, (
-                                                banco_sel, fecha_op, f"OP-{sel_data['nro_factura']}", 
-                                                f"Pago Factura: {sel_data['proveedor']} (Fac: {sel_data['nro_factura']})", 
-                                                sel_data['monto_neto'], 'Pendiente'
-                                            ))
+                                                INSERT INTO asientos_contables (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber, bloqueado)
+                                                VALUES (%s, %s, %s, %s, %s, %s, 0.00, %s, 0)
+                                            """, (n_comp, f"Pago Factura {sel_data['nro_factura']} a {sel_data['proveedor']}", fecha_op, info_banco['codigo'], info_banco['nombre'], f"OP-{sel_data['nro_factura']}", sel_data['monto_neto']))
 
-                                            # 4. Actualizar estado de la orden de pago a Conciliado
+                                            # 3. Registrar Movimiento Bancario con el monto neto
+                                            cur_proc.execute("""
+                                                INSERT INTO banco_movimientos (banco_nombre, referencia, descripcion, monto, estado_conciliacion, fecha, empresa_db)
+                                                VALUES (%s, %s, %s, %s, 'Conciliado', %s, %s)
+                                            """, (info_banco['nombre'], f"OP-{sel_data['nro_factura']}", f"Pago Factura: {sel_data['proveedor']}", sel_data['monto_neto'], fecha_op, str(db_actual)))
+
+                                            # 4. Actualizar estado de la Orden de Pago a 'Conciliado'
                                             cur_proc.execute("""
                                                 UPDATE ordenes_pago SET estado = 'Conciliado' WHERE id = %s
                                             """, (sel_data['id'],))
@@ -12882,14 +12865,13 @@ elif opcion_menu == "📝 Asientos Contables":
                                             cur_proc.close()
                                             conn_proc.close()
                                             
-                                            st.success("🎉 ¡Proceso ejecutado exitosamente con cuentas y bancos reales!")
+                                            st.success("🎉 ¡Registros fiscales, contables y bancarios procesados y guardados con éxito!")
                                             st.rerun()
+
                                     except Exception as ex_proc:
-                                        st.error(f"❌ Error al procesar el registro: {ex_proc}")
-                        else:
-                            st.info("ℹ️ No hay órdenes de pago registradas todavía.")
-                except Exception as e:
-                    st.error(f"Error al cargar el historial de órdenes: {e}")
+                                            st.error(f"❌ Error al procesar los registros definitivos: {ex_proc}")
+                except Exception as ex_hist:
+                    st.error(f"Error cargando el historial de órdenes de pago: {ex_hist}")
             
         with tab3:
             st.markdown("### 🔗 Conciliación, Cruce Bancario y Emisión de Comprobante")
