@@ -12336,19 +12336,25 @@ elif opcion_menu == "📝 Asientos Contables":
                         ret_iva_op = st.number_input("Menos: Retención IVA", min_value=0.00, step=10.00, format="%.2f")
 
                     # ==========================================
-                    # 3️⃣ FRAME 3: Cálculo y Retención de ISLR
+                    # 3️⃣ FRAME 3: Cálculo y Retención de ISLR (Actualizado con Nuevas Columnas)
                     # ==========================================
                     st.markdown("---")
-                    st.markdown("##### 3️⃣ Cálculo y Retención de ISLR")
-                    col_f3_1, col_f3_2 = st.columns(2)
+                    st.markdown("##### 3️⃣ Cálculo y Retención de ISLR (Decreto 1808)")
+                    col_f3_1, col_f3_2, col_f3_3 = st.columns(3)
                     
                     with col_f3_1:
-                        ret_islr_op = st.number_input("Menos: Retención ISLR", min_value=0.00, step=10.00, format="%.2f")
+                        tipo_persona_op = st.selectbox("Tipo de Persona", ["Persona Jurídica", "Persona Natural Residente", "Persona Natural No Residente"])
+                        islr_porc_op = st.number_input("Porcentaje ISLR (%)", min_value=0.00, max_value=100.00, value=1.00, step=0.50, format="%.2f")
                     
                     with col_f3_2:
+                        islr_sustraendo_op = st.number_input("Sustraendo ISLR", min_value=0.00, step=1.00, format="%.2f")
+                        # Cálculo automático base de la retención ISLR sobre la Base Imponible
+                    
+                    with col_f3_3:
+                        # Opción de edición manual o cálculo automático asistido
                         observaciones_op = st.text_area("Observaciones o Concepto del Pago").strip()
 
-                    # --- Cálculos automáticos fiscales de respaldo / validación ---
+                    # --- Cálculos automáticos fiscales ---
                     monto_gravable_estimado = max(0.00, monto_bruto_op - monto_exento_op)
                     
                     if monto_iva_ingresado == 0.00 and monto_gravable_estimado > 0:
@@ -12358,10 +12364,16 @@ elif opcion_menu == "📝 Asientos Contables":
                         monto_iva_calc = monto_iva_ingresado
                         base_imponible_calc = max(0.00, monto_gravable_estimado - monto_iva_calc)
 
+                    # Cálculo de Retención ISLR = (Base Imponible * % Porcentaje) - Sustraendo
+                    islr_calculado_bruto = (base_imponible_calc * (islr_porc_op / 100.0)) - islr_sustraendo_op
+                    ret_islr_op = max(0.00, islr_calculado_bruto)
+                    
+                    st.markdown(f"*(Retención ISLR calculada automáticamente: {ret_islr_op:,.2f})*")
+
                     monto_neto_calculado = monto_bruto_op - ret_islr_op - ret_iva_op
                     
                     st.markdown("---")
-                    st.info(f"📊 **Base Imponible:** {base_imponible_calc:,.2f} | IVA ({iva_porc_op}%): {monto_iva_calc:,.2f} | 💵 **Neto a Pagar:** {monto_neto_calculado:,.2f}")
+                    st.info(f"📊 **Base Imponible:** {base_imponible_calc:,.2f} | IVA ({iva_porc_op}%): {monto_iva_calc:,.2f} | ISLR: {ret_islr_op:,.2f} | 💵 **Neto a Pagar:** {monto_neto_calculado:,.2f}")
                     
                     btn_guardar_cola = st.form_submit_button("📥 Guardar Orden en Cola", type="primary")
                     
@@ -12376,18 +12388,20 @@ elif opcion_menu == "📝 Asientos Contables":
                                         INSERT INTO ordenes_pago (
                                             empresa_db, proveedor_id, nro_factura, nro_control, monto_bruto, 
                                             monto_exento, base_imponible, iva_porcentaje, monto_iva, 
-                                            retencion_islr, retencion_iva, monto_neto, fecha_emision, observaciones, estado
+                                            retencion_islr, retencion_iva, monto_neto, fecha_emision, observaciones, 
+                                            islr_porcentaje, islr_sustraendo, tipo_persona, estado
                                         )
-                                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'Pendiente')
+                                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'Pendiente')
                                     """, (
                                         str(db_actual), id_prov_real, nro_factura_op, nro_control_op or 'N/A', 
                                         monto_bruto_op, monto_exento_op, base_imponible_calc, iva_porc_op, monto_iva_calc, 
-                                        ret_islr_op, ret_iva_op, monto_neto_calculado, fecha_emision_op, observaciones_op
+                                        ret_islr_op, ret_iva_op, monto_neto_calculado, fecha_emision_op, observaciones_op,
+                                        islr_porc_op, islr_sustraendo_op, tipo_persona_op
                                     ))
                                     conn_ins.commit()
                                     cur_ins.close()
                                     conn_ins.close()
-                                    st.success("✅ ¡Orden de pago guardada en cola exitosamente!")
+                                    st.success("✅ ¡Orden de pago guardada en cola con parámetros de ISLR exitosamente!")
                                     st.rerun()
                             except Exception as ex_cola:
                                 st.error(f"❌ Error al guardar la orden en cola: {ex_cola}")
@@ -12405,7 +12419,8 @@ elif opcion_menu == "📝 Asientos Contables":
                             SELECT op.id, p.id AS proveedor_id, p.nombre AS proveedor, p.rif AS rif_proveedor, 
                                    op.nro_factura, op.nro_control, op.monto_bruto, op.monto_exento, 
                                    op.base_imponible, op.iva_porcentaje, op.monto_iva, 
-                                   op.retencion_islr, op.retencion_iva, op.monto_neto, op.estado, op.fecha_emision, op.observaciones
+                                   op.retencion_islr, op.retencion_iva, op.monto_neto, op.estado, op.fecha_emision, op.observaciones,
+                                   op.islr_porcentaje, op.islr_sustraendo, op.tipo_persona
                             FROM ordenes_pago op
                             JOIN proveedores_carga p ON op.proveedor_id = p.id
                             WHERE op.empresa_db = %s
@@ -12415,7 +12430,7 @@ elif opcion_menu == "📝 Asientos Contables":
                         conn_list_op.close()
                         
                         if df_ops is not None and not df_ops.empty:
-                            df_display = df_ops[['id', 'proveedor', 'nro_factura', 'nro_control', 'monto_bruto', 'monto_neto', 'estado', 'fecha_emision']]
+                            df_display = df_ops[['id', 'proveedor', 'nro_factura', 'monto_bruto', 'monto_neto', 'retencion_islr', 'estado', 'fecha_emision']]
                             st.dataframe(df_display, use_container_width=True, hide_index=True)
                             
                             st.markdown("---")
@@ -12434,7 +12449,7 @@ elif opcion_menu == "📝 Asientos Contables":
                                 
                                 st.markdown("---")
                                 st.markdown(f"### ⚙️ Previsualización Generada para la Orden #{sel_data['id']}")
-                                st.info(f"Factura: **{sel_data['nro_factura']}** | Control: **{sel_data['nro_control']}** | Proveedor: **{sel_data['proveedor']}**")
+                                st.info(f"Factura: **{sel_data['nro_factura']}** | Control: **{sel_data['nro_control']}** | Proveedor: **{sel_data['proveedor']}** | Tipo Pers: **{sel_data['tipo_persona']}**")
                                 
                                 col_f1, col_f2, col_f3 = st.columns(3)
                                 
@@ -12448,29 +12463,19 @@ elif opcion_menu == "📝 Asientos Contables":
             proveedor: {sel_data['proveedor']}
             rif: {sel_data['rif_proveedor']}
             total_compras: {sel_data['monto_bruto']:,.2f}
-            importe_exento: {sel_data['monto_exento']:,.2f}
             base_imponible: {sel_data['base_imponible']:,.2f}
-            iva_porcentaje: {sel_data['iva_porcentaje']}
             iva_monto: {sel_data['monto_iva']:,.2f}
+            retencion_islr: {sel_data['retencion_islr']:,.2f}
                                     """, language="yaml")
 
                                 with col_f2:
                                     st.markdown("#### 2️⃣ Frame: `asientos_contables`")
                                     st.code(f"""
-            [Debe - Base Gasto / Compras]
-            - Debe: {sel_data['base_imponible']:,.2f}
-
-            [Debe - Crédito Fiscal IVA]
-            - Debe: {sel_data['monto_iva']:,.2f}
-
-            [Haber - Cuentas por Pagar]
-            - Haber: {sel_data['monto_neto']:,.2f}
-
-            [Haber - Retención ISLR]
-            - Haber: {sel_data['retencion_islr']:,.2f}
-
-            [Haber - Retención IVA]
-            - Haber: {sel_data['retencion_iva']:,.2f}
+            [Debe - Base Gasto / Compras] -> {sel_data['base_imponible']:,.2f}
+            [Debe - Crédito Fiscal IVA] -> {sel_data['monto_iva']:,.2f}
+            [Haber - Cuentas por Pagar] -> {sel_data['monto_neto']:,.2f}
+            [Haber - Retención ISLR ({sel_data['islr_porcentaje']}%)] -> {sel_data['retencion_islr']:,.2f}
+            [Haber - Retención IVA] -> {sel_data['retencion_iva']:,.2f}
                                     """, language="yaml")
 
                                 with col_f3:
@@ -12497,7 +12502,7 @@ elif opcion_menu == "📝 Asientos Contables":
                                         if conn_proc:
                                             cur_proc = conn_proc.cursor()
                                             
-                                            # 1. Insertar en libro_compras con datos reales
+                                            # 1. Insertar en libro_compras
                                             cur_proc.execute("""
                                                 INSERT INTO libro_compras (
                                                     fecha_operacion, tipo_documento, n_factura, n_control, n_factura_afectada, 
@@ -12513,24 +12518,12 @@ elif opcion_menu == "📝 Asientos Contables":
                                                     %s, NOW(), NOW()
                                                 )
                                             """, (
-                                                sel_data['fecha_emision'],
-                                                'Factura',
-                                                sel_data['nro_factura'],
-                                                sel_data['nro_control'],
-                                                '',
-                                                sel_data['proveedor'],
-                                                sel_data['rif_proveedor'],
-                                                '01-Reg',
-                                                sel_data['monto_bruto'],
-                                                sel_data['monto_exento'],
-                                                sel_data['base_imponible'],
-                                                sel_data['iva_porcentaje'],
-                                                sel_data['monto_iva'],
-                                                sel_data['retencion_islr'],
-                                                sel_data['retencion_iva'],
-                                                f"COMP-{sel_data['nro_factura']}",
-                                                sel_data['retencion_iva'],
-                                                sel_data['fecha_emision']
+                                                sel_data['fecha_emision'], 'Factura', sel_data['nro_factura'], sel_data['nro_control'], '',
+                                                sel_data['proveedor'], sel_data['rif_proveedor'], '01-Reg',
+                                                sel_data['monto_bruto'], sel_data['monto_exento'], sel_data['base_imponible'],
+                                                sel_data['iva_porcentaje'], sel_data['monto_iva'], sel_data['retencion_islr'],
+                                                sel_data['retencion_iva'], f"COMP-{sel_data['nro_factura']}",
+                                                sel_data['retencion_iva'], sel_data['fecha_emision']
                                             ))
                                             
                                             # 2. Insertar Asientos Contables
@@ -12558,7 +12551,7 @@ elif opcion_menu == "📝 Asientos Contables":
                                                 cur_proc.execute("""
                                                     INSERT INTO asientos_contables (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber, bloqueado)
                                                     VALUES (%s, %s, %s, 'Pasivo Fiscal', 'Retención ISLR Por Pagar', %s, 0.00, %s, 0)
-                                                """, (n_comp, "Retención ISLR s/Factura", fecha_op, sel_data['nro_factura'], sel_data['retencion_islr']))
+                                                """, (n_comp, f"Retención ISLR ({sel_data['islr_porcentaje']}%) s/Factura", fecha_op, sel_data['nro_factura'], sel_data['retencion_islr']))
 
                                             if sel_data['retencion_iva'] > 0:
                                                 cur_proc.execute("""
