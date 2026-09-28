@@ -12468,14 +12468,10 @@ elif opcion_menu == "📝 Asientos Contables":
             try:
                 conn_cp = conectar_db(db_actual)
                 if conn_cp:
-                    # 1. Cargar Proveedores
                     df_cp = ejecutar_consulta("SELECT rif, tipo_persona, razon_social, direccion_fiscal, codigo_cuenta, descripcion_cuenta FROM proveedores", conn_cp)
-                    
-                    # 2. Cargar Plan de Cuentas estrictamente de la tabla plan_cuentas (Tipo Detalle)
                     df_cuentas = ejecutar_consulta("SELECT id, codigo, nombre, nivel, tipo, padre FROM plan_cuentas WHERE tipo = 'Detalle'", conn_cp)
                     conn_cp.close()
                     
-                    # Cargar proveedores
                     if df_cp is not None and not df_cp.empty:
                         for idx_p, row in df_cp.iterrows():
                             prov_id_val = idx_p + 1 
@@ -12489,7 +12485,6 @@ elif opcion_menu == "📝 Asientos Contables":
                                 'descripcion_cuenta': row['descripcion_cuenta']
                             }
                         
-                    # Cargar las cuentas de detalle para la lista desplegable
                     if df_cuentas is not None and not df_cuentas.empty:
                         for _, row in df_cuentas.iterrows():
                             c_label = f"{str(row['codigo']).strip()} - {str(row['nombre']).strip()}"
@@ -12499,7 +12494,6 @@ elif opcion_menu == "📝 Asientos Contables":
                                     'codigo': str(row['codigo']).strip(),
                                     'nombre': str(row['nombre']).strip()
                                 }
-                        
             except Exception as e:
                 st.error(f"Error cargando datos de BD: {e}")
 
@@ -12512,7 +12506,7 @@ elif opcion_menu == "📝 Asientos Contables":
                     conn_list_op.close()
                     
                     if df_ops_raw is None or df_ops_raw.empty:
-                        st.warning(f"⚠️ No se encontraron órdenes de pago registradas para la empresa/base de datos actual: `{db_actual}`.")
+                        st.warning(f"⚠️ No se encontraron órdenes de pago registradas para la base de datos: `{db_actual}`.")
                     else:
                         lista_ops_procesadas = []
                         for _, r_op in df_ops_raw.iterrows():
@@ -12563,7 +12557,7 @@ elif opcion_menu == "📝 Asientos Contables":
                             "🔍 Selecciona una Orden de Pago para configurar sus cuentas y procesar:", 
                             options=lista_keys_op,
                             index=0,
-                            key="select_orden_pago_principal"
+                            key="select_op_final_v2"
                         )
                         
                         if seleccion_op_key:
@@ -12574,41 +12568,37 @@ elif opcion_menu == "📝 Asientos Contables":
                             st.info(f"Factura: **{sel_data['nro_factura']}** | Proveedor: **{sel_data['proveedor']}**")
                             
                             if not lista_cuentas_detalle:
-                                st.error("❌ No se encontraron cuentas con tipo = 'Detalle' en la tabla `plan_cuentas`. Revisa tu base de datos.")
+                                st.error("❌ La lista de cuentas de detalle está vacía. Verifica que la tabla `plan_cuentas` tenga registros con `tipo = 'Detalle'` en esta base de datos.")
                             else:
-                                # --- SELECTORES DESPLEGABLES SEGUROS A PRUEBA DE ERRORES ---
+                                # --- SELECTORES DESPLEGABLES REALES ---
                                 col_sel_1, col_sel_2, col_sel_3 = st.columns(3)
                                 
-                                # 1. Selector de Gasto
                                 with col_sel_1:
-                                    sug_gasto = f"{sel_data['cuenta_gasto_codigo']} - {sel_data['cuenta_gasto_desc']}"
                                     idx_g = 0
+                                    sug_gasto = f"{sel_data['cuenta_gasto_codigo']} - {sel_data['cuenta_gasto_desc']}"
                                     if sug_gasto in lista_cuentas_detalle:
                                         idx_g = lista_cuentas_detalle.index(sug_gasto)
-                                    cta_gasto_elegida = st.selectbox("Cuenta Contable de Gasto / Costo", options=lista_cuentas_detalle, index=idx_g, key=f"gasto_def_{sel_data['id']}")
+                                    cta_gasto_elegida = st.selectbox("Cuenta Contable de Gasto / Costo", options=lista_cuentas_detalle, index=idx_g, key=f"gasto_sel_{sel_data['id']}")
                                 
-                                # 2. Selector de IVA
                                 with col_sel_2:
                                     idx_iva = 0
                                     for i, c in enumerate(lista_cuentas_detalle):
                                         if "iva" in c.lower() or "crédito fiscal" in c.lower():
                                             idx_iva = i
                                             break
-                                    cta_iva_elegida = st.selectbox("Cuenta Contable Crédito Fiscal IVA", options=lista_cuentas_detalle, index=idx_iva, key=f"iva_def_{sel_data['id']}")
+                                    cta_iva_elegida = st.selectbox("Cuenta Contable Crédito Fiscal IVA", options=lista_cuentas_detalle, index=idx_iva, key=f"iva_sel_{sel_data['id']}")
 
-                                # 3. Selector de Banco (¡Aquí saldrán tus bancos de la BD!)
                                 with col_sel_3:
                                     idx_banco = 0
                                     for i, c in enumerate(lista_cuentas_detalle):
-                                        if "banco" in c.lower() or "caja" in c.lower() or "binance" in c.lower():
+                                        if "banco" in c.lower() or "binance" in c.lower():
                                             idx_banco = i
                                             break
-                                    cta_banco_elegida = st.selectbox("Cuenta de Pago (Caja / Banco)", options=lista_cuentas_detalle, index=idx_banco, key=f"banco_def_{sel_data['id']}")
+                                    cta_banco_elegida = st.selectbox("Cuenta de Pago (Caja / Banco)", options=lista_cuentas_detalle, index=idx_banco, key=f"banco_sel_{sel_data['id']}")
 
-                                # Extracción directa del diccionario seguro
-                                info_gasto = dict_cuentas_detalle.get(cta_gasto_elegida, {'codigo': '5.1.1.01.001', 'nombre': cta_gasto_elegida})
-                                info_iva = dict_cuentas_detalle.get(cta_iva_elegida, {'codigo': '1.1.4.01.001', 'nombre': 'I.V.A. Crédito Fiscal'})
-                                #info_banco = dict_cuentas_detalle.get(cta_banco_elegida, {'codigo': '1.1.1.01.001', 'nombre': 'Caja Chica'})
+                                # Extracción exacta seleccionada por ti
+                                info_gasto = dict_cuentas_detalle[cta_gasto_elegida]
+                                info_iva = dict_cuentas_detalle[cta_iva_elegida]
                                 info_banco = dict_cuentas_detalle[cta_banco_elegida]
 
                                 col_f1, col_f2, col_f3 = st.columns(3)
