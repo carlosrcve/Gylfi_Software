@@ -11724,7 +11724,7 @@ elif opcion_menu == "📝 Asientos Contables":
                     "1.1.1.02.001 - Banco de Venezuela": {'codigo': "1.1.1.02.001", 'nombre': "Banco de Venezuela"}
                 }
 
-            # --- CARGAR PROVEEDORES CORRECTAMENTE (SIN CAMPOS FANTASMAS) ---
+            # --- CARGAR PROVEEDORES CORRECTAMENTE ---
             lista_provs = []
             dict_provs = {}
             dict_provs_info = {}
@@ -11749,9 +11749,6 @@ elif opcion_menu == "📝 Asientos Contables":
                 with st.form("form_nueva_orden_pago"):
                     st.markdown("#### Emitir Nueva Orden de Pago (En Cola)")
                     
-                    # ==========================================
-                    # 1️⃣ FRAME 1: Datos Básicos y Fiscales de la Factura
-                    # ==========================================
                     st.markdown("---")
                     st.markdown("##### 1️⃣ Datos Generales y Fiscales de la Factura")
                     col_f1_1, col_f1_2 = st.columns(2)
@@ -11768,9 +11765,6 @@ elif opcion_menu == "📝 Asientos Contables":
                         base_imponible_input = st.number_input("Base Imponible (Dejar en 0.00 para cálculo automático)", min_value=0.00, step=100.00, format="%.2f")
                         monto_iva_ingresado = st.number_input("Monto del IVA (Dejar en 0.00 para cálculo automático)", min_value=0.00, step=10.00, format="%.2f")
 
-                    # ==========================================
-                    # 2️⃣ FRAME 2: Cálculo y Retención del IVA
-                    # ==========================================
                     st.markdown("---")
                     st.markdown("##### 2️⃣ Configuración de IVA")
                     col_f2_1, col_f2_2 = st.columns(2)
@@ -11781,7 +11775,6 @@ elif opcion_menu == "📝 Asientos Contables":
                     with col_f2_2:
                         ret_iva_op = st.number_input("Menos: Retención IVA", min_value=0.00, step=10.00, format="%.2f")
 
-                    # --- Cálculos automáticos intermedios ---
                     monto_gravable_estimado = max(0.00, monto_bruto_op - monto_exento_op)
                     
                     if base_imponible_input == 0.00 and monto_iva_ingresado == 0.00 and monto_gravable_estimado > 0:
@@ -11791,9 +11784,6 @@ elif opcion_menu == "📝 Asientos Contables":
                         base_imponible_calc = base_imponible_input if base_imponible_input > 0 else max(0.00, monto_gravable_estimado - monto_iva_ingresado)
                         monto_iva_calc = monto_iva_ingresado if monto_iva_ingresado > 0 else (base_imponible_calc * (iva_porc_op / 100.0))
 
-                    # ==========================================
-                    # 3️⃣ FRAME 3: Cálculo y Retención de ISLR (Decreto 1808)
-                    # ==========================================
                     st.markdown("---")
                     st.markdown("##### 3️⃣ Cálculo y Retención de ISLR (Decreto 1808)")
                     col_f3_1, col_f3_2, col_f3_3, col_f3_4 = st.columns(4)
@@ -11813,9 +11803,6 @@ elif opcion_menu == "📝 Asientos Contables":
                     with col_f3_4:
                         observaciones_op = st.text_area("Observaciones o Concepto del Pago").strip()
 
-                    # ==========================================
-                    # 4️⃣ FRAME 4: Totalización del Pago y Desglose Operacional
-                    # ==========================================
                     st.markdown("---")
                     st.markdown("##### 4️⃣ Totalización del Pago y Desglose Operacional")
                     
@@ -11864,13 +11851,13 @@ elif opcion_menu == "📝 Asientos Contables":
                     conn_list_op = conectar_db(db_actual)
                     if conn_list_op:
                         query_list_ops = """
-                            SELECT op.id, p.id AS proveedor_id, p.nombre AS proveedor, p.rif AS rif_proveedor, 
+                            SELECT op.id, p.id AS proveedor_id, p.razon_social AS proveedor, p.rif AS rif_proveedor, 
                                    op.nro_factura, op.nro_control, op.monto_bruto, op.monto_exento, 
                                    op.base_imponible, op.iva_porcentaje, op.monto_iva, 
                                    op.retencion_islr, op.retencion_iva, op.monto_neto, op.estado, op.fecha_emision, op.observaciones,
                                    op.islr_porcentaje, op.islr_sustraendo, op.tipo_persona
                             FROM ordenes_pago op
-                            JOIN proveedores_carga p ON op.proveedor_id = p.id
+                            JOIN proveedores p ON op.proveedor_id = p.id
                             WHERE op.empresa_db = %s
                             ORDER BY op.id DESC
                         """
@@ -11899,18 +11886,14 @@ elif opcion_menu == "📝 Asientos Contables":
                                 st.markdown(f"### ⚙️ Configuración de Cuentas y Previsualización para la Orden #{sel_data['id']}")
                                 st.info(f"Factura: **{sel_data['nro_factura']}** | Proveedor: **{sel_data['proveedor']}** | Neto: **{sel_data['monto_neto']:,.2f}**")
                                 
-                                # ==============================================================================
-                                # 3 SELECTORES DINÁMICOS ALIMENTADOS 100% DESDE PLAN_CUENTAS (TIPO DETALLE)
-                                # ==============================================================================
                                 col_sel_1, col_sel_2, col_sel_3 = st.columns(3)
 
                                 with col_sel_1:
-                                    sug_gasto = f"{sel_data.get('cuenta_gasto_codigo', '')} - {sel_data.get('cuenta_gasto_desc', '')}"
-                                    idx_sug_gasto = opciones_desplegable.index(sug_gasto) if sug_gasto in opciones_desplegable else 0
+                                    # Sin errores de 'codigo_cuenta'
                                     cta_gasto_elegida = st.selectbox(
                                         "Cuenta Contable de Gasto", 
                                         options=opciones_desplegable, 
-                                        index=idx_sug_gasto, 
+                                        index=0, 
                                         key=f"gasto_sel_{sel_data['id']}"
                                     )
 
@@ -11934,14 +11917,11 @@ elif opcion_menu == "📝 Asientos Contables":
                                         key=f"banco_sel_{sel_data['id']}"
                                     )
 
-                                # Capturar los datos seleccionados reales para los YAML y asientos
                                 info_gasto = mapa_descripciones[cta_gasto_elegida]
                                 info_iva = mapa_descripciones[cta_iva_elegida]
                                 info_banco = mapa_descripciones[cta_banco_elegida]
 
-                                # ==============================================================================
-                                # PREVISUALIZACIÓN YAML / ESTRUCTURAS
-                                # ==============================================================================
+                                # PREVISUALIZACIÓN YAML
                                 col_f1, col_f2, col_f3 = st.columns(3)
                                 
                                 with col_f1:
@@ -12046,7 +12026,7 @@ elif opcion_menu == "📝 Asientos Contables":
                                                 sel_data['retencion_iva'], sel_data['fecha_emision']
                                             ))
                                             
-                                            # 2. Insertar Asientos Contables usando los códigos y nombres seleccionados dinámicamente
+                                            # 2. Insertar Asientos Contables
                                             n_comp = f"OP-{sel_data['nro_factura']}"
                                             fecha_op = sel_data['fecha_emision']
                                             
@@ -12079,7 +12059,7 @@ elif opcion_menu == "📝 Asientos Contables":
                                                     VALUES (%s, %s, %s, '2.1.2.01.003', 'Retenciones IVA en Compras', %s, 0.00, %s, 0)
                                                 """, (n_comp, "Retención IVA s/Factura", fecha_op, sel_data['nro_factura'], sel_data['retencion_iva']))
 
-                                            # 3. Insertar en banco_movimientos usando el banco real seleccionado
+                                            # 3. Insertar en banco_movimientos
                                             cur_proc.execute("""
                                                 INSERT INTO banco_movimientos (
                                                     banco_nombre, fecha_movimiento, referencia, descripcion, monto, estado_conciliacion
@@ -12090,7 +12070,7 @@ elif opcion_menu == "📝 Asientos Contables":
                                                 sel_data['monto_neto'], 'Pendiente'
                                             ))
 
-                                            # 4. Actualizar estado de la orden de pago a Conciliado
+                                            # 4. Actualizar estado
                                             cur_proc.execute("""
                                                 UPDATE ordenes_pago SET estado = 'Conciliado' WHERE id = %s
                                             """, (sel_data['id'],))
