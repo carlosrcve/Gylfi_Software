@@ -12481,50 +12481,67 @@ elif opcion_menu == "📝 Asientos Contables":
                                 if conn_fin:
                                     cursor_fin = conn_fin.cursor()
                                     
-                                    # 1. Insertar en ordenes_pago
+                                    # --- INSERCIÓN GLOBAL EN LAS TABLAS DEFINITIVAS ---
                                     cursor_fin.execute("""
                                         INSERT INTO ordenes_pago (empresa_db, proveedor_id, nro_factura, monto_bruto, retencion_islr, retencion_iva, monto_neto, fecha_emision, observaciones, estado)
                                         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'Pendiente')
                                     """, (str(db_actual), data['id_proveedor'], data['nro_factura'], data['monto_bruto'], data['ret_islr'], data['ret_iva'], data['monto_neto'], data['fecha_emision'], data['observaciones']))
-                                    
-                                    # 2. Insertar en libro_compras
+
+                                    # 1. Inserción exacta en libro_compras con tus campos fiscales
                                     cursor_fin.execute("""
-                                        INSERT INTO libro_compras (empresa_db, proveedor_id, nro_factura, fecha_emision, monto_bruto, retencion_islr, retencion_iva, monto_neto)
-                                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                                    """, (str(db_actual), data['id_proveedor'], data['nro_factura'], data['fecha_emision'], data['monto_bruto'], data['ret_islr'], data['ret_iva'], data['monto_neto']))
-                                    
-                                    # 3. Insertar Asientos Contables (Partida doble detallada)
-                                    ref_asiento = f"FAC-{data['nro_factura']}"
-                                    # Débito al Gasto
+                                        INSERT INTO libro_compras (
+                                            empresa_db, fecha_operacion, tipo_documento, n_factura, n_control, 
+                                            proveedor, rif, tipo_transaccion, total_compras, importe_exento, 
+                                            base_imponible, iva_porcentaje, iva_monto, etencion_realizada, 
+                                            retencion_iva_realizada, created_at, updated_at
+                                        ) VALUES (%s, %s, 'Factura', %s, 'N/D', %s, %s, 'Nacional', %s, 0.00, %s, 16.0, %s, %s, %s, NOW(), NOW())
+                                    """, (
+                                        str(db_actual), data['fecha_emision'], data['nro_factura'], 
+                                        data['nombre_proveedor'], data['rif_proveedor'], data['monto_bruto'], 
+                                        data['monto_bruto'], 0.00, data['ret_islr'], data['ret_iva']
+                                    ))
+
+                                    # 2. Inserción de Asientos Contables detallados por partida doble
+                                    n_comp = f"OP-{data['nro_factura']}"
+                                    fecha_op = data['fecha_emision']
+
+                                    # Línea Débito: Gasto / Costo
                                     cursor_fin.execute("""
-                                        INSERT INTO asientos_contables (empresa_db, referencia_id, cuenta_contable, concepto, debito, credito, fecha)
-                                        VALUES (%s, %s, %s, %s, %s, %s, %s)
-                                    """, (str(db_actual), ref_asiento, "Gasto / Costo Operativo", data['observaciones'] or f"Factura {data['nro_factura']}", data['monto_bruto'], 0.00, data['fecha_emision']))
-                                    
-                                    # Crédito a CxP
+                                        INSERT INTO asientos_contables (empresa_db, n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber, bloqueado)
+                                        VALUES (%s, %s, %s, %s, 'Gastos Operativos', 'Gasto Proveedor', %s, %s, 0.00, 0)
+                                    """, (str(db_actual), n_comp, data['observaciones'] or f"Factura {data['nro_factura']}", fecha_op, data['nro_factura'], data['monto_bruto']))
+
+                                    # Línea Crédito: Cuentas por Pagar (Neto)
                                     cursor_fin.execute("""
-                                        INSERT INTO asientos_contables (empresa_db, referencia_id, cuenta_contable, concepto, debito, credito, fecha)
-                                        VALUES (%s, %s, %s, %s, %s, %s, %s)
-                                    """, (str(db_actual), ref_asiento, "Cuentas por Pagar Proveedores", f"CxP Proveedor {data['nombre_proveedor']}", 0.00, data['monto_neto'], data['fecha_emision']))
-                                    
+                                        INSERT INTO asientos_contables (empresa_db, n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber, bloqueado)
+                                        VALUES (%s, %s, %s, %s, 'Pasivo Circulante', 'Cuentas por Pagar Proveedores', %s, 0.00, %s, 0)
+                                    """, (str(db_actual), n_comp, f"CxP Proveedor {data['nombre_proveedor']}", fecha_op, data['nro_factura'], data['monto_neto']))
+
+                                    # Crédito Retención ISLR (si aplica)
                                     if data['ret_islr'] > 0:
                                         cursor_fin.execute("""
-                                            INSERT INTO asientos_contables (empresa_db, referencia_id, cuenta_contable, concepto, debito, credito, fecha)
-                                            VALUES (%s, %s, %s, %s, %s, %s, %s)
-                                        """, (str(db_actual), ref_asiento, "Retención ISLR Por Pagar", "Retención ISLR s/Factura", 0.00, data['ret_islr'], data['fecha_emision']))
-                                        
+                                            INSERT INTO asientos_contables (empresa_db, n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber, bloqueado)
+                                            VALUES (%s, %s, %s, %s, 'Pasivo Fiscal', 'Retención ISLR Por Pagar', %s, 0.00, %s, 0)
+                                        """, (str(db_actual), n_comp, "Retención ISLR s/Factura", fecha_op, data['nro_factura'], data['ret_islr']))
+
+                                    # Crédito Retención IVA (si aplica)
                                     if data['ret_iva'] > 0:
                                         cursor_fin.execute("""
-                                            INSERT INTO asientos_contables (empresa_db, referencia_id, cuenta_contable, concepto, debito, credito, fecha)
-                                            VALUES (%s, %s, %s, %s, %s, %s, %s)
-                                        """, (str(db_actual), ref_asiento, "Retención IVA Por Pagar", "Retención IVA s/Factura", 0.00, data['ret_iva'], data['fecha_emision']))
+                                            INSERT INTO asientos_contables (empresa_db, n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber, bloqueado)
+                                            VALUES (%s, %s, %s, %s, 'Pasivo Fiscal', 'Retención IVA Por Pagar', %s, 0.00, %s, 0)
+                                        """, (str(db_actual), n_comp, "Retención IVA s/Factura", fecha_op, data['nro_factura'], data['ret_iva']))
 
-                                    # 4. Insertar en banco_movimientos (Control interno)
+                                    # 3. Inserción en banco_movimientos (Control Interno de Tesorería)
                                     cursor_fin.execute("""
-                                        INSERT INTO banco_movimientos (empresa_db, proveedor_id, concepto, monto, tipo, estado, fecha)
-                                        VALUES (%s, %s, %s, %s, 'Compromiso', 'Pendiente', %s)
-                                    """, (str(db_actual), data['id_proveedor'], f"Compromiso Factura {data['nro_factura']} - {data['nombre_proveedor']}", data['monto_neto'], data['fecha_emision']))
-
+                                        INSERT INTO banco_movimientos (
+                                            empresa_db, banco_nombre, cuenta_numero, fecha_movimiento, 
+                                            referencia, descripcion, monto, estado_conciliacion, fecha_importacion
+                                        ) VALUES (%s, 'Control Interno Principal', 'N/A', %s, %s, %s, %s, 'Pendiente', NOW())
+                                    """, (
+                                        str(db_actual), fecha_op, f"OP-{data['nro_factura']}", 
+                                        f"Compromiso Pago: {data['nombre_proveedor']} (Fac: {data['nro_factura']})", 
+                                        data['monto_neto']
+                                    ))
                                     conn_fin.commit()
                                     cursor_fin.close()
                                     conn_fin.close()
