@@ -12725,69 +12725,69 @@ elif opcion_menu == "📝 Asientos Contables":
                                     with col_f1:
                                         st.markdown("#### 1️⃣ Frame: `libro_compras`")
                                         st.code(f"""
-        fecha_operacion: {sel_data['fecha_emision']}
-        tipo_documento: Factura
-        n_factura: {sel_data['nro_factura']}
-        n_control: {sel_data['nro_control']}
-        proveedor: {sel_data['proveedor']}
-        rif: {sel_data['proveedor_rif']}
-        total_compras: {sel_data['monto_bruto']:,.2f}
-        base_imponible: {sel_data['base_imponible']:,.2f}
-        iva_monto: {sel_data['monto_iva']:,.2f}
-        retencion_islr: {sel_data['retencion_islr']:,.2f}
+fecha_operacion: {sel_data['fecha_emision']}
+tipo_documento: Factura
+n_factura: {sel_data['nro_factura']}
+n_control: {sel_data['nro_control']}
+proveedor: {sel_data['proveedor']}
+rif: {sel_data['proveedor_rif']}
+total_compras: {sel_data['monto_bruto']:,.2f}
+base_imponible: {sel_data['base_imponible']:,.2f}
+iva_monto: {sel_data['monto_iva']:,.2f}
+retencion_islr: {sel_data['retencion_islr']:,.2f}
                                         """, language="yaml")
 
                                     with col_f2:
                                         st.markdown("#### 2️⃣ Frame: `asientos_contables`")
                                         st.code(f"""
-        - n_comprobante: OP-{sel_data['nro_factura']}
-          fecha: {sel_data['fecha_emision']}
-          descripcion: "Factura {sel_data['nro_factura']} - {sel_data['proveedor']}"
-          asientos:
-            - plan_cuentas: {info_gasto['codigo']}
-              cuenta_contable: {info_gasto['nombre']}
-              referencia: {sel_data['nro_factura']}
-              debe: {sel_data['base_imponible']:,.2f}
-              haber: 0.00
-              bloqueado: 0
+- n_comprobante: OP-{sel_data['nro_factura']}
+  fecha: {sel_data['fecha_emision']}
+  descripcion: "Factura {sel_data['nro_factura']} - {sel_data['proveedor']}"
+  asientos:
+    - plan_cuentas: {info_gasto['codigo']}
+      cuenta_contable: {info_gasto['nombre']}
+      referencia: {sel_data['nro_factura']}
+      debe: {sel_data['base_imponible']:,.2f}
+      haber: 0.00
+      bloqueado: 0
 
-            - plan_cuentas: {info_iva['codigo']}
-              cuenta_contable: {info_iva['nombre']}
-              referencia: {sel_data['nro_factura']}
-              debe: {sel_data['monto_iva']:,.2f}
-              haber: 0.00
-              bloqueado: 0
+    - plan_cuentas: {info_iva['codigo']}
+      cuenta_contable: {info_iva['nombre']}
+      referencia: {sel_data['nro_factura']}
+      debe: {sel_data['monto_iva']:,.2f}
+      haber: 0.00
+      bloqueado: 0
 
-            - plan_cuentas: 2.1.2.01.005
-              cuenta_contable: Retencion ISLR Proveedores
-              referencia: {sel_data['nro_factura']}
-              debe: 0.00
-              haber: {sel_data['retencion_islr']:,.2f}
-              bloqueado: 0
+    - plan_cuentas: 2.1.2.01.005
+      cuenta_contable: Retencion ISLR Proveedores
+      referencia: {sel_data['nro_factura']}
+      debe: 0.00
+      haber: {sel_data['retencion_islr']:,.2f}
+      bloqueado: 0
 
-            - plan_cuentas: 2.1.2.01.003
-              cuenta_contable: Retencioes IVA en Compras
-              referencia: {sel_data['nro_factura']}
-              debe: 0.00
-              haber: {sel_data['retencion_iva']:,.2f}
-              bloqueado: 0
+    - plan_cuentas: 2.1.2.01.003
+      cuenta_contable: Retenciones IVA en Compras
+      referencia: {sel_data['nro_factura']}
+      debe: 0.00
+      haber: {sel_data['retencion_iva']:,.2f}
+      bloqueado: 0
 
-            - plan_cuentas: {info_banco['codigo']}
-              cuenta_contable: {info_banco['nombre']}
-              referencia: OP-{sel_data['nro_factura']}
-              debe: 0.00
-              haber: {sel_data['monto_neto']:,.2f}
-              bloqueado: 0
+    - plan_cuentas: {info_banco['codigo']}
+      cuenta_contable: {info_banco['nombre']}
+      referencia: OP-{sel_data['nro_factura']}
+      debe: 0.00
+      haber: {sel_data['monto_neto']:,.2f}
+      bloqueado: 0
                                         """, language="yaml")
 
                                     with col_f3:
                                         st.markdown("#### 3️⃣ Frame: `banco_movimientos`")
                                         st.code(f"""
-        banco_nombre: {info_banco['nombre']}
-        referencia: OP-{sel_data['nro_factura']}
-        descripcion: Pago Factura: {sel_data['proveedor']}
-        monto: {sel_data['monto_neto']:,.2f}
-        estado_conciliacion: {sel_data['estado']}
+banco_nombre: {info_banco['nombre']}
+referencia: OP-{sel_data['nro_factura']}
+descripcion: Pago Factura: {sel_data['proveedor']}
+monto: {sel_data['monto_neto']:,.2f}
+estado_conciliacion: {sel_data['estado']}
                                         """, language="yaml")
 
                                     st.markdown("---")
@@ -12847,42 +12847,36 @@ elif opcion_menu == "📝 Asientos Contables":
                                                 if sel_data['retencion_islr'] > 0:
                                                     cur_proc.execute("""
                                                         INSERT INTO asientos_contables (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber, bloqueado)
-                                                        VALUES (%s, %s, %s, '2.1.2.01.005', 'Retencion ISLR Proveedores', %s, 0.00, %s, 0)
-                                                    """, (n_comp, f"Retención ISLR s/Factura {sel_data['nro_factura']}", fecha_op, sel_data['nro_factura'], sel_data['retencion_islr']))
+                                                        VALUES (%s, %s, %s, %s, %s, %s, 0.00, %s)
+                                                    """, (n_comp, f"Retención ISLR s/Factura {sel_data['nro_factura']}", fecha_op, "2.1.2.01.005", "Retencion ISLR Proveedores", sel_data['nro_factura'], sel_data['retencion_islr']))
 
                                                 if sel_data['retencion_iva'] > 0:
                                                     cur_proc.execute("""
                                                         INSERT INTO asientos_contables (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber, bloqueado)
-                                                        VALUES (%s, %s, %s, '2.1.2.01.003', 'Retencioes IVA en Compras', %s, 0.00, %s, 0)
-                                                    """, (n_comp, f"Retención IVA s/Factura {sel_data['nro_factura']}", fecha_op, sel_data['nro_factura'], sel_data['retencion_iva']))
+                                                        VALUES (%s, %s, %s, %s, %s, %s, 0.00, %s)
+                                                    """, (n_comp, f"Retención IVA s/Factura {sel_data['nro_factura']}", fecha_op, "2.1.2.01.003", "Retenciones IVA en Compras", sel_data['nro_factura'], sel_data['retencion_iva']))
 
-                                                cur_proc.execute("""
-                                                    INSERT INTO asientos_contables (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber, bloqueado)
-                                                    VALUES (%s, %s, %s, %s, %s, %s, 0.00, %s, 0)
-                                                """, (n_comp, f"Pago Factura {sel_data['nro_factura']} a {sel_data['proveedor']}", fecha_op, info_banco['codigo'], info_banco['nombre'], f"OP-{sel_data['nro_factura']}", sel_data['monto_neto']))
+                                                if sel_data['monto_neto'] > 0:
+                                                    cur_proc.execute("""
+                                                        INSERT INTO asientos_contables (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber, bloqueado)
+                                                        VALUES (%s, %s, %s, %s, %s, %s, 0.00, %s)
+                                                    """, (n_comp, f"Pago Factura {sel_data['nro_factura']}", fecha_op, info_banco['codigo'], info_banco['nombre'], n_comp, sel_data['monto_neto']))
 
-                                                # 3. Registrar Movimiento Bancario
+                                                # 3. Actualizar estado de la orden de pago a 'Procesado' o 'Pagado'
                                                 cur_proc.execute("""
-                                                    INSERT INTO banco_movimientos (banco_nombre, referencia, descripcion, monto, estado_conciliacion, fecha, empresa_db)
-                                                    VALUES (%s, %s, %s, %s, 'Conciliado', %s, %s)
-                                                """, (info_banco['nombre'], f"OP-{sel_data['nro_factura']}", f"Pago Factura: {sel_data['proveedor']}", sel_data['monto_neto'], fecha_op, str(db_actual)))
-
-                                                # 4. Actualizar estado
-                                                cur_proc.execute("""
-                                                    UPDATE ordenes_pago SET estado = 'Conciliado' WHERE id = %s
-                                                """, (sel_data['id'],))
+                                                    UPDATE ordenes_pago SET estado = 'Procesado' WHERE id = %s AND empresa_db = %s
+                                                """, (sel_data['id'], str(db_actual)))
 
                                                 conn_proc.commit()
                                                 cur_proc.close()
                                                 conn_proc.close()
-                                                
-                                                st.success("🎉 ¡Registros fiscales, contables y bancarios procesados y guardados con éxito!")
-                                                st.rerun()
 
+                                                st.success("🎉 ¡Registros de compras, contabilidad y banco procesados e ingresados con éxito!")
+                                                st.rerun()
                                         except Exception as ex_proc:
-                                                st.error(f"❌ Error al procesar los registros definitivos: {ex_proc}")
+                                                st.error(f"❌ Error crítico al procesar los asientos definitivos: {ex_proc}")
                 except Exception as ex_hist:
-                    st.error(f"Error cargando el historial de órdenes de pago: {ex_hist}")
+                    st.error(f"❌ Error al consultar el historial de órdenes de pago: {ex_hist}")
             
         with tab3:
             st.markdown("### 🔗 Conciliación, Cruce Bancario y Emisión de Comprobante")
