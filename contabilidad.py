@@ -12325,12 +12325,15 @@ elif opcion_menu == "📝 Asientos Contables":
                         CREATE TABLE IF NOT EXISTS asientos_contables (
                             id INT AUTO_INCREMENT PRIMARY KEY,
                             empresa_db VARCHAR(100) NOT NULL,
-                            referencia_id VARCHAR(100) NOT NULL,
-                            cuenta_contable VARCHAR(100) NOT NULL,
-                            concepto TEXT,
-                            debito DECIMAL(18, 2) DEFAULT 0.00,
-                            credito DECIMAL(18, 2) DEFAULT 0.00,
+                            n_comprobante VARCHAR(100) NOT NULL,
+                            descripcion TEXT,
                             fecha DATE,
+                            plan_cuentas VARCHAR(100),
+                            cuenta_contable VARCHAR(100) NOT NULL,
+                            referencia VARCHAR(100),
+                            debe DECIMAL(18, 2) DEFAULT 0.00,
+                            haber DECIMAL(18, 2) DEFAULT 0.00,
+                            bloqueado INT DEFAULT 0,
                             fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                             INDEX (empresa_db)
                         )
@@ -12450,29 +12453,62 @@ elif opcion_menu == "📝 Asientos Contables":
         base_imponible: {data['monto_bruto']:,.2f}
         iva_porcentaje: 16.0%
         iva_monto: 0.00
-        etencion_realizada (ISLR): {data['ret_islr']:,.2f}
+        retencion_realizada (ISLR): {data['ret_islr']:,.2f}
         retencion_iva_realizada: {data['ret_iva']:,.2f}
                         """, language="yaml")
 
                     with col_f2:
+                        n_comp_prev = f"OP-{data['nro_factura']}"
                         st.markdown("#### 2️⃣ Tabla: `asientos_contables`")
-                        st.caption("Partida doble por líneas (4 registros)")
+                        st.caption("Partida doble completa (4 registros)")
                         st.code(f"""
-        [Línea 1 - Débito Gasto]
-        - cuenta: Gasto Proveedor
-        - debe: {data['monto_bruto']:,.2f} | haber: 0.00
+        [Línea 1 - Gasto Proveedor]
+        - id: [Auto_Inc]
+        - n_comprobante: {n_comp_prev}
+        - descripcion: {data['observaciones'] or f"Factura {data['nro_factura']}"}
+        - fecha: {data['fecha_emision']}
+        - plan_cuentas: Gastos Operativos
+        - cuenta_contable: Gasto Proveedor
+        - referencia: {data['nro_factura']}
+        - debe: {data['monto_bruto']:,.2f}
+        - haber: 0.00
+        - bloqueado: 0
 
-        [Línea 2 - Crédito CxP]
-        - cuenta: Cuentas por Pagar
-        - debe: 0.00 | haber: {data['monto_neto']:,.2f}
+        [Línea 2 - Cuentas por Pagar]
+        - id: [Auto_Inc]
+        - n_comprobante: {n_comp_prev}
+        - descripcion: CxP Proveedor {data['nombre_proveedor']}
+        - fecha: {data['fecha_emision']}
+        - plan_cuentas: Pasivo Circulante
+        - cuenta_contable: Cuentas por Pagar Proveedores
+        - referencia: {data['nro_factura']}
+        - debe: 0.00
+        - haber: {data['monto_neto']:,.2f}
+        - bloqueado: 0
 
-        [Línea 3 - Crédito ISLR]
-        - cuenta: Retención ISLR Por Pagar
-        - debe: 0.00 | haber: {data['ret_islr']:,.2f}
+        [Línea 3 - Retención ISLR]
+        - id: [Auto_Inc]
+        - n_comprobante: {n_comp_prev}
+        - descripcion: Retención ISLR s/Factura
+        - fecha: {data['fecha_emision']}
+        - plan_cuentas: Pasivo Fiscal
+        - cuenta_contable: Retención ISLR Por Pagar
+        - referencia: {data['nro_factura']}
+        - debe: 0.00
+        - haber: {data['ret_islr']:,.2f}
+        - bloqueado: 0
 
-        [Línea 4 - Crédito IVA]
-        - cuenta: Retención IVA Por Pagar
-        - debe: 0.00 | haber: {data['ret_iva']:,.2f}
+        [Línea 4 - Retención IVA]
+        - id: [Auto_Inc]
+        - n_comprobante: {n_comp_prev}
+        - descripcion: Retención IVA s/Factura
+        - fecha: {data['fecha_emision']}
+        - plan_cuentas: Pasivo Fiscal
+        - cuenta_contable: Retención IVA Por Pagar
+        - referencia: {data['nro_factura']}
+        - debe: 0.00
+        - haber: {data['ret_iva']:,.2f}
+        - bloqueado: 0
                         """, language="yaml")
 
                     with col_f3:
@@ -12518,26 +12554,30 @@ elif opcion_menu == "📝 Asientos Contables":
                                         data['monto_bruto'], 0.00, data['ret_islr'], data['ret_iva']
                                     ))
 
-                                    # 2. Inserción de Asientos Contables detallados por partida doble
+                                    # 2. Inserción de Asientos Contables detallados con todas tus columnas exactas
                                     n_comp = f"OP-{data['nro_factura']}"
                                     fecha_op = data['fecha_emision']
 
+                                    # Línea 1: Gasto
                                     cursor_fin.execute("""
                                         INSERT INTO asientos_contables (empresa_db, n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber, bloqueado)
                                         VALUES (%s, %s, %s, %s, 'Gastos Operativos', 'Gasto Proveedor', %s, %s, 0.00, 0)
                                     """, (str(db_actual), n_comp, data['observaciones'] or f"Factura {data['nro_factura']}", fecha_op, data['nro_factura'], data['monto_bruto']))
 
+                                    # Línea 2: Cuentas por Pagar
                                     cursor_fin.execute("""
                                         INSERT INTO asientos_contables (empresa_db, n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber, bloqueado)
                                         VALUES (%s, %s, %s, %s, 'Pasivo Circulante', 'Cuentas por Pagar Proveedores', %s, 0.00, %s, 0)
                                     """, (str(db_actual), n_comp, f"CxP Proveedor {data['nombre_proveedor']}", fecha_op, data['nro_factura'], data['monto_neto']))
 
+                                    # Línea 3: Retención ISLR (Si aplica)
                                     if data['ret_islr'] > 0:
                                         cursor_fin.execute("""
                                             INSERT INTO asientos_contables (empresa_db, n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber, bloqueado)
                                             VALUES (%s, %s, %s, %s, 'Pasivo Fiscal', 'Retención ISLR Por Pagar', %s, 0.00, %s, 0)
                                         """, (str(db_actual), n_comp, "Retención ISLR s/Factura", fecha_op, data['nro_factura'], data['ret_islr']))
 
+                                    # Línea 4: Retención IVA (Si aplica)
                                     if data['ret_iva'] > 0:
                                         cursor_fin.execute("""
                                             INSERT INTO asientos_contables (empresa_db, n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber, bloqueado)
