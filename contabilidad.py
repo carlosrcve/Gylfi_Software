@@ -12555,7 +12555,6 @@ elif opcion_menu == "📝 Asientos Contables":
             try:
                 conn_cp = conectar_db(db_actual)
                 if conn_cp:
-                    # Usamos tu función ejecutar_consulta tal cual como la usas en el resto del sistema
                     df_cp = ejecutar_consulta(
                         "SELECT id, nombre, rif, codigo_cuenta, descripcion_cuenta FROM proveedores_carga WHERE empresa_db = %s ORDER BY nombre ASC", 
                         conn_cp, 
@@ -12595,19 +12594,20 @@ elif opcion_menu == "📝 Asientos Contables":
             except Exception as e:
                 st.error(f"Error cargando datos de BD: {e}")
 
-            # --- HISTORIAL DE ÓRDENES Y SELECCIÓN CONDICIONAL ---
+            # --- HISTORIAL DE ÓRDENES (CARGA DIRECTA SIN BLOQUEOS) ---
             st.markdown("### 📊 Historial de Órdenes de Pago")
             try:
                 conn_list_op = conectar_db(db_actual)
                 df_ops_raw = None
                 if conn_list_op:
                     import pandas as pd
-                    query_ops = "SELECT * FROM ordenes_pago WHERE empresa_db = %s ORDER BY id DESC"
-                    df_ops_raw = pd.read_sql(query_ops, conn_list_op, params=(str(db_actual),))
+                    # Consultamos todas las órdenes de pago de manera directa
+                    query_ops = "SELECT * FROM ordenes_pago ORDER BY id DESC"
+                    df_ops_raw = pd.read_sql(query_ops, conn_list_op)
                     conn_list_op.close()
                     
                 if df_ops_raw is None or df_ops_raw.empty:
-                    st.warning(f"⚠️ No se encontraron órdenes de pago registradas para la base de datos: `{db_actual}`.")
+                    st.warning("⚠️ No se encontraron órdenes de pago registradas todavía. Emite una arriba en el formulario.")
                 else:
                     lista_ops_procesadas = []
                     for _, r_op in df_ops_raw.iterrows():
@@ -12707,64 +12707,64 @@ elif opcion_menu == "📝 Asientos Contables":
                             with col_f1:
                                 st.markdown("#### 1️⃣ Frame: `libro_compras`")
                                 st.code(f"""fecha_operacion: {sel_data['fecha_emision']}
-        tipo_documento: Factura
-        n_factura: {sel_data['nro_factura']}
-        n_control: {sel_data['nro_control']}
-        proveedor: {sel_data['proveedor']}
-        rif: {sel_data['proveedor_rif']}
-        total_compras: {sel_data['monto_bruto']:,.2f}
-        base_imponible: {sel_data['base_imponible']:,.2f}
-        iva_monto: {sel_data['monto_iva']:,.2f}
-        retencion_islr: {sel_data['retencion_islr']:,.2f}""", language="yaml")
+                tipo_documento: Factura
+                n_factura: {sel_data['nro_factura']}
+                n_control: {sel_data['nro_control']}
+                proveedor: {sel_data['proveedor']}
+                rif: {sel_data['proveedor_rif']}
+                total_compras: {sel_data['monto_bruto']:,.2f}
+                base_imponible: {sel_data['base_imponible']:,.2f}
+                iva_monto: {sel_data['monto_iva']:,.2f}
+                retencion_islr: {sel_data['retencion_islr']:,.2f}""", language="yaml")
 
                             with col_f2:
                                 st.markdown("#### 2️⃣ Frame: `asientos_contables`")
                                 st.code(f"""- n_comprobante: OP-{sel_data['nro_factura']}
-          fecha: {sel_data['fecha_emision']}
-          descripcion: "Factura {sel_data['nro_factura']} - {sel_data['proveedor']}"
-          asientos:
-            - plan_cuentas: {info_gasto['codigo']}
-              cuenta_contable: {info_gasto['nombre']}
-              referencia: {sel_data['nro_factura']}
-              debe: {sel_data['base_imponible']:,.2f}
-              haber: 0.00
-              bloqueado: 0
+                  fecha: {sel_data['fecha_emision']}
+                  descripcion: "Factura {sel_data['nro_factura']} - {sel_data['proveedor']}"
+                  asientos:
+                    - plan_cuentas: {info_gasto['codigo']}
+                      cuenta_contable: {info_gasto['nombre']}
+                      referencia: {sel_data['nro_factura']}
+                      debe: {sel_data['base_imponible']:,.2f}
+                      haber: 0.00
+                      bloqueado: 0
 
-            - plan_cuentas: {info_iva['codigo']}
-              cuenta_contable: {info_iva['nombre']}
-              referencia: {sel_data['nro_factura']}
-              debe: {sel_data['monto_iva']:,.2f}
-              haber: 0.00
-              bloqueado: 0
+                    - plan_cuentas: {info_iva['codigo']}
+                      cuenta_contable: {info_iva['nombre']}
+                      referencia: {sel_data['nro_factura']}
+                      debe: {sel_data['monto_iva']:,.2f}
+                      haber: 0.00
+                      bloqueado: 0
 
-            - plan_cuentas: 2.1.2.01.005
-              cuenta_contable: Retencion ISLR Proveedores
-              referencia: {sel_data['nro_factura']}
-              debe: 0.00
-              haber: {sel_data['retencion_islr']:,.2f}
-              bloqueado: 0
+                    - plan_cuentas: 2.1.2.01.005
+                      cuenta_contable: Retencion ISLR Proveedores
+                      referencia: {sel_data['nro_factura']}
+                      debe: 0.00
+                      haber: {sel_data['retencion_islr']:,.2f}
+                      bloqueado: 0
 
-            - plan_cuentas: 2.1.2.01.003
-              cuenta_contable: Retenciones IVA en Compras
-              referencia: {sel_data['nro_factura']}
-              debe: 0.00
-              haber: {sel_data['retencion_iva']:,.2f}
-              bloqueado: 0
+                    - plan_cuentas: 2.1.2.01.003
+                      cuenta_contable: Retenciones IVA en Compras
+                      referencia: {sel_data['nro_factura']}
+                      debe: 0.00
+                      haber: {sel_data['retencion_iva']:,.2f}
+                      bloqueado: 0
 
-            - plan_cuentas: {info_banco['codigo']}
-              cuenta_contable: {info_banco['nombre']}
-              referencia: OP-{sel_data['nro_factura']}
-              debe: 0.00
-              haber: {sel_data['monto_neto']:,.2f}
-              bloqueado: 0""", language="yaml")
+                    - plan_cuentas: {info_banco['codigo']}
+                      cuenta_contable: {info_banco['nombre']}
+                      referencia: OP-{sel_data['nro_factura']}
+                      debe: 0.00
+                      haber: {sel_data['monto_neto']:,.2f}
+                      bloqueado: 0""", language="yaml")
 
                             with col_f3:
                                 st.markdown("#### 3️⃣ Frame: `banco_movimientos`")
                                 st.code(f"""banco_nombre: {info_banco['nombre']}
-        referencia: OP-{sel_data['nro_factura']}
-        descripcion: Pago Factura: {sel_data['proveedor']}
-        monto: {sel_data['monto_neto']:,.2f}
-        estado_conciliacion: {sel_data['estado']}""", language="yaml")
+                referencia: OP-{sel_data['nro_factura']}
+                descripcion: Pago Factura: {sel_data['proveedor']}
+                monto: {sel_data['monto_neto']:,.2f}
+                estado_conciliacion: {sel_data['estado']}""", language="yaml")
             except Exception as ex_hist:
                 st.error(f"❌ Error al consultar el historial de órdenes de pago: {ex_hist}")
 
