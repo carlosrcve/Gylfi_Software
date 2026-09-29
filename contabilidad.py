@@ -12595,40 +12595,45 @@ elif opcion_menu == "📝 Asientos Contables":
                 st.error(f"Error cargando datos de BD: {e}")
 
             # --- FORMULARIO CON LOS 4 FRAMES SECUENCIALES DE EMISIÓN ---
-            st.markdown("#### 1️⃣ Frame: Datos Básicos, Proveedor y Montos de la Factura")
-            
-            # CSS personalizado para resaltar la Base Imponible (key="f1_base") en rojo claro
-            st.markdown("""
-                <style>
-                div[data-baseweb="input"]:has(input[name="f1_base"]) {
-                    background-color: #ffe6e6 !important;
-                    border: 1px solid #ff9999 !important;
-                    border-radius: 4px;
-                }
-                </style>
-            """, unsafe_allow_html=True)
+            st.markdown("### ✍️ Emitir Nueva Orden de Pago")
+            with st.form(key="form_emitir_orden_pago_4_frames"):
+                
+                # --- 1ER FRAME: DATOS DE LA FACTURA Y CÁLCULOS DE MONTOS ---
+                st.markdown("#### 1️⃣ Frame: Datos Básicos, Proveedor y Montos de la Factura")
+                
+                # CSS personalizado para resaltar la Base Imponible (key="f1_base") en rojo claro
+                st.markdown("""
+                    <style>
+                    div[data-baseweb="input"]:has(input[name="f1_base"]) {
+                        background-color: #ffe6e6 !important;
+                        border: 1px solid #ff9999 !important;
+                        border-radius: 4px;
+                    }
+                    </style>
+                """, unsafe_allow_html=True)
 
-            col_f1_1, col_f1_2 = st.columns(2)
-            with col_f1_1:
-                prov_seleccionado_form = st.selectbox("Seleccionar Proveedor", options=lista_provs if lista_provs else ["No hay proveedores"])
-                nro_factura_form = st.text_input("Número de Factura")
-                nro_control_form = st.text_input("Número de Control")
-            with col_f1_2:
-                fecha_emision_form = st.date_input("Fecha de Emisión")
-                base_imponible_form = st.number_input("Base Imponible (Ingreso Manual)", min_value=0.0, format="%.2f", key="f1_base")
-                monto_exento_form = st.number_input("Monto Exento", min_value=0.0, format="%.2f", key="f1_exento")
+                col_f1_1, col_f1_2 = st.columns(2)
+                with col_f1_1:
+                    prov_seleccionado_form = st.selectbox("Seleccionar Proveedor", options=lista_provs if lista_provs else ["No hay proveedores"])
+                    nro_factura_form = st.text_input("Número de Factura")
+                    nro_control_form = st.text_input("Número de Control")
+                with col_f1_2:
+                    fecha_emision_form = st.date_input("Fecha de Emisión")
+                    base_imponible_form = st.number_input("Base Imponible (Ingreso Manual)", min_value=0.0, format="%.2f", key="f1_base")
+                    monto_exento_form = st.number_input("Monto Exento", min_value=0.0, format="%.2f", key="f1_exento")
 
-            col_f1_3, col_f1_4 = st.columns(2)
-            with col_f1_3:
-                alicuota_iva_form = st.selectbox("Alícuota IVA", options=[16.0, 8.0, 31.0, 0.0], format_func=lambda x: f"{x}%", key="f1_alicuota")
-            with col_f1_4:
-                # 1) Base Imponible * Alícuota IVA = Monto IVA (Calculado)
-                calc_monto_iva = base_imponible_form * (alicuota_iva_form / 100.0)
-                monto_iva_form = st.number_input("Monto IVA (Calculado)", value=calc_monto_iva, min_value=0.0, format="%.2f", key="f1_iva_calc")
+                col_f1_3, col_f1_4 = st.columns(2)
+                with col_f1_3:
+                    alicuota_iva_form = st.selectbox("Alícuota IVA", options=[16.0, 8.0, 31.0, 0.0], format_func=lambda x: f"{x}%", key="f1_alicuota")
+                with col_f1_4:
+                    # 1) Base Imponible * Alícuota IVA = Monto IVA (Calculado)
+                    calc_monto_iva = base_imponible_form * (alicuota_iva_form / 100.0)
+                    monto_iva_form = st.number_input("Monto IVA (Calculado)", value=calc_monto_iva, min_value=0.0, format="%.2f", key="f1_iva_calc")
 
-            # 3) Monto Bruto / Total Factura = Base Imponible + Monto Exento + Monto IVA (Calculado)
-            calc_monto_bruto = base_imponible_form + monto_exento_form + monto_iva_form
-            monto_bruto_form = st.number_input("Monto Bruto / Total Factura (Calculado)", value=calc_monto_bruto, min_value=0.0, format="%.2f", key="f1_bruto_calc")
+                # 3) Monto Bruto / Total Factura = Base Imponible + Monto Exento + Monto IVA (Calculado)
+                calc_monto_bruto = base_imponible_form + monto_exento_form + monto_iva_form
+                monto_bruto_form = st.number_input("Monto Bruto / Total Factura (Calculado)", value=calc_monto_bruto, min_value=0.0, format="%.2f", key="f1_bruto_calc")
+                
                 st.markdown("---")
 
                 # --- 2DO FRAME: RETENCIÓN DE IVA CON PORCENTAJE (75% / 100%) ---
