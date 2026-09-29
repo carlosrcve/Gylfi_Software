@@ -12609,21 +12609,27 @@ elif opcion_menu == "📝 Asientos Contables":
                     fecha_emision_form = st.date_input("Fecha de Emisión")
                 
                 st.markdown("---")
-
-                # --- 2DO FRAME: RETENCIÓN DE IVA CON ALÍCUOTAS ---
-                st.markdown("#### 2️⃣ Frame: Cálculo y Retención de IVA")
-                col_f2_1, col_f2_2, col_f2_3, col_f2_4 = st.columns(4)
+                # --- 2DO FRAME: MONTOS, EXENTO, ALÍCUOTAS Y RETENCIÓN DE IVA ---
+                st.markdown("#### 2️⃣ Frame: Montos, Exento, Alícuotas y Retención de IVA")
+                col_f2_1, col_f2_2, col_f2_3 = st.columns(3)
                 with col_f2_1:
-                    monto_bruto_form = st.number_input("Monto Bruto / Total Factura", min_value=0.0, format="%.2f", key="f2_bruto")
-                with col_f2_2:
                     base_imponible_form = st.number_input("Base Imponible", min_value=0.0, format="%.2f", key="f2_base")
+                with col_f2_2:
+                    monto_exento_form = st.number_input("Monto Exento", min_value=0.0, format="%.2f", key="f2_exento")
                 with col_f2_3:
                     alicuota_iva_form = st.selectbox("Alícuota IVA", options=[16.0, 8.0, 31.0, 0.0], format_func=lambda x: f"{x}%", key="f2_alicuota")
-                with col_f2_4:
-                    monto_iva_form = st.number_input("Monto IVA", min_value=0.0, format="%.2f", key="f2_iva")
                 
-                retencion_iva_form = st.number_input("Monto Retención IVA", min_value=0.0, format="%.2f", key="f2_ret_iva")
+                # Fórmulas automáticas en vivo
+                calc_monto_iva = base_imponible_form * (alicuota_iva_form / 100.0)
+                calc_monto_bruto = base_imponible_form + monto_exento_form + calc_monto_iva
 
+                col_f2_4, col_f2_5 = st.columns(2)
+                with col_f2_4:
+                    monto_iva_form = st.number_input("Monto IVA (Calculado)", value=calc_monto_iva, min_value=0.0, format="%.2f", key="f2_iva")
+                with col_f2_5:
+                    monto_bruto_form = st.number_input("Monto Bruto / Total Factura (Calculado)", value=calc_monto_bruto, min_value=0.0, format="%.2f", key="f2_bruto")
+
+                retencion_iva_form = st.number_input("Monto Retención IVA", min_value=0.0, format="%.2f", key="f2_ret_iva")
                 st.markdown("---")
 
                 # --- 3ER FRAME: RETENCIÓN DE ISLR (CON PORCENTAJE Y SUSTRAENDO) ---
