@@ -12619,6 +12619,13 @@ elif opcion_menu == "📝 Asientos Contables":
                     nro_control_form = st.text_input("Número de Control")
                 with col_f1_2:
                     fecha_emision_form = st.date_input("Fecha de Emisión")
+                    # Usamos un contenedor con fondo rojo claro (usando HTML/CSS nativo seguro dentro de markdown)
+                    st.markdown("""
+                        <div style="background-color: #ffe6e6; padding: 10px 15px; border-radius: 8px; border: 1px solid #ff9999; margin-bottom: 10px;">
+                            <span style="color: #c0392b; font-weight: bold; font-size: 14px;">🔴 Campo de Ingreso Manual Principal</span>
+                        </div>
+                    """, unsafe_allow_html=True)
+                    
                     base_imponible_form = st.number_input("Base Imponible", min_value=0.0, format="%.2f", key="f1_base")
                     monto_exento_form = st.number_input("Monto Exento", min_value=0.0, format="%.2f", key="f1_exento")
 
