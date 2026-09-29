@@ -12601,17 +12601,6 @@ elif opcion_menu == "📝 Asientos Contables":
                 # --- 1ER FRAME: DATOS DE LA FACTURA Y CÁLCULOS DE MONTOS ---
                 st.markdown("#### 1️⃣ Frame: Datos Básicos, Proveedor y Montos de la Factura")
                 
-                # CSS personalizado para resaltar la Base Imponible (key="f1_base") en rojo claro
-                st.markdown("""
-                    <style>
-                    div[data-baseweb="input"]:has(input[name="f1_base"]) {
-                        background-color: #ffe6e6 !important;
-                        border: 1px solid #ff9999 !important;
-                        border-radius: 4px;
-                    }
-                    </style>
-                """, unsafe_allow_html=True)
-
                 col_f1_1, col_f1_2 = st.columns(2)
                 with col_f1_1:
                     prov_seleccionado_form = st.selectbox("Seleccionar Proveedor", options=lista_provs if lista_provs else ["No hay proveedores"])
@@ -12619,10 +12608,11 @@ elif opcion_menu == "📝 Asientos Contables":
                     nro_control_form = st.text_input("Número de Control")
                 with col_f1_2:
                     fecha_emision_form = st.date_input("Fecha de Emisión")
-                    # Usamos un contenedor con fondo rojo claro (usando HTML/CSS nativo seguro dentro de markdown)
+                    
+                    # Indicador visual para el campo manual
                     st.markdown("""
-                        <div style="background-color: #ffe6e6; padding: 10px 15px; border-radius: 8px; border: 1px solid #ff9999; margin-bottom: 10px;">
-                            <span style="color: #c0392b; font-weight: bold; font-size: 14px;">🔴 Campo de Ingreso Manual Principal</span>
+                        <div style="background-color: #ffe6e6; padding: 6px 12px; border-radius: 6px; border: 1px solid #ff9999; margin-bottom: 5px;">
+                            <span style="color: #c0392b; font-weight: bold; font-size: 13px;">🔴 Único campo de ingreso manual</span>
                         </div>
                     """, unsafe_allow_html=True)
                     
@@ -12633,28 +12623,28 @@ elif opcion_menu == "📝 Asientos Contables":
                 with col_f1_3:
                     alicuota_iva_form = st.selectbox("Alícuota IVA", options=[16.0, 8.0, 31.0, 0.0], format_func=lambda x: f"{x}%", key="f1_alicuota")
                 with col_f1_4:
-                    # 1) Base Imponible * Alícuota IVA = Monto IVA (Calculado)
+                    # 1) Base Imponible * Alícuota IVA = Monto IVA
                     calc_monto_iva = base_imponible_form * (alicuota_iva_form / 100.0)
                     monto_iva_form = st.number_input("Monto IVA (Calculado)", value=calc_monto_iva, min_value=0.0, format="%.2f", key="f1_iva_calc")
 
-                # 3) Monto Bruto / Total Factura = Base Imponible + Monto Exento + Monto IVA (Calculado)
+                # 3) Monto Bruto / Total Factura
                 calc_monto_bruto = base_imponible_form + monto_exento_form + monto_iva_form
                 monto_bruto_form = st.number_input("Monto Bruto / Total Factura (Calculado)", value=calc_monto_bruto, min_value=0.0, format="%.2f", key="f1_bruto_calc")
                 
                 st.markdown("---")
 
-                # --- 2DO FRAME: RETENCIÓN DE IVA CON PORCENTAJE (75% / 100%) ---
+                # --- 2DO FRAME: RETENCIÓN DE IVA ---
                 st.markdown("#### 2️⃣ Frame: Retención de IVA")
                 col_f2_1, col_f2_2 = st.columns(2)
                 with col_f2_1:
                     porcentaje_ret_iva = st.selectbox("Porcentaje Retención IVA", options=[75.0, 100.0, 25.0, 50.0], format_func=lambda x: f"{x}%", key="f2_porc_ret_iva")
                 with col_f2_2:
-                    # 2) Monto IVA (Calculado) * Porcentaje Retención IVA = Monto Retención IVA (Calculado)
                     calc_ret_iva = monto_iva_form * (porcentaje_ret_iva / 100.0)
                     retencion_iva_form = st.number_input("Monto Retención IVA (Calculado)", value=calc_ret_iva, min_value=0.0, format="%.2f", key="f2_ret_iva_calc")
+                
                 st.markdown("---")
 
-                # --- 3ER FRAME: RETENCIÓN DE ISLR (CON PORCENTAJE Y SUSTRAENDO) ---
+                # --- 3ER FRAME: RETENCIÓN DE ISLR ---
                 st.markdown("#### 3️⃣ Frame: Retención de ISLR")
                 col_f3_1, col_f3_2, col_f3_3, col_f3_4 = st.columns(4)
                 with col_f3_1:
@@ -12664,15 +12654,13 @@ elif opcion_menu == "📝 Asientos Contables":
                 with col_f3_3:
                     islr_sustraendo_form = st.number_input("Sustraendo ISLR", min_value=0.0, format="%.2f", key="f3_sustraendo")
                 with col_f3_4:
-                    # Fórmula automática: (Base Imponible * % Retención ISLR / 100) - Sustraendo ISLR
                     calc_ret_islr = max(0.0, (base_imponible_form * (islr_porcentaje_form / 100.0)) - islr_sustraendo_form)
                     retencion_islr_form = st.number_input("Monto Retención ISLR Final", value=calc_ret_islr, min_value=0.0, format="%.2f", key="f3_ret_islr")
 
                 st.markdown("---")
-                # --- 4TO FRAME: CÁLCULO DEL MONTO NETO A PAGAR Y REGISTRO ---
-                st.markdown("#### 4️⃣ Frame: Cálculo del Monto Neto a Pagar (Bruto - Ret. ISLR - Ret. IVA)")
                 
-                # Cálculo en vivo dentro del formulario
+                # --- 4TO FRAME: MONTO NETO Y BOTONES DE ACCIÓN ---
+                st.markdown("#### 4️⃣ Frame: Cálculo del Monto Neto a Pagar")
                 monto_neto_calculado = monto_bruto_form - retencion_islr_form - retencion_iva_form
                 
                 col_f4_1, col_f4_2 = st.columns(2)
@@ -12680,7 +12668,15 @@ elif opcion_menu == "📝 Asientos Contables":
                     st.metric(label="💵 Monto Neto a Pagar", value=f"{monto_neto_calculado:,.2f}")
                 with col_f4_2:
                     observaciones_form = st.text_area("Observaciones / Concepto del Pago", key="f4_obs")
-                btn_guardar_op = st.form_submit_button("💾 Guardar y Registrar Orden de Pago")
+
+                st.markdown("---")
+                
+                # Botones de control dentro del formulario
+                col_btn1, col_btn2 = st.columns(2)
+                with col_btn1:
+                    btn_calcular = st.form_submit_button("🧮 Calcular / Previsualizar")
+                with col_btn2:
+                    btn_guardar_op = st.form_submit_button("💾 Guardar y Registrar Orden de Pago", type="primary")
                 
                 if btn_guardar_op:
                     if not nro_factura_form:
