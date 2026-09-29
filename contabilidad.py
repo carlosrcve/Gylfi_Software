@@ -12131,10 +12131,7 @@ elif opcion_menu == "📝 Asientos Contables":
 
                             # Bloque YAML con la clave 'descripcion' explícita
                             st.code(f"""banco_nombre: {info_banco['nombre']}
-referencia: OP-{nro_fact}
-descripcion: {desc_val}
-monto: {sel_data['monto_neto']:,.2f}
-monto: {sel_data['monto_neto']:,.2f}
+                                
 estado: {sel_data['estado']}""", language="yaml")
                             
                             if st.button("💾 Guardar Movimiento Bancario", key=f"btn_guardar_banco_{sel_data['id']}", use_container_width=True):
