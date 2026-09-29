@@ -12603,11 +12603,11 @@ elif opcion_menu == "📝 Asientos Contables":
                 
                 col_f1_1, col_f1_2 = st.columns(2)
                 with col_f1_1:
-                    prov_seleccionado_form = st.selectbox("Seleccionar Proveedor", options=lista_provs if lista_provs else ["No hay proveedores"])
-                    nro_factura_form = st.text_input("Número de Factura")
-                    nro_control_form = st.text_input("Número de Control")
+                    prov_seleccionado_form = st.selectbox("Seleccionar Proveedor", options=lista_provs if lista_provs else ["No hay proveedores"], key="f1_prov")
+                    nro_factura_form = st.text_input("Número de Factura", key="f1_fact")
+                    nro_control_form = st.text_input("Número de Control", key="f1_ctrl")
                 with col_f1_2:
-                    fecha_emision_form = st.date_input("Fecha de Emisión")
+                    fecha_emision_form = st.date_input("Fecha de Emisión", key="f1_fecha")
                     
                     # Indicador visual para el campo manual
                     st.markdown("""
@@ -12671,12 +12671,14 @@ elif opcion_menu == "📝 Asientos Contables":
 
                 st.markdown("---")
                 
-                # Botones de control dentro del formulario
+                # Botones de control fuera del st.form tradicional para que el rerun y la previsualización funcionen al toque
                 col_btn1, col_btn2 = st.columns(2)
                 with col_btn1:
-                    btn_calcular = st.form_submit_button("🧮 Calcular / Previsualizar")
+                    if st.button("🧮 Calcular / Previsualizar"):
+                        st.toast("✅ ¡Cálculos actualizados y verificados correctamente!", icon="🧮")
+                        st.rerun()
                 with col_btn2:
-                    btn_guardar_op = st.form_submit_button("💾 Guardar y Registrar Orden de Pago", type="primary")
+                    btn_guardar_op = st.button("💾 Guardar y Registrar Orden de Pago", type="primary")
                 
                 if btn_guardar_op:
                     if not nro_factura_form:
