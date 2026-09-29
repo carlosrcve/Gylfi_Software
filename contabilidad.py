@@ -12671,15 +12671,18 @@ elif opcion_menu == "📝 Asientos Contables":
 
                 st.markdown("---")
                 
-                # Botones de control fuera del st.form tradicional para que el rerun y la previsualización funcionen al toque
+                # Botones de control fuera de columnas anidadas (asignados a variables primero)
                 col_btn1, col_btn2 = st.columns(2)
                 with col_btn1:
-                    if st.button("🧮 Calcular / Previsualizar"):
-                        st.toast("✅ ¡Cálculos actualizados y verificados correctamente!", icon="🧮")
-                        st.rerun()
+                    btn_calcular = st.button("🧮 Calcular / Previsualizar", use_container_width=True)
                 with col_btn2:
-                    btn_guardar_op = st.button("💾 Guardar y Registrar Orden de Pago", type="primary")
-                
+                    btn_guardar_op = st.button("💾 Guardar y Registrar Orden de Pago", type="primary", use_container_width=True)
+
+                # Lógica ejecutada fuera del bloque de columnas de los botones
+                if btn_calcular:
+                    st.toast("✅ ¡Cálculos actualizados y verificados correctamente!", icon="🧮")
+                    st.rerun()
+
                 if btn_guardar_op:
                     if not nro_factura_form:
                         st.error("⚠️ El número de factura es obligatorio.")
@@ -12706,7 +12709,7 @@ elif opcion_menu == "📝 Asientos Contables":
                                     str(nro_factura_form),
                                     str(nro_control_form),
                                     float(monto_bruto_form),
-                                    float(monto_exento_form),  # <-- Aquí estaba el 0.00 fijo, ahora usa la variable correcta
+                                    float(monto_exento_form),
                                     float(base_imponible_form),
                                     float(alicuota_iva_form),
                                     float(monto_iva_form),
