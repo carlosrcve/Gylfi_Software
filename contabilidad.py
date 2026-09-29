@@ -12150,6 +12150,7 @@ elif opcion_menu == "📝 Asientos Contables":
                             
                             desc_val = f"Pago Factura N° {nro_fact} - {prov_nombre} (RIF: {prov_rif})"
 
+                            # Añadido 'descripcion' para que se visualice correctamente en el bloque
                             st.code(f"""banco_nombre: {info_banco['nombre']}
         referencia: OP-{nro_fact}
         descripcion: {desc_val}
