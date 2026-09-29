@@ -12610,15 +12610,17 @@ elif opcion_menu == "📝 Asientos Contables":
                 
                 st.markdown("---")
 
-                # --- 2DO FRAME: RETENCIÓN DE IVA ---
+                # --- 2DO FRAME: RETENCIÓN DE IVA CON ALÍCUOTAS ---
                 st.markdown("#### 2️⃣ Frame: Cálculo y Retención de IVA")
-                col_f2_1, col_f2_2, col_f2_3 = st.columns(3)
+                col_f2_1, col_f2_2, col_f2_3, col_f2_4 = st.columns(4)
                 with col_f2_1:
                     monto_bruto_form = st.number_input("Monto Bruto / Total Factura", min_value=0.0, format="%.2f", key="f2_bruto")
                 with col_f2_2:
                     base_imponible_form = st.number_input("Base Imponible", min_value=0.0, format="%.2f", key="f2_base")
                 with col_f2_3:
-                    monto_iva_form = st.number_input("Monto IVA (16%)", min_value=0.0, format="%.2f", key="f2_iva")
+                    alicuota_iva_form = st.selectbox("Alícuota IVA", options=[16.0, 8.0, 31.0, 0.0], format_func=lambda x: f"{x}%", key="f2_alicuota")
+                with col_f2_4:
+                    monto_iva_form = st.number_input("Monto IVA", min_value=0.0, format="%.2f", key="f2_iva")
                 
                 retencion_iva_form = st.number_input("Monto Retención IVA", min_value=0.0, format="%.2f", key="f2_ret_iva")
 
@@ -12680,7 +12682,7 @@ elif opcion_menu == "📝 Asientos Contables":
                                     float(monto_bruto_form),
                                     0.00,
                                     float(base_imponible_form),
-                                    16.00,
+                                    float(alicuota_iva_form),
                                     float(monto_iva_form),
                                     float(retencion_islr_form),
                                     float(retencion_iva_form),
@@ -12819,6 +12821,7 @@ elif opcion_menu == "📝 Asientos Contables":
         rif: {sel_data['proveedor_rif']}
         total_compras: {sel_data['monto_bruto']:,.2f}
         base_imponible: {sel_data['base_imponible']:,.2f}
+        iva_porcentaje: {sel_data['iva_porcentaje']}%
         iva_monto: {sel_data['monto_iva']:,.2f}
         retencion_islr: {sel_data['retencion_islr']:,.2f}""", language="yaml")
                             with col_f2:
