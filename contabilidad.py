@@ -12887,18 +12887,17 @@ elif opcion_menu == "📝 Asientos Contables":
                                 if conn_all:
                                     cursor = conn_all.cursor()
                                     
-                                    # 1. Insertar en libro_compras
+                                    # 1. Insertar en libro_compras (Sin empresa_db)
                                     query_libro = """
                                         INSERT INTO libro_compras (
-                                            empresa_db, fecha_operacion, tipo_documento, n_factura, n_control, 
+                                            fecha_operacion, tipo_documento, n_factura, n_control, 
                                             proveedor, rif, tipo_transaccion, total_compras, importe_exento, 
                                             base_imponible, iva_porcentaje, iva_monto, retencion_realizada, 
                                             retencion_iva_realizada, monto_iva_retenido, fecha_comprobante, 
                                             created_at, updated_at
-                                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
+                                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
                                     """
                                     cursor.execute(query_libro, (
-                                        str(db_actual),
                                         str(sel_data['fecha_emision']),
                                         "Factura",
                                         str(sel_data['nro_factura']),
@@ -12920,7 +12919,7 @@ elif opcion_menu == "📝 Asientos Contables":
                                     n_comp_val = f"OP-{sel_data['nro_factura']}"
                                     fecha_val = str(sel_data['fecha_emision'])
                                     
-                                    # 2. Insertar los asientos contables (Múltiples líneas)
+                                    # 2. Insertar los asientos contables (Sin empresa_db)
                                     lineas_asiento = [
                                         (info_gasto['codigo'], info_gasto['nombre'], float(sel_data['base_imponible']), 0.00),
                                         (info_iva['codigo'], info_iva['nombre'], float(sel_data['monto_iva']), 0.00),
@@ -12931,14 +12930,13 @@ elif opcion_menu == "📝 Asientos Contables":
                                     
                                     query_asiento = """
                                         INSERT INTO asientos_contables (
-                                            empresa_db, n_comprobante, descripcion, fecha, plan_cuentas, 
+                                            n_comprobante, descripcion, fecha, plan_cuentas, 
                                             cuenta_contable, referencia, debe, haber, bloqueado
-                                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 0)
+                                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 0)
                                     """
                                     for c_cod, c_nom, debe_v, haber_v in lineas_asiento:
                                         if debe_v > 0 or haber_v > 0:
                                             cursor.execute(query_asiento, (
-                                                str(db_actual),
                                                 n_comp_val,
                                                 f"Pago a Proveedor {sel_data['proveedor']} - Factura {sel_data['nro_factura']}",
                                                 fecha_val,
@@ -12953,15 +12951,14 @@ elif opcion_menu == "📝 Asientos Contables":
                                     res_id_asiento = cursor.fetchone()
                                     asiento_id_val = res_id_asiento[0] if res_id_asiento else None
 
-                                    # 3. Insertar en banco_movimientos
+                                    # 3. Insertar en banco_movimientos (Sin empresa_db)
                                     query_banco = """
                                         INSERT INTO banco_movimientos (
-                                            empresa_db, banco_nombre, cuenta_numero, fecha_movimiento, 
+                                            banco_nombre, cuenta_numero, fecha_movimiento, 
                                             referencia, descripcion, monto, estado_conciliacion, asiento_id, fecha_importacion
-                                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW())
                                     """
                                     cursor.execute(query_banco, (
-                                        str(db_actual),
                                         str(info_banco['nombre']),
                                         str(info_banco['codigo']),
                                         fecha_val,
