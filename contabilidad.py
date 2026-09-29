@@ -11996,28 +11996,31 @@ elif opcion_menu == "📝 Asientos Contables":
         retencion_islr: {sel_data['retencion_islr']:,.2f}""", language="yaml")
                             
                             if st.button("💾 Guardar Libro de Compras", key=f"btn_guardar_libro_{sel_data['id']}", use_container_width=True):
+                                # Limpiar y asegurar que no estén vacíos
                                 rif_val = str(sel_data.get('proveedor_rif', '')).strip()
                                 fact_val = str(sel_data.get('nro_factura', '')).strip()
                                 ctrl_val = str(sel_data.get('nro_control', '')).strip()
                                 prov_val = str(sel_data.get('proveedor', '')).strip()
                                 
-                                # Validar que no estén vacíos, ni sean 'N/A', ni tengan signos de interrogación
-                                if not fact_val or fact_val in ['None', 'N/A', '?', ''] or not rif_val or rif_val in ['None', 'N/A', '?', '']:
-                                    st.error(f"⚠️ Error: El RIF ('{rif_val}') o la Factura ('{fact_val}') son inválidos. Revisa que la Orden de Pago tenga estos datos cargados correctamente.")
+                                # Validación rigurosa para evitar que se envíen vacíos o nulos que causen el error '?'
+                                if not fact_val or fact_val in ['None', 'N/A', '?', '']:
+                                    st.error("⚠️ Error: El número de factura está vacío o es inválido en esta Orden de Pago.")
+                                elif not rif_val or rif_val in ['None', 'N/A', '?', '']:
+                                    st.error(f"⚠️ Error: El RIF del proveedor ('{rif_val}') está vacío o no está asociado correctamente.")
                                 else:
                                     try:
                                         conn_l = conectar_db(db_actual)
                                         if conn_l:
                                             cur_l = conn_l.cursor()
                                             
-                                            # Verificamos primero si ya existe para dar un mensaje claro
+                                            # Consultar explícitamente para ver si ya existe el registro exacto
                                             cur_l.execute(
                                                 "SELECT id FROM libro_compras WHERE n_factura = %s AND rif = %s", 
                                                 (fact_val, rif_val)
                                             )
-                                            existe_fact = cur_l.fetchone()
+                                            existe = cur_l.fetchone()
                                             
-                                            if existe_fact:
+                                            if existe:
                                                 st.warning(f"⚠️ La factura **{fact_val}** con RIF **{rif_val}** ya se encuentra registrada en el Libro de Compras.")
                                             else:
                                                 query_libro = """
@@ -12051,18 +12054,18 @@ elif opcion_menu == "📝 Asientos Contables":
                                                     fact_val,
                                                     ctrl_val if ctrl_val and ctrl_val != 'None' else 'S/N',
                                                     None,
-                                                    prov_val,
+                                                    prov_val if prov_val and prov_val != 'None' else 'Proveedor Genérico',
                                                     rif_val,
                                                     "Compra Interna",
-                                                    float(sel_data['monto_bruto']),
-                                                    float(sel_data['monto_exento']),
-                                                    float(sel_data['base_imponible']),
-                                                    float(sel_data['iva_porcentaje']),
-                                                    float(sel_data['monto_iva']),
-                                                    float(sel_data['retencion_islr']),
-                                                    float(sel_data['retencion_iva']),
+                                                    float(sel_data.get('monto_bruto', 0.0)),
+                                                    float(sel_data.get('monto_exento', 0.0)),
+                                                    float(sel_data.get('base_imponible', 0.0)),
+                                                    float(sel_data.get('iva_porcentaje', 16.0)),
+                                                    float(sel_data.get('monto_iva', 0.0)),
+                                                    float(sel_data.get('retencion_islr', 0.0)),
+                                                    float(sel_data.get('retencion_iva', 0.0)),
                                                     f"COMP-{fact_val}",
-                                                    float(sel_data['retencion_iva']),
+                                                    float(sel_data.get('retencion_iva', 0.0)),
                                                     str(sel_data['fecha_emision'])
                                                 )
                                                 
