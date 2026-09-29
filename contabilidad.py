@@ -12544,36 +12544,75 @@ elif opcion_menu == "📝 Asientos Contables":
                 st.error(f"Error al cargar la lista: {e}")
             
         with tab2:
-            # --- HISTORIAL DE ÓRDENES (BLINDADO Y SIN FILTROS RÍGIDOS) ---
+            st.markdown("### 🧾 Gestión y Generación de Órdenes de Pago y Cruce")
+
+            # --- CARGAR PROVEEDORES Y PLAN DE CUENTAS ---
+            lista_provs = []
+            dict_provs = {}
+            lista_cuentas_detalle = []
+            dict_cuentas_detalle = {}
+            
+            try:
+                conn_cp = conectar_db(db_actual)
+                if conn_cp:
+                    df_cp = ejecutar_consulta(
+                        "SELECT id, nombre, rif, codigo_cuenta, descripcion_cuenta FROM proveedores_carga WHERE empresa_db = %s ORDER BY nombre ASC", 
+                        conn_cp, 
+                        params=(str(db_actual),)
+                    )
+                    df_cuentas = ejecutar_consulta(
+                        "SELECT id, codigo, nombre, nivel, tipo, padre FROM plan_cuentas WHERE tipo = 'Detalle'", 
+                        conn_cp
+                    )
+                    conn_cp.close()
+                    
+                    if df_cp is not None and not df_cp.empty:
+                        for _, row in df_cp.iterrows():
+                            prov_id_val = row['id']
+                            label_p = f"{row['nombre']} (RIF: {row['rif']})"
+                            if label_p not in lista_provs:
+                                lista_provs.append(label_p)
+                            dict_provs[label_p] = {
+                                'id_interno': prov_id_val,
+                                'rif': row['rif'],
+                                'nombre': row['nombre'],
+                                'codigo_cuenta': str(row.get('codigo_cuenta', 'N/A')),
+                                'descripcion_cuenta': str(row.get('descripcion_cuenta', 'N/A'))
+                            }
+                    
+                    if df_cuentas is not None and not df_cuentas.empty:
+                        for _, row in df_cuentas.iterrows():
+                            c_label = f"{str(row['codigo']).strip()} - {str(row['nombre']).strip()}"
+                            if c_label not in lista_cuentas_detalle:
+                                lista_cuentas_detalle.append(c_label)
+                                dict_cuentas_detalle[c_label] = {
+                                    'codigo': str(row['codigo']).strip(),
+                                    'nombre': str(row['nombre']).strip()
+                                }
+            except Exception as e:
+                st.error(f"Error cargando datos de BD: {e}")
+
+            # --- HISTORIAL DE ÓRDENES (DIAGNÓSTICO DIRECTO) ---
             st.markdown("### 📊 Historial de Órdenes de Pago")
+            
             df_ops = None
             try:
-                conn_list_op = conectar_db(db_actual)
-                if conn_list_op:
-                    # Intentamos primero buscar de forma flexible o general en la BD conectada
-                    try:
-                        df_ops = ejecutar_consulta(
-                            "SELECT * FROM ordenes_pago WHERE empresa_db = %s ORDER BY id DESC", 
-                            conn_list_op, 
-                            params=(str(db_actual),)
-                        )
-                    except Exception:
-                        df_ops = None
-                    
-                    # Si no trajo nada (o la columna empresa_db no existe en esta tabla), traemos todo lo de la tabla ordenes_pago
-                    if df_ops is None or df_ops.empty:
-                        try:
-                            df_ops = ejecutar_consulta("SELECT * FROM ordenes_pago ORDER BY id DESC", conn_list_op)
-                        except Exception:
-                            df_ops = None
-                            
-                    conn_list_op.close()
-            except Exception as ex_db:
-                st.warning(f"⚠️ Nota de conexión al historial: {ex_db}")
-            
-            if df_ops is None or df_ops.empty:
-                st.warning("⚠️ No se encontraron órdenes de pago registradas todavía. Emite una arriba en el formulario.")
+                conn_hist = conectar_db(db_actual)
+                if conn_hist:
+                    # Intentamos traer los registros sin filtros restrictivos
+                    df_ops = ejecutar_consulta("SELECT * FROM ordenes_pago ORDER BY id DESC", conn_hist)
+                    conn_hist.close()
+            except Exception as err_sql:
+                st.error(f"❌ Error crítico ejecutando la consulta en MySQL: {err_sql}")
+
+            # Validamos el estado real del DataFrame
+            if df_ops is None:
+                st.error("❌ La consulta devolvió `None`. Revisa la función `ejecutar_consulta` o la conexión a la base de datos.")
+            elif df_ops.empty:
+                st.info("ℹ️ La tabla `ordenes_pago` está vacía actualmente. Emite tu primera orden de pago en el formulario superior para comenzar.")
             else:
+                st.success(f"✨ ¡Se encontraron {len(df_ops)} órdenes de pago en la base de datos!")
+                
                 lista_ops_procesadas = []
                 for _, r_op in df_ops.iterrows():
                     prov_encontrado = None
@@ -12618,10 +12657,9 @@ elif opcion_menu == "📝 Asientos Contables":
                 
                 opciones_ordenes = {f"ID: {row['id']} | Factura: {row['nro_factura']} | Proveedor: {row['proveedor']} | Estado: {row['estado']}": row for _, row in df_ops_final.iterrows()}
                 
-                lista_keys_op = list(opciones_ordenes.keys())
                 seleccion_op_key = st.selectbox(
                     "🔍 Selecciona una Orden de Pago para configurar sus cuentas y procesar:", 
-                    options=lista_keys_op,
+                    options=list(opciones_ordenes.keys()),
                     index=0,
                     key="select_op_final_v2"
                 )
@@ -12636,7 +12674,6 @@ elif opcion_menu == "📝 Asientos Contables":
                     if not lista_cuentas_detalle:
                         st.error("❌ La lista de cuentas de detalle está vacía. Verifica que la tabla `plan_cuentas` tenga registros con `tipo = 'Detalle'` en esta base de datos.")
                     else:
-                        # --- SELECTORES DESPLEGABLES REALES ---
                         col_sel_1, col_sel_2, col_sel_3 = st.columns(3)
                         
                         with col_sel_1:
@@ -12662,7 +12699,6 @@ elif opcion_menu == "📝 Asientos Contables":
                                     break
                             cta_banco_elegida = st.selectbox("Cuenta de Pago (Caja / Banco)", options=lista_cuentas_detalle, index=idx_banco, key=f"banco_sel_{sel_data['id']}")
 
-                        # Extracción exacta seleccionada
                         info_gasto = dict_cuentas_detalle[cta_gasto_elegida]
                         info_iva = dict_cuentas_detalle[cta_iva_elegida]
                         info_banco = dict_cuentas_detalle[cta_banco_elegida]
