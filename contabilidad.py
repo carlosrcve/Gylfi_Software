@@ -12128,11 +12128,12 @@ elif opcion_menu == "📝 Asientos Contables":
                             
                             desc_val = f"Pago Factura N° {nro_fact} - {prov_nombre} (RIF: {prov_rif})"
 
+                            # --- CORREGIDO: Se incluye 'descripcion:' en el YAML visual ---
                             st.code(f"""banco_nombre: {info_banco['nombre']}
-        referencia: OP-{nro_fact}
-        descripcion: {desc_val}
-        monto: {sel_data['monto_neto']:,.2f}
-        estado: {sel_data['estado']}""", language="yaml")
+reference: OP-{nro_fact}
+descripcion: {desc_val}
+monto: {sel_data['monto_neto']:,.2f}
+estado: {sel_data['estado']}""", language="yaml")
                             
                             if st.button("💾 Guardar Movimiento Bancario", key=f"btn_guardar_banco_{sel_data['id']}", use_container_width=True):
                                 try:
