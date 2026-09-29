@@ -12122,15 +12122,16 @@ elif opcion_menu == "📝 Asientos Contables":
                         with col_f3:
                             st.markdown("#### 🏦 Movimiento Bancario")
                             
-                            prov_nombre = str(sel_data.get('proveedor', ''))
-                            prov_rif = str(sel_data.get('proveedor_rif', ''))
-                            nro_fact = str(sel_data.get('nro_factura', ''))
+                            prov_nombre = str(sel_data.get('proveedor', '')).strip()
+                            prov_rif = str(sel_data.get('proveedor_rif', '')).strip()
+                            nro_fact = str(sel_data.get('nro_factura', '')).strip()
                             
-                            desc_val = f"Pago Factura N° {nro_fact} - {prov_nombre} (RIF: {prov_rif})"
+                            # Limpiamos y aseguramos la construcción de la descripción
+                            desc_val = f"Pago Factura Nro {nro_fact} - {prov_nombre} (RIF: {prov_rif})"
 
-                            # --- CORREGIDO: Se incluye 'descripcion:' en el YAML visual ---
+                            # Bloque YAML con la clave 'descripcion' explícita
                             st.code(f"""banco_nombre: {info_banco['nombre']}
-reference: OP-{nro_fact}
+referencia: OP-{nro_fact}
 descripcion: {desc_val}
 monto: {sel_data['monto_neto']:,.2f}
 estado: {sel_data['estado']}""", language="yaml")
@@ -12154,7 +12155,7 @@ estado: {sel_data['estado']}""", language="yaml")
                                             str(info_banco['codigo']),
                                             fecha_val,
                                             n_comp_val,
-                                            desc_val,
+                                            str(desc_val),
                                             float(sel_data['monto_neto']),
                                             str(sel_data['estado'])
                                         ))
