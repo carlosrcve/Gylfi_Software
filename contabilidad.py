@@ -12640,12 +12640,13 @@ elif opcion_menu == "📝 Asientos Contables":
                 with col_f1_3:
                     alicuota_iva_form = st.selectbox("Alícuota IVA", options=[16.0, 8.0, 31.0, 0.0], format_func=lambda x: f"{x}%", key="f1_alicuota")
                 with col_f1_4:
-                    # Cálculo en tiempo real para el IVA
-                    val_iva_calc = base_imponible_form * (alicuota_iva_form / 100.0)
-                    monto_iva_form = st.number_input("Monto IVA (Calculado)", value=val_iva_calc, min_value=0.0, format="%.2f", key="f1_iva_calc")
+                    # ⚡ Actualizamos el session_state del IVA en tiempo real
+                    st.session_state["f1_iva_calc"] = base_imponible_form * (alicuota_iva_form / 100.0)
+                    monto_iva_form = st.number_input("Monto IVA (Calculado)", min_value=0.0, format="%.2f", key="f1_iva_calc")
 
-                val_bruto_calc = base_imponible_form + monto_exento_form + monto_iva_form
-                monto_bruto_form = st.number_input("Monto Bruto / Total Factura (Calculado)", value=val_bruto_calc, min_value=0.0, format="%.2f", key="f1_bruto_calc")
+                # ⚡ Actualizamos el session_state del Monto Bruto en tiempo real
+                st.session_state["f1_bruto_calc"] = base_imponible_form + monto_exento_form + monto_iva_form
+                monto_bruto_form = st.number_input("Monto Bruto / Total Factura (Calculado)", min_value=0.0, format="%.2f", key="f1_bruto_calc")
                 
                 st.markdown("---")
 
@@ -12655,8 +12656,9 @@ elif opcion_menu == "📝 Asientos Contables":
                 with col_f2_1:
                     porcentaje_ret_iva = st.selectbox("Porcentaje Retención IVA", options=[75.0, 100.0, 25.0, 50.0], format_func=lambda x: f"{x}%", key="f2_porc_ret_iva")
                 with col_f2_2:
-                    val_ret_iva_calc = monto_iva_form * (porcentaje_ret_iva / 100.0)
-                    retencion_iva_form = st.number_input("Monto Retención IVA (Calculado)", value=val_ret_iva_calc, min_value=0.0, format="%.2f", key="f2_ret_iva_calc")
+                    # ⚡ Actualizamos el session_state de Retención de IVA
+                    st.session_state["f2_ret_iva_calc"] = monto_iva_form * (porcentaje_ret_iva / 100.0)
+                    retencion_iva_form = st.number_input("Monto Retención IVA (Calculado)", min_value=0.0, format="%.2f", key="f2_ret_iva_calc")
                 
                 st.markdown("---")
 
@@ -12670,8 +12672,9 @@ elif opcion_menu == "📝 Asientos Contables":
                 with col_f3_3:
                     islr_sustraendo_form = st.number_input("Sustraendo ISLR", min_value=0.0, format="%.2f", key="f3_sustraendo")
                 with col_f3_4:
-                    val_ret_islr_calc = max(0.0, (base_imponible_form * (islr_porcentaje_form / 100.0)) - islr_sustraendo_form)
-                    retencion_islr_form = st.number_input("Monto Retención ISLR Final", value=val_ret_islr_calc, min_value=0.0, format="%.2f", key="f3_ret_islr")
+                    # ⚡ Actualizamos el session_state de Retención de ISLR
+                    st.session_state["f3_ret_islr"] = max(0.0, (base_imponible_form * (islr_porcentaje_form / 100.0)) - islr_sustraendo_form)
+                    retencion_islr_form = st.number_input("Monto Retención ISLR Final", min_value=0.0, format="%.2f", key="f3_ret_islr")
 
                 st.markdown("---")
                 
@@ -12690,26 +12693,16 @@ elif opcion_menu == "📝 Asientos Contables":
                 # --- BOTONES DE ACCIÓN ---
                 col_btn_1, col_btn_2 = st.columns(2)
                 with col_btn_1:
-                    btn_calcular = st.button("🧮 Calcular Retenciones y Neto", type="secondary", key="btn_calcular_principal", use_container_width=True)
+                    btn_calcular = st.button("🧮 Forzar Recálculo Oficial", type="secondary", key="btn_calcular_principal", use_container_width=True)
                 with col_btn_2:
                     btn_guardar_op = st.button("💾 Guardar y Registrar Orden de Pago", type="primary", key="btn_guardar_principal", use_container_width=True)
 
-                # ⚡ ACCIÓN DEL BOTÓN DE CÁLCULO OFICIAL
+                # ACCIÓN DEL BOTÓN OPCIONAL DE VALIDACIÓN
                 if btn_calcular:
-                    st.session_state.res_iva = val_iva_calc
-                    st.session_state.res_bruto = val_bruto_calc
-                    st.session_state.res_ret_iva = val_ret_iva_calc
-                    st.session_state.res_ret_islr = val_ret_islr_calc
-                    st.session_state.res_neto = monto_neto_calculado
-                    
-                    st.session_state.calc_ejecutado = True
-                    st.toast("✅ ¡Cálculos validados con éxito bajo normativa del SENIAT!", icon="🧮")
+                    st.toast("✅ ¡Campos sincronizados y calculados correctamente!", icon="🧮")
                     st.rerun()
 
-                if st.session_state.calc_ejecutado:
-                    st.success(f"💡 **Cálculos aplicados:** IVA: {st.session_state.res_iva:,.2f} | Ret. IVA: {st.session_state.res_ret_iva:,.2f} | Ret. ISLR: {st.session_state.res_ret_islr:,.2f} | **Neto a Pagar: {st.session_state.res_neto:,.2f}**")
-
-                # Lógica de guardado utilizando los valores vigentes en pantalla
+                # Lógica de guardado utilizando los valores actuales en pantalla
                 if btn_guardar_op:
                     if not nro_factura_form:
                         st.error("⚠️ El número de factura es obligatorio.")
@@ -12717,12 +12710,6 @@ elif opcion_menu == "📝 Asientos Contables":
                         st.error("⚠️ No hay proveedores cargados para asociar la orden.")
                     else:
                         try:
-                            b_final = monto_bruto_form
-                            i_final = monto_iva_form
-                            r_iva_final = retencion_iva_form
-                            r_islr_final = retencion_islr_form
-                            n_final = monto_neto_calculado
-                            
                             info_prov_form = dict_provs[prov_seleccionado_form]
                             
                             conn_ins = conectar_db(db_actual)
@@ -12741,14 +12728,14 @@ elif opcion_menu == "📝 Asientos Contables":
                                     str(info_prov_form['id_interno']),
                                     str(nro_factura_form),
                                     str(nro_control_form),
-                                    float(b_final),
+                                    float(monto_bruto_form),
                                     float(monto_exento_form),
                                     float(base_imponible_form),
                                     float(alicuota_iva_form),
-                                    float(i_final),
-                                    float(r_islr_final),
-                                    float(r_iva_final),
-                                    float(n_final),
+                                    float(monto_iva_form),
+                                    float(retencion_islr_form),
+                                    float(retencion_iva_form),
+                                    float(monto_neto_calculado),
                                     'Pendiente',
                                     str(fecha_emision_form),
                                     str(observaciones_form),
@@ -12759,7 +12746,6 @@ elif opcion_menu == "📝 Asientos Contables":
                                 conn_ins.commit()
                                 cursor.close()
                                 conn_ins.close()
-                                st.session_state.calc_ejecutado = False
                                 st.success("🎉 ¡Orden de pago guardada con éxito en la BD! Recargando...")
                                 st.rerun()
                         except Exception as err_ins:
