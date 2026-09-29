@@ -12640,12 +12640,12 @@ elif opcion_menu == "📝 Asientos Contables":
                 with col_f1_3:
                     alicuota_iva_form = st.selectbox("Alícuota IVA", options=[16.0, 8.0, 31.0, 0.0], format_func=lambda x: f"{x}%", key="f1_alicuota")
                 with col_f1_4:
-                    # ⚡ Cálculo dinámico en tiempo real
-                    val_iva_mostrar = st.session_state.res_iva if st.session_state.calc_ejecutado else (base_imponible_form * (alicuota_iva_form / 100.0))
-                    monto_iva_form = st.number_input("Monto IVA (Calculado)", value=val_iva_mostrar, min_value=0.0, format="%.2f", key="f1_iva_calc")
+                    # Cálculo en tiempo real para el IVA
+                    val_iva_calc = base_imponible_form * (alicuota_iva_form / 100.0)
+                    monto_iva_form = st.number_input("Monto IVA (Calculado)", value=val_iva_calc, min_value=0.0, format="%.2f", key="f1_iva_calc")
 
-                val_bruto_mostrar = st.session_state.res_bruto if st.session_state.calc_ejecutado else (base_imponible_form + monto_exento_form + monto_iva_form)
-                monto_bruto_form = st.number_input("Monto Bruto / Total Factura (Calculado)", value=val_bruto_mostrar, min_value=0.0, format="%.2f", key="f1_bruto_calc")
+                val_bruto_calc = base_imponible_form + monto_exento_form + monto_iva_form
+                monto_bruto_form = st.number_input("Monto Bruto / Total Factura (Calculado)", value=val_bruto_calc, min_value=0.0, format="%.2f", key="f1_bruto_calc")
                 
                 st.markdown("---")
 
@@ -12655,8 +12655,8 @@ elif opcion_menu == "📝 Asientos Contables":
                 with col_f2_1:
                     porcentaje_ret_iva = st.selectbox("Porcentaje Retención IVA", options=[75.0, 100.0, 25.0, 50.0], format_func=lambda x: f"{x}%", key="f2_porc_ret_iva")
                 with col_f2_2:
-                    val_ret_iva_mostrar = st.session_state.res_ret_iva if st.session_state.calc_ejecutado else (monto_iva_form * (porcentaje_ret_iva / 100.0))
-                    retencion_iva_form = st.number_input("Monto Retención IVA (Calculado)", value=val_ret_iva_mostrar, min_value=0.0, format="%.2f", key="f2_ret_iva_calc")
+                    val_ret_iva_calc = monto_iva_form * (porcentaje_ret_iva / 100.0)
+                    retencion_iva_form = st.number_input("Monto Retención IVA (Calculado)", value=val_ret_iva_calc, min_value=0.0, format="%.2f", key="f2_ret_iva_calc")
                 
                 st.markdown("---")
 
@@ -12670,8 +12670,8 @@ elif opcion_menu == "📝 Asientos Contables":
                 with col_f3_3:
                     islr_sustraendo_form = st.number_input("Sustraendo ISLR", min_value=0.0, format="%.2f", key="f3_sustraendo")
                 with col_f3_4:
-                    val_ret_islr_mostrar = st.session_state.res_ret_islr if st.session_state.calc_ejecutado else max(0.0, (base_imponible_form * (islr_porcentaje_form / 100.0)) - islr_sustraendo_form)
-                    retencion_islr_form = st.number_input("Monto Retención ISLR Final", value=val_ret_islr_mostrar, min_value=0.0, format="%.2f", key="f3_ret_islr")
+                    val_ret_islr_calc = max(0.0, (base_imponible_form * (islr_porcentaje_form / 100.0)) - islr_sustraendo_form)
+                    retencion_islr_form = st.number_input("Monto Retención ISLR Final", value=val_ret_islr_calc, min_value=0.0, format="%.2f", key="f3_ret_islr")
 
                 st.markdown("---")
                 
@@ -12681,8 +12681,7 @@ elif opcion_menu == "📝 Asientos Contables":
                 
                 col_f4_1, col_f4_2 = st.columns(2)
                 with col_f4_1:
-                    val_neto_mostrar = st.session_state.res_neto if st.session_state.calc_ejecutado else monto_neto_calculado
-                    st.metric(label="💵 Monto Neto a Pagar", value=f"{val_neto_mostrar:,.2f}")
+                    st.metric(label="💵 Monto Neto a Pagar", value=f"{monto_neto_calculado:,.2f}")
                 with col_f4_2:
                     observaciones_form = st.text_area("Observaciones / Concepto del Pago", key="f4_obs")
 
@@ -12695,22 +12694,22 @@ elif opcion_menu == "📝 Asientos Contables":
                 with col_btn_2:
                     btn_guardar_op = st.button("💾 Guardar y Registrar Orden de Pago", type="primary", key="btn_guardar_principal", use_container_width=True)
 
-                # ⚡ ORDEN ESTRICTO DE CÁLCULO AL PRESIONAR EL BOTÓN
+                # ⚡ ACCIÓN DEL BOTÓN DE CÁLCULO OFICIAL
                 if btn_calcular:
-                    st.session_state.res_iva = base_imponible_form * (alicuota_iva_form / 100.0)
-                    st.session_state.res_bruto = base_imponible_form + monto_exento_form + st.session_state.res_iva
-                    st.session_state.res_ret_iva = st.session_state.res_iva * (porcentaje_ret_iva / 100.0)
-                    st.session_state.res_ret_islr = max(0.0, (base_imponible_form * (islr_porcentaje_form / 100.0)) - islr_sustraendo_form)
-                    st.session_state.res_neto = st.session_state.res_bruto - st.session_state.res_ret_islr - st.session_state.res_ret_iva
+                    st.session_state.res_iva = val_iva_calc
+                    st.session_state.res_bruto = val_bruto_calc
+                    st.session_state.res_ret_iva = val_ret_iva_calc
+                    st.session_state.res_ret_islr = val_ret_islr_calc
+                    st.session_state.res_neto = monto_neto_calculado
                     
                     st.session_state.calc_ejecutado = True
-                    st.toast("✅ ¡Cálculos realizados con éxito bajo orden oficial del SENIAT!", icon="🧮")
+                    st.toast("✅ ¡Cálculos validados con éxito bajo normativa del SENIAT!", icon="🧮")
                     st.rerun()
 
                 if st.session_state.calc_ejecutado:
                     st.success(f"💡 **Cálculos aplicados:** IVA: {st.session_state.res_iva:,.2f} | Ret. IVA: {st.session_state.res_ret_iva:,.2f} | Ret. ISLR: {st.session_state.res_ret_islr:,.2f} | **Neto a Pagar: {st.session_state.res_neto:,.2f}**")
 
-                # Lógica de guardado utilizando los valores exactos calculados
+                # Lógica de guardado utilizando los valores vigentes en pantalla
                 if btn_guardar_op:
                     if not nro_factura_form:
                         st.error("⚠️ El número de factura es obligatorio.")
@@ -12718,11 +12717,11 @@ elif opcion_menu == "📝 Asientos Contables":
                         st.error("⚠️ No hay proveedores cargados para asociar la orden.")
                     else:
                         try:
-                            b_final = st.session_state.res_bruto if st.session_state.calc_ejecutado else monto_bruto_form
-                            i_final = st.session_state.res_iva if st.session_state.calc_ejecutado else (base_imponible_form * (alicuota_iva_form / 100.0))
-                            r_iva_final = st.session_state.res_ret_iva if st.session_state.calc_ejecutado else (i_final * (porcentaje_ret_iva / 100.0))
-                            r_islr_final = st.session_state.res_ret_islr if st.session_state.calc_ejecutado else max(0.0, (base_imponible_form * (islr_porcentaje_form / 100.0)) - islr_sustraendo_form)
-                            n_final = st.session_state.res_neto if st.session_state.calc_ejecutado else (b_final - r_islr_final - r_iva_final)
+                            b_final = monto_bruto_form
+                            i_final = monto_iva_form
+                            r_iva_final = retencion_iva_form
+                            r_islr_final = retencion_islr_form
+                            n_final = monto_neto_calculado
                             
                             info_prov_form = dict_provs[prov_seleccionado_form]
                             
