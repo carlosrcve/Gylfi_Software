@@ -12592,122 +12592,146 @@ elif opcion_menu == "📝 Asientos Contables":
             except Exception as e:
                 st.error(f"Error cargando datos de BD: {e}")
 
-            # --- HISTORIAL DE ÓRDENES (DIAGNÓSTICO DIRECTO) ---
-            st.markdown("### 📊 Historial de Órdenes de Pago")
+            # --- HISTORIAL Y PREVISUALIZACIÓN DE ÓRDENES ---
+            st.markdown("### 📊 Historial y Previsualización de Órdenes de Pago")
             
             df_ops = None
             try:
                 conn_hist = conectar_db(db_actual)
                 if conn_hist:
-                    # Intentamos traer los registros sin filtros restrictivos
                     df_ops = ejecutar_consulta("SELECT * FROM ordenes_pago ORDER BY id DESC", conn_hist)
                     conn_hist.close()
             except Exception as err_sql:
-                st.error(f"❌ Error crítico ejecutando la consulta en MySQL: {err_sql}")
+                st.error(f"❌ Error consultando la base de datos: {err_sql}")
 
-            # Validamos el estado real del DataFrame
-            if df_ops is None:
-                st.error("❌ La consulta devolvió `None`. Revisa la función `ejecutar_consulta` o la conexión a la base de datos.")
-            elif df_ops.empty:
-                st.info("ℹ️ La tabla `ordenes_pago` está vacía actualmente. Emite tu primera orden de pago en el formulario superior para comenzar.")
-            else:
-                st.success(f"✨ ¡Se encontraron {len(df_ops)} órdenes de pago en la base de datos!")
-                
-                lista_ops_procesadas = []
-                for _, r_op in df_ops.iterrows():
-                    prov_encontrado = None
-                    for k_p, v_p in dict_provs.items():
-                        if str(v_p['id_interno']) == str(r_op.get('proveedor_id', '')) or str(v_p['rif']) == str(r_op.get('proveedor_id', '')):
-                            prov_encontrado = v_p
-                            break
-                    if not prov_encontrado and len(dict_provs) > 0:
-                        prov_encontrado = list(dict_provs.values())[0]
-                        
-                    lista_ops_procesadas.append({
-                        'id': r_op.get('id'),
-                        'proveedor_rif': prov_encontrado['rif'] if prov_encontrado else 'N/A',
-                        'proveedor': prov_encontrado['nombre'] if prov_encontrado else 'Desconocido',
-                        'cuenta_gasto_codigo': prov_encontrado.get('codigo_cuenta', 'N/A') if prov_encontrado else 'N/A',
-                        'cuenta_gasto_desc': prov_encontrado.get('descripcion_cuenta', 'N/A') if prov_encontrado else 'N/A',
-                        'nro_factura': r_op.get('nro_factura', 'S/N'),
-                        'nro_control': r_op.get('nro_control', 'S/N'),
-                        'monto_bruto': r_op.get('monto_bruto', 0.0),
-                        'monto_exento': r_op.get('monto_exento', 0.0),
-                        'base_imponible': r_op.get('base_imponible', 0.0),
-                        'iva_porcentaje': r_op.get('iva_porcentaje', 0.0),
-                        'monto_iva': r_op.get('monto_iva', 0.0),
-                        'retencion_islr': r_op.get('retencion_islr', 0.0),
-                        'retencion_iva': r_op.get('retencion_iva', 0.0),
-                        'monto_neto': r_op.get('monto_neto', 0.0),
-                        'estado': r_op.get('estado', 'Pendiente'),
-                        'fecha_emision': r_op.get('fecha_emision', ''),
-                        'observaciones': r_op.get('observaciones', ''),
-                        'islr_porcentaje': r_op.get('islr_porcentaje', 0.0),
-                        'islr_sustraendo': r_op.get('islr_sustraendo', 0.0),
-                        'tipo_persona': r_op.get('tipo_persona', '')
-                    })
-                
+            # Si la tabla está vacía, creamos una orden de ejemplo temporal en memoria para que VEAS LOS FRAMES DE YAML DE INMEDIATO
+            usando_datos_ejemplo = False
+            if df_ops is None or df_ops.empty:
+                usando_datos_ejemplo = True
                 import pandas as pd
-                df_ops_final = pd.DataFrame(lista_ops_procesadas)
+                prov_ejemplo_rif = list(dict_provs.values())[0]['rif'] if dict_provs else "J-00000000-0"
+                prov_ejemplo_nombre = list(dict_provs.keys())[0] if lista_provs else "Proveedor de Ejemplo C.A."
                 
+                df_ops = pd.DataFrame([{
+                    'id': 0,
+                    'proveedor_id': prov_ejemplo_rif,
+                    'nro_factura': '00000001',
+                    'nro_control': '00-000001',
+                    'monto_bruto': 1160.00,
+                    'monto_exento': 0.00,
+                    'base_imponible': 1000.00,
+                    'iva_porcentaje': 16.00,
+                    'monto_iva': 160.00,
+                    'retencion_islr': 0.00,
+                    'retencion_iva': 0.00,
+                    'monto_neto': 1160.00,
+                    'estado': 'Pendiente',
+                    'fecha_emision': '2026-09-28',
+                    'observaciones': 'Orden de ejemplo para previsualización',
+                    'islr_porcentaje': 0.00,
+                    'islr_sustraendo': 0.00,
+                    'tipo_persona': 'Jurídico'
+                }])
+                st.info("💡 **Modo Previsualización Activo**: La tabla `ordenes_pago` está vacía, por lo que se muestra una estructura de ejemplo para que verifiques los frames YAML. Al registrar tu primera orden real arriba, aparecerá aquí automáticamente.")
+
+            # Procesamiento de registros para la UI
+            lista_ops_procesadas = []
+            for _, r_op in df_ops.iterrows():
+                prov_encontrado = None
+                for k_p, v_p in dict_provs.items():
+                    if str(v_p['id_interno']) == str(r_op.get('proveedor_id', '')) or str(v_p['rif']) == str(r_op.get('proveedor_id', '')):
+                        prov_encontrado = v_p
+                        break
+                if not prov_encontrado and len(dict_provs) > 0:
+                    prov_encontrado = list(dict_provs.values())[0]
+                    
+                lista_ops_procesadas.append({
+                    'id': r_op.get('id'),
+                    'proveedor_rif': prov_encontrado['rif'] if prov_encontrado else 'N/A',
+                    'proveedor': prov_encontrado['nombre'] if prov_encontrado else 'Desconocido',
+                    'cuenta_gasto_codigo': prov_encontrado.get('codigo_cuenta', 'N/A') if prov_encontrado else 'N/A',
+                    'cuenta_gasto_desc': prov_encontrado.get('descripcion_cuenta', 'N/A') if prov_encontrado else 'N/A',
+                    'nro_factura': r_op.get('nro_factura', 'S/N'),
+                    'nro_control': r_op.get('nro_control', 'S/N'),
+                    'monto_bruto': r_op.get('monto_bruto', 0.0),
+                    'monto_exento': r_op.get('monto_exento', 0.0),
+                    'base_imponible': r_op.get('base_imponible', 0.0),
+                    'iva_porcentaje': r_op.get('iva_porcentaje', 0.0),
+                    'monto_iva': r_op.get('monto_iva', 0.0),
+                    'retencion_islr': r_op.get('retencion_islr', 0.0),
+                    'retencion_iva': r_op.get('retencion_iva', 0.0),
+                    'monto_neto': r_op.get('monto_neto', 0.0),
+                    'estado': r_op.get('estado', 'Pendiente'),
+                    'fecha_emision': r_op.get('fecha_emision', ''),
+                    'observaciones': r_op.get('observaciones', ''),
+                    'islr_porcentaje': r_op.get('islr_porcentaje', 0.0),
+                    'islr_sustraendo': r_op.get('islr_sustraendo', 0.0),
+                    'tipo_persona': r_op.get('tipo_persona', '')
+                })
+            
+            import pandas as pd
+            df_ops_final = pd.DataFrame(lista_ops_procesadas)
+            
+            if not usando_datos_ejemplo:
                 df_display = df_ops_final[['id', 'proveedor', 'nro_factura', 'monto_bruto', 'monto_neto', 'retencion_islr', 'estado', 'fecha_emision']]
                 st.dataframe(df_display, use_container_width=True, hide_index=True)
+                st.markdown("---")
+            
+            opciones_ordenes = {f"ID: {row['id']} | Factura: {row['nro_factura']} | Proveedor: {row['proveedor']} | Estado: {row['estado']}": row for _, row in df_ops_final.iterrows()}
+            
+            seleccion_op_key = st.selectbox(
+                "🔍 Selecciona una Orden de Pago para configurar sus cuentas y procesar:", 
+                options=list(opciones_ordenes.keys()),
+                index=0,
+                key="select_op_final_v2"
+            )
+            
+            if seleccion_op_key:
+                sel_data = opciones_ordenes[seleccion_op_key]
                 
                 st.markdown("---")
+                st.markdown(f"### ⚙️ Configuración y Previsualización de Asientos para la Orden #{sel_data['id']}")
+                st.info(f"Factura: **{sel_data['nro_factura']}** | Proveedor: **{sel_data['proveedor']}**")
                 
-                opciones_ordenes = {f"ID: {row['id']} | Factura: {row['nro_factura']} | Proveedor: {row['proveedor']} | Estado: {row['estado']}": row for _, row in df_ops_final.iterrows()}
-                
-                seleccion_op_key = st.selectbox(
-                    "🔍 Selecciona una Orden de Pago para configurar sus cuentas y procesar:", 
-                    options=list(opciones_ordenes.keys()),
-                    index=0,
-                    key="select_op_final_v2"
-                )
-                
-                if seleccion_op_key:
-                    sel_data = opciones_ordenes[seleccion_op_key]
+                if not lista_cuentas_detalle:
+                    st.error("❌ La lista de cuentas de detalle está vacía. Verifica que la tabla `plan_cuentas` tenga registros con `tipo = 'Detalle'` en esta base de datos.")
+                else:
+                    # --- SELECTORES DESPLEGABLES REALES ---
+                    col_sel_1, col_sel_2, col_sel_3 = st.columns(3)
                     
-                    st.markdown("---")
-                    st.markdown(f"### ⚙️ Configuración y Previsualización de Asientos para la Orden #{sel_data['id']}")
-                    st.info(f"Factura: **{sel_data['nro_factura']}** | Proveedor: **{sel_data['proveedor']}**")
+                    with col_sel_1:
+                        idx_g = 0
+                        sug_gasto = f"{sel_data['cuenta_gasto_codigo']} - {sel_data['cuenta_gasto_desc']}"
+                        if sug_gasto in lista_cuentas_detalle:
+                            idx_g = lista_cuentas_detalle.index(sug_gasto)
+                        cta_gasto_elegida = st.selectbox("Cuenta Contable de Gasto / Costo", options=lista_cuentas_detalle, index=idx_g, key=f"gasto_sel_{sel_data['id']}")
                     
-                    if not lista_cuentas_detalle:
-                        st.error("❌ La lista de cuentas de detalle está vacía. Verifica que la tabla `plan_cuentas` tenga registros con `tipo = 'Detalle'` en esta base de datos.")
-                    else:
-                        col_sel_1, col_sel_2, col_sel_3 = st.columns(3)
-                        
-                        with col_sel_1:
-                            idx_g = 0
-                            sug_gasto = f"{sel_data['cuenta_gasto_codigo']} - {sel_data['cuenta_gasto_desc']}"
-                            if sug_gasto in lista_cuentas_detalle:
-                                idx_g = lista_cuentas_detalle.index(sug_gasto)
-                            cta_gasto_elegida = st.selectbox("Cuenta Contable de Gasto / Costo", options=lista_cuentas_detalle, index=idx_g, key=f"gasto_sel_{sel_data['id']}")
-                        
-                        with col_sel_2:
-                            idx_iva = 0
-                            for i, c in enumerate(lista_cuentas_detalle):
-                                if "iva" in c.lower() or "crédito fiscal" in c.lower():
-                                    idx_iva = i
-                                    break
-                            cta_iva_elegida = st.selectbox("Cuenta Contable Crédito Fiscal IVA", options=lista_cuentas_detalle, index=idx_iva, key=f"iva_sel_{sel_data['id']}")
+                    with col_sel_2:
+                        idx_iva = 0
+                        for i, c in enumerate(lista_cuentas_detalle):
+                            if "iva" in c.lower() or "crédito fiscal" in c.lower():
+                                idx_iva = i
+                                break
+                        cta_iva_elegida = st.selectbox("Cuenta Contable Crédito Fiscal IVA", options=lista_cuentas_detalle, index=idx_iva, key=f"iva_sel_{sel_data['id']}")
 
-                        with col_sel_3:
-                            idx_banco = 0
-                            for i, c in enumerate(lista_cuentas_detalle):
-                                if "banco" in c.lower() or "binance" in c.lower():
-                                    idx_banco = i
-                                    break
-                            cta_banco_elegida = st.selectbox("Cuenta de Pago (Caja / Banco)", options=lista_cuentas_detalle, index=idx_banco, key=f"banco_sel_{sel_data['id']}")
+                    with col_sel_3:
+                        idx_banco = 0
+                        for i, c in enumerate(lista_cuentas_detalle):
+                            if "banco" in c.lower() or "binance" in c.lower():
+                                idx_banco = i
+                                break
+                        cta_banco_elegida = st.selectbox("Cuenta de Pago (Caja / Banco)", options=lista_cuentas_detalle, index=idx_banco, key=f"banco_sel_{sel_data['id']}")
 
-                        info_gasto = dict_cuentas_detalle[cta_gasto_elegida]
-                        info_iva = dict_cuentas_detalle[cta_iva_elegida]
-                        info_banco = dict_cuentas_detalle[cta_banco_elegida]
+                    # Extracción exacta seleccionada
+                    info_gasto = dict_cuentas_detalle[cta_gasto_elegida]
+                    info_iva = dict_cuentas_detalle[cta_iva_elegida]
+                    info_banco = dict_cuentas_detalle[cta_banco_elegida]
 
-                        col_f1, col_f2, col_f3 = st.columns(3)
-                        
-                        with col_f1:
-                            st.markdown("#### 1️⃣ Frame: `libro_compras`")
-                            st.code(f"""fecha_operacion: {sel_data['fecha_emision']}
+                    col_f1, col_f2, col_f3 = st.columns(3)
+                    
+                    with col_f1:
+                        st.markdown("#### 1️⃣ Frame: `libro_compras`")
+                        st.code(f"""fecha_operacion: {sel_data['fecha_emision']}
     tipo_documento: Factura
     n_factura: {sel_data['nro_factura']}
     n_control: {sel_data['nro_control']}
@@ -12718,9 +12742,9 @@ elif opcion_menu == "📝 Asientos Contables":
     iva_monto: {sel_data['monto_iva']:,.2f}
     retencion_islr: {sel_data['retencion_islr']:,.2f}""", language="yaml")
 
-                        with col_f2:
-                            st.markdown("#### 2️⃣ Frame: `asientos_contables`")
-                            st.code(f"""- n_comprobante: OP-{sel_data['nro_factura']}
+                    with col_f2:
+                        st.markdown("#### 2️⃣ Frame: `asientos_contables`")
+                        st.code(f"""- n_comprobante: OP-{sel_data['nro_factura']}
       fecha: {sel_data['fecha_emision']}
       descripcion: "Factura {sel_data['nro_factura']} - {sel_data['proveedor']}"
       asientos:
@@ -12759,9 +12783,9 @@ elif opcion_menu == "📝 Asientos Contables":
           haber: {sel_data['monto_neto']:,.2f}
           bloqueado: 0""", language="yaml")
 
-                        with col_f3:
-                            st.markdown("#### 3️⃣ Frame: `banco_movimientos`")
-                            st.code(f"""banco_nombre: {info_banco['nombre']}
+                    with col_f3:
+                        st.markdown("#### 3️⃣ Frame: `banco_movimientos`")
+                        st.code(f"""banco_nombre: {info_banco['nombre']}
     referencia: OP-{sel_data['nro_factura']}
     descripcion: Pago Factura: {sel_data['proveedor']}
     monto: {sel_data['monto_neto']:,.2f}
