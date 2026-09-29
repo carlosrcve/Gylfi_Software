@@ -12640,7 +12640,7 @@ elif opcion_menu == "📝 Asientos Contables":
                 with col_f1_3:
                     alicuota_iva_form = st.selectbox("Alícuota IVA", options=[16.0, 8.0, 31.0, 0.0], format_func=lambda x: f"{x}%", key="f1_alicuota")
                 with col_f1_4:
-                    # Mostrar valor calculado oficial si ya se ejecutó el botón
+                    # ⚡ Cálculo dinámico en tiempo real
                     val_iva_mostrar = st.session_state.res_iva if st.session_state.calc_ejecutado else (base_imponible_form * (alicuota_iva_form / 100.0))
                     monto_iva_form = st.number_input("Monto IVA (Calculado)", value=val_iva_mostrar, min_value=0.0, format="%.2f", key="f1_iva_calc")
 
@@ -12697,19 +12697,10 @@ elif opcion_menu == "📝 Asientos Contables":
 
                 # ⚡ ORDEN ESTRICTO DE CÁLCULO AL PRESIONAR EL BOTÓN
                 if btn_calcular:
-                    # 1. Calcula el IVA con base en la Base Imponible
                     st.session_state.res_iva = base_imponible_form * (alicuota_iva_form / 100.0)
-                    
-                    # 2. Calcula el Bruto sumando Base + Exento + IVA
                     st.session_state.res_bruto = base_imponible_form + monto_exento_form + st.session_state.res_iva
-                    
-                    # 3. Calcula la Retención de IVA multiplicando el IVA por el % de retención elegido
                     st.session_state.res_ret_iva = st.session_state.res_iva * (porcentaje_ret_iva / 100.0)
-                    
-                    # 4. Calcula la Retención de ISLR aplicando el % y restando el sustraendo a la Base Imponible
                     st.session_state.res_ret_islr = max(0.0, (base_imponible_form * (islr_porcentaje_form / 100.0)) - islr_sustraendo_form)
-                    
-                    # 5. Resta al Bruto ambas retenciones para obtener el Neto
                     st.session_state.res_neto = st.session_state.res_bruto - st.session_state.res_ret_islr - st.session_state.res_ret_iva
                     
                     st.session_state.calc_ejecutado = True
@@ -12774,7 +12765,6 @@ elif opcion_menu == "📝 Asientos Contables":
                                 st.rerun()
                         except Exception as err_ins:
                             st.error(f"❌ Error al guardar la orden de pago: {err_ins}")
-
             st.markdown("---")
 
             # --- HISTORIAL Y PREVISUALIZACIÓN DE ASIENTOS ABAJO ---
