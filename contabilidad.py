@@ -12730,8 +12730,6 @@ elif opcion_menu == "📝 Asientos Contables":
     descripcion: Pago Factura: {sel_data['proveedor']}
     monto: {sel_data['monto_neto']:,.2f}
     estado_conciliacion: {sel_data['estado']}""", language="yaml")
-            except Exception as ex_hist:
-                st.error(f"❌ Error al consultar el historial de órdenes de pago: {ex_hist}")
 
 
         with tab3:
