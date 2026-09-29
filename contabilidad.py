@@ -12141,7 +12141,7 @@ elif opcion_menu == "📝 Asientos Contables":
 
                         # --- FRAME 3: MOVIMIENTO BANCARIO ---
                         with col_f3:
-                            st.markdown("#### 🏦 `banco_movimientos`")
+                            st.markdown("#### 🏦 `banco_movimientos` mamaguevo")
                             
                             # Extraer datos con seguridad
                             prov_nombre = str(sel_data.get('proveedor', ''))
