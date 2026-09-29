@@ -11996,43 +11996,53 @@ elif opcion_menu == "📝 Asientos Contables":
         retencion_islr: {sel_data['retencion_islr']:,.2f}""", language="yaml")
                             
                             if st.button("💾 Guardar Libro de Compras", key=f"btn_guardar_libro_{sel_data['id']}", use_container_width=True):
-                                try:
-                                    conn_l = conectar_db(db_actual)
-                                    if conn_l:
-                                        cur_l = conn_l.cursor()
-                                        query_libro = """
-                                            INSERT INTO libro_compras (
-                                                fecha_operacion, tipo_documento, n_factura, n_control, 
-                                                proveedor, rif, tipo_transaccion, total_compras, importe_exento, 
-                                                base_imponible, iva_porcentaje, iva_monto, retencion_realizada, 
-                                                retencion_iva_realizada, monto_iva_retenido, fecha_comprobante, 
-                                                created_at, updated_at
-                                            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
-                                        """
-                                        cur_l.execute(query_libro, (
-                                            str(sel_data['fecha_emision']),
-                                            "Factura",
-                                            str(sel_data['nro_factura']),
-                                            str(sel_data['nro_control']),
-                                            str(sel_data['proveedor']),
-                                            str(sel_data['proveedor_rif']),
-                                            "Compra Interna",
-                                            float(sel_data['monto_bruto']),
-                                            float(sel_data['monto_exento']),
-                                            float(sel_data['base_imponible']),
-                                            float(sel_data['iva_porcentaje']),
-                                            float(sel_data['monto_iva']),
-                                            float(sel_data['retencion_islr']),
-                                            float(sel_data['retencion_iva']),
-                                            float(sel_data['retencion_iva']),
-                                            str(sel_data['fecha_emision'])
-                                        ))
-                                        conn_l.commit()
-                                        cur_l.close()
-                                        conn_l.close()
-                                        st.success("✅ ¡Libro de Compras guardado con éxito!")
-                                except Exception as err_l:
-                                    st.error(f"❌ Error al guardar libro de compras: {err_l}")
+                                # Depuración rápida para ver qué valores se están pasando
+                                rif_val = str(sel_data.get('proveedor_rif', '')).strip()
+                                fact_val = str(sel_data.get('nro_factura', '')).strip()
+                                
+                                if not fact_val or not rif_val or rif_val == '?' or fact_val == '?':
+                                    st.error(f"⚠️ Error de datos: El RIF ('{rif_val}') o la Factura ('{fact_val}') son inválidos o están vacíos.")
+                                else:
+                                    try:
+                                        conn_l = conectar_db(db_actual)
+                                        if conn_l:
+                                            cur_l = conn_l.cursor()
+                                            query_libro = """
+                                                INSERT INTO libro_compras (
+                                                    fecha_operacion, tipo_documento, n_factura, n_control, 
+                                                    proveedor, rif, tipo_transaccion, total_compras, importe_exento, 
+                                                    base_imponible, iva_porcentaje, iva_monto, retencion_realizada, 
+                                                    retencion_iva_realizada, monto_iva_retenido, fecha_comprobante, 
+                                                    created_at, updated_at
+                                                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
+                                            """
+                                            cur_l.execute(query_libro, (
+                                                str(sel_data['fecha_emision']),
+                                                "Factura",
+                                                fact_val,
+                                                str(sel_data['nro_control']),
+                                                str(sel_data['proveedor']),
+                                                rif_val,
+                                                "Compra Interna",
+                                                float(sel_data['monto_bruto']),
+                                                float(sel_data['monto_exento']),
+                                                float(sel_data['base_imponible']),
+                                                float(sel_data['iva_porcentaje']),
+                                                float(sel_data['monto_iva']),
+                                                float(sel_data['retencion_islr']),
+                                                float(sel_data['retencion_iva']),
+                                                float(sel_data['retencion_iva']),
+                                                str(sel_data['fecha_emision'])
+                                            ))
+                                            conn_l.commit()
+                                            cur_l.close()
+                                            conn_l.close()
+                                            st.success("✅ ¡Libro de Compras guardado con éxito!")
+                                    except Exception as err_l:
+                                        if "Duplicate entry" in str(err_l):
+                                            st.warning(f"⚠️ La factura **{fact_val}** con RIF **{rif_val}** ya se encuentra registrada en el Libro de Compras.")
+                                        else:
+                                            st.error(f"❌ Error al guardar libro de compras: {err_l}")
 
                         # --- FRAME 2: ASIENTO CONTABLE ---
                         with col_f2:
