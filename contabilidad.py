@@ -12139,11 +12139,20 @@ elif opcion_menu == "📝 Asientos Contables":
                                 except Exception as err_a:
                                     st.error(f"❌ Error al guardar asiento contable: {err_a}")
 
-                        # --- FRAME 3: MOVIMIENTO BANCARIO ---
+                       # --- FRAME 3: MOVIMIENTO BANCARIO ---
                         with col_f3:
                             st.markdown("#### 🏦 `banco_movimientos`")
+                            
+                            # Definir la descripción detallada con proveedor, RIF y factura
+                            prov_nombre = str(sel_data.get('proveedor', ''))
+                            prov_rif = str(sel_data.get('proveedor_rif', ''))
+                            nro_fact = str(sel_data.get('nro_factura', ''))
+                            
+                            desc_val = f"Pago Factura N° {nro_fact} - {prov_nombre} (RIF: {prov_rif})"
+
                             st.code(f"""banco_nombre: {info_banco['nombre']}
-        referencia: OP-{sel_data['nro_factura']}
+        referencia: OP-{nro_fact}
+        descripcion: {desc_val}
         monto: {sel_data['monto_neto']:,.2f}
         estado: {sel_data['estado']}""", language="yaml")
                             
@@ -12152,8 +12161,9 @@ elif opcion_menu == "📝 Asientos Contables":
                                     conn_b = conectar_db(db_actual)
                                     if conn_b:
                                         cur_b = conn_b.cursor()
-                                        n_comp_val = f"OP-{sel_data['nro_factura']}"
+                                        n_comp_val = f"OP-{nro_fact}"
                                         fecha_val = str(sel_data['fecha_emision'])
+                                        
                                         query_banco = """
                                             INSERT INTO banco_movimientos (
                                                 banco_nombre, cuenta_numero, fecha_movimiento, 
@@ -12165,7 +12175,7 @@ elif opcion_menu == "📝 Asientos Contables":
                                             str(info_banco['codigo']),
                                             fecha_val,
                                             n_comp_val,
-                                            f"Emisión Orden de Pago Factura {sel_data['nro_factura']} - {sel_data['proveedor']}",
+                                            desc_val,
                                             float(sel_data['monto_neto']),
                                             str(sel_data['estado'])
                                         ))
