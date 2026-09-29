@@ -12594,14 +12594,14 @@ elif opcion_menu == "📝 Asientos Contables":
             except Exception as e:
                 st.error(f"Error cargando datos de BD: {e}")
 
-            # --- FORMULARIO CON LOS 4 FRAMES SECUENCIALES DE EMISIÓN ---
-            st.markdown("### ✍️ Emitir Nueva Orden de Pago")
-            with st.form(key="form_emitir_orden_pago_4_frames"):
-                 
-                # --- INICIALIZAR ESTADOS SI NO EXISTEN ---
-                if "calc_ejecutado" not in st.session_state:
-                    st.session_state.calc_ejecutado = False
+            # --- INICIALIZAR ESTADOS ---
+            if "calc_ejecutado" not in st.session_state:
+                st.session_state.calc_ejecutado = False
 
+            # --- 4 FRAMES DE EMISIÓN DE ORDEN DE PAGO (SIN FORMULARIO RESTRICTIVO) ---
+            st.markdown("### ✍️ Emitir Nueva Orden de Pago")
+            
+            with st.container():
                 # --- 1ER FRAME: DATOS DE LA FACTURA Y CÁLCULOS DE MONTOS ---
                 st.markdown("#### 1️⃣ Frame: Datos Básicos, Proveedor y Montos de la Factura")
                 
@@ -12672,8 +12672,7 @@ elif opcion_menu == "📝 Asientos Contables":
 
                 st.markdown("---")
                 
-                # --- BOTONES VISIBLES EN EL FLUJO PRINCIPAL ---
-                # Los declaramos secuencialmente sin columnas anidadas para evitar el error de layout
+                # --- BOTONES LIBRES DE CONTEXTO (FUERA DE FORMULARIO) ---
                 btn_calcular = st.button("🧮 Calcular / Previsualizar", key="btn_calcular_principal")
                 btn_guardar_op = st.button("💾 Guardar y Registrar Orden de Pago", type="primary", key="btn_guardar_principal")
 
@@ -12683,7 +12682,6 @@ elif opcion_menu == "📝 Asientos Contables":
                     st.toast("✅ ¡Cálculos previsualizados y verificados con éxito!", icon="🧮")
                     st.rerun()
 
-                # Mensaje visual si ya calculó
                 if st.session_state.calc_ejecutado:
                     st.info(f"💡 Previsualización activa. Monto neto listo para registrar: **{monto_neto_calculado:,.2f}**")
 
@@ -12731,7 +12729,6 @@ elif opcion_menu == "📝 Asientos Contables":
                                 conn_ins.commit()
                                 cursor.close()
                                 conn_ins.close()
-                                # Limpiar estado al guardar con éxito
                                 st.session_state.calc_ejecutado = False
                                 st.success("🎉 ¡Orden de pago guardada con éxito! Recargando...")
                                 st.rerun()
