@@ -12623,11 +12623,9 @@ elif opcion_menu == "📝 Asientos Contables":
                 with col_f1_3:
                     alicuota_iva_form = st.selectbox("Alícuota IVA", options=[16.0, 8.0, 31.0, 0.0], format_func=lambda x: f"{x}%", key="f1_alicuota")
                 with col_f1_4:
-                    # 1) Base Imponible * Alícuota IVA = Monto IVA
                     calc_monto_iva = base_imponible_form * (alicuota_iva_form / 100.0)
                     monto_iva_form = st.number_input("Monto IVA (Calculado)", value=calc_monto_iva, min_value=0.0, format="%.2f", key="f1_iva_calc")
 
-                # 3) Monto Bruto / Total Factura
                 calc_monto_bruto = base_imponible_form + monto_exento_form + monto_iva_form
                 monto_bruto_form = st.number_input("Monto Bruto / Total Factura (Calculado)", value=calc_monto_bruto, min_value=0.0, format="%.2f", key="f1_bruto_calc")
                 
@@ -12671,14 +12669,10 @@ elif opcion_menu == "📝 Asientos Contables":
 
                 st.markdown("---")
                 
-                # Botones de control fuera de columnas anidadas (asignados a variables primero)
-                col_btn1, col_btn2 = st.columns(2)
-                with col_btn1:
-                    btn_calcular = st.button("🧮 Calcular / Previsualizar", use_container_width=True)
-                with col_btn2:
-                    btn_guardar_op = st.button("💾 Guardar y Registrar Orden de Pago", type="primary", use_container_width=True)
+                # Botones en el flujo principal de la página (sin columnas ni use_container_width para evitar conflictos de layout)
+                btn_calcular = st.button("🧮 Calcular / Previsualizar")
+                btn_guardar_op = st.button("💾 Guardar y Registrar Orden de Pago", type="primary")
 
-                # Lógica ejecutada fuera del bloque de columnas de los botones
                 if btn_calcular:
                     st.toast("✅ ¡Cálculos actualizados y verificados correctamente!", icon="🧮")
                     st.rerun()
