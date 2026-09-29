@@ -12592,6 +12592,78 @@ elif opcion_menu == "📝 Asientos Contables":
             except Exception as e:
                 st.error(f"Error cargando datos de BD: {e}")
 
+            # --- FORMULARIO PARA EMITIR NUEVA ORDEN DE PAGO ---
+            st.markdown("### ✍️ Emitir Nueva Orden de Pago")
+            with st.form(key="form_emitir_orden_pago"):
+                col_f_1, col_f_2 = st.columns(2)
+                with col_f_1:
+                    prov_seleccionado_form = st.selectbox("Seleccionar Proveedor", options=lista_provs if lista_provs else ["No hay proveedores"])
+                    nro_factura_form = st.text_input("Número de Factura")
+                    nro_control_form = st.text_input("Número de Control")
+                    fecha_emision_form = st.date_input("Fecha de Emisión")
+                
+                with col_f_2:
+                    monto_bruto_form = st.number_input("Monto Bruto / Total Factura", min_value=0.0, format="%.2f")
+                    base_imponible_form = st.number_input("Base Imponible", min_value=0.0, format="%.2f")
+                    monto_iva_form = st.number_input("Monto IVA", min_value=0.0, format="%.2f")
+                    retencion_islr_form = st.number_input("Retención ISLR", min_value=0.0, format="%.2f")
+                    retencion_iva_form = st.number_input("Retención IVA", min_value=0.0, format="%.2f")
+                
+                observaciones_form = st.text_area("Observaciones / Concepto")
+                
+                btn_guardar_op = st.form_submit_button("💾 Guardar y Registrar Orden de Pago")
+                
+                if btn_guardar_op:
+                    if not nro_factura_form:
+                        st.error("⚠️ El número de factura es obligatorio.")
+                    elif not lista_provs:
+                        st.error("⚠️ No hay proveedores cargados para asociar la orden.")
+                    else:
+                        try:
+                            info_prov_form = dict_provs[prov_seleccionado_form]
+                            monto_neto_calc = monto_bruto_form - retencion_islr_form - retencion_iva_form
+                            
+                            conn_ins = conectar_db(db_actual)
+                            if conn_ins:
+                                cursor = conn_ins.cursor()
+                                query_insert = """
+                                    INSERT INTO ordenes_pago (
+                                        empresa_db, proveedor_id, nro_factura, nro_control, 
+                                        monto_bruto, monto_exento, base_imponible, iva_porcentaje, monto_iva, 
+                                        retencion_islr, retencion_iva, monto_neto, estado, fecha_emision, 
+                                        observaciones, islr_porcentaje, islr_sustraendo, tipo_persona
+                                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                """
+                                cursor.execute(query_insert, (
+                                    str(db_actual),
+                                    str(info_prov_form['id_interno']),
+                                    str(nro_factura_form),
+                                    str(nro_control_form),
+                                    float(monto_bruto_form),
+                                    0.00,
+                                    float(base_imponible_form),
+                                    16.00,
+                                    float(monto_iva_form),
+                                    float(retencion_islr_form),
+                                    float(retencion_iva_form),
+                                    float(monto_neto_calc),
+                                    'Pendiente',
+                                    str(fecha_emision_form),
+                                    str(observaciones_form),
+                                    0.00,
+                                    0.00,
+                                    'Jurídico'
+                                ))
+                                conn_ins.commit()
+                                cursor.close()
+                                conn_ins.close()
+                                st.success("🎉 ¡Orden de pago guardada con éxito en la base de datos! Recarga para verla en el historial.")
+                                st.rerun()
+                        except Exception as err_ins:
+                            st.error(f"❌ Error al guardar la orden de pago: {err_ins}")
+
+            st.markdown("---")
+
             # --- HISTORIAL Y PREVISUALIZACIÓN DE ÓRDENES ---
             st.markdown("### 📊 Historial y Previsualización de Órdenes de Pago")
             
@@ -12604,13 +12676,11 @@ elif opcion_menu == "📝 Asientos Contables":
             except Exception as err_sql:
                 st.error(f"❌ Error consultando la base de datos: {err_sql}")
 
-            # Si la tabla está vacía, creamos una orden de ejemplo temporal en memoria para que VEAS LOS FRAMES DE YAML DE INMEDIATO
             usando_datos_ejemplo = False
             if df_ops is None or df_ops.empty:
                 usando_datos_ejemplo = True
                 import pandas as pd
                 prov_ejemplo_rif = list(dict_provs.values())[0]['rif'] if dict_provs else "J-00000000-0"
-                prov_ejemplo_nombre = list(dict_provs.keys())[0] if lista_provs else "Proveedor de Ejemplo C.A."
                 
                 df_ops = pd.DataFrame([{
                     'id': 0,
@@ -12632,9 +12702,8 @@ elif opcion_menu == "📝 Asientos Contables":
                     'islr_sustraendo': 0.00,
                     'tipo_persona': 'Jurídico'
                 }])
-                st.info("💡 **Modo Previsualización Activo**: La tabla `ordenes_pago` está vacía, por lo que se muestra una estructura de ejemplo para que verifiques los frames YAML. Al registrar tu primera orden real arriba, aparecerá aquí automáticamente.")
+                st.info("💡 **Modo Previsualización Activo**: La tabla `ordenes_pago` está vacía. Abajo ves una estructura de ejemplo; al registrar tu primera orden real arriba, aparecerá aquí automáticamente.")
 
-            # Procesamiento de registros para la UI
             lista_ops_procesadas = []
             for _, r_op in df_ops.iterrows():
                 prov_encontrado = None
@@ -12696,7 +12765,6 @@ elif opcion_menu == "📝 Asientos Contables":
                 if not lista_cuentas_detalle:
                     st.error("❌ La lista de cuentas de detalle está vacía. Verifica que la tabla `plan_cuentas` tenga registros con `tipo = 'Detalle'` en esta base de datos.")
                 else:
-                    # --- SELECTORES DESPLEGABLES REALES ---
                     col_sel_1, col_sel_2, col_sel_3 = st.columns(3)
                     
                     with col_sel_1:
@@ -12722,7 +12790,6 @@ elif opcion_menu == "📝 Asientos Contables":
                                 break
                         cta_banco_elegida = st.selectbox("Cuenta de Pago (Caja / Banco)", options=lista_cuentas_detalle, index=idx_banco, key=f"banco_sel_{sel_data['id']}")
 
-                    # Extracción exacta seleccionada
                     info_gasto = dict_cuentas_detalle[cta_gasto_elegida]
                     info_iva = dict_cuentas_detalle[cta_iva_elegida]
                     info_banco = dict_cuentas_detalle[cta_banco_elegida]
