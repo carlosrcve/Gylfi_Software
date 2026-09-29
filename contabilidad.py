@@ -12620,7 +12620,7 @@ elif opcion_menu == "📝 Asientos Contables":
                 with col_f2_3:
                     monto_iva_form = st.number_input("Monto IVA (16%)", min_value=0.0, format="%.2f", key="f2_iva")
                 
-                retencion_iva_form = st.number_input("Monto Retención IVA (ej. 75% o 100%)", min_value=0.0, format="%.2f", key="f2_ret_iva")
+                retencion_iva_form = st.number_input("Monto Retención IVA", min_value=0.0, format="%.2f", key="f2_ret_iva")
 
                 st.markdown("---")
 
@@ -12638,9 +12638,17 @@ elif opcion_menu == "📝 Asientos Contables":
 
                 st.markdown("---")
 
-                # --- 4TO FRAME: PAGO NETO Y REGISTRO ---
-                st.markdown("#### 4️⃣ Frame: Resumen y Registro del Pago Neto")
-                observaciones_form = st.text_area("Observaciones / Concepto del Pago", key="f4_obs")
+                # --- 4TO FRAME: CÁLCULO DEL MONTO NETO A PAGAR Y REGISTRO ---
+                st.markdown("#### 4️⃣ Frame: Cálculo del Monto Neto a Pagar (Bruto - Ret. ISLR - Ret. IVA)")
+                
+                # Cálculo en vivo dentro del formulario
+                monto_neto_calculado = monto_bruto_form - retencion_islr_form - retencion_iva_form
+                
+                col_f4_1, col_f4_2 = st.columns(2)
+                with col_f4_1:
+                    st.metric(label="💵 Monto Neto a Pagar", value=f"{monto_neto_calculado:,.2f}")
+                with col_f4_2:
+                    observaciones_form = st.text_area("Observaciones / Concepto del Pago", key="f4_obs")
                 
                 btn_guardar_op = st.form_submit_button("💾 Guardar y Registrar Orden de Pago")
                 
@@ -12652,7 +12660,6 @@ elif opcion_menu == "📝 Asientos Contables":
                     else:
                         try:
                             info_prov_form = dict_provs[prov_seleccionado_form]
-                            monto_neto_calc = monto_bruto_form - retencion_islr_form - retencion_iva_form
                             
                             conn_ins = conectar_db(db_actual)
                             if conn_ins:
@@ -12677,7 +12684,7 @@ elif opcion_menu == "📝 Asientos Contables":
                                     float(monto_iva_form),
                                     float(retencion_islr_form),
                                     float(retencion_iva_form),
-                                    float(monto_neto_calc),
+                                    float(monto_neto_calculado),
                                     'Pendiente',
                                     str(fecha_emision_form),
                                     str(observaciones_form),
