@@ -12624,13 +12624,17 @@ elif opcion_menu == "📝 Asientos Contables":
 
                 st.markdown("---")
 
-                # --- 3ER FRAME: RETENCIÓN DE ISLR ---
+                # --- 3ER FRAME: RETENCIÓN DE ISLR (CON PORCENTAJE Y SUSTRAENDO) ---
                 st.markdown("#### 3️⃣ Frame: Retención de ISLR")
-                col_f3_1, col_f3_2 = st.columns(2)
+                col_f3_1, col_f3_2, col_f3_3, col_f3_4 = st.columns(4)
                 with col_f3_1:
-                    retencion_islr_form = st.number_input("Monto Retención ISLR", min_value=0.0, format="%.2f", key="f3_ret_islr")
+                    tipo_persona_form = st.selectbox("Tipo de Persona", options=["Jurídico Domiciliado", "Natural Residenciado", "Otro"], key="f3_tipo_p")
                 with col_f3_2:
-                    tipo_persona_form = st.selectbox("Tipo de Persona / Tarifa ISLR", options=["Jurídico Domiciliado (1%)", "Natural No Residenciado", "Otro"], key="f3_tipo_p")
+                    islr_porcentaje_form = st.number_input("% Retención ISLR", min_value=0.0, max_value=100.0, value=1.0, format="%.2f", key="f3_porc_islr")
+                with col_f3_3:
+                    islr_sustraendo_form = st.number_input("Sustraendo ISLR", min_value=0.0, format="%.2f", key="f3_sustraendo")
+                with col_f3_4:
+                    retencion_islr_form = st.number_input("Monto Retención ISLR Final", min_value=0.0, format="%.2f", key="f3_ret_islr")
 
                 st.markdown("---")
 
@@ -12677,8 +12681,8 @@ elif opcion_menu == "📝 Asientos Contables":
                                     'Pendiente',
                                     str(fecha_emision_form),
                                     str(observaciones_form),
-                                    0.00,
-                                    0.00,
+                                    float(islr_porcentaje_form),
+                                    float(islr_sustraendo_form),
                                     str(tipo_persona_form)
                                 ))
                                 conn_ins.commit()
