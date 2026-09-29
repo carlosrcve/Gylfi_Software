@@ -12619,7 +12619,7 @@ elif opcion_menu == "📝 Asientos Contables":
                     nro_control_form = st.text_input("Número de Control")
                 with col_f1_2:
                     fecha_emision_form = st.date_input("Fecha de Emisión")
-                    base_imponible_form = st.number_input("Base Imponible (Ingreso Manual)", min_value=0.0, format="%.2f", key="f1_base")
+                    base_imponible_form = st.number_input("Base Imponible", min_value=0.0, format="%.2f", key="f1_base")
                     monto_exento_form = st.number_input("Monto Exento", min_value=0.0, format="%.2f", key="f1_exento")
 
                 col_f1_3, col_f1_4 = st.columns(2)
