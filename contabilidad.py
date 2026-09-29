@@ -12139,18 +12139,19 @@ elif opcion_menu == "📝 Asientos Contables":
                                 except Exception as err_a:
                                     st.error(f"❌ Error al guardar asiento contable: {err_a}")
 
-                       # --- FRAME 3: MOVIMIENTO BANCARIO ---
+                        # --- FRAME 3: MOVIMIENTO BANCARIO ---
                         with col_f3:
                             st.markdown("#### 🏦 `banco_movimientos`")
                             
-                            # Definir la descripción detallada con proveedor, RIF y factura
+                            # Extraer datos con seguridad
                             prov_nombre = str(sel_data.get('proveedor', ''))
                             prov_rif = str(sel_data.get('proveedor_rif', ''))
                             nro_fact = str(sel_data.get('nro_factura', ''))
                             
+                            # Construir la descripción detallada
                             desc_val = f"Pago Factura N° {nro_fact} - {prov_nombre} (RIF: {prov_rif})"
 
-                            # Añadido 'descripcion' para que se visualice correctamente en el bloque
+                            # Bloque visual actualizado con la descripción incluida
                             st.code(f"""banco_nombre: {info_banco['nombre']}
         referencia: OP-{nro_fact}
         descripcion: {desc_val}
