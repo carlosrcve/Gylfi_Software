@@ -12669,14 +12669,9 @@ elif opcion_menu == "📝 Asientos Contables":
 
                 st.markdown("---")
                 
-                # Contenedor limpio para los botones de acción para asegurar el layout correcto
-                cont_botones = st.container()
-                with cont_botones:
-                    col_btn1, col_btn2 = st.columns(2)
-                    with col_btn1:
-                        btn_calcular = st.button("🧮 Calcular / Previsualizar", key="btn_calc_f_unico")
-                    with col_btn2:
-                        btn_guardar_op = st.button("💾 Guardar y Registrar Orden de Pago", type="primary", key="btn_save_f_unico")
+                # --- BOTONES LIBRES DE COLUMNAS (CERO CONTEXTO DE LAYOUT ROTO) ---
+                btn_calcular = st.button("🧮 Calcular / Previsualizar", key="btn_calc_f_unico")
+                btn_guardar_op = st.button("💾 Guardar y Registrar Orden de Pago", type="primary", key="btn_save_f_unico")
 
                 # Evaluación lógica de las variables de los botones
                 if btn_calcular:
