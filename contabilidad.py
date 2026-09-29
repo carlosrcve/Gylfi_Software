@@ -11739,24 +11739,21 @@ elif opcion_menu == "📝 Asientos Contables":
             # --- INICIALIZAR ESTADOS ---
             if "calc_ejecutado" not in st.session_state:
                 st.session_state.calc_ejecutado = False
+            if "res_iva" not in st.session_state:
+                st.session_state.res_iva = 0.0
+            if "res_bruto" not in st.session_state:
+                st.session_state.res_bruto = 0.0
+            if "res_ret_iva" not in st.session_state:
+                st.session_state.res_ret_iva = 0.0
+            if "res_ret_islr" not in st.session_state:
+                st.session_state.res_ret_islr = 0.0
+            if "res_neto" not in st.session_state:
+                st.session_state.res_neto = 0.0
 
             # --- 4 FRAMES DE EMISIÓN DE ORDEN DE PAGO (SIN FORMULARIO RESTRICTIVO) ---
             st.markdown("### ✍️ Emitir Nueva Orden de Pago")
             
             with st.container():
-                if "calc_ejecutado" not in st.session_state:
-                    st.session_state.calc_ejecutado = False
-                if "res_iva" not in st.session_state:
-                    st.session_state.res_iva = 0.0
-                if "res_bruto" not in st.session_state:
-                    st.session_state.res_bruto = 0.0
-                if "res_ret_iva" not in st.session_state:
-                    st.session_state.res_ret_iva = 0.0
-                if "res_ret_islr" not in st.session_state:
-                    st.session_state.res_ret_islr = 0.0
-                if "res_neto" not in st.session_state:
-                    st.session_state.res_neto = 0.0
-
                 # --- 1ER FRAME: DATOS DE LA FACTURA Y MONTOS ---
                 st.markdown("#### 1️⃣ Frame: Datos Básicos, Proveedor y Montos de la Factura")
                 
@@ -11885,7 +11882,7 @@ elif opcion_menu == "📝 Asientos Contables":
                                 st.rerun()
                         except Exception as err_ins:
                             st.error(f"❌ Error al guardar la orden de pago: {err_ins}")
-                st.markdown("---")
+            st.markdown("---")
 
             # --- HISTORIAL Y PREVISUALIZACIÓN DE ASIENTOS ABAJO ---
             st.markdown("### 📊 Historial de Órdenes de Pago y Previsualización YAML")
@@ -11996,13 +11993,11 @@ elif opcion_menu == "📝 Asientos Contables":
         retencion_islr: {sel_data['retencion_islr']:,.2f}""", language="yaml")
                             
                             if st.button("💾 Guardar Libro de Compras", key=f"btn_guardar_libro_{sel_data['id']}", use_container_width=True):
-                                # Limpiar y asegurar que no estén vacíos
                                 rif_val = str(sel_data.get('proveedor_rif', '')).strip()
                                 fact_val = str(sel_data.get('nro_factura', '')).strip()
                                 ctrl_val = str(sel_data.get('nro_control', '')).strip()
                                 prov_val = str(sel_data.get('proveedor', '')).strip()
                                 
-                                # Validación rigurosa para evitar que se envíen vacíos o nulos que causen el error '?'
                                 if not fact_val or fact_val in ['None', 'N/A', '?', '']:
                                     st.error("⚠️ Error: El número de factura está vacío o es inválido en esta Orden de Pago.")
                                 elif not rif_val or rif_val in ['None', 'N/A', '?', '']:
@@ -12013,7 +12008,6 @@ elif opcion_menu == "📝 Asientos Contables":
                                         if conn_l:
                                             cur_l = conn_l.cursor()
                                             
-                                            # Consultar explícitamente para ver si ya existe el registro exacto
                                             cur_l.execute(
                                                 "SELECT id FROM libro_compras WHERE n_factura = %s AND rif = %s", 
                                                 (fact_val, rif_val)
@@ -12025,26 +12019,11 @@ elif opcion_menu == "📝 Asientos Contables":
                                             else:
                                                 query_libro = """
                                                     INSERT INTO libro_compras (
-                                                        fecha_operacion, 
-                                                        tipo_documento, 
-                                                        n_factura, 
-                                                        n_control, 
-                                                        n_factura_afectada, 
-                                                        proveedor, 
-                                                        rif, 
-                                                        tipo_transaccion, 
-                                                        total_compras, 
-                                                        importe_exento, 
-                                                        base_imponible, 
-                                                        iva_porcentaje, 
-                                                        iva_monto, 
-                                                        etencion_realizada, 
-                                                        retencion_iva_realizada, 
-                                                        n_comprobante_retencion, 
-                                                        monto_iva_retenido, 
-                                                        fecha_comprobante, 
-                                                        created_at, 
-                                                        updated_at
+                                                        fecha_operacion, tipo_documento, n_factura, n_control, 
+                                                        n_factura_afectada, proveedor, rif, tipo_transaccion, 
+                                                        total_compras, importe_exento, base_imponible, iva_porcentaje, 
+                                                        iva_monto, retencion_islr, retencion_iva, n_comprobante_retencion, 
+                                                        monto_iva_retenido, fecha_comprobante, created_at, updated_at
                                                     ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
                                                 """
                                                 
@@ -12141,17 +12120,14 @@ elif opcion_menu == "📝 Asientos Contables":
 
                         # --- FRAME 3: MOVIMIENTO BANCARIO ---
                         with col_f3:
-                            st.markdown("#### 🏦 `banco_movimientos mamaguevo`")
+                            st.markdown("#### 🏦 Movimiento Bancario")
                             
-                            # Extraer datos con seguridad
                             prov_nombre = str(sel_data.get('proveedor', ''))
                             prov_rif = str(sel_data.get('proveedor_rif', ''))
                             nro_fact = str(sel_data.get('nro_factura', ''))
                             
-                            # Construir la descripción detallada
                             desc_val = f"Pago Factura N° {nro_fact} - {prov_nombre} (RIF: {prov_rif})"
 
-                            # Bloque visual actualizado con la descripción incluida
                             st.code(f"""banco_nombre: {info_banco['nombre']}
         referencia: OP-{nro_fact}
         descripcion: {desc_val}
@@ -12187,9 +12163,8 @@ elif opcion_menu == "📝 Asientos Contables":
                                         st.success("✅ ¡Movimiento Bancario guardado con éxito!")
                                 except Exception as err_b:
                                     st.error(f"❌ Error al guardar movimiento bancario: {err_b}")
-
-            except Exception as err_hist:
-                st.error(f"Error cargando historial de órdenes de pago: {err_hist}")
+            except Exception as err_general:
+                st.error(f"Error procesando el historial de órdenes: {err_general}")
     
         with tab3:
             st.subheader("📂 Estado de Cuenta Bancario")
