@@ -13216,6 +13216,56 @@ estado: {sel_data['estado']}""", language="yaml")
                         )
                     else:
                         st.info("ℹ️ Aún no hay pagos conciliados registrados en el historial.")
+
+                    # --- 3. REPORTE DE MOVIMIENTOS BANCARIOS (NUEVO) ---
+                    st.divider()
+                    st.markdown("### 🏦 Reporte de Movimientos Bancarios (Filtro por Fechas)")
+                    st.markdown("Consulta y descarga el histórico de movimientos bancarios registrados en la base de datos aplicando un filtro por rango de fechas.")
+
+                    # Filtros de fecha en columnas
+                    col_fec1, col_fec2 = st.columns(2)
+                    with col_fec1:
+                        fecha_desde = st.date_input("Fecha Desde", key="banco_fecha_desde")
+                    with col_fec2:
+                        fecha_hasta = st.date_input("Fecha Hasta", key="banco_fecha_hasta")
+
+                    try:
+                        conn_banco_rep = conectar_db(db_actual)
+                        if conn_banco_rep:
+                            query_banco_movs = """
+                                SELECT id, banco_nombre, cuenta_numero, fecha_movimiento, 
+                                       referencia, descripcion, monto, estado_conciliacion, 
+                                       asiento_id, fecha_importacion
+                                FROM banco_movimientos
+                                WHERE fecha_movimiento BETWEEN %s AND %s
+                                ORDER BY fecha_movimiento DESC
+                            """
+                            df_banco_movs = ejecutar_consulta(query_banco_movs, conn_banco_rep, params=(str(fecha_desde), str(fecha_hasta)))
+                            conn_banco_rep.close()
+
+                            if df_banco_movs is not None and not df_banco_movs.empty:
+                                st.markdown(f"📊 Se encontraron **{len(df_banco_movs)}** movimiento(s) en el rango seleccionado.")
+                                st.dataframe(df_banco_movs, use_container_width=True, hide_index=True)
+
+                                # --- CONVERSIÓN A EXCEL (.xlsx) DE MOVIMIENTOS BANCARIOS ---
+                                import io
+                                output_excel_banco = io.BytesIO()
+                                with pd.ExcelWriter(output_excel_banco, engine='openpyxl') as writer:
+                                    df_banco_movs.to_excel(writer, index=False, sheet_name='Movimientos Bancarios')
+                                excel_data_banco = output_excel_banco.getvalue()
+
+                                st.download_button(
+                                    label="📥 Descargar Reporte de Movimientos Bancarios (Excel)",
+                                    data=excel_data_banco,
+                                    file_name=f"reporte_banco_movimientos_{db_actual}_{fecha_desde}_al_{fecha_hasta}.xlsx",
+                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                    key="btn_down_banco_excel"
+                                )
+                            else:
+                                st.info("ℹ️ No se encontraron movimientos bancarios registrados para el rango de fechas seleccionado.")
+                    except Exception as err_bm:
+                        st.error(f"❌ Error al consultar la tabla banco_movimientos: {err_bm}")
+
             except Exception as e:
                 st.error(f"Error en el módulo de conciliación: {e}")
 
