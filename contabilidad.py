@@ -13033,7 +13033,43 @@ estado: {sel_data['estado']}""", language="yaml")
                                 except Exception as err_a:
                                     st.error(f"❌ Error al guardar asiento contable: {err_a}")
 
-                        
+                        # --- FRAME 3: MOVIMIENTO BANCARIO ---
+                        with col_f3:
+                            st.markdown("#### 🏦 `banco_movimientos`")
+                            st.code(f"""banco_nombre: {info_banco['nombre']}
+        referencia: OP-{sel_data['nro_factura']}
+        monto: {sel_data['monto_neto']:,.2f}
+        monto: {sel_data['monto_neto']:,.2f}
+        estado: {sel_data['estado']}""", language="yaml")
+                            
+                            if st.button("💾 Guardar Movimiento Bancario", key=f"btn_guardar_banco_{sel_data['id']}", use_container_width=True):
+                                try:
+                                    conn_b = conectar_db(db_actual)
+                                    if conn_b:
+                                        cur_b = conn_b.cursor()
+                                        n_comp_val = f"OP-{sel_data['nro_factura']}"
+                                        fecha_val = str(sel_data['fecha_emision'])
+                                        query_banco = """
+                                            INSERT INTO banco_movimientos (
+                                                banco_nombre, cuenta_numero, fecha_movimiento, 
+                                                referencia, descripcion, monto, estado_conciliacion, fecha_importacion
+                                            ) VALUES (%s, %s, %s, %s, %s, %s, %s, NOW())
+                                        """
+                                        cur_b.execute(query_banco, (
+                                            str(info_banco['nombre']),
+                                            str(info_banco['codigo']),
+                                            fecha_val,
+                                            n_comp_val,
+                                            f"Emisión Orden de Pago Factura {sel_data['nro_factura']} - {sel_data['proveedor']}",
+                                            float(sel_data['monto_neto']),
+                                            str(sel_data['estado'])
+                                        ))
+                                        conn_b.commit()
+                                        cur_b.close()
+                                        conn_b.close()
+                                        st.success("✅ ¡Movimiento Bancario guardado con éxito!")
+                                except Exception as err_b:
+                                    st.error(f"❌ Error al guardar movimiento bancario: {err_b}")
 
             except Exception as err_hist:
                 st.error(f"Error cargando historial de órdenes de pago: {err_hist}")
