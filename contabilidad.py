@@ -11444,18 +11444,21 @@ elif opcion_menu == "📝 Asientos Contables":
                 if accion_diario == "🔍 Consultar y Modificar Asientos":
                     st.subheader("Consulta de Asientos Contables")
                     
+                    # Único selector de filtro para toda la sección
                     tipo_filtro = st.radio(
                         "Filtrar asientos contables por:",
                         ["📅 Rango de Fechas", "🔢 Número de Comprobante"],
-                        horizontal=True
+                        horizontal=True,
+                        key="filtro_consulta_asientos"
                     )
                     
+                    # --- FILTRO 1: RANGO DE FECHAS ---
                     if tipo_filtro == "📅 Rango de Fechas":
                         col_f1, col_f2 = st.columns(2)
                         with col_f1:
-                            fecha_desde = st.date_input("Fecha Desde")
+                            fecha_desde = st.date_input("Fecha Desde", key="rf_desde")
                         with col_f2:
-                            fecha_hasta = st.date_input("Fecha Hasta")
+                            fecha_hasta = st.date_input("Fecha Hasta", key="rf_hasta")
                             
                         conn_rf = conectar_db(db_nombre)
                         try:
@@ -11481,13 +11484,14 @@ elif opcion_menu == "📝 Asientos Contables":
                         else:
                             st.info("No se encontraron asientos contables en el rango de fechas especificado.")
 
+                    # --- FILTRO 2: NÚMERO DE COMPROBANTE ---
                     elif tipo_filtro == "🔢 Número de Comprobante":
                         st.markdown("##### Seleccione el rango de fechas para buscar los comprobantes:")
                         col_d1, col_d2 = st.columns(2)
                         with col_d1:
-                            fec_inicio = st.date_input("Fecha Desde (para buscar comprobante)")
+                            fec_inicio = st.date_input("Fecha Desde (para buscar comprobante)", key="nc_desde")
                         with col_d2:
-                            fec_fin = st.date_input("Fecha Hasta (para buscar comprobante)")
+                            fec_fin = st.date_input("Fecha Hasta (para buscar comprobante)", key="nc_hasta")
 
                         conn_fec = conectar_db(db_nombre)
                         try:
@@ -11501,7 +11505,7 @@ elif opcion_menu == "📝 Asientos Contables":
 
                         if not df_compps.empty:
                             lista_comprobantes = df_compps['n_comprobante'].tolist()
-                            comp_seleccionado = st.selectbox("Seleccione el Número de Comprobante:", lista_comprobantes)
+                            comp_seleccionado = st.selectbox("Seleccione el Número de Comprobante:", lista_comprobantes, key="select_n_comp_exacto")
                             
                             if comp_seleccionado:
                                 conn_det = conectar_db(db_nombre)
