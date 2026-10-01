@@ -11326,111 +11326,242 @@ elif opcion_menu == "📝 Asientos Contables":
                 return output.getvalue()
 
             with tab1:
-                # --- 1. Selector de modo de búsqueda ---
-                modo_busqueda = st.radio(
-                    "Filtrar asientos contables por:", 
-                    ["📅 Rango de Fechas", "🔢 Número de Comprobante"], 
-                    horizontal=True
+                # --- Sub-navegación para las acciones del libro diario ---
+                accion_diario = st.selectbox(
+                    "Seleccione la operación a realizar:",
+                    ["🔍 Consultar y Modificar Asientos", "➕ Agregar Nuevo Asiento", "🗑️ Eliminar Comprobante Contable"],
+                    key="select_accion_diario"
                 )
-
-                conn_temp = conectar_db(db_nombre)
-                df_diario = None
-
-                try:
-                    if modo_busqueda == "📅 Rango de Fechas":
-                        col1, col2 = st.columns(2)
-                        with col1:
-                            f_inicio = st.date_input("Fecha Inicio") 
-                        with col2:
-                            f_fin = st.date_input("Fecha Fin")
-                        
-                        df_diario = consultar_libro_diario_db(conn_activa=conn_temp, fecha_inicio=f_inicio, fecha_fin=f_fin)
-                    else:
-                        # Búsqueda específica por Número de Comprobante
-                        n_comp_buscado = st.text_input("Ingrese el Número de Comprobante exacto (ej. 1, 2, etc.):")
-                        if n_comp_buscado:
-                            # Consulta filtrada por n_comprobante en la tabla asientos_contables
-                            query = f"SELECT * FROM asientos_contables WHERE n_comprobante = '{n_comp_buscado}'"
-                            import pandas as pd
-                            df_diario = pd.read_sql(query, conn_temp)
-                except Exception as e:
-                    st.error(f"❌ Error al consultar los registros: {e}")
-                    df_diario = None
-                finally:
-                    if conn_temp:
-                        conn_temp.close()
                 
-                # --- 3. Visualización y Edición ---
-                if df_diario is not None and not df_diario.empty:
-                    # Normalización de columnas a minúsculas para evitar errores de coincidencia
-                    df_diario.columns = [c.lower() for c in df_diario.columns]
-                    
-                    st.info(f"Mostrando {len(df_diario)} registros para editar.")
+                st.divider()
 
-                    # Editor interactivo con formato numérico aplicado en 'debe' y 'haber'
-                    df_editado = st.data_editor(
-                        df_diario, 
-                        width='stretch', 
-                        hide_index=True,
-                        key="editor_diario",
-                        column_config={
-                            "debe": st.column_config.NumberColumn(
-                                "Debe",
-                                format="%,.2f",  # Aplica comas para miles y punto para decimales en la interfaz del editor
-                                help="Monto del debe"
-                            ),
-                            "haber": st.column_config.NumberColumn(
-                                "Haber",
-                                format="%,.2f",  # Aplica comas para miles y punto para decimales en la interfaz del editor
-                                help="Monto del haber"
-                            )
-                        }
+                # ==========================================
+                # OPCIÓN 1: CONSULTAR Y MODIFICAR
+                # ==========================================
+                if accion_diario == "🔍 Consultar y Modificar Asientos":
+                    modo_busqueda = st.radio(
+                        "Filtrar asientos contables por:", 
+                        ["📅 Rango de Fechas", "🔢 Número de Comprobante"], 
+                        horizontal=True,
+                        key="radio_modo_busqueda"
                     )
 
-                    # 2. Botón de Guardar Directo
-                    if st.button("💾 Guardar Cambios"):
-                        try:
-                            exito = actualizar_libro_diario_en_db(db_nombre, df_editado)
-                            if exito:
-                                st.success("¡Registros actualizados correctamente en la base de datos!")
-                                st.rerun()
-                            else:
-                                st.error("Error al guardar en la base de datos.")
-                        except Exception as e:
-                            st.error(f"Error técnico: {str(e)}")
+                    conn_temp = conectar_db(db_nombre)
+                    df_diario = None
+
+                    try:
+                        if modo_busqueda == "📅 Rango de Fechas":
+                            col1, col2 = st.columns(2)
+                            with col1:
+                                f_inicio = st.date_input("Fecha Inicio", key="f_inicio_mod") 
+                            with col2:
+                                f_fin = st.date_input("Fecha Fin", key="f_fin_mod")
+                            
+                            df_diario = consultar_libro_diario_db(conn_activa=conn_temp, fecha_inicio=f_inicio, fecha_fin=f_fin)
+                        else:
+                            n_comp_buscado = st.text_input("Ingrese el Número de Comprobante exacto (ej. 1, 2, etc.):", key="input_comp_mod")
+                            if n_comp_buscado:
+                                query = f"SELECT * FROM asientos_contables WHERE n_comprobante = '{n_comp_buscado}'"
+                                import pandas as pd
+                                df_diario = pd.read_sql(query, conn_temp)
+                    except Exception as e:
+                        st.error(f"❌ Error al consultar los registros: {e}")
+                        df_diario = None
+                    finally:
+                        if conn_temp:
+                            conn_temp.close()
                     
-                    # 3. Descarga y Totales
-                    excel_data = exportar_a_excel(df_editado)
-                    
-                    # Definir nombre de archivo seguro según el modo
-                    nombre_archivo = f"Asiento_Comprobante_{n_comp_buscado}.xlsx" if modo_busqueda == "🔢 Número de Comprobante" and 'n_comp_buscado' in locals() and n_comp_buscado else f"Libro_Diario.xlsx"
-                    
-                    st.download_button(
-                        label="📥 Descargar Datos Visualizados",
-                        data=excel_data,
-                        file_name=nombre_archivo,
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                    )
-                    
-                    t_debe = df_editado['debe'].sum()
-                    t_haber = df_editado['haber'].sum()
-                    
-                    st.divider()
-                    c1, c2, c3 = st.columns(3)
-                    c1.metric("TOTAL DEBE", formato_contable(t_debe))
-                    c2.metric("TOTAL HABER", formato_contable(t_haber))
-                    
-                    dif = abs(t_debe - t_haber)
-                    if dif < 0.01:
-                        c3.success("✅ DIARIO CUADRADO")
-                    else:
-                        c3.error(f"❌ DESCUADRE: {formato_contable(t_debe - t_haber)}")
+                    if df_diario is not None and not df_diario.empty:
+                        df_diario.columns = [c.lower() for c in df_diario.columns]
+                        st.info(f"Mostrando {len(df_diario)} registros para editar.")
+
+                        df_editado = st.data_editor(
+                            df_diario, 
+                            width='stretch', 
+                            hide_index=True,
+                            key="editor_diario",
+                            column_config={
+                                "debe": st.column_config.NumberColumn(
+                                    "Debe",
+                                    format="%,.2f",
+                                    help="Monto del debe"
+                                ),
+                                "haber": st.column_config.NumberColumn(
+                                    "Haber",
+                                    format="%,.2f",
+                                    help="Monto del haber"
+                                )
+                            }
+                        )
+
+                        if st.button("💾 Guardar Cambios", key="btn_guardar_cambios"):
+                            try:
+                                exito = actualizar_libro_diario_en_db(db_nombre, df_editado)
+                                if exito:
+                                    st.success("¡Registros actualizados correctamente en la base de datos!")
+                                    st.rerun()
+                                else:
+                                    st.error("Error al guardar en la base de datos.")
+                            except Exception as e:
+                                st.error(f"Error técnico: {str(e)}")
                         
-                else:
-                    if modo_busqueda == "🔢 Número de Comprobante":
-                        st.info("Ingrese un número de comprobante válido para cargar sus líneas contables.")
+                        excel_data = exportar_a_excel(df_editado)
+                        nombre_archivo = f"Asiento_Comprobante_{n_comp_buscado}.xlsx" if modo_busqueda == "🔢 Número de Comprobante" and 'n_comp_buscado' in locals() and n_comp_buscado else "Libro_Diario.xlsx"
+                        
+                        st.download_button(
+                            label="📥 Descargar Datos Visualizados",
+                            data=excel_data,
+                            file_name=nombre_archivo,
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                        )
+                        
+                        t_debe = df_editado['debe'].sum()
+                        t_haber = df_editado['haber'].sum()
+                        
+                        st.divider()
+                        c1, c2, c3 = st.columns(3)
+                        c1.metric("TOTAL DEBE", formato_contable(t_debe))
+                        c2.metric("TOTAL HABER", formato_contable(t_haber))
+                        
+                        dif = abs(t_debe - t_haber)
+                        if dif < 0.01:
+                            c3.success("✅ DIARIO CUADRADO")
+                        else:
+                            c3.error(f"❌ DESCUADRE: {formato_contable(t_debe - t_haber)}")
                     else:
-                        st.info("No hay asientos registrados para este rango de fechas.")
+                        if modo_busqueda == "🔢 Número de Comprobante":
+                            st.info("Ingrese un número de comprobante válido para cargar sus líneas contables.")
+                        else:
+                            st.info("No hay asientos registrados para este rango de fechas.")
+
+                # ==========================================
+                # OPCIÓN 2: AGREGAR NUEVO ASIENTO
+                # ==========================================
+                elif accion_diario == "➕ Agregar Nuevo Asiento":
+                    st.subheader("Registro de Nuevo Comprobante Contable")
+                    
+                    with st.form("form_nuevo_asiento"):
+                        col_f1, col_f2 = st.columns(2)
+                        with col_f1:
+                            nuevo_n_comp = st.text_input("Número de Comprobante")
+                        with col_f2:
+                            nuevo_fecha = st.date_input("Fecha del Asiento")
+                            
+                        nuevo_desc = st.text_input("Descripción general del Asiento")
+                        
+                        st.markdown("### Líneas del Comprobante")
+                        st.info("Agregue las filas correspondientes al Debe y Haber. Asegúrese de que el asiento cuadre.")
+                        
+                        # DataFrame inicial vacío para que el usuario cargue las líneas
+                        import pandas as pd
+                        df_vacio = pd.DataFrame([
+                            {"plan_cuentas": "", "cuenta_contable": "", "referencia": "", "debe": 0.0, "haber": 0.0}
+                        ])
+                        
+                        df_nuevo_ingresado = st.data_editor(
+                            df_vacio,
+                            num_rows="dynamic",
+                            width="stretch",
+                            hide_index=True,
+                            key="editor_nuevo_asiento",
+                            column_config={
+                                "plan_cuentas": st.column_config.TextColumn("Plan Cuentas", help="Ej. 1.1.2.01.001"),
+                                "cuenta_contable": st.column_config.TextColumn("Descripción Cuenta"),
+                                "referencia": st.column_config.TextColumn("Referencia / Factura"),
+                                "debe": st.column_config.NumberColumn("Debe", format="%,.2f"),
+                                "haber": st.column_config.NumberColumn("Haber", format="%,.2f")
+                            }
+                        )
+                        
+                        submitted_nuevo = st.form_submit_button("💾 Guardar Nuevo Comprobante")
+                        
+                        if submitted_nuevo:
+                            if not nuevo_n_comp:
+                                st.error("Debe indicar un Número de Comprobante.")
+                            elif df_nuevo_ingresado.empty:
+                                st.error("El asiento debe contener al menos una línea.")
+                            else:
+                                t_debe_n = df_nuevo_ingresado['debe'].sum()
+                                t_haber_n = df_nuevo_ingresado['haber'].sum()
+                                
+                                if abs(t_debe_n - t_haber_n) >= 0.01:
+                                    st.error(f"❌ El asiento no cuadra. Debe: {formato_contable(t_debe_n)} | Haber: {formato_contable(t_haber_n)}")
+                                else:
+                                    try:
+                                        conn_ins = conectar_db(db_nombre)
+                                        cursor_ins = conn_ins.cursor()
+                                        
+                                        sql_insert = """
+                                            INSERT INTO asientos_contables 
+                                            (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber, bloqueado)
+                                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 0)
+                                        """
+                                        
+                                        datos_insertar = [
+                                            (
+                                                str(nuevo_n_comp),
+                                                str(nuevo_desc),
+                                                str(nuevo_fecha),
+                                                str(row['plan_cuentas']),
+                                                str(row['cuenta_contable']),
+                                                str(row['referencia']),
+                                                float(row['debe']),
+                                                float(row['haber'])
+                                            )
+                                            for _, row in df_nuevo_ingresado.iterrows()
+                                        ]
+                                        
+                                        cursor_ins.executemany(sql_insert, datos_insertar)
+                                        conn_ins.commit()
+                                        cursor_ins.close()
+                                        conn_ins.close()
+                                        
+                                        st.success(f"¡Comprobante N° {nuevo_n_comp} guardado exitosamente!")
+                                        st.rerun()
+                                    except Exception as e:
+                                        st.error(f"Error al registrar en la base de datos: {str(e)}")
+
+                # ==========================================
+                # OPCIÓN 3: ELIMINAR COMPROBANTE
+                # ==========================================
+                elif accion_diario == "🗑️ Eliminar Comprobante Contable":
+                    st.subheader("Eliminación de Comprobante")
+                    st.warning("⚠️ Precaución: Esta acción eliminará permanentemente todas las líneas asociadas al número de comprobante indicado.")
+                    
+                    comp_a_eliminar = st.text_input("Ingrese el Número de Comprobante que desea eliminar:")
+                    
+                    if comp_a_eliminar:
+                        # Mostrar vista previa de lo que se va a eliminar
+                        conn_prev = conectar_db(db_nombre)
+                        try:
+                            import pandas as pd
+                            df_prev = pd.read_sql(f"SELECT * FROM asientos_contables WHERE n_comprobante = '{comp_a_eliminar}'", conn_prev)
+                        except Exception as e:
+                            df_prev = pd.DataFrame()
+                        finally:
+                            if conn_prev:
+                                conn_prev.close()
+                        
+                        if not df_prev.empty:
+                            st.markdown(f"**Se encontraron {len(df_prev)} líneas para el Comprobante N° {comp_a_eliminar}:**")
+                            st.dataframe(df_prev[['n_comprobante', 'fecha', 'descripcion', 'cuenta_contable', 'debe', 'haber']], hide_index=True)
+                            
+                            # Botón de confirmación para eliminar
+                            if st.button("🔥 Confirmar Eliminación Definitiva", type="primary"):
+                                try:
+                                    conn_del = conectar_db(db_nombre)
+                                    cursor_del = conn_del.cursor()
+                                    cursor_del.execute("DELETE FROM asientos_contables WHERE n_comprobante = %s", (comp_a_eliminar,))
+                                    conn_del.commit()
+                                    cursor_del.close()
+                                    conn_del.close()
+                                    
+                                    st.success(f"¡Comprobante N° {comp_a_eliminar} eliminado correctamente!")
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"Error al eliminar el comprobante: {str(e)}")
+                        else:
+                            st.info(f"No se encontró ningún registro asociado al Comprobante N° '{comp_a_eliminar}'.")
                     
             with tab2:
                 # --- PESTAÑA 2: IMPORTACIÓN ---
