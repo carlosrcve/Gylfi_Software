@@ -11471,14 +11471,15 @@ elif opcion_menu == "📝 Asientos Contables":
                     nuevo_desc = st.text_input("Descripción general del Asiento", key="input_desc_gral")
                     
                     st.markdown("### Líneas del Comprobante")
-                    st.info("Seleccione la cuenta en el menú y la descripción aparecerá automáticamente.")
+                    st.info("Seleccione la cuenta en el menú y la descripción aparecerá automáticamente. Marque la casilla 'Eliminar' y pulse el botón inferior para borrar filas no deseadas.")
                     
                     import pandas as pd
                     
-                    # Inicializar el estado del DataFrame en session_state si no existe
+                    # Inicializar el estado del DataFrame en session_state asegurando la columna 'eliminar'
                     if "df_asiento_actual" not in st.session_state:
                         st.session_state["df_asiento_actual"] = pd.DataFrame([
                             {
+                                "eliminar": False,
                                 "plan_cuentas": opciones_cuentas[0] if opciones_cuentas else "", 
                                 "cuenta_contable": dict_nombres_cuentas.get(opciones_cuentas[0].split(" - ")[0], "") if opciones_cuentas else "", 
                                 "referencia": "", 
@@ -11486,8 +11487,12 @@ elif opcion_menu == "📝 Asientos Contables":
                                 "haber": 0.0
                             }
                         ])
+                    else:
+                        # Asegurar que la columna 'eliminar' exista si el estado anterior no la tenía
+                        if "eliminar" not in st.session_state["df_asiento_actual"].columns:
+                            st.session_state["df_asiento_actual"].insert(0, "eliminar", False)
                     
-                    # Editor interactivo (fuera de st.form para capturar cambios al instante)
+                    # Editor interactivo con columna de selección para borrar
                     df_editado = st.data_editor(
                         st.session_state["df_asiento_actual"],
                         num_rows="dynamic",
@@ -11495,6 +11500,11 @@ elif opcion_menu == "📝 Asientos Contables":
                         hide_index=True,
                         key="editor_asiento_interactivo",
                         column_config={
+                            "eliminar": st.column_config.CheckboxColumn(
+                                "❌ Borrar",
+                                help="Marque para eliminar esta línea",
+                                default=False,
+                            ),
                             "plan_cuentas": st.column_config.SelectboxColumn(
                                 "Plan Cuentas",
                                 help="Seleccione una cuenta de detalle",
@@ -11512,8 +11522,24 @@ elif opcion_menu == "📝 Asientos Contables":
                         }
                     )
                     
-                    # 🧹 FILTRAR LÍNEAS VACÍAS: Elimina automáticamente la fila en blanco si no tiene cuenta seleccionada
-                    df_editado = df_editado[df_editado['plan_cuentas'].notna() & (df_editado['plan_cuentas'].astype(str).str.strip() != "")]
+                    # Botón para ejecutar la eliminación de las filas marcadas
+                    col_btn1, col_btn2 = st.columns([1, 4])
+                    with col_btn1:
+                        if st.button("🗑️ Eliminar filas marcadas"):
+                            # Filtrar conservando únicamente las filas donde 'eliminar' sea False
+                            df_editado = df_editado[df_editado['eliminar'] != True].copy()
+                            # Asegurar que siempre quede al menos una fila vacía si se borran todas
+                            if df_editado.empty:
+                                df_editado = pd.DataFrame([{
+                                    "eliminar": False,
+                                    "plan_cuentas": opciones_cuentas[0] if opciones_cuentas else "",
+                                    "cuenta_contable": dict_nombres_cuentas.get(opciones_cuentas[0].split(" - ")[0], "") if opciones_cuentas else "",
+                                    "referencia": "",
+                                    "debe": 0.0,
+                                    "haber": 0.0
+                                }])
+                            st.session_state["df_asiento_actual"] = df_editado
+                            st.rerun()
 
                     # Sincronización automática en tiempo real de la columna de descripción y control de cambios
                     cambio_detectado = False
@@ -11526,9 +11552,10 @@ elif opcion_menu == "📝 Asientos Contables":
                                 df_editado.at[idx, 'cuenta_contable'] = nombre_correcto
                                 cambio_detectado = True
 
-                    # Calcular totales actuales en tiempo real basados en el editor filtrado
-                    total_debe = pd.to_numeric(df_editado['debe'], errors='coerce').sum()
-                    total_haber = pd.to_numeric(df_editado['haber'], errors='coerce').sum()
+                    # Calcular totales actuales en tiempo real basados en el editor (excluyendo las marcadas para borrar del cálculo visual)
+                    df_calculo = df_editado[df_editado['eliminar'] != True]
+                    total_debe = pd.to_numeric(df_calculo['debe'], errors='coerce').sum()
+                    total_haber = pd.to_numeric(df_calculo['haber'], errors='coerce').sum()
                     diferencia = total_debe - total_haber
 
                     # Mostrar panel de monitoreo de cuadre en tiempo real
@@ -11558,10 +11585,13 @@ elif opcion_menu == "📝 Asientos Contables":
 
                     # Botón de guardado final
                     if st.button("💾 Guardar Nuevo Comprobante", type="primary"):
+                        # Limpiar el DataFrame final eliminando las marcadas para borrar antes de guardar
+                        df_final_guardar = df_editado[df_editado['eliminar'] != True]
+                        
                         if not nuevo_n_comp:
                             st.error("Debe indicar un Número de Comprobante.")
-                        elif df_editado.empty:
-                            st.error("El asiento debe contener al menos una línea.")
+                        elif df_final_guardar.empty:
+                            st.error("El asiento debe contener al menos una línea válida.")
                         else:
                             if abs(total_debe - total_haber) >= 0.01:
                                 st.error(f"❌ El asiento no cuadra. Debe: {formato_contable(total_debe)} | Haber: {formato_contable(total_haber)}")
@@ -11577,7 +11607,7 @@ elif opcion_menu == "📝 Asientos Contables":
                                     """
                                     
                                     datos_insertar = []
-                                    for _, row in df_editado.iterrows():
+                                    for _, row in df_final_guardar.iterrows():
                                         plan_val = row.get('plan_cuentas')
                                         if not plan_val:
                                             continue
