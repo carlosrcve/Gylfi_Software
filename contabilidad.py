@@ -11365,7 +11365,7 @@ elif opcion_menu == "📝 Asientos Contables":
                         else:
                             n_comp_buscado = st.text_input("Ingrese el Número de Comprobante exacto (ej. 1, 2, etc.):", key="input_comp_mod")
                             if n_comp_buscado:
-                                query = f"SELECT * FROM asientos_contables WHERE n_comprobante = '{n_comp_buscado}'"
+                                query = f"SELECT n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber FROM asientos_contables WHERE n_comprobante = '{n_comp_buscado}'"
                                 import pandas as pd
                                 df_diario = pd.read_sql(query, conn_temp)
                     except Exception as e:
@@ -11439,12 +11439,12 @@ elif opcion_menu == "📝 Asientos Contables":
                             st.info("No hay asientos registrados para este rango de fechas.")
 
                 # ==========================================
-                # OPCIÓN 2: AGREGAR NUEVO ASIENTO (ESTRUCTURA 100% LIMPIA)
+                # OPCIÓN 2: CONSULTAR / EDITAR ASIENTO POR RANGO DE FECHA Y COMPROBANTE
                 # ==========================================
                 elif accion_diario == "➕ Agregar Nuevo Asiento":
-                    st.subheader("Registro de Nuevo Comprobante Contable")
+                    st.subheader("Gestión y Consulta de Comprobantes Contables")
                     
-                    # 1. Obtener solo las cuentas de tipo 'Detalle' desde la base de datos
+                    # 1. Obtener el plan de cuentas (Detalle)
                     try:
                         conn_pc = conectar_db(db_nombre)
                         cursor_pc = conn_pc.cursor()
@@ -11464,15 +11464,51 @@ elif opcion_menu == "📝 Asientos Contables":
                     opciones_cuentas = [f"{cod} - {nom}" for cod, nom in cuentas_db]
                     dict_nombres_cuentas = {cod: nom for cod, nom in cuentas_db}
 
+                    # 2. Filtros por Rango de Fecha para buscar los comprobantes del período (ej. Mayo)
+                    st.markdown("### 🔎 Buscar Comprobante por Fecha")
+                    col_r1, col_r2 = st.columns(2)
+                    with col_r1:
+                        fecha_desde = st.date_input("Fecha Desde", key="filtro_fecha_desde")
+                    with col_r2:
+                        fecha_hasta = st.date_input("Fecha Hasta", key="filtro_fecha_hasta")
+
+                    # Consultar los números de comprobante disponibles en ese rango de fechas
+                    lista_comprobantes_disponibles = []
+                    try:
+                        conn_f = conectar_db(db_nombre)
+                        cursor_f = conn_f.cursor()
+                        sql_comprobs = """
+                            SELECT DISTINCT n_comprobante 
+                            FROM asientos_contables 
+                            WHERE fecha BETWEEN %s AND %s 
+                            ORDER BY n_comprobante
+                        """
+                        cursor_f.execute(sql_comprobs, (str(fecha_desde), str(fecha_hasta)))
+                        resultados_comp = cursor_f.fetchall()
+                        lista_comprobantes_disponibles = [row[0] for row in resultados_comp]
+                        cursor_f.close()
+                        conn_f.close()
+                    except Exception as e:
+                        st.error(f"Error al consultar comprobantes por fecha: {e}")
+
+                    # 3. Lista desplegable con los comprobantes del rango seleccionado
+                    if lista_comprobantes_disponibles:
+                        nuevo_n_comp = st.selectbox(
+                            "Seleccione el Número de Comprobante (filtrado por fecha)", 
+                            options=lista_comprobantes_disponibles,
+                            key="select_n_comp_filtrado"
+                        )
+                    else:
+                        st.info("No se encontraron comprobantes en el rango de fechas seleccionado. Puede ingresar uno nuevo o ampliar el rango.")
+                        nuevo_n_comp = st.text_input("Número de Comprobante (Manual)", key="input_n_comp_manual")
+
                     # Datos principales del comprobante
                     col_f1, col_f2 = st.columns(2)
                     with col_f1:
-                        nuevo_n_comp = st.text_input("Número de Comprobante", key="input_n_comp")
-                    with col_f2:
                         nuevo_fecha = st.date_input("Fecha del Asiento", key="input_fecha")
+                    with col_f2:
+                        nuevo_desc = st.text_input("Descripción general del Asiento", key="input_desc_gral")
                         
-                    nuevo_desc = st.text_input("Descripción general del Asiento", key="input_desc_gral")
-                    
                     st.markdown("### Líneas del Comprobante")
 
                     # Inicializar con un identificador único (id) por línea para evitar colisiones de estado
@@ -11514,7 +11550,6 @@ elif opcion_menu == "📝 Asientos Contables":
                             val_actual = linea.get("plan_cuentas", opciones_cuentas[0])
                             idx_default = opciones_cuentas.index(val_actual) if val_actual in opciones_cuentas else 0
                             
-                            # Usar el ID único en la key evita que Streamlit bloquee o mezcle los estados
                             nueva_cuenta = st.selectbox(
                                 "Cuenta Contable", 
                                 options=opciones_cuentas, 
@@ -11548,7 +11583,6 @@ elif opcion_menu == "📝 Asientos Contables":
                                 
                         st.markdown("---")
 
-                    # Si se hizo clic en eliminar un ID específico, se procesa de forma limpia y se recarga
                     if lineas_a_eliminar is not None:
                         st.session_state["lista_lineas_asiento"] = [
                             l for l in st.session_state["lista_lineas_asiento"] if l["id"] != lineas_a_eliminar
@@ -11566,17 +11600,14 @@ elif opcion_menu == "📝 Asientos Contables":
 
                     df_editado = pd.DataFrame(st.session_state["lista_lineas_asiento"])
                     
-                    # Rellenar automáticamente la descripción contable por detrás para la BD
                     df_editado["cuenta_contable"] = df_editado["plan_cuentas"].apply(
                         lambda x: dict_nombres_cuentas.get(x.split(" - ")[0], "") if " - " in str(x) else ""
                     )
 
-                    # Calcular totales actuales en tiempo real
                     total_debe = pd.to_numeric(df_editado['debe'], errors='coerce').sum()
                     total_haber = pd.to_numeric(df_editado['haber'], errors='coerce').sum()
                     diferencia = total_debe - total_haber
 
-                    # Mostrar panel de monitoreo de cuadre en tiempo real
                     col_m1, col_m2, col_m3 = st.columns(3)
                     with col_m1:
                         st.metric(label="Total Debe", value=formato_contable(total_debe))
@@ -11596,10 +11627,9 @@ elif opcion_menu == "📝 Asientos Contables":
                         st.success("✅ El asiento está perfectamente cuadrado y listo para registrar.")
                     st.markdown("---")
 
-                    # Botón de guardado final
                     if st.button("💾 Guardar Nuevo Comprobante", type="primary"):
                         if not nuevo_n_comp:
-                            st.error("Debe indicar un Número de Comprobante.")
+                            st.error("Debe indicar o seleccionar un Número de Comprobante.")
                         elif df_editado.empty:
                             st.error("El asiento debe contener al menos una línea.")
                         else:
