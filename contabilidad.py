@@ -9025,12 +9025,7 @@ if menu_lateral == "📊 Auditoría Contable":
 if 'df_gastos_c6' in locals() and df_gastos_c6.empty:
     st.sidebar.warning("⚠️ El DataFrame de Gastos C6 está vacío.")
 
-# 1. Inicializar la opción por defecto solo si no existe en la sesión
-if 'opcion_menu' not in st.session_state:
-    st.session_state['opcion_menu'] = "🏠 Inicio"
-
-# 2. El bloque de la vista de Inicio debe ejecutarse cada vez que esa sea la opción activa
-if st.session_state['opcion_menu'] == "🏠 Inicio":
+if opcion_menu == "🏠 Inicio":
     # --- INYECCIÓN DE CSS ---
     st.markdown("""<style>
             .block-container { max-width: 100% !important; padding-left: 3rem !important; padding-right: 3rem !important; }
@@ -9118,7 +9113,6 @@ if st.session_state['opcion_menu'] == "🏠 Inicio":
     conn = st.session_state.conn
 
     # 1. DEFINICIÓN DE ESTRUCTURA DE TIEMPO
-
     dic_meses = {
         "Enero": 1, "Febrero": 2, "Marzo": 3, "Abril": 4, 
         "Mayo": 5, "Junio": 6, "Julio": 7, "Agosto": 8, 
@@ -9153,7 +9147,6 @@ if st.session_state['opcion_menu'] == "🏠 Inicio":
         st.markdown(f"**Período de Análisis (Acumulado):** {f_inicio_global.strftime('%d/%m/%Y')} al {f_fin_global.strftime('%d/%m/%Y')}")
         st.divider()
 
-        
     # --- FILA 1: INDICADORES FINANCIEROS ---
     col_titulo, col_vacia, col_btn = st.columns([0.5, 0.3, 0.2])
     with col_titulo:
