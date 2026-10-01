@@ -11091,7 +11091,7 @@ elif opcion_menu == "📂 Plan de Cuentas":
                                     st.warning("⚠️ Debe marcar la casilla de confirmación para proceder.")
                                 else:
                                     try:
-                                        # Extraemos el código contable de la opción seleccionada (ej: "1.1.1.01.003 - Caja..." -> "1.1.1.01.003")
+                                        # Extraemos el código contable de la opción seleccionada
                                         codigo_extraido = cuenta_a_borrar.split(" - ")[0].strip()
                                         
                                         cursor_del = conn_empresa.cursor()
@@ -11100,7 +11100,8 @@ elif opcion_menu == "📂 Plan de Cuentas":
                                         conn_empresa.commit()
                                         cursor_del.close()
                                         
-                                        st.success(f"✅ Cuenta '{cuenta_extraido}' eliminada correctamente.")
+                                        # Corregido aquí: usamos codigo_extraido en lugar de cuenta_extraido
+                                        st.success(f"✅ Cuenta '{codigo_extraido}' eliminada correctamente.")
                                         st.rerun()
                                     except Exception as ex_del:
                                         if hasattr(conn_empresa, 'rollback'):
