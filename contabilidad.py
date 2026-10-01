@@ -11439,12 +11439,12 @@ elif opcion_menu == "📝 Asientos Contables":
                             st.info("No hay asientos registrados para este rango de fechas.")
 
                 # ==========================================
-                # OPCIÓN 2: CONSULTAR / EDITAR ASIENTO POR RANGO DE FECHA Y COMPROBANTE
+                # OPCIÓN 2: AGREGAR NUEVO ASIENTO
                 # ==========================================
                 elif accion_diario == "➕ Agregar Nuevo Asiento":
-                    st.subheader("Gestión y Consulta de Comprobantes Contables")
+                    st.subheader("Registro de Nuevo Comprobante Contable")
                     
-                    # 1. Obtener el plan de cuentas (Detalle)
+                    # 1. Obtener solo las cuentas de tipo 'Detalle' desde la base de datos
                     try:
                         conn_pc = conectar_db(db_nombre)
                         cursor_pc = conn_pc.cursor()
@@ -11461,153 +11461,82 @@ elif opcion_menu == "📝 Asientos Contables":
                             ("2.1.1.01.001", "Cuentas por Pagar")
                         ]
 
+                    # Crear la lista de opciones y el diccionario de búsqueda rápida
                     opciones_cuentas = [f"{cod} - {nom}" for cod, nom in cuentas_db]
                     dict_nombres_cuentas = {cod: nom for cod, nom in cuentas_db}
 
-                    # 2. Filtros por Rango de Fecha para buscar los comprobantes del período (ej. Mayo)
-                    st.markdown("### 🔎 Buscar Comprobante por Fecha")
-                    col_r1, col_r2 = st.columns(2)
-                    with col_r1:
-                        fecha_desde = st.date_input("Fecha Desde", key="filtro_fecha_desde")
-                    with col_r2:
-                        fecha_hasta = st.date_input("Fecha Hasta", key="filtro_fecha_hasta")
-
-                    # Consultar los números de comprobante disponibles en ese rango de fechas
-                    lista_comprobantes_disponibles = []
-                    try:
-                        conn_f = conectar_db(db_nombre)
-                        cursor_f = conn_f.cursor()
-                        sql_comprobs = """
-                            SELECT DISTINCT n_comprobante 
-                            FROM asientos_contables 
-                            WHERE fecha BETWEEN %s AND %s 
-                            ORDER BY n_comprobante
-                        """
-                        cursor_f.execute(sql_comprobs, (str(fecha_desde), str(fecha_hasta)))
-                        resultados_comp = cursor_f.fetchall()
-                        lista_comprobantes_disponibles = [row[0] for row in resultados_comp]
-                        cursor_f.close()
-                        conn_f.close()
-                    except Exception as e:
-                        st.error(f"Error al consultar comprobantes por fecha: {e}")
-
-                    # 3. Lista desplegable con los comprobantes del rango seleccionado
-                    if lista_comprobantes_disponibles:
-                        nuevo_n_comp = st.selectbox(
-                            "Seleccione el Número de Comprobante (filtrado por fecha)", 
-                            options=lista_comprobantes_disponibles,
-                            key="select_n_comp_filtrado"
-                        )
-                    else:
-                        st.info("No se encontraron comprobantes en el rango de fechas seleccionado. Puede ingresar uno nuevo o ampliar el rango.")
-                        nuevo_n_comp = st.text_input("Número de Comprobante (Manual)", key="input_n_comp_manual")
-
-                    # Datos principales del comprobante
+                    # Datos principales del comprobante fuera del form para permitir reactividad
                     col_f1, col_f2 = st.columns(2)
                     with col_f1:
-                        nuevo_fecha = st.date_input("Fecha del Asiento", key="input_fecha")
+                        nuevo_n_comp = st.text_input("Número de Comprobante", key="input_n_comp")
                     with col_f2:
-                        nuevo_desc = st.text_input("Descripción general del Asiento", key="input_desc_gral")
+                        nuevo_fecha = st.date_input("Fecha del Asiento", key="input_fecha")
                         
+                    nuevo_desc = st.text_input("Descripción general del Asiento", key="input_desc_gral")
+                    
                     st.markdown("### Líneas del Comprobante")
-
-                    # Inicializar con un identificador único (id) por línea para evitar colisiones de estado
-                    if "lista_lineas_asiento" not in st.session_state:
-                        import uuid
-                        st.session_state["lista_lineas_asiento"] = [
+                    st.info("Seleccione la cuenta en el menú y la descripción aparecerá automáticamente.")
+                    
+                    import pandas as pd
+                    
+                    # Inicializar el estado del DataFrame en session_state si no existe
+                    if "df_asiento_actual" not in st.session_state:
+                        st.session_state["df_asiento_actual"] = pd.DataFrame([
                             {
-                                "id": str(uuid.uuid4()),
                                 "plan_cuentas": opciones_cuentas[0] if opciones_cuentas else "", 
+                                "cuenta_contable": dict_nombres_cuentas.get(opciones_cuentas[0].split(" - ")[0], "") if opciones_cuentas else "", 
                                 "referencia": "", 
                                 "debe": 0.0, 
                                 "haber": 0.0
                             }
-                        ]
-
-                    if st.button("➕ Agregar Línea", type="secondary"):
-                        import uuid
-                        st.session_state["lista_lineas_asiento"].append({
-                            "id": str(uuid.uuid4()),
-                            "plan_cuentas": opciones_cuentas[0] if opciones_cuentas else "", 
-                            "referencia": "", 
-                            "debe": 0.0, 
-                            "haber": 0.0
-                        })
-                        st.rerun()
-
-                    st.markdown("---")
-
-                    # Renderizar cada línea usando el ID único en lugar del índice 'i'
-                    lineas_a_eliminar = None
-
-                    for idx, linea in enumerate(st.session_state["lista_lineas_asiento"]):
-                        line_id = linea["id"]
-                        st.markdown(f"**Línea {idx+1}**")
-                        
-                        c1, c2, c3, c4 = st.columns([4, 2, 3, 1])
-                        
-                        with c1:
-                            val_actual = linea.get("plan_cuentas", opciones_cuentas[0])
-                            idx_default = opciones_cuentas.index(val_actual) if val_actual in opciones_cuentas else 0
-                            
-                            nueva_cuenta = st.selectbox(
-                                "Cuenta Contable", 
-                                options=opciones_cuentas, 
-                                index=idx_default, 
-                                key=f"cuenta_{line_id}"
-                            )
-                            linea["plan_cuentas"] = nueva_cuenta
-                            
-                            codigo_sel = nueva_cuenta.split(" - ")[0] if " - " in nueva_cuenta else ""
-                            nombre_desc = dict_nombres_cuentas.get(codigo_sel, "")
-                            st.caption(f"📌 {nombre_desc}")
-                            
-                        with c2:
-                            nueva_ref = st.text_input("Referencia", value=linea.get("referencia", ""), key=f"ref_{line_id}")
-                            linea["referencia"] = nueva_ref
-                            
-                        with c3:
-                            sub_d, sub_h = st.columns(2)
-                            with sub_d:
-                                nuevo_debe = st.number_input("Debe", value=float(linea.get("debe", 0.0)), format="%.2f", step=1.0, key=f"debe_{line_id}")
-                                linea["debe"] = nuevo_debe
-                            with sub_h:
-                                nuevo_haber = st.number_input("Haber", value=float(linea.get("haber", 0.0)), format="%.2f", step=1.0, key=f"haber_{line_id}")
-                                linea["haber"] = nuevo_haber
-                                
-                        with c4:
-                            st.write("") 
-                            st.write("")
-                            if st.button("🗑️", key=f"del_{line_id}", help=f"Eliminar línea {idx+1}"):
-                                lineas_a_eliminar = line_id
-                                
-                        st.markdown("---")
-
-                    if lineas_a_eliminar is not None:
-                        st.session_state["lista_lineas_asiento"] = [
-                            l for l in st.session_state["lista_lineas_asiento"] if l["id"] != lineas_a_eliminar
-                        ]
-                        if len(st.session_state["lista_lineas_asiento"]) == 0:
-                            import uuid
-                            st.session_state["lista_lineas_asiento"] = [{
-                                "id": str(uuid.uuid4()),
-                                "plan_cuentas": opciones_cuentas[0] if opciones_cuentas else "", 
-                                "referencia": "", 
-                                "debe": 0.0, 
-                                "haber": 0.0
-                            }]
-                        st.rerun()
-
-                    df_editado = pd.DataFrame(st.session_state["lista_lineas_asiento"])
+                        ])
                     
-                    df_editado["cuenta_contable"] = df_editado["plan_cuentas"].apply(
-                        lambda x: dict_nombres_cuentas.get(x.split(" - ")[0], "") if " - " in str(x) else ""
+                    # Editor interactivo (fuera de st.form para capturar cambios al instante)
+                    df_editado = st.data_editor(
+                        st.session_state["df_asiento_actual"],
+                        num_rows="dynamic",
+                        use_container_width=True,
+                        hide_index=True,
+                        key="editor_asiento_interactivo",
+                        column_config={
+                            "plan_cuentas": st.column_config.SelectboxColumn(
+                                "Plan Cuentas",
+                                help="Seleccione una cuenta de detalle",
+                                options=opciones_cuentas,
+                                required=True
+                            ),
+                            "cuenta_contable": st.column_config.TextColumn(
+                                "Descripción Cuenta",
+                                help="Se completa automáticamente",
+                                disabled=True
+                            ),
+                            "referencia": st.column_config.TextColumn("Referencia / Factura"),
+                            "debe": st.column_config.NumberColumn("Debe", format="%,.2f", min_value=0.0),
+                            "haber": st.column_config.NumberColumn("Haber", format="%,.2f", min_value=0.0)
+                        }
                     )
+                    
+                    # 🧹 FILTRAR LÍNEAS VACÍAS: Elimina automáticamente la fila en blanco si no tiene cuenta seleccionada
+                    df_editado = df_editado[df_editado['plan_cuentas'].notna() & (df_editado['plan_cuentas'].astype(str).str.strip() != "")]
 
+                    # Sincronización automática en tiempo real de la columna de descripción y control de cambios
+                    cambio_detectado = False
+                    for idx, row in df_editado.iterrows():
+                        seleccion = str(row['plan_cuentas'])
+                        if " - " in seleccion:
+                            codigo_sel = seleccion.split(" - ")[0]
+                            nombre_correcto = dict_nombres_cuentas.get(codigo_sel, "")
+                            if row['cuenta_contable'] != nombre_correcto:
+                                df_editado.at[idx, 'cuenta_contable'] = nombre_correcto
+                                cambio_detectado = True
+
+                    # Calcular totales actuales en tiempo real basados en el editor filtrado
                     total_debe = pd.to_numeric(df_editado['debe'], errors='coerce').sum()
                     total_haber = pd.to_numeric(df_editado['haber'], errors='coerce').sum()
                     diferencia = total_debe - total_haber
 
+                    # Mostrar panel de monitoreo de cuadre en tiempo real
+                    st.markdown("---")
                     col_m1, col_m2, col_m3 = st.columns(3)
                     with col_m1:
                         st.metric(label="Total Debe", value=formato_contable(total_debe))
@@ -11627,9 +11556,14 @@ elif opcion_menu == "📝 Asientos Contables":
                         st.success("✅ El asiento está perfectamente cuadrado y listo para registrar.")
                     st.markdown("---")
 
+                    if cambio_detectado:
+                        st.session_state["df_asiento_actual"] = df_editado
+                        st.rerun()
+
+                    # Botón de guardado final
                     if st.button("💾 Guardar Nuevo Comprobante", type="primary"):
                         if not nuevo_n_comp:
-                            st.error("Debe indicar o seleccionar un Número de Comprobante.")
+                            st.error("Debe indicar un Número de Comprobante.")
                         elif df_editado.empty:
                             st.error("El asiento debe contener al menos una línea.")
                         else:
@@ -11686,8 +11620,8 @@ elif opcion_menu == "📝 Asientos Contables":
                                     st.success(f"¡Comprobante N° {nuevo_n_comp} guardado exitosamente!")
                                     st.balloons()
                                     
-                                    if "lista_lineas_asiento" in st.session_state:
-                                        del st.session_state["lista_lineas_asiento"]
+                                    if "df_asiento_actual" in st.session_state:
+                                        del st.session_state["df_asiento_actual"]
                                         
                                     st.rerun()
                                     
