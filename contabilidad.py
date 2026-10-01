@@ -11040,11 +11040,26 @@ elif opcion_menu == "📂 Plan de Cuentas":
                                 else:
                                     try:
                                         cursor_ins = conn_empresa.cursor()
+                                        
+                                        # 1. Obtenemos el ID máximo actual para calcular el siguiente de forma segura
+                                        cursor_ins.execute("SELECT MAX(id) FROM plan_cuentas")
+                                        res_max = cursor_ins.fetchone()
+                                        siguiente_id = (res_max[0] or 0) + 1 if res_max else 1
+
+                                        # 2. Insertamos indicando explícitamente el nuevo ID y evitando duplicados
                                         sql_ins = """
-                                            INSERT INTO plan_cuentas (codigo, nombre, nivel, tipo, padre) 
-                                            VALUES (%s, %s, %s, %s, %s)
+                                            INSERT INTO plan_cuentas (id, codigo, nombre, nivel, tipo, padre) 
+                                            VALUES (%s, %s, %s, %s, %s, %s)
                                         """
-                                        cursor_ins.execute(sql_ins, (nuevo_codigo.strip(), nuevo_nombre.strip(), int(nuevo_nivel), nuevo_tipo, nuevo_padre.strip() if nuevo_padre else None))
+                                        cursor_ins.execute(sql_ins, (
+                                            siguiente_id, 
+                                            nuevo_codigo.strip(), 
+                                            nuevo_nombre.strip(), 
+                                            int(nuevo_nivel), 
+                                            nuevo_tipo, 
+                                            nuevo_padre.strip() if nuevo_padre else None
+                                        ))
+                                        
                                         conn_empresa.commit()
                                         cursor_ins.close()
                                         st.success(f"✅ Cuenta '{nuevo_codigo} - {nuevo_nombre}' agregada con éxito.")
