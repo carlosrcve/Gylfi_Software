@@ -11440,6 +11440,30 @@ elif opcion_menu == "📝 Asientos Contables":
                 elif accion_diario == "➕ Agregar Nuevo Asiento":
                     st.subheader("Registro de Nuevo Comprobante Contable")
                     
+                    # 1. Consultar tu plan de cuentas desde la base de datos para pasarlo a la lista desplegable
+                    try:
+                        conn_pc = conectar_db(db_nombre)
+                        cursor_pc = conn_pc.cursor()
+                        # Ajusta el nombre de tu tabla de plan de cuentas si es diferente (ej. 'plan_de_cuentas' o 'cuentas')
+                        cursor_pc.execute("SELECT codigo, nombre FROM plan_cuentas ORDER BY codigo")
+                        cuentas_db = cursor_pc.fetchall()
+                        cursor_pc.close()
+                        conn_pc.close()
+                    except Exception as e:
+                        # Plan de cuentas de respaldo por si la tabla se llama distinto o está vacía mientras pruebas
+                        cuentas_db = [
+                            ("1.1.1.01.001", "Caja Chica"),
+                            ("1.1.1.02.001", "Banco Banesco Moneda Nacional"),
+                            ("2.1.1.01.001", "Cuentas por Pagar Proveedores"),
+                            ("4.1.1.01.001", "Ventas de Mercancía")
+                        ]
+
+                    # Crear diccionarios y listas útiles para el selector
+                    # Formato que verá el usuario: "1.1.1.01.001 - Caja Chica"
+                    opciones_cuentas = [f"{cod} - {nom}" for cod, nom in cuentas_db]
+                    # Diccionario para autocompletar la descripción rápido: {"1.1.1.01.001": "Caja Chica", ...}
+                    dict_nombres_cuentas = {cod: nom for cod, nom in cuentas_db}
+                    
                     with st.form("form_nuevo_asiento"):
                         col_f1, col_f2 = st.columns(2)
                         with col_f1:
@@ -11450,9 +11474,8 @@ elif opcion_menu == "📝 Asientos Contables":
                         nuevo_desc = st.text_input("Descripción general del Asiento")
                         
                         st.markdown("### Líneas del Comprobante")
-                        st.info("Agregue las filas con todas las cuentas, referencias, Debe y Haber correspondientes.")
+                        st.info("Seleccione la cuenta del menú desplegable, agregue la referencia, el Debe y el Haber.")
                         
-                        # DataFrame inicial con todas las columnas de la tabla de líneas
                         import pandas as pd
                         df_vacio = pd.DataFrame([
                             {
@@ -11469,10 +11492,20 @@ elif opcion_menu == "📝 Asientos Contables":
                             num_rows="dynamic",
                             width="stretch",
                             hide_index=True,
-                            key="editor_nuevo_asiento_completo",
+                            key="editor_nuevo_asiento_select",
                             column_config={
-                                "plan_cuentas": st.column_config.TextColumn("Plan Cuentas", help="Ej. 1.1.2.01.001", required=True),
-                                "cuenta_contable": st.column_config.TextColumn("Descripción Cuenta", required=True),
+                                # Columna desplegable con las cuentas de tu BD
+                                "plan_cuentas": st.column_config.SelectboxColumn(
+                                    "Plan Cuentas",
+                                    help="Seleccione la cuenta contable",
+                                    options=opciones_cuentas,
+                                    required=True
+                                ),
+                                # Descripción de la cuenta (editable o automatizable)
+                                "cuenta_contable": st.column_config.TextColumn(
+                                    "Descripción Cuenta",
+                                    help="Descripción de la cuenta contable"
+                                ),
                                 "referencia": st.column_config.TextColumn("Referencia / Factura"),
                                 "debe": st.column_config.NumberColumn("Debe", format="%,.2f", min_value=0.0),
                                 "haber": st.column_config.NumberColumn("Haber", format="%,.2f", min_value=0.0)
@@ -11490,7 +11523,6 @@ elif opcion_menu == "📝 Asientos Contables":
                                 t_debe_n = df_nuevo_ingresado['debe'].sum()
                                 t_haber_n = df_nuevo_ingresado['haber'].sum()
                                 
-                                # Validar partida doble
                                 if abs(t_debe_n - t_haber_n) >= 0.01:
                                     st.error(f"❌ El asiento no cuadra. Debe: {formato_contable(t_debe_n)} | Haber: {formato_contable(t_haber_n)}")
                                 else:
@@ -11498,33 +11530,40 @@ elif opcion_menu == "📝 Asientos Contables":
                                         conn_ins = conectar_db(db_nombre)
                                         cursor_ins = conn_ins.cursor()
                                         
-                                        # Inserción con todos los campos de tu base de datos
                                         sql_insert = """
                                             INSERT INTO asientos_contables 
                                             (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber)
                                             VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                                         """
                                         
-                                        datos_insertar = [
-                                            (
+                                        datos_insertar = []
+                                        for _, row in df_nuevo_ingresado.iterrows():
+                                            seleccion = str(row['plan_cuentas'])
+                                            # Separar el código seleccionado (ej: "1.1.1.01.001 - Caja Chica" -> "1.1.1.01.001")
+                                            codigo_cuenta = seleccion.split(" - ")[0] if " - " in seleccion else seleccion
+                                            
+                                            # Si la descripción de la cuenta viene vacía, podemos autocompletarla con el diccionario
+                                            desc_cuenta = str(row['cuenta_contable'])
+                                            if not desc_cuenta or desc_cuenta == "nan":
+                                                desc_cuenta = dict_nombres_cuentas.get(codigo_cuenta, "")
+                                            
+                                            datos_insertar.append((
                                                 str(nuevo_n_comp),
                                                 str(nuevo_desc),
                                                 str(nuevo_fecha),
-                                                str(row['plan_cuentas']),
-                                                str(row['cuenta_contable']),
+                                                codigo_cuenta,
+                                                desc_cuenta,
                                                 str(row['referencia']),
                                                 float(row['debe']),
                                                 float(row['haber'])
-                                            )
-                                            for _, row in df_nuevo_ingresado.iterrows()
-                                        ]
+                                            ))
                                         
                                         cursor_ins.executemany(sql_insert, datos_insertar)
                                         conn_ins.commit()
                                         cursor_ins.close()
                                         conn_ins.close()
                                         
-                                        st.success(f"¡Comprobante N° {nuevo_n_comp} guardado exitosamente con todas sus líneas!")
+                                        st.success(f"¡Comprobante N° {nuevo_n_comp} guardado exitosamente!")
                                         st.rerun()
                                     except Exception as e:
                                         st.error(f"Error al registrar en la base de datos: {str(e)}")
