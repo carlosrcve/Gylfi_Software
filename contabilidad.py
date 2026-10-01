@@ -11383,7 +11383,7 @@ elif opcion_menu == "📝 Asientos Contables":
                                     key="select_n_comp_exacto"
                                 )
                                 if comp_seleccionado:
-                                    query = f"SELECT n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber FROM asientos_contables WHERE n_comprobante = '{comp_seleccionado}'"
+                                    query = f"SELECT id, n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber FROM asientos_contables WHERE n_comprobante = '{comp_seleccionado}'"
                                     df_diario = pd.read_sql(query, conn_temp)
                             else:
                                 st.warning("⚠️ No se encontraron comprobantes registrados en el rango de fechas seleccionado.")
