@@ -11014,8 +11014,8 @@ elif opcion_menu == "📂 Plan de Cuentas":
                         st.error("❌ El archivo Excel debe contener al menos las columnas 'codigo' y 'nombre'.")
 
         with tab2:
-            st.markdown("### 📋 Plan de Cuentas (Modificación Segura)")
-            st.info("ℹ️ Este módulo permite modificar el plan de cuentas existente de forma segura. La eliminación de registros está bloqueada para proteger la integridad contable.")
+            st.markdown("### 📋 Plan de Cuentas (Edición y Nuevas Cuentas)")
+            st.info("ℹ️ Puedes modificar cuentas existentes o agregar nuevas filas haciendo clic en el botón '+' de la tabla. Las nuevas cuentas se guardarán automáticamente en la base de datos.")
             
             # 1. Validación estricta de la conexión
             if 'conn_empresa' not in locals() and 'conn_empresa' not in globals():
@@ -11049,11 +11049,11 @@ elif opcion_menu == "📂 Plan de Cuentas":
 
                     st.markdown("---")
                     
-                    # 2. Editor interactivo adaptado estrictamente al esquema de la BD
+                    # 2. Editor interactivo con num_rows="dynamic" para permitir agregar filas como en Excel
                     df_editado = st.data_editor(
                         df_actual, 
-                        key="editor_plan_cuentas_definitivo", 
-                        num_rows="fixed", # Bloquea adición/eliminación de filas desde la UI
+                        key="editor_plan_cuentas_con_insercion", 
+                        num_rows="dynamic", # <--- PERMITE AGREGAR NUEVAS FILAS
                         use_container_width=True,
                         column_config={
                             "id": st.column_config.NumberColumn("ID", disabled=True), 
@@ -11065,8 +11065,8 @@ elif opcion_menu == "📂 Plan de Cuentas":
                         }
                     )
                     
-                    # 3. Botón de guardado con actualización directa por filas (Adiós definitivo a los NaN)
-                    if st.button("💾 Guardar Modificaciones en Plan de Cuentas", type="primary"):
+                    # 3. Botón de guardado inteligente (Actualiza las existentes e Inserta las nuevas)
+                    if st.button("💾 Guardar Cambios y Nuevas Cuentas", type="primary"):
                         try:
                             df_a_guardar = df_editado.copy()
                             
@@ -11076,33 +11076,49 @@ elif opcion_menu == "📂 Plan de Cuentas":
 
                             cursor = conn_empresa.cursor()
                             actualizados = 0
+                            inserciones = 0
                             
                             for index, row in df_a_guardar.iterrows():
-                                # Limpieza y conversión estricta a tipos nativos de Python por cada columna
-                                cuenta_id = int(row['id']) if pd.notnull(row['id']) and str(row['id']).strip() not in ['', 'nan', 'None', '<NA>'] else None
+                                # Limpieza de datos por cada fila
+                                cuenta_id = row['id']
                                 codigo = str(row['codigo']).strip() if pd.notnull(row['codigo']) and str(row['codigo']).strip() not in ['', 'nan', 'None', '<NA>'] else None
                                 nombre = str(row['nombre']).strip() if pd.notnull(row['nombre']) and str(row['nombre']).strip() not in ['', 'nan', 'None', '<NA>'] else None
                                 nivel = int(row['nivel']) if pd.notnull(row['nivel']) and str(row['nivel']).strip() not in ['', 'nan', 'None', '<NA>'] else 1
                                 
-                                # Validamos que el tipo coincida estrictamente con el ENUM de la BD ('Grupo' o 'Detalle')
                                 tipo_val = str(row['tipo']).strip()
                                 tipo = tipo_val if tipo_val in ['Grupo', 'Detalle'] else 'Detalle'
                                 
                                 padre = str(row['padre']).strip() if pd.notnull(row['padre']) and str(row['padre']).strip() not in ['', 'nan', 'None', '<NA>'] else None
 
-                                if cuenta_id is not None:
-                                    sql = """
+                                # Si el código o el nombre están vacíos, omitimos esta fila para evitar basura
+                                if not codigo or not nombre:
+                                    continue
+
+                                # Determinamos si es una cuenta nueva (ID vacío, NaN o 0) o existente
+                                es_nueva = pd.isna(cuenta_id) or str(cuenta_id).strip() in ['', 'nan', 'None', '<NA>', '0.0', '0']
+
+                                if es_nueva:
+                                    # INSERT para cuentas nuevas (como tu 1.1.1.01.003)
+                                    sql_insert = """
+                                        INSERT INTO plan_cuentas (codigo, nombre, nivel, tipo, padre) 
+                                        VALUES (%s, %s, %s, %s, %s)
+                                    """
+                                    cursor.execute(sql_insert, (codigo, nombre, nivel, tipo, padre))
+                                    inserciones += 1
+                                else:
+                                    # UPDATE para cuentas existentes
+                                    sql_update = """
                                         UPDATE plan_cuentas 
                                         SET codigo = %s, nombre = %s, nivel = %s, tipo = %s, padre = %s 
                                         WHERE id = %s
                                     """
-                                    cursor.execute(sql, (codigo, nombre, nivel, tipo, padre, cuenta_id))
+                                    cursor.execute(sql_update, (codigo, nombre, nivel, tipo, padre, int(float(cuenta_id))))
                                     actualizados += 1
 
                             conn_empresa.commit()
                             cursor.close()
                             
-                            st.success(f"✅ ¡Se actualizaron {actualizados} cuentas correctamente en la base de datos!")
+                            st.success(f"✅ ¡Operación exitosa! Se actualizaron {actualizados} cuentas y se agregaron {inserciones} cuentas nuevas.")
                             st.balloons()
                             
                         except Exception as ex_save:
