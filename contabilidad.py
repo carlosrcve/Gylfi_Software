@@ -11009,8 +11009,8 @@ elif opcion_menu == "📂 Plan de Cuentas":
         tab1, tab2, tab3, tab4 = st.tabs([
             "📥 Cargar Plan", 
             "📋 Visualizar Plan", 
-            "🗑️ Vaciar Plan", 
-            "📥 Descargar Excel"
+            "📥 Descargar Excel",
+            "🗑️ Vaciar Plan"
         ])
         
         with tab1:
@@ -11245,18 +11245,6 @@ elif opcion_menu == "📂 Plan de Cuentas":
                     st.error(f"❌ Error crítico al cargar la pestaña: {err}")
 
         with tab3:
-            st.markdown("### ⚠️ Vaciar Plan de Cuentas")
-            st.warning("Esta acción borrará TODA la información del plan de cuentas de esta empresa.")
-            if st.checkbox("Estoy seguro de querer borrar todo"):
-                if st.button("🗑️ ELIMINAR TODOS LOS DATOS", type="primary"):
-                    cursor = conn_empresa.cursor()
-                    cursor.execute("TRUNCATE TABLE plan_cuentas")
-                    conn_empresa.commit()
-                    st.success("✅ ¡Tabla vaciada exitosamente!")
-                    st.balloons()
-                    st.rerun()
-
-        with tab4:
             st.markdown("### 📥 Descargar Respaldo")
             df_actual = consultar_tabla_db(conn_empresa, "plan_cuentas")
             if df_actual is not None and not df_actual.empty:
@@ -11272,6 +11260,18 @@ elif opcion_menu == "📂 Plan de Cuentas":
                 )
             else:
                 st.info("No hay datos para descargar.")
+
+        with tab4:
+            st.markdown("### ⚠️ Vaciar Plan de Cuentas")
+            st.warning("Esta acción borrará TODA la información del plan de cuentas de esta empresa.")
+            if st.checkbox("Estoy seguro de querer borrar todo"):
+                if st.button("🗑️ ELIMINAR TODOS LOS DATOS", type="primary"):
+                    cursor = conn_empresa.cursor()
+                    cursor.execute("TRUNCATE TABLE plan_cuentas")
+                    conn_empresa.commit()
+                    st.success("✅ ¡Tabla vaciada exitosamente!")
+                    st.balloons()
+                    st.rerun()
 
     except Exception as e:
         st.error(f"❌ Error crítico: {e}")
