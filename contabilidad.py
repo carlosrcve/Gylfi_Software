@@ -11615,10 +11615,20 @@ elif opcion_menu == "📝 Asientos Contables":
                                     cursor_ins.close()
                                     conn_ins.close()
                                     
+                                    # 1. Mostrar mensaje de notificación exitosa
                                     st.success(f"¡Comprobante N° {nuevo_n_comp} guardado exitosamente!")
-                                    # Limpiar estado del editor tras guardar
-                                    del st.session_state["df_asiento_actual"]
+                                    
+                                    # 2. Lanzar los globitos festivos de Streamlit
+                                    st.balloons()
+                                    
+                                    # 3. Limpiar el estado del editor para reiniciar el formulario
+                                    if "df_asiento_actual" in st.session_state:
+                                        del st.session_state["df_asiento_actual"]
+                                        
+                                    # Opcional: Si deseas que la interfaz espere un segundo para que el usuario aprecie el mensaje antes de refrescar, 
+                                    # puedes usar import time; time.sleep(1) antes del st.rerun()
                                     st.rerun()
+                                    
                                 except Exception as e:
                                     st.error(f"Error al registrar en la base de datos: {str(e)}")
 
