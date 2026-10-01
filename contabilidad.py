@@ -2849,7 +2849,6 @@ def consultar_libro_diario_db(conn_activa=None, fecha_inicio=None, fecha_fin=Non
                 pass
 
 
-
 def ejecutar_mayor_analitico(db_nombre, cuenta, fecha_desde, fecha_hasta):
     if cuenta and " - " in str(cuenta):
         cuenta = str(cuenta).split(" - ")[0].strip()
@@ -11285,8 +11284,7 @@ elif opcion_menu == "📂 Plan de Cuentas":
 
 
 elif opcion_menu == "📝 Asientos Contables":
-    # 1. Recuperamos contexto de seguridad
-    # 1. Recuperamos contexto de seguridad
+    # 1. Recuperamos contexto de segurid
     db_actual = st.session_state.get('DB_ACTUAL')
     cliente_id = st.session_state.get('cliente_id')
     rol = st.session_state.get('rol')
@@ -11335,39 +11333,46 @@ elif opcion_menu == "📝 Asientos Contables":
                 with col2:
                     f_fin = st.date_input("Fecha Fin")
 
-                # CORREGIDO: Usamos 'db_nombre' en lugar de 'db_actual' para evitar errores de variable no definida
+                # Conexión temporal
                 conn_temp = conectar_db(db_nombre)
                 
                 try:
-                    # Pasamos la conexión (objeto), no el nombre (string)
                     df_diario = consultar_libro_diario_db(conn_activa=conn_temp, fecha_inicio=f_inicio, fecha_fin=f_fin)
                 except Exception as e:
                     st.error(f"❌ Error al consultar el libro diario: {e}")
                     df_diario = None
                 finally:
-                    # CERRAMOS la conexión de forma segura en un bloque finally
                     if conn_temp:
                         conn_temp.close()
                 
                 # --- 3. Visualización limpia ---
                 if df_diario is not None and not df_diario.empty:
-                    # Normalización
+                    # Normalización de columnas a minúsculas para evitar errores de coincidencia
                     df_diario.columns = [c.lower() for c in df_diario.columns]
                     
-                    # 1. Definimos df_editado SIEMPRE. 
-                    # El editor devuelve el dataframe actualizado.
+                    # Editor interactivo con formato numérico aplicado en 'debe' y 'haber'
                     df_editado = st.data_editor(
                         df_diario, 
                         width='stretch', 
                         hide_index=True,
-                        key="editor_diario"
+                        key="editor_diario",
+                        column_config={
+                            "debe": st.column_config.NumberColumn(
+                                "Debe",
+                                format="%.2f",  # Muestra 2 decimales
+                                help="Monto del debe"
+                            ),
+                            "haber": st.column_config.NumberColumn(
+                                "Haber",
+                                format="%.2f",  # Muestra 2 decimales
+                                help="Monto del haber"
+                            )
+                        }
                     )
 
-                    # 2. Botón de Guardar
                     # 2. Botón de Guardar Directo
                     if st.button("💾 Guardar Cambios"):
                         try:
-                            # Enviamos directamente el DataFrame editado completo a la base de datos
                             exito = actualizar_libro_diario_en_db(db_nombre, df_editado)
                             if exito:
                                 st.success("¡Registros actualizados correctamente en la base de datos!")
@@ -11377,7 +11382,7 @@ elif opcion_menu == "📝 Asientos Contables":
                         except Exception as e:
                             st.error(f"Error técnico: {str(e)}")
                     
-                    # 3. Descarga y Totales (ahora siempre tienen acceso a df_editado)
+                    # 3. Descarga y Totales
                     excel_data = exportar_a_excel(df_editado)
                     st.download_button(
                         label="📥 Descargar Libro Diario",
