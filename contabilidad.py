@@ -1564,7 +1564,7 @@ def actualizar_libro_diario_en_db(db_nombre, df_cambios):
                 row['n_comprobante'], 
                 row['descripcion'], 
                 row['fecha'], 
-                row['plan_de_cuentas'], 
+                row['plan_cuentas'],  # <-- CORREGIDO: cambiado de plan_de_cuentas a plan_cuentas
                 row['cuenta_contable'], 
                 row['referencia'], 
                 float(row['debe']), 
