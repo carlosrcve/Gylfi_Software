@@ -11435,7 +11435,7 @@ elif opcion_menu == "📝 Asientos Contables":
                             st.info("No hay asientos registrados para este rango de fechas.")
 
                 # ==========================================
-                # OPCIÓN 2: AGREGAR NUEVO ASIENTO
+                # OPCIÓN 2: AGREGAR NUEVO ASIENTO (ESTRUCTURA LIMPIA POR FILAS)
                 # ==========================================
                 elif accion_diario == "➕ Agregar Nuevo Asiento":
                     st.subheader("Registro de Nuevo Comprobante Contable")
@@ -11457,7 +11457,6 @@ elif opcion_menu == "📝 Asientos Contables":
                             ("2.1.1.01.001", "Cuentas por Pagar")
                         ]
 
-                    # Crear la lista de opciones y el diccionario de búsqueda rápida
                     opciones_cuentas = [f"{cod} - {nom}" for cod, nom in cuentas_db]
                     dict_nombres_cuentas = {cod: nom for cod, nom in cuentas_db}
 
@@ -11474,92 +11473,90 @@ elif opcion_menu == "📝 Asientos Contables":
                     
                     import pandas as pd
                     
-                    # Inicializar el estado del DataFrame en session_state si no existe
-                    if "df_asiento_actual" not in st.session_state:
-                        st.session_state["df_asiento_actual"] = pd.DataFrame([
+                    # Inicializar las líneas en session_state como una lista de diccionarios
+                    if "lista_lineas_asiento" not in st.session_state:
+                        st.session_state["lista_lineas_asiento"] = [
                             {
                                 "plan_cuentas": opciones_cuentas[0] if opciones_cuentas else "", 
-                                "cuenta_contable": dict_nombres_cuentas.get(opciones_cuentas[0].split(" - ")[0], "") if opciones_cuentas else "", 
                                 "referencia": "", 
                                 "debe": 0.0, 
                                 "haber": 0.0
                             }
-                        ])
+                        ]
 
-                    # 🛑 CONTROL DE ELIMINACIÓN DIRECTA (Control total sobre el session_state)
-                    col_acc1, col_acc2 = st.columns([2, 2])
-                    with col_acc1:
-                        total_filas_actuales = len(st.session_state["df_asiento_actual"])
-                        if total_filas_actuales > 1:
-                            fila_a_borrar = st.number_input(
-                                "Número de línea a eliminar", 
-                                min_value=1, 
-                                max_value=total_filas_actuales, 
-                                step=1, 
-                                key="num_fila_borrar"
-                            )
-                            if st.button("🗑️ Borrar Línea Seleccionada", type="secondary"):
-                                idx_real = int(fila_a_borrar) - 1
-                                # Eliminamos directamente del DataFrame en session_state y reseteamos índices
-                                st.session_state["df_asiento_actual"] = st.session_state["df_asiento_actual"].drop(
-                                    st.session_state["df_asiento_actual"].index[idx_real]
-                                ).reset_index(drop=True)
-                                st.rerun()
-                        else:
-                            st.info("ℹ️ Tienes 1 sola línea (mínimo requerido).")
+                    # Botón para agregar una nueva línea al final
+                    if st.button("➕ Agregar Línea", type="secondary"):
+                        st.session_state["lista_lineas_asiento"].append({
+                            "plan_cuentas": opciones_cuentas[0] if opciones_cuentas else "", 
+                            "referencia": "", 
+                            "debe": 0.0, 
+                            "haber": 0.0
+                        })
+                        st.rerun()
 
-                    with col_acc2:
-                        st.write("")
-                        st.write("")
-                        if st.button("➕ Agregar Nueva Línea Manual", type="secondary"):
-                            nueva_fila = pd.DataFrame([{
-                                "plan_cuentas": opciones_cuentas[0] if opciones_cuentas else "",
-                                "cuenta_contable": dict_nombres_cuentas.get(opciones_cuentas[0].split(" - ")[0], "") if opciones_cuentas else "",
-                                "referencia": "",
-                                "debe": 0.0,
-                                "haber": 0.0
-                            }])
-                            st.session_state["df_asiento_actual"] = pd.concat([st.session_state["df_asiento_actual"], nueva_fila], ignore_index=True)
-                            st.rerun()
+                    st.markdown("---")
 
-                    # Editor interactivo sincronizado con st.session_state["df_asiento_actual"]
-                    df_editado = st.data_editor(
-                        st.session_state["df_asiento_actual"],
-                        num_rows="fixed", # Fijamos en fixed para que los botones de arriba manden y no falle Streamlit
-                        use_container_width=True,
-                        hide_index=False, # Mostramos el índice (1, 2, 3...) para que coincida exactamente con tu selección
-                        key="editor_asiento_interactivo",
-                        column_config={
-                            "plan_cuentas": st.column_config.SelectboxColumn(
-                                "Plan Cuentas",
-                                help="Seleccione una cuenta de detalle",
-                                options=opciones_cuentas,
-                                required=True
-                            ),
-                            "cuenta_contable": st.column_config.TextColumn(
-                                "Descripción Cuenta",
-                                help="Se completa automáticamente",
-                                disabled=True
-                            ),
-                            "referencia": st.column_config.TextColumn("Referencia / Factura"),
-                            "debe": st.column_config.NumberColumn("Debe", format="%,.2f", min_value=0.0),
-                            "haber": st.column_config.NumberColumn("Haber", format="%,.2f", min_value=0.0)
-                        }
-                    )
+                    # Renderizar cada línea de forma explícita sin la columna bloqueada de descripción
+                    lineas_a_mantener = []
                     
-                    # Actualizar session_state con lo que el usuario edite en los inputs (montos, referencias)
-                    st.session_state["df_asiento_actual"] = df_editado.copy()
+                    for i, linea in enumerate(st.session_state["lista_lineas_asiento"]):
+                        st.markdown(f"**Línea {i+1}**")
+                        # Ajustamos las columnas a 4 espacios útiles (Cuenta, Referencia, Debe/Haber y Botón Borrar)
+                        c1, c2, c3, c4 = st.columns([4, 2, 3, 1])
+                        
+                        with c1:
+                            val_actual = linea.get("plan_cuentas", opciones_cuentas[0])
+                            idx_default = opciones_cuentas.index(val_actual) if val_actual in opciones_cuentas else 0
+                            
+                            nueva_cuenta = st.selectbox(
+                                "Cuenta Contable (Código y Nombre)", 
+                                options=opciones_cuentas, 
+                                index=idx_default, 
+                                key=f"cuenta_{i}"
+                            )
+                            linea["plan_cuentas"] = nueva_cuenta
+                            
+                        with c2:
+                            nueva_ref = st.text_input("Referencia", value=linea.get("referencia", ""), key=f"ref_{i}")
+                            linea["referencia"] = nueva_ref
+                            
+                        with c3:
+                            sub_d, sub_h = st.columns(2)
+                            with sub_d:
+                                nuevo_debe = st.number_input("Debe", value=float(linea.get("debe", 0.0)), format="%.2f", step=1.0, key=f"debe_{i}")
+                                linea["debe"] = nuevo_debe
+                            with sub_h:
+                                nuevo_haber = st.number_input("Haber", value=float(linea.get("haber", 0.0)), format="%.2f", step=1.0, key=f"haber_{i}")
+                                linea["haber"] = nuevo_haber
+                                
+                        with c4:
+                            st.write("") # Espaciador visual para alinear con los inputs
+                            st.write("")
+                            if st.button("🗑️", key=f"del_{i}", help=f"Eliminar línea {i+1}"):
+                                continue
+                                
+                        lineas_a_mantener.append(linea)
+                        st.markdown("---")
 
-                    # Sincronización automática de la columna de descripción
-                    cambio_detectado = False
-                    for idx, row in df_editado.iterrows():
-                        seleccion = str(row['plan_cuentas'])
-                        if " - " in seleccion:
-                            codigo_sel = seleccion.split(" - ")[0]
-                            nombre_correcto = dict_nombres_cuentas.get(codigo_sel, "")
-                            if row['cuenta_contable'] != nombre_correcto:
-                                df_editado.at[idx, 'cuenta_contable'] = nombre_correcto
-                                cambio_detectado = True
+                    # Actualizamos el estado con las líneas que sobrevivieron al borrado
+                    if len(lineas_a_mantener) != len(st.session_state["lista_lineas_asiento"]):
+                        if len(lineas_a_mantener) == 0:
+                            lineas_a_mantener = [{
+                                "plan_cuentas": opciones_cuentas[0] if opciones_cuentas else "", 
+                                "referencia": "", 
+                                "debe": 0.0, 
+                                "haber": 0.0
+                            }]
+                        st.session_state["lista_lineas_asiento"] = lineas_a_mantener
+                        st.rerun()
+
+                    # Convertir a DataFrame temporal para calcular totales y guardar
+                    df_editado = pd.DataFrame(st.session_state["lista_lineas_asiento"])
+                    
+                    # Rellenar automáticamente la descripción contable por detrás para la BD
+                    df_editado["cuenta_contable"] = df_editado["plan_cuentas"].apply(
+                        lambda x: dict_nombres_cuentas.get(x.split(" - ")[0], "") if " - " in str(x) else ""
+                    )
 
                     # Calcular totales actuales en tiempo real
                     total_debe = pd.to_numeric(df_editado['debe'], errors='coerce').sum()
@@ -11567,7 +11564,6 @@ elif opcion_menu == "📝 Asientos Contables":
                     diferencia = total_debe - total_haber
 
                     # Mostrar panel de monitoreo de cuadre en tiempo real
-                    st.markdown("---")
                     col_m1, col_m2, col_m3 = st.columns(3)
                     with col_m1:
                         st.metric(label="Total Debe", value=formato_contable(total_debe))
@@ -11586,10 +11582,6 @@ elif opcion_menu == "📝 Asientos Contables":
                     else:
                         st.success("✅ El asiento está perfectamente cuadrado y listo para registrar.")
                     st.markdown("---")
-
-                    if cambio_detectado:
-                        st.session_state["df_asiento_actual"] = df_editado
-                        st.rerun()
 
                     # Botón de guardado final
                     if st.button("💾 Guardar Nuevo Comprobante", type="primary"):
@@ -11651,8 +11643,8 @@ elif opcion_menu == "📝 Asientos Contables":
                                     st.success(f"¡Comprobante N° {nuevo_n_comp} guardado exitosamente!")
                                     st.balloons()
                                     
-                                    if "df_asiento_actual" in st.session_state:
-                                        del st.session_state["df_asiento_actual"]
+                                    if "lista_lineas_asiento" in st.session_state:
+                                        del st.session_state["lista_lineas_asiento"]
                                         
                                     st.rerun()
                                     
