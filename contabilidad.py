@@ -11311,11 +11311,11 @@ elif opcion_menu == "📝 Asientos Contables":
             tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
                 "📖 Ver Libro Diario", 
                 "📤 Importar Excel", 
-                "🗑️ Vaciar Asiento de Diarios",
                 "🤖 Asientos Costos Automatizados",
                 "📈 Asientos Ingresos Automatizados", 
                 "🔗 Matching Asientos Contables",
-                "⚙️ Gastos y Comisiones Banco"  # 👈 Nueva pestaña 7 añadida
+                "⚙️ Gastos y Comisiones Banco",  # 👈 Nueva pestaña 7 añadida
+                "🗑️ Vaciar Asiento de Diarios"
             ])
 
             def exportar_a_excel(df):
@@ -11534,7 +11534,63 @@ elif opcion_menu == "📝 Asientos Contables":
                     except Exception as e:
                         st.error(f"Error al procesar el archivo: {e}")
 
+            
             with tab3:
+                # 1. Recuperamos de la sesión el nombre o ID de la base de datos de la empresa actual 
+                # (Ajusta la clave 'empresa_actual' por la variable exacta que uses en tu app para el cliente)
+                nombre_bd_cliente = st.session_state.get('empresa_actual') 
+                
+                # 2. Llamamos a la conexión inyectándole la base de datos del cliente
+                conexion_actual = conectar_db(nombre_bd_cliente) 
+                
+                # 3. Validamos y ejecutamos ambas funciones dentro de la pestaña 4
+                if conexion_actual:
+                    # Primero la función que ya tenías
+                    renderizar_tab_asientos_automatizados(conexion_actual)
+                else:
+                    st.error("No se pudo establecer la conexión con la base de datos de la empresa para los asientos automatizados.")
+
+            with tab4:
+                # 1. Recuperamos de la sesión el nombre o ID de la base de datos de la empresa actual 
+                nombre_bd_cliente = st.session_state.get('empresa_actual') 
+                
+                # 2. Llamamos a la conexión inyectándole la base de datos del cliente
+                conexion_actual = conectar_db(nombre_bd_cliente) 
+                
+                # 3. Validamos y renderizamos
+                if conexion_actual:
+                    renderizar_tab_asientos_ventas(conexion_actual)
+                else:
+                    st.error("No se pudo establecer la conexión con la base de datos de la empresa para los asientos automatizados.")
+
+            with tab5:
+                # 1. Recuperamos de la sesión el nombre o ID de la base de datos de la empresa actual 
+                # (Ajusta la clave 'empresa_actual' por la variable exacta que uses en tu app para el cliente)
+                nombre_bd_cliente = st.session_state.get('empresa_actual') 
+                
+                # 2. Llamamos a la conexión inyectándole la base de datos del cliente
+                conexion_actual = conectar_db(nombre_bd_cliente) 
+                
+                # 3. Validamos y ejecutamos ambas funciones dentro de la pestaña 4
+                if conexion_actual:
+                    # Y seguidamente la nueva función del tercer frame de conciliación bancaria
+                    renderizar_tercer_frame_conciliacion_banco(conexion_actual, nombre_bd_cliente)
+
+
+            with tab6:
+                # 1. Recuperamos de la sesión el nombre o ID de la base de datos de la empresa actual 
+                # (Ajusta la clave 'empresa_actual' por la variable exacta que uses en tu app para el cliente)
+                nombre_bd_cliente = st.session_state.get('empresa_actual') 
+                
+                # 2. Llamamos a la conexión inyectándole la base de datos del cliente
+                conexion_actual = conectar_db(nombre_bd_cliente) 
+                
+                # 3. Validamos y ejecutamos ambas funciones dentro de la pestaña 4
+                if conexion_actual:
+                    # Y seguidamente la nueva función del tercer frame de conciliación bancaria
+                    conciliacion_de_gastos_y_comisiones(conexion_actual, nombre_bd_cliente)
+
+            with tab7:
                 # --- PESTAÑA 3: ADMINISTRACIÓN (LIMPIEZA SELECTIVA) ---
                 st.markdown("### ⚙️ Administración: Limpieza por Fechas")
                 with st.container(border=True):
@@ -11573,60 +11629,6 @@ elif opcion_menu == "📝 Asientos Contables":
                                     pass
                             else:
                                 st.error("❌ Error de conexión.")
-            with tab4:
-                # 1. Recuperamos de la sesión el nombre o ID de la base de datos de la empresa actual 
-                # (Ajusta la clave 'empresa_actual' por la variable exacta que uses en tu app para el cliente)
-                nombre_bd_cliente = st.session_state.get('empresa_actual') 
-                
-                # 2. Llamamos a la conexión inyectándole la base de datos del cliente
-                conexion_actual = conectar_db(nombre_bd_cliente) 
-                
-                # 3. Validamos y ejecutamos ambas funciones dentro de la pestaña 4
-                if conexion_actual:
-                    # Primero la función que ya tenías
-                    renderizar_tab_asientos_automatizados(conexion_actual)
-                else:
-                    st.error("No se pudo establecer la conexión con la base de datos de la empresa para los asientos automatizados.")
-
-            with tab5:
-                # 1. Recuperamos de la sesión el nombre o ID de la base de datos de la empresa actual 
-                nombre_bd_cliente = st.session_state.get('empresa_actual') 
-                
-                # 2. Llamamos a la conexión inyectándole la base de datos del cliente
-                conexion_actual = conectar_db(nombre_bd_cliente) 
-                
-                # 3. Validamos y renderizamos
-                if conexion_actual:
-                    renderizar_tab_asientos_ventas(conexion_actual)
-                else:
-                    st.error("No se pudo establecer la conexión con la base de datos de la empresa para los asientos automatizados.")
-
-            with tab6:
-                # 1. Recuperamos de la sesión el nombre o ID de la base de datos de la empresa actual 
-                # (Ajusta la clave 'empresa_actual' por la variable exacta que uses en tu app para el cliente)
-                nombre_bd_cliente = st.session_state.get('empresa_actual') 
-                
-                # 2. Llamamos a la conexión inyectándole la base de datos del cliente
-                conexion_actual = conectar_db(nombre_bd_cliente) 
-                
-                # 3. Validamos y ejecutamos ambas funciones dentro de la pestaña 4
-                if conexion_actual:
-                    # Y seguidamente la nueva función del tercer frame de conciliación bancaria
-                    renderizar_tercer_frame_conciliacion_banco(conexion_actual, nombre_bd_cliente)
-
-
-            with tab7:
-                # 1. Recuperamos de la sesión el nombre o ID de la base de datos de la empresa actual 
-                # (Ajusta la clave 'empresa_actual' por la variable exacta que uses en tu app para el cliente)
-                nombre_bd_cliente = st.session_state.get('empresa_actual') 
-                
-                # 2. Llamamos a la conexión inyectándole la base de datos del cliente
-                conexion_actual = conectar_db(nombre_bd_cliente) 
-                
-                # 3. Validamos y ejecutamos ambas funciones dentro de la pestaña 4
-                if conexion_actual:
-                    # Y seguidamente la nueva función del tercer frame de conciliación bancaria
-                    conciliacion_de_gastos_y_comisiones(conexion_actual, nombre_bd_cliente)
         else:
             st.warning("⚠️ Por favor, seleccione una empresa en el panel lateral para gestionar sus asientos.")
 
