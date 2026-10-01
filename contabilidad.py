@@ -11014,56 +11014,90 @@ elif opcion_menu == "📂 Plan de Cuentas":
                         st.error("❌ El archivo Excel debe contener al menos las columnas 'codigo' y 'nombre'.")
 
         with tab2:
-            st.markdown("### 📋 Plan de Cuentas (Edición, Nuevos y Eliminación)")
+            st.markdown("### 📋 Plan de Cuentas (Modificación Segura)")
+            st.info("ℹ️ Este módulo está configurado estrictamente para modificar las cuentas existentes de forma segura. No se permite la eliminación directa de registros desde la tabla.")
             
-            # 1. Cargamos los datos actuales de MySQL de forma limpia
-            df_actual = consultar_tabla_db(conn_empresa, "plan_cuentas")
-            
-            if df_actual is None or df_actual.empty:
-                df_actual = pd.DataFrame(columns=['id', 'codigo', 'nombre', 'nivel', 'tipo', 'padre'])
+            # 1. Validación estricta de la conexión
+            if 'conn_empresa' not in locals() and 'conn_empresa' not in globals():
+                st.error("❌ Error crítico: La conexión `conn_empresa` no está disponible en este ámbito.")
             else:
-                # Limpiamos nulos para que Streamlit los muestre bien en texto
-                for col in ['codigo', 'nombre', 'tipo', 'padre']:
-                    if col in df_actual.columns:
-                        df_actual[col] = df_actual[col].fillna("").astype(str).replace(['nan', 'None'], '')
-            
-            # 2. Editor interactivo de Streamlit
-            df_editado = st.data_editor(
-                df_actual, 
-                key="editor_plan_cuentas", 
-                num_rows="dynamic", 
-                use_container_width=True,
-                column_config={
-                    "id": st.column_config.NumberColumn("ID", disabled=True), 
-                    "codigo": st.column_config.TextColumn("Código Contable", required=True),
-                    "nombre": st.column_config.TextColumn("Nombre Cuenta", required=True),
-                    "nivel": st.column_config.NumberColumn("Nivel", min_value=1, max_value=5),
-                    "tipo": st.column_config.SelectboxColumn("Tipo", options=["Activo", "Pasivo", "Patrimonio", "Ingreso", "Egreso", "Grupo"]),
-                    "padre": st.column_config.TextColumn("Cuenta Padre")
-                }
-            )
-            
-            # 3. Guardado inteligente corregido para MySQL
-            if st.button("💾 Guardar Cambios en Plan de Cuentas", type="primary"):
                 try:
-                    # Copiamos para manipular
-                    df_a_guardar = df_editado.copy()
+                    # Consultamos la tabla de la base de datos
+                    with st.spinner("Consultando la base de datos..."):
+                        df_actual = consultar_tabla_db(conn_empresa, "plan_cuentas")
                     
-                    # Convertimos strings vacíos reales a None para que MySQL guarde NULL correctamente
-                    df_a_guardar = df_a_guardar.replace(r'^\s*$', None, regex=True)
+                    columnas_requeridas = ['id', 'codigo', 'nombre', 'nivel', 'tipo', 'padre']
                     
-                    # Aseguramos que los IDs vacíos o nuevos sean None (para que MySQL autogenere el ID)
-                    if 'id' in df_a_guardar.columns:
-                        df_a_guardar['id'] = pd.to_numeric(df_a_guardar['id'], errors='coerce')
+                    if df_actual is None or not isinstance(df_actual, pd.DataFrame) or df_actual.empty:
+                        st.warning("⚠️ La tabla 'plan_cuentas' está vacía en la base de datos.")
+                        df_actual = pd.DataFrame(columns=columnas_requeridas)
+                    else:
+                        # Aseguramos que existan todas las columnas requeridas
+                        for col in columnas_requeridas:
+                            if col not in df_actual.columns:
+                                df_actual[col] = ""
+
+                        # Limpieza de nulos para que Streamlit pueda renderizarlos en el editor
+                        for col in ['codigo', 'nombre', 'tipo', 'padre']:
+                            if col in df_actual.columns:
+                                df_actual[col] = df_actual[col].fillna("").astype(str).replace(['nan', 'None', '<NA>'], '')
+                        
+                        if 'id' in df_actual.columns:
+                            df_actual['id'] = pd.to_numeric(df_actual['id'], errors='coerce')
+                        if 'nivel' in df_actual.columns:
+                            df_actual['nivel'] = pd.to_numeric(df_actual['nivel'], errors='coerce').fillna(1).astype(int)
+
+                    st.markdown("---")
                     
-                    # Ejecutamos la actualización de la tabla completa
-                    actualizar_tabla_completa_db(conn_empresa, "plan_cuentas", df_a_guardar)
+                    # 2. Editor interactivo con num_rows="fixed" para EVITAR eliminaciones accidentales
+                    df_editado = st.data_editor(
+                        df_actual, 
+                        key="editor_plan_cuentas_seguro", 
+                        num_rows="fixed", # <--- BLOQUEA ELIMINACIÓN Y ADICIÓN DE FILAS DESDE EL GRID
+                        use_container_width=True,
+                        column_config={
+                            "id": st.column_config.NumberColumn("ID", disabled=True), 
+                            "codigo": st.column_config.TextColumn("Código Contable", required=True),
+                            "nombre": st.column_config.TextColumn("Nombre Cuenta", required=True),
+                            "nivel": st.column_config.NumberColumn("Nivel", min_value=1, max_value=5),
+                            "tipo": st.column_config.SelectboxColumn("Tipo", options=["Activo", "Pasivo", "Patrimonio", "Ingreso", "Egreso", "Grupo"]),
+                            "padre": st.column_config.TextColumn("Cuenta Padre")
+                        }
+                    )
                     
-                    st.success("✅ ¡Modificaciones guardadas y plan de cuentas actualizado correctamente!")
-                    st.balloons()
-                    st.rerun() 
-                except Exception as e:
-                    st.error(f"❌ Error al guardar las modificaciones: {e}")
+                    # 3. Botón de guardado seguro
+                    if st.button("💾 Guardar Modificaciones en Plan de Cuentas", type="primary"):
+                        try:
+                            df_a_guardar = df_editado.copy()
+                            
+                            # 1. Aseguramos tipos numéricos limpios y convertimos vacíos a NaN de pandas
+                            if 'id' in df_a_guardar.columns:
+                                df_a_guardar['id'] = pd.to_numeric(df_a_guardar['id'], errors='coerce')
+                            if 'nivel' in df_a_guardar.columns:
+                                df_a_guardar['nivel'] = pd.to_numeric(df_a_guardar['nivel'], errors='coerce').fillna(1).astype(int)
+
+                            # 2. Reemplazamos espacios en blanco o strings vacíos por NaN de pandas
+                            df_a_guardar = df_a_guardar.replace(r'^\s*$', pd.NA, regex=True)
+                            
+                            # 3. CONVERSIÓN CRÍTICA: Convertimos absolutamente cualquier NaN o NaT a None de Python puro
+                            # Esto evita por completo el error "nan can not be used with MySQL"
+                            df_a_guardar = df_a_guardar.where(pd.notnull(df_a_guardar), None)
+                            
+                            # Si alguna celda de texto quedó como el string literal 'nan' o 'None', la forzamos a None
+                            for col in ['codigo', 'nombre', 'tipo', 'padre']:
+                                if col in df_a_guardar.columns:
+                                    df_a_guardar[col] = df_a_guardar[col].apply(lambda x: None if x in ['nan', 'None', ''] or pd.isna(x) else x)
+
+                            # Ejecutamos la actualización en la base de datos
+                            actualizar_tabla_completa_db(conn_empresa, "plan_cuentas", df_a_guardar)
+                            
+                            st.success("✅ ¡Modificaciones guardadas correctamente!")
+                            st.balloons()
+                        except Exception as ex_save:
+                            st.error(f"❌ Error al guardar en la base de datos: {ex_save}")
+
+                except Exception as err:
+                    st.error(f"❌ Error crítico al cargar la pestaña: {err}")
 
         with tab3:
             st.markdown("### ⚠️ Vaciar Plan de Cuentas")
