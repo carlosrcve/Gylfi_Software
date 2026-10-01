@@ -11359,12 +11359,12 @@ elif opcion_menu == "📝 Asientos Contables":
                         column_config={
                             "debe": st.column_config.NumberColumn(
                                 "Debe",
-                                format="$ %.2f",  # O puedes usar formato personalizado si prefieres con separadores
+                                format="%.2f",  # Muestra solo el valor numérico con dos decimales
                                 help="Monto del debe"
                             ),
                             "haber": st.column_config.NumberColumn(
                                 "Haber",
-                                format="$ %.2f",  # O solo "%.2f"
+                                format="%.2f",  # Muestra solo el valor numérico con dos decimales
                                 help="Monto del haber"
                             )
                         }
@@ -11391,14 +11391,11 @@ elif opcion_menu == "📝 Asientos Contables":
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                     )
                     
-                    # Cálculo de sumas sobre el dataframe editado
                     t_debe = df_editado['debe'].sum()
                     t_haber = df_editado['haber'].sum()
                     
                     st.divider()
                     c1, c2, c3 = st.columns(3)
-                    
-                    # Aquí aplicamos tu función formato_contable para que los totales se vean idénticos a lo que requieres (ej: 345.789,58)
                     c1.metric("TOTAL DEBE", formato_contable(t_debe))
                     c2.metric("TOTAL HABER", formato_contable(t_haber))
                     
