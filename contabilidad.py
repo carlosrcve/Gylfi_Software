@@ -11545,7 +11545,7 @@ elif opcion_menu == "📝 Asientos Contables":
                         )
                         
                     if abs(diferencia) >= 0.01:
-                        st.warning(f"⚠️ El asiento presenta una diferencia de {formato_contable(abs(diferencia))}. El Debe y el Haber deben ser iguales para poder guardar.")
+                        st.warning(f"⚠️️ El asiento presenta una diferencia de {formato_contable(abs(diferencia))}. El Debe y el Haber deben ser iguales para poder guardar.")
                     else:
                         st.success("✅ El asiento está perfectamente cuadrado y listo para registrar.")
                     st.markdown("---")
@@ -11576,9 +11576,28 @@ elif opcion_menu == "📝 Asientos Contables":
                                     
                                     datos_insertar = []
                                     for _, row in df_editado.iterrows():
-                                        seleccion = str(row['plan_cuentas'])
+                                        # Asegurar que plan_cuentas no sea None
+                                        plan_val = row.get('plan_cuentas')
+                                        if not plan_val:
+                                            continue  # Ignorar filas vacías si las hay
+                                            
+                                        seleccion = str(plan_val)
                                         codigo_cuenta = seleccion.split(" - ")[0] if " - " in seleccion else seleccion
-                                        desc_cuenta = str(row['cuenta_contable'])
+                                        
+                                        # Manejar descripción de cuenta nula o vacía
+                                        desc_val = row.get('cuenta_contable')
+                                        desc_cuenta = str(desc_val) if desc_val is not None else ""
+                                        
+                                        # Manejar referencia nula o vacía
+                                        ref_val = row.get('referencia')
+                                        ref_str = str(ref_val) if ref_val is not None else ""
+                                        
+                                        # Manejar valores numéricos nulos (None/NaN) convirtiéndolos a 0.0 de forma segura
+                                        val_debe = row.get('debe')
+                                        debe_float = float(val_debe) if val_debe is not None and pd.notna(val_debe) else 0.0
+                                        
+                                        val_haber = row.get('haber')
+                                        haber_float = float(val_haber) if val_haber is not None and pd.notna(val_haber) else 0.0
                                         
                                         datos_insertar.append((
                                             str(nuevo_n_comp),
@@ -11586,9 +11605,9 @@ elif opcion_menu == "📝 Asientos Contables":
                                             str(nuevo_fecha),
                                             codigo_cuenta,
                                             desc_cuenta,
-                                            str(row['referencia']),
-                                            float(row['debe']),
-                                            float(row['haber'])
+                                            ref_str,
+                                            debe_float,
+                                            haber_float
                                         ))
                                     
                                     cursor_ins.executemany(sql_insert, datos_insertar)
