@@ -11441,6 +11441,60 @@ elif opcion_menu == "📝 Asientos Contables":
                 # ==========================================
                 # OPCIÓN 2: AGREGAR NUEVO ASIENTO
                 # ==========================================
+                elif accion_diario == "🔍 Consultar Comprobante": # (Asumiendo que usas un selectbox/radio para 'accion_diario')
+                    st.subheader("Consulta de Comprobante por Número y Rango de Fechas")
+
+                    col_d1, col_d2 = st.columns(2)
+                    with col_d1:
+                        fec_inicio = st.date_input("Fecha Desde")
+                    with col_d2:
+                        fec_fin = st.date_input("Fecha Hasta")
+
+                    # Consultar los números de comprobante únicos dentro de ese rango de fechas
+                    conn_fec = conectar_db(db_nombre)
+                    try:
+                        import pandas as pd
+                        query_compps = f"SELECT DISTINCT n_comprobante FROM asientos_contables WHERE fecha BETWEEN '{fec_inicio}' AND '{fec_fin}' ORDER BY n_comprobante"
+                        df_compps = pd.read_sql(query_compps, conn_fec)
+                    except Exception as e:
+                        df_compps = pd.DataFrame()
+                    finally:
+                        if conn_fec:
+                            conn_fec.close()
+
+                    if not df_compps.empty:
+                        lista_comprobantes = df_compps['n_comprobante'].tolist()
+                        comp_seleccionado = st.selectbox("Seleccione el Número de Comprobante:", lista_comprobantes)
+                        
+                        if comp_seleccionado:
+                            # Cargar el detalle del comprobante seleccionado
+                            conn_det = conectar_db(db_nombre)
+                            try:
+                                df_detalle = pd.read_sql(f"SELECT n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber FROM asientos_contables WHERE n_comprobante = '{comp_seleccionado}'", conn_det)
+                            except Exception as e:
+                                df_detalle = pd.DataFrame()
+                            finally:
+                                if conn_det:
+                                    conn_det.close()
+                                    
+                            if not df_detalle.empty:
+                                st.markdown(f"**Detalle del Comprobante N° {comp_seleccionado}:**")
+                                st.dataframe(
+                                    df_detalle,
+                                    hide_index=True,
+                                    column_config={
+                                        "debe": st.column_config.NumberColumn("Debe", format="%,.2f"),
+                                        "haber": st.column_config.NumberColumn("Haber", format="%,.2f")
+                                    }
+                                )
+                            else:
+                                st.info("No se encontraron registros para este comprobante.")
+                    else:
+                        st.warning("⚠️ No se encontraron comprobantes registrados en el rango de fechas seleccionado.")
+
+                # ==========================================
+                # OPCIÓN 2: AGREGAR NUEVO ASIENTO
+                # ==========================================
                 elif accion_diario == "➕ Agregar Nuevo Asiento":
                     st.subheader("Registro de Nuevo Comprobante Contable")
                     
