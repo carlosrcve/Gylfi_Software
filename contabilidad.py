@@ -11021,7 +11021,7 @@ elif opcion_menu == "📂 Plan de Cuentas":
                 st.error("❌ Error crítico: La conexión `conn_empresa` no está disponible en este ámbito.")
             else:
                 try:
-                    # Sección rápida para agregar una nueva cuenta cómodamente
+                    # Sección para agregar una nueva cuenta cómodamente
                     with st.expander("➕ Agregar Nueva Cuenta Contable", expanded=False):
                         with st.form("form_nueva_cuenta"):
                             col_f1, col_f2 = st.columns(2)
@@ -11078,10 +11078,15 @@ elif opcion_menu == "📂 Plan de Cuentas":
                         if 'nivel' in df_actual.columns:
                             df_actual['nivel'] = pd.to_numeric(df_actual['nivel'], errors='coerce').fillna(1).astype(int)
 
+                        # ORDENAMIENTO CONTABLE AUTOMÁTICO POR CÓDIGO
+                        # Esto garantiza que '1.1.1.01.003' se ubique perfectamente debajo de '1.1.1.01.002'
+                        if 'codigo' in df_actual.columns:
+                            df_actual = df_actual.sort_values(by='codigo', ascending=True).reset_index(drop=True)
+
                     # 2. Editor interactivo seguro para modificaciones
                     df_editado = st.data_editor(
                         df_actual, 
-                        key="editor_plan_cuentas_modificacion_fija", 
+                        key="editor_plan_cuentas_ordenado", 
                         num_rows="fixed", 
                         use_container_width=True,
                         column_config={
