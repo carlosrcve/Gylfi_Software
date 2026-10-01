@@ -11591,10 +11591,11 @@ elif opcion_menu == "📝 Asientos Contables":
                                     conn_ins = conectar_db(db_nombre)
                                     cursor_ins = conn_ins.cursor()
                                     
+                                    # Incluimos 'bloqueado' asignándole 0 por defecto a los nuevos registros
                                     sql_insert = """
                                         INSERT INTO asientos_contables 
-                                        (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber)
-                                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                                        (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber, bloqueado)
+                                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                                     """
                                     
                                     datos_insertar = []
@@ -11626,7 +11627,8 @@ elif opcion_menu == "📝 Asientos Contables":
                                             desc_cuenta,
                                             ref_str,
                                             debe_float,
-                                            haber_float
+                                            haber_float,
+                                            0  # bloqueado por defecto en 0 (no bloqueado)
                                         ))
                                     
                                     cursor_ins.executemany(sql_insert, datos_insertar)
