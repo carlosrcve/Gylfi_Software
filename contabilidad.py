@@ -11049,12 +11049,15 @@ elif opcion_menu == "📂 Plan de Cuentas":
                     # Copiamos para manipular
                     df_a_guardar = df_editado.copy()
                     
-                    # Convertimos strings vacíos reales a None para que MySQL guarde NULL correctamente
-                    df_a_guardar = df_a_guardar.replace(r'^\s*$', None, regex=True)
+                    # Convertimos strings vacíos o espacios a NaN de pandas primero
+                    df_a_guardar = df_a_guardar.replace(r'^\s*$', pd.NA, regex=True)
                     
-                    # Aseguramos que los IDs vacíos o nuevos sean None (para que MySQL autogenere el ID)
+                    # Limpiamos específicamente la columna id
                     if 'id' in df_a_guardar.columns:
                         df_a_guardar['id'] = pd.to_numeric(df_a_guardar['id'], errors='coerce')
+                    
+                    # Reemplazamos todos los NaN / NaT restantes por None puro de Python (que MySQL acepta como NULL)
+                    df_a_guardar = df_a_guardar.where(pd.notnull(df_a_guardar), None)
                     
                     # Ejecutamos la actualización de la tabla completa
                     actualizar_tabla_completa_db(conn_empresa, "plan_cuentas", df_a_guardar)
