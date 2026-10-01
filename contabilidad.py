@@ -11016,17 +11016,28 @@ elif opcion_menu == "📂 Plan de Cuentas":
         with tab2:
             st.markdown("### 📋 Plan de Cuentas (Edición, Nuevos y Eliminación)")
             
-            # 1. Cargamos los datos actuales de MySQL de forma limpia
+            # 1. Cargamos los datos actuales de MySQL de forma segura
             df_actual = consultar_tabla_db(conn_empresa, "plan_cuentas")
             
-            if df_actual is None or df_actual.empty:
-                df_actual = pd.DataFrame(columns=['id', 'codigo', 'nombre', 'nivel', 'tipo', 'padre'])
-            else:
-                # Limpiamos nulos para que Streamlit los muestre bien en texto
-                for col in ['codigo', 'nombre', 'tipo', 'padre']:
-                    if col in df_actual.columns:
-                        df_actual[col] = df_actual[col].fillna("").astype(str).replace(['nan', 'None'], '')
+            # Aseguramos estructura mínima incluso si la tabla está vacía en la BD
+            columnas_requeridas = ['id', 'codigo', 'nombre', 'nivel', 'tipo', 'padre']
             
+            if df_actual is None or df_actual.empty:
+                df_actual = pd.DataFrame(columns=columnas_requeridas)
+            else:
+                # Verificamos que existan todas las columnas necesarias; si falta alguna, la creamos
+                for col in columnas_requeridas:
+                    if col not in df_actual.columns:
+                        df_actual[col] = ""
+
+                # Limpiamos nulos de forma segura para visualización en texto
+                for col in ['codigo', 'nombre', 'tipo', 'padre']:
+                    df_actual[col] = df_actual[col].fillna("").astype(str).replace(['nan', 'None', '<NA>'], '')
+                
+                # Aseguramos que 'nivel' e 'id' sean numéricos limpios para Streamlit
+                df_actual['id'] = pd.to_numeric(df_actual['id'], errors='coerce')
+                df_actual['nivel'] = pd.to_numeric(df_actual['nivel'], errors='coerce').fillna(1).astype(int)
+
             # 2. Editor interactivo de Streamlit
             df_editado = st.data_editor(
                 df_actual, 
@@ -11046,20 +11057,21 @@ elif opcion_menu == "📂 Plan de Cuentas":
             # 3. Guardado inteligente corregido para MySQL
             if st.button("💾 Guardar Cambios en Plan de Cuentas", type="primary"):
                 try:
-                    # Copiamos para manipular
                     df_a_guardar = df_editado.copy()
                     
-                    # Convertimos strings vacíos o espacios a NaN de pandas primero
+                    # Convertimos strings vacíos o espacios a NA de pandas
                     df_a_guardar = df_a_guardar.replace(r'^\s*$', pd.NA, regex=True)
                     
-                    # Limpiamos específicamente la columna id
+                    # Limpiamos la columna id y nivel
                     if 'id' in df_a_guardar.columns:
                         df_a_guardar['id'] = pd.to_numeric(df_a_guardar['id'], errors='coerce')
-                    
-                    # Reemplazamos todos los NaN / NaT restantes por None puro de Python (que MySQL acepta como NULL)
+                    if 'nivel' in df_a_guardar.columns:
+                        df_a_guardar['nivel'] = pd.to_numeric(df_a_guardar['nivel'], errors='coerce')
+
+                    # Reemplazamos todos los NaN / NaT por None puro para MySQL
                     df_a_guardar = df_a_guardar.where(pd.notnull(df_a_guardar), None)
                     
-                    # Ejecutamos la actualización de la tabla completa
+                    # Ejecutamos la actualización
                     actualizar_tabla_completa_db(conn_empresa, "plan_cuentas", df_a_guardar)
                     
                     st.success("✅ ¡Modificaciones guardadas y plan de cuentas actualizado correctamente!")
