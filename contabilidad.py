@@ -2802,12 +2802,12 @@ def consultar_libro_diario_db(conn_activa=None, fecha_inicio=None, fecha_fin=Non
         return pd.DataFrame()
 
     try:
-        # 3. Preparar consulta limpia sin anteponer el esquema (la conexión ya está en esa BD)
+        # 3. Preparar consulta limpia sin anteponer el esquema
         if fecha_inicio and fecha_fin:
-            query = "SELECT n_comprobante,descripcion,fecha,plan_cuentas,cuenta_contable,referencia,debe,haber FROM asientos_contables WHERE fecha BETWEEN %s AND %s ORDER BY id ASC"
+            query = "SELECT id, n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber FROM asientos_contables WHERE fecha BETWEEN %s AND %s ORDER BY id ASC"
             params = (fecha_inicio, fecha_fin)
         else:
-            query = "SELECT * FROM asientos_contables ORDER BY id ASC"
+            query = "SELECT id, n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber FROM asientos_contables ORDER BY id ASC"
             params = None
         
         # 4. Ejecución con pandas
@@ -2826,6 +2826,10 @@ def consultar_libro_diario_db(conn_activa=None, fecha_inicio=None, fecha_fin=Non
                 'credito': 'haber'
             }
             df.rename(columns=mapeo, inplace=True)
+            
+            # FILTRO DE SEGURIDAD EXTRA: Eliminar explícitamente columnas no deseadas si existieran
+            columnas_a_excluir = ['bloqueado']
+            df = df.drop(columns=[col for col in columnas_a_excluir if col in df.columns], errors='ignore')
             
             # Verificación de integridad
             if not all(col in df.columns for col in ['debe', 'haber']):
