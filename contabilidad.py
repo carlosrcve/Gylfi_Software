@@ -11491,10 +11491,11 @@ elif opcion_menu == "📝 Asientos Contables":
                                         conn_ins = conectar_db(db_nombre)
                                         cursor_ins = conn_ins.cursor()
                                         
+                                        # SQL ajustado exactamente a tus 8 campos (sin contar el ID que es autoincrementable)
                                         sql_insert = """
                                             INSERT INTO asientos_contables 
-                                            (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber, bloqueado)
-                                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 0)
+                                            (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber)
+                                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                                         """
                                         
                                         datos_insertar = [
