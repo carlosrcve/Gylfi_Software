@@ -11491,7 +11491,7 @@ elif opcion_menu == "📝 Asientos Contables":
                     df_editado = st.data_editor(
                         st.session_state["df_asiento_actual"],
                         num_rows="dynamic",
-                        width="stretch",
+                        use_container_width=True,
                         hide_index=True,
                         key="editor_asiento_interactivo",
                         column_config={
@@ -11545,7 +11545,7 @@ elif opcion_menu == "📝 Asientos Contables":
                         )
                         
                     if abs(diferencia) >= 0.01:
-                        st.warning(f"⚠️️ El asiento presenta una diferencia de {formato_contable(abs(diferencia))}. El Debe y el Haber deben ser iguales para poder guardar.")
+                        st.warning(f"⚠️ El asiento presenta una diferencia de {formato_contable(abs(diferencia))}. El Debe y el Haber deben ser iguales para poder guardar.")
                     else:
                         st.success("✅ El asiento está perfectamente cuadrado y listo para registrar.")
                     st.markdown("---")
@@ -11625,8 +11625,6 @@ elif opcion_menu == "📝 Asientos Contables":
                                     if "df_asiento_actual" in st.session_state:
                                         del st.session_state["df_asiento_actual"]
                                         
-                                    # Opcional: Si deseas que la interfaz espere un segundo para que el usuario aprecie el mensaje antes de refrescar, 
-                                    # puedes usar import time; time.sleep(1) antes del st.rerun()
                                     st.rerun()
                                     
                                 except Exception as e:
