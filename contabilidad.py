@@ -11664,6 +11664,7 @@ elif opcion_menu == "📝 Asientos Contables":
                                     conn_del.close()
                                     
                                     st.success(f"¡Comprobante N° {comp_a_eliminar} eliminado correctamente!")
+                                    st.balloons()  # <-- Globitos agregados aquí
                                     st.rerun()
                                 except Exception as e:
                                     st.error(f"Error al eliminar el comprobante: {str(e)}")
