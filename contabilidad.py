@@ -11495,6 +11495,105 @@ elif opcion_menu == "📝 Asientos Contables":
                 # ==========================================
                 # OPCIÓN 2: AGREGAR NUEVO ASIENTO
                 # ==========================================
+                if accion_diario == "🔍 Consultar y Modificar Asientos":
+                    st.subheader("Consulta de Asientos Contables")
+                    
+                    # Selector del método de filtro (Rango de Fechas o Número de Comprobante)
+                    tipo_filtro = st.radio(
+                        "Filtrar asientos contables por:",
+                        ["📅 Rango de Fechas", "🔢 Número de Comprobante"],
+                        horizontal=True
+                    )
+                    
+                    if tipo_filtro == "📅 Rango de Fechas":
+                        col_f1, col_f2 = st.columns(2)
+                        with col_f1:
+                            fecha_desde = st.date_input("Fecha Desde")
+                        with col_f2:
+                            fecha_hasta = st.date_input("Fecha Hasta")
+                            
+                        # Lógica para consultar por rango de fechas
+                        conn_rf = conectar_db(db_nombre)
+                        try:
+                            import pandas as pd
+                            query_rf = f"SELECT n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber FROM asientos_contables WHERE fecha BETWEEN '{fecha_desde}' AND '{fecha_hasta}' ORDER BY fecha, n_comprobante"
+                            df_rf = pd.read_sql(query_rf, conn_rf)
+                        except Exception as e:
+                            df_rf = pd.DataFrame()
+                        finally:
+                            if conn_rf:
+                                conn_rf.close()
+                                
+                        if not df_rf.empty:
+                            st.success(f"Se encontraron {len(df_rf)} registros en el rango seleccionado.")
+                            st.dataframe(
+                                df_rf,
+                                hide_index=True,
+                                use_container_width=True,
+                                column_config={
+                                    "debe": st.column_config.NumberColumn("Debe", format="%,.2f"),
+                                    "haber": st.column_config.NumberColumn("Haber", format="%,.2f")
+                                }
+                            )
+                        else:
+                            st.info("No se encontraron asientos contables en el rango de fechas especificado.")
+
+                    elif tipo_filtro == "🔢 Número de Comprobante":
+                        st.markdown("##### Seleccione el rango de fechas para buscar los comprobantes:")
+                        col_d1, col_d2 = st.columns(2)
+                        with col_d1:
+                            fec_inicio = st.date_input("Fecha Desde (para buscar comprobante)")
+                        with col_d2:
+                            fec_fin = st.date_input("Fecha Hasta (para buscar comprobante)")
+
+                        # Consultar los números de comprobante únicos dentro de ese rango de fechas
+                        conn_fec = conectar_db(db_nombre)
+                        try:
+                            import pandas as pd
+                            query_compps = f"SELECT DISTINCT n_comprobante FROM asientos_contables WHERE fecha BETWEEN '{fec_inicio}' AND '{fec_fin}' ORDER BY n_comprobante"
+                            df_compps = pd.read_sql(query_compps, conn_fec)
+                        except Exception as e:
+                            df_compps = pd.DataFrame()
+                        finally:
+                            if conn_fec:
+                                conn_fec.close()
+
+                        # Si hay comprobantes en esas fechas, mostrar la lista desplegable
+                        if not df_compps.empty:
+                            lista_comprobantes = df_compps['n_comprobante'].tolist()
+                            comp_seleccionado = st.selectbox("Seleccione el Número de Comprobante:", lista_comprobantes)
+                            
+                            if comp_seleccionado:
+                                # Cargar el detalle del comprobante seleccionado
+                                conn_det = conectar_db(db_nombre)
+                                try:
+                                    df_detalle = pd.read_sql(f"SELECT n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber FROM asientos_contables WHERE n_comprobante = '{comp_seleccionado}'", conn_det)
+                                except Exception as e:
+                                    df_detalle = pd.DataFrame()
+                                finally:
+                                    if conn_det:
+                                        conn_det.close()
+                                        
+                                if not df_detalle.empty:
+                                    st.markdown(f"**Detalle del Comprobante N° {comp_seleccionado}:**")
+                                    st.dataframe(
+                                        df_detalle,
+                                        hide_index=True,
+                                        use_container_width=True,
+                                        column_config={
+                                            "debe": st.column_config.NumberColumn("Debe", format="%,.2f"),
+                                            "haber": st.column_config.NumberColumn("Haber", format="%,.2f")
+                                        }
+                                    )
+                                else:
+                                    st.info("No se encontraron registros para este comprobante.")
+                        else:
+                            st.warning("⚠️ No se encontraron comprobantes registrados en el rango de fechas seleccionado.")
+
+
+                # ==========================================
+                # OPCIÓN 2: AGREGAR NUEVO ASIENTO
+                # ==========================================
                 elif accion_diario == "➕ Agregar Nuevo Asiento":
                     st.subheader("Registro de Nuevo Comprobante Contable")
                     
@@ -11681,66 +11780,6 @@ elif opcion_menu == "📝 Asientos Contables":
                                     
                                 except Exception as e:
                                     st.error(f"Error al registrar en la base de datos: {str(e)}")
-
-                # ==========================================
-                # OPCIÓN 3: ELIMINAR COMPROBANTE
-                # ==========================================
-                elif accion_diario == "🗑️ Eliminar Comprobante Contable":
-                    st.subheader("Eliminación de Comprobante")
-                    st.warning("⚠️ Precaución: Esta acción eliminará permanentemente todas las líneas asociadas al número de comprobante indicado.")
-                    
-                    comp_a_eliminar = st.text_input("Ingrese el Número de Comprobante que desea eliminar:")
-                    
-                    if comp_a_eliminar:
-                        # Mostrar vista previa de lo que se va a eliminar
-                        conn_prev = conectar_db(db_nombre)
-                        try:
-                            import pandas as pd
-                            df_prev = pd.read_sql(f"SELECT n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber FROM asientos_contables WHERE n_comprobante = '{comp_a_eliminar}'", conn_prev)
-                        except Exception as e:
-                            df_prev = pd.DataFrame()
-                        finally:
-                            if conn_prev:
-                                conn_prev.close()
-                        
-                        if not df_prev.empty:
-                            st.markdown(f"**Se encontraron {len(df_prev)} líneas para el Comprobante N° {comp_a_eliminar}:**")
-                            
-                            # Vista previa interactiva con formato numérico aplicado en 'debe' y 'haber'
-                            st.data_editor(
-                                df_prev, 
-                                hide_index=True,
-                                disabled=True,  # Solo lectura para la vista previa de eliminación
-                                column_config={
-                                    "debe": st.column_config.NumberColumn(
-                                        "Debe",
-                                        format="%,.2f",
-                                        help="Monto del debe"
-                                    ),
-                                    "haber": st.column_config.NumberColumn(
-                                        "Haber",
-                                        format="%,.2f",
-                                        help="Monto del haber"
-                                    )
-                                }
-                            )
-                            
-                            # Botón de confirmación para eliminar
-                            if st.button("🔥 Confirmar Eliminación Definitiva", type="primary"):
-                                try:
-                                    conn_del = conectar_db(db_nombre)
-                                    cursor_del = conn_del.cursor()
-                                    cursor_del.execute("DELETE FROM asientos_contables WHERE n_comprobante = %s", (comp_a_eliminar,))
-                                    conn_del.commit()
-                                    cursor_del.close()
-                                    conn_del.close()
-                                    
-                                    st.success(f"¡Comprobante N° {comp_a_eliminar} eliminado correctamente!")
-                                    st.balloons()  # <-- Globitos agregados aquí
-                                except Exception as e:
-                                    st.error(f"Error al eliminar el comprobante: {str(e)}")
-                        else:
-                            st.info(f"No se encontró ningún registro asociado al Comprobante N° '{comp_a_eliminar}'.")
                     
             with tab2:
                 # --- PESTAÑA 2: IMPORTACIÓN ---
