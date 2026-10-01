@@ -11642,7 +11642,7 @@ elif opcion_menu == "📝 Asientos Contables":
                         conn_prev = conectar_db(db_nombre)
                         try:
                             import pandas as pd
-                            df_prev = pd.read_sql(f"SELECT n_comprobante, descripcion,fecha,plan_cuentas,cuenta_contable,referencia,debe,haber,FROM asientos_contables WHERE n_comprobante = '{comp_a_eliminar}'", conn_prev)
+                            df_prev = pd.read_sql(f"SELECT n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber FROM asientos_contables WHERE n_comprobante = '{comp_a_eliminar}'", conn_prev)
                         except Exception as e:
                             df_prev = pd.DataFrame()
                         finally:
