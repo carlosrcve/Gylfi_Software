@@ -11512,7 +11512,7 @@ elif opcion_menu == "📝 Asientos Contables":
                         }
                     )
                     
-                    # Sincronización automática en tiempo real de la columna de descripción
+                    # Sincronización automática en tiempo real de la columna de descripción y control de cambios
                     cambio_detectado = False
                     for idx, row in df_editado.iterrows():
                         seleccion = str(row['plan_cuentas'])
@@ -11523,6 +11523,32 @@ elif opcion_menu == "📝 Asientos Contables":
                             if row['cuenta_contable'] != nombre_correcto:
                                 df_editado.at[idx, 'cuenta_contable'] = nombre_correcto
                                 cambio_detectado = True
+
+                    # Calcular totales actuales en tiempo real basados en el editor
+                    total_debe = pd.to_numeric(df_editado['debe'], errors='coerce').sum()
+                    total_haber = pd.to_numeric(df_editado['haber'], errors='coerce').sum()
+                    diferencia = total_debe - total_haber
+
+                    # Mostrar panel de monitoreo de cuadre en tiempo real
+                    st.markdown("---")
+                    col_m1, col_m2, col_m3 = st.columns(3)
+                    with col_m1:
+                        st.metric(label="Total Debe", value=formato_contable(total_debe))
+                    with col_m2:
+                        st.metric(label="Total Haber", value=formato_contable(total_haber))
+                    with col_m3:
+                        st.metric(
+                            label="Diferencia (Descuadre)", 
+                            value=formato_contable(abs(diferencia)),
+                            delta="Cuadrado 🟢" if abs(diferencia) < 0.01 else "Descuadrado 🔴",
+                            delta_color="off" if abs(diferencia) < 0.01 else "inverse"
+                        )
+                        
+                    if abs(diferencia) >= 0.01:
+                        st.warning(f"⚠️ El asiento presenta una diferencia de {formato_contable(abs(diferencia))}. El Debe y el Haber deben ser iguales para poder guardar.")
+                    else:
+                        st.success("✅ El asiento está perfectamente cuadrado y listo para registrar.")
+                    st.markdown("---")
 
                     if cambio_detectado:
                         st.session_state["df_asiento_actual"] = df_editado
@@ -11535,11 +11561,8 @@ elif opcion_menu == "📝 Asientos Contables":
                         elif df_editado.empty:
                             st.error("El asiento debe contener al menos una línea.")
                         else:
-                            t_debe_n = df_editado['debe'].sum()
-                            t_haber_n = df_editado['haber'].sum()
-                            
-                            if abs(t_debe_n - t_haber_n) >= 0.01:
-                                st.error(f"❌ El asiento no cuadra. Debe: {formato_contable(t_debe_n)} | Haber: {formato_contable(t_haber_n)}")
+                            if abs(total_debe - total_haber) >= 0.01:
+                                st.error(f"❌ El asiento no cuadra. Debe: {formato_contable(total_debe)} | Haber: {formato_contable(total_haber)}")
                             else:
                                 try:
                                     conn_ins = conectar_db(db_nombre)
