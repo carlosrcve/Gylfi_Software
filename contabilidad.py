@@ -11326,30 +11326,47 @@ elif opcion_menu == "📝 Asientos Contables":
                 return output.getvalue()
 
             with tab1:
-                # --- 1. Selector de fechas ---
-                col1, col2 = st.columns(2)
-                with col1:
-                    f_inicio = st.date_input("Fecha Inicio") 
-                with col2:
-                    f_fin = st.date_input("Fecha Fin")
+                # --- 1. Selector de modo de búsqueda ---
+                modo_busqueda = st.radio(
+                    "Filtrar asientos contables por:", 
+                    ["📅 Rango de Fechas", "🔢 Número de Comprobante"], 
+                    horizontal=True
+                )
 
-                # Conexión temporal
                 conn_temp = conectar_db(db_nombre)
-                
+                df_diario = None
+
                 try:
-                    df_diario = consultar_libro_diario_db(conn_activa=conn_temp, fecha_inicio=f_inicio, fecha_fin=f_fin)
+                    if modo_busqueda == "📅 Rango de Fechas":
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            f_inicio = st.date_input("Fecha Inicio") 
+                        with col2:
+                            f_fin = st.date_input("Fecha Fin")
+                        
+                        df_diario = consultar_libro_diario_db(conn_activa=conn_temp, fecha_inicio=f_inicio, fecha_fin=f_fin)
+                    else:
+                        # Búsqueda específica por Número de Comprobante
+                        n_comp_buscado = st.text_input("Ingrese el Número de Comprobante exacto (ej. 1, 2, etc.):")
+                        if n_comp_buscado:
+                            # Consulta filtrada por n_comprobante en la tabla asientos_contables
+                            query = f"SELECT * FROM asientos_contables WHERE n_comprobante = '{n_comp_buscado}'"
+                            import pandas as pd
+                            df_diario = pd.read_sql(query, conn_temp)
                 except Exception as e:
-                    st.error(f"❌ Error al consultar el libro diario: {e}")
+                    st.error(f"❌ Error al consultar los registros: {e}")
                     df_diario = None
                 finally:
                     if conn_temp:
                         conn_temp.close()
                 
-                # --- 3. Visualización limpia ---
+                # --- 3. Visualización y Edición ---
                 if df_diario is not None and not df_diario.empty:
                     # Normalización de columnas a minúsculas para evitar errores de coincidencia
                     df_diario.columns = [c.lower() for c in df_diario.columns]
                     
+                    st.info(f"Mostrando {len(df_diario)} registros para editar.")
+
                     # Editor interactivo con formato numérico aplicado en 'debe' y 'haber'
                     df_editado = st.data_editor(
                         df_diario, 
@@ -11384,10 +11401,14 @@ elif opcion_menu == "📝 Asientos Contables":
                     
                     # 3. Descarga y Totales
                     excel_data = exportar_a_excel(df_editado)
+                    
+                    # Definir nombre de archivo seguro según el modo
+                    nombre_archivo = f"Asiento_Comprobante_{n_comp_buscado}.xlsx" if modo_busqueda == "🔢 Número de Comprobante" and 'n_comp_buscado' in locals() and n_comp_buscado else f"Libro_Diario.xlsx"
+                    
                     st.download_button(
-                        label="📥 Descargar Libro Diario",
+                        label="📥 Descargar Datos Visualizados",
                         data=excel_data,
-                        file_name=f"Libro_Diario_{f_inicio}_al_{f_fin}.xlsx",
+                        file_name=nombre_archivo,
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                     )
                     
@@ -11406,7 +11427,10 @@ elif opcion_menu == "📝 Asientos Contables":
                         c3.error(f"❌ DESCUADRE: {formato_contable(t_debe - t_haber)}")
                         
                 else:
-                    st.info("No hay asientos registrados para este rango de fechas.")
+                    if modo_busqueda == "🔢 Número de Comprobante":
+                        st.info("Ingrese un número de comprobante válido para cargar sus líneas contables.")
+                    else:
+                        st.info("No hay asientos registrados para este rango de fechas.")
                     
             with tab2:
                 # --- PESTAÑA 2: IMPORTACIÓN ---
