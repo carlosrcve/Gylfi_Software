@@ -11435,7 +11435,7 @@ elif opcion_menu == "📝 Asientos Contables":
                             st.info("No hay asientos registrados para este rango de fechas.")
 
                 # ==========================================
-                # OPCIÓN 2: AGREGAR NUEVO ASIENTO (ESTRUCTURA LIMPIA POR FILAS)
+                # OPCIÓN 2: AGREGAR NUEVO ASIENTO (ESTRUCTURA 100% LIMPIA)
                 # ==========================================
                 elif accion_diario == "➕ Agregar Nuevo Asiento":
                     st.subheader("Registro de Nuevo Comprobante Contable")
@@ -11496,12 +11496,13 @@ elif opcion_menu == "📝 Asientos Contables":
 
                     st.markdown("---")
 
-                    # Renderizar cada línea de forma explícita sin la columna bloqueada de descripción
+                    # Renderizar cada línea de forma limpia
                     lineas_a_mantener = []
                     
                     for i, linea in enumerate(st.session_state["lista_lineas_asiento"]):
                         st.markdown(f"**Línea {i+1}**")
-                        # Ajustamos las columnas a 4 espacios útiles (Cuenta, Referencia, Debe/Haber y Botón Borrar)
+                        
+                        # Distribución limpia: Selector de Cuenta (4), Referencia (2), Debe/Haber (3), Borrar (1)
                         c1, c2, c3, c4 = st.columns([4, 2, 3, 1])
                         
                         with c1:
@@ -11509,12 +11510,17 @@ elif opcion_menu == "📝 Asientos Contables":
                             idx_default = opciones_cuentas.index(val_actual) if val_actual in opciones_cuentas else 0
                             
                             nueva_cuenta = st.selectbox(
-                                "Cuenta Contable (Código y Nombre)", 
+                                "Cuenta Contable", 
                                 options=opciones_cuentas, 
                                 index=idx_default, 
                                 key=f"cuenta_{i}"
                             )
                             linea["plan_cuentas"] = nueva_cuenta
+                            
+                            # Mostrar la descripción pequeña abajo de la cuenta de forma elegante (sin columnas bloqueadas)
+                            codigo_sel = nueva_cuenta.split(" - ")[0] if " - " in nueva_cuenta else ""
+                            nombre_desc = dict_nombres_cuentas.get(codigo_sel, "")
+                            st.caption(f"📌 {nombre_desc}")
                             
                         with c2:
                             nueva_ref = st.text_input("Referencia", value=linea.get("referencia", ""), key=f"ref_{i}")
@@ -11530,7 +11536,7 @@ elif opcion_menu == "📝 Asientos Contables":
                                 linea["haber"] = nuevo_haber
                                 
                         with c4:
-                            st.write("") # Espaciador visual para alinear con los inputs
+                            st.write("") # Espaciador para alinear con los inputs
                             st.write("")
                             if st.button("🗑️", key=f"del_{i}", help=f"Eliminar línea {i+1}"):
                                 continue
