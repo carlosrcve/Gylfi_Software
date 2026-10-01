@@ -11450,12 +11450,18 @@ elif opcion_menu == "📝 Asientos Contables":
                         nuevo_desc = st.text_input("Descripción general del Asiento")
                         
                         st.markdown("### Líneas del Comprobante")
-                        st.info("Agregue las filas correspondientes al Debe y Haber. Asegúrese de que el asiento cuadre.")
+                        st.info("Agregue las filas con todas las cuentas, referencias, Debe y Haber correspondientes.")
                         
-                        # DataFrame inicial vacío para que el usuario cargue las líneas
+                        # DataFrame inicial con todas las columnas de la tabla de líneas
                         import pandas as pd
                         df_vacio = pd.DataFrame([
-                            {"plan_cuentas": "", "cuenta_contable": "", "referencia": "", "debe": 0.0, "haber": 0.0}
+                            {
+                                "plan_cuentas": "", 
+                                "cuenta_contable": "", 
+                                "referencia": "", 
+                                "debe": 0.0, 
+                                "haber": 0.0
+                            }
                         ])
                         
                         df_nuevo_ingresado = st.data_editor(
@@ -11463,13 +11469,13 @@ elif opcion_menu == "📝 Asientos Contables":
                             num_rows="dynamic",
                             width="stretch",
                             hide_index=True,
-                            key="editor_nuevo_asiento",
+                            key="editor_nuevo_asiento_completo",
                             column_config={
-                                "plan_cuentas": st.column_config.TextColumn("Plan Cuentas", help="Ej. 1.1.2.01.001"),
-                                "cuenta_contable": st.column_config.TextColumn("Descripción Cuenta"),
+                                "plan_cuentas": st.column_config.TextColumn("Plan Cuentas", help="Ej. 1.1.2.01.001", required=True),
+                                "cuenta_contable": st.column_config.TextColumn("Descripción Cuenta", required=True),
                                 "referencia": st.column_config.TextColumn("Referencia / Factura"),
-                                "debe": st.column_config.NumberColumn("Debe", format="%,.2f"),
-                                "haber": st.column_config.NumberColumn("Haber", format="%,.2f")
+                                "debe": st.column_config.NumberColumn("Debe", format="%,.2f", min_value=0.0),
+                                "haber": st.column_config.NumberColumn("Haber", format="%,.2f", min_value=0.0)
                             }
                         )
                         
@@ -11484,6 +11490,7 @@ elif opcion_menu == "📝 Asientos Contables":
                                 t_debe_n = df_nuevo_ingresado['debe'].sum()
                                 t_haber_n = df_nuevo_ingresado['haber'].sum()
                                 
+                                # Validar partida doble
                                 if abs(t_debe_n - t_haber_n) >= 0.01:
                                     st.error(f"❌ El asiento no cuadra. Debe: {formato_contable(t_debe_n)} | Haber: {formato_contable(t_haber_n)}")
                                 else:
@@ -11491,7 +11498,7 @@ elif opcion_menu == "📝 Asientos Contables":
                                         conn_ins = conectar_db(db_nombre)
                                         cursor_ins = conn_ins.cursor()
                                         
-                                        # SQL ajustado exactamente a tus 8 campos (sin contar el ID que es autoincrementable)
+                                        # Inserción con todos los campos de tu base de datos
                                         sql_insert = """
                                             INSERT INTO asientos_contables 
                                             (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber)
@@ -11517,7 +11524,7 @@ elif opcion_menu == "📝 Asientos Contables":
                                         cursor_ins.close()
                                         conn_ins.close()
                                         
-                                        st.success(f"¡Comprobante N° {nuevo_n_comp} guardado exitosamente!")
+                                        st.success(f"¡Comprobante N° {nuevo_n_comp} guardado exitosamente con todas sus líneas!")
                                         st.rerun()
                                     except Exception as e:
                                         st.error(f"Error al registrar en la base de datos: {str(e)}")
