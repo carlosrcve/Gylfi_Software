@@ -11512,7 +11512,7 @@ elif opcion_menu == "📝 Asientos Contables":
                         }
                     )
                     
-                    # 🧹 FILTRAR LÍNEAS VACÍAS: Elimina automáticamente la fila en blanco que genera Streamlit si no tiene cuenta
+                    # 🧹 FILTRAR LÍNEAS VACÍAS: Elimina automáticamente la fila en blanco si no tiene cuenta seleccionada
                     df_editado = df_editado[df_editado['plan_cuentas'].notna() & (df_editado['plan_cuentas'].astype(str).str.strip() != "")]
 
                     # Sincronización automática en tiempo real de la columna de descripción y control de cambios
@@ -11526,7 +11526,7 @@ elif opcion_menu == "📝 Asientos Contables":
                                 df_editado.at[idx, 'cuenta_contable'] = nombre_correcto
                                 cambio_detectado = True
 
-                    # Calcular totales actuales en tiempo real basados en el editor
+                    # Calcular totales actuales en tiempo real basados en el editor filtrado
                     total_debe = pd.to_numeric(df_editado['debe'], errors='coerce').sum()
                     total_haber = pd.to_numeric(df_editado['haber'], errors='coerce').sum()
                     diferencia = total_debe - total_haber
@@ -11578,23 +11578,19 @@ elif opcion_menu == "📝 Asientos Contables":
                                     
                                     datos_insertar = []
                                     for _, row in df_editado.iterrows():
-                                        # Asegurar que plan_cuentas no sea None
                                         plan_val = row.get('plan_cuentas')
                                         if not plan_val:
-                                            continue  # Ignorar filas vacías si las hay
+                                            continue
                                             
                                         seleccion = str(plan_val)
                                         codigo_cuenta = seleccion.split(" - ")[0] if " - " in seleccion else seleccion
                                         
-                                        # Manejar descripción de cuenta nula o vacía
                                         desc_val = row.get('cuenta_contable')
                                         desc_cuenta = str(desc_val) if desc_val is not None else ""
                                         
-                                        # Manejar referencia nula o vacía
                                         ref_val = row.get('referencia')
                                         ref_str = str(ref_val) if ref_val is not None else ""
                                         
-                                        # Manejar valores numéricos nulos (None/NaN) convirtiéndolos a 0.0 de forma segura
                                         val_debe = row.get('debe')
                                         debe_float = float(val_debe) if val_debe is not None and pd.notna(val_debe) else 0.0
                                         
@@ -11617,13 +11613,9 @@ elif opcion_menu == "📝 Asientos Contables":
                                     cursor_ins.close()
                                     conn_ins.close()
                                     
-                                    # 1. Mostrar mensaje de notificación exitosa
                                     st.success(f"¡Comprobante N° {nuevo_n_comp} guardado exitosamente!")
-                                    
-                                    # 2. Lanzar los globitos festivos de Streamlit
                                     st.balloons()
                                     
-                                    # 3. Limpiar el estado del editor para reiniciar el formulario
                                     if "df_asiento_actual" in st.session_state:
                                         del st.session_state["df_asiento_actual"]
                                         
