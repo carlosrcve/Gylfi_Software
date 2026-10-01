@@ -11021,7 +11021,7 @@ elif opcion_menu == "📂 Plan de Cuentas":
                 st.error("❌ Error crítico: La conexión `conn_empresa` no está disponible en este ámbito.")
             else:
                 try:
-                    # Sección para agregar una nueva cuenta cómodamente
+                    # Sección 1: Agregar una nueva cuenta cómodamente
                     with st.expander("➕ Agregar Nueva Cuenta Contable", expanded=False):
                         with st.form("form_nueva_cuenta"):
                             col_f1, col_f2 = st.columns(2)
@@ -11041,12 +11041,11 @@ elif opcion_menu == "📂 Plan de Cuentas":
                                     try:
                                         cursor_ins = conn_empresa.cursor()
                                         
-                                        # 1. Obtenemos el ID máximo actual para calcular el siguiente de forma segura
+                                        # Obtenemos el ID máximo actual para calcular el siguiente de forma segura
                                         cursor_ins.execute("SELECT MAX(id) FROM plan_cuentas")
                                         res_max = cursor_ins.fetchone()
                                         siguiente_id = (res_max[0] or 0) + 1 if res_max else 1
 
-                                        # 2. Insertamos indicando explícitamente el nuevo ID y evitando duplicados
                                         sql_ins = """
                                             INSERT INTO plan_cuentas (id, codigo, nombre, nivel, tipo, padre) 
                                             VALUES (%s, %s, %s, %s, %s, %s)
@@ -11066,6 +11065,47 @@ elif opcion_menu == "📂 Plan de Cuentas":
                                         st.rerun()
                                     except Exception as ex_ins:
                                         st.error(f"❌ Error al insertar la cuenta: {ex_ins}")
+
+                    # Sección 2: Eliminar una cuenta por error
+                    with st.expander("🗑️ Eliminar Cuenta Contable (Por Error)", expanded=False):
+                        with st.form("form_eliminar_cuenta"):
+                            st.warning("⚠️ Precaución: Eliminar una cuenta la borrará permanentemente de la base de datos.")
+                            
+                            # Consultamos las cuentas actuales para mostrarlas en el selector de eliminación
+                            df_del_opt = consultar_tabla_db(conn_empresa, "plan_cuentas")
+                            lista_cuentas_del = []
+                            if df_del_opt is not None and not df_del_opt.empty:
+                                # Ordenamos por código para buscar fácil
+                                if 'codigo' in df_del_opt.columns and 'nombre' in df_del_opt.columns:
+                                    df_del_opt = df_del_opt.sort_values(by='codigo')
+                                    lista_cuentas_del = [f"{row['codigo']} - {row['nombre']}" for _, row in df_del_opt.iterrows()]
+
+                            cuenta_a_borrar = st.selectbox("Seleccione la cuenta a eliminar", options=lista_cuentas_del if lista_cuentas_del else ["No hay cuentas disponibles"])
+                            confirmar_borrado = st.checkbox("Confirmo que deseo eliminar permanentemente esta cuenta")
+                            
+                            btn_eliminar = st.form_submit_button("🗑️ Eliminar Cuenta Seleccionada", type="primary")
+                            if btn_eliminar:
+                                if not lista_cuentas_del or cuenta_a_borrar == "No hay cuentas disponibles":
+                                    st.warning("⚠️ No hay cuentas para eliminar.")
+                                elif not confirmar_borrado:
+                                    st.warning("⚠️ Debe marcar la casilla de confirmación para proceder.")
+                                else:
+                                    try:
+                                        # Extraemos el código contable de la opción seleccionada (ej: "1.1.1.01.003 - Caja..." -> "1.1.1.01.003")
+                                        codigo_extraido = cuenta_a_borrar.split(" - ")[0].strip()
+                                        
+                                        cursor_del = conn_empresa.cursor()
+                                        sql_del = "DELETE FROM plan_cuentas WHERE codigo = %s"
+                                        cursor_del.execute(sql_del, (codigo_extraido,))
+                                        conn_empresa.commit()
+                                        cursor_del.close()
+                                        
+                                        st.success(f"✅ Cuenta '{cuenta_extraido}' eliminada correctamente.")
+                                        st.rerun()
+                                    except Exception as ex_del:
+                                        if hasattr(conn_empresa, 'rollback'):
+                                            conn_empresa.rollback()
+                                        st.error(f"❌ Error al eliminar la cuenta: {ex_del}")
 
                     st.markdown("---")
                     st.markdown("#### ✏️ Modificar Cuentas Existentes")
@@ -11101,7 +11141,7 @@ elif opcion_menu == "📂 Plan de Cuentas":
                     # 2. Editor interactivo seguro para modificaciones
                     df_editado = st.data_editor(
                         df_actual, 
-                        key="editor_plan_cuentas_ordenado", 
+                        key="editor_plan_cuentas_ordenado_con_borrado", 
                         num_rows="fixed", 
                         use_container_width=True,
                         column_config={
