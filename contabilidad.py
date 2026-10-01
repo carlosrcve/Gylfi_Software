@@ -11453,11 +11453,11 @@ elif opcion_menu == "📝 Asientos Contables":
                         cuentas_db = [
                             ("1.1.1.01.001", "Caja Chica"),
                             ("1.1.1.02.001", "Banco Banesco"),
-                            ("2.1.1.01.001", "Cuentas por Pagar"),
-                            ("4.1.1.01.001", "Ventas")
+                            ("1.1.2.01.003", "Cuentas por Cobrar Choferes Jonathan Paredes"),
+                            ("2.1.1.01.001", "Cuentas por Pagar")
                         ]
 
-                    # Crear la lista de opciones y el diccionario de búsqueda rápida
+                    # Crear la lista de opciones y el diccionario exacto { "codigo": "nombre" }
                     opciones_cuentas = [f"{cod} - {nom}" for cod, nom in cuentas_db]
                     dict_nombres_cuentas = {cod: nom for cod, nom in cuentas_db}
 
@@ -11471,41 +11471,42 @@ elif opcion_menu == "📝 Asientos Contables":
                         nuevo_desc = st.text_input("Descripción general del Asiento")
                         
                         st.markdown("### Líneas del Comprobante")
-                        st.info("Seleccione la cuenta en el menú. La descripción se completará automáticamente.")
+                        st.info("Seleccione la cuenta. Su descripción aparecerá automáticamente.")
                         
                         import pandas as pd
-                        val_inicial = opciones_cuentas[0] if opciones_cuentas else ""
-                        nombre_inicial = dict_nombres_cuentas.get(val_inicial.split(" - ")[0], "") if val_inicial else ""
                         
+                        # Recuperar el estado previo del editor si ya interactuaron, para no perder los cambios al recargar
+                        editor_key = "editor_nuevo_asiento_dinamico"
+                        
+                        # Definir un DataFrame inicial por defecto si es la primera vez que carga
                         df_vacio = pd.DataFrame([
                             {
-                                "plan_cuentas": val_inicial, 
-                                "cuenta_contable": nombre_inicial, # Se llena automáticamente al iniciar
+                                "plan_cuentas": opciones_cuentas[0] if opciones_cuentas else "", 
+                                "cuenta_contable": "", 
                                 "referencia": "", 
                                 "debe": 0.0, 
                                 "haber": 0.0
                             }
                         ])
                         
+                        # Renderizamos el editor de datos
                         df_nuevo_ingresado = st.data_editor(
                             df_vacio,
                             num_rows="dynamic",
                             width="stretch",
                             hide_index=True,
-                            key="editor_nuevo_asiento_auto",
+                            key=editor_key,
                             column_config={
                                 "plan_cuentas": st.column_config.SelectboxColumn(
                                     "Plan Cuentas",
-                                    help="Seleccione una cuenta de detalle",
+                                    help="Seleccione la cuenta de detalle",
                                     options=opciones_cuentas,
                                     required=True
                                 ),
-                                # LA CLAVE: Desactivamos la columna (disabled=True) para que el usuario no tenga que escribirla 
-                                # y se vincule de forma automática por código.
                                 "cuenta_contable": st.column_config.TextColumn(
                                     "Descripción Cuenta",
-                                    help="Se completa automáticamente al seleccionar la cuenta",
-                                    disabled=True 
+                                    help="Nombre de la cuenta (automático)",
+                                    disabled=True  # Bloqueado para que el sistema lo llene solo y sin errores
                                 ),
                                 "referencia": st.column_config.TextColumn("Referencia / Factura"),
                                 "debe": st.column_config.NumberColumn("Debe", format="%,.2f", min_value=0.0),
@@ -11513,6 +11514,14 @@ elif opcion_menu == "📝 Asientos Contables":
                             }
                         )
                         
+                        # Actualizamos dinámicamente las descripciones basándonos en lo que el usuario seleccionó en la columna 'plan_cuentas'
+                        for idx, row in df_nuevo_ingresado.iterrows():
+                            seleccion = str(row['plan_cuentas'])
+                            if " - " in seleccion:
+                                codigo_sel = seleccion.split(" - ")[0]
+                                # Asignamos el nombre exacto que le corresponde a ese código según la base de datos
+                                df_nuevo_ingresado.at[idx, 'cuenta_contable'] = dict_nombres_cuentas.get(codigo_sel, "")
+
                         submitted_nuevo = st.form_submit_button("💾 Guardar Nuevo Comprobante")
                         
                         if submitted_nuevo:
@@ -11540,10 +11549,7 @@ elif opcion_menu == "📝 Asientos Contables":
                                         datos_insertar = []
                                         for _, row in df_nuevo_ingresado.iterrows():
                                             seleccion = str(row['plan_cuentas'])
-                                            # Extraer únicamente el código (ej. "1.1.2.01.005")
                                             codigo_cuenta = seleccion.split(" - ")[0] if " - " in seleccion else seleccion
-                                            
-                                            # Extraer automáticamente el nombre de la cuenta usando el diccionario de la base de datos
                                             desc_cuenta = dict_nombres_cuentas.get(codigo_cuenta, str(row['cuenta_contable']))
                                             
                                             datos_insertar.append((
