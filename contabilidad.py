@@ -11504,7 +11504,7 @@ elif opcion_menu == "📝 Asientos Contables":
                             "cuenta_contable": st.column_config.TextColumn(
                                 "Descripción Cuenta",
                                 help="Se completa automáticamente",
-                                disabled=True  # Bloqueada para que el usuario no escriba mal el nombre
+                                disabled=True
                             ),
                             "referencia": st.column_config.TextColumn("Referencia / Factura"),
                             "debe": st.column_config.NumberColumn("Debe", format="%,.2f", min_value=0.0),
@@ -11512,6 +11512,9 @@ elif opcion_menu == "📝 Asientos Contables":
                         }
                     )
                     
+                    # 🧹 FILTRAR LÍNEAS VACÍAS: Elimina automáticamente la fila en blanco que genera Streamlit si no tiene cuenta
+                    df_editado = df_editado[df_editado['plan_cuentas'].notna() & (df_editado['plan_cuentas'].astype(str).str.strip() != "")]
+
                     # Sincronización automática en tiempo real de la columna de descripción y control de cambios
                     cambio_detectado = False
                     for idx, row in df_editado.iterrows():
@@ -11519,7 +11522,6 @@ elif opcion_menu == "📝 Asientos Contables":
                         if " - " in seleccion:
                             codigo_sel = seleccion.split(" - ")[0]
                             nombre_correcto = dict_nombres_cuentas.get(codigo_sel, "")
-                            # Si la descripción actual no coincide con la cuenta seleccionada, la actualizamos
                             if row['cuenta_contable'] != nombre_correcto:
                                 df_editado.at[idx, 'cuenta_contable'] = nombre_correcto
                                 cambio_detectado = True
