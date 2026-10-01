@@ -11016,33 +11016,47 @@ elif opcion_menu == "📂 Plan de Cuentas":
         with tab2:
             st.markdown("### 📋 Plan de Cuentas (Edición, Nuevos y Eliminación)")
             
-            # Validamos que la conexión exista y esté activa antes de disparar la consulta
-            if 'conn_empresa' not in globals() and 'conn_empresa' not in locals():
-                st.error("❌ Error crítico: La conexión `conn_empresa` no está disponible en este contexto.")
+            # 1. Validación estricta de la conexión
+            if 'conn_empresa' not in locals() and 'conn_empresa' not in globals():
+                st.error("❌ Error crítico: La conexión `conn_empresa` no está disponible en este ámbito.")
             else:
                 try:
-                    with st.spinner("Cargando plan de cuentas desde la base de datos..."):
+                    # Consultamos la tabla de la base de datos
+                    with st.spinner("Consultando la base de datos..."):
                         df_actual = consultar_tabla_db(conn_empresa, "plan_cuentas")
+                    
+                    # DEPURACIÓN VISUAL OBLIGATORIA: Esto nos dirá exactamente qué devuelve la BD
+                    st.write(f"🔍 [DEBUG] Tipo de `df_actual`: {type(df_actual)}")
+                    if df_actual is not None:
+                        st.write(f"🔍 [DEBUG] Dimensiones: {df_actual.shape} | Columnas: {list(df_actual.columns)}")
                     
                     columnas_requeridas = ['id', 'codigo', 'nombre', 'nivel', 'tipo', 'padre']
                     
-                    if df_actual is None or df_actual.empty:
+                    if df_actual is None or not isinstance(df_actual, pd.DataFrame) or df_actual.empty:
+                        st.warning("⚠️ La tabla 'plan_cuentas' está vacía o no devolvió datos. Se inicializará una plantilla vacía.")
                         df_actual = pd.DataFrame(columns=columnas_requeridas)
                     else:
+                        # Aseguramos que existan todas las columnas requeridas
                         for col in columnas_requeridas:
                             if col not in df_actual.columns:
                                 df_actual[col] = ""
 
+                        # Limpieza de nulos para que Streamlit pueda renderizarlos en el editor
                         for col in ['codigo', 'nombre', 'tipo', 'padre']:
-                            df_actual[col] = df_actual[col].fillna("").astype(str).replace(['nan', 'None', '<NA>'], '')
+                            if col in df_actual.columns:
+                                df_actual[col] = df_actual[col].fillna("").astype(str).replace(['nan', 'None', '<NA>'], '')
                         
-                        df_actual['id'] = pd.to_numeric(df_actual['id'], errors='coerce')
-                        df_actual['nivel'] = pd.to_numeric(df_actual['nivel'], errors='coerce').fillna(1).astype(int)
+                        if 'id' in df_actual.columns:
+                            df_actual['id'] = pd.to_numeric(df_actual['id'], errors='coerce')
+                        if 'nivel' in df_actual.columns:
+                            df_actual['nivel'] = pd.to_numeric(df_actual['nivel'], errors='coerce').fillna(1).astype(int)
 
-                    # Editor interactivo con key única y segura
+                    st.markdown("---")
+                    
+                    # 2. Editor interactivo de Streamlit
                     df_editado = st.data_editor(
                         df_actual, 
-                        key="editor_plan_cuentas_v3", 
+                        key="editor_plan_cuentas_v4", 
                         num_rows="dynamic", 
                         use_container_width=True,
                         column_config={
@@ -11055,10 +11069,12 @@ elif opcion_menu == "📂 Plan de Cuentas":
                         }
                     )
                     
-                    # Botón de guardado
+                    # 3. Botón de guardado con manejo de errores limpio
                     if st.button("💾 Guardar Cambios en Plan de Cuentas", type="primary"):
                         try:
                             df_a_guardar = df_editado.copy()
+                            
+                            # Limpiamos strings vacíos a NA de pandas
                             df_a_guardar = df_a_guardar.replace(r'^\s*$', pd.NA, regex=True)
                             
                             if 'id' in df_a_guardar.columns:
@@ -11066,19 +11082,18 @@ elif opcion_menu == "📂 Plan de Cuentas":
                             if 'nivel' in df_a_guardar.columns:
                                 df_a_guardar['nivel'] = pd.to_numeric(df_a_guardar['nivel'], errors='coerce')
 
+                            # Convertimos NaN a None para MySQL
                             df_a_guardar = df_a_guardar.where(pd.notnull(df_a_guardar), None)
                             
                             actualizar_tabla_completa_db(conn_empresa, "plan_cuentas", df_a_guardar)
                             
                             st.success("✅ ¡Modificaciones guardadas correctamente!")
                             st.balloons()
-                            # En lugar de st.rerun directo que a veces encierra en bucles, 
-                            # dejamos que el usuario vea el mensaje o usamos un mecanismo limpio.
                         except Exception as ex_save:
                             st.error(f"❌ Error al guardar en la base de datos: {ex_save}")
 
                 except Exception as err:
-                    st.error(f"❌ Error al conectar o consultar la tabla: {err}")
+                    st.error(f"❌ Error crítico al cargar la pestaña: {err}")
 
         with tab3:
             st.markdown("### ⚠️ Vaciar Plan de Cuentas")
