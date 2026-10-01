@@ -11591,7 +11591,6 @@ elif opcion_menu == "📝 Asientos Contables":
                                     conn_ins = conectar_db(db_nombre)
                                     cursor_ins = conn_ins.cursor()
                                     
-                                    # Incluimos 'bloqueado' asignándole 0 por defecto a los nuevos registros
                                     sql_insert = """
                                         INSERT INTO asientos_contables 
                                         (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber, bloqueado)
@@ -11636,6 +11635,7 @@ elif opcion_menu == "📝 Asientos Contables":
                                     cursor_ins.close()
                                     conn_ins.close()
                                     
+                                    # AQUÍ ESTÁN LOS GLOBOS Y EL MENSAJE DE ÉXITO
                                     st.success(f"¡Comprobante N° {nuevo_n_comp} guardado exitosamente!")
                                     st.balloons()
                                     
