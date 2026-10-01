@@ -2804,7 +2804,7 @@ def consultar_libro_diario_db(conn_activa=None, fecha_inicio=None, fecha_fin=Non
     try:
         # 3. Preparar consulta limpia sin anteponer el esquema (la conexión ya está en esa BD)
         if fecha_inicio and fecha_fin:
-            query = "SELECT * FROM asientos_contables WHERE fecha BETWEEN %s AND %s ORDER BY id ASC"
+            query = "SELECT n_comprobante,descripcion,fecha,plan_cuentas,cuenta_contable,referencia,debe,haber FROM asientos_contables WHERE fecha BETWEEN %s AND %s ORDER BY id ASC"
             params = (fecha_inicio, fecha_fin)
         else:
             query = "SELECT * FROM asientos_contables ORDER BY id ASC"
@@ -11285,8 +11285,7 @@ elif opcion_menu == "📂 Plan de Cuentas":
 
 
 elif opcion_menu == "📝 Asientos Contables":
-    st.write(f"DEBUG: Empresa actual en sesión: {st.session_state.get('DB_ACTUAL')}")
-     # 1. Recuperamos contexto de seguridad
+    # 1. Recuperamos contexto de seguridad
     # 1. Recuperamos contexto de seguridad
     db_actual = st.session_state.get('DB_ACTUAL')
     cliente_id = st.session_state.get('cliente_id')
