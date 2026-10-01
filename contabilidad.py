@@ -11444,7 +11444,6 @@ elif opcion_menu == "📝 Asientos Contables":
                     try:
                         conn_pc = conectar_db(db_nombre)
                         cursor_pc = conn_pc.cursor()
-                        # Filtramos estrictamente por tipo = 'Detalle' para que el usuario solo elija cuentas transaccionales
                         cursor_pc.execute("SELECT codigo, nombre FROM plan_cuentas WHERE tipo = 'Detalle' ORDER BY codigo")
                         cuentas_db = cursor_pc.fetchall()
                         cursor_pc.close()
@@ -11458,7 +11457,7 @@ elif opcion_menu == "📝 Asientos Contables":
                             ("4.1.1.01.001", "Ventas")
                         ]
 
-                    # Crear la lista de opciones para el menú desplegable (Código + Nombre)
+                    # Crear la lista de opciones y el diccionario de búsqueda rápida
                     opciones_cuentas = [f"{cod} - {nom}" for cod, nom in cuentas_db]
                     dict_nombres_cuentas = {cod: nom for cod, nom in cuentas_db}
 
@@ -11472,15 +11471,16 @@ elif opcion_menu == "📝 Asientos Contables":
                         nuevo_desc = st.text_input("Descripción general del Asiento")
                         
                         st.markdown("### Líneas del Comprobante")
-                        st.info("Seleccione una cuenta de detalle en la columna 'Plan Cuentas'.")
+                        st.info("Seleccione la cuenta en el menú. La descripción se completará automáticamente.")
                         
                         import pandas as pd
                         val_inicial = opciones_cuentas[0] if opciones_cuentas else ""
+                        nombre_inicial = dict_nombres_cuentas.get(val_inicial.split(" - ")[0], "") if val_inicial else ""
                         
                         df_vacio = pd.DataFrame([
                             {
                                 "plan_cuentas": val_inicial, 
-                                "cuenta_contable": "", 
+                                "cuenta_contable": nombre_inicial, # Se llena automáticamente al iniciar
                                 "referencia": "", 
                                 "debe": 0.0, 
                                 "haber": 0.0
@@ -11492,17 +11492,20 @@ elif opcion_menu == "📝 Asientos Contables":
                             num_rows="dynamic",
                             width="stretch",
                             hide_index=True,
-                            key="editor_nuevo_asiento_detalle",
+                            key="editor_nuevo_asiento_auto",
                             column_config={
                                 "plan_cuentas": st.column_config.SelectboxColumn(
                                     "Plan Cuentas",
-                                    help="Seleccione una cuenta de detalle válida",
+                                    help="Seleccione una cuenta de detalle",
                                     options=opciones_cuentas,
                                     required=True
                                 ),
+                                # LA CLAVE: Desactivamos la columna (disabled=True) para que el usuario no tenga que escribirla 
+                                # y se vincule de forma automática por código.
                                 "cuenta_contable": st.column_config.TextColumn(
                                     "Descripción Cuenta",
-                                    help="Nombre o descripción de la cuenta"
+                                    help="Se completa automáticamente al seleccionar la cuenta",
+                                    disabled=True 
                                 ),
                                 "referencia": st.column_config.TextColumn("Referencia / Factura"),
                                 "debe": st.column_config.NumberColumn("Debe", format="%,.2f", min_value=0.0),
@@ -11537,13 +11540,11 @@ elif opcion_menu == "📝 Asientos Contables":
                                         datos_insertar = []
                                         for _, row in df_nuevo_ingresado.iterrows():
                                             seleccion = str(row['plan_cuentas'])
-                                            # Extraer únicamente el código de la cuenta (ej. "1.1.1.01.001")
+                                            # Extraer únicamente el código (ej. "1.1.2.01.005")
                                             codigo_cuenta = seleccion.split(" - ")[0] if " - " in seleccion else seleccion
                                             
-                                            # Autocompletar la descripción con el nombre oficial de la cuenta si está vacío
-                                            desc_cuenta = str(row['cuenta_contable'])
-                                            if not desc_cuenta or desc_cuenta == "nan" or desc_cuenta.strip() == "":
-                                                desc_cuenta = dict_nombres_cuentas.get(codigo_cuenta, "")
+                                            # Extraer automáticamente el nombre de la cuenta usando el diccionario de la base de datos
+                                            desc_cuenta = dict_nombres_cuentas.get(codigo_cuenta, str(row['cuenta_contable']))
                                             
                                             datos_insertar.append((
                                                 str(nuevo_n_comp),
