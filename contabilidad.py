@@ -11461,7 +11461,7 @@ elif opcion_menu == "📝 Asientos Contables":
                     opciones_cuentas = [f"{cod} - {nom}" for cod, nom in cuentas_db]
                     dict_nombres_cuentas = {cod: nom for cod, nom in cuentas_db}
 
-                    # Datos principales del comprobante fuera del form para permitir reactividad
+                    # Datos principales del comprobante
                     col_f1, col_f2 = st.columns(2)
                     with col_f1:
                         nuevo_n_comp = st.text_input("Número de Comprobante", key="input_n_comp")
@@ -11485,32 +11485,49 @@ elif opcion_menu == "📝 Asientos Contables":
                                 "haber": 0.0
                             }
                         ])
-                    
-                    # Controles para seleccionar y eliminar una fila específica de forma limpia
-                    if not st.session_state["df_asiento_actual"].empty:
-                        col_sel1, col_sel2 = st.columns([2, 2])
-                        with col_sel1:
-                            # Crear lista de opciones mostrando el número de línea y su contenido principal
-                            linhas_disponibles = [f"Línea {i+1}: {row.get('cuenta_contable', 'Vacía')}" for i, row in st.session_state["df_asiento_actual"].iterrows()]
-                            linea_seleccionada_str = st.selectbox("Seleccionar fila para eliminar", options=linhas_disponibles, key="select_fila_eliminar")
-                        with col_sel2:
-                            st.write("") # Ajuste visual
-                            st.write("")
-                            if st.button("🗑️️ Eliminar Fila Seleccionada", type="secondary"):
-                                if len(st.session_state["df_asiento_actual"]) > 1:
-                                    # Extraer el índice numérico de la cadena seleccionada
-                                    idx_a_borrar = int(linea_seleccionada_str.split("Línea ")[1].split(":")[0]) - 1
-                                    st.session_state["df_asiento_actual"] = st.session_state["df_asiento_actual"].drop(st.session_state["df_asiento_actual"].index[idx_a_borrar]).reset_index(drop=True)
-                                    st.rerun()
-                                else:
-                                    st.warning("⚠️ El comprobante debe mantener al menos una línea.")
 
-                    # Editor interactivo (fuera de st.form para capturar cambios al instante)
+                    # 🛑 CONTROL DE ELIMINACIÓN DIRECTA (Control total sobre el session_state)
+                    col_acc1, col_acc2 = st.columns([2, 2])
+                    with col_acc1:
+                        total_filas_actuales = len(st.session_state["df_asiento_actual"])
+                        if total_filas_actuales > 1:
+                            fila_a_borrar = st.number_input(
+                                "Número de línea a eliminar", 
+                                min_value=1, 
+                                max_value=total_filas_actuales, 
+                                step=1, 
+                                key="num_fila_borrar"
+                            )
+                            if st.button("🗑️ Borrar Línea Seleccionada", type="secondary"):
+                                idx_real = int(fila_a_borrar) - 1
+                                # Eliminamos directamente del DataFrame en session_state y reseteamos índices
+                                st.session_state["df_asiento_actual"] = st.session_state["df_asiento_actual"].drop(
+                                    st.session_state["df_asiento_actual"].index[idx_real]
+                                ).reset_index(drop=True)
+                                st.rerun()
+                        else:
+                            st.info("ℹ️ Tienes 1 sola línea (mínimo requerido).")
+
+                    with col_acc2:
+                        st.write("")
+                        st.write("")
+                        if st.button("➕ Agregar Nueva Línea Manual", type="secondary"):
+                            nueva_fila = pd.DataFrame([{
+                                "plan_cuentas": opciones_cuentas[0] if opciones_cuentas else "",
+                                "cuenta_contable": dict_nombres_cuentas.get(opciones_cuentas[0].split(" - ")[0], "") if opciones_cuentas else "",
+                                "referencia": "",
+                                "debe": 0.0,
+                                "haber": 0.0
+                            }])
+                            st.session_state["df_asiento_actual"] = pd.concat([st.session_state["df_asiento_actual"], nueva_fila], ignore_index=True)
+                            st.rerun()
+
+                    # Editor interactivo sincronizado con st.session_state["df_asiento_actual"]
                     df_editado = st.data_editor(
                         st.session_state["df_asiento_actual"],
-                        num_rows="dynamic",
+                        num_rows="fixed", # Fijamos en fixed para que los botones de arriba manden y no falle Streamlit
                         use_container_width=True,
-                        hide_index=True,
+                        hide_index=False, # Mostramos el índice (1, 2, 3...) para que coincida exactamente con tu selección
                         key="editor_asiento_interactivo",
                         column_config={
                             "plan_cuentas": st.column_config.SelectboxColumn(
@@ -11530,10 +11547,10 @@ elif opcion_menu == "📝 Asientos Contables":
                         }
                     )
                     
-                    # 🧹 FILTRAR LÍNEAS VACÍAS
-                    df_editado = df_editado[df_editado['plan_cuentas'].notna() & (df_editado['plan_cuentas'].astype(str).str.strip() != "")]
+                    # Actualizar session_state con lo que el usuario edite en los inputs (montos, referencias)
+                    st.session_state["df_asiento_actual"] = df_editado.copy()
 
-                    # Sincronización automática en tiempo real de la columna de descripción
+                    # Sincronización automática de la columna de descripción
                     cambio_detectado = False
                     for idx, row in df_editado.iterrows():
                         seleccion = str(row['plan_cuentas'])
