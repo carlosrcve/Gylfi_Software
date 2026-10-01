@@ -9021,13 +9021,16 @@ if menu_lateral == "📊 Auditoría Contable":
         st.selectbox("Mes", meses_lista, key="mes_seleccionado")
 
 
-
-
 # Verifica si el df_acc o el df_gastos tienen filas antes de graficar
 if 'df_gastos_c6' in locals() and df_gastos_c6.empty:
     st.sidebar.warning("⚠️ El DataFrame de Gastos C6 está vacío.")
 
-if opcion_menu == "🏠 Inicio":
+# 1. Inicializar la opción por defecto solo si no existe en la sesión
+if 'opcion_menu' not in st.session_state:
+    st.session_state['opcion_menu'] = "🏠 Inicio"
+
+# 2. El bloque de la vista de Inicio debe ejecutarse cada vez que esa sea la opción activa
+if st.session_state['opcion_menu'] == "🏠 Inicio":
     # --- INYECCIÓN DE CSS ---
     st.markdown("""<style>
             .block-container { max-width: 100% !important; padding-left: 3rem !important; padding-right: 3rem !important; }
