@@ -11014,14 +11014,47 @@ elif opcion_menu == "📂 Plan de Cuentas":
                         st.error("❌ El archivo Excel debe contener al menos las columnas 'codigo' y 'nombre'.")
 
         with tab2:
-            st.markdown("### 📋 Plan de Cuentas (Edición y Nuevas Cuentas)")
-            st.info("ℹ️ Puedes modificar cuentas existentes o agregar nuevas filas haciendo clic en el botón '+' de la tabla. Las nuevas cuentas se guardarán automáticamente en la base de datos.")
+            st.markdown("### 📋 Plan de Cuentas (Gestión y Modificación)")
             
             # 1. Validación estricta de la conexión
             if 'conn_empresa' not in locals() and 'conn_empresa' not in globals():
                 st.error("❌ Error crítico: La conexión `conn_empresa` no está disponible en este ámbito.")
             else:
                 try:
+                    # Sección rápida para agregar una nueva cuenta cómodamente
+                    with st.expander("➕ Agregar Nueva Cuenta Contable", expanded=False):
+                        with st.form("form_nueva_cuenta"):
+                            col_f1, col_f2 = st.columns(2)
+                            with col_f1:
+                                nuevo_codigo = st.text_input("Código Contable (ej. 1.1.1.01.003)")
+                                nuevo_nombre = st.text_input("Nombre de la Cuenta (ej. Caja en Moneda Extranjera)")
+                                nuevo_nivel = st.number_input("Nivel", min_value=1, max_value=5, value=5)
+                            with col_f2:
+                                nuevo_tipo = st.selectbox("Tipo", options=["Detalle", "Grupo"])
+                                nuevo_padre = st.text_input("Cuenta Padre (ej. 1.1.1.01)")
+                            
+                            btn_crear = st.form_submit_button("💾 Guardar Nueva Cuenta")
+                            if btn_crear:
+                                if not nuevo_codigo or not nuevo_nombre:
+                                    st.warning("⚠️ El código y el nombre son obligatorios.")
+                                else:
+                                    try:
+                                        cursor_ins = conn_empresa.cursor()
+                                        sql_ins = """
+                                            INSERT INTO plan_cuentas (codigo, nombre, nivel, tipo, padre) 
+                                            VALUES (%s, %s, %s, %s, %s)
+                                        """
+                                        cursor_ins.execute(sql_ins, (nuevo_codigo.strip(), nuevo_nombre.strip(), int(nuevo_nivel), nuevo_tipo, nuevo_padre.strip() if nuevo_padre else None))
+                                        conn_empresa.commit()
+                                        cursor_ins.close()
+                                        st.success(f"✅ Cuenta '{nuevo_codigo} - {nuevo_nombre}' agregada con éxito.")
+                                        st.rerun()
+                                    except Exception as ex_ins:
+                                        st.error(f"❌ Error al insertar la cuenta: {ex_ins}")
+
+                    st.markdown("---")
+                    st.markdown("#### ✏️ Modificar Cuentas Existentes")
+
                     # Consultamos la tabla de la base de datos
                     with st.spinner("Consultando la base de datos..."):
                         df_actual = consultar_tabla_db(conn_empresa, "plan_cuentas")
@@ -11032,12 +11065,10 @@ elif opcion_menu == "📂 Plan de Cuentas":
                         st.warning("⚠️ La tabla 'plan_cuentas' está vacía en la base de datos.")
                         df_actual = pd.DataFrame(columns=columnas_requeridas)
                     else:
-                        # Aseguramos que existan todas las columnas requeridas
                         for col in columnas_requeridas:
                             if col not in df_actual.columns:
                                 df_actual[col] = ""
 
-                        # Limpieza de nulos para que Streamlit pueda renderizarlos en el editor
                         for col in ['codigo', 'nombre', 'tipo', 'padre']:
                             if col in df_actual.columns:
                                 df_actual[col] = df_actual[col].fillna("").astype(str).replace(['nan', 'None', '<NA>'], '')
@@ -11047,13 +11078,11 @@ elif opcion_menu == "📂 Plan de Cuentas":
                         if 'nivel' in df_actual.columns:
                             df_actual['nivel'] = pd.to_numeric(df_actual['nivel'], errors='coerce').fillna(1).astype(int)
 
-                    st.markdown("---")
-                    
-                    # 2. Editor interactivo con num_rows="dynamic" para permitir agregar filas como en Excel
+                    # 2. Editor interactivo seguro para modificaciones
                     df_editado = st.data_editor(
                         df_actual, 
-                        key="editor_plan_cuentas_con_insercion", 
-                        num_rows="dynamic", # <--- PERMITE AGREGAR NUEVAS FILAS
+                        key="editor_plan_cuentas_modificacion_fija", 
+                        num_rows="fixed", 
                         use_container_width=True,
                         column_config={
                             "id": st.column_config.NumberColumn("ID", disabled=True), 
@@ -11065,8 +11094,8 @@ elif opcion_menu == "📂 Plan de Cuentas":
                         }
                     )
                     
-                    # 3. Botón de guardado inteligente (Actualiza las existentes e Inserta las nuevas)
-                    if st.button("💾 Guardar Cambios y Nuevas Cuentas", type="primary"):
+                    # 3. Botón de guardado de modificaciones
+                    if st.button("💾 Guardar Cambios en Cuentas Existentes", type="primary"):
                         try:
                             df_a_guardar = df_editado.copy()
                             
@@ -11076,10 +11105,8 @@ elif opcion_menu == "📂 Plan de Cuentas":
 
                             cursor = conn_empresa.cursor()
                             actualizados = 0
-                            inserciones = 0
                             
                             for index, row in df_a_guardar.iterrows():
-                                # Limpieza de datos por cada fila
                                 cuenta_id = row['id']
                                 codigo = str(row['codigo']).strip() if pd.notnull(row['codigo']) and str(row['codigo']).strip() not in ['', 'nan', 'None', '<NA>'] else None
                                 nombre = str(row['nombre']).strip() if pd.notnull(row['nombre']) and str(row['nombre']).strip() not in ['', 'nan', 'None', '<NA>'] else None
@@ -11090,23 +11117,10 @@ elif opcion_menu == "📂 Plan de Cuentas":
                                 
                                 padre = str(row['padre']).strip() if pd.notnull(row['padre']) and str(row['padre']).strip() not in ['', 'nan', 'None', '<NA>'] else None
 
-                                # Si el código o el nombre están vacíos, omitimos esta fila para evitar basura
                                 if not codigo or not nombre:
                                     continue
 
-                                # Determinamos si es una cuenta nueva (ID vacío, NaN o 0) o existente
-                                es_nueva = pd.isna(cuenta_id) or str(cuenta_id).strip() in ['', 'nan', 'None', '<NA>', '0.0', '0']
-
-                                if es_nueva:
-                                    # INSERT para cuentas nuevas (como tu 1.1.1.01.003)
-                                    sql_insert = """
-                                        INSERT INTO plan_cuentas (codigo, nombre, nivel, tipo, padre) 
-                                        VALUES (%s, %s, %s, %s, %s)
-                                    """
-                                    cursor.execute(sql_insert, (codigo, nombre, nivel, tipo, padre))
-                                    inserciones += 1
-                                else:
-                                    # UPDATE para cuentas existentes
+                                if pd.notnull(cuenta_id) and str(cuenta_id).strip() not in ['', 'nan', 'None', '<NA>', '0.0', '0']:
                                     sql_update = """
                                         UPDATE plan_cuentas 
                                         SET codigo = %s, nombre = %s, nivel = %s, tipo = %s, padre = %s 
@@ -11118,7 +11132,7 @@ elif opcion_menu == "📂 Plan de Cuentas":
                             conn_empresa.commit()
                             cursor.close()
                             
-                            st.success(f"✅ ¡Operación exitosa! Se actualizaron {actualizados} cuentas y se agregaron {inserciones} cuentas nuevas.")
+                            st.success(f"✅ ¡Se actualizaron {actualizados} cuentas correctamente!")
                             st.balloons()
                             
                         except Exception as ex_save:
