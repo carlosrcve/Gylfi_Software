@@ -11440,30 +11440,28 @@ elif opcion_menu == "📝 Asientos Contables":
                 elif accion_diario == "➕ Agregar Nuevo Asiento":
                     st.subheader("Registro de Nuevo Comprobante Contable")
                     
-                    # 1. Consultar tu plan de cuentas desde la base de datos para pasarlo a la lista desplegable
+                    # 1. Obtener solo las cuentas de tipo 'Detalle' desde la base de datos
                     try:
                         conn_pc = conectar_db(db_nombre)
                         cursor_pc = conn_pc.cursor()
-                        # Ajusta el nombre de tu tabla de plan de cuentas si es diferente (ej. 'plan_de_cuentas' o 'cuentas')
-                        cursor_pc.execute("SELECT codigo, nombre FROM plan_cuentas ORDER BY codigo")
+                        # Filtramos estrictamente por tipo = 'Detalle' para que el usuario solo elija cuentas transaccionales
+                        cursor_pc.execute("SELECT codigo, nombre FROM plan_cuentas WHERE tipo = 'Detalle' ORDER BY codigo")
                         cuentas_db = cursor_pc.fetchall()
                         cursor_pc.close()
                         conn_pc.close()
                     except Exception as e:
-                        # Plan de cuentas de respaldo por si la tabla se llama distinto o está vacía mientras pruebas
+                        st.warning(f"No se pudo cargar el plan de cuentas ({e}). Usando cuentas de prueba.")
                         cuentas_db = [
                             ("1.1.1.01.001", "Caja Chica"),
-                            ("1.1.1.02.001", "Banco Banesco Moneda Nacional"),
-                            ("2.1.1.01.001", "Cuentas por Pagar Proveedores"),
-                            ("4.1.1.01.001", "Ventas de Mercancía")
+                            ("1.1.1.02.001", "Banco Banesco"),
+                            ("2.1.1.01.001", "Cuentas por Pagar"),
+                            ("4.1.1.01.001", "Ventas")
                         ]
 
-                    # Crear diccionarios y listas útiles para el selector
-                    # Formato que verá el usuario: "1.1.1.01.001 - Caja Chica"
+                    # Crear la lista de opciones para el menú desplegable (Código + Nombre)
                     opciones_cuentas = [f"{cod} - {nom}" for cod, nom in cuentas_db]
-                    # Diccionario para autocompletar la descripción rápido: {"1.1.1.01.001": "Caja Chica", ...}
                     dict_nombres_cuentas = {cod: nom for cod, nom in cuentas_db}
-                    
+
                     with st.form("form_nuevo_asiento"):
                         col_f1, col_f2 = st.columns(2)
                         with col_f1:
@@ -11474,12 +11472,14 @@ elif opcion_menu == "📝 Asientos Contables":
                         nuevo_desc = st.text_input("Descripción general del Asiento")
                         
                         st.markdown("### Líneas del Comprobante")
-                        st.info("Seleccione la cuenta del menú desplegable, agregue la referencia, el Debe y el Haber.")
+                        st.info("Seleccione una cuenta de detalle en la columna 'Plan Cuentas'.")
                         
                         import pandas as pd
+                        val_inicial = opciones_cuentas[0] if opciones_cuentas else ""
+                        
                         df_vacio = pd.DataFrame([
                             {
-                                "plan_cuentas": "", 
+                                "plan_cuentas": val_inicial, 
                                 "cuenta_contable": "", 
                                 "referencia": "", 
                                 "debe": 0.0, 
@@ -11492,19 +11492,17 @@ elif opcion_menu == "📝 Asientos Contables":
                             num_rows="dynamic",
                             width="stretch",
                             hide_index=True,
-                            key="editor_nuevo_asiento_select",
+                            key="editor_nuevo_asiento_detalle",
                             column_config={
-                                # Columna desplegable con las cuentas de tu BD
                                 "plan_cuentas": st.column_config.SelectboxColumn(
                                     "Plan Cuentas",
-                                    help="Seleccione la cuenta contable",
+                                    help="Seleccione una cuenta de detalle válida",
                                     options=opciones_cuentas,
                                     required=True
                                 ),
-                                # Descripción de la cuenta (editable o automatizable)
                                 "cuenta_contable": st.column_config.TextColumn(
                                     "Descripción Cuenta",
-                                    help="Descripción de la cuenta contable"
+                                    help="Nombre o descripción de la cuenta"
                                 ),
                                 "referencia": st.column_config.TextColumn("Referencia / Factura"),
                                 "debe": st.column_config.NumberColumn("Debe", format="%,.2f", min_value=0.0),
@@ -11539,12 +11537,12 @@ elif opcion_menu == "📝 Asientos Contables":
                                         datos_insertar = []
                                         for _, row in df_nuevo_ingresado.iterrows():
                                             seleccion = str(row['plan_cuentas'])
-                                            # Separar el código seleccionado (ej: "1.1.1.01.001 - Caja Chica" -> "1.1.1.01.001")
+                                            # Extraer únicamente el código de la cuenta (ej. "1.1.1.01.001")
                                             codigo_cuenta = seleccion.split(" - ")[0] if " - " in seleccion else seleccion
                                             
-                                            # Si la descripción de la cuenta viene vacía, podemos autocompletarla con el diccionario
+                                            # Autocompletar la descripción con el nombre oficial de la cuenta si está vacío
                                             desc_cuenta = str(row['cuenta_contable'])
-                                            if not desc_cuenta or desc_cuenta == "nan":
+                                            if not desc_cuenta or desc_cuenta == "nan" or desc_cuenta.strip() == "":
                                                 desc_cuenta = dict_nombres_cuentas.get(codigo_cuenta, "")
                                             
                                             datos_insertar.append((
