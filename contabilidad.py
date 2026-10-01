@@ -11354,7 +11354,7 @@ elif opcion_menu == "📝 Asientos Contables":
                     df_editado = st.data_editor(
                         df_diario, 
                         width='stretch', 
-                        hide_index=Type,
+                        hide_index=True,
                         key="editor_diario",
                         column_config={
                             "debe": st.column_config.NumberColumn(
