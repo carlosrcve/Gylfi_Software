@@ -10964,6 +10964,47 @@ elif opcion_menu == "📂 Plan de Cuentas":
     conn_empresa = conectar_db(db_actual)
     
     try:
+
+        # --- DISEÑO CSS PERSONALIZADO PARA LAS PESTAÑAS ---
+        st.markdown("""
+            <style>
+                /* Contenedor general de las pestañas */
+                .stTabs [data-baseweb="tab-list"] {
+                    gap: 10px;
+                    background-color: transparent;
+                    padding: 10px 0px;
+                }
+                
+                /* Estilo base de cada pestaña (botón tipo tarjeta) */
+                .stTabs [data-baseweb="tab"] {
+                    height: 45px;
+                    background-color: #f8f9fa;
+                    border-radius: 8px;
+                    padding: 0px 20px;
+                    font-weight: 600;
+                    color: #495057;
+                    border: 1px solid #e9ecef;
+                    box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+                    transition: all 0.3s ease;
+                }
+                
+                /* Pestaña al pasar el mouse (hover) */
+                .stTabs [data-baseweb="tab"]:hover {
+                    background-color: #e2e6ea;
+                    color: #1d3557;
+                    border-color: #ced4da;
+                }
+                
+                /* Pestaña seleccionada (activa) */
+                .stTabs [aria-selected="true"] {
+                    background-color: #1d3557 !important;
+                    color: #ffffff !important;
+                    border-color: #1d3557 !important;
+                    box-shadow: 0 4px 8px rgba(29, 53, 87, 0.2);
+                }
+            </style>
+        """, unsafe_allow_html=True)
+
         # Definición de las pestañas para un look consistente
         # Definición de las 4 pestañas
         tab1, tab2, tab3, tab4 = st.tabs([
