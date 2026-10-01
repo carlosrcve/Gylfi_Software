@@ -11354,17 +11354,17 @@ elif opcion_menu == "📝 Asientos Contables":
                     df_editado = st.data_editor(
                         df_diario, 
                         width='stretch', 
-                        hide_index=True,
+                        hide_index=Type,
                         key="editor_diario",
                         column_config={
                             "debe": st.column_config.NumberColumn(
                                 "Debe",
-                                format="%.2f",  # Muestra solo el valor numérico con dos decimales
+                                format="%,.2f",  # Aplica comas para miles y punto para decimales en la interfaz del editor
                                 help="Monto del debe"
                             ),
                             "haber": st.column_config.NumberColumn(
                                 "Haber",
-                                format="%.2f",  # Muestra solo el valor numérico con dos decimales
+                                format="%,.2f",  # Aplica comas para miles y punto para decimales en la interfaz del editor
                                 help="Monto del haber"
                             )
                         }
