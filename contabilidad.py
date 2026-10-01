@@ -11441,101 +11441,195 @@ elif opcion_menu == "📝 Asientos Contables":
                 # ==========================================
                 # OPCIÓN 2: AGREGAR NUEVO ASIENTO
                 # ==========================================
-                if accion_diario == "🔍 Consultar y Modificar Asientos":
-                    st.subheader("Consulta de Asientos Contables")
+                elif accion_diario == "➕ Agregar Nuevo Asiento":
+                    st.subheader("Registro de Nuevo Comprobante Contable")
                     
-                    # Único selector de filtro para toda la sección
-                    tipo_filtro = st.radio(
-                        "Filtrar asientos contables por:",
-                        ["📅 Rango de Fechas", "🔢 Número de Comprobante"],
-                        horizontal=True,
-                        key="filtro_consulta_asientos"
+                    # 1. Obtener solo las cuentas de tipo 'Detalle' desde la base de datos
+                    try:
+                        conn_pc = conectar_db(db_nombre)
+                        cursor_pc = conn_pc.cursor()
+                        cursor_pc.execute("SELECT codigo, nombre FROM plan_cuentas WHERE tipo = 'Detalle' ORDER BY codigo")
+                        cuentas_db = cursor_pc.fetchall()
+                        cursor_pc.close()
+                        conn_pc.close()
+                    except Exception as e:
+                        st.warning(f"No se pudo cargar el plan de cuentas ({e}). Usando cuentas de prueba.")
+                        cuentas_db = [
+                            ("1.1.1.01.001", "Caja Chica"),
+                            ("1.1.1.02.001", "Banco Banesco"),
+                            ("1.1.2.01.005", "Cuentas por Cobrar Choferes Eduardo"),
+                            ("2.1.1.01.001", "Cuentas por Pagar")
+                        ]
+
+                    # Crear la lista de opciones y el diccionario de búsqueda rápida
+                    opciones_cuentas = [f"{cod} - {nom}" for cod, nom in cuentas_db]
+                    dict_nombres_cuentas = {cod: nom for cod, nom in cuentas_db}
+
+                    # Datos principales del comprobante fuera del form para permitir reactividad
+                    col_f1, col_f2 = st.columns(2)
+                    with col_f1:
+                        nuevo_n_comp = st.text_input("Número de Comprobante", key="input_n_comp")
+                    with col_f2:
+                        nuevo_fecha = st.date_input("Fecha del Asiento", key="input_fecha")
+                        
+                    nuevo_desc = st.text_input("Descripción general del Asiento", key="input_desc_gral")
+                    
+                    st.markdown("### Líneas del Comprobante")
+                    st.info("Seleccione la cuenta en el menú y la descripción aparecerá automáticamente.")
+                    
+                    import pandas as pd
+                    
+                    # Inicializar el estado del DataFrame en session_state si no existe
+                    if "df_asiento_actual" not in st.session_state:
+                        st.session_state["df_asiento_actual"] = pd.DataFrame([
+                            {
+                                "plan_cuentas": opciones_cuentas[0] if opciones_cuentas else "", 
+                                "cuenta_contable": dict_nombres_cuentas.get(opciones_cuentas[0].split(" - ")[0], "") if opciones_cuentas else "", 
+                                "referencia": "", 
+                                "debe": 0.0, 
+                                "haber": 0.0
+                            }
+                        ])
+                    
+                    # Editor interactivo (fuera de st.form para capturar cambios al instante)
+                    df_editado = st.data_editor(
+                        st.session_state["df_asiento_actual"],
+                        num_rows="dynamic",
+                        use_container_width=True,
+                        hide_index=True,
+                        key="editor_asiento_interactivo",
+                        column_config={
+                            "plan_cuentas": st.column_config.SelectboxColumn(
+                                "Plan Cuentas",
+                                help="Seleccione una cuenta de detalle",
+                                options=opciones_cuentas,
+                                required=True
+                            ),
+                            "cuenta_contable": st.column_config.TextColumn(
+                                "Descripción Cuenta",
+                                help="Se completa automáticamente",
+                                disabled=True
+                            ),
+                            "referencia": st.column_config.TextColumn("Referencia / Factura"),
+                            "debe": st.column_config.NumberColumn("Debe", format="%,.2f", min_value=0.0),
+                            "haber": st.column_config.NumberColumn("Haber", format="%,.2f", min_value=0.0)
+                        }
                     )
                     
-                    # --- FILTRO 1: RANGO DE FECHAS ---
-                    if tipo_filtro == "📅 Rango de Fechas":
-                        col_f1, col_f2 = st.columns(2)
-                        with col_f1:
-                            fecha_desde = st.date_input("Fecha Desde", key="rf_desde")
-                        with col_f2:
-                            fecha_hasta = st.date_input("Fecha Hasta", key="rf_hasta")
-                            
-                        conn_rf = conectar_db(db_nombre)
-                        try:
-                            query_rf = f"SELECT n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber FROM asientos_contables WHERE fecha BETWEEN '{fecha_desde}' AND '{fecha_hasta}' ORDER BY fecha, n_comprobante"
-                            df_rf = pd.read_sql(query_rf, conn_rf)
-                        except Exception:
-                            df_rf = pd.DataFrame()
-                        finally:
-                            if conn_rf:
-                                conn_rf.close()
-                                
-                        if not df_rf.empty:
-                            st.success(f"Se encontraron {len(df_rf)} registros en el rango seleccionado.")
-                            st.dataframe(
-                                df_rf,
-                                hide_index=True,
-                                use_container_width=True,
-                                column_config={
-                                    "debe": st.column_config.NumberColumn("Debe", format="%,.2f"),
-                                    "haber": st.column_config.NumberColumn("Haber", format="%,.2f")
-                                }
-                            )
+                    # 🧹 FILTRAR LÍNEAS VACÍAS: Elimina automáticamente la fila en blanco si no tiene cuenta seleccionada
+                    df_editado = df_editado[df_editado['plan_cuentas'].notna() & (df_editado['plan_cuentas'].astype(str).str.strip() != "")]
+
+                    # Sincronización automática en tiempo real de la columna de descripción y control de cambios
+                    cambio_detectado = False
+                    for idx, row in df_editado.iterrows():
+                        seleccion = str(row['plan_cuentas'])
+                        if " - " in seleccion:
+                            codigo_sel = seleccion.split(" - ")[0]
+                            nombre_correcto = dict_nombres_cuentas.get(codigo_sel, "")
+                            if row['cuenta_contable'] != nombre_correcto:
+                                df_editado.at[idx, 'cuenta_contable'] = nombre_correcto
+                                cambio_detectado = True
+
+                    # Calcular totales actuales en tiempo real basados en el editor filtrado
+                    total_debe = pd.to_numeric(df_editado['debe'], errors='coerce').sum()
+                    total_haber = pd.to_numeric(df_editado['haber'], errors='coerce').sum()
+                    diferencia = total_debe - total_haber
+
+                    # Mostrar panel de monitoreo de cuadre en tiempo real
+                    st.markdown("---")
+                    col_m1, col_m2, col_m3 = st.columns(3)
+                    with col_m1:
+                        st.metric(label="Total Debe", value=formato_contable(total_debe))
+                    with col_m2:
+                        st.metric(label="Total Haber", value=formato_contable(total_haber))
+                    with col_m3:
+                        st.metric(
+                            label="Diferencia (Descuadre)", 
+                            value=formato_contable(abs(diferencia)),
+                            delta="Cuadrado 🟢" if abs(diferencia) < 0.01 else "Descuadrado 🔴",
+                            delta_color="off" if abs(diferencia) < 0.01 else "inverse"
+                        )
+                        
+                    if abs(diferencia) >= 0.01:
+                        st.warning(f"⚠️ El asiento presenta una diferencia de {formato_contable(abs(diferencia))}. El Debe y el Haber deben ser iguales para poder guardar.")
+                    else:
+                        st.success("✅ El asiento está perfectamente cuadrado y listo para registrar.")
+                    st.markdown("---")
+
+                    if cambio_detectado:
+                        st.session_state["df_asiento_actual"] = df_editado
+                        st.rerun()
+
+                    # Botón de guardado final
+                    if st.button("💾 Guardar Nuevo Comprobante", type="primary"):
+                        if not nuevo_n_comp:
+                            st.error("Debe indicar un Número de Comprobante.")
+                        elif df_editado.empty:
+                            st.error("El asiento debe contener al menos una línea.")
                         else:
-                            st.info("No se encontraron asientos contables en el rango de fechas especificado.")
-
-                    # --- FILTRO 2: NÚMERO DE COMPROBANTE ---
-                    elif tipo_filtro == "🔢 Número de Comprobante":
-                        st.markdown("##### Seleccione el rango de fechas para buscar los comprobantes:")
-                        col_d1, col_d2 = st.columns(2)
-                        with col_d1:
-                            fec_inicio = st.date_input("Fecha Desde (para buscar comprobante)", key="nc_desde")
-                        with col_d2:
-                            fec_fin = st.date_input("Fecha Hasta (para buscar comprobante)", key="nc_hasta")
-
-                        conn_fec = conectar_db(db_nombre)
-                        try:
-                            query_compps = f"SELECT DISTINCT n_comprobante FROM asientos_contables WHERE fecha BETWEEN '{fec_inicio}' AND '{fec_fin}' ORDER BY n_comprobante"
-                            df_compps = pd.read_sql(query_compps, conn_fec)
-                        except Exception:
-                            df_compps = pd.DataFrame()
-                        finally:
-                            if conn_fec:
-                                conn_fec.close()
-
-                        if not df_compps.empty:
-                            lista_comprobantes = df_compps['n_comprobante'].tolist()
-                            comp_seleccionado = st.selectbox("Seleccione el Número de Comprobante:", lista_comprobantes, key="select_n_comp_exacto")
-                            
-                            if comp_seleccionado:
-                                conn_det = conectar_db(db_nombre)
+                            if abs(total_debe - total_haber) >= 0.01:
+                                st.error(f"❌ El asiento no cuadra. Debe: {formato_contable(total_debe)} | Haber: {formato_contable(total_haber)}")
+                            else:
                                 try:
-                                    df_detalle = pd.read_sql(f"SELECT n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber FROM asientos_contables WHERE n_comprobante = '{comp_seleccionado}'", conn_det)
-                                except Exception:
-                                    df_detalle = pd.DataFrame()
-                                finally:
-                                    if conn_det:
-                                        conn_det.close()
+                                    conn_ins = conectar_db(db_nombre)
+                                    cursor_ins = conn_ins.cursor()
+                                    
+                                    sql_insert = """
+                                        INSERT INTO asientos_contables 
+                                        (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber)
+                                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                                    """
+                                    
+                                    datos_insertar = []
+                                    for _, row in df_editado.iterrows():
+                                        plan_val = row.get('plan_cuentas')
+                                        if not plan_val:
+                                            continue
+                                            
+                                        seleccion = str(plan_val)
+                                        codigo_cuenta = seleccion.split(" - ")[0] if " - " in seleccion else seleccion
                                         
-                                if not df_detalle.empty:
-                                    st.markdown(f"**Detalle del Comprobante N° {comp_seleccionado}:**")
-                                    st.dataframe(
-                                        df_detalle,
-                                        hide_index=True,
-                                        use_container_width=True,
-                                        column_config={
-                                            "debe": st.column_config.NumberColumn("Debe", format="%,.2f"),
-                                            "haber": st.column_config.NumberColumn("Haber", format="%,.2f")
-                                        }
-                                    )
-                                else:
-                                    st.info("No se encontraron registros para este comprobante.")
-                        else:
-                            st.warning("⚠️ No se encontraron comprobantes registrados en el rango de fechas seleccionado.")
-
+                                        desc_val = row.get('cuenta_contable')
+                                        desc_cuenta = str(desc_val) if desc_val is not None else ""
+                                        
+                                        ref_val = row.get('referencia')
+                                        ref_str = str(ref_val) if ref_val is not None else ""
+                                        
+                                        val_debe = row.get('debe')
+                                        debe_float = float(val_debe) if val_debe is not None and pd.notna(val_debe) else 0.0
+                                        
+                                        val_haber = row.get('haber')
+                                        haber_float = float(val_haber) if val_haber is not None and pd.notna(val_haber) else 0.0
+                                        
+                                        datos_insertar.append((
+                                            str(nuevo_n_comp),
+                                            str(nuevo_desc),
+                                            str(nuevo_fecha),
+                                            codigo_cuenta,
+                                            desc_cuenta,
+                                            ref_str,
+                                            debe_float,
+                                            haber_float
+                                        ))
+                                    
+                                    cursor_ins.executemany(sql_insert, datos_insertar)
+                                    conn_ins.commit()
+                                    cursor_ins.close()
+                                    conn_ins.close()
+                                    
+                                    st.success(f"¡Comprobante N° {nuevo_n_comp} guardado exitosamente!")
+                                    st.balloons()
+                                    
+                                    if "df_asiento_actual" in st.session_state:
+                                        del st.session_state["df_asiento_actual"]
+                                        
+                                    st.rerun()
+                                    
+                                except Exception as e:
+                                    st.error(f"Error al registrar en la base de datos: {str(e)}")
 
                 # ==========================================
-                # OPCIÓN: AGREGAR NUEVO ASIENTO
+                # OPCIÓN 3: ELIMINAR COMPROBANTE
                 # ==========================================
                 elif accion_diario == "🗑️ Eliminar Comprobante Contable":
                     st.subheader("Eliminación de Comprobante")
