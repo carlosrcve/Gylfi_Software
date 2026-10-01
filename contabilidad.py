@@ -11651,7 +11651,25 @@ elif opcion_menu == "📝 Asientos Contables":
                         
                         if not df_prev.empty:
                             st.markdown(f"**Se encontraron {len(df_prev)} líneas para el Comprobante N° {comp_a_eliminar}:**")
-                            st.dataframe(df_prev[['n_comprobante', 'fecha', 'descripcion', 'cuenta_contable', 'debe', 'haber']], hide_index=True)
+                            
+                            # Vista previa interactiva con formato numérico aplicado en 'debe' y 'haber'
+                            st.data_editor(
+                                df_prev, 
+                                hide_index=True,
+                                disabled=True,  # Solo lectura para la vista previa de eliminación
+                                column_config={
+                                    "debe": st.column_config.NumberColumn(
+                                        "Debe",
+                                        format="%,.2f",
+                                        help="Monto del debe"
+                                    ),
+                                    "haber": st.column_config.NumberColumn(
+                                        "Haber",
+                                        format="%,.2f",
+                                        help="Monto del haber"
+                                    )
+                                }
+                            )
                             
                             # Botón de confirmación para eliminar
                             if st.button("🔥 Confirmar Eliminación Definitiva", type="primary"):
