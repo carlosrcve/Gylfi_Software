@@ -11016,16 +11016,6 @@ elif opcion_menu == "📂 Plan de Cuentas":
         with tab2:
             st.markdown("### 📋 Plan de Cuentas (Edición, Nuevos y Eliminación)")
             
-            # 1. Validación estricta de la conexión
-            if 'conn_empresa' not in locals() and 'conn_empresa' not in globals():
-                st.error("❌ Error crítico: La conexión `conn_empresa` no está disponible en este ámbito.")
-            else:
-                try:
-                    # Consultamos la tabla de la base de datos
-                    with st.spinner("Consultando la base de datos..."):
-                        df_actual = cowith tab2:
-            st.markdown("### 📋 Plan de Cuentas (Edición, Nuevos y Eliminación)")
-            
             # 1. Cargamos los datos actuales de MySQL de forma limpia
             df_actual = consultar_tabla_db(conn_empresa, "plan_cuentas")
             
