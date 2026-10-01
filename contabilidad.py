@@ -11070,27 +11070,24 @@ elif opcion_menu == "📂 Plan de Cuentas":
                         try:
                             df_a_guardar = df_editado.copy()
                             
-                            # VALIDACIÓN DE SEGURIDAD CRÍTICA: 
-                            # Si por algún motivo Streamlit devolvió un DataFrame vacío, detenemos el proceso para no vaciar la BD.
                             if df_a_guardar is None or df_a_guardar.empty:
-                                st.error("⚠️ Error de seguridad: El editor devolvió datos vacíos. No se realizarán cambios para proteger la base de datos.")
+                                st.error("⚠️ El editor está vacío. No se guardará nada para proteger los datos.")
                                 st.stop()
 
-                            # Aseguramos tipos numéricos limpios
-                            if 'id' in df_a_guardar.columns:
-                                df_a_guardar['id'] = pd.to_numeric(df_a_guardar['id'], errors='coerce')
-                            if 'nivel' in df_a_guardar.columns:
-                                df_a_guardar['nivel'] = pd.to_numeric(df_a_guardar['nivel'], errors='coerce').fillna(1).astype(int)
+                            # Limpieza celda por celda forzando tipos nativos de Python (Evita que Pandas meta NaN ocultos)
+                            for col in df_a_guardar.columns:
+                                if col in ['id', 'nivel']:
+                                    # Para columnas numéricas: o es un entero válido o es None puro
+                                    df_a_guardar[col] = df_a_guardar[col].apply(
+                                        lambda x: int(x) if pd.notnull(x) and str(x).strip() not in ['', 'nan', 'None', '<NA>'] else None
+                                    )
+                                else:
+                                    # Para columnas de texto: o es un string limpio o es None puro de Python
+                                    df_a_guardar[col] = df_a_guardar[col].apply(
+                                        lambda x: str(x).strip() if pd.notnull(x) and str(x).strip() not in ['', 'nan', 'None', '<NA>'] else None
+                                    )
 
-                            # Limpiamos nulos para MySQL
-                            df_a_guardar = df_a_guardar.replace(r'^\s*$', pd.NA, regex=True)
-                            df_a_guardar = df_a_guardar.where(pd.notnull(df_a_guardar), None)
-                            
-                            for col in ['codigo', 'nombre', 'tipo', 'padre']:
-                                if col in df_a_guardar.columns:
-                                    df_a_guardar[col] = df_a_guardar[col].apply(lambda x: None if x in ['nan', 'None', ''] or pd.isna(x) else x)
-
-                            # Ejecutamos la actualización
+                            # Ejecutamos la actualización con los datos 100% saneados
                             actualizar_tabla_completa_db(conn_empresa, "plan_cuentas", df_a_guardar)
                             
                             st.success("✅ ¡Modificaciones guardadas correctamente!")
