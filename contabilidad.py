@@ -11470,13 +11470,13 @@ elif opcion_menu == "📝 Asientos Contables":
                     nuevo_desc = st.text_input("Descripción general del Asiento", key="input_desc_gral")
                     
                     st.markdown("### Líneas del Comprobante")
-                    
-                    import pandas as pd
-                    
-                    # Inicializar las líneas en session_state como una lista de diccionarios
+
+                    # Inicializar con un identificador único (id) por línea para evitar colisiones de estado
                     if "lista_lineas_asiento" not in st.session_state:
+                        import uuid
                         st.session_state["lista_lineas_asiento"] = [
                             {
+                                "id": str(uuid.uuid4()),
                                 "plan_cuentas": opciones_cuentas[0] if opciones_cuentas else "", 
                                 "referencia": "", 
                                 "debe": 0.0, 
@@ -11484,9 +11484,10 @@ elif opcion_menu == "📝 Asientos Contables":
                             }
                         ]
 
-                    # Botón para agregar una nueva línea al final
                     if st.button("➕ Agregar Línea", type="secondary"):
+                        import uuid
                         st.session_state["lista_lineas_asiento"].append({
+                            "id": str(uuid.uuid4()),
                             "plan_cuentas": opciones_cuentas[0] if opciones_cuentas else "", 
                             "referencia": "", 
                             "debe": 0.0, 
@@ -11496,67 +11497,69 @@ elif opcion_menu == "📝 Asientos Contables":
 
                     st.markdown("---")
 
-                    # Renderizar cada línea de forma limpia
-                    lineas_a_mantener = []
-                    
-                    for i, linea in enumerate(st.session_state["lista_lineas_asiento"]):
-                        st.markdown(f"**Línea {i+1}**")
+                    # Renderizar cada línea usando el ID único en lugar del índice 'i'
+                    lineas_a_eliminar = None
+
+                    for idx, linea in enumerate(st.session_state["lista_lineas_asiento"]):
+                        line_id = linea["id"]
+                        st.markdown(f"**Línea {idx+1}**")
                         
-                        # Distribución limpia: Selector de Cuenta (4), Referencia (2), Debe/Haber (3), Borrar (1)
                         c1, c2, c3, c4 = st.columns([4, 2, 3, 1])
                         
                         with c1:
                             val_actual = linea.get("plan_cuentas", opciones_cuentas[0])
                             idx_default = opciones_cuentas.index(val_actual) if val_actual in opciones_cuentas else 0
                             
+                            # Usar el ID único en la key evita que Streamlit bloquee o mezcle los estados
                             nueva_cuenta = st.selectbox(
                                 "Cuenta Contable", 
                                 options=opciones_cuentas, 
                                 index=idx_default, 
-                                key=f"cuenta_{i}"
+                                key=f"cuenta_{line_id}"
                             )
                             linea["plan_cuentas"] = nueva_cuenta
                             
-                            # Mostrar la descripción pequeña abajo de la cuenta de forma elegante (sin columnas bloqueadas)
                             codigo_sel = nueva_cuenta.split(" - ")[0] if " - " in nueva_cuenta else ""
                             nombre_desc = dict_nombres_cuentas.get(codigo_sel, "")
                             st.caption(f"📌 {nombre_desc}")
                             
                         with c2:
-                            nueva_ref = st.text_input("Referencia", value=linea.get("referencia", ""), key=f"ref_{i}")
+                            nueva_ref = st.text_input("Referencia", value=linea.get("referencia", ""), key=f"ref_{line_id}")
                             linea["referencia"] = nueva_ref
                             
                         with c3:
                             sub_d, sub_h = st.columns(2)
                             with sub_d:
-                                nuevo_debe = st.number_input("Debe", value=float(linea.get("debe", 0.0)), format="%.2f", step=1.0, key=f"debe_{i}")
+                                nuevo_debe = st.number_input("Debe", value=float(linea.get("debe", 0.0)), format="%.2f", step=1.0, key=f"debe_{line_id}")
                                 linea["debe"] = nuevo_debe
                             with sub_h:
-                                nuevo_haber = st.number_input("Haber", value=float(linea.get("haber", 0.0)), format="%.2f", step=1.0, key=f"haber_{i}")
+                                nuevo_haber = st.number_input("Haber", value=float(linea.get("haber", 0.0)), format="%.2f", step=1.0, key=f"haber_{line_id}")
                                 linea["haber"] = nuevo_haber
                                 
                         with c4:
-                            st.write("") # Espaciador para alinear con los inputs
+                            st.write("") 
                             st.write("")
-                            if st.button("🗑️", key=f"del_{i}", help=f"Eliminar línea {i+1}"):
-                                continue
+                            if st.button("🗑️", key=f"del_{line_id}", help=f"Eliminar línea {idx+1}"):
+                                lineas_a_eliminar = line_id
                                 
-                        lineas_a_mantener.append(linea)
                         st.markdown("---")
 
-                    # Actualizamos el estado con las líneas que sobrevivieron al borrado
-                    if len(lineas_a_mantener) != len(st.session_state["lista_lineas_asiento"]):
-                        if len(lineas_a_mantener) == 0:
-                            lineas_a_mantener = [{
+                    # Si se hizo clic en eliminar un ID específico, se procesa de forma limpia y se recarga
+                    if lineas_a_eliminar is not None:
+                        st.session_state["lista_lineas_asiento"] = [
+                            l for l in st.session_state["lista_lineas_asiento"] if l["id"] != lineas_a_eliminar
+                        ]
+                        if len(st.session_state["lista_lineas_asiento"]) == 0:
+                            import uuid
+                            st.session_state["lista_lineas_asiento"] = [{
+                                "id": str(uuid.uuid4()),
                                 "plan_cuentas": opciones_cuentas[0] if opciones_cuentas else "", 
                                 "referencia": "", 
                                 "debe": 0.0, 
                                 "haber": 0.0
                             }]
-                        st.session_state["lista_lineas_asiento"] = lineas_a_mantener
                         st.rerun()
 
-                    # Convertir a DataFrame temporal para calcular totales y guardar
                     df_editado = pd.DataFrame(st.session_state["lista_lineas_asiento"])
                     
                     # Rellenar automáticamente la descripción contable por detrás para la BD
