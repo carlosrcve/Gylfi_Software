@@ -11015,7 +11015,7 @@ elif opcion_menu == "📂 Plan de Cuentas":
 
         with tab2:
             st.markdown("### 📋 Plan de Cuentas (Modificación Segura)")
-            st.info("ℹ️ Este módulo está configurado estrictamente para modificar las cuentas existentes de forma segura. No se permite la eliminación directa de registros desde la tabla.")
+            st.info("ℹ️ Este módulo permite modificar el plan de cuentas existente de forma segura. La eliminación de registros está bloqueada para proteger la integridad contable.")
             
             # 1. Validación estricta de la conexión
             if 'conn_empresa' not in locals() and 'conn_empresa' not in globals():
@@ -11049,23 +11049,23 @@ elif opcion_menu == "📂 Plan de Cuentas":
 
                     st.markdown("---")
                     
-                    # 2. Editor interactivo con num_rows="fixed" para EVITAR eliminaciones accidentales
+                    # 2. Editor interactivo adaptado estrictamente al esquema de la BD
                     df_editado = st.data_editor(
                         df_actual, 
-                        key="editor_plan_cuentas_seguro", 
-                        num_rows="fixed", # <--- BLOQUEA ELIMINACIÓN Y ADICIÓN DE FILAS DESDE EL GRID
+                        key="editor_plan_cuentas_definitivo", 
+                        num_rows="fixed", # Bloquea adición/eliminación de filas desde la UI
                         use_container_width=True,
                         column_config={
                             "id": st.column_config.NumberColumn("ID", disabled=True), 
                             "codigo": st.column_config.TextColumn("Código Contable", required=True),
                             "nombre": st.column_config.TextColumn("Nombre Cuenta", required=True),
                             "nivel": st.column_config.NumberColumn("Nivel", min_value=1, max_value=5),
-                            "tipo": st.column_config.SelectboxColumn("Tipo", options=["Activo", "Pasivo", "Patrimonio", "Ingreso", "Egreso", "Grupo"]),
+                            "tipo": st.column_config.SelectboxColumn("Tipo", options=["Grupo", "Detalle"], required=True),
                             "padre": st.column_config.TextColumn("Cuenta Padre")
                         }
                     )
                     
-                    # 3. Botón de guardado seguro
+                    # 3. Botón de guardado con actualización directa por filas (Adiós definitivo a los NaN)
                     if st.button("💾 Guardar Modificaciones en Plan de Cuentas", type="primary"):
                         try:
                             df_a_guardar = df_editado.copy()
@@ -11074,25 +11074,40 @@ elif opcion_menu == "📂 Plan de Cuentas":
                                 st.error("⚠️ El editor está vacío. No se guardará nada para proteger los datos.")
                                 st.stop()
 
-                            # Limpieza celda por celda forzando tipos nativos de Python (Evita que Pandas meta NaN ocultos)
-                            for col in df_a_guardar.columns:
-                                if col in ['id', 'nivel']:
-                                    # Para columnas numéricas: o es un entero válido o es None puro
-                                    df_a_guardar[col] = df_a_guardar[col].apply(
-                                        lambda x: int(x) if pd.notnull(x) and str(x).strip() not in ['', 'nan', 'None', '<NA>'] else None
-                                    )
-                                else:
-                                    # Para columnas de texto: o es un string limpio o es None puro de Python
-                                    df_a_guardar[col] = df_a_guardar[col].apply(
-                                        lambda x: str(x).strip() if pd.notnull(x) and str(x).strip() not in ['', 'nan', 'None', '<NA>'] else None
-                                    )
-
-                            # Ejecutamos la actualización con los datos 100% saneados
-                            actualizar_tabla_completa_db(conn_empresa, "plan_cuentas", df_a_guardar)
+                            cursor = conn_empresa.cursor()
+                            actualizados = 0
                             
-                            st.success("✅ ¡Modificaciones guardadas correctamente!")
+                            for index, row in df_a_guardar.iterrows():
+                                # Limpieza y conversión estricta a tipos nativos de Python por cada columna
+                                cuenta_id = int(row['id']) if pd.notnull(row['id']) and str(row['id']).strip() not in ['', 'nan', 'None', '<NA>'] else None
+                                codigo = str(row['codigo']).strip() if pd.notnull(row['codigo']) and str(row['codigo']).strip() not in ['', 'nan', 'None', '<NA>'] else None
+                                nombre = str(row['nombre']).strip() if pd.notnull(row['nombre']) and str(row['nombre']).strip() not in ['', 'nan', 'None', '<NA>'] else None
+                                nivel = int(row['nivel']) if pd.notnull(row['nivel']) and str(row['nivel']).strip() not in ['', 'nan', 'None', '<NA>'] else 1
+                                
+                                # Validamos que el tipo coincida estrictamente con el ENUM de la BD ('Grupo' o 'Detalle')
+                                tipo_val = str(row['tipo']).strip()
+                                tipo = tipo_val if tipo_val in ['Grupo', 'Detalle'] else 'Detalle'
+                                
+                                padre = str(row['padre']).strip() if pd.notnull(row['padre']) and str(row['padre']).strip() not in ['', 'nan', 'None', '<NA>'] else None
+
+                                if cuenta_id is not None:
+                                    sql = """
+                                        UPDATE plan_cuentas 
+                                        SET codigo = %s, nombre = %s, nivel = %s, tipo = %s, padre = %s 
+                                        WHERE id = %s
+                                    """
+                                    cursor.execute(sql, (codigo, nombre, nivel, tipo, padre, cuenta_id))
+                                    actualizados += 1
+
+                            conn_empresa.commit()
+                            cursor.close()
+                            
+                            st.success(f"✅ ¡Se actualizaron {actualizados} cuentas correctamente en la base de datos!")
                             st.balloons()
+                            
                         except Exception as ex_save:
+                            if hasattr(conn_empresa, 'rollback'):
+                                conn_empresa.rollback()
                             st.error(f"❌ Error al guardar en la base de datos: {ex_save}")
 
                 except Exception as err:
