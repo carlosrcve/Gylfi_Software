@@ -6884,7 +6884,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
             st.error(f"Error al leer el archivo Excel: {e}")
 
     # ----------------------------------------------------
-    # SEGUNDO FRAME: ESTRUCTURA COMPLETA DE COMPRAS
+    # SEGUNDO FRAME: ESTRUCTURA COMPLETA
     # ----------------------------------------------------
     if 'df_asientos_proceso' in st.session_state and not st.session_state['df_asientos_proceso'].empty:
         df_a_procesar = st.session_state['df_asientos_proceso'].copy()
@@ -6911,88 +6911,117 @@ def renderizar_tab_asientos_automatizados(db_connection):
         if 'haber' in df_a_procesar.columns:
             df_a_procesar['haber'] = df_a_procesar['haber'].apply(limpiar_monto).astype(float)
 
-        st.markdown(f"### 📋 Segundo Frame: Estructura Completa del Asiento Contable ({len(df_a_procesar)} registros)")
-        st.markdown("💡 *Selecciona el código de cuenta adecuado en cada línea (Base Imponible, IVA o Cuentas por Pagar) mediante las listas desplegables.*")
-        
-        def extraer_solo_codigo(val):
-            val_str = str(val).strip()
-            if " - " in val_str:
-                return val_str.split(" - ")[0].strip()
-            return val_str
+        # ----------------------------------------------------
+        # SEGUNDO FRAME: ESTRUCTURA COMPLETA
+        # ----------------------------------------------------
+        if 'df_asientos_proceso' in st.session_state and not st.session_state['df_asientos_proceso'].empty:
+            df_a_procesar = st.session_state['df_asientos_proceso'].copy()
+            
+            def limpiar_monto(val):
+                if pd.isna(val):
+                    return 0.0
+                if isinstance(val, (int, float)):
+                    return float(val)
+                
+                val_str = str(val).replace('$', '').strip()
+                if ',' in val_str and '.' in val_str:
+                    val_str = val_str.replace('.', '').replace(',', '.')
+                elif ',' in val_str:
+                    val_str = val_str.replace(',', '.')
+                
+                try:
+                    return float(val_str)
+                except ValueError:
+                    return 0.0
 
-        for idx in df_a_procesar.index:
-            codigo_puro = extraer_solo_codigo(df_a_procesar.at[idx, "plan_cuentas"])
-            df_a_procesar.at[idx, "plan_cuentas"] = codigo_puro
-            df_a_procesar.at[idx, "cuenta_contable"] = mapa_descripciones.get(codigo_puro, "")
+            if 'debe' in df_a_procesar.columns:
+                df_a_procesar['debe'] = df_a_procesar['debe'].apply(limpiar_monto).astype(float)
+            if 'haber' in df_a_procesar.columns:
+                df_a_procesar['haber'] = df_a_procesar['haber'].apply(limpiar_monto).astype(float)
 
-        opciones_codigos_puros = list(mapa_descripciones.keys())
-        if not opciones_codigos_puros:
-            opciones_codigos_puros = ["5.1.1.01.001", "5.1.1.01.002", "1.1.4.01.001", "2.1.1.01.001"]
+            # ----------------------------------------------------
+            # SEGUNDO FRAME: ESTRUCTURA COMPLETA DE COMPRAS CON SELECTBOX DE CUENTAS
+            # ----------------------------------------------------
+            st.markdown(f"### 📋 Segundo Frame: Estructura Completa del Asiento Contable ({len(df_a_procesar)} registros)")
+            
+            def extraer_solo_codigo(val):
+                val_str = str(val).strip()
+                if " - " in val_str:
+                    return val_str.split(" - ")[0].strip()
+                return val_str
 
-        # Editor interactivo limpio y exclusivo para Compras
-        df_editado = st.data_editor(
-            df_a_procesar,
-            num_rows="dynamic",
-            use_container_width=True,
-            column_config={
-                "n_comprobante": st.column_config.TextColumn("n_comprobante"),
-                "descripcion": st.column_config.TextColumn("Descripción"),
-                "fecha": st.column_config.TextColumn("Fecha"),
-                "plan_cuentas": st.column_config.SelectboxColumn(
-                    "Plan de Cuentas (Código)",
-                    options=opciones_codigos_puros,
-                    required=True
-                ),
-                "cuenta_contable": st.column_config.TextColumn("Descripción Cuenta", disabled=True),
-                "referencia": st.column_config.TextColumn("Referencia"),
-                "debe": st.column_config.NumberColumn(
-                    "Debe",
-                    format="%,.2f",
-                    help="Monto del debe",
-                    step=0.01
-                ),
-                "haber": st.column_config.NumberColumn(
-                    "Haber",
-                    format="%,.2f",
-                    help="Monto del haber",
-                    step=0.01
-                ),
-            },
-            key="editor_segundo_frame_compras"
-        )
-        
-        df_editado['debe'] = df_editado['debe'].apply(limpiar_monto).astype(float)
-        df_editado['haber'] = df_editado['haber'].apply(limpiar_monto).astype(float)
+            for idx in df_a_procesar.index:
+                codigo_puro = extraer_solo_codigo(df_a_procesar.at[idx, "plan_cuentas"])
+                df_a_procesar.at[idx, "plan_cuentas"] = codigo_puro
+                df_a_procesar.at[idx, "cuenta_contable"] = mapa_descripciones.get(codigo_puro, "")
 
-        for idx in df_editado.index:
-            codigo_puro = extraer_solo_codigo(df_editado.at[idx, "plan_cuentas"])
-            df_editado.at[idx, "plan_cuentas"] = codigo_puro
-            df_editado.at[idx, "cuenta_contable"] = mapa_descripciones.get(codigo_puro, "")
+            opciones_codigos_puros = list(mapa_descripciones.keys())
+            if not opciones_codigos_puros:
+                opciones_codigos_puros = ["5.1.1.01.001", "5.1.1.01.002", "1.1.4.01.001", "2.1.1.01.001"]
 
-        st.session_state['df_asientos_proceso'] = df_editado
-        
-        tot_debe = float(df_editado['debe'].sum())
-        tot_haber = float(df_editado['haber'].sum())
-        
-        col_m1, col_m2 = st.columns(2)
-        col_m1.metric("Total Debe (Compras)", f"{tot_debe:,.2f}")
-        col_m2.metric("Total Haber (Compras)", f"{tot_haber:,.2f}")
+            df_editado = st.data_editor(
+                df_a_procesar,
+                num_rows="dynamic",
+                use_container_width=True,
+                column_config={
+                    "n_comprobante": st.column_config.TextColumn("n_comprobante"),
+                    "descripcion": st.column_config.TextColumn("Descripción"),
+                    "fecha": st.column_config.TextColumn("Fecha"),
+                    "plan_cuentas": st.column_config.SelectboxColumn(
+                        "Plan de Cuentas (Código)",
+                        options=opciones_codigos_puros,
+                        required=True
+                    ),
+                    "cuenta_contable": st.column_config.TextColumn("Descripción Cuenta", disabled=True),
+                    "referencia": st.column_config.TextColumn("Referencia"),
+                    "debe": st.column_config.NumberColumn(
+                        "Debe",
+                        format="%,.2f",
+                        help="Monto del debe",
+                        step=0.01
+                    ),
+                    "haber": st.column_config.NumberColumn(
+                        "Haber",
+                        format="%,.2f",
+                        help="Monto del haber",
+                        step=0.01
+                    ),
+                },
+                key="editor_segundo_frame_compras"
+            )
 
-        buffer_excel = io.BytesIO()
-        with pd.ExcelWriter(buffer_excel, engine='openpyxl') as writer:
-            df_editado.to_excel(writer, index=False, sheet_name='Asientos_Contables')
-        buffer_excel.seek(0)
+            df_editado['debe'] = df_editado['debe'].apply(limpiar_monto).astype(float)
+            df_editado['haber'] = df_editado['haber'].apply(limpiar_monto).astype(float)
 
-        st.download_button(
-            label="📥 Descargar Estructura en Excel",
-            data=buffer_excel,
-            file_name=f"asientos_contables_compras_{db_segura}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            key="btn_descargar_excel_asientos",
-            use_container_width=False
-        )
-        
-        if st.button("💾 Guardar Todo el Asiento en el Libro Diario", key="btn_guardar_asientos_finales", use_container_width=False):
+            for idx in df_editado.index:
+                codigo_puro = extraer_solo_codigo(df_editado.at[idx, "plan_cuentas"])
+                df_editado.at[idx, "plan_cuentas"] = codigo_puro
+                df_editado.at[idx, "cuenta_contable"] = mapa_descripciones.get(codigo_puro, "")
+
+            st.session_state['df_asientos_proceso'] = df_editado
+
+            tot_debe = float(df_editado['debe'].sum())
+            tot_haber = float(df_editado['haber'].sum())
+
+            col_m1, col_m2 = st.columns(2)
+            col_m1.metric("Total Debe (Compras)", f"{tot_debe:,.2f}")
+            col_m2.metric("Total Haber (Compras)", f"{tot_haber:,.2f}")
+
+            buffer_excel = io.BytesIO()
+            with pd.ExcelWriter(buffer_excel, engine='openpyxl') as writer:
+                df_editado.to_excel(writer, index=False, sheet_name='Asientos_Contables')
+            buffer_excel.seek(0)
+
+            st.download_button(
+                label="📥 Descargar Estructura en Excel",
+                data=buffer_excel,
+                file_name=f"asientos_contables_compras_{db_segura}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key="btn_descargar_excel_asientos",
+                use_container_width=False
+            )
+
+            if st.button("💾 Guardar Todo el Asiento en el Libro Diario", key="btn_guardar_asientos_finales", use_container_width=False):
             try:
                 df_val = df_editado.copy()
                 df_val['fecha'] = pd.to_datetime(df_val['fecha'], errors='coerce')
@@ -7014,9 +7043,9 @@ def renderizar_tab_asientos_automatizados(db_connection):
                             
                             if cantidad_bloqueos > 0:
                                 bloqueo_detectado = True
-                                mensaje_bloqueo = f"❌ **Operación Denegada**: El período correspondiente al mes **{mes:02d}/{anio}** se encuentra **CERRADO y BLOQUEADO** en la base de datos."
+                                mensaje_bloqueo = f"❌ **Operación Denegada**: El período correspondiente al mes **{mes:02d}/{anio}** se encuentra **CERRADO y BLOQUEADO** in MySQL."
                                 break
-                    except Exception:
+                    except Exception as e:
                         pass 
 
                 if bloqueo_detectado:
@@ -7056,10 +7085,11 @@ def renderizar_tab_asientos_automatizados(db_connection):
                             ))
                         db_connection.commit()
                         st.success("✅ ¡Asientos de compras guardados exitosamente en el Libro Diario!")
-            except Exception:
+            except Exception as db_err:
                 if hasattr(db_connection, 'rollback'):
                     db_connection.rollback()
-                st.error("❌ Error al guardar en la base de datos. Revisa la estructura de los datos o la conexión.")
+                            st.error(f"Error al guardar en la base de datos: {db_err}")
+
 
 
 def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
