@@ -8914,8 +8914,15 @@ if 'df_gastos_c6' in locals() and df_gastos_c6.empty:
 
 
 # Al autenticar o pasar la plantilla de bienvenida por primera vez:
+# 1. Aseguramos que la opción por defecto del menú de auditoría sea Inicio si no existe
 if 'opcion_menu_auditoria' not in st.session_state:
     st.session_state['opcion_menu_auditoria'] = "🏠 Inicio"
+
+# 2. Recuperamos siempre la opción actual del menú
+opcion_menu = st.session_state.get('opcion_menu_auditoria', "🏠 Inicio")
+
+# 3. Evaluamos si el usuario está en el Dashboard de Inicio
+if opcion_menu == "🏠 Inicio":
     # --- INYECCIÓN DE CSS ---
     st.markdown("""<style>
             .block-container { max-width: 100% !important; padding-left: 3rem !important; padding-right: 3rem !important; }
@@ -8944,13 +8951,11 @@ if 'opcion_menu_auditoria' not in st.session_state:
                 if not df_temp.empty and df_temp['db_nombre'].iloc[0]:
                     db_objetivo = str(df_temp['db_nombre'].iloc[0]).strip()
                 elif nombre_usuario_actual in ['alix_maria', 'alix']:
-                    # --- RESPALDO DE EMERGENCIA PARA ALIX ---
                     db_objetivo = 'rishon_letzion_ca'
                 else:
                     st.error(f"❌ Acceso denegado: El usuario '{nombre_usuario_actual}' no tiene una empresa (DB) asociada.")
                     st.stop()
         except Exception as e:
-            # Si ocurre un error de conexión, aplicamos respaldo si es Alix
             if nombre_usuario_actual in ['alix_maria', 'alix']:
                 db_objetivo = 'rishon_letzion_ca'
             else:
@@ -8969,14 +8974,13 @@ if 'opcion_menu_auditoria' not in st.session_state:
         st.error("❌ No se pudo determinar la base de datos de trabajo.")
         st.stop()
 
-    # --- LÓGICA DE CONEXIÓN ROBUSTA (Única y definitiva) ---
+    # --- LÓGICA DE CONEXIÓN ROBUSTA ---
     necesita_reconexion = False
 
     if 'conn' not in st.session_state or st.session_state.get('ultima_db_conectada') != db_objetivo or st.session_state.conn is None:
         necesita_reconexion = True
     else:
         try:
-            # Verificación limpia compatible con pymysql
             st.session_state.conn.ping(reconnect=True)
             if db_objetivo and db_objetivo != "control_central":
                 with st.session_state.conn.cursor() as cursor:
@@ -8984,7 +8988,6 @@ if 'opcion_menu_auditoria' not in st.session_state:
         except Exception:
             necesita_reconexion = True
 
-    # Si se requiere nueva conexión o reconectar
     if necesita_reconexion:
         try:
             nueva_conn = conectar_db(db_objetivo)
@@ -8999,7 +9002,6 @@ if 'opcion_menu_auditoria' not in st.session_state:
             st.session_state.conn = None
             st.stop()
     
-    # Asignamos la conexión lista para usar en el resto de tu módulo de inicio
     conn = st.session_state.conn
 
     # 1. DEFINICIÓN DE ESTRUCTURA DE TIEMPO
@@ -9016,23 +9018,18 @@ if 'opcion_menu_auditoria' not in st.session_state:
     m_idx = dic_meses.get(mes_nombre_f, 1)
     ultimo_dia = calendar.monthrange(anio_f, m_idx)[1]
 
-    # Corrección limpia: usamos 'date' directamente tal como está importado arriba en tu archivo
     f_inicio_global = date(anio_f, 1, 1) 
     f_fin_global = date(anio_f, m_idx, ultimo_dia)
 
     st.session_state["f_inicio_global"] = f_inicio_global
     st.session_state["f_fin_global"] = f_fin_global
 
-    fecha_inicio_str = f_inicio_global.strftime('%Y-%m-%d')
-    fecha_fin_str = f_fin_global.strftime('%Y-%m-%d')
-
-    # 5. UI (Solo mostrar si db_objetivo está definido)
-    if 'db_objetivo' in locals() or 'db_objetivo' in globals():
+    # 5. UI DEL DASHBOARD DE INICIO
+    if db_objetivo:
         st.title(f"📊 Auditoría Profesional: {db_objetivo}")
         st.markdown(f"**Período de Análisis (Acumulado):** {f_inicio_global.strftime('%d/%m/%Y')} al {f_fin_global.strftime('%d/%m/%Y')}")
         st.divider()
     else:
-        # Fallback si db_objetivo no está definido aún
         st.title("📊 Auditoría Profesional")
         st.markdown(f"**Período de Análisis (Acumulado):** {f_inicio_global.strftime('%d/%m/%Y')} al {f_fin_global.strftime('%d/%m/%Y')}")
         st.divider()
