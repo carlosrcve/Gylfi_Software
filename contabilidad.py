@@ -16099,7 +16099,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                                 st.error(f"❌ Error crítico: {e}")
                     # --- PESTAÑA 2: CONSULTAR Y EDITAR ---
         with tab2:
-            st.subheader("🔍 Consultar y Editar")
+            st.subheader("🔍 Consultar y Editar Libro de Ventas")
             
             # Filtros de búsqueda
             col_v1, col_v2, col_v3 = st.columns([1, 1, 1])
@@ -16174,10 +16174,30 @@ elif opcion_menu == "📚 Libros Fiscales":
                             "rif": st.column_config.TextColumn("RIF", required=True),
                             "n_factura": st.column_config.TextColumn("Nº Factura", required=True),
                             "n_control": st.column_config.TextColumn("Nº Control", required=True),
-                            "total_ventas_con_iva": st.column_config.NumberColumn("Total Bs.", format="%.2f", step=0.01),
-                            "ventas_exentas": st.column_config.NumberColumn("Exento Bs.", format="%.2f", step=0.01),
-                            "base_imponible": st.column_config.NumberColumn("Base Bs.", format="%.2f", step=0.01),
-                            "debito_fiscal": st.column_config.NumberColumn("IVA Bs.", format="%.2f", step=0.01),
+                            "total_ventas_con_iva": st.column_config.NumberColumn(
+                                "Total Bs.", 
+                                format="%,.2f", 
+                                step=0.01,
+                                help="Monto total de la venta con IVA"
+                            ),
+                            "ventas_exentas": st.column_config.NumberColumn(
+                                "Exento Bs.", 
+                                format="%,.2f", 
+                                step=0.01,
+                                help="Monto de ventas exentas"
+                            ),
+                            "base_imponible": st.column_config.NumberColumn(
+                                "Base Bs.", 
+                                format="%,.2f", 
+                                step=0.01,
+                                help="Base imponible"
+                            ),
+                            "debito_fiscal": st.column_config.NumberColumn(
+                                "IVA Bs.", 
+                                format="%,.2f", 
+                                step=0.01,
+                                help="Débito fiscal (IVA)"
+                            ),
                             "porcentaje_alicuota": st.column_config.NumberColumn("% Alícuota", format="%.1f", step=0.1),
                             "fecha_registro": st.column_config.DatetimeColumn("F. Registro", disabled=True)
                         }
