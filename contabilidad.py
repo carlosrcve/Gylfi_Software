@@ -6686,13 +6686,16 @@ def renderizar_tab_asientos_automatizados(db_connection):
             configuracion_columnas_dataframe = {}
             for col in df_compras.columns:
                 c_lower = str(col).lower()
-                if any(term in c_lower for term in ["compra", "base", "credito", "total", "iva", "monto", "impuesto", "exentas"]):
+                # Incluimos todas las variantes de totales, compras, bases, exentas e iva
+                if any(term in c_lower for term in ["compra", "base", "credito", "total", "iva", "monto", "impuesto", "exentas", "exenta"]):
                     df_compras[col] = pd.to_numeric(df_compras[col].astype(str).str.replace(",", "", regex=True), errors="coerce").fillna(0.0)
                     
+                    # 🎯 APLICANDO EL FORMATO NUMÉRICO SOLICITADO (%,.2f)
                     configuracion_columnas_dataframe[col] = st.column_config.NumberColumn(
                         col,
-                        format="%.2f",
-                        step=0.01
+                        format="%,.2f",
+                        step=0.01,
+                        help=f"Columna numérica: {col}"
                     )
 
             st.dataframe(
@@ -6740,17 +6743,17 @@ def renderizar_tab_asientos_automatizados(db_connection):
                         nro_doc = str(buscar_valor(["Número de Documento", "Numero de Documento", "Nro Documento", "Factura", "Nro. Factura", "Control"], f"{idx+1}")).strip()
 
                         try:
-                            base_imponible = float(buscar_valor(["Base Imponible"], 0.0))
+                            base_imponible = float(buscar_valor(["Base Imponible", "Base"], 0.0))
                         except Exception:
                             base_imponible = 0.0
 
                         try:
-                            compras_exentas = float(buscar_valor(["Compras Exentas", "Exentas", "Sin Derecho a Crédito", "Sin Derecho a Credito"], 0.0))
+                            compras_exentas = float(buscar_valor(["Compras Exentas", "Exentas", "Exenta", "Sin Derecho a Crédito", "Sin Derecho a Credito"], 0.0))
                         except Exception:
                             compras_exentas = 0.0
 
                         try:
-                            credito_fiscal = float(buscar_valor(["Credito Fiscales", "Crédito Fiscales", "Credito Fiscal", "IVA"], 0.0))
+                            credito_fiscal = float(buscar_valor(["Credito Fiscales", "Crédito Fiscales", "Credito Fiscal", "IVA Impuesto", "IVA"], 0.0))
                         except Exception:
                             credito_fiscal = 0.0
 
