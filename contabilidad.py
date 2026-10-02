@@ -16147,7 +16147,6 @@ elif opcion_menu == "📚 Libros Fiscales":
                 cols_moneda = ['total_ventas_con_iva', 'ventas_exentas', 'base_imponible', 'debito_fiscal']
                 
                 for col in cols_moneda:
-                    # BLINDAJE: Solo aplica el formato si la columna realmente existe en el DataFrame
                     if col in df_visual.columns:
                         df_visual[col] = df_visual[col].apply(
                             lambda x: "{:,.2f}".format(x).replace(",", "X").replace(".", ",").replace("X", ".") if pd.notnull(x) else "0,00"
@@ -16156,11 +16155,10 @@ elif opcion_menu == "📚 Libros Fiscales":
                 st.subheader("👁️ Vista de Consulta")
                 st.dataframe(df_visual, width='stretch', hide_index=True)
 
-                # --- 2. EDITOR DE REGISTROS (Edición funcional) ---
-                with st.expander("✏️ Editar Registros (Edición de datos)"):
-                    st.info("⚠️ Edita los números aquí (usa punto para decimales, ej: 123.45)")
+                # --- 2. EDITOR DE REGISTROS (Agregar, Modificar y Eliminar Activo) ---
+                with st.expander("✏️ Administrar Facturas (Agregar, Modificar, Eliminar)", expanded=True):
+                    st.info("💡 **Instrucciones:** Puedes editar celdas directamente, agregar una nueva fila al final de la tabla o eliminar registros seleccionando la fila y haciendo clic en la papelera.")
                     
-                    # KEY DINÁMICO para evitar el error de duplicados
                     key_editor = f"editor_ventas_{db_actual}"
                     
                     editado_v = st.data_editor(
@@ -16171,20 +16169,21 @@ elif opcion_menu == "📚 Libros Fiscales":
                         hide_index=True,
                         column_config={
                             "id": st.column_config.NumberColumn("ID", disabled=True),
-                            "fecha_factura": st.column_config.DateColumn("Fecha", format="DD/MM/YYYY"),
+                            "fecha_factura": st.column_config.DateColumn("Fecha", format="DD/MM/YYYY", required=True),
                             "nombre_razon_social": st.column_config.TextColumn("Razón Social", required=True),
-                            "rif": st.column_config.TextColumn("RIF"),
-                            "n_factura": st.column_config.TextColumn("Nº Factura"),
-                            "n_control": st.column_config.TextColumn("Nº Control"),
-                            "total_ventas_con_iva": st.column_config.NumberColumn("Total Bs.", format="%.2f"),
-                            "ventas_exentas": st.column_config.NumberColumn("Exento Bs.", format="%.2f"),
-                            "base_imponible": st.column_config.NumberColumn("Base Bs.", format="%.2f"),
-                            "debito_fiscal": st.column_config.NumberColumn("IVA Bs.", format="%.2f"),
-                            "porcentaje_alicuota": st.column_config.NumberColumn("%", format="%.1f"),
+                            "rif": st.column_config.TextColumn("RIF", required=True),
+                            "n_factura": st.column_config.TextColumn("Nº Factura", required=True),
+                            "n_control": st.column_config.TextColumn("Nº Control", required=True),
+                            "total_ventas_con_iva": st.column_config.NumberColumn("Total Bs.", format="%.2f", step=0.01),
+                            "ventas_exentas": st.column_config.NumberColumn("Exento Bs.", format="%.2f", step=0.01),
+                            "base_imponible": st.column_config.NumberColumn("Base Bs.", format="%.2f", step=0.01),
+                            "debito_fiscal": st.column_config.NumberColumn("IVA Bs.", format="%.2f", step=0.01),
+                            "porcentaje_alicuota": st.column_config.NumberColumn("% Alícuota", format="%.1f", step=0.1),
+                            "fecha_registro": st.column_config.DatetimeColumn("F. Registro", disabled=True)
                         }
                     )
 
-                # --- 5. SECCIÓN DE TOTALES (Blindada contra columnas faltantes) ---
+                # --- 5. SECCIÓN DE TOTALES ---
                 st.markdown("---")
                 t_ventas = df_mostrar['total_ventas_con_iva'].sum() if 'total_ventas_con_iva' in df_mostrar.columns else 0.0
                 t_exento = df_mostrar['ventas_exentas'].sum() if 'ventas_exentas' in df_mostrar.columns else 0.0
@@ -16197,11 +16196,11 @@ elif opcion_menu == "📚 Libros Fiscales":
                 m1.metric("TOTAL VENTAS", f_moneda(t_ventas))
                 m2.metric("TOTAL EXENTO", f_moneda(t_exento))
                 m3.metric("TOTAL BASE", f_moneda(t_base))
-                m4.metric("TOTAL IVA (16%)", f_moneda(t_iva))
+                m4.metric("TOTAL IVA", f_moneda(t_iva))
                 
                 st.markdown("---")
 
-                # --- 6. ACCIONES: DESCARGA Y GUARDADO ---
+                # --- 6. ACCIONES: DESCARGA Y GUARDADO (PROCESAMIENTO DE CAMBIOS) ---
                 col_btn1, col_btn2 = st.columns([1, 1])
 
                 with col_btn1:
@@ -16221,7 +16220,6 @@ elif opcion_menu == "📚 Libros Fiscales":
 
                 with col_btn2:
                     if st.button("💾 Guardar Cambios en Ventas", type="primary", width='stretch'):
-                        # Usamos la variable key_editor correctamente
                         if key_editor in st.session_state:
                             cambios = st.session_state[key_editor]
                             conn_save = conectar_db(db_actual)
@@ -16229,16 +16227,19 @@ elif opcion_menu == "📚 Libros Fiscales":
                             if conn_save:
                                 cursor = conn_save.cursor()
                                 try:
-                                    # A. Eliminar filas
+                                    # 1. ELIMINAR FACTURAS
                                     for row_idx in cambios.get("deleted_rows", []):
                                         id_del = int(df_mostrar.iloc[row_idx]["id"])
                                         cursor.execute("DELETE FROM libro_ventas WHERE id = %s", (id_del,))
 
-                                    # B. Editar filas
+                                    # 2. MODIFICAR / EDITAR FACTURAS
                                     for row_idx, dict_cambios in cambios.get("edited_rows", {}).items():
                                         id_edit = int(df_mostrar.iloc[int(row_idx)]["id"])
-                                        if "n_factura" in dict_cambios: dict_cambios["n_factura"] = str(dict_cambios["n_factura"]).zfill(5)
-                                        if "n_control" in dict_cambios: dict_cambios["n_control"] = str(dict_cambios["n_control"]).zfill(5)
+                                        
+                                        if "n_factura" in dict_cambios: 
+                                            dict_cambios["n_factura"] = str(dict_cambios["n_factura"]).strip()
+                                        if "n_control" in dict_cambios: 
+                                            dict_cambios["n_control"] = str(dict_cambios["n_control"]).strip()
                                         if "fecha_factura" in dict_cambios and dict_cambios["fecha_factura"]:
                                             f = dict_cambios["fecha_factura"]
                                             dict_cambios["fecha_factura"] = f.strftime('%Y-%m-%d') if hasattr(f, 'strftime') else str(f)
@@ -16247,36 +16248,44 @@ elif opcion_menu == "📚 Libros Fiscales":
                                             sql_upd = ", ".join([f"{k} = %s" for k in dict_cambios.keys()])
                                             cursor.execute(f"UPDATE libro_ventas SET {sql_upd} WHERE id = %s", list(dict_cambios.values()) + [id_edit])
 
-                                    # C. Agregar nuevas filas
+                                    # 3. AGREGAR NUEVAS FACTURAS
                                     for row_dict in cambios.get("added_rows", []):
-                                        if not row_dict or not any(row_dict.values()): continue
+                                        if not row_dict or not any(row_dict.values()): 
+                                            continue
+                                        
                                         f_raw = row_dict.get("fecha_factura") or desde_v
                                         fecha_final = f_raw.strftime('%Y-%m-%d') if hasattr(f_raw, 'strftime') else str(f_raw)
 
                                         datos_finales = {
                                             "fecha_factura": fecha_final,
-                                            "nombre_razon_social": row_dict.get("nombre_razon_social", "VARIOS"),
-                                            "rif": row_dict.get("rif", "V000000000"),
-                                            "n_factura": str(row_dict.get("n_factura", "0")).zfill(5),
-                                            "n_control": str(row_dict.get("n_control", "0")).zfill(5),
-                                            "total_ventas_con_iva": row_dict.get("total_ventas_con_iva", 0.00),
-                                            "ventas_exentas": row_dict.get("ventas_exentas", 0.00),
-                                            "base_imponible": row_dict.get("base_imponible", 0.00),
-                                            "porcentaje_alicuota": row_dict.get("porcentaje_alicuota", 16.00),
-                                            "debito_fiscal": row_dict.get("debito_fiscal", 0.00)
+                                            "nombre_razon_social": str(row_dict.get("nombre_razon_social", "VARIOS")).strip(),
+                                            "rif": str(row_dict.get("rif", "V000000000")).strip(),
+                                            "n_factura": str(row_dict.get("n_factura", "0")).strip(),
+                                            "n_control": str(row_dict.get("n_control", "0")).strip(),
+                                            "total_ventas_con_iva": float(row_dict.get("total_ventas_con_iva", 0.00)),
+                                            "ventas_exentas": float(row_dict.get("ventas_exentas", 0.00)),
+                                            "base_imponible": float(row_dict.get("base_imponible", 0.00)),
+                                            "porcentaje_alicuota": float(row_dict.get("porcentaje_alicuota", 16.00)),
+                                            "debito_fiscal": float(row_dict.get("debito_fiscal", 0.00))
                                         }
+                                        
                                         columnas = ", ".join(datos_finales.keys())
                                         placeholders = ", ".join(["%s"] * len(datos_finales))
                                         cursor.execute(f"INSERT INTO libro_ventas ({columnas}) VALUES ({placeholders})", list(datos_finales.values()))
 
                                     conn_save.commit()
-                                    st.success("✅ ¡Libro de Ventas actualizado con éxito!")
+                                    st.success("✅ ¡Libro de Ventas actualizado con éxito (Inserciones, Modificaciones y Eliminaciones aplicadas)!")
+                                    
+                                    # Limpiamos el estado para recargar los datos actualizados desde la BD
+                                    if "df_ventas_editor" in st.session_state:
+                                        del st.session_state["df_ventas_editor"]
                                     st.rerun()
+
                                 except Exception as e:
                                     conn_save.rollback()
-                                    st.error(f"❌ Error: {e}")
+                                    st.error(f"❌ Error al guardar los cambios: {e}")
                                 finally:
-                                    cursor.close()  # Recomendado cerrar cursor también
+                                    cursor.close()
                                     conn_save.close()
                         else:
                             st.warning("⚠️ No hay registro de cambios activos en la sesión.")
