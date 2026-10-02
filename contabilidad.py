@@ -7112,10 +7112,10 @@ def renderizar_tab_asientos_automatizados(db_connection):
                                     ))
                                 db_connection.commit()
                                 st.success("✅ ¡Asientos de compras guardados exitosamente en el Libro Diario!")
-                    except Exception as ex:
+                    except Exception:
                         if hasattr(db_connection, 'rollback'):
                             db_connection.rollback()
-                st.error(f"Error al guardar en la base de datos: {str(ex)}")
+                        st.error("❌ Error al guardar en la base de datos. Revisa la estructura de los datos o la conexión.")
 
 
 
