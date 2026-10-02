@@ -16247,12 +16247,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                             if conn_save:
                                 cursor = conn_save.cursor()
                                 try:
-                                    # 1. ELIMINAR FACTURAS
-                                    for row_idx in cambios.get("deleted_rows", []):
-                                        id_del = int(df_mostrar.iloc[row_idx]["id"])
-                                        cursor.execute("DELETE FROM libro_ventas WHERE id = %s", (id_del,))
-
-                                    # 2. MODIFICAR / EDITAR FACTURAS
+                                    # 1. MODIFICAR / EDITAR FACTURAS
                                     for row_idx, dict_cambios in cambios.get("edited_rows", {}).items():
                                         id_edit = int(df_mostrar.iloc[int(row_idx)]["id"])
                                         
@@ -16267,6 +16262,11 @@ elif opcion_menu == "📚 Libros Fiscales":
                                         if dict_cambios:
                                             sql_upd = ", ".join([f"{k} = %s" for k in dict_cambios.keys()])
                                             cursor.execute(f"UPDATE libro_ventas SET {sql_upd} WHERE id = %s", list(dict_cambios.values()) + [id_edit])
+
+                                    # 2. ELIMINAR FACTURAS (Colocado antes de las inserciones)
+                                    for row_idx in cambios.get("deleted_rows", []):
+                                        id_del = int(df_mostrar.iloc[row_idx]["id"])
+                                        cursor.execute("DELETE FROM libro_ventas WHERE id = %s", (id_del,))
 
                                     # 3. AGREGAR NUEVAS FACTURAS
                                     for row_dict in cambios.get("added_rows", []):
@@ -16294,7 +16294,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                                         cursor.execute(f"INSERT INTO libro_ventas ({columnas}) VALUES ({placeholders})", list(datos_finales.values()))
 
                                     conn_save.commit()
-                                    st.success("✅ ¡Libro de Ventas actualizado con éxito (Inserciones, Modificaciones y Eliminaciones aplicadas)!")
+                                    st.success("✅ ¡Libro de Ventas actualizado con éxito (Modificaciones, Eliminaciones e Inserciones aplicadas)!")
                                     
                                     # Limpiamos el estado para recargar los datos actualizados desde la BD
                                     if "df_ventas_editor" in st.session_state:
