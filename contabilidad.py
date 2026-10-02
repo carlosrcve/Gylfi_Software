@@ -7072,7 +7072,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
                                         bloqueo_detectado = True
                                         mensaje_bloqueo = f"❌ **Operación Denegada**: El período correspondiente al mes **{mes:02d}/{anio}** se encuentra **CERRADO y BLOQUEADO** en la base de datos."
                                         break
-                            except Exception as e:
+                            except Exception:
                                 pass 
 
                         if bloqueo_detectado:
@@ -7112,10 +7112,10 @@ def renderizar_tab_asientos_automatizados(db_connection):
                                     ))
                                 db_connection.commit()
                                 st.success("✅ ¡Asientos de compras guardados exitosamente en el Libro Diario!")
-                    except Exception as db_err:
+                    except Exception as ex:
                         if hasattr(db_connection, 'rollback'):
                             db_connection.rollback()
-                st.error(f"Error al guardar en la base de datos: {db_err}")
+                st.error(f"Error al guardar en la base de datos: {str(ex)}")
 
 
 
