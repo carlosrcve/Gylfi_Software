@@ -6902,6 +6902,17 @@ def renderizar_tab_asientos_automatizados(db_connection):
 
         st.markdown(f"### 📋 Segundo Frame: Estructura Completa del Asiento de Compras ({len(df_a_procesar)} registros)")
         
+        # ⚙️ SELECTOR GLOBAL: Tratamiento del IVA para todo el lote de compras
+        tratamiento_iva = st.radio(
+            "⚙️ Tratamiento del IVA para este Lote:",
+            [
+                "Ordinario (Crédito Fiscal separado a la cuenta 1.1.4...)", 
+                "Asumir IVA como Costo / Gasto (Integrar al costo de la compra)"
+            ],
+            horizontal=True,
+            key=f"selector_tratamiento_iva_{db_segura}"
+        )
+        
         def extraer_solo_codigo(val):
             val_str = str(val).strip()
             if " - " in val_str:
@@ -6913,6 +6924,85 @@ def renderizar_tab_asientos_automatizados(db_connection):
             codigo_puro = extraer_solo_codigo(df_a_procesar.at[idx, "plan_cuentas"])
             df_a_procesar.at[idx, "plan_cuentas"] = codigo_puro
             df_a_procesar.at[idx, "cuenta_contable"] = mapa_descripciones.get(codigo_puro, "")
+
+        # 🛠️ APLICACIÓN MASIVA SEGÚN EL TRATAMIENTO DEL IVA SELECCIONADO
+        # Verificamos si los datos crudos traen base imponible e IVA para hacer la transformación global
+        if 'base_imponible' in df_a_procesar.columns and 'monto_iva' in df_a_procesar.columns:
+            filas_procesadas = []
+            
+            for _, row in df_a_procesar.iterrows():
+                base = limpiar_monto(row.get('base_imponible', row.get('debe', 0)))
+                iva = limpiar_monto(row.get('monto_iva', 0))
+                total = limpiar_monto(row.get('total_factura', base + iva))
+                
+                codigo_cuenta_gasto = extraer_solo_codigo(row.get("plan_cuentas", "5.1.1.01.001"))
+                
+                if "Asumir IVA como Costo" in tratamiento_iva:
+                    # CASO 1: El IVA se suma al costo/gasto (Se elimina línea de crédito fiscal)
+                    costo_total_integrado = base + iva
+                    
+                    filas_procesadas.append({
+                        "n_comprobante": row.get("n_comprobante", ""),
+                        "descripcion": f"{row.get('descripcion', '')} (Incluye IVA al Costo)",
+                        "fecha": row.get("fecha", ""),
+                        "plan_cuentas": codigo_cuenta_gasto,
+                        "cuenta_contable": mapa_descripciones.get(codigo_cuenta_gasto, ""),
+                        "referencia": row.get("referencia", ""),
+                        "debe": costo_total_integrado,
+                        "haber": 0.0
+                    })
+                    
+                    # Pasivo por el Total Bruto
+                    codigo_pasivo = "2.1.1.01.001"
+                    filas_procesadas.append({
+                        "n_comprobante": row.get("n_comprobante", ""),
+                        "descripcion": row.get("descripcion", ""),
+                        "fecha": row.get("fecha", ""),
+                        "plan_cuentas": codigo_pasivo,
+                        "cuenta_contable": mapa_descripciones.get(codigo_pasivo, "Cuentas por Pagar Comerciales"),
+                        "referencia": row.get("referencia", ""),
+                        "debe": 0.0,
+                        "haber": total if total > 0 else (base + iva)
+                    })
+                else:
+                    # CASO 2: Tratamiento Ordinario (Base al Gasto + IVA al Crédito Fiscal)
+                    filas_procesadas.append({
+                        "n_comprobante": row.get("n_comprobante", ""),
+                        "descripcion": row.get("descripcion", ""),
+                        "fecha": row.get("fecha", ""),
+                        "plan_cuentas": codigo_cuenta_gasto,
+                        "cuenta_contable": mapa_descripciones.get(codigo_cuenta_gasto, ""),
+                        "referencia": row.get("referencia", ""),
+                        "debe": base,
+                        "haber": 0.0
+                    })
+                    
+                    if iva > 0:
+                        codigo_credito_fiscal = "1.1.4.01.001"
+                        filas_procesadas.append({
+                            "n_comprobante": row.get("n_comprobante", ""),
+                            "descripcion": f"IVA Crédito Fiscal - {row.get('descripcion', '')}",
+                            "fecha": row.get("fecha", ""),
+                            "plan_cuentas": codigo_credito_fiscal,
+                            "cuenta_contable": mapa_descripciones.get(codigo_credito_fiscal, "IVA Crédito Fiscal"),
+                            "referencia": row.get("referencia", ""),
+                            "debe": iva,
+                            "haber": 0.0
+                        })
+                    
+                    codigo_pasivo = "2.1.1.01.001"
+                    filas_procesadas.append({
+                        "n_comprobante": row.get("n_comprobante", ""),
+                        "descripcion": row.get("descripcion", ""),
+                        "fecha": row.get("fecha", ""),
+                        "plan_cuentas": codigo_pasivo,
+                        "cuenta_contable": mapa_descripciones.get(codigo_pasivo, "Cuentas por Pagar Comerciales"),
+                        "referencia": row.get("referencia", ""),
+                        "debe": 0.0,
+                        "haber": total if total > 0 else (base + iva)
+                    })
+            
+            df_a_procesar = pd.DataFrame(filas_procesadas)
 
         opciones_codigos_puros = list(mapa_descripciones.keys())
         if not opciones_codigos_puros:
@@ -6949,7 +7039,6 @@ def renderizar_tab_asientos_automatizados(db_connection):
             codigo_seleccionado = extraer_solo_codigo(df_editado.at[idx, "plan_cuentas"])
             nueva_descripcion = mapa_descripciones.get(codigo_seleccionado, "")
             
-            # Si el código o la descripción difieren de lo que teníamos, actualizamos
             if df_editado.at[idx, "plan_cuentas"] != codigo_seleccionado or df_editado.at[idx, "cuenta_contable"] != nueva_descripcion:
                 df_editado.at[idx, "plan_cuentas"] = codigo_seleccionado
                 df_editado.at[idx, "cuenta_contable"] = nueva_descripcion
@@ -6957,7 +7046,6 @@ def renderizar_tab_asientos_automatizados(db_connection):
 
         st.session_state[KEY_SESSION_COMPRAS] = df_editado
 
-        # Si el usuario modificó cuentas en vivo, forzamos un rerun para que Streamlit pinte de inmediato la nueva descripción en pantalla
         if cambio_detectado:
             st.rerun()
 
