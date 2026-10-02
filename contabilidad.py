@@ -8870,7 +8870,7 @@ if menu_lateral == "📊 Auditoría Contable":
 
         modulos_disponibles = [
             "🏠 Inicio", "📂 Plan de Cuentas", "📝 Asientos Contables",  
-            "📖 Mayor Analítico", "📊 Estados Financieros", "📚 Libros Fiscales", "👤 Proveedores","👤 Clientes"
+            "📖 Mayor Analítico", "📊 Estados Financieros", "📚 Libros Fiscales", "👤 Proveedores","👤 Clientes","📦 Respaldos y Exportación"
         ]
 
         if "PEDACITO" in str(nombre_sel).upper() and "CIELO" in str(nombre_sel).upper():
@@ -18880,6 +18880,111 @@ elif "Clientes" in opcion_menu:
                 conn_empresa.close()
             except Exception:
                 pass
+
+elif opcion_menu == "📦 Respaldos y Exportación":
+    st.subheader("📦 Centro de Respaldos y Exportación de Datos")
+    st.markdown("""
+    Este módulo te permite generar copias de seguridad instantáneas de todas las tablas operativas de la base de datos actual. 
+    Puedes descargar tablas individuales o generar un **Respaldo Maestro** que agrupará toda la contabilidad en un solo archivo de Excel con pestañas independientes.
+    """)
+    st.divider()
+
+    # Definimos el diccionario de tablas y sus nombres amigables para el reporte
+    tablas_respaldo = {
+        "Asientos Contables": "asientos_contables",
+        "Movimientos Bancarios": "banco_movimientos",
+        "Libro de Compras": "libro_compras",
+        "Libro de Ventas": "libro_ventas",
+        "Plan de Cuentas": "plan_cuentas",
+        "Retenciones ISLR": "retenciones_islr",
+        "Retenciones IVA": "retenciones_iva",
+        "Saldos Iniciales": "saldos_iniciales",
+        "Proveedores": "proveedores",
+        "Clientes": "clientes",
+        "Archivo TXT (Retenciones)": "archivo_txt",
+        "Activo Fijo": "activo_fijo",
+        "Accionistas": "accionistas"
+    }
+
+    col_opt1, col_opt2 = st.columns(2)
+
+    with col_opt1:
+        st.markdown("### 📄 Descarga Individual")
+        tabla_seleccionada_nombre = st.selectbox("Seleccione la tabla a respaldar:", list(tablas_respaldo.keys()), key="select_tabla_respaldo")
+        tabla_db_nombre = tablas_respaldo[tabla_seleccionada_nombre]
+
+        if st.button("📥 Descargar Tabla Seleccionada", key="btn_descargar_individual"):
+            try:
+                conn_resp = conectar_db(db_actual)
+                if conn_resp:
+                    query_ind = f"SELECT * FROM `{tabla_db_nombre}`"
+                    df_ind = pd.read_sql(query_ind, conn_resp)
+                    conn_resp.close()
+
+                    if not df_ind.empty:
+                        import io
+                        buffer_ind = io.BytesIO()
+                        with pd.ExcelWriter(buffer_ind, engine='openpyxl') as writer:
+                            df_ind.to_excel(writer, index=False, sheet_name=tabla_seleccionada_nombre[:31]) # Excel limita los nombres de hoja a 31 chars
+                        buffer_ind.seek(0)
+
+                        nombre_archivo_ind = f"Respaldo_{tabla_db_nombre}_{db_actual}_{date.today().strftime('%Y-%m-%d')}.xlsx"
+                        
+                        st.download_button(
+                            label=f"💾 Guardar {tabla_seleccionada_nombre}",
+                            data=buffer_ind,
+                            file_name=nombre_archivo_ind,
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            key="download_btn_single_exec"
+                        )
+                        st.success(f"✅ ¡Tabla '{tabla_seleccionada_nombre}' consultada con éxito ({len(df_ind)} registros)!")
+                    else:
+                        st.warning(f"⚠️ La tabla '{tabla_seleccionada_nombre}' se encuentra vacía actualmente.")
+            except Exception as e:
+                st.error(f"❌ Error al exportar la tabla: {e}")
+
+    with col_opt2:
+        st.markdown("### 📚 Respaldo Maestro (Todo en 1)")
+        st.info("Genera un libro de Excel completo con **todas las tablas** organizadas en pestañas independientes simultáneamente.")
+
+        if st.button("🚀 Generar Respaldo Maestro Global", type="primary", key="btn_respaldo_maestro"):
+            try:
+                conn_resp = conectar_db(db_actual)
+                if conn_resp:
+                    import io
+                    buffer_maestro = io.BytesIO()
+                    
+                    with pd.ExcelWriter(buffer_maestro, engine='openpyxl') as writer:
+                        tablas_exportadas_count = 0
+                        for nombre_amigable, nombre_tabla in tablas_respaldo.items():
+                            try:
+                                q_m = f"SELECT * FROM `{nombre_tabla}`"
+                                df_m = pd.read_sql(q_m, conn_resp)
+                                # Escribimos en el Excel aunque esté vacío o con datos
+                                sheet_name_clean = nombre_amigable.replace("/", "-")[:31]
+                                df_m.to_excel(writer, index=False, sheet_name=sheet_name_clean)
+                                tablas_exportadas_count += 1
+                            except Exception:
+                                # Si alguna tabla no existe en la base específica del cliente, se omite de forma segura
+                                continue
+                    
+                    conn_resp.close()
+                    buffer_maestro.seek(0)
+                    
+                    nombre_archivo_maestro = f"Respaldo_Maestro_Contable_{db_actual}_{date.today().strftime('%Y-%m-%d')}.xlsx"
+                    
+                    st.download_button(
+                        label="📦 Descargar Archivo Excel Maestro Completo",
+                        data=buffer_maestro,
+                        file_name=nombre_archivo_maestro,
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        key="download_btn_master_exec"
+                    )
+                    st.balloons()
+                    st.success(f"✅ ¡Respaldo Maestro generado correctamente con {tablas_exportadas_count} tablas respaldadas!")
+            except Exception as e:
+                st.error(f"❌ Error crítico generando el respaldo maestro: {e}")
+
 
 elif "Inventarios" in opcion_menu:
     # Invocamos el módulo exclusivo pasando la conexión a la base de datos
