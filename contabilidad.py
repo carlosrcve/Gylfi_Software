@@ -6478,13 +6478,187 @@ def procesar_excel_proveedores_db(df):
 
 
 def renderizar_tab_asientos_automatizados(db_connection):
-    st.subheader("🤖 Asientos Automatizados (Libro de Compras)")
+    st.subheader("🤖 Asientos Automatizados (Comprobantes Contables)")
     st.markdown("""
-    Sube tu **Libro de Compras** en Excel. El sistema procesará los datos y aplicará las reglas contables de costos, gastos y créditos fiscales según la empresa activa.
+    Sube tu **Libro de Compras** en Excel. El sistema procesará los datos y aplicará las reglas contables según la empresa activa.
     """)
 
-    # ... [Toda la parte de validación de usuario, roles y selección de `db_segura` se mantiene igual] ...
-    # (Asegúrate de conservar tu lógica de conexión a control_central y plan_cuentas aquí abajo)
+    # ----------------------------------------------------
+    # VALIDACIÓN DE ROL Y FILTRADO DE EMPRESAS (CONECTADO A `usuarios` Y `clientes`)
+    # ----------------------------------------------------
+    usuario_actual = str(st.session_state.get("user", st.session_state.get("usuario", "norbe"))).strip()
+    
+    rol_usuario = "cliente"
+    es_admin = False
+    db_asignada_usuario = ""
+
+    dbs_filtradas = []
+    mapa_nombres_empresas = {}
+    
+    try:
+        with db_connection.cursor(pymysql.cursors.DictCursor) as cursor_temp:
+            cursor_temp.execute(
+                "SELECT rol, db_nombre FROM control_central.usuarios WHERE usuario = %s", 
+                (usuario_actual,)
+            )
+            res_usuario = cursor_temp.fetchone()
+            
+            if res_usuario:
+                rol_usuario = str(res_usuario.get("rol", "cliente")).strip().lower()
+                db_asignada_usuario = str(res_usuario.get("db_nombre", "")).strip()
+            
+            es_admin = rol_usuario in ["admin", "administrador"] or st.session_state.get("es_admin", False)
+
+            cursor_temp.execute("SELECT * FROM control_central.clientes")
+            clientes_db = cursor_temp.fetchall()
+        
+        for cli in clientes_db:
+            db_name = str(cli.get("db_nombre", "")).strip()
+            nombre_comercial = str(cli.get("nombre_empresa", db_name)).strip()
+            
+            if db_name:
+                if es_admin:
+                    dbs_filtradas.append(db_name)
+                    mapa_nombres_empresas[db_name] = nombre_comercial
+                else:
+                    if db_asignada_usuario and db_name.lower() == db_asignada_usuario.lower():
+                        dbs_filtradas.append(db_name)
+                        mapa_nombres_empresas[db_name] = nombre_comercial
+                        
+    except Exception as e:
+        st.warning(f"⚠️ Error consultando `control_central`: {e}")
+        if es_admin:
+            dbs_filtradas = ["kingdriver_ca"]
+        else:
+            dbs_filtradas = [db_asignada_usuario if db_asignada_usuario else "kingdriver_ca"]
+
+    if not dbs_filtradas:
+        if db_asignada_usuario:
+            dbs_filtradas = [db_asignada_usuario]
+        else:
+            dbs_filtradas = ["kingdriver_ca"]
+
+    if not dbs_filtradas:
+        st.error("⚠️ No se encontró una empresa asignada a tu usuario en la tabla `usuarios`.")
+        return
+
+    # ----------------------------------------------------
+    # INTERFAZ SEGÚN EL ROL (ADMIN VS CLIENTE)
+    # ----------------------------------------------------
+    if es_admin:
+        st.markdown("### 🏢 Contexto de Empresa (Modo Administrador)")
+        
+        index_default = 0
+        for i, db_name in enumerate(dbs_filtradas):
+            if any(k in str(st.session_state).lower() and db_name.lower() in str(st.session_state[k]).lower() for k in st.session_state):
+                index_default = i
+                break
+            if "driver" in db_name.lower() or "king" in db_name.lower():
+                index_default = i
+
+        format_func = lambda db: f"{mapa_nombres_empresas.get(db, db)} ({db})" if db in mapa_nombres_empresas else db
+        
+        nombre_db_cliente = st.selectbox(
+            "Selecciona la Base de Datos de la Empresa Activa:", 
+            dbs_filtradas, 
+            index=index_default,
+            format_func=format_func,
+            key="select_db_admin_asientos"
+        )
+    else:
+        nombre_db_cliente = dbs_filtradas[0]
+        nombre_amigable = mapa_nombres_empresas.get(nombre_db_cliente, nombre_db_cliente)
+        st.info(f"🏢 **Empresa Activa:** {nombre_amigable} (`{nombre_db_cliente}`)")
+
+    if not nombre_db_cliente:
+        st.error("⚠️ Debes seleccionar una base de datos.")
+        return
+
+    db_segura = str(nombre_db_cliente).strip()
+    es_king_driver = any(term in db_segura.lower() for term in ["kindriver", "king_driver", "driver", "king"])
+
+    mapa_descripciones = {}
+    opciones_desplegable = []
+    mapa_proveedores_cuentas = {}  
+
+    # ----------------------------------------------------
+    # CARGA SEGURA DE TABLAS: PLAN_CUENTAS Y PROVEEDORES
+    # ----------------------------------------------------
+    if db_connection:
+        try:
+            with db_connection.cursor(pymysql.cursors.DictCursor) as cursor_opt:
+                cursor_opt.execute(f"""
+                    CREATE TABLE IF NOT EXISTS `{db_segura}`.plan_cuentas (
+                        codigo VARCHAR(50) PRIMARY KEY,
+                        nombre VARCHAR(255),
+                        tipo VARCHAR(50)
+                    );
+                """)
+                db_connection.commit()
+
+                cursor_opt.execute(f"SELECT codigo, nombre, tipo FROM `{db_segura}`.plan_cuentas ORDER BY codigo ASC")
+                cuentas_opt = cursor_opt.fetchall()
+                
+                cuentas_detalle = [c for c in cuentas_opt if str(c.get("tipo", "")).strip().lower() == 'detalle']
+                lista_cuentas = cuentas_detalle if cuentas_detalle else cuentas_opt
+                
+                for c in lista_cuentas:
+                    codigo = str(c.get("codigo", "")).strip()
+                    nombre = str(c.get("nombre", "")).strip()
+                    if codigo:
+                        mapa_descripciones[codigo] = nombre
+                        opciones_desplegable.append(codigo)
+
+                try:
+                    cursor_opt.execute(f"SELECT * FROM `{db_segura}`.proveedores")
+                    proveedores_db = cursor_opt.fetchall()
+                    
+                    for prov in proveedores_db:
+                        p_nombre = str(prov.get("nombre", prov.get("razon_social", ""))).strip().upper()
+                        p_rif = str(prov.get("rif", prov.get("RIF", ""))).strip().upper()
+                        
+                        p_codigo = str(prov.get("codigo_cuenta", prov.get("codigo", prov.get("cuenta_gasto", "")))).strip()
+                        p_desc = str(prov.get("descripcion_cuenta", prov.get("descripcion", ""))).strip()
+                        p_cod_pagar = str(prov.get("codigo_cuenta_pagar", "")).strip()
+                        p_desc_pagar = str(prov.get("descripcion_cuenta_pagar", "")).strip()
+                        
+                        info_prov = {
+                            "codigo_cuenta": p_codigo,
+                            "descripcion_cuenta": p_desc,
+                            "codigo_cuenta_pagar": p_cod_pagar,
+                            "descripcion_cuenta_pagar": p_desc_pagar
+                        }
+                        if p_rif: mapa_proveedores_cuentas[p_rif] = info_prov
+                        if p_nombre: mapa_proveedores_cuentas[p_nombre] = info_prov
+                except Exception:
+                    pass
+
+                if not opciones_desplegable:
+                    st.warning(f"⚠️ La tabla 'plan_cuentas' en `{db_segura}` está vacía. Se cargaron cuentas temporales de respaldo.")
+                    opciones_desplegable = ["5.1.1.01.001", "5.1.1.01.002", "1.1.4.01.001", "2.1.1.01.001"]
+                    mapa_descripciones = {
+                        "5.1.1.01.001": "Compras Generales",
+                        "5.1.1.01.002": "IVA al Costo",
+                        "1.1.4.01.001": "IVA Crédito Fiscal",
+                        "2.1.1.01.001": "Cuentas por Pagar Comerciales"
+                    }
+        
+        except Exception as e:
+            st.warning(f"⚠️ Advertencia al consultar tablas en `{db_segura}`: {e}. Usando plan de cuentas de emergencia.")
+            opciones_desplegable = ["5.1.1.01.001", "5.1.1.01.002", "1.1.4.01.001", "2.1.1.01.001"]
+            mapa_descripciones = {
+                "5.1.1.01.001": "Compras Generales",
+                "5.1.1.01.002": "IVA al Costo",
+                "1.1.4.01.001": "IVA Crédito Fiscal",
+                "2.1.1.01.001": "Cuentas por Pagar Comerciales"
+            }
+
+    default_opcion = opciones_desplegable[0] if opciones_desplegable else "5.1.1.01.001"
+
+    def obtener_opcion_valida(codigo_buscado, fallback):
+        if codigo_buscado in opciones_desplegable:
+            return codigo_buscado
+        return fallback
 
     # LLAVES Y ESTADOS EXCLUSIVOS PARA COMPRAS (Para evitar cruces con ventas)
     KEY_SESSION_COMPRAS = 'df_asientos_proceso_compras'
