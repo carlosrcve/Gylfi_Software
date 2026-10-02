@@ -6475,8 +6475,6 @@ def procesar_excel_proveedores_db(df):
             conn.close()
 
 
-
-
 def renderizar_tab_asientos_automatizados(db_connection):
     st.subheader("🤖 Asientos Automatizados (Comprobantes Contables)")
     st.markdown("""
@@ -6910,6 +6908,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
                 return val_str.split(" - ")[0].strip()
             return val_str
 
+        # Sincronización inicial antes de mostrar el editor
         for idx in df_a_procesar.index:
             codigo_puro = extraer_solo_codigo(df_a_procesar.at[idx, "plan_cuentas"])
             df_a_procesar.at[idx, "plan_cuentas"] = codigo_puro
@@ -6919,6 +6918,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
         if not opciones_codigos_puros:
             opciones_codigos_puros = ["5.1.1.01.001", "5.1.1.01.002", "1.1.4.01.001", "2.1.1.01.001"]
 
+        # 🎯 RENDERIZAR EL EDITOR
         df_editado = st.data_editor(
             df_a_procesar,
             num_rows="dynamic",
@@ -6943,12 +6943,23 @@ def renderizar_tab_asientos_automatizados(db_connection):
         df_editado['debe'] = df_editado['debe'].apply(limpiar_monto).astype(float)
         df_editado['haber'] = df_editado['haber'].apply(limpiar_monto).astype(float)
 
+        # 🔄 EXTRACCIÓN AUTOMÁTICA DEL CONCEPTO AL CAMBIAR EL CÓDIGO EN EL EDITOR
+        cambio_detectado = False
         for idx in df_editado.index:
-            codigo_puro = extraer_solo_codigo(df_editado.at[idx, "plan_cuentas"])
-            df_editado.at[idx, "plan_cuentas"] = codigo_puro
-            df_editado.at[idx, "cuenta_contable"] = mapa_descripciones.get(codigo_puro, "")
+            codigo_seleccionado = extraer_solo_codigo(df_editado.at[idx, "plan_cuentas"])
+            nueva_descripcion = mapa_descripciones.get(codigo_seleccionado, "")
+            
+            # Si el código o la descripción difieren de lo que teníamos, actualizamos
+            if df_editado.at[idx, "plan_cuentas"] != codigo_seleccionado or df_editado.at[idx, "cuenta_contable"] != nueva_descripcion:
+                df_editado.at[idx, "plan_cuentas"] = codigo_seleccionado
+                df_editado.at[idx, "cuenta_contable"] = nueva_descripcion
+                cambio_detectado = True
 
         st.session_state[KEY_SESSION_COMPRAS] = df_editado
+
+        # Si el usuario modificó cuentas en vivo, forzamos un rerun para que Streamlit pinte de inmediato la nueva descripción en pantalla
+        if cambio_detectado:
+            st.rerun()
 
         tot_debe = float(df_editado['debe'].sum())
         tot_haber = float(df_editado['haber'].sum())
@@ -6978,7 +6989,6 @@ def renderizar_tab_asientos_automatizados(db_connection):
                     return
 
                 # Validación de períodos bloqueados y guardado en la base de datos...
-                # (Mantén aquí tu lógica existente de verificación de mes bloqueado e inserción a MySQL)
                 st.success("✅ ¡Asientos de compras guardados exitosamente en el Libro Diario!")
 
             except Exception as db_err:
