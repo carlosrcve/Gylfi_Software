@@ -6476,6 +6476,10 @@ def procesar_excel_proveedores_db(df):
 
 
 
+import io
+import pandas as pd
+import pymysql
+
 def renderizar_tab_asientos_automatizados(db_connection):
     st.subheader("🤖 Asientos Automatizados (Comprobantes Contables)")
     st.markdown("""
@@ -6989,6 +6993,13 @@ def renderizar_tab_asientos_automatizados(db_connection):
 
         if st.button("💾 Guardar Todo el Asiento en el Libro Diario", key="btn_guardar_asientos_finales", use_container_width=False):
             try:
+                # ----------------------------------------------------
+                # NUEVA VALIDACIÓN: PARTIDA DOBLE ESTRICTA
+                # ----------------------------------------------------
+                if abs(tot_debe - tot_haber) > 0.01:
+                    st.error(f"❌ **Error de Partida Doble**: Los totales no cuadran. Debe: `{tot_debe:,.2f}` | Haber: `{tot_haber:,.2f}`. La diferencia es de `{abs(tot_debe - tot_haber):,.2f}`.")
+                    return
+
                 df_val = df_editado.copy()
                 df_val['fecha'] = pd.to_datetime(df_val['fecha'], errors='coerce')
                 anios_meses_excel = set((row['fecha'].year, row['fecha'].month) for _, row in df_val.iterrows() if pd.notnull(row['fecha']))
@@ -7009,7 +7020,7 @@ def renderizar_tab_asientos_automatizados(db_connection):
                             
                             if cantidad_bloqueos > 0:
                                 bloqueo_detectado = True
-                                mensaje_bloqueo = f"❌ **Operación Denegada**: El período correspondiente al mes **{mes:02d}/{anio}** se encuentra **CERRADO y BLOQUEADO** in MySQL."
+                                mensaje_bloqueo = f"❌ **Operación Denegada**: El período correspondiente al mes **{mes:02d}/{anio}** se encuentra **CERRADO y BLOQUEADO** en MySQL."
                                 break
                     except Exception:
                         pass 
@@ -7055,7 +7066,6 @@ def renderizar_tab_asientos_automatizados(db_connection):
                 if hasattr(db_connection, 'rollback'):
                     db_connection.rollback()
                 st.error(f"Error al guardar en la base de datos: {db_err}")
-
 
 
 def renderizar_tercer_frame_conciliacion_banco(db_connection, db_segura):
