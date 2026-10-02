@@ -8827,6 +8827,10 @@ elif not st.session_state.get('bienvenida_completada', False):
     st.stop()
 
 else:
+    # --- INICIALIZACIÓN OBLIGATORIA DEL MENÚ PRINCIPAL TRAS EL LOGIN ---
+    if 'opcion_menu_auditoria' not in st.session_state:
+        st.session_state['opcion_menu_auditoria'] = "🏠 Inicio"
+
     # 3. Si ya pasó la bienvenida, carga el menú lateral y la aplicación normal
     menu_lateral = gestionar_sidebar()
 
@@ -8863,15 +8867,22 @@ if menu_lateral == "📊 Auditoría Contable":
         st.subheader("Módulos")
         
         nombre_sel = st.session_state.get('CLIENTE_NOMBRE', '')
+
         modulos_disponibles = [
-            "🏠 Inicio", "📂 Plan de Cuentas", "📝 Asientos Contables", 
+            "🏠 Inicio", "📂 Plan de Cuentas", "📝 Asientos Contables",  
             "📖 Mayor Analítico", "📊 Estados Financieros", "📚 Libros Fiscales", "👤 Proveedores","👤 Clientes"
         ]
 
         if "PEDACITO" in str(nombre_sel).upper() and "CIELO" in str(nombre_sel).upper():
-            modulos_disponibles.append("🧁 Inventarios")
+            if "🧁 Inventarios" not in modulos_disponibles:
+                modulos_disponibles.append("🧁 Inventarios")
 
-        opcion_menu = st.selectbox("📂 SELECCIONE UN MÓDULO", modulos_disponibles)
+        # Buscamos si ya hay una opción guardada, de lo contrario fijamos 0 (Inicio)
+        indice_actual = 0
+        if 'opcion_menu_auditoria' in st.session_state and st.session_state['opcion_menu_auditoria'] in modulos_disponibles:
+            indice_actual = modulos_disponibles.index(st.session_state['opcion_menu_auditoria'])
+
+        opcion_menu = st.selectbox("📂 SELECCIONE UN MÓDULO", modulos_disponibles, index=indice_actual, key="opcion_menu_selectbox_dinamico")
         st.session_state['opcion_menu_auditoria'] = opcion_menu
 
         if opcion_menu == "📝 Asientos Contables":
@@ -8901,7 +8912,10 @@ if menu_lateral == "📊 Auditoría Contable":
 if 'df_gastos_c6' in locals() and df_gastos_c6.empty:
     st.sidebar.warning("⚠️ El DataFrame de Gastos C6 está vacío.")
 
-if opcion_menu == "🏠 Inicio":
+
+# Al autenticar o pasar la plantilla de bienvenida por primera vez:
+if 'opcion_menu_auditoria' not in st.session_state:
+    st.session_state['opcion_menu_auditoria'] = "🏠 Inicio"
     # --- INYECCIÓN DE CSS ---
     st.markdown("""<style>
             .block-container { max-width: 100% !important; padding-left: 3rem !important; padding-right: 3rem !important; }
