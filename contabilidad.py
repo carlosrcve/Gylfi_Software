@@ -6878,7 +6878,6 @@ def renderizar_tab_asientos_automatizados(db_connection):
     # SEGUNDO FRAME: ESTRUCTURA COMPLETA (EXCLUSIVO COMPRAS)
     # ----------------------------------------------------
     if KEY_SESSION_COMPRAS in st.session_state and not st.session_state[KEY_SESSION_COMPRAS].empty:
-        df_a_procesar = st.session_state[KEY_SESSION_COMPRAS].copy()
         
         def limpiar_monto(val):
             if pd.isna(val):
@@ -6895,77 +6894,47 @@ def renderizar_tab_asientos_automatizados(db_connection):
             except ValueError:
                 return 0.0
 
-        if 'debe' in df_a_procesar.columns:
-            df_a_procesar['debe'] = df_a_procesar['debe'].apply(limpiar_monto).astype(float)
-        if 'haber' in df_a_procesar.columns:
-            df_a_procesar['haber'] = df_a_procesar['haber'].apply(limpiar_monto).astype(float)
-
-        st.markdown(f"### 📋 Segundo Frame: Estructura Completa del Asiento de Compras ({len(df_a_procesar)} registros)")
+        st.markdown(f"### 📋 Segundo Frame: Estructura Completa del Asiento de Compras")
         
-        # ⚙️ SELECTOR GLOBAL: Tratamiento del IVA para todo el lote de compras
+        # ⚙️ SELECTOR GLOBAL con callback o detección de cambio para forzar rerun inmediato
+        key_radio_tratamiento = f"selector_tratamiento_iva_{db_segura}"
+        
         tratamiento_iva = st.radio(
             "⚙️ Tratamiento del IVA para este Lote:",
             [
                 "Ordinario (Crédito Fiscal separado a la cuenta 1.1.4...)", 
-                "Asumir IVA como Costo / Gasto (Integrar al costo de la compra)"
+                "Asumir IVA como Costo / Gasto (Llevar IVA a la cuenta 5.1.1.01.002)"
             ],
             horizontal=True,
-            key=f"selector_tratamiento_iva_{db_segura}"
+            key=key_radio_tratamiento
         )
-        
+
         def extraer_solo_codigo(val):
             val_str = str(val).strip()
             if " - " in val_str:
                 return val_str.split(" - ")[0].strip()
             return val_str
 
-        # Sincronización inicial antes de mostrar el editor
-        for idx in df_a_procesar.index:
-            codigo_puro = extraer_solo_codigo(df_a_procesar.at[idx, "plan_cuentas"])
-            df_a_procesar.at[idx, "plan_cuentas"] = codigo_puro
-            df_a_procesar.at[idx, "cuenta_contable"] = mapa_descripciones.get(codigo_puro, "")
+        df_original = st.session_state[KEY_SESSION_COMPRAS].copy()
 
-        # 🛠️ APLICACIÓN MASIVA SEGÚN EL TRATAMIENTO DEL IVA SELECCIONADO
-        # Verificamos si los datos crudos traen base imponible e IVA para hacer la transformación global
-        if 'base_imponible' in df_a_procesar.columns and 'monto_iva' in df_a_procesar.columns:
-            filas_procesadas = []
+        if 'debe' in df_original.columns:
+            df_original['debe'] = df_original['debe'].apply(limpiar_monto).astype(float)
+        if 'haber' in df_original.columns:
+            df_original['haber'] = df_original['haber'].apply(limpiar_monto).astype(float)
+
+        # 🛠️ CONSTRUCCIÓN DE FILAS SEGÚN EL TRATAMIENTO SELECCIONADO
+        filas_procesadas = []
+        
+        for _, row in df_original.iterrows():
+            base = limpiar_monto(row.get('base_imponible', row.get('debe', 0)))
+            iva = limpiar_monto(row.get('monto_iva', 0))
+            total = limpiar_monto(row.get('total_factura', base + iva))
             
-            for _, row in df_a_procesar.iterrows():
-                base = limpiar_monto(row.get('base_imponible', row.get('debe', 0)))
-                iva = limpiar_monto(row.get('monto_iva', 0))
-                total = limpiar_monto(row.get('total_factura', base + iva))
-                
-                codigo_cuenta_gasto = extraer_solo_codigo(row.get("plan_cuentas", "5.1.1.01.001"))
-                
-                if "Asumir IVA como Costo" in tratamiento_iva:
-                    # CASO 1: El IVA se suma al costo/gasto (Se elimina línea de crédito fiscal)
-                    costo_total_integrado = base + iva
-                    
-                    filas_procesadas.append({
-                        "n_comprobante": row.get("n_comprobante", ""),
-                        "descripcion": f"{row.get('descripcion', '')} (Incluye IVA al Costo)",
-                        "fecha": row.get("fecha", ""),
-                        "plan_cuentas": codigo_cuenta_gasto,
-                        "cuenta_contable": mapa_descripciones.get(codigo_cuenta_gasto, ""),
-                        "referencia": row.get("referencia", ""),
-                        "debe": costo_total_integrado,
-                        "haber": 0.0
-                    })
-                    
-                    # Pasivo por el Total Bruto
-                    codigo_pasivo = "2.1.1.01.001"
-                    filas_procesadas.append({
-                        "n_comprobante": row.get("n_comprobante", ""),
-                        "descripcion": row.get("descripcion", ""),
-                        "fecha": row.get("fecha", ""),
-                        "plan_cuentas": codigo_pasivo,
-                        "cuenta_contable": mapa_descripciones.get(codigo_pasivo, "Cuentas por Pagar Comerciales"),
-                        "referencia": row.get("referencia", ""),
-                        "debe": 0.0,
-                        "haber": total if total > 0 else (base + iva)
-                    })
-                else:
-                    # CASO 2: Tratamiento Ordinario (Base al Gasto + IVA al Crédito Fiscal)
+            codigo_cuenta_gasto = extraer_solo_codigo(row.get("plan_cuentas", "5.1.1.01.001"))
+            
+            if "Asumir IVA como Costo" in tratamiento_iva:
+                # 1️⃣ Línea de la Base Imponible a su cuenta de gasto original
+                if base > 0:
                     filas_procesadas.append({
                         "n_comprobante": row.get("n_comprobante", ""),
                         "descripcion": row.get("descripcion", ""),
@@ -6976,33 +6945,74 @@ def renderizar_tab_asientos_automatizados(db_connection):
                         "debe": base,
                         "haber": 0.0
                     })
-                    
-                    if iva > 0:
-                        codigo_credito_fiscal = "1.1.4.01.001"
-                        filas_procesadas.append({
-                            "n_comprobante": row.get("n_comprobante", ""),
-                            "descripcion": f"IVA Crédito Fiscal - {row.get('descripcion', '')}",
-                            "fecha": row.get("fecha", ""),
-                            "plan_cuentas": codigo_credito_fiscal,
-                            "cuenta_contable": mapa_descripciones.get(codigo_credito_fiscal, "IVA Crédito Fiscal"),
-                            "referencia": row.get("referencia", ""),
-                            "debe": iva,
-                            "haber": 0.0
-                        })
-                    
-                    codigo_pasivo = "2.1.1.01.001"
+                
+                # 2️⃣ Línea específica del IVA directo a la cuenta 5.1.1.01.002 (Costo/IVA asumido)
+                if iva > 0:
+                    codigo_iva_costo = "5.1.1.01.002"
+                    filas_procesadas.append({
+                        "n_comprobante": row.get("n_comprobante", ""),
+                        "descripcion": f"IVA No Deducible / Costo - {row.get('descripcion', '')}",
+                        "fecha": row.get("fecha", ""),
+                        "plan_cuentas": codigo_iva_costo,
+                        "cuenta_contable": mapa_descripciones.get(codigo_iva_costo, "IVA Asumido como Costo"),
+                        "referencia": row.get("referencia", ""),
+                        "debe": iva,
+                        "haber": 0.0
+                    })
+                
+                # 3️⃣ Pasivo por el Total Bruto de la Factura
+                codigo_pasivo = "2.1.1.01.001"
+                filas_procesadas.append({
+                    "n_comprobante": row.get("n_comprobante", ""),
+                    "descripcion": row.get("descripcion", ""),
+                    "fecha": row.get("fecha", ""),
+                    "plan_cuentas": codigo_pasivo,
+                    "cuenta_contable": mapa_descripciones.get(codigo_pasivo, "Cuentas por Pagar Comerciales"),
+                    "referencia": row.get("referencia", ""),
+                    "debe": 0.0,
+                    "haber": total if total > 0 else (base + iva)
+                })
+                
+            else:
+                # 🧾 Tratamiento Ordinario (Base al Gasto + IVA al Crédito Fiscal 1.1.4.01.001)
+                if base > 0:
                     filas_procesadas.append({
                         "n_comprobante": row.get("n_comprobante", ""),
                         "descripcion": row.get("descripcion", ""),
                         "fecha": row.get("fecha", ""),
-                        "plan_cuentas": codigo_pasivo,
-                        "cuenta_contable": mapa_descripciones.get(codigo_pasivo, "Cuentas por Pagar Comerciales"),
+                        "plan_cuentas": codigo_cuenta_gasto,
+                        "cuenta_contable": mapa_descripciones.get(codigo_cuenta_gasto, ""),
                         "referencia": row.get("referencia", ""),
-                        "debe": 0.0,
-                        "haber": total if total > 0 else (base + iva)
+                        "debe": base,
+                        "haber": 0.0
                     })
-            
-            df_a_procesar = pd.DataFrame(filas_procesadas)
+                
+                if iva > 0:
+                    codigo_credito_fiscal = "1.1.4.01.001"
+                    filas_procesadas.append({
+                        "n_comprobante": row.get("n_comprobante", ""),
+                        "descripcion": f"IVA Crédito Fiscal - {row.get('descripcion', '')}",
+                        "fecha": row.get("fecha", ""),
+                        "plan_cuentas": codigo_credito_fiscal,
+                        "cuenta_contable": mapa_descripciones.get(codigo_credito_fiscal, "IVA Crédito Fiscal"),
+                        "referencia": row.get("referencia", ""),
+                        "debe": iva,
+                        "haber": 0.0
+                    })
+                
+                codigo_pasivo = "2.1.1.01.001"
+                filas_procesadas.append({
+                    "n_comprobante": row.get("n_comprobante", ""),
+                    "descripcion": row.get("descripcion", ""),
+                    "fecha": row.get("fecha", ""),
+                    "plan_cuentas": codigo_pasivo,
+                    "cuenta_contable": mapa_descripciones.get(codigo_pasivo, "Cuentas por Pagar Comerciales"),
+                    "referencia": row.get("referencia", ""),
+                    "debe": 0.0,
+                    "haber": total if total > 0 else (base + iva)
+                })
+
+        df_a_procesar = pd.DataFrame(filas_procesadas)
 
         opciones_codigos_puros = list(mapa_descripciones.keys())
         if not opciones_codigos_puros:
@@ -7076,7 +7086,6 @@ def renderizar_tab_asientos_automatizados(db_connection):
                     st.error(f"❌ **Error de Partida Doble**: Los totales no cuadran. Debe: `{tot_debe:,.2f}` | Haber: `{tot_haber:,.2f}`.")
                     return
 
-                # Validación de períodos bloqueados y guardado en la base de datos...
                 st.success("✅ ¡Asientos de compras guardados exitosamente en el Libro Diario!")
 
             except Exception as db_err:
