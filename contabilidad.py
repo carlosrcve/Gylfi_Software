@@ -18889,6 +18889,9 @@ elif opcion_menu == "📦 Respaldos y Exportación":
     """)
     st.divider()
 
+    # Obtenemos la base de datos activa de forma segura desde la sesión
+    db_actual_activa = st.session_state.get('DB_ACTUAL', 'rishon_letzion_ca')
+
     # Definimos el diccionario de tablas y sus nombres amigables para el reporte
     tablas_respaldo = {
         "Asientos Contables": "asientos_contables",
@@ -18915,7 +18918,7 @@ elif opcion_menu == "📦 Respaldos y Exportación":
 
         if st.button("📥 Descargar Tabla Seleccionada", key="btn_descargar_individual"):
             try:
-                conn_resp = conectar_db(db_actual)
+                conn_resp = conectar_db(db_actual_activa)
                 if conn_resp:
                     query_ind = f"SELECT * FROM `{tabla_db_nombre}`"
                     df_ind = pd.read_sql(query_ind, conn_resp)
@@ -18925,10 +18928,10 @@ elif opcion_menu == "📦 Respaldos y Exportación":
                         import io
                         buffer_ind = io.BytesIO()
                         with pd.ExcelWriter(buffer_ind, engine='openpyxl') as writer:
-                            df_ind.to_excel(writer, index=False, sheet_name=tabla_seleccionada_nombre[:31]) # Excel limita los nombres de hoja a 31 chars
+                            df_ind.to_excel(writer, index=False, sheet_name=tabla_seleccionada_nombre[:31])
                         buffer_ind.seek(0)
 
-                        nombre_archivo_ind = f"Respaldo_{tabla_db_nombre}_{db_actual}_{date.today().strftime('%Y-%m-%d')}.xlsx"
+                        nombre_archivo_ind = f"Respaldo_{tabla_db_nombre}_{db_actual_activa}_{date.today().strftime('%Y-%m-%d')}.xlsx"
                         
                         st.download_button(
                             label=f"💾 Guardar {tabla_seleccionada_nombre}",
@@ -18949,7 +18952,7 @@ elif opcion_menu == "📦 Respaldos y Exportación":
 
         if st.button("🚀 Generar Respaldo Maestro Global", type="primary", key="btn_respaldo_maestro"):
             try:
-                conn_resp = conectar_db(db_actual)
+                conn_resp = conectar_db(db_actual_activa)
                 if conn_resp:
                     import io
                     buffer_maestro = io.BytesIO()
@@ -18960,18 +18963,16 @@ elif opcion_menu == "📦 Respaldos y Exportación":
                             try:
                                 q_m = f"SELECT * FROM `{nombre_tabla}`"
                                 df_m = pd.read_sql(q_m, conn_resp)
-                                # Escribimos en el Excel aunque esté vacío o con datos
                                 sheet_name_clean = nombre_amigable.replace("/", "-")[:31]
                                 df_m.to_excel(writer, index=False, sheet_name=sheet_name_clean)
                                 tablas_exportadas_count += 1
                             except Exception:
-                                # Si alguna tabla no existe en la base específica del cliente, se omite de forma segura
                                 continue
                     
                     conn_resp.close()
                     buffer_maestro.seek(0)
                     
-                    nombre_archivo_maestro = f"Respaldo_Maestro_Contable_{db_actual}_{date.today().strftime('%Y-%m-%d')}.xlsx"
+                    nombre_archivo_maestro = f"Respaldo_Maestro_Contable_{db_actual_activa}_{date.today().strftime('%Y-%m-%d')}.xlsx"
                     
                     st.download_button(
                         label="📦 Descargar Archivo Excel Maestro Completo",
