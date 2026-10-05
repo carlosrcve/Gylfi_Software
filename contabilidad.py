@@ -14056,7 +14056,7 @@ estado: {sel_data['estado']}""", language="yaml")
                     try:
                         conn_pc = conectar_db(db_actual)
                         if conn_pc:
-                            query_pc = "SELECT codigo, nombre FROM plan_cuentas WHERE tipo = 'Detalle' AND (codigo LIKE '101%' OR nombre LIKE '%Banco%' OR nombre LIKE '%Caja%') ORDER BY nombre ASC"
+                            query_pc = "SELECT codigo, nombre FROM plan_cuentas WHERE tipo = 'Detalle' AND (codigo LIKE '101%%' OR nombre LIKE '%%Banco%%' OR nombre LIKE '%%Caja%%') ORDER BY nombre ASC"
                             df_bancos = ejecutar_consulta(query_pc, conn_pc)
                             conn_pc.close()
                             
