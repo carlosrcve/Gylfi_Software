@@ -14050,11 +14050,32 @@ estado: {sel_data['estado']}""", language="yaml")
 
                     st.divider()
                     st.markdown("#### 🏦 Datos Preliminares del Cobro / Referencia Bancaria (Opcional si es a crédito)")
+                    
+                    # Consultar las cuentas bancarias o de efectivo desde plan_cuentas
+                    dict_bancos = {}
+                    try:
+                        conn_pc = conectar_db(db_actual)
+                        if conn_pc:
+                            query_pc = "SELECT codigo, nombre FROM plan_cuentas WHERE tipo = 'Detalle' AND (codigo LIKE '101%' OR nombre LIKE '%Banco%' OR nombre LIKE '%Caja%') ORDER BY nombre ASC"
+                            df_bancos = ejecutar_consulta(query_pc, conn_pc)
+                            conn_pc.close()
+                            
+                            if df_bancos is not None and not df_bancos.empty:
+                                for _, r_b in df_bancos.iterrows():
+                                    lbl_b = f"{r_b['codigo']} - {r_b['nombre']}"
+                                    dict_bancos[lbl_b] = r_b['nombre']
+                    except Exception as e_pc:
+                        pass
+
                     col_b1, col_b2 = st.columns(2)
                     with col_b1:
                         ref_banco_cobro = st.text_input("Referencia Bancaria del Pago (si ya fue pagada)").strip()
                     with col_b2:
-                        banco_receptor = st.text_input("Banco Receptor / Cuenta", placeholder="Ej. Banesco Cta Custodia").strip()
+                        if dict_bancos:
+                            selected_banco_label = st.selectbox("Banco Receptor / Cuenta", list(dict_bancos.keys()))
+                            banco_receptor = dict_bancos[selected_banco_label]
+                        else:
+                            banco_receptor = st.text_input("Banco Receptor / Cuenta", placeholder="Ej. Banesco Cta Custodia").strip()
 
                     st.divider()
 
