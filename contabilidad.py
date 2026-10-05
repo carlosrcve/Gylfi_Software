@@ -13112,8 +13112,6 @@ estado: {sel_data['estado']}""", language="yaml")
                         if df_cp is not None and not df_cp.empty:
                             for _, row in df_cp.iterrows():
                                 pid = row['id']
-                                label = f"{row['nombre']} (RIF: {row['rif'])})" if 'rif' in row else row['nombre']
-                                # Aseguramos formato limpio
                                 label = f"{row['nombre']} (RIF: {row['rif']})"
                                 if label not in p_lista:
                                     p_lista.append(label)
