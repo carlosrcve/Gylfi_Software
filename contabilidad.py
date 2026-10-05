@@ -14029,19 +14029,24 @@ estado: {sel_data['estado']}""", language="yaml")
                     st.divider()
                     st.markdown("#### 💰 Montos y Desglose Impositivo")
 
-                    col_m1, col_m2, col_m3 = st.columns(3)
+                    col_m1, col_m2, col_m3, col_m4, col_m5 = st.columns(5)
                     with col_m1:
-                        base_imponible = st.number_input("5) Base Imponible ($ / Bs)", min_value=0.0, step=100.0, format="%.2f")
+                        base_imponible = st.number_input("5) Base Imponible", min_value=0.0, step=100.0, format="%.2f")
                     with col_m2:
                         monto_exento = st.number_input("6) Monto Exento", min_value=0.0, step=0.0, format="%.2f")
                     with col_m3:
                         alicuota_iva = st.selectbox("7) Alícuota IVA (%)", [16.0, 8.0, 0.0], index=0)
+                    
+                    # Cálculos automáticos para los campos de IVA y Total
+                    calc_iva = base_imponible * (alicuota_iva / 100.0)
+                    calc_bruto = base_imponible + monto_exento + calc_iva
 
-                    # Cálculos automáticos
-                    monto_iva = base_imponible * (alicuota_iva / 100.0)
-                    monto_bruto = base_imponible + monto_exento + monto_iva
+                    with col_m4:
+                        monto_iva = st.number_input("8) Monto IVA", value=calc_iva, min_value=0.0, format="%.2f", disabled=True)
+                    with col_m5:
+                        monto_bruto = st.number_input("9) Monto Total Factura", value=calc_bruto, min_value=0.0, format="%.2f", disabled=True)
 
-                    st.info(f"📊 **Cálculos Automáticos:** IVA ({alicuota_iva}%): **${monto_iva:,.2f}** | Total Factura (Monto Bruto): **${monto_bruto:,.2f}**")
+                    st.info(f"📊 **Resumen Fiscal:** Base Imponible: **${base_imponible:,.2f}** | Exento: **${monto_exento:,.2f}** | IVA ({alicuota_iva}%): **${monto_iva:,.2f}** | **Total Bruto: ${monto_bruto:,.2f}**")
 
                     st.divider()
                     st.markdown("#### 🏦 Datos Preliminares del Cobro / Referencia Bancaria (Opcional si es a crédito)")
