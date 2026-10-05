@@ -12889,7 +12889,6 @@ estado: {sel_data['estado']}""", language="yaml")
                 c_lista = []
                 c_dict = {}
                 
-                # 1. Cargar Catálogo Base 'proveedores'
                 try:
                     conn_m = conectar_db(empresa)
                     if conn_m:
@@ -12908,7 +12907,6 @@ estado: {sel_data['estado']}""", language="yaml")
                 except Exception:
                     pass
 
-                # 2. Cargar 'proveedores_carga' (Guardados previamente)
                 try:
                     conn_c = conectar_db(empresa)
                     if conn_c:
@@ -12936,16 +12934,29 @@ estado: {sel_data['estado']}""", language="yaml")
 
             lista_maestros, dict_maestros, lista_cargados, dict_cargados = cargar_datos_proveedores_tab1(db_actual)
 
-            # --- GESTIÓN DE SESSION STATE PARA LOS CAMPOS ---
-            if "prov_form_nombre" not in st.session_state: st.session_state["prov_form_nombre"] = ""
-            if "prov_form_rif" not in st.session_state: st.session_state["prov_form_rif"] = ""
-            if "prov_form_cod_cta" not in st.session_state: st.session_state["prov_form_cod_cta"] = ""
-            if "prov_form_desc_cta" not in st.session_state: st.session_state["prov_form_desc_cta"] = ""
-            if "prov_form_tel" not in st.session_state: st.session_state["prov_form_tel"] = ""
-            if "prov_form_email" not in st.session_state: st.session_state["prov_form_email"] = ""
-            if "prov_form_banco" not in st.session_state: st.session_state["prov_form_banco"] = "Banesco"
-            if "prov_form_nro_cta" not in st.session_state: st.session_state["prov_form_nro_cta"] = ""
-            if "prov_form_tipo_cta" not in st.session_state: st.session_state["prov_form_tipo_cta"] = "Corriente"
+            # --- GESTIÓN DE SESSION STATE PARA LIMPIEZA SEGURA ---
+            if "form_reset" not in st.session_state: st.session_state["form_reset"] = False
+
+            if st.session_state["form_reset"]:
+                st.session_state["val_nombre"] = ""
+                st.session_state["val_rif"] = ""
+                st.session_state["val_cod_cta"] = ""
+                st.session_state["val_desc_cta"] = ""
+                st.session_state["val_tel"] = ""
+                st.session_state["val_email"] = ""
+                st.session_state["val_banco"] = "Banesco"
+                st.session_state["val_nro_cta"] = ""
+                st.session_state["val_tipo_cta"] = "Corriente"
+                st.session_state["form_reset"] = False
+
+            # Inicializar valores por defecto si no existen
+            for key, default_val in [
+                ("val_nombre", ""), ("val_rif", ""), ("val_cod_cta", ""), 
+                ("val_desc_cta", ""), ("val_tel", ""), ("val_email", ""), 
+                ("val_banco", "Banesco"), ("val_nro_cta", ""), ("val_tipo_cta", "Corriente")
+            ]:
+                if key not in st.session_state:
+                    st.session_state[key] = default_val
 
             # --- SECCIÓN SUPERIOR DE IMPORTACIÓN / AUTOCOMPLETAR ---
             col_imp1, col_imp2 = st.columns(2)
@@ -12956,10 +12967,10 @@ estado: {sel_data['estado']}""", language="yaml")
                         prov_seleccionado = st.selectbox("Seleccione proveedor del catálogo:", lista_maestros, key="sel_cat_maestro")
                         if st.button("🔄 Cargar datos del catálogo", key="btn_load_catalogo"):
                             datos_sel = dict_maestros.get(prov_seleccionado, {})
-                            st.session_state["prov_form_nombre"] = datos_sel.get("razon_social", "")
-                            st.session_state["prov_form_rif"] = datos_sel.get("rif", "")
-                            st.session_state["prov_form_cod_cta"] = datos_sel.get("codigo_cuenta", "")
-                            st.session_state["prov_form_desc_cta"] = datos_sel.get("descripcion_cuenta", "")
+                            st.session_state["val_nombre"] = datos_sel.get("razon_social", "")
+                            st.session_state["val_rif"] = datos_sel.get("rif", "")
+                            st.session_state["val_cod_cta"] = datos_sel.get("codigo_cuenta", "")
+                            st.session_state["val_desc_cta"] = datos_sel.get("descripcion_cuenta", "")
                             st.toast("✅ ¡Datos importados al formulario!", icon="📥")
                             st.rerun()
 
@@ -12969,39 +12980,39 @@ estado: {sel_data['estado']}""", language="yaml")
                         sel_autocompletar = st.selectbox("Seleccione proveedor guardado:", lista_cargados, key="sel_cat_cargado")
                         if st.button("🔄 Cargar datos guardados", key="btn_load_guardados"):
                             datos_auto = dict_cargados.get(sel_autocompletar, {})
-                            st.session_state["prov_form_nombre"] = datos_auto.get("nombre", "")
-                            st.session_state["prov_form_rif"] = datos_auto.get("rif", "")
-                            st.session_state["prov_form_cod_cta"] = datos_auto.get("codigo_cuenta", "")
-                            st.session_state["prov_form_desc_cta"] = datos_auto.get("descripcion_cuenta", "")
-                            st.session_state["prov_form_tel"] = datos_auto.get("telefono", "")
-                            st.session_state["prov_form_email"] = datos_auto.get("email", "")
-                            st.session_state["prov_form_banco"] = datos_auto.get("banco", "Banesco")
-                            st.session_state["prov_form_nro_cta"] = datos_auto.get("nro_cuenta", "")
-                            st.session_state["prov_form_tipo_cta"] = datos_auto.get("tipo_cuenta", "Corriente")
+                            st.session_state["val_nombre"] = datos_auto.get("nombre", "")
+                            st.session_state["val_rif"] = datos_auto.get("rif", "")
+                            st.session_state["val_cod_cta"] = datos_auto.get("codigo_cuenta", "")
+                            st.session_state["val_desc_cta"] = datos_auto.get("descripcion_cuenta", "")
+                            st.session_state["val_tel"] = datos_auto.get("telefono", "")
+                            st.session_state["val_email"] = datos_auto.get("email", "")
+                            st.session_state["val_banco"] = datos_auto.get("banco", "Banesco")
+                            st.session_state["val_nro_cta"] = datos_auto.get("nro_cuenta", "")
+                            st.session_state["val_tipo_cta"] = datos_auto.get("tipo_cuenta", "Corriente")
                             st.toast("✅ ¡Datos cargados en el formulario!", icon="⚡")
                             st.rerun()
 
             st.markdown("---")
 
-            # --- SECCIÓN DE REGISTRO (SIN ST.FORM PARA PERMITIR LIMPIEZA INMEDIATA) ---
+            # --- SECCIÓN DE REGISTRO CON WIDGETS LIGADOS A SESSION_STATE ---
             col_p1, col_p2 = st.columns(2)
             
             with col_p1:
                 st.markdown("#### 🏢 Datos de Identificación y Contabilidad")
-                nombre_prov = st.text_input("Nombre / Razón Social del Proveedor", key="prov_form_nombre")
-                rif_prov = st.text_input("RIF o Documento de Identidad (ej: J-12345678-9)", key="prov_form_rif")
-                cod_cuenta_prov = st.text_input("Código de Cuenta Contable", key="prov_form_cod_cta")
-                desc_cuenta_prov = st.text_input("Descripción de Cuenta Contable", key="prov_form_desc_cta")
-                telefono_prov = st.text_input("Teléfono de Contacto", key="prov_form_tel")
-                email_prov = st.text_input("Correo Electrónico", key="prov_form_email")
+                nombre_prov = st.text_input("Nombre / Razón Social del Proveedor", key="val_nombre")
+                rif_prov = st.text_input("RIF o Documento de Identidad (ej: J-12345678-9)", key="val_rif")
+                cod_cuenta_prov = st.text_input("Código de Cuenta Contable", key="val_cod_cta")
+                desc_cuenta_prov = st.text_input("Descripción de Cuenta Contable", key="val_desc_cta")
+                telefono_prov = st.text_input("Teléfono de Contacto", key="val_tel")
+                email_prov = st.text_input("Correo Electrónico", key="val_email")
                 
             with col_p2:
                 st.markdown("#### 🏦 Datos Bancarios y Destino")
                 lista_bancos = ["Banesco", "Mercantil", "Banco del Caribe", "Banplus", "Banco Activo", "Banco del Tesoro", "Exterior", "Provincial", "BOD / 100% Banco", "Banco de Venezuela", "BNC", "Otros / Extranjero"]
-                banco_prov = st.selectbox("Banco Destino", lista_bancos, key="prov_form_banco")
-                nro_cuenta_prov = st.text_input("Número de Cuenta (20 dígitos)", key="prov_form_nro_cta")
+                banco_prov = st.selectbox("Banco Destino", lista_bancos, key="val_banco")
+                nro_cuenta_prov = st.text_input("Número de Cuenta (20 dígitos)", key="val_nro_cta")
                 lista_tipos_cta = ["Corriente", "Ahorro", "Divisas"]
-                tipo_cuenta_prov = st.selectbox("Tipo de Cuenta", lista_tipos_cta, key="prov_form_tipo_cta")
+                tipo_cuenta_prov = st.selectbox("Tipo de Cuenta", lista_tipos_cta, key="val_tipo_cta")
                 
             st.markdown("")
             btn_guardar_prov = st.button("💾 Guardar en Tabla Proveedores Carga", type="primary", use_container_width=True)
@@ -13033,18 +13044,8 @@ estado: {sel_data['estado']}""", language="yaml")
                             cursor_ins.close()
                             conn_ins.close()
                             
-                            # 1. Limpiar completamente el session_state asignando valores vacíos
-                            st.session_state["prov_form_nombre"] = ""
-                            st.session_state["prov_form_rif"] = ""
-                            st.session_state["prov_form_cod_cta"] = ""
-                            st.session_state["prov_form_desc_cta"] = ""
-                            st.session_state["prov_form_tel"] = ""
-                            st.session_state["prov_form_email"] = ""
-                            st.session_state["prov_form_banco"] = "Banesco"
-                            st.session_state["prov_form_nro_cta"] = ""
-                            st.session_state["prov_form_tipo_cta"] = "Corriente"
-
-                            # 2. Limpiar caché de datos para actualizar la tabla inferior
+                            # Activamos la bandera de reseteo para limpiar antes de recrear los widgets en el siguiente render
+                            st.session_state["form_reset"] = True
                             cargar_datos_proveedores_tab1.clear()
 
                             st.success(f"✅ ¡Proveedor '{nombre_prov}' guardado con éxito y campos limpios!")
