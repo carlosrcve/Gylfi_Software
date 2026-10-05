@@ -14076,15 +14076,14 @@ estado: {sel_data['estado']}""", language="yaml")
 
                     st.divider()
 
-                    # BOTÓN GLOBAL DE EMISIÓN DE FACTURA Y DISPARADORES AUTOMÁTICOS
-                    if st.button("🚀 Emitir Factura y Registrar en los Tres Frentes", type="primary", use_container_width=True):
+                    # BOTÓN GLOBAL DE EMISIÓN (GUARDA EN ORDENES DE COBRANZA Y DISPARA LOS TRES FRENTES)
+                    if st.button("🚀 Emitir Factura y Registrar Automáticamente en los Tres Frentes", type="primary", use_container_width=True):
                         if nro_factura and nro_control:
                             try:
                                 conn_trans = conectar_db(db_actual)
                                 if conn_trans:
                                     cursor = conn_trans.cursor()
                                     
-                                    # Tabla ordenes_cobranza preventiva
                                     cursor.execute("""
                                         CREATE TABLE IF NOT EXISTS ordenes_cobranza (
                                             id INT AUTO_INCREMENT PRIMARY KEY,
@@ -14115,7 +14114,7 @@ estado: {sel_data['estado']}""", language="yaml")
                                         ref_banco_cobro if ref_banco_cobro else None, estado_inicial
                                     ))
 
-                                    # 1. libro_ventas (Columnas exactas)
+                                    # 1. Guardar en libro_ventas
                                     cursor.execute("""
                                         INSERT INTO libro_ventas 
                                         (fecha_factura, nombre_razon_social, rif, n_factura, n_control, total_ventas_con_iva, ventas_exentas, base_imponible, porcentaje_alicuota, debito_fiscal)
@@ -14125,7 +14124,7 @@ estado: {sel_data['estado']}""", language="yaml")
                                         monto_bruto, monto_exento, base_imponible, alicuota_iva, monto_iva
                                     ))
 
-                                    # 2. asientos_contables (Columnas exactas)
+                                    # 2. Guardar en asientos_contables
                                     import time
                                     n_comprob_asiento = f"FACT-{nro_factura}-{int(time.time())}"
                                     desc_asiento = f"Venta según Factura {nro_factura} - {cli_info['razon_social']}"
@@ -14147,7 +14146,7 @@ estado: {sel_data['estado']}""", language="yaml")
                                             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                                         """, (n_comprob_asiento, desc_asiento, fecha_emision, "202-01", "Débito Fiscal IVA por Pagar", nro_factura, 0.00, monto_iva, 1))
 
-                                    # 3. banco_movimientos (Columnas exactas con asiento_id y fecha_importacion)
+                                    # 3. Guardar en banco_movimientos (si hay referencia de cobro)
                                     if ref_banco_cobro:
                                         cursor.execute("""
                                             INSERT INTO banco_movimientos (banco_nombre, cuenta_numero, fecha_movimiento, referencia, descripcion, monto, estado_conciliacion, asiento_id, fecha_importacion)
@@ -14161,7 +14160,7 @@ estado: {sel_data['estado']}""", language="yaml")
                                     cursor.close()
                                     conn_trans.close()
 
-                                    st.success("✅ ¡Factura emitida y registrada en todos los frentes con éxito!")
+                                    st.success("✅ ¡Factura guardada en Órdenes de Cobranza y reflejada exitosamente en el Libro de Ventas, Asientos Contables y Movimientos Bancarios!")
                                     st.balloons()
                                     st.rerun()
                                 else:
@@ -14169,13 +14168,13 @@ estado: {sel_data['estado']}""", language="yaml")
                             except Exception as err_fac:
                                 st.error(f"❌ Error al procesar: {err_fac}")
                         else:
-                            st.warning("⚠️ Debes rellenar el Número de Factura y Control.")
+                            st.warning("⚠️️ Debes rellenar el Número de Factura y Control.")
 
                     # =========================================================================
-                    # 📊 PANEL DE VISUALIZACIÓN Y FRAMES CON SUS BOTONES DE GUARDAR INDEPENDIENTES
+                    # 📊 PANEL DE VISUALIZACIÓN Y FRAMES CON BOTÓN GUARDAR EN CADA UNO
                     # =========================================================================
                     st.divider()
-                    st.markdown("### 🔍 Registros y Frames Oficiales por Tabla (Empresa: `" + str(db_actual) + "`)")
+                    st.markdown("### 🔍 Visualización de Frames y Registros (Empresa: `" + str(db_actual) + "`)")
                     
                     sub_tab1, sub_tab2, sub_tab3, sub_tab4 = st.tabs([
                         "🧾 Órdenes de Cobranza", 
@@ -14198,15 +14197,14 @@ estado: {sel_data['estado']}""", language="yaml")
                                 else:
                                     st.info("No hay órdenes de cobranza registradas todavía.")
                             except Exception:
-                                st.info("Tabla `ordenes_cobranza` vacía o pendiente de creación.")
+                                st.info("La tabla `ordenes_cobranza` aún no tiene datos o está por crearse.")
 
                         # -------------------------------------------------------------
-                        # SUB-TAB 2: Libro de Ventas (Columnas exactas + Botón Guardar)
+                        # SUB-TAB 2: Frame Libro de Ventas (Con su Botón Guardar)
                         # -------------------------------------------------------------
                         with sub_tab2:
                             st.markdown("#### 📖 Frame: Libro de Ventas")
                             with st.form("form_frame_libro_ventas"):
-                                st.markdown("Ingrese los valores respetando la estructura exacta de la tabla `libro_ventas`:")
                                 f_lv_fecha = st.date_input("fecha_factura")
                                 f_lv_nombre = st.text_input("nombre_razon_social")
                                 f_lv_rif = st.text_input("rif")
@@ -14231,7 +14229,7 @@ estado: {sel_data['estado']}""", language="yaml")
                                         conn_ins.commit()
                                         cur_ins.close()
                                         conn_ins.close()
-                                        st.success("✅ ¡Registro guardado con éxito en libro_ventas!")
+                                        st.success("✅ ¡Guardado en libro_ventas con éxito!")
                                         st.rerun()
                                     except Exception as ex_lv:
                                         st.error(f"❌ Error al guardar en libro_ventas: {ex_lv}")
@@ -14248,12 +14246,11 @@ estado: {sel_data['estado']}""", language="yaml")
                                 st.info("Tabla vacía.")
 
                         # -------------------------------------------------------------
-                        # SUB-TAB 3: Asientos Contables (Columnas exactas + Botón Guardar)
+                        # SUB-TAB 3: Frame Asientos Contables (Con su Botón Guardar)
                         # -------------------------------------------------------------
                         with sub_tab3:
                             st.markdown("#### ⚖️ Frame: Asientos Contables")
                             with st.form("form_frame_asientos_contables"):
-                                st.markdown("Ingrese los valores respetando la estructura exacta de la tabla `asientos_contables`:")
                                 f_ac_comprobante = st.text_input("n_comprobante")
                                 f_ac_descripcion = st.text_input("descripcion")
                                 f_ac_fecha = st.date_input("fecha")
@@ -14277,7 +14274,7 @@ estado: {sel_data['estado']}""", language="yaml")
                                         conn_ins.commit()
                                         cur_ins.close()
                                         conn_ins.close()
-                                        st.success("✅ ¡Registro guardado con éxito en asientos_contables!")
+                                        st.success("✅ ¡Guardado en asientos_contables con éxito!")
                                         st.rerun()
                                     except Exception as ex_ac:
                                         st.error(f"❌ Error al guardar en asientos_contables: {ex_ac}")
@@ -14294,12 +14291,11 @@ estado: {sel_data['estado']}""", language="yaml")
                                 st.info("Tabla vacía.")
 
                         # -------------------------------------------------------------
-                        # SUB-TAB 4: Movimientos Bancarios (Columnas exactas + Botón Guardar)
+                        # SUB-TAB 4: Frame Movimientos Bancarios (Con su Botón Guardar)
                         # -------------------------------------------------------------
                         with sub_tab4:
                             st.markdown("#### 🏦 Frame: Movimientos Bancarios")
                             with st.form("form_frame_banco_movimientos"):
-                                st.markdown("Ingrese los valores respetando la estructura exacta de la tabla `banco_movimientos`:")
                                 f_bm_banco = st.text_input("banco_nombre")
                                 f_bm_cta = st.text_input("cuenta_numero", value="Principal")
                                 f_bm_fecha = st.date_input("fecha_movimiento")
@@ -14325,7 +14321,7 @@ estado: {sel_data['estado']}""", language="yaml")
                                         conn_ins.commit()
                                         cur_ins.close()
                                         conn_ins.close()
-                                        st.success("✅ ¡Registro guardado con éxito en banco_movimientos!")
+                                        st.success("✅ ¡Guardado en banco_movimientos con éxito!")
                                         st.rerun()
                                     except Exception as ex_bm:
                                         st.error(f"❌ Error al guardar en banco_movimientos: {ex_bm}")
@@ -14348,7 +14344,7 @@ estado: {sel_data['estado']}""", language="yaml")
 
             except Exception as e_tab6:
                 st.error(f"Error general en el módulo de facturación: {e_tab6}")
-
+        
     elif sub_opcion == "Consultar Comprobante":
         st.subheader("🔍 Buscador de Comprobantes")
 
