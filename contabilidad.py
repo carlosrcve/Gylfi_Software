@@ -13677,9 +13677,9 @@ estado: {sel_data['estado']}""", language="yaml")
                 else:
                     st.info("🎉 ¡Excelente! No hay órdenes de pago pendientes por conciliar. Todas están al día frente al banco.")
 
-                # 2. Historial de Pagos Conciliados y Reporte Global (En Excel)
+                # 2. Historial de Pagos Conciliados, Edición y Auditoría
                 st.divider()
-                st.markdown("### 📜 Historial de Pagos Conciliados (Reporte para Auditoría)")
+                st.markdown("### 📜 Historial de Pagos Conciliados y Gestión de Auditoría")
                 
                 conn_conc = conectar_db(db_actual)
                 df_conciliados = None
@@ -13707,6 +13707,59 @@ estado: {sel_data['estado']}""", language="yaml")
                             )
                         }
                     )
+                    
+                    st.markdown("#### ⚙️ Modificar o Revertir un Pago Conciliado")
+                    
+                    # Diccionario para seleccionar el pago a modificar/eliminar
+                    dict_historial = {f"ID: {r['id']} | Factura: {r['nro_factura']} | Proveedor: {r['proveedor']} | Ref: {r['referencia_banco']}": r for _, r in df_conciliados.iterrows()}
+                    selected_hist_label = st.selectbox("Selecciona el registro a gestionar:", list(dict_historial.keys()), key="select_gestion_historial")
+                    
+                    if selected_hist_label:
+                        row_sel = dict_historial[selected_hist_label]
+                        
+                        col_ed1, col_ed2 = st.columns(2)
+                        with col_ed1:
+                            nuevo_ref_banco = st.text_input("Nueva Referencia Bancaria", value=str(row_sel['referencia_banco']), key=f"edit_ref_{row_sel['id']}")
+                        with col_ed2:
+                            # Parsear fecha actual de pago de forma segura
+                            import pandas as pd
+                            fecha_actual_pago = pd.to_datetime(row_sel['fecha_pago']).date() if pd.notnull(row_sel['fecha_pago']) else None
+                            nueva_fecha_pago = st.date_input("Nueva Fecha de Pago", value=fecha_actual_pago, key=f"edit_fecha_{row_sel['id']}")
+                        
+                        col_btn_ed1, col_btn_ed2 = st.columns(2)
+                        with col_btn_ed1:
+                            if st.button("💾 Guardar Cambios del Pago", type="primary", key=f"btn_save_edit_{row_sel['id']}", use_container_width=True):
+                                try:
+                                    conn_edit = conectar_db(db_actual)
+                                    if conn_edit:
+                                        cur_e = conn_edit.cursor()
+                                        q_update = "UPDATE ordenes_pago SET referencia_banco = %s, fecha_pago = %s WHERE id = %s AND empresa_db = %s"
+                                        cur_e.execute(q_update, (nuevo_ref_banco.strip(), nueva_fecha_pago, int(row_sel['id']), str(db_actual)))
+                                        conn_edit.commit()
+                                        cur_e.close()
+                                        conn_edit.close()
+                                        st.success(f"✅ ¡Pago ID #{row_sel['id']} actualizado correctamente!")
+                                        st.rerun()
+                                except Exception as err_ed:
+                                    st.error(f"❌ Error al modificar el registro: {err_ed}")
+                                    
+                        with col_btn_ed2:
+                            if st.button("🔄 Revertir a Estado 'Pendiente'", type="secondary", key=f"btn_revert_{row_sel['id']}", use_container_width=True):
+                                try:
+                                    conn_rev = conectar_db(db_actual)
+                                    if conn_rev:
+                                        cur_r = conn_rev.cursor()
+                                        q_revert = "UPDATE ordenes_pago SET estado = 'Pendiente', referencia_banco = NULL, fecha_pago = NULL WHERE id = %s AND empresa_db = %s"
+                                        cur_r.execute(q_revert, (int(row_sel['id']), str(db_actual)))
+                                        conn_rev.commit()
+                                        cur_r.close()
+                                        conn_rev.close()
+                                        st.warning(f"⚠️️ El pago ID #{row_sel['id']} ha sido devuelto a estado **Pendiente**.")
+                                        st.rerun()
+                                except Exception as err_rev:
+                                    st.error(f"❌ Error al revertir el registro: {err_rev}")
+
+                    st.markdown("---")
                     
                     # --- CONVERSIÓN A EXCEL (.xlsx) USANDO IO.BYTESIO ---
                     import io
