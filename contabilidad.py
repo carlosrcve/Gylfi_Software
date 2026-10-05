@@ -13124,9 +13124,27 @@ estado: {sel_data['estado']}""", language="yaml")
 
             lista_provs, dict_provs, lista_cuentas_detalle, dict_cuentas_detalle = cargar_datos_maestros(db_actual)
 
-            # --- INICIALIZAR ESTADOS DE FLUJO ---
-            if "orden_guardada_exito" not in st.session_state:
-                st.session_state.orden_guardada_exito = False
+            # --- GESTIÓN DE SESSION STATE PARA LIMPIEZA DE LA ORDEN DE PAGO ---
+            if "op_form_reset" not in st.session_state: st.session_state["op_form_reset"] = False
+
+            if st.session_state["op_form_reset"]:
+                st.session_state["op_fact"] = ""
+                st.session_state["op_ctrl"] = ""
+                st.session_state["op_base"] = 0.0
+                st.session_state["op_exento"] = 0.0
+                st.session_state["op_porc_islr"] = 1.0
+                st.session_state["op_sustraendo"] = 0.0
+                st.session_state["op_obs"] = ""
+                st.session_state["op_form_reset"] = False
+
+            # Inicializar valores por defecto en el session_state si no existen
+            for key, default_val in [
+                ("op_fact", ""), ("op_ctrl", ""), ("op_base", 0.0), 
+                ("op_exento", 0.0), ("op_porc_islr", 1.0), ("op_sustraendo", 0.0), 
+                ("op_obs", ""), ("orden_guardada_exito", False)
+            ]:
+                if key not in st.session_state:
+                    st.session_state[key] = default_val
 
             # --- FASE 1: EMITIR NUEVA ORDEN DE PAGO ---
             st.markdown("### ✍️ Emitir Nueva Orden de Pago")
@@ -13134,11 +13152,11 @@ estado: {sel_data['estado']}""", language="yaml")
             with st.container():
                 col_f1_1, col_f1_2 = st.columns(2)
                 with col_f1_1:
-                    prov_seleccionado_form = st.selectbox("Seleccionar Proveedor", options=lista_provs if lista_provs else ["No hay proveedores"], key="f1_prov")
-                    nro_factura_form = st.text_input("Número de Factura", key="f1_fact")
-                    nro_control_form = st.text_input("Número de Control", key="f1_ctrl")
+                    prov_seleccionado_form = st.selectbox("Seleccionar Proveedor", options=lista_provs if lista_provs else ["No hay proveedores"], key="op_prov")
+                    nro_factura_form = st.text_input("Número de Factura", key="op_fact")
+                    nro_control_form = st.text_input("Número de Control", key="op_ctrl")
                 with col_f1_2:
-                    fecha_emision_form = st.date_input("Fecha de Emisión", key="f1_fecha")
+                    fecha_emision_form = st.date_input("Fecha de Emisión", key="op_fecha")
                     
                     st.markdown("""
                         <div style="background-color: #ffe6e6; padding: 6px 12px; border-radius: 6px; border: 1px solid #ff9999; margin-bottom: 5px;">
@@ -13146,12 +13164,12 @@ estado: {sel_data['estado']}""", language="yaml")
                         </div>
                     """, unsafe_allow_html=True)
                     
-                    base_imponible_form = st.number_input("Base Imponible", min_value=0.0, format="%.2f", key="f1_base")
-                    monto_exento_form = st.number_input("Monto Exento", min_value=0.0, format="%.2f", key="f1_exento")
+                    base_imponible_form = st.number_input("Base Imponible", min_value=0.0, format="%.2f", key="op_base")
+                    monto_exento_form = st.number_input("Monto Exento", min_value=0.0, format="%.2f", key="op_exento")
 
                 col_f1_3, col_f1_4 = st.columns(2)
                 with col_f1_3:
-                    alicuota_iva_form = st.selectbox("Alícuota IVA", options=[16.0, 8.0, 31.0, 0.0], format_func=lambda x: f"{x}%", key="f1_alicuota")
+                    alicuota_iva_form = st.selectbox("Alícuota IVA", options=[16.0, 8.0, 31.0, 0.0], format_func=lambda x: f"{x}%", key="op_alicuota")
                 with col_f1_4:
                     monto_iva_calculado = base_imponible_form * (alicuota_iva_form / 100.0)
                     st.metric(label="Monto IVA (Calculado)", value=f"{monto_iva_calculado:,.2f}")
@@ -13165,7 +13183,7 @@ estado: {sel_data['estado']}""", language="yaml")
                 st.markdown("#### 2️⃣ Frame: Retención de IVA")
                 col_f2_1, col_f2_2 = st.columns(2)
                 with col_f2_1:
-                    porcentaje_ret_iva = st.selectbox("Porcentaje Retención IVA", options=[75.0, 100.0, 25.0, 50.0], format_func=lambda x: f"{x}%", key="f2_porc_ret_iva")
+                    porcentaje_ret_iva = st.selectbox("Porcentaje Retención IVA", options=[75.0, 100.0, 25.0, 50.0], format_func=lambda x: f"{x}%", key="op_porc_ret_iva")
                 with col_f2_2:
                     retencion_iva_calculada = monto_iva_calculado * (porcentaje_ret_iva / 100.0)
                     st.metric(label="Monto Retención IVA (Calculado)", value=f"{retencion_iva_calculada:,.2f}")
@@ -13176,11 +13194,11 @@ estado: {sel_data['estado']}""", language="yaml")
                 st.markdown("#### 3️⃣ Frame: Retención de ISLR")
                 col_f3_1, col_f3_2, col_f3_3, col_f3_4 = st.columns(4)
                 with col_f3_1:
-                    tipo_persona_form = st.selectbox("Tipo de Persona", options=["Jurídico Domiciliado", "Natural Residenciado", "Otro"], key="f3_tipo_p")
+                    tipo_persona_form = st.selectbox("Tipo de Persona", options=["Jurídico Domiciliado", "Natural Residenciado", "Otro"], key="op_tipo_p")
                 with col_f3_2:
-                    islr_porcentaje_form = st.number_input("% Retención ISLR", min_value=0.0, max_value=100.0, value=1.0, format="%.2f", key="f3_porc_islr")
+                    islr_porcentaje_form = st.number_input("% Retención ISLR", min_value=0.0, max_value=100.0, format="%.2f", key="op_porc_islr")
                 with col_f3_3:
-                    islr_sustraendo_form = st.number_input("Sustraendo ISLR", min_value=0.0, format="%.2f", key="f3_sustraendo")
+                    islr_sustraendo_form = st.number_input("Sustraendo ISLR", min_value=0.0, format="%.2f", key="op_sustraendo")
                 with col_f3_4:
                     retencion_islr_calculada = max(0.0, (base_imponible_form * (islr_porcentaje_form / 100.0)) - islr_sustraendo_form)
                     st.metric(label="Monto Retención ISLR Final", value=f"{retencion_islr_calculada:,.2f}")
@@ -13195,7 +13213,7 @@ estado: {sel_data['estado']}""", language="yaml")
                 with col_f4_1:
                     st.metric(label="💵 Monto Neto a Pagar", value=f"{monto_neto_calculado:,.2f}")
                 with col_f4_2:
-                    observaciones_form = st.text_area("Observaciones / Concepto del Pago", key="f4_obs")
+                    observaciones_form = st.text_area("Observaciones / Concepto del Pago", key="op_obs")
 
                 st.markdown("---")
                 
@@ -13253,8 +13271,10 @@ estado: {sel_data['estado']}""", language="yaml")
                                 cursor.close()
                                 conn_ins.close()
                                 
+                                # Activar bandera de reseteo para limpiar campos y éxito
+                                st.session_state.op_form_reset = True
                                 st.session_state.orden_guardada_exito = True
-                                st.success("🎉 ¡Orden de pago guardada con éxito en la BD!")
+                                st.success("🎉 ¡Orden de pago guardada con éxito y campos limpios!")
                                 st.rerun()
                         except Exception as err_ins:
                             st.error(f"❌ Error al guardar la orden de pago: {err_ins}")
@@ -13333,7 +13353,7 @@ estado: {sel_data['estado']}""", language="yaml")
                             sel_data = opciones_ordenes[seleccion_op_key]
                             
                             st.markdown("---")
-                            st.markdown(f"### ⚙️️ Configuración de Cuentas para la Orden #{sel_data['id']}")
+                            st.markdown(f"### ⚙ Configuración de Cuentas para la Orden #{sel_data['id']}")
                             
                             col_c1, col_c2, col_c3 = st.columns(3)
                             with col_c1:
