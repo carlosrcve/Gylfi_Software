@@ -13677,10 +13677,18 @@ estado: {sel_data['estado']}""", language="yaml")
                 else:
                     st.info("🎉 ¡Excelente! No hay órdenes de pago pendientes por conciliar. Todas están al día frente al banco.")
 
-                # 2. Historial de Pagos Conciliados, Edición y Auditoría
+                # 2. Historial de Pagos Conciliados, Filtros por Fechas, Edición y Auditoría
                 st.divider()
-                st.markdown("### 📜 Historial de Pagos Conciliados y Gestión de Auditoría")
-                
+                st.markdown("### 📜 Historial de Pagos Conciliados y Estado de Cuenta Interno")
+                st.markdown("Consulta, filtra por rango de fechas, edita referencias o revierte los pagos conciliados según tu control interno.")
+
+                # Filtros de fecha para el historial
+                col_fec1, col_fec2 = st.columns(2)
+                with col_fec1:
+                    fecha_desde = st.date_input("Historial Desde", key="hist_fecha_desde")
+                with col_fec2:
+                    fecha_hasta = st.date_input("Historial Hasta", key="hist_fecha_hasta")
+
                 conn_conc = conectar_db(db_actual)
                 df_conciliados = None
                 if conn_conc:
@@ -13688,13 +13696,14 @@ estado: {sel_data['estado']}""", language="yaml")
                         SELECT op.id, p.nombre AS proveedor, op.nro_factura, op.monto_neto, op.referencia_banco, op.fecha_pago, op.estado
                         FROM ordenes_pago op
                         JOIN proveedores_carga p ON op.proveedor_id = p.id
-                        WHERE op.empresa_db = %s AND op.estado = 'Conciliado'
+                        WHERE op.empresa_db = %s AND op.estado = 'Conciliado' AND op.fecha_pago BETWEEN %s AND %s
                         ORDER BY op.fecha_pago DESC
                     """
-                    df_conciliados = ejecutar_consulta(query_conciliados, conn_conc, params=(str(db_actual),))
+                    df_conciliados = ejecutar_consulta(query_conciliados, conn_conc, params=(str(db_actual), str(fecha_desde), str(fecha_hasta)))
                     conn_conc.close()
 
                 if df_conciliados is not None and not df_conciliados.empty:
+                    st.markdown(f"📊 Se encontraron **{len(df_conciliados)}** pago(s) conciliado(s) en el rango seleccionado.")
                     st.dataframe(
                         df_conciliados, 
                         use_container_width=True, 
@@ -13721,7 +13730,6 @@ estado: {sel_data['estado']}""", language="yaml")
                         with col_ed1:
                             nuevo_ref_banco = st.text_input("Nueva Referencia Bancaria", value=str(row_sel['referencia_banco']), key=f"edit_ref_{row_sel['id']}")
                         with col_ed2:
-                            # Parsear fecha actual de pago de forma segura
                             import pandas as pd
                             fecha_actual_pago = pd.to_datetime(row_sel['fecha_pago']).date() if pd.notnull(row_sel['fecha_pago']) else None
                             nueva_fecha_pago = st.date_input("Nueva Fecha de Pago", value=fecha_actual_pago, key=f"edit_fecha_{row_sel['id']}")
@@ -13754,7 +13762,7 @@ estado: {sel_data['estado']}""", language="yaml")
                                         conn_rev.commit()
                                         cur_r.close()
                                         conn_rev.close()
-                                        st.warning(f"⚠️️ El pago ID #{row_sel['id']} ha sido devuelto a estado **Pendiente**.")
+                                        st.warning(f"⚠ El pago ID #{row_sel['id']} ha sido devuelto a estado **Pendiente**.")
                                         st.rerun()
                                 except Exception as err_rev:
                                     st.error(f"❌ Error al revertir el registro: {err_rev}")
@@ -13771,70 +13779,11 @@ estado: {sel_data['estado']}""", language="yaml")
                     st.download_button(
                         label="📥 Descargar Reporte de Pagos Conciliados (Excel)",
                         data=excel_data,
-                        file_name=f"reporte_pagos_conciliados_{db_actual}.xlsx",
+                        file_name=f"reporte_pagos_conciliados_{db_actual}_{fecha_desde}_al_{fecha_hasta}.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                     )
                 else:
-                    st.info("ℹ️ Aún no hay pagos conciliados registrados en el historial.")
-
-                # --- 3. REPORTE DE MOVIMIENTOS BANCARIOS ---
-                st.divider()
-                st.markdown("### 🏦 Reporte de Movimientos Bancarios (Filtro por Fechas)")
-                st.markdown("Consulta y descarga el histórico de movimientos bancarios registrados en la base de datos aplicando un filtro por rango de fechas.")
-
-                col_fec1, col_fec2 = st.columns(2)
-                with col_fec1:
-                    fecha_desde = st.date_input("Fecha Desde", key="banco_fecha_desde")
-                with col_fec2:
-                    fecha_hasta = st.date_input("Fecha Hasta", key="banco_fecha_hasta")
-
-                try:
-                    conn_banco_rep = conectar_db(db_actual)
-                    if conn_banco_rep:
-                        query_banco_movs = """
-                            SELECT id, banco_nombre, cuenta_numero, fecha_movimiento, 
-                                   referencia, descripcion, monto, estado_conciliacion, 
-                                   asiento_id, fecha_importacion
-                            FROM banco_movimientos
-                            WHERE fecha_movimiento BETWEEN %s AND %s
-                            ORDER BY fecha_movimiento DESC
-                        """
-                        df_banco_movs = ejecutar_consulta(query_banco_movs, conn_banco_rep, params=(str(fecha_desde), str(fecha_hasta)))
-                        conn_banco_rep.close()
-
-                        if df_banco_movs is not None and not df_banco_movs.empty:
-                            st.markdown(f"📊 Se encontraron **{len(df_banco_movs)}** movimiento(s) en el rango seleccionado.")
-                            st.dataframe(
-                                df_banco_movs, 
-                                use_container_width=True, 
-                                hide_index=True,
-                                column_config={
-                                    "monto": st.column_config.NumberColumn(
-                                        "Monto",
-                                        format="%,.2f",
-                                        help="Monto del movimiento bancario"
-                                    )
-                                }
-                            )
-
-                            # --- CONVERSIÓN A EXCEL (.xlsx) DE MOVIMIENTOS BANCARIOS ---
-                            import io
-                            output_excel_banco = io.BytesIO()
-                            with pd.ExcelWriter(output_excel_banco, engine='openpyxl') as writer:
-                                df_banco_movs.to_excel(writer, index=False, sheet_name='Movimientos Bancarios')
-                            excel_data_banco = output_excel_banco.getvalue()
-
-                            st.download_button(
-                                label="📥 Descargar Reporte de Movimientos Bancarios (Excel)",
-                                data=excel_data_banco,
-                                file_name=f"reporte_banco_movimientos_{db_actual}_{fecha_desde}_al_{fecha_hasta}.xlsx",
-                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                                key="btn_down_banco_excel"
-                            )
-                        else:
-                            st.info("ℹ️ No se encontraron movimientos bancarios registrados para el rango de fechas seleccionado.")
-                except Exception as err_bm:
-                    st.error(f"❌ Error al consultar la tabla banco_movimientos: {err_bm}")
+                    st.info("ℹ️ No hay pagos conciliados registrados para el rango de fechas seleccionado.")
 
             except Exception as e:
                 st.error(f"Error en el módulo de conciliación: {e}")
