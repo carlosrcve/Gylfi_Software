@@ -13408,7 +13408,7 @@ estado: {sel_data['estado']}""", language="yaml")
                                                             fecha_operacion, tipo_documento, n_factura, n_control, 
                                                             n_factura_afectada, proveedor, rif, tipo_transaccion, 
                                                             total_compras, importe_exento, base_imponible, iva_porcentaje, 
-                                                            iva_monto, retencion_islr, retencion_iva, n_comprobante_retencion, 
+                                                            iva_monto,retencion_iva, n_comprobante_retencion, 
                                                             monto_iva_retenido, fecha_comprobante, created_at, updated_at
                                                         ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
                                                     """
@@ -13426,7 +13426,6 @@ estado: {sel_data['estado']}""", language="yaml")
                                                         float(sel_data.get('base_imponible', 0.0)),
                                                         float(sel_data.get('iva_porcentaje', 16.0)),
                                                         float(sel_data.get('monto_iva', 0.0)),
-                                                        float(sel_data.get('retencion_islr', 0.0)),
                                                         float(sel_data.get('retencion_iva', 0.0)),
                                                         f"COMP-{fact_val}",
                                                         float(sel_data.get('retencion_iva', 0.0)),
