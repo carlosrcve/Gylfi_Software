@@ -13129,28 +13129,23 @@ estado: {sel_data['estado']}""", language="yaml")
             except Exception as e:
                 st.error(f"Error cargando datos de BD: {e}")
 
-            # --- INICIALIZAR ESTADOS ---
+            # --- INICIALIZAR ESTADOS DE CÁLCULO ---
             if "calc_ejecutado" not in st.session_state:
                 st.session_state.calc_ejecutado = False
+            if "f1_iva_calc" not in st.session_state:
+                st.session_state.f1_iva_calc = 0.0
+            if "f1_bruto_calc" not in st.session_state:
+                st.session_state.f1_bruto_calc = 0.0
+            if "f2_ret_iva_calc" not in st.session_state:
+                st.session_state.f2_ret_iva_calc = 0.0
+            if "f3_ret_islr" not in st.session_state:
+                st.session_state.f3_ret_islr = 0.0
 
-            # --- 4 FRAMES DE EMISIÓN DE ORDEN DE PAGO (SIN FORMULARIO RESTRICTIVO) ---
+            # --- EMISIÓN DE ORDEN DE PAGO OPTIMIZADA ---
             st.markdown("### ✍️ Emitir Nueva Orden de Pago")
             
-            with st.container():
-                if "calc_ejecutado" not in st.session_state:
-                    st.session_state.calc_ejecutado = False
-                if "res_iva" not in st.session_state:
-                    st.session_state.res_iva = 0.0
-                if "res_bruto" not in st.session_state:
-                    st.session_state.res_bruto = 0.0
-                if "res_ret_iva" not in st.session_state:
-                    st.session_state.res_ret_iva = 0.0
-                if "res_ret_islr" not in st.session_state:
-                    st.session_state.res_ret_islr = 0.0
-                if "res_neto" not in st.session_state:
-                    st.session_state.res_neto = 0.0
-
-                # --- 1ER FRAME: DATOS DE LA FACTURA Y MONTOS ---
+            # Usamos un form estructurado para evitar el lag al escribir en los inputs de texto y números
+            with st.form("form_emision_orden_pago", clear_on_submit=False):
                 st.markdown("#### 1️⃣ Frame: Datos Básicos, Proveedor y Montos de la Factura")
                 
                 col_f1_1, col_f1_2 = st.columns(2)
@@ -13163,7 +13158,7 @@ estado: {sel_data['estado']}""", language="yaml")
                     
                     st.markdown("""
                         <div style="background-color: #ffe6e6; padding: 6px 12px; border-radius: 6px; border: 1px solid #ff9999; margin-bottom: 5px;">
-                            <span style="color: #c0392b; font-weight: bold; font-size: 13px;">🔴 Único campo de ingreso manual</span>
+                            <span style="color: #c0392b; font-weight: bold; font-size: 13px;">🔴 Campos de ingreso manual</span>
                         </div>
                     """, unsafe_allow_html=True)
                     
@@ -13174,11 +13169,12 @@ estado: {sel_data['estado']}""", language="yaml")
                 with col_f1_3:
                     alicuota_iva_form = st.selectbox("Alícuota IVA", options=[16.0, 8.0, 31.0, 0.0], format_func=lambda x: f"{x}%", key="f1_alicuota")
                 with col_f1_4:
-                    st.session_state["f1_iva_calc"] = base_imponible_form * (alicuota_iva_form / 100.0)
-                    monto_iva_form = st.number_input("Monto IVA (Calculado)", min_value=0.0, format="%.2f", key="f1_iva_calc")
+                    # Cálculo interno directo sin forzar tirones en UI
+                    calc_iva_val = base_imponible_form * (alicuota_iva_form / 100.0)
+                    monto_iva_form = st.number_input("Monto IVA (Calculado)", value=calc_iva_val, min_value=0.0, format="%.2f", key="f1_iva_calc_input")
 
-                st.session_state["f1_bruto_calc"] = base_imponible_form + monto_exento_form + monto_iva_form
-                monto_bruto_form = st.number_input("Monto Bruto / Total Factura (Calculado)", min_value=0.0, format="%.2f", key="f1_bruto_calc")
+                calc_bruto_val = base_imponible_form + monto_exento_form + monto_iva_form
+                monto_bruto_form = st.number_input("Monto Bruto / Total Factura (Calculado)", value=calc_bruto_val, min_value=0.0, format="%.2f", key="f1_bruto_calc_input")
                 
                 st.markdown("---")
 
@@ -13188,8 +13184,8 @@ estado: {sel_data['estado']}""", language="yaml")
                 with col_f2_1:
                     porcentaje_ret_iva = st.selectbox("Porcentaje Retención IVA", options=[75.0, 100.0, 25.0, 50.0], format_func=lambda x: f"{x}%", key="f2_porc_ret_iva")
                 with col_f2_2:
-                    st.session_state["f2_ret_iva_calc"] = monto_iva_form * (porcentaje_ret_iva / 100.0)
-                    retencion_iva_form = st.number_input("Monto Retención IVA (Calculado)", min_value=0.0, format="%.2f", key="f2_ret_iva_calc")
+                    calc_ret_iva_val = monto_iva_form * (porcentaje_ret_iva / 100.0)
+                    retencion_iva_form = st.number_input("Monto Retención IVA (Calculado)", value=calc_ret_iva_val, min_value=0.0, format="%.2f", key="f2_ret_iva_calc_input")
                 
                 st.markdown("---")
 
@@ -13203,8 +13199,8 @@ estado: {sel_data['estado']}""", language="yaml")
                 with col_f3_3:
                     islr_sustraendo_form = st.number_input("Sustraendo ISLR", min_value=0.0, format="%.2f", key="f3_sustraendo")
                 with col_f3_4:
-                    st.session_state["f3_ret_islr"] = max(0.0, (base_imponible_form * (islr_porcentaje_form / 100.0)) - islr_sustraendo_form)
-                    retencion_islr_form = st.number_input("Monto Retención ISLR Final", min_value=0.0, format="%.2f", key="f3_ret_islr")
+                    calc_islr_val = max(0.0, (base_imponible_form * (islr_porcentaje_form / 100.0)) - islr_sustraendo_form)
+                    retencion_islr_form = st.number_input("Monto Retención ISLR Final", value=calc_islr_val, min_value=0.0, format="%.2f", key="f3_ret_islr_input")
 
                 st.markdown("---")
                 
@@ -13220,16 +13216,8 @@ estado: {sel_data['estado']}""", language="yaml")
 
                 st.markdown("---")
                 
-                # --- BOTONES DE ACCIÓN ---
-                col_btn_1, col_btn_2 = st.columns(2)
-                with col_btn_1:
-                    btn_calcular = st.button("🧮 Forzar Recálculo Oficial", type="secondary", key="btn_calcular_principal", use_container_width=True)
-                with col_btn_2:
-                    btn_guardar_op = st.button("💾 Guardar y Registrar Orden de Pago", type="primary", key="btn_guardar_principal", use_container_width=True)
-
-                if btn_calcular:
-                    st.toast("✅ ¡Campos sincronizados y calculados correctamente!", icon="🧮")
-                    st.rerun()
+                # --- BOTÓN DE GUARDADO DENTRO DEL FORMULARIO PARA CERO LAG ---
+                btn_guardar_op = st.form_submit_button("💾 Guardar y Registrar Orden de Pago", type="primary", use_container_width=True)
 
                 if btn_guardar_op:
                     if not nro_factura_form:
@@ -13278,7 +13266,8 @@ estado: {sel_data['estado']}""", language="yaml")
                                 st.rerun()
                         except Exception as err_ins:
                             st.error(f"❌ Error al guardar la orden de pago: {err_ins}")
-                st.markdown("---")
+
+            st.markdown("---")
 
             # --- HISTORIAL Y PREVISUALIZACIÓN DE ASIENTOS ABAJO ---
             st.markdown("### 📊 Historial de Órdenes de Pago y Previsualización YAML")
@@ -13297,7 +13286,7 @@ estado: {sel_data['estado']}""", language="yaml")
                         conn_list_op2.close()
                 
                 if df_ops is None or df_ops.empty:
-                    st.warning("⚠️ No hay órdenes de pago registradas todavía. Llena los 4 frames de arriba para emitir la primera.")
+                    st.warning("⚠️ No hay órdenes de pago registradas todavía. Llena los campos de arriba para emitir la primera.")
                 else:
                     lista_ops_procesadas = []
                     for _, r_op in df_ops.iterrows():
@@ -13369,7 +13358,7 @@ estado: {sel_data['estado']}""", language="yaml")
                             info_banco['nombre'] = info_banco.get('nombre', 'Banco Principal')
 
                         st.markdown("---")
-                        st.markdown("# Previsualización y Guardado Independiente por Módulo")
+                        st.markdown("### Previsualización y Guardado Independiente por Módulo")
                         
                         col_f1, col_f2, col_f3 = st.columns(3)
                         
@@ -13491,12 +13480,9 @@ estado: {sel_data['estado']}""", language="yaml")
                         # --- FRAME 3: MOVIMIENTO BANCARIO ---
                         with col_f3:
                             st.markdown("#### 🏦 `banco_movimientos`")
-                            
-                            # Definimos la descripción con el nombre del proveedor, RIF y número de factura
                             prov_nombre = str(sel_data.get('proveedor', '')).strip()
                             prov_rif = str(sel_data.get('proveedor_rif', '')).strip()
                             nro_fact = str(sel_data.get('nro_factura', '')).strip()
-                            
                             desc_val = f"Pago Factura Nro {nro_fact} - {prov_nombre} (RIF: {prov_rif})"
 
                             st.code(f"""banco_nombre: {info_banco['nombre']}
