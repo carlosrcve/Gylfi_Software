@@ -13656,10 +13656,10 @@ estado: {sel_data['estado']}""", language="yaml")
                                 data_desglose = {
                                     "Concepto": ["Monto Bruto Factura", "Menos: Retención ISLR", "Menos: Retención IVA", "Monto Neto Transferido"],
                                     "Monto": [
-                                        f"${fila_op_sel['monto_bruto']:,.2f}",
-                                        f"- ${fila_op_sel['retencion_islr']:,.2f}",
-                                        f"- ${fila_op_sel['retencion_iva']:,.2f}",
-                                        f"${fila_op_sel['monto_neto']:,.2f}"
+                                        f"{fila_op_sel['monto_bruto']:,.2f}",
+                                        f"-{fila_op_sel['retencion_islr']:,.2f}",
+                                        f"-{fila_op_sel['retencion_iva']:,.2f}",
+                                        f"{fila_op_sel['monto_neto']:,.2f}"
                                     ]
                                 }
                                 st.table(data_desglose)
