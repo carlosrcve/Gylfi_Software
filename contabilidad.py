@@ -12974,6 +12974,7 @@ estado: {sel_data['estado']}""", language="yaml")
                             st.toast("✅ ¡Datos importados al formulario!", icon="📥")
                             st.rerun()
 
+            st.markdown("---")
 
             # --- SECCIÓN DE REGISTRO CON WIDGETS LIGADOS A SESSION_STATE ---
             col_p1, col_p2 = st.columns(2)
