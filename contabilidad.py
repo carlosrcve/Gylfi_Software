@@ -13077,7 +13077,7 @@ estado: {sel_data['estado']}""", language="yaml")
                         st.info("ℹ️ La tabla `proveedores_carga` está vacía para esta empresa actualmente.")
             except Exception as e:
                 st.error(f"Error al cargar la lista: {e}")
-                
+
         with tab2:
             st.markdown("### 🧾 Gestión y Generación de Órdenes de Pago y Cruce")
 
@@ -13129,22 +13129,9 @@ estado: {sel_data['estado']}""", language="yaml")
             except Exception as e:
                 st.error(f"Error cargando datos de BD: {e}")
 
-            # --- INICIALIZAR ESTADOS DE CÁLCULO ---
-            if "calc_ejecutado" not in st.session_state:
-                st.session_state.calc_ejecutado = False
-            if "f1_iva_calc" not in st.session_state:
-                st.session_state.f1_iva_calc = 0.0
-            if "f1_bruto_calc" not in st.session_state:
-                st.session_state.f1_bruto_calc = 0.0
-            if "f2_ret_iva_calc" not in st.session_state:
-                st.session_state.f2_ret_iva_calc = 0.0
-            if "f3_ret_islr" not in st.session_state:
-                st.session_state.f3_ret_islr = 0.0
-
-            # --- EMISIÓN DE ORDEN DE PAGO OPTIMIZADA ---
+            # --- FASE 1: EMITIR NUEVA ORDEN DE PAGO ---
             st.markdown("### ✍️ Emitir Nueva Orden de Pago")
             
-            # Usamos un form estructurado para evitar el lag al escribir en los inputs de texto y números
             with st.form("form_emision_orden_pago", clear_on_submit=False):
                 st.markdown("#### 1️⃣ Frame: Datos Básicos, Proveedor y Montos de la Factura")
                 
@@ -13169,7 +13156,6 @@ estado: {sel_data['estado']}""", language="yaml")
                 with col_f1_3:
                     alicuota_iva_form = st.selectbox("Alícuota IVA", options=[16.0, 8.0, 31.0, 0.0], format_func=lambda x: f"{x}%", key="f1_alicuota")
                 with col_f1_4:
-                    # Cálculo interno directo sin forzar tirones en UI
                     calc_iva_val = base_imponible_form * (alicuota_iva_form / 100.0)
                     monto_iva_form = st.number_input("Monto IVA (Calculado)", value=calc_iva_val, min_value=0.0, format="%.2f", key="f1_iva_calc_input")
 
@@ -13216,7 +13202,6 @@ estado: {sel_data['estado']}""", language="yaml")
 
                 st.markdown("---")
                 
-                # --- BOTÓN DE GUARDADO DENTRO DEL FORMULARIO PARA CERO LAG ---
                 btn_guardar_op = st.form_submit_button("💾 Guardar y Registrar Orden de Pago", type="primary", use_container_width=True)
 
                 if btn_guardar_op:
@@ -13227,7 +13212,6 @@ estado: {sel_data['estado']}""", language="yaml")
                     else:
                         try:
                             info_prov_form = dict_provs[prov_seleccionado_form]
-                            
                             conn_ins = conectar_db(db_actual)
                             if conn_ins:
                                 cursor = conn_ins.cursor()
@@ -13262,14 +13246,14 @@ estado: {sel_data['estado']}""", language="yaml")
                                 conn_ins.commit()
                                 cursor.close()
                                 conn_ins.close()
-                                st.success("🎉 ¡Orden de pago guardada con éxito en la BD! Recargando...")
+                                st.success("🎉 ¡Orden de pago guardada con éxito en la BD!")
                                 st.rerun()
                         except Exception as err_ins:
                             st.error(f"❌ Error al guardar la orden de pago: {err_ins}")
 
             st.markdown("---")
 
-            # --- HISTORIAL Y PREVISUALIZACIÓN DE ASIENTOS ABAJO ---
+            # --- FASE 2: HISTORIAL Y SELECCIÓN DE ORDEN ---
             st.markdown("### 📊 Historial de Órdenes de Pago y Previsualización YAML")
             try:
                 conn_list_op = conectar_db(db_actual)
@@ -13286,7 +13270,7 @@ estado: {sel_data['estado']}""", language="yaml")
                         conn_list_op2.close()
                 
                 if df_ops is None or df_ops.empty:
-                    st.warning("⚠️ No hay órdenes de pago registradas todavía. Llena los campos de arriba para emitir la primera.")
+                    st.info("ℹ️ Registra una orden de pago arriba para habilitar el historial y la configuración de cuentas.")
                 else:
                     lista_ops_procesadas = []
                     for _, r_op in df_ops.iterrows():
@@ -13334,12 +13318,13 @@ estado: {sel_data['estado']}""", language="yaml")
                     
                     seleccion_op_key = st.selectbox(
                         "🔍 Selecciona una Orden de Pago para configurar sus cuentas y previsualizar los asientos:", 
-                        options=list(opciones_ordenes.keys()),
+                        options=["-- Selecciona una orden --"] + list(opciones_ordenes.keys()),
                         index=0,
                         key="select_op_final_v2"
                     )
                     
-                    if seleccion_op_key:
+                    # --- FASE 3: CONFIGURACIÓN DE CUENTAS Y PREVISUALIZACIÓN (SOLO SI SE SELECCIONA UNA ORDEN) ---
+                    if seleccion_op_key and seleccion_op_key != "-- Selecciona una orden --":
                         sel_data = opciones_ordenes[seleccion_op_key]
                         
                         st.markdown("---")
@@ -13362,7 +13347,7 @@ estado: {sel_data['estado']}""", language="yaml")
                         
                         col_f1, col_f2, col_f3 = st.columns(3)
                         
-                        # --- FRAME 1: LIBRO DE COMPRAS ---
+                        # --- MÓDULO 1: LIBRO DE COMPRAS ---
                         with col_f1:
                             st.markdown("#### 📄 `libro_compras`")
                             st.code(f"""fecha_operacion: {sel_data['fecha_emision']}
@@ -13416,7 +13401,7 @@ estado: {sel_data['estado']}""", language="yaml")
                                 except Exception as err_l:
                                     st.error(f"❌ Error al guardar libro de compras: {err_l}")
 
-                        # --- FRAME 2: ASIENTO CONTABLE ---
+                        # --- MÓDULO 2: ASIENTO CONTABLE ---
                         with col_f2:
                             st.markdown("#### 📒 `asientos_contables`")
                             st.code(f"""- n_comprobante: OP-{sel_data['nro_factura']}
@@ -13477,7 +13462,7 @@ estado: {sel_data['estado']}""", language="yaml")
                                 except Exception as err_a:
                                     st.error(f"❌ Error al guardar asiento contable: {err_a}")
 
-                        # --- FRAME 3: MOVIMIENTO BANCARIO ---
+                        # --- MÓDULO 3: MOVIMIENTO BANCARIO ---
                         with col_f3:
                             st.markdown("#### 🏦 `banco_movimientos`")
                             prov_nombre = str(sel_data.get('proveedor', '')).strip()
@@ -13486,10 +13471,10 @@ estado: {sel_data['estado']}""", language="yaml")
                             desc_val = f"Pago Factura Nro {nro_fact} - {prov_nombre} (RIF: {prov_rif})"
 
                             st.code(f"""banco_nombre: {info_banco['nombre']}
-reference: OP-{nro_fact}
-descripcion: {desc_val}
-monto: {sel_data['monto_neto']:,.2f}
-estado: {sel_data['estado']}""", language="yaml")
+        reference: OP-{nro_fact}
+        descripcion: {desc_val}
+        monto: {sel_data['monto_neto']:,.2f}
+        estado: {sel_data['estado']}""", language="yaml")
                             
                             if st.button("💾 Guardar Movimiento Bancario", key=f"btn_guardar_banco_{sel_data['id']}", use_container_width=True):
                                 try:
@@ -13498,7 +13483,6 @@ estado: {sel_data['estado']}""", language="yaml")
                                         cur_b = conn_b.cursor()
                                         n_comp_val = f"OP-{nro_fact}"
                                         fecha_val = str(sel_data['fecha_emision'])
-                                        
                                         query_banco = """
                                             INSERT INTO banco_movimientos (
                                                 banco_nombre, cuenta_numero, fecha_movimiento, 
@@ -13524,7 +13508,7 @@ estado: {sel_data['estado']}""", language="yaml")
             except Exception as err_hist:
                 st.error(f"Error cargando historial de órdenes de pago: {err_hist}")
 
-
+        
         with tab3:
             st.markdown("### 🔗 Conciliación, Cruce Bancario y Emisión de Comprobante")
             st.markdown("Cruza las órdenes de pago pendientes con las referencias del estado de cuenta bancario para cerrar el ciclo y generar el comprobante oficial.")
