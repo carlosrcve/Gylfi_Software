@@ -12889,7 +12889,8 @@ estado: {sel_data['estado']}""", language="yaml")
             try:
                 conn_m = conectar_db(db_actual)
                 if conn_m:
-                    df_maestro = ejecutar_consulta("SELECT rif, razon_social, codigo_cuenta, descripcion_cuenta FROM proveedores", conn_m)
+                    # Añadido ORDER BY razon_social ASC para ordenarlos alfabéticamente
+                    df_maestro = ejecutar_consulta("SELECT rif, razon_social, codigo_cuenta, descripcion_cuenta FROM proveedores ORDER BY razon_social ASC", conn_m)
                     conn_m.close()
                     if df_maestro is not None and not df_maestro.empty:
                         for _, row in df_maestro.iterrows():
@@ -13071,6 +13072,7 @@ estado: {sel_data['estado']}""", language="yaml")
                         st.info("ℹ️ La tabla `proveedores_carga` está vacía para esta empresa actualmente.")
             except Exception as e:
                 st.error(f"Error al cargar la lista: {e}")
+                
         with tab2:
             st.markdown("### 🧾 Gestión y Generación de Órdenes de Pago y Cruce")
 
