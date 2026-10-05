@@ -14043,6 +14043,7 @@ estado: {sel_data['estado']}""", language="yaml")
                         monto_iva = st.number_input("8) Monto IVA", value=calc_iva, min_value=0.0, format="%.2f", disabled=True)
                     with col_m5:
                         monto_bruto = st.number_input("9) Monto Total Factura", value=calc_bruto, min_value=0.0, format="%.2f", disabled=True)
+
                     st.info(f"📊 **Resumen Fiscal:** Base Imponible: ${base_imponible:,.2f} | Exento: ${monto_exento:,.2f} | IVA ({alicuota_iva}%): ${monto_iva:,.2f} | Total Bruto: ${monto_bruto:,.2f}")
                     st.divider()
                     st.divider()
@@ -14128,7 +14129,7 @@ estado: {sel_data['estado']}""", language="yaml")
                             st.warning("⚠️ Debes rellenar el Número de Factura y Control.")
 
                     # =========================================================================
-                    # 📊 PANEL DE GESTIÓN POR FRENTES CON SU RESPECTIVO BOTÓN GUARDAR
+                    # 📊 PANEL DE GESTIÓN POR FRENTES CON LAS COLUMNAS EXACTAS
                     # =========================================================================
                     st.divider()
                     st.markdown("### 🔍 Gestión por Frentes (Empresa: `" + str(db_actual) + "`)")
@@ -14157,19 +14158,18 @@ estado: {sel_data['estado']}""", language="yaml")
                                 st.info("La tabla `ordenes_cobranza` aún no tiene datos o está por crearse.")
 
                         # -------------------------------------------------------------
-                        # SUB-TAB 2: Libro de Ventas (Visualiza ordenes y botón Guardar)
+                        # SUB-TAB 2: Libro de Ventas (Estructura exacta: id, fecha_factura, nombre_razon_social, rif, n_factura, n_control, total_ventas_con_iva, ventas_exentas, base_imponible, porcentaje_alicuota, debito_fiscal, fecha_registro)
                         # -------------------------------------------------------------
                         with sub_tab2:
-                            st.markdown("#### 📖 Libro de Ventas (Desde Órdenes de Cobranza)")
+                            st.markdown("#### 📖 Libro de Ventas (Estructura Oficial)")
                             try:
                                 df_oc_pend = ejecutar_consulta("SELECT id, fecha_emision, n_factura, n_control, rif_cliente, monto_bruto, base_imponible, porcentaje_alicuota, monto_iva, monto_exento FROM ordenes_cobranza ORDER BY id DESC LIMIT 10", conn_vis)
                                 if df_oc_pend is not None and not df_oc_pend.empty:
                                     st.dataframe(df_oc_pend, use_container_width=True)
                                     
-                                    sel_oc_id_lv = st.selectbox("Seleccione ID de Orden de Cobranza a guardar en Libro de Ventas", df_oc_pend['id'].tolist(), key="sel_lv")
+                                    sel_oc_id_lv = st.selectbox("Seleccione ID de Orden de Cobranza para guardar en Libro de Ventas", df_oc_pend['id'].tolist(), key="sel_lv")
                                     selected_row_lv = df_oc_pend[df_oc_pend['id'] == sel_oc_id_lv].iloc[0]
                                     
-                                    # Buscar razón social del cliente usando el RIF
                                     r_cli = selected_row_lv['rif_cliente']
                                     nom_rs = cli_info['razon_social'] if cli_info['rif'] == r_cli else "Cliente Comercial"
 
@@ -14177,6 +14177,7 @@ estado: {sel_data['estado']}""", language="yaml")
                                         try:
                                             conn_lv = conectar_db(db_actual)
                                             cur_lv = conn_lv.cursor()
+                                            # Insertando respetando estrictamente las columnas de libro_ventas
                                             cur_lv.execute("""
                                                 INSERT INTO libro_ventas 
                                                 (fecha_factura, nombre_razon_social, rif, n_factura, n_control, total_ventas_con_iva, ventas_exentas, base_imponible, porcentaje_alicuota, debito_fiscal)
@@ -14201,10 +14202,10 @@ estado: {sel_data['estado']}""", language="yaml")
                                 st.info("Pendiente de registros en órdenes de cobranza.")
 
                         # -------------------------------------------------------------
-                        # SUB-TAB 3: Asientos Contables (Visualiza ordenes y botón Guardar)
+                        # SUB-TAB 3: Asientos Contables (Estructura exacta: id, n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber, bloqueado)
                         # -------------------------------------------------------------
                         with sub_tab3:
-                            st.markdown("#### ⚖️ Asientos Contables (Desde Órdenes de Cobranza)")
+                            st.markdown("#### ⚖️ Asientos Contables (Estructura Oficial)")
                             try:
                                 df_oc_ac = ejecutar_consulta("SELECT id, fecha_emision, n_factura, rif_cliente, monto_bruto, base_imponible, monto_iva FROM ordenes_cobranza ORDER BY id DESC LIMIT 10", conn_vis)
                                 if df_oc_ac is not None and not df_oc_ac.empty:
@@ -14221,20 +14222,20 @@ estado: {sel_data['estado']}""", language="yaml")
                                             n_comp = f"FACT-{selected_row_ac['n_factura']}-{int(time.time())}"
                                             desc_ast = f"Venta según Factura {selected_row_ac['n_factura']}"
 
-                                            # 1. Cuenta por Cobrar (Débito por el total bruto)
+                                            # 1. Cuenta por Cobrar (Débito)
                                             cur_ac.execute("""
                                                 INSERT INTO asientos_contables (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber, bloqueado)
                                                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                                             """, (n_comp, desc_ast, selected_row_ac['fecha_emision'], cli_info['cuenta'], f"CxC Cliente", selected_row_ac['n_factura'], selected_row_ac['monto_bruto'], 0.00, 1))
 
-                                            # 2. Ingresos por Ventas (Haber por la base imponible)
+                                            # 2. Ingresos por Ventas (Haber)
                                             if selected_row_ac['base_imponible'] > 0:
                                                 cur_ac.execute("""
                                                     INSERT INTO asientos_contables (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber, bloqueado)
                                                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                                                 """, (n_comp, desc_ast, selected_row_ac['fecha_emision'], "401-01", "Ingresos por Ventas / Servicios", selected_row_ac['n_factura'], 0.00, selected_row_ac['base_imponible'], 1))
 
-                                            # 3. Débito Fiscal IVA (Haber por el IVA)
+                                            # 3. Débito Fiscal IVA (Haber)
                                             if selected_row_ac['monto_iva'] > 0:
                                                 cur_ac.execute("""
                                                     INSERT INTO asientos_contables (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber, bloqueado)
@@ -14244,7 +14245,7 @@ estado: {sel_data['estado']}""", language="yaml")
                                             conn_ac.commit()
                                             cur_ac.close()
                                             conn_ac.close()
-                                            st.success("✅ ¡Asiento contable generado y guardado con éxito!")
+                                            st.success("✅ ¡Asiento contable generado y guardado con éxito con su estructura exacta!")
                                             st.rerun()
                                         except Exception as err_ins_ac:
                                             st.error(f"❌ Error al guardar en asientos_contables: {err_ins_ac}")
@@ -14254,10 +14255,10 @@ estado: {sel_data['estado']}""", language="yaml")
                                 st.info("Pendiente de registros en órdenes de cobranza.")
 
                         # -------------------------------------------------------------
-                        # SUB-TAB 4: Movimientos Bancarios (Visualiza ordenes y botón Guardar)
+                        # SUB-TAB 4: Movimientos Bancarios (Estructura exacta: id, banco_nombre, cuenta_numero, fecha_movimiento, referencia, descripcion, monto, estado_conciliacion, asiento_id, fecha_importacion)
                         # -------------------------------------------------------------
                         with sub_tab4:
-                            st.markdown("#### 🏦 Movimientos Bancarios (Cobro de Facturas)")
+                            st.markdown("#### 🏦 Movimientos Bancarios (Estructura Oficial)")
                             try:
                                 df_oc_bm = ejecutar_consulta("SELECT id, fecha_emision, n_factura, monto_bruto, referencia_banco FROM ordenes_cobranza WHERE referencia_banco IS NOT NULL AND referencia_banco != '' ORDER BY id DESC LIMIT 10", conn_vis)
                                 if df_oc_bm is not None and not df_oc_bm.empty:
@@ -14270,6 +14271,7 @@ estado: {sel_data['estado']}""", language="yaml")
                                         try:
                                             conn_bm = conectar_db(db_actual)
                                             cur_bm = conn_bm.cursor()
+                                            # Insertando respetando estrictamente las columnas de banco_movimientos
                                             cur_bm.execute("""
                                                 INSERT INTO banco_movimientos (banco_nombre, cuenta_numero, fecha_movimiento, referencia, descripcion, monto, estado_conciliacion, asiento_id, fecha_importacion)
                                                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW())
