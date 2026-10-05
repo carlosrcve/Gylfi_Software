@@ -13075,7 +13075,7 @@ estado: {sel_data['estado']}""", language="yaml")
         with tab2:
             st.markdown("### 🧾 Gestión y Generación de Órdenes de Pago y Cruce")
 
-            # --- CARGAR PROVEEDORES Y PLAN DE CUENTAS EN TIEMPO REAL ---
+            # --- CARGAR PROVEEDORES Y PLAN DE CUENTAS EN TIEMPO REAL (SIN CACHÉ) ---
             def cargar_datos_maestros(empresa):
                 p_lista = []
                 p_dict = {}
@@ -13123,22 +13123,40 @@ estado: {sel_data['estado']}""", language="yaml")
 
             lista_provs, dict_provs, lista_cuentas_detalle, dict_cuentas_detalle = cargar_datos_maestros(db_actual)
 
-            # --- INICIALIZAR ESTADOS ---
-            if "orden_guardada_exito" not in st.session_state:
-                st.session_state.orden_guardada_exito = False
+            # --- GESTIÓN DE SESSION STATE PARA LIMPIEZA DE LA ORDEN DE PAGO ---
+            if "op_form_reset" not in st.session_state: st.session_state["op_form_reset"] = False
 
-            # --- FASE 1: EMITIR NUEVA ORDEN DE PAGO (DENTRO DE UN FORMULARIO) ---
+            if st.session_state["op_form_reset"]:
+                st.session_state["op_fact"] = ""
+                st.session_state["op_ctrl"] = ""
+                st.session_state["op_base"] = 0.0
+                st.session_state["op_exento"] = 0.0
+                st.session_state["op_porc_islr"] = 1.0
+                st.session_state["op_sustraendo"] = 0.0
+                st.session_state["op_obs"] = ""
+                st.session_state["op_form_reset"] = False
+
+            # Inicializar valores por defecto en el session_state si no existen
+            for key, default_val in [
+                ("op_fact", ""), ("op_ctrl", ""), ("op_base", 0.0), 
+                ("op_exento", 0.0), ("op_porc_islr", 1.0), ("op_sustraendo", 0.0), 
+                ("op_obs", ""), ("orden_guardada_exito", False)
+            ]:
+                if key not in st.session_state:
+                    st.session_state[key] = default_val
+
+            # --- FASE 1: EMITIR NUEVA ORDEN DE PAGO ---
             if not st.session_state.orden_guardada_exito:
                 st.markdown("### ✍️ Emitir Nueva Orden de Pago")
                 
-                with st.form("form_emitir_orden_pago", clear_on_submit=True):
+                with st.container():
                     col_f1_1, col_f1_2 = st.columns(2)
                     with col_f1_1:
-                        prov_seleccionado_form = st.selectbox("Seleccionar Proveedor", options=lista_provs if lista_provs else ["No hay proveedores"])
-                        nro_factura_form = st.text_input("Número de Factura")
-                        nro_control_form = st.text_input("Número de Control")
+                        prov_seleccionado_form = st.selectbox("Seleccionar Proveedor", options=lista_provs if lista_provs else ["No hay proveedores"], key="op_prov")
+                        nro_factura_form = st.text_input("Número de Factura", key="op_fact")
+                        nro_control_form = st.text_input("Número de Control", key="op_ctrl")
                     with col_f1_2:
-                        fecha_emision_form = st.date_input("Fecha de Emisión")
+                        fecha_emision_form = st.date_input("Fecha de Emisión", key="op_fecha")
                         
                         st.markdown("""
                             <div style="background-color: #ffe6e6; padding: 6px 12px; border-radius: 6px; border: 1px solid #ff9999; margin-bottom: 5px;">
@@ -13146,48 +13164,71 @@ estado: {sel_data['estado']}""", language="yaml")
                             </div>
                         """, unsafe_allow_html=True)
                         
-                        base_imponible_form = st.number_input("Base Imponible", min_value=0.0, format="%.2f", value=0.0)
-                        monto_exento_form = st.number_input("Monto Exento", min_value=0.0, format="%.2f", value=0.0)
+                        base_imponible_form = st.number_input("Base Imponible", min_value=0.0, format="%.2f", key="op_base")
+                        monto_exento_form = st.number_input("Monto Exento", min_value=0.0, format="%.2f", key="op_exento")
 
                     col_f1_3, col_f1_4 = st.columns(2)
                     with col_f1_3:
-                        alicuota_iva_form = st.selectbox("Alícuota IVA", options=[16.0, 8.0, 31.0, 0.0], format_func=lambda x: f"{x}%")
+                        alicuota_iva_form = st.selectbox("Alícuota IVA", options=[16.0, 8.0, 31.0, 0.0], format_func=lambda x: f"{x}%", key="op_alicuota")
                     with col_f1_4:
-                        st.info("💡 Los cálculos se procesarán al guardar.")
+                        monto_iva_calculado = base_imponible_form * (alicuota_iva_form / 100.0)
+                        st.metric(label="Monto IVA (Calculado)", value=f"{monto_iva_calculado:,.2f}")
 
+                    monto_bruto_calculado = base_imponible_form + monto_exento_form + monto_iva_calculado
+                    st.metric(label="Monto Bruto / Total Factura (Calculado)", value=f"{monto_bruto_calculado:,.2f}")
+                    
                     st.markdown("---")
 
                     # --- 2DO FRAME: RETENCIÓN DE IVA ---
                     st.markdown("#### 2️⃣ Frame: Retención de IVA")
-                    col_f2_1, _ = st.columns(2)
+                    col_f2_1, col_f2_2 = st.columns(2)
                     with col_f2_1:
-                        porcentaje_ret_iva = st.selectbox("Porcentaje Retención IVA", options=[75.0, 100.0, 25.0, 50.0], format_func=lambda x: f"{x}%")
+                        porcentaje_ret_iva = st.selectbox("Porcentaje Retención IVA", options=[75.0, 100.0, 25.0, 50.0], format_func=lambda x: f"{x}%", key="op_porc_ret_iva")
+                    with col_f2_2:
+                        retencion_iva_calculada = monto_iva_calculado * (porcentaje_ret_iva / 100.0)
+                        st.metric(label="Monto Retención IVA (Calculado)", value=f"{retencion_iva_calculada:,.2f}")
                     
                     st.markdown("---")
 
                     # --- 3ER FRAME: RETENCIÓN DE ISLR ---
                     st.markdown("#### 3️⃣ Frame: Retención de ISLR")
-                    col_f3_1, col_f3_2, col_f3_3 = st.columns(3)
+                    col_f3_1, col_f3_2, col_f3_3, col_f3_4 = st.columns(4)
                     with col_f3_1:
-                        tipo_persona_form = st.selectbox("Tipo de Persona", options=["Jurídico Domiciliado", "Natural Residenciado", "Otro"])
+                        tipo_persona_form = st.selectbox("Tipo de Persona", options=["Jurídico Domiciliado", "Natural Residenciado", "Otro"], key="op_tipo_p")
                     with col_f3_2:
-                        islr_porcentaje_form = st.number_input("% Retención ISLR", min_value=0.0, max_value=100.0, value=1.0, format="%.2f")
+                        islr_porcentaje_form = st.number_input("% Retención ISLR", min_value=0.0, max_value=100.0, format="%.2f", key="op_porc_islr")
                     with col_f3_3:
-                        islr_sustraendo_form = st.number_input("Sustraendo ISLR", min_value=0.0, format="%.2f", value=0.0)
+                        islr_sustraendo_form = st.number_input("Sustraendo ISLR", min_value=0.0, format="%.2f", key="op_sustraendo")
+                    with col_f3_4:
+                        retencion_islr_calculada = max(0.0, (base_imponible_form * (islr_porcentaje_form / 100.0)) - islr_sustraendo_form)
+                        st.metric(label="Monto Retención ISLR Final", value=f"{retencion_islr_calculada:,.2f}")
 
-                    st.markdown("---")
-                    observaciones_form = st.text_area("Observaciones / Concepto del Pago")
                     st.markdown("---")
                     
-                    submitted_guardar = st.form_submit_button("💾 Guardar y Registrar Orden de Pago", use_container_width=True)
+                    # --- 4TO FRAME: MONTO NETO Y OBSERVACIONES ---
+                    st.markdown("#### 4️⃣ Frame: Cálculo del Monto Neto a Pagar")
+                    monto_neto_calculado = monto_bruto_calculado - retencion_islr_calculada - retencion_iva_calculada
+                    
+                    col_f4_1, col_f4_2 = st.columns(2)
+                    with col_f4_1:
+                        st.metric(label="💵 Monto Neto a Pagar", value=f"{monto_neto_calculado:,.2f}")
+                    with col_f4_2:
+                        observaciones_form = st.text_area("Observaciones / Concepto del Pago", key="op_obs")
 
-                    if submitted_guardar:
-                        monto_iva_calculado = base_imponible_form * (alicuota_iva_form / 100.0)
-                        monto_bruto_calculado = base_imponible_form + monto_exento_form + monto_iva_calculado
-                        retencion_iva_calculada = monto_iva_calculado * (porcentaje_ret_iva / 100.0)
-                        retencion_islr_calculada = max(0.0, (base_imponible_form * (islr_porcentaje_form / 100.0)) - islr_sustraendo_form)
-                        monto_neto_calculado = monto_bruto_calculado - retencion_islr_calculada - retencion_iva_calculada
+                    st.markdown("---")
+                    
+                    # --- BOTONES DE CÁLCULO Y GUARDADO ---
+                    col_btn_1, col_btn_2 = st.columns(2)
+                    with col_btn_1:
+                        btn_calcular = st.button("🧮 Calcular / Refrescar Montos", type="secondary", key="btn_calcular_principal", use_container_width=True)
+                    with col_btn_2:
+                        btn_guardar_op = st.button("💾 Guardar y Registrar Orden de Pago", type="primary", key="btn_guardar_principal", use_container_width=True)
 
+                    if btn_calcular:
+                        st.toast("✅ ¡Cálculos actualizados al instante!", icon="🧮")
+                        st.rerun()
+
+                    if btn_guardar_op:
                         if not nro_factura_form:
                             st.error("⚠️ El número de factura es obligatorio.")
                         elif not lista_provs:
@@ -13230,6 +13271,7 @@ estado: {sel_data['estado']}""", language="yaml")
                                     cursor.close()
                                     conn_ins.close()
                                     
+                                    st.session_state.op_form_reset = True
                                     st.session_state.orden_guardada_exito = True
                                     st.success("🎉 ¡Orden de pago guardada con éxito!")
                                     st.rerun()
@@ -13239,6 +13281,7 @@ estado: {sel_data['estado']}""", language="yaml")
             else:
                 if st.button("➕ Emitir Nueva Orden de Pago", type="secondary", use_container_width=True):
                     st.session_state.orden_guardada_exito = False
+                    st.session_state.op_form_reset = True
                     st.rerun()
 
             # --- FASE 2 Y 3: HISTORIAL Y MÓDULOS INDEPENDIENTES ---
