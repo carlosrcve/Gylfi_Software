@@ -12959,7 +12959,7 @@ estado: {sel_data['estado']}""", language="yaml")
                     st.session_state[key] = default_val
 
             # --- SECCIÓN SUPERIOR DE IMPORTACIÓN / AUTOCOMPLETAR ---
-            col_imp1, col_imp2 = st.columns(2)
+            col_imp1 = st.columns(1)
             
             with col_imp1:
                 if lista_maestros:
@@ -12974,25 +12974,6 @@ estado: {sel_data['estado']}""", language="yaml")
                             st.toast("✅ ¡Datos importados al formulario!", icon="📥")
                             st.rerun()
 
-            with col_imp2:
-                if lista_cargados:
-                    with st.expander("⚡ Autocompletar con Proveedores Registrados", expanded=False):
-                        sel_autocompletar = st.selectbox("Seleccione proveedor guardado:", lista_cargados, key="sel_cat_cargado")
-                        if st.button("🔄 Cargar datos guardados", key="btn_load_guardados"):
-                            datos_auto = dict_cargados.get(sel_autocompletar, {})
-                            st.session_state["val_nombre"] = datos_auto.get("nombre", "")
-                            st.session_state["val_rif"] = datos_auto.get("rif", "")
-                            st.session_state["val_cod_cta"] = datos_auto.get("codigo_cuenta", "")
-                            st.session_state["val_desc_cta"] = datos_auto.get("descripcion_cuenta", "")
-                            st.session_state["val_tel"] = datos_auto.get("telefono", "")
-                            st.session_state["val_email"] = datos_auto.get("email", "")
-                            st.session_state["val_banco"] = datos_auto.get("banco", "Banesco")
-                            st.session_state["val_nro_cta"] = datos_auto.get("nro_cuenta", "")
-                            st.session_state["val_tipo_cta"] = datos_auto.get("tipo_cuenta", "Corriente")
-                            st.toast("✅ ¡Datos cargados en el formulario!", icon="⚡")
-                            st.rerun()
-
-            st.markdown("---")
 
             # --- SECCIÓN DE REGISTRO CON WIDGETS LIGADOS A SESSION_STATE ---
             col_p1, col_p2 = st.columns(2)
