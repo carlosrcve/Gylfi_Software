@@ -13380,7 +13380,8 @@ estado: {sel_data['estado']}""", language="yaml")
                 total_compras: {sel_data['monto_bruto']:,.2f}
                 base_imponible: {sel_data['base_imponible']:,.2f}
                 iva_porcentaje: {sel_data['iva_porcentaje']}%
-                iva_monto: {sel_data['monto_iva']:,.2f}""", language="yaml")
+                iva_monto: {sel_data['monto_iva']:,.2f}
+                retencion_iva: {sel_data['retencion_iva']:,.2f}""", language="yaml")
                                 
                                 if st.button("💾 Guardar Libro de Compras", key=f"btn_guardar_libro_{sel_data['id']}", use_container_width=True):
                                     rif_val = str(sel_data.get('proveedor_rif', '')).strip()
@@ -13408,10 +13409,13 @@ estado: {sel_data['estado']}""", language="yaml")
                                                             fecha_operacion, tipo_documento, n_factura, n_control, 
                                                             n_factura_afectada, proveedor, rif, tipo_transaccion, 
                                                             total_compras, importe_exento, base_imponible, iva_porcentaje, 
-                                                            iva_monto,retencion_iva, n_comprobante_retencion, 
-                                                            monto_iva_retenido, fecha_comprobante, created_at, updated_at
+                                                            iva_monto, retencion_realizada, retencion_iva_realizada, 
+                                                            n_comprobante_retencion, monto_iva_retenido, fecha_comprobante, 
+                                                            created_at, updated_at
                                                         ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
                                                     """
+                                                    
+                                                    # Exactamente 18 valores para los 18 placeholders %s (más NOW() de la BD)
                                                     valores_libro = (
                                                         str(sel_data['fecha_emision']),
                                                         "Factura",
@@ -13420,17 +13424,19 @@ estado: {sel_data['estado']}""", language="yaml")
                                                         None,
                                                         prov_val if prov_val and prov_val != 'None' else 'Proveedor Genérico',
                                                         rif_val,
-                                                        "Compra Interna",
+                                                        "01", # tipo_transaccion por defecto
                                                         float(sel_data.get('monto_bruto', 0.0)),
                                                         float(sel_data.get('monto_exento', 0.0)),
                                                         float(sel_data.get('base_imponible', 0.0)),
                                                         float(sel_data.get('iva_porcentaje', 16.0)),
                                                         float(sel_data.get('monto_iva', 0.0)),
-                                                        float(sel_data.get('retencion_iva', 0.0)),
+                                                        1 if float(sel_data.get('retencion_iva', 0.0)) > 0 else 0, # retencion_realizada (tinyint)
+                                                        float(sel_data.get('retencion_iva', 0.0)), # retencion_iva_realizada
                                                         f"COMP-{fact_val}",
-                                                        float(sel_data.get('retencion_iva', 0.0)),
+                                                        float(sel_data.get('retencion_iva', 0.0)), # monto_iva_retenido
                                                         str(sel_data['fecha_emision'])
                                                     )
+                                                    
                                                     cur_l.execute(query_libro, valores_libro)
                                                     conn_l.commit()
                                                     st.success("✅ ¡Libro de Compras guardado con éxito!")
