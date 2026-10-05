@@ -13748,7 +13748,7 @@ estado: {sel_data['estado']}""", language="yaml")
                                     column_config={
                                         "monto": st.column_config.NumberColumn(
                                             "Monto",
-                                            format="$%,.2f",
+                                            format="%,.2f",
                                             help="Monto del movimiento bancario"
                                         )
                                     }
