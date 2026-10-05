@@ -12937,24 +12937,15 @@ estado: {sel_data['estado']}""", language="yaml")
             lista_maestros, dict_maestros, lista_cargados, dict_cargados = cargar_datos_proveedores_tab1(db_actual)
 
             # --- GESTIÓN DE SESSION STATE PARA LOS CAMPOS ---
-            if "prov_form_nombre" not in st.session_state:
-                st.session_state["prov_form_nombre"] = ""
-            if "prov_form_rif" not in st.session_state:
-                st.session_state["prov_form_rif"] = ""
-            if "prov_form_cod_cta" not in st.session_state:
-                st.session_state["prov_form_cod_cta"] = ""
-            if "prov_form_desc_cta" not in st.session_state:
-                st.session_state["prov_form_desc_cta"] = ""
-            if "prov_form_tel" not in st.session_state:
-                st.session_state["prov_form_tel"] = ""
-            if "prov_form_email" not in st.session_state:
-                st.session_state["prov_form_email"] = ""
-            if "prov_form_banco" not in st.session_state:
-                st.session_state["prov_form_banco"] = "Banesco"
-            if "prov_form_nro_cta" not in st.session_state:
-                st.session_state["prov_form_nro_cta"] = ""
-            if "prov_form_tipo_cta" not in st.session_state:
-                st.session_state["prov_form_tipo_cta"] = "Corriente"
+            if "prov_form_nombre" not in st.session_state: st.session_state["prov_form_nombre"] = ""
+            if "prov_form_rif" not in st.session_state: st.session_state["prov_form_rif"] = ""
+            if "prov_form_cod_cta" not in st.session_state: st.session_state["prov_form_cod_cta"] = ""
+            if "prov_form_desc_cta" not in st.session_state: st.session_state["prov_form_desc_cta"] = ""
+            if "prov_form_tel" not in st.session_state: st.session_state["prov_form_tel"] = ""
+            if "prov_form_email" not in st.session_state: st.session_state["prov_form_email"] = ""
+            if "prov_form_banco" not in st.session_state: st.session_state["prov_form_banco"] = "Banesco"
+            if "prov_form_nro_cta" not in st.session_state: st.session_state["prov_form_nro_cta"] = ""
+            if "prov_form_tipo_cta" not in st.session_state: st.session_state["prov_form_tipo_cta"] = "Corriente"
 
             # --- SECCIÓN SUPERIOR DE IMPORTACIÓN / AUTOCOMPLETAR (FUERA DEL FORMULARIO) ---
             col_imp1, col_imp2 = st.columns(2)
@@ -13051,7 +13042,7 @@ estado: {sel_data['estado']}""", language="yaml")
                                 cursor_ins.close()
                                 conn_ins.close()
                                 
-                                # Limpiar variables del state al guardar con éxito
+                                # 1. Limpiar completamente el session_state para vaciar los campos visualmente
                                 st.session_state["prov_form_nombre"] = ""
                                 st.session_state["prov_form_rif"] = ""
                                 st.session_state["prov_form_cod_cta"] = ""
@@ -13062,7 +13053,10 @@ estado: {sel_data['estado']}""", language="yaml")
                                 st.session_state["prov_form_nro_cta"] = ""
                                 st.session_state["prov_form_tipo_cta"] = "Corriente"
 
-                                st.success(f"✅ ¡Proveedor '{nombre_prov}' guardado con éxito en la tabla `proveedores_carga`!")
+                                # 2. Limpiar la caché de datos para forzar la actualización inmediata de la tabla inferior
+                                cargar_datos_proveedores_tab1.clear()
+
+                                st.success(f"✅ ¡Proveedor '{nombre_prov}' guardado con éxito y campos limpios!")
                                 st.rerun()
                         except Exception as e:
                             st.error(f"❌ Error al guardar en `proveedores_carga`: {e}")
@@ -13082,7 +13076,7 @@ estado: {sel_data['estado']}""", language="yaml")
                     if df_prov is not None and not df_prov.empty:
                         st.dataframe(df_prov, use_container_width=True, hide_index=True)
                     else:
-                        st.info("ℹ️ La tabla `proveedores_carga` está vacía para esta empresa actualmente.")
+                        st.info("ℹ️️ La tabla `proveedores_carga` está vacía para esta empresa actualmente.")
             except Exception as e:
                 st.error(f"Error al cargar la lista: {e}")
 
