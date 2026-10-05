@@ -12958,22 +12958,6 @@ estado: {sel_data['estado']}""", language="yaml")
                 if key not in st.session_state:
                     st.session_state[key] = default_val
 
-            # --- SECCIÓN SUPERIOR DE IMPORTACIÓN / AUTOCOMPLETAR ---
-            col_imp1 = st.columns(1)
-            
-            with col_imp1:
-                if lista_maestros:
-                    with st.expander("📥 Importar desde catálogo 'proveedores' (A-Z)", expanded=False):
-                        prov_seleccionado = st.selectbox("Seleccione proveedor del catálogo:", lista_maestros, key="sel_cat_maestro")
-                        if st.button("🔄 Cargar datos del catálogo", key="btn_load_catalogo"):
-                            datos_sel = dict_maestros.get(prov_seleccionado, {})
-                            st.session_state["val_nombre"] = datos_sel.get("razon_social", "")
-                            st.session_state["val_rif"] = datos_sel.get("rif", "")
-                            st.session_state["val_cod_cta"] = datos_sel.get("codigo_cuenta", "")
-                            st.session_state["val_desc_cta"] = datos_sel.get("descripcion_cuenta", "")
-                            st.toast("✅ ¡Datos importados al formulario!", icon="📥")
-                            st.rerun()
-
             st.markdown("---")
 
             # --- SECCIÓN DE REGISTRO CON WIDGETS LIGADOS A SESSION_STATE ---
@@ -13026,7 +13010,6 @@ estado: {sel_data['estado']}""", language="yaml")
                             cursor_ins.close()
                             conn_ins.close()
                             
-                            # Activamos la bandera de reseteo para limpiar antes de recrear los widgets en el siguiente render
                             st.session_state["form_reset"] = True
                             cargar_datos_proveedores_tab1.clear()
 
