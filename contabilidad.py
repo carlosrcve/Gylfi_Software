@@ -13990,7 +13990,7 @@ estado: {sel_data['estado']}""", language="yaml")
 
         with tab6:
             st.markdown("### 🧾 Emisión de Facturas, Libro de Ventas y Registro de Cobranza (CxC)")
-            st.markdown("Genera la factura de venta a tus clientes comerciales, impacta automáticamente el libro de ventas, genera el asiento contable y deja lista la expectativa de cobro bancario.")
+            st.markdown("Genera la factura de venta a tus clientes comerciales, guarda la orden de cobranza y procesa independientemente cada frente fiscal, contable y bancario.")
 
             try:
                 # 1. Cargar clientes comerciales desde la base de datos existente
@@ -14044,7 +14044,7 @@ estado: {sel_data['estado']}""", language="yaml")
                     with col_m5:
                         monto_bruto = st.number_input("9) Monto Total Factura", value=calc_bruto, min_value=0.0, format="%.2f", disabled=True)
 
-                    st.info(f"📊 **Resumen Fiscal:** Base Imponible: ${base_imponible:,.2f} | Exento: ${monto_exento:,.2f} | IVA ({alicuota_iva}%): ${monto_iva:,.2f} | Total Bruto: ${monto_bruto:,.2f}")
+                    st.info(f"📊 **Resumen Fiscal:** Base Imponible: ${base_imponible:,.2f} \vert{} Exento:${monto_exento:,.2f} | IVA ({alicuota_iva}%): ${monto_iva:,.2f} \vert{} Total Bruto:${monto_bruto:,.2f}")
                     st.divider()
                     st.markdown("#### 🏦 Datos Preliminares del Cobro / Referencia Bancaria (Opcional si es a crédito)")
                     
@@ -14075,8 +14075,8 @@ estado: {sel_data['estado']}""", language="yaml")
 
                     st.divider()
 
-                    # BOTÓN GLOBAL DE EMISIÓN (GUARDA AUTOMÁTICAMENTE EN LAS 3 TABLAS)
-                    if st.button("🚀 Emitir Factura y Registrar Automáticamente en los Tres Frentes", type="primary", use_container_width=True):
+                    # BOTÓN PARA GUARDAR LA ORDEN DE COBRANZA INICIAL
+                    if st.button("🚀 Guardar Orden de Cobranza", type="primary", use_container_width=True):
                         if nro_factura and nro_control:
                             try:
                                 conn_trans = conectar_db(db_actual)
@@ -14113,53 +14113,11 @@ estado: {sel_data['estado']}""", language="yaml")
                                         ref_banco_cobro if ref_banco_cobro else None, estado_inicial
                                     ))
 
-                                    # 1. Guardar en libro_ventas (Columnas exactas)
-                                    cursor.execute("""
-                                        INSERT INTO libro_ventas 
-                                        (fecha_factura, nombre_razon_social, rif, n_factura, n_control, total_ventas_con_iva, ventas_exentas, base_imponible, porcentaje_alicuota, debito_fiscal)
-                                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                                    """, (
-                                        fecha_emision, cli_info['razon_social'], cli_info['rif'], nro_factura, nro_control,
-                                        monto_bruto, monto_exento, base_imponible, alicuota_iva, monto_iva
-                                    ))
-
-                                    # 2. Guardar en asientos_contables (Columnas exactas)
-                                    import time
-                                    n_comprob_asiento = f"FACT-{nro_factura}-{int(time.time())}"
-                                    desc_asiento = f"Venta según Factura {nro_factura} - {cli_info['razon_social']}"
-                                    
-                                    cursor.execute("""
-                                        INSERT INTO asientos_contables (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber, bloqueado)
-                                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                                    """, (n_comprob_asiento, desc_asiento, fecha_emision, cli_info['cuenta'], f"CxC - {cli_info['razon_social']}", nro_factura, monto_bruto, 0.00, 1))
-
-                                    if base_imponible > 0:
-                                        cursor.execute("""
-                                            INSERT INTO asientos_contables (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber, bloqueado)
-                                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                                        """, (n_comprob_asiento, desc_asiento, fecha_emision, "401-01", "Ingresos por Ventas / Servicios", nro_factura, 0.00, base_imponible, 1))
-
-                                    if monto_iva > 0:
-                                        cursor.execute("""
-                                            INSERT INTO asientos_contables (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber, bloqueado)
-                                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                                        """, (n_comprob_asiento, desc_asiento, fecha_emision, "202-01", "Débito Fiscal IVA por Pagar", nro_factura, 0.00, monto_iva, 1))
-
-                                    # 3. Guardar en banco_movimientos (si hay referencia de cobro)
-                                    if ref_banco_cobro:
-                                        cursor.execute("""
-                                            INSERT INTO banco_movimientos (banco_nombre, cuenta_numero, fecha_movimiento, referencia, descripcion, monto, estado_conciliacion, asiento_id, fecha_importacion)
-                                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW())
-                                        """, (
-                                            banco_receptor if banco_receptor else "Banco Principal", "Principal", fecha_emision,
-                                            ref_banco_cobro, f"Cobro Factura {nro_factura}", monto_bruto, "Conciliado", None
-                                        ))
-
                                     conn_trans.commit()
                                     cursor.close()
                                     conn_trans.close()
 
-                                    st.success("✅ ¡Factura guardada y reflejada automáticamente en el Libro de Ventas, Asientos Contables y Movimientos Bancarios!")
+                                    st.success("✅ ¡Orden de cobranza guardada con éxito! Ya puedes procesarla en los frentes inferiores.")
                                     st.balloons()
                                     st.rerun()
                                 else:
@@ -14170,10 +14128,10 @@ estado: {sel_data['estado']}""", language="yaml")
                             st.warning("⚠️ Debes rellenar el Número de Factura y Control.")
 
                     # =========================================================================
-                    # 📊 PANEL DE VISUALIZACIÓN EN TIEMPO REAL (LOS TRES FRAMES LIMPIOS)
+                    # 📊 PANEL DE GESTIÓN POR FRENTES CON SU RESPECTIVO BOTÓN GUARDAR
                     # =========================================================================
                     st.divider()
-                    st.markdown("### 🔍 Registros en los Tres Frentes (Empresa: `" + str(db_actual) + "`)")
+                    st.markdown("### 🔍 Gestión por Frentes (Empresa: `" + str(db_actual) + "`)")
                     
                     sub_tab1, sub_tab2, sub_tab3, sub_tab4 = st.tabs([
                         "🧾 Órdenes de Cobranza", 
@@ -14184,6 +14142,9 @@ estado: {sel_data['estado']}""", language="yaml")
 
                     conn_vis = conectar_db(db_actual)
                     if conn_vis:
+                        # -------------------------------------------------------------
+                        # SUB-TAB 1: Órdenes de Cobranza
+                        # -------------------------------------------------------------
                         with sub_tab1:
                             st.markdown("#### Órdenes de Cobranza Registradas")
                             try:
@@ -14195,38 +14156,140 @@ estado: {sel_data['estado']}""", language="yaml")
                             except Exception:
                                 st.info("La tabla `ordenes_cobranza` aún no tiene datos o está por crearse.")
 
+                        # -------------------------------------------------------------
+                        # SUB-TAB 2: Libro de Ventas (Visualiza ordenes y botón Guardar)
+                        # -------------------------------------------------------------
                         with sub_tab2:
-                            st.markdown("#### 📖 Frame: Libro de Ventas")
+                            st.markdown("#### 📖 Libro de Ventas (Desde Órdenes de Cobranza)")
                             try:
-                                df_lv = ejecutar_consulta("SELECT * FROM libro_ventas ORDER BY id DESC LIMIT 20", conn_vis)
-                                if df_lv is not None and not df_lv.empty:
-                                    st.dataframe(df_lv, use_container_width=True)
-                                else:
-                                    st.info("No hay registros en el libro de ventas.")
-                            except Exception:
-                                st.info("Tabla `libro_ventas` vacía o pendiente.")
+                                df_oc_pend = ejecutar_consulta("SELECT id, fecha_emision, n_factura, n_control, rif_cliente, monto_bruto, base_imponible, porcentaje_alicuota, monto_iva, monto_exento FROM ordenes_cobranza ORDER BY id DESC LIMIT 10", conn_vis)
+                                if df_oc_pend is not None and not df_oc_pend.empty:
+                                    st.dataframe(df_oc_pend, use_container_width=True)
+                                    
+                                    sel_oc_id_lv = st.selectbox("Seleccione ID de Orden de Cobranza a guardar en Libro de Ventas", df_oc_pend['id'].tolist(), key="sel_lv")
+                                    selected_row_lv = df_oc_pend[df_oc_pend['id'] == sel_oc_id_lv].iloc[0]
+                                    
+                                    # Buscar razón social del cliente usando el RIF
+                                    r_cli = selected_row_lv['rif_cliente']
+                                    nom_rs = cli_info['razon_social'] if cli_info['rif'] == r_cli else "Cliente Comercial"
 
+                                    if st.button("💾 Guardar Factura en Libro de Ventas", key="btn_save_lv"):
+                                        try:
+                                            conn_lv = conectar_db(db_actual)
+                                            cur_lv = conn_lv.cursor()
+                                            cur_lv.execute("""
+                                                INSERT INTO libro_ventas 
+                                                (fecha_factura, nombre_razon_social, rif, n_factura, n_control, total_ventas_con_iva, ventas_exentas, base_imponible, porcentaje_alicuota, debito_fiscal)
+                                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                            """, (
+                                                selected_row_lv['fecha_emision'], nom_rs, r_cli,
+                                                selected_row_lv['n_factura'], selected_row_lv['n_control'],
+                                                selected_row_lv['monto_bruto'], selected_row_lv['monto_exento'],
+                                                selected_row_lv['base_imponible'], selected_row_lv['porcentaje_alicuota'],
+                                                selected_row_lv['monto_iva']
+                                            ))
+                                            conn_lv.commit()
+                                            cur_lv.close()
+                                            conn_lv.close()
+                                            st.success("✅ ¡Factura guardada exitosamente en el Libro de Ventas!")
+                                            st.rerun()
+                                        except Exception as err_ins_lv:
+                                            st.error(f"❌ Error al guardar en libro_ventas: {err_ins_lv}")
+                                else:
+                                    st.info("No hay órdenes de cobranza disponibles para el Libro de Ventas.")
+                            except Exception:
+                                st.info("Pendiente de registros en órdenes de cobranza.")
+
+                        # -------------------------------------------------------------
+                        # SUB-TAB 3: Asientos Contables (Visualiza ordenes y botón Guardar)
+                        # -------------------------------------------------------------
                         with sub_tab3:
-                            st.markdown("#### ⚖️ Frame: Asientos Contables")
+                            st.markdown("#### ⚖️ Asientos Contables (Desde Órdenes de Cobranza)")
                             try:
-                                df_ac = ejecutar_consulta("SELECT * FROM asientos_contables ORDER BY id DESC LIMIT 30", conn_vis)
-                                if df_ac is not None and not df_ac.empty:
-                                    st.dataframe(df_ac, use_container_width=True)
-                                else:
-                                    st.info("No hay asientos contables registrados.")
-                            except Exception:
-                                st.info("Tabla `asientos_contables` vacía o pendiente.")
+                                df_oc_ac = ejecutar_consulta("SELECT id, fecha_emision, n_factura, rif_cliente, monto_bruto, base_imponible, monto_iva FROM ordenes_cobranza ORDER BY id DESC LIMIT 10", conn_vis)
+                                if df_oc_ac is not None and not df_oc_ac.empty:
+                                    st.dataframe(df_oc_ac, use_container_width=True)
+                                    
+                                    sel_oc_id_ac = st.selectbox("Seleccione ID de Orden de Cobranza para generar Asiento Contable", df_oc_ac['id'].tolist(), key="sel_ac")
+                                    selected_row_ac = df_oc_ac[df_oc_ac['id'] == sel_oc_id_ac].iloc[0]
 
-                        with sub_tab4:
-                            st.markdown("#### 🏦 Frame: Movimientos Bancarios")
-                            try:
-                                df_bm = ejecutar_consulta("SELECT * FROM banco_movimientos ORDER BY id DESC LIMIT 20", conn_vis)
-                                if df_bm is not None and not df_bm.empty:
-                                    st.dataframe(df_bm, use_container_width=True)
+                                    if st.button("💾 Guardar Factura en Asientos Contables", key="btn_save_ac"):
+                                        try:
+                                            import time
+                                            conn_ac = conectar_db(db_actual)
+                                            cur_ac = conn_ac.cursor()
+                                            n_comp = f"FACT-{selected_row_ac['n_factura']}-{int(time.time())}"
+                                            desc_ast = f"Venta según Factura {selected_row_ac['n_factura']}"
+
+                                            # 1. Cuenta por Cobrar (Débito por el total bruto)
+                                            cur_ac.execute("""
+                                                INSERT INTO asientos_contables (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber, bloqueado)
+                                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                            """, (n_comp, desc_ast, selected_row_ac['fecha_emision'], cli_info['cuenta'], f"CxC Cliente", selected_row_ac['n_factura'], selected_row_ac['monto_bruto'], 0.00, 1))
+
+                                            # 2. Ingresos por Ventas (Haber por la base imponible)
+                                            if selected_row_ac['base_imponible'] > 0:
+                                                cur_ac.execute("""
+                                                    INSERT INTO asientos_contables (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber, bloqueado)
+                                                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                                """, (n_comp, desc_ast, selected_row_ac['fecha_emision'], "401-01", "Ingresos por Ventas / Servicios", selected_row_ac['n_factura'], 0.00, selected_row_ac['base_imponible'], 1))
+
+                                            # 3. Débito Fiscal IVA (Haber por el IVA)
+                                            if selected_row_ac['monto_iva'] > 0:
+                                                cur_ac.execute("""
+                                                    INSERT INTO asientos_contables (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber, bloqueado)
+                                                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                                """, (n_comp, desc_ast, selected_row_ac['fecha_emision'], "202-01", "Débito Fiscal IVA por Pagar", selected_row_ac['n_factura'], 0.00, selected_row_ac['monto_iva'], 1))
+
+                                            conn_ac.commit()
+                                            cur_ac.close()
+                                            conn_ac.close()
+                                            st.success("✅ ¡Asiento contable generado y guardado con éxito!")
+                                            st.rerun()
+                                        except Exception as err_ins_ac:
+                                            st.error(f"❌ Error al guardar en asientos_contables: {err_ins_ac}")
                                 else:
-                                    st.info("No hay movimientos bancarios registrados.")
+                                    st.info("No hay órdenes de cobranza disponibles para generar asientos contables.")
                             except Exception:
-                                st.info("Tabla `banco_movimientos` vacía o pendiente.")
+                                st.info("Pendiente de registros en órdenes de cobranza.")
+
+                        # -------------------------------------------------------------
+                        # SUB-TAB 4: Movimientos Bancarios (Visualiza ordenes y botón Guardar)
+                        # -------------------------------------------------------------
+                        with sub_tab4:
+                            st.markdown("#### 🏦 Movimientos Bancarios (Cobro de Facturas)")
+                            try:
+                                df_oc_bm = ejecutar_consulta("SELECT id, fecha_emision, n_factura, monto_bruto, referencia_banco FROM ordenes_cobranza WHERE referencia_banco IS NOT NULL AND referencia_banco != '' ORDER BY id DESC LIMIT 10", conn_vis)
+                                if df_oc_bm is not None and not df_oc_bm.empty:
+                                    st.dataframe(df_oc_bm, use_container_width=True)
+                                    
+                                    sel_oc_id_bm = st.selectbox("Seleccione ID de Orden de Cobranza para registrar el Movimiento Bancario", df_oc_bm['id'].tolist(), key="sel_bm")
+                                    selected_row_bm = df_oc_bm[df_oc_bm['id'] == sel_oc_id_bm].iloc[0]
+
+                                    if st.button("💾 Guardar Factura en Movimientos Bancarios", key="btn_save_bm"):
+                                        try:
+                                            conn_bm = conectar_db(db_actual)
+                                            cur_bm = conn_bm.cursor()
+                                            cur_bm.execute("""
+                                                INSERT INTO banco_movimientos (banco_nombre, cuenta_numero, fecha_movimiento, referencia, descripcion, monto, estado_conciliacion, asiento_id, fecha_importacion)
+                                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                                            """, (
+                                                banco_receptor if banco_receptor else "Banco Principal", "Principal",
+                                                selected_row_bm['fecha_emision'], selected_row_bm['referencia_banco'],
+                                                f"Cobro Factura {selected_row_bm['n_factura']}", selected_row_bm['monto_bruto'],
+                                                "Conciliado", None
+                                            ))
+                                            conn_bm.commit()
+                                            cur_bm.close()
+                                            conn_bm.close()
+                                            st.success("✅ ¡Movimiento bancario registrado y guardado con éxito!")
+                                            st.rerun()
+                                        except Exception as err_ins_bm:
+                                            st.error(f"❌ Error al guardar en banco_movimientos: {err_ins_bm}")
+                                else:
+                                    st.info("No hay órdenes de cobranza con referencia bancaria de pago registradas.")
+                            except Exception:
+                                st.info("Pendiente de registros con referencia bancaria.")
 
                         conn_vis.close()
 
