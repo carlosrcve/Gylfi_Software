@@ -13129,9 +13129,17 @@ estado: {sel_data['estado']}""", language="yaml")
             except Exception as e:
                 st.error(f"Error cargando datos de BD: {e}")
 
-            # --- INICIALIZAR ESTADO DE FLUJO POR FASES ---
+            # --- INICIALIZAR ESTADOS DE FLUJO Y CÁLCULO ---
             if "orden_guardada_exito" not in st.session_state:
                 st.session_state.orden_guardada_exito = False
+
+            # Inicializar variables de cálculo en session_state para control total
+            if "s_base" not in st.session_state: st.session_state.s_base = 0.0
+            if "s_exento" not in st.session_state: st.session_state.s_exento = 0.0
+            if "s_alicuota" not in st.session_state: st.session_state.s_alicuota = 16.0
+            if "s_porc_ret_iva" not in st.session_state: st.session_state.s_porc_ret_iva = 75.0
+            if "s_porc_islr" not in st.session_state: st.session_state.s_porc_islr = 1.0
+            if "s_sustraendo" not in st.session_state: st.session_state.s_sustraendo = 0.0
 
             # --- FASE 1: EMITIR NUEVA ORDEN DE PAGO (SIEMPRE VISIBLE PRIMERO) ---
             st.markdown("### ✍️ Emitir Nueva Orden de Pago")
@@ -13158,11 +13166,13 @@ estado: {sel_data['estado']}""", language="yaml")
                 with col_f1_3:
                     alicuota_iva_form = st.selectbox("Alícuota IVA", options=[16.0, 8.0, 31.0, 0.0], format_func=lambda x: f"{x}%", key="f1_alicuota")
                 with col_f1_4:
-                    calc_iva_val = base_imponible_form * (alicuota_iva_form / 100.0)
-                    monto_iva_form = st.number_input("Monto IVA (Calculado)", value=calc_iva_val, min_value=0.0, format="%.2f", key="f1_iva_calc_input")
+                    # CÁLCULO AUTOMÁTICO DE IVA
+                    monto_iva_calculado = base_imponible_form * (alicuota_iva_form / 100.0)
+                    st.metric(label="Monto IVA (Calculado)", value=f"{monto_iva_calculado:,.2f}")
 
-                calc_bruto_val = base_imponible_form + monto_exento_form + monto_iva_form
-                monto_bruto_form = st.number_input("Monto Bruto / Total Factura (Calculado)", value=calc_bruto_val, min_value=0.0, format="%.2f", key="f1_bruto_calc_input")
+                # CÁLCULO AUTOMÁTICO DE MONTO BRUTO
+                monto_bruto_calculado = base_imponible_form + monto_exento_form + monto_iva_calculado
+                st.metric(label="Monto Bruto / Total Factura (Calculado)", value=f"{monto_bruto_calculado:,.2f}")
                 
                 st.markdown("---")
 
@@ -13172,8 +13182,8 @@ estado: {sel_data['estado']}""", language="yaml")
                 with col_f2_1:
                     porcentaje_ret_iva = st.selectbox("Porcentaje Retención IVA", options=[75.0, 100.0, 25.0, 50.0], format_func=lambda x: f"{x}%", key="f2_porc_ret_iva")
                 with col_f2_2:
-                    calc_ret_iva_val = monto_iva_form * (porcentaje_ret_iva / 100.0)
-                    retencion_iva_form = st.number_input("Monto Retención IVA (Calculado)", value=calc_ret_iva_val, min_value=0.0, format="%.2f", key="f2_ret_iva_calc_input")
+                    retencion_iva_calculada = monto_iva_calculado * (porcentaje_ret_iva / 100.0)
+                    st.metric(label="Monto Retención IVA (Calculado)", value=f"{retencion_iva_calculada:,.2f}")
                 
                 st.markdown("---")
 
@@ -13187,14 +13197,14 @@ estado: {sel_data['estado']}""", language="yaml")
                 with col_f3_3:
                     islr_sustraendo_form = st.number_input("Sustraendo ISLR", min_value=0.0, format="%.2f", key="f3_sustraendo")
                 with col_f3_4:
-                    calc_islr_val = max(0.0, (base_imponible_form * (islr_porcentaje_form / 100.0)) - islr_sustraendo_form)
-                    retencion_islr_form = st.number_input("Monto Retención ISLR Final", value=calc_islr_val, min_value=0.0, format="%.2f", key="f3_ret_islr_input")
+                    retencion_islr_calculada = max(0.0, (base_imponible_form * (islr_porcentaje_form / 100.0)) - islr_sustraendo_form)
+                    st.metric(label="Monto Retención ISLR Final", value=f"{retencion_islr_calculada:,.2f}")
 
                 st.markdown("---")
                 
                 # --- 4TO FRAME: MONTO NETO Y OBSERVACIONES ---
                 st.markdown("#### 4️⃣ Frame: Cálculo del Monto Neto a Pagar")
-                monto_neto_calculado = monto_bruto_form - retencion_islr_form - retencion_iva_form
+                monto_neto_calculado = monto_bruto_calculado - retencion_islr_calculada - retencion_iva_calculada
                 
                 col_f4_1, col_f4_2 = st.columns(2)
                 with col_f4_1:
@@ -13212,7 +13222,7 @@ estado: {sel_data['estado']}""", language="yaml")
                     btn_guardar_op = st.button("💾 Guardar y Registrar Orden de Pago", type="primary", key="btn_guardar_principal", use_container_width=True)
 
                 if btn_calcular:
-                    st.toast("✅ ¡Cálculos actualizados al instante!", icon="🧮")
+                    st.toast("✅ ¡Cálculos recalculados y sincronizados!", icon="🧮")
                     st.rerun()
 
                 if btn_guardar_op:
@@ -13239,13 +13249,13 @@ estado: {sel_data['estado']}""", language="yaml")
                                     str(info_prov_form['id_interno']),
                                     str(nro_factura_form),
                                     str(nro_control_form),
-                                    float(monto_bruto_form),
+                                    float(monto_bruto_calculado),
                                     float(monto_exento_form),
                                     float(base_imponible_form),
                                     float(alicuota_iva_form),
-                                    float(monto_iva_form),
-                                    float(retencion_islr_form),
-                                    float(retencion_iva_form),
+                                    float(monto_iva_calculado),
+                                    float(retencion_islr_calculada),
+                                    float(retencion_iva_calculada),
                                     float(monto_neto_calculado),
                                     'Pendiente',
                                     str(fecha_emision_form),
