@@ -12848,7 +12848,7 @@ estado: {sel_data['estado']}""", language="yaml")
         
         with tab1:
             st.markdown("### 📋 Registro y Configuración de Proveedores (Tesorería)")
-        
+            
             # --- BLINDAJE Y CREACIÓN DE LA TABLA NUEVA 'proveedores_carga' ---
             try:
                 conn_p = conectar_db(db_actual)
@@ -12883,7 +12883,7 @@ estado: {sel_data['estado']}""", language="yaml")
             except Exception as ex_prov:
                 st.warning(f"Aviso en tabla proveedores_carga: {ex_prov}")
 
-            # --- CARGAR DATOS DESDE LA TABLA HISTÓRICA 'proveedores' ---
+            # --- CARGAR DATOS DESDE LA TABLA HISTÓRICA 'proveedores' (Catálogo Base) ---
             lista_maestros = []
             dict_maestros = {}
             try:
@@ -12904,42 +12904,114 @@ estado: {sel_data['estado']}""", language="yaml")
             except Exception as e:
                 st.info("ℹ️ La tabla histórica 'proveedores' no devolvió registros o no existe en esta base de datos.")
 
+            # --- CARGAR DATOS DESDE 'proveedores_carga' (Proveedores ya guardados previamente) ---
+            lista_cargados = []
+            dict_cargados = {}
+            try:
+                conn_c = conectar_db(db_actual)
+                if conn_c:
+                    df_cargados = ejecutar_consulta("SELECT id, nombre, rif, codigo_cuenta, descripcion_cuenta, telefono, email, banco, nro_cuenta, tipo_cuenta FROM proveedores_carga WHERE empresa_db = %s ORDER BY nombre ASC", conn_c, params=(str(db_actual),))
+                    conn_c.close()
+                    if df_cargados is not None and not df_cargados.empty:
+                        for _, row in df_cargados.iterrows():
+                            label_c = f"💾 [Guardado] {row['nombre']} (RIF: {row['rif']})"
+                            lista_cargados.append(label_c)
+                            dict_cargados[label_c] = {
+                                "nombre": row['nombre'] or "",
+                                "rif": row['rif'] or "",
+                                "codigo_cuenta": row['codigo_cuenta'] or "",
+                                "descripcion_cuenta": row['descripcion_cuenta'] or "",
+                                "telefono": row['telefono'] or "",
+                                "email": row['email'] or "",
+                                "banco": row['banco'] or "Banesco",
+                                "nro_cuenta": row['nro_cuenta'] or "",
+                                "tipo_cuenta": row['tipo_cuenta'] or "Corriente"
+                            }
+            except Exception as e:
+                pass
+
+            # --- GESTIÓN DE SESSION STATE PARA AUTOCOMPLETAR ---
+            if "prov_form_nombre" not in st.session_state:
+                st.session_state["prov_form_nombre"] = ""
+            if "prov_form_rif" not in st.session_state:
+                st.session_state["prov_form_rif"] = ""
+            if "prov_form_cod_cta" not in st.session_state:
+                st.session_state["prov_form_cod_cta"] = ""
+            if "prov_form_desc_cta" not in st.session_state:
+                st.session_state["prov_form_desc_cta"] = ""
+            if "prov_form_tel" not in st.session_state:
+                st.session_state["prov_form_tel"] = ""
+            if "prov_form_email" not in st.session_state:
+                st.session_state["prov_form_email"] = ""
+            if "prov_form_banco" not in st.session_state:
+                st.session_state["prov_form_banco"] = "Banesco"
+            if "prov_form_nro_cta" not in st.session_state:
+                st.session_state["prov_form_nro_cta"] = ""
+            if "prov_form_tipo_cta" not in st.session_state:
+                st.session_state["prov_form_tipo_cta"] = "Corriente"
+
+            # --- SECCIÓN DE AUTORELLENO RÁPIDO DESDE PROVEEDORES YA GUARDADOS ---
+            if lista_cargados:
+                with st.expander("⚡ Autocompletar con Proveedores Registrados Anteriormente", expanded=False):
+                    sel_autocompletar = st.selectbox("Seleccione un proveedor guardado para rellenar el formulario:", lista_cargados)
+                    if st.button("🔄 Cargar datos en el formulario"):
+                        datos_auto = dict_cargados.get(sel_autocompletar, {})
+                        st.session_state["prov_form_nombre"] = datos_auto.get("nombre", "")
+                        st.session_state["prov_form_rif"] = datos_auto.get("rif", "")
+                        st.session_state["prov_form_cod_cta"] = datos_auto.get("codigo_cuenta", "")
+                        st.session_state["prov_form_desc_cta"] = datos_auto.get("descripcion_cuenta", "")
+                        st.session_state["prov_form_tel"] = datos_auto.get("telefono", "")
+                        st.session_state["prov_form_email"] = datos_auto.get("email", "")
+                        st.session_state["prov_form_banco"] = datos_auto.get("banco", "Banesco")
+                        st.session_state["prov_form_nro_cta"] = datos_auto.get("nro_cuenta", "")
+                        st.session_state["prov_form_tipo_cta"] = datos_auto.get("tipo_cuenta", "Corriente")
+                        st.success("¡Datos cargados en el formulario exitosamente!")
+                        st.rerun()
+
             # --- FORMULARIO DE REGISTRO HACIA 'proveedores_carga' ---
-            with st.form("form_nuevo_proveedor_carga", clear_on_submit=True):
+            with st.form("form_nuevo_proveedor_carga", clear_on_submit=False):
                 col_p1, col_p2 = st.columns(2)
                 
                 with col_p1:
-                    st.markdown("#### 🏢 Datos Maestros (Desde la tabla 'proveedores')")
+                    st.markdown("#### 🏢 Datos de Identificación y Contabilidad")
+                    
+                    # Opción auxiliar por si quiere jalar del maestro histórico
                     if lista_maestros:
-                        prov_seleccionado = st.selectbox("Seleccionar Proveedor Registrado", lista_maestros)
-                        
-                        datos_sel = dict_maestros.get(prov_seleccionado, {})
-                        nombre_prov = datos_sel.get("razon_social", "")
-                        rif_prov = datos_sel.get("rif", "")
-                        cod_cuenta_prov = datos_sel.get("codigo_cuenta", "")
-                        desc_cuenta_prov = datos_sel.get("descripcion_cuenta", "")
-                        
-                        st.info(f"📌 **Cuenta Contable:** `{cod_cuenta_prov}` - {desc_cuenta_prov}\n\n🆔 **RIF:** `{rif_prov}`")
-                    else:
-                        st.warning("⚠️ No se encontraron registros en la tabla 'proveedores'. Ingresa los datos manualmente.")
-                        nombre_prov = st.text_input("Nombre / Razón Social del Proveedor").strip()
-                        rif_prov = st.text_input("RIF o Documento de Identidad (ej: J-12345678-9)").strip()
-                        cod_cuenta_prov = st.text_input("Código de Cuenta Contable").strip()
-                        desc_cuenta_prov = st.text_input("Descripción de Cuenta Contable").strip()
+                        prov_seleccionado = st.selectbox("📥 O importar desde catálogo 'proveedores'", ["-- Seleccione --"] + lista_maestros)
+                        if prov_seleccionado != "-- Seleccione --":
+                            datos_sel = dict_maestros.get(prov_seleccionado, {})
+                            st.session_state["prov_form_nombre"] = datos_sel.get("razon_social", "")
+                            st.session_state["prov_form_rif"] = datos_sel.get("rif", "")
+                            st.session_state["prov_form_cod_cta"] = datos_sel.get("codigo_cuenta", "")
+                            st.session_state["prov_form_desc_cta"] = datos_sel.get("descripcion_cuenta", "")
 
-                    telefono_prov = st.text_input("Teléfono de Contacto").strip()
-                    email_prov = st.text_input("Correo Electrónico").strip()
+                    nombre_prov = st.text_input("Nombre / Razón Social del Proveedor", value=st.session_state["prov_form_nombre"])
+                    rif_prov = st.text_input("RIF o Documento de Identidad (ej: J-12345678-9)", value=st.session_state["prov_form_rif"])
+                    cod_cuenta_prov = st.text_input("Código de Cuenta Contable", value=st.session_state["prov_form_cod_cta"])
+                    desc_cuenta_prov = st.text_input("Descripción de Cuenta Contable", value=st.session_state["prov_form_desc_cta"])
+
+                    telefono_prov = st.text_input("Teléfono de Contacto", value=st.session_state["prov_form_tel"])
+                    email_prov = st.text_input("Correo Electrónico", value=st.session_state["prov_form_email"])
                     
                 with col_p2:
                     st.markdown("#### 🏦 Datos Bancarios y Destino")
-                    banco_prov = st.selectbox("Banco Destino", ["Banesco", "Mercantil", "Banco del Caribe","Banplus", "Banco Activo", "Banco del Tesoro", "Exterior", "Provincial", "BOD / 100% Banco", "Banco de Venezuela", "BNC", "Otros / Extranjero"])
-                    nro_cuenta_prov = st.text_input("Número de Cuenta (20 dígitos)").strip()
-                    tipo_cuenta_prov = st.selectbox("Tipo de Cuenta", ["Corriente", "Ahorro", "Divisas"])
+                    
+                    lista_bancos = ["Banesco", "Mercantil", "Banco del Caribe", "Banplus", "Banco Activo", "Banco del Tesoro", "Exterior", "Provincial", "BOD / 100% Banco", "Banco de Venezuela", "BNC", "Otros / Extranjero"]
+                    banco_actual = st.session_state["prov_form_banco"]
+                    idx_banco = lista_bancos.index(banco_actual) if banco_actual in lista_bancos else 0
+                    banco_prov = st.selectbox("Banco Destino", lista_bancos, index=idx_banco)
+
+                    nro_cuenta_prov = st.text_input("Número de Cuenta (20 dígitos)", value=st.session_state["prov_form_nro_cta"])
+                    
+                    lista_tipos_cta = ["Corriente", "Ahorro", "Divisas"]
+                    tipo_actual = st.session_state["prov_form_tipo_cta"]
+                    idx_tipo = lista_tipos_cta.index(tipo_actual) if tipo_actual in lista_tipos_cta else 0
+                    tipo_cuenta_prov = st.selectbox("Tipo de Cuenta", lista_tipos_cta, index=idx_tipo)
                     
                 btn_guardar_prov = st.form_submit_button("💾 Guardar en Tabla Proveedores Carga", type="primary")
                 
                 if btn_guardar_prov:
-                    if nombre_prov and rif_prov:
+                    if nombre_prov.strip() and rif_prov.strip():
                         try:
                             conn_ins = conectar_db(db_actual)
                             cursor_ins = conn_ins.cursor() if conn_ins else None
@@ -12951,19 +13023,31 @@ estado: {sel_data['estado']}""", language="yaml")
                                 """
                                 cursor_ins.execute(query_ins, (
                                     str(db_actual), 
-                                    nombre_prov, 
-                                    rif_prov, 
-                                    cod_cuenta_prov, 
-                                    desc_cuenta_prov, 
-                                    telefono_prov, 
-                                    email_prov, 
+                                    nombre_prov.strip(), 
+                                    rif_prov.strip(), 
+                                    cod_cuenta_prov.strip(), 
+                                    desc_cuenta_prov.strip(), 
+                                    telefono_prov.strip(), 
+                                    email_prov.strip(), 
                                     banco_prov, 
-                                    nro_cuenta_prov, 
+                                    nro_cuenta_prov.strip(), 
                                     tipo_cuenta_prov
                                 ))
                                 conn_ins.commit()
                                 cursor_ins.close()
                                 conn_ins.close()
+                                
+                                # Limpiar variables del state al guardar con éxito
+                                st.session_state["prov_form_nombre"] = ""
+                                st.session_state["prov_form_rif"] = ""
+                                st.session_state["prov_form_cod_cta"] = ""
+                                st.session_state["prov_form_desc_cta"] = ""
+                                st.session_state["prov_form_tel"] = ""
+                                st.session_state["prov_form_email"] = ""
+                                st.session_state["prov_form_banco"] = "Banesco"
+                                st.session_state["prov_form_nro_cta"] = ""
+                                st.session_state["prov_form_tipo_cta"] = "Corriente"
+
                                 st.success(f"✅ ¡Proveedor '{nombre_prov}' guardado con éxito en la tabla `proveedores_carga`!")
                                 st.rerun()
                         except Exception as e:
@@ -12987,7 +13071,6 @@ estado: {sel_data['estado']}""", language="yaml")
                         st.info("ℹ️ La tabla `proveedores_carga` está vacía para esta empresa actualmente.")
             except Exception as e:
                 st.error(f"Error al cargar la lista: {e}")
-            
         with tab2:
             st.markdown("### 🧾 Gestión y Generación de Órdenes de Pago y Cruce")
 
