@@ -13518,9 +13518,9 @@ estado: {sel_data['estado']}""", language="yaml")
                                         st.error(f"❌ Error al guardar movimiento bancario: {err_b}")
 
                 except Exception as err_hist:
-            st.error(f"Error cargando historial de órdenes de pago: {err_hist}")
+                    st.error(f"Error cargando historial de órdenes de pago: {err_hist}")
 
-        
+
         with tab3:
             st.markdown("### 🔗 Conciliación, Cruce Bancario y Emisión de Comprobante")
             st.markdown("Cruza las órdenes de pago pendientes con las referencias del estado de cuenta bancario para cerrar el ciclo y generar el comprobante oficial.")
