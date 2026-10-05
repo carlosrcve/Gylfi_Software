@@ -13129,15 +13129,15 @@ estado: {sel_data['estado']}""", language="yaml")
             except Exception as e:
                 st.error(f"Error cargando datos de BD: {e}")
 
-            # --- INICIALIZAR ESTADOS DE CÁLCULO Y FLUJO ---
+            # --- INICIALIZAR ESTADOS DE FLUJO ---
             if "orden_guardada_exito" not in st.session_state:
                 st.session_state.orden_guardada_exito = False
-            if "calc_ejecutado" not in st.session_state:
-                st.session_state.calc_ejecutado = False
 
             # --- FASE 1: EMITIR NUEVA ORDEN DE PAGO (SIEMPRE VISIBLE PRIMERO) ---
             st.markdown("### ✍️ Emitir Nueva Orden de Pago")
             
+            # Manejo de inputs fuera del form tradicional o con variables de sesión para cálculo inmediato, 
+            # o bien usando st.form con los campos estructurados correctamente:
             with st.form("form_emision_orden_pago", clear_on_submit=False):
                 st.markdown("#### 1️⃣ Frame: Datos Básicos, Proveedor y Montos de la Factura")
                 
@@ -13162,6 +13162,7 @@ estado: {sel_data['estado']}""", language="yaml")
                 with col_f1_3:
                     alicuota_iva_form = st.selectbox("Alícuota IVA", options=[16.0, 8.0, 31.0, 0.0], format_func=lambda x: f"{x}%", key="f1_alicuota")
                 with col_f1_4:
+                    # Cálculo automático en tiempo real dentro del formulario
                     calc_iva_val = base_imponible_form * (alicuota_iva_form / 100.0)
                     monto_iva_form = st.number_input("Monto IVA (Calculado)", value=calc_iva_val, min_value=0.0, format="%.2f", key="f1_iva_calc_input")
 
@@ -13208,8 +13209,8 @@ estado: {sel_data['estado']}""", language="yaml")
 
                 st.markdown("---")
                 
-                # Botón interno de cálculo dentro del formulario para refrescar/validar montos
-                btn_calcular_valores = st.form_submit_button("🧮 Calcular / Refrescar Montos", use_container_width=False)
+                # Botón explícito para recalcular (en Streamlit dentro de un form, al hacer clic se actualizan los valores de los number_input)
+                btn_calcular_valores = st.form_submit_button("🧮 Calcular / Refrescar Montos", use_container_width=True)
                 
                 st.markdown("---")
                 
@@ -13258,7 +13259,6 @@ estado: {sel_data['estado']}""", language="yaml")
                                 cursor.close()
                                 conn_ins.close()
                                 
-                                # Activamos la bandera para mostrar las siguientes fases abajo
                                 st.session_state.orden_guardada_exito = True
                                 st.success("🎉 ¡Orden de pago guardada con éxito en la BD!")
                                 st.rerun()
@@ -13335,7 +13335,6 @@ estado: {sel_data['estado']}""", language="yaml")
                             key="select_op_final_v2"
                         )
                         
-                        # --- FASE 3: CONFIGURACIÓN DE CUENTAS (SOLO SI SE SELECCIONA UNA ORDEN DEL HISTORIAL) ---
                         if seleccion_op_key and seleccion_op_key != "-- Selecciona una orden --":
                             sel_data = opciones_ordenes[seleccion_op_key]
                             
