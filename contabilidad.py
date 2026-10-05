@@ -14046,7 +14046,8 @@ estado: {sel_data['estado']}""", language="yaml")
                     with col_m5:
                         monto_bruto = st.number_input("9) Monto Total Factura", value=calc_bruto, min_value=0.0, format="%.2f", disabled=True)
 
-                    st.info(f"📊 **Resumen Fiscal:** Base Imponible: ${base_imponible:,.2f} | Exento: ${monto_exento:,.2f} | IVA ({alicuota_iva}%): ${monto_iva:,.2f} | Total Bruto: ${monto_bruto:,.2f}")
+                    st.info(f"📊 Resumen Fiscal: Base Imponible: ${base_imponible:,.2f} | Exento:${monto_exento:,.2f} | IVA ({alicuota_iva}%): ${monto_iva:,.2f} | Total Bruto:${monto_bruto:,.2f}")
+
                     st.divider()
                     st.markdown("#### 🏦 Datos Preliminares del Cobro / Referencia Bancaria (Opcional si es a crédito)")
                     
@@ -14078,7 +14079,7 @@ estado: {sel_data['estado']}""", language="yaml")
 
                     st.divider()
 
-                    # BOTÓN DE ACCIÓN GLOBAL CON LOS 3 DISPARADORES ADAPTADOS A LAS TABLAS
+                    # BOTÓN DE ACCIÓN GLOBAL (EMISIÓN AUTOMÁTICA DE LOS 3 FRENTES)
                     if st.button("🚀 Emitir Factura, Actualizar Libro de Ventas y Asiento Contable", type="primary", use_container_width=True):
                         if nro_factura and nro_control:
                             try:
@@ -14106,7 +14107,6 @@ estado: {sel_data['estado']}""", language="yaml")
                                         )
                                     """)
 
-                                    # B. Insertar en ordenes_cobranza
                                     q_ins_oc = """
                                         INSERT INTO ordenes_cobranza 
                                         (empresa_db, rif_cliente, n_factura, n_control, fecha_emision, base_imponible, monto_exento, porcentaje_alicuota, monto_iva, monto_bruto, referencia_banco, estado_cobro)
@@ -14119,7 +14119,7 @@ estado: {sel_data['estado']}""", language="yaml")
                                         ref_banco_cobro if ref_banco_cobro else None, estado_inicial
                                     ))
 
-                                    # FRAME 1: Insertar en libro_ventas (adaptado a sus columnas exactas)
+                                    # 1. Inserción en libro_ventas (Columnas exactas)
                                     q_ins_lv = """
                                         INSERT INTO libro_ventas 
                                         (fecha_factura, nombre_razon_social, rif, n_factura, n_control, total_ventas_con_iva, ventas_exentas, base_imponible, porcentaje_alicuota, debito_fiscal)
@@ -14130,115 +14130,198 @@ estado: {sel_data['estado']}""", language="yaml")
                                         monto_bruto, monto_exento, base_imponible, alicuota_iva, monto_iva
                                     ))
 
-                                    # FRAME 2: Insertar Asientos Contables (adaptado a la tabla asientos_contables)
+                                    # 2. Inserción en asientos_contables (Columnas exactas)
                                     import time
                                     n_comprob_asiento = f"FACT-{nro_factura}-{int(time.time())}"
-                                    desc_asiento = f"Venta de bienes/servicios según Factura Nro {nro_factura} a {cli_info['razon_social']}"
+                                    desc_asiento = f"Venta según Factura {nro_factura} - {cli_info['razon_social']}"
                                     
-                                    # Línea 1: Cuenta por Cobrar (Debe - Monto Bruto)
                                     cursor.execute("""
                                         INSERT INTO asientos_contables (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber, bloqueado)
                                         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                                     """, (n_comprob_asiento, desc_asiento, fecha_emision, cli_info['cuenta'], f"CxC - {cli_info['razon_social']}", nro_factura, monto_bruto, 0.00, 1))
 
-                                    # Línea 2: Ingreso por Ventas (Haber - Base Imponible)
                                     if base_imponible > 0:
                                         cursor.execute("""
                                             INSERT INTO asientos_contables (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber, bloqueado)
                                             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                                         """, (n_comprob_asiento, desc_asiento, fecha_emision, "401-01", "Ingresos por Ventas / Servicios", nro_factura, 0.00, base_imponible, 1))
 
-                                    # Línea 3: Débito Fiscal IVA (Haber - Monto IVA)
                                     if monto_iva > 0:
                                         cursor.execute("""
                                             INSERT INTO asientos_contables (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber, bloqueado)
                                             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                                         """, (n_comprob_asiento, desc_asiento, fecha_emision, "202-01", "Débito Fiscal IVA por Pagar", nro_factura, 0.00, monto_iva, 1))
 
-                                    # FRAME 3: Si colocó referencia bancaria, registrar en banco_movimientos (adaptado a sus columnas exactas)
+                                    # 3. Inserción en banco_movimientos (Columnas exactas + asiento_id y fecha_importacion)
                                     if ref_banco_cobro:
                                         cursor.execute("""
-                                            INSERT INTO banco_movimientos (banco_nombre, cuenta_numero, fecha_movimiento, referencia, descripcion, monto, estado_conciliacion)
-                                            VALUES (%s, %s, %s, %s, %s, %s, %s)
+                                            INSERT INTO banco_movimientos (banco_nombre, cuenta_numero, fecha_movimiento, referencia, descripcion, monto, estado_conciliacion, asiento_id, fecha_importacion)
+                                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW())
                                         """, (
                                             banco_receptor if banco_receptor else "Banco Principal", "Principal", fecha_emision,
-                                            ref_banco_cobro, f"Cobro de Factura {nro_factura} - {cli_info['razon_social']}", monto_bruto, "Conciliado"
+                                            ref_banco_cobro, f"Cobro Factura {nro_factura}", monto_bruto, "Conciliado", None
                                         ))
 
                                     conn_trans.commit()
                                     cursor.close()
                                     conn_trans.close()
 
-                                    st.success(f"✅ ¡Factura #{nro_factura} emitida con éxito! Se han guardado los registros en el Libro de Ventas, Asientos Contables y Tesorería.")
+                                    st.success("✅ ¡Factura emitida y registrada en todos los frentes con éxito!")
                                     st.balloons()
                                     st.rerun()
-
                                 else:
-                                    st.error("❌ No se pudo establecer conexión con la base de datos para guardar la transacción.")
-
+                                    st.error("❌ Error de conexión con la base de datos.")
                             except Exception as err_fac:
-                                st.error(f"❌ Error crítico al procesar la factura y sus asientos: {err_fac}")
+                                st.error(f"❌ Error al procesar: {err_fac}")
                         else:
-                            st.warning("⚠️ Debes rellenar obligatoriamente el Número de Factura y el Número de Control fiscal.")
+                            st.warning("⚠️ Debes rellenar el Número de Factura y Control.")
 
                     # =========================================================================
-                    # 📊 PANEL DE VISUALIZACIÓN EN TIEMPO REAL
+                    # 📊 PANEL DE VISUALIZACIÓN Y GESTIÓN MANUAL POR CADA TABLA (CON BOTONES GUARDAR)
                     # =========================================================================
                     st.divider()
-                    st.markdown("### 🔍 Registros Recientes en los Tres Frentes (Empresa: `" + str(db_actual) + "`)")
+                    st.markdown("### 🔍 Gestión y Visualización Detallada por Tablas (Empresa: `" + str(db_actual) + "`)")
                     
                     sub_tab1, sub_tab2, sub_tab3, sub_tab4 = st.tabs([
                         "🧾 Órdenes de Cobranza", 
-                        "📖 Libro de Ventas", 
-                        "⚖️ Asientos Contables", 
-                        "🏦 Movimientos Bancarios"
+                        "📖 Libro de Ventas (Manual/Detalle)", 
+                        "⚖️ Asientos Contables (Manual/Detalle)", 
+                        "🏦 Movimientos Bancarios (Manual/Detalle)"
                     ])
 
                     conn_vis = conectar_db(db_actual)
                     if conn_vis:
+                        # --- SUBTAB 1: Órdenes de Cobranza ---
                         with sub_tab1:
-                            st.markdown("#### Órdenes de Cobranza Registradas")
+                            st.markdown("#### Órdenes de Cobranza")
                             try:
                                 df_oc = ejecutar_consulta("SELECT id, n_factura, n_control, fecha_emision, rif_cliente, monto_bruto, estado_cobro, referencia_banco FROM ordenes_cobranza ORDER BY id DESC LIMIT 20", conn_vis)
                                 if df_oc is not None and not df_oc.empty:
                                     st.dataframe(df_oc, use_container_width=True)
                                 else:
-                                    st.info("No hay órdenes de cobranza registradas todavía.")
-                            except Exception as e:
-                                st.info("La tabla `ordenes_cobranza` aún no tiene datos o está por crearse.")
+                                    st.info("Sin registros.")
+                            except Exception:
+                                st.info("Tabla pendiente o vacía.")
 
+                        # --- SUBTAB 2: Libro de Ventas (Con formulario y Botón Guardar adaptado a sus columnas) ---
                         with sub_tab2:
-                            st.markdown("#### Libro de Ventas (Fiscal)")
-                            try:
-                                df_lv = ejecutar_consulta("SELECT id, fecha_factura, n_factura, n_control, rif, nombre_razon_social, base_imponible, debito_fiscal, total_ventas_con_iva FROM libro_ventas ORDER BY id DESC LIMIT 20", conn_vis)
-                                if df_lv is not None and not df_lv.empty:
-                                    st.dataframe(df_lv, use_container_width=True)
-                                else:
-                                    st.info("No hay registros en el libro de ventas.")
-                            except Exception as e:
-                                st.info("Libro de ventas vacío o pendiente de primer registro.")
+                            st.markdown("#### 📖 Libro de Ventas - Registro Manual / Tabla Oficial")
+                            with st.form("form_guardar_libro_ventas"):
+                                f_lv_fecha = st.date_input("fecha_factura")
+                                f_lv_nombre = st.text_input("nombre_razon_social")
+                                f_lv_rif = st.text_input("rif")
+                                f_lv_nfac = st.text_input("n_factura")
+                                f_lv_ncon = st.text_input("n_control")
+                                f_lv_total = st.number_input("total_ventas_con_iva", format="%.2f")
+                                f_lv_exento = st.number_input("ventas_exentas", format="%.2f")
+                                f_lv_base = st.number_input("base_imponible", format="%.2f")
+                                f_lv_alic = st.number_input("porcentaje_alicuota", value=16.0, format="%.2f")
+                                f_lv_debito = st.number_input("debito_fiscal", format="%.2f")
+                                
+                                submit_lv = st.form_submit_button("💾 Guardar en Libro de Ventas")
+                                if submit_lv:
+                                    try:
+                                        conn_ins = conectar_db(db_actual)
+                                        cur_ins = conn_ins.cursor()
+                                        cur_ins.execute("""
+                                            INSERT INTO libro_ventas (fecha_factura, nombre_razon_social, rif, n_factura, n_control, total_ventas_con_iva, ventas_exentas, base_imponible, porcentaje_alicuota, debito_fiscal)
+                                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                        """, (f_lv_fecha, f_lv_nombre, f_lv_rif, f_lv_nfac, f_lv_ncon, f_lv_total, f_lv_exento, f_lv_base, f_lv_alic, f_lv_debito))
+                                        conn_ins.commit()
+                                        cur_ins.close()
+                                        conn_ins.close()
+                                        st.success("✅ ¡Registro guardado exitosamente en libro_ventas!")
+                                        st.rerun()
+                                    except Exception as ex_lv:
+                                        st.error(f"Error al guardar: {ex_lv}")
 
+                            st.markdown("---")
+                            try:
+                                df_lv_all = ejecutar_consulta("SELECT * FROM libro_ventas ORDER BY id DESC LIMIT 20", conn_vis)
+                                if df_lv_all is not None and not df_lv_all.empty:
+                                    st.dataframe(df_lv_all, use_container_width=True)
+                            except Exception:
+                                pass
+
+                        # --- SUBTAB 3: Asientos Contables (Con formulario y Botón Guardar adaptado a sus columnas) ---
                         with sub_tab3:
-                            st.markdown("#### Últimos Asientos Contables Generados")
-                            try:
-                                df_ac = ejecutar_consulta("SELECT id, n_comprobante, fecha, cuenta_contable, referencia, debe, haber, descripcion FROM asientos_contables ORDER BY id DESC LIMIT 30", conn_vis)
-                                if df_ac is not None and not df_ac.empty:
-                                    st.dataframe(df_ac, use_container_width=True)
-                                else:
-                                    st.info("No hay asientos contables registrados.")
-                            except Exception as e:
-                                st.info("Tabla de asientos contables vacía.")
+                            st.markdown("#### ⚖️ Asientos Contables - Registro Manual / Tabla Oficial")
+                            with st.form("form_guardar_asientos"):
+                                f_ac_comp = st.text_input("n_comprobante")
+                                f_ac_desc = st.text_input("descripcion")
+                                f_ac_fecha = st.date_input("fecha")
+                                f_ac_plan = st.text_input("plan_cuentas", value="401-01")
+                                f_ac_cta = st.text_input("cuenta_contable")
+                                f_ac_ref = st.text_input("referencia")
+                                f_ac_debe = st.number_input("debe", format="%.2f")
+                                f_ac_haber = st.number_input("haber", format="%.2f")
+                                f_ac_bloq = st.selectbox("bloqueado", [0, 1], index=0)
 
-                        with sub_tab4:
-                            st.markdown("#### Movimientos de Tesorería / Bancos")
+                                submit_ac = st.form_submit_button("💾 Guardar en Asientos Contables")
+                                if submit_ac:
+                                    try:
+                                        conn_ins = conectar_db(db_actual)
+                                        cur_ins = conn_ins.cursor()
+                                        cur_ins.execute("""
+                                            INSERT INTO asientos_contables (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber, bloqueado)
+                                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                        """, (f_ac_comp, f_ac_desc, f_ac_fecha, f_ac_plan, f_ac_cta, f_ac_ref, f_ac_debe, f_ac_haber, f_ac_bloq))
+                                        conn_ins.commit()
+                                        cur_ins.close()
+                                        conn_ins.close()
+                                        st.success("✅ ¡Registro guardado exitosamente en asientos_contables!")
+                                        st.rerun()
+                                    except Exception as ex_ac:
+                                        st.error(f"Error al guardar: {ex_ac}")
+
+                            st.markdown("---")
                             try:
-                                df_bm = ejecutar_consulta("SELECT id, fecha_movimiento, banco_nombre, referencia, descripcion, monto, estado_conciliacion FROM banco_movimientos ORDER BY id DESC LIMIT 20", conn_vis)
-                                if df_bm is not None and not df_bm.empty:
-                                    st.dataframe(df_bm, use_container_width=True)
-                                else:
-                                    st.info("No hay movimientos bancarios registrados.")
-                            except Exception as e:
-                                st.info("Tabla de movimientos bancarios vacía.")
+                                df_ac_all = ejecutar_consulta("SELECT * FROM asientos_contables ORDER BY id DESC LIMIT 20", conn_vis)
+                                if df_ac_all is not None and not df_ac_all.empty:
+                                    st.dataframe(df_ac_all, use_container_width=True)
+                            except Exception:
+                                pass
+
+                        # --- SUBTAB 4: Movimientos Bancarios (Con formulario y Botón Guardar adaptado a sus columnas) ---
+                        with sub_tab4:
+                            st.markdown("#### 🏦 Movimientos Bancarios - Registro Manual / Tabla Oficial")
+                            with st.form("form_guardar_banco"):
+                                f_bm_banco = st.text_input("banco_nombre")
+                                f_bm_cta = st.text_input("cuenta_numero", value="Principal")
+                                f_bm_fecha = st.date_input("fecha_movimiento")
+                                f_bm_ref = st.text_input("referencia")
+                                f_bm_desc = st.text_input("descripcion")
+                                f_bm_monto = st.number_input("monto", format="%.2f")
+                                f_bm_estado = st.selectbox("estado_conciliacion", ["Pendiente", "Conciliado"], index=1)
+                                f_bm_asid = st.text_input("asiento_id (Opcional)").strip()
+
+                                submit_bm = st.form_submit_button("💾 Guardar en Movimientos Bancarios")
+                                if submit_bm:
+                                    try:
+                                        conn_ins = conectar_db(db_actual)
+                                        cur_ins = conn_ins.cursor()
+                                        cur_ins.execute("""
+                                            INSERT INTO banco_movimientos (banco_nombre, cuenta_numero, fecha_movimiento, referencia, descripcion, monto, estado_conciliacion, asiento_id, fecha_importacion)
+                                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                                        """, (
+                                            f_bm_banco, f_bm_cta, f_bm_fecha, f_bm_ref, f_bm_desc, f_bm_monto, f_bm_estado,
+                                            int(f_bm_asid) if f_bm_asid.isdigit() else None
+                                        ))
+                                        conn_ins.commit()
+                                        cur_ins.close()
+                                        conn_ins.close()
+                                        st.success("✅ ¡Registro guardado exitosamente en banco_movimientos!")
+                                        st.rerun()
+                                    except Exception as ex_bm:
+                                        st.error(f"Error al guardar: {ex_bm}")
+
+                            st.markdown("---")
+                            try:
+                                df_bm_all = ejecutar_consulta("SELECT * FROM banco_movimientos ORDER BY id DESC LIMIT 20", conn_vis)
+                                if df_bm_all is not None and not df_bm_all.empty:
+                                    st.dataframe(df_bm_all, use_container_width=True)
+                            except Exception:
+                                pass
 
                         conn_vis.close()
 
