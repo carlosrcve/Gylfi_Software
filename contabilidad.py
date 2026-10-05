@@ -14045,7 +14045,9 @@ estado: {sel_data['estado']}""", language="yaml")
                         monto_iva = st.number_input("8) Monto IVA", value=calc_iva, min_value=0.0, format="%.2f", disabled=True)
                     with col_m5:
                         monto_bruto = st.number_input("9) Monto Total Factura", value=calc_bruto, min_value=0.0, format="%.2f", disabled=True)
-                    st.info(f"📊 **Resumen Fiscal:** Base Imponible: ${base_imponible:,.2f} | Exento: ${monto_exento:,.2f} | IVA ({alicuota_iva}%): ${monto_iva:,.2f} | Total Bruto: ${monto_bruto:,.2f}")
+
+                    st.info(f"📊 Resumen Fiscal: Base Imponible: ${base_imponible:,.2f} \vert{} Exento:${monto_exento:,.2f} | IVA ({alicuota_iva}%): ${monto_iva:,.2f} \vert{} Total Bruto:${monto_bruto:,.2f}")
+
                     st.divider()
                     st.markdown("#### 🏦 Datos Preliminares del Cobro / Referencia Bancaria (Opcional si es a crédito)")
                     
@@ -14077,7 +14079,7 @@ estado: {sel_data['estado']}""", language="yaml")
 
                     st.divider()
 
-                    # BOTÓN DE ACCIÓN GLOBAL CON LOS 3 DISPARADORES
+                    # BOTÓN DE ACCIÓN GLOBAL CON LOS 3 DISPARADORES ADAPTADOS A LAS TABLAS
                     if st.button("🚀 Emitir Factura, Actualizar Libro de Ventas y Asiento Contable", type="primary", use_container_width=True):
                         if nro_factura and nro_control:
                             try:
@@ -14085,7 +14087,7 @@ estado: {sel_data['estado']}""", language="yaml")
                                 if conn_trans:
                                     cursor = conn_trans.cursor()
                                     
-                                    # A. Asegurar tabla ordenes_cobranza si no existe (creación dinámica preventiva)
+                                    # A. Asegurar tabla ordenes_cobranza si no existe
                                     cursor.execute("""
                                         CREATE TABLE IF NOT EXISTS ordenes_cobranza (
                                             id INT AUTO_INCREMENT PRIMARY KEY,
@@ -14118,7 +14120,7 @@ estado: {sel_data['estado']}""", language="yaml")
                                         ref_banco_cobro if ref_banco_cobro else None, estado_inicial
                                     ))
 
-                                    # FRAME 1: Insertar en libro_ventas
+                                    # FRAME 1: Insertar en libro_ventas (adaptado a sus columnas exactas)
                                     q_ins_lv = """
                                         INSERT INTO libro_ventas 
                                         (fecha_factura, nombre_razon_social, rif, n_factura, n_control, total_ventas_con_iva, ventas_exentas, base_imponible, porcentaje_alicuota, debito_fiscal)
@@ -14129,7 +14131,7 @@ estado: {sel_data['estado']}""", language="yaml")
                                         monto_bruto, monto_exento, base_imponible, alicuota_iva, monto_iva
                                     ))
 
-                                    # FRAME 2: Insertar Asiento Contable de Venta
+                                    # FRAME 2: Insertar Asientos Contables (adaptado a la tabla asientos_contables)
                                     import time
                                     n_comprob_asiento = f"FACT-{nro_factura}-{int(time.time())}"
                                     desc_asiento = f"Venta de bienes/servicios según Factura Nro {nro_factura} a {cli_info['razon_social']}"
@@ -14154,7 +14156,7 @@ estado: {sel_data['estado']}""", language="yaml")
                                             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                                         """, (n_comprob_asiento, desc_asiento, fecha_emision, "202-01", "Débito Fiscal IVA por Pagar", nro_factura, 0.00, monto_iva, 1))
 
-                                    # FRAME 3: Si colocó referencia bancaria, registrar en banco_movimientos (Entrada)
+                                    # FRAME 3: Si colocó referencia bancaria, registrar en banco_movimientos (adaptado a sus columnas exactas)
                                     if ref_banco_cobro:
                                         cursor.execute("""
                                             INSERT INTO banco_movimientos (banco_nombre, cuenta_numero, fecha_movimiento, referencia, descripcion, monto, estado_conciliacion)
@@ -14168,7 +14170,7 @@ estado: {sel_data['estado']}""", language="yaml")
                                     cursor.close()
                                     conn_trans.close()
 
-                                    st.success(f"✅ ¡Factura #{nro_factura} emitida con éxito! Se han ejecutado los 3 disparadores (Libro de Ventas, Asiento Contable y Tesorería/Banco).")
+                                    st.success(f"✅ ¡Factura #{nro_factura} emitida con éxito! Se han guardado los registros en el Libro de Ventas, Asientos Contables y Tesorería.")
                                     st.balloons()
                                     st.rerun()
 
@@ -14181,7 +14183,7 @@ estado: {sel_data['estado']}""", language="yaml")
                             st.warning("⚠️ Debes rellenar obligatoriamente el Número de Factura y el Número de Control fiscal.")
 
                     # =========================================================================
-                    # 📊 PANEL DE VISUALIZACIÓN EN TIEMPO REAL (LOS 3 FRAMES + ÓRDENES)
+                    # 📊 PANEL DE VISUALIZACIÓN EN TIEMPO REAL
                     # =========================================================================
                     st.divider()
                     st.markdown("### 🔍 Registros Recientes en los Tres Frentes (Empresa: `" + str(db_actual) + "`)")
