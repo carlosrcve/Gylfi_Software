@@ -12947,7 +12947,7 @@ estado: {sel_data['estado']}""", language="yaml")
             if "prov_form_nro_cta" not in st.session_state: st.session_state["prov_form_nro_cta"] = ""
             if "prov_form_tipo_cta" not in st.session_state: st.session_state["prov_form_tipo_cta"] = "Corriente"
 
-            # --- SECCIÓN SUPERIOR DE IMPORTACIÓN / AUTOCOMPLETAR (FUERA DEL FORMULARIO) ---
+            # --- SECCIÓN SUPERIOR DE IMPORTACIÓN / AUTOCOMPLETAR ---
             col_imp1, col_imp2 = st.columns(2)
             
             with col_imp1:
@@ -12983,85 +12983,76 @@ estado: {sel_data['estado']}""", language="yaml")
 
             st.markdown("---")
 
-            # --- FORMULARIO DE REGISTRO HACIA 'proveedores_carga' ---
-            with st.form("form_nuevo_proveedor_carga", clear_on_submit=False):
-                col_p1, col_p2 = st.columns(2)
+            # --- SECCIÓN DE REGISTRO (SIN ST.FORM PARA PERMITIR LIMPIEZA INMEDIATA) ---
+            col_p1, col_p2 = st.columns(2)
+            
+            with col_p1:
+                st.markdown("#### 🏢 Datos de Identificación y Contabilidad")
+                nombre_prov = st.text_input("Nombre / Razón Social del Proveedor", key="prov_form_nombre")
+                rif_prov = st.text_input("RIF o Documento de Identidad (ej: J-12345678-9)", key="prov_form_rif")
+                cod_cuenta_prov = st.text_input("Código de Cuenta Contable", key="prov_form_cod_cta")
+                desc_cuenta_prov = st.text_input("Descripción de Cuenta Contable", key="prov_form_desc_cta")
+                telefono_prov = st.text_input("Teléfono de Contacto", key="prov_form_tel")
+                email_prov = st.text_input("Correo Electrónico", key="prov_form_email")
                 
-                with col_p1:
-                    st.markdown("#### 🏢 Datos de Identificación y Contabilidad")
-
-                    nombre_prov = st.text_input("Nombre / Razón Social del Proveedor", value=st.session_state["prov_form_nombre"])
-                    rif_prov = st.text_input("RIF o Documento de Identidad (ej: J-12345678-9)", value=st.session_state["prov_form_rif"])
-                    cod_cuenta_prov = st.text_input("Código de Cuenta Contable", value=st.session_state["prov_form_cod_cta"])
-                    desc_cuenta_prov = st.text_input("Descripción de Cuenta Contable", value=st.session_state["prov_form_desc_cta"])
-
-                    telefono_prov = st.text_input("Teléfono de Contacto", value=st.session_state["prov_form_tel"])
-                    email_prov = st.text_input("Correo Electrónico", value=st.session_state["prov_form_email"])
-                    
-                with col_p2:
-                    st.markdown("#### 🏦 Datos Bancarios y Destino")
-                    
-                    lista_bancos = ["Banesco", "Mercantil", "Banco del Caribe", "Banplus", "Banco Activo", "Banco del Tesoro", "Exterior", "Provincial", "BOD / 100% Banco", "Banco de Venezuela", "BNC", "Otros / Extranjero"]
-                    banco_actual = st.session_state["prov_form_banco"]
-                    idx_banco = lista_bancos.index(banco_actual) if banco_actual in lista_bancos else 0
-                    banco_prov = st.selectbox("Banco Destino", lista_bancos, index=idx_banco)
-
-                    nro_cuenta_prov = st.text_input("Número de Cuenta (20 dígitos)", value=st.session_state["prov_form_nro_cta"])
-                    
-                    lista_tipos_cta = ["Corriente", "Ahorro", "Divisas"]
-                    tipo_actual = st.session_state["prov_form_tipo_cta"]
-                    idx_tipo = lista_tipos_cta.index(tipo_actual) if tipo_actual in lista_tipos_cta else 0
-                    tipo_cuenta_prov = st.selectbox("Tipo de Cuenta", lista_tipos_cta, index=idx_tipo)
-                    
-                btn_guardar_prov = st.form_submit_button("💾 Guardar en Tabla Proveedores Carga", type="primary")
+            with col_p2:
+                st.markdown("#### 🏦 Datos Bancarios y Destino")
+                lista_bancos = ["Banesco", "Mercantil", "Banco del Caribe", "Banplus", "Banco Activo", "Banco del Tesoro", "Exterior", "Provincial", "BOD / 100% Banco", "Banco de Venezuela", "BNC", "Otros / Extranjero"]
+                banco_prov = st.selectbox("Banco Destino", lista_bancos, key="prov_form_banco")
+                nro_cuenta_prov = st.text_input("Número de Cuenta (20 dígitos)", key="prov_form_nro_cta")
+                lista_tipos_cta = ["Corriente", "Ahorro", "Divisas"]
+                tipo_cuenta_prov = st.selectbox("Tipo de Cuenta", lista_tipos_cta, key="prov_form_tipo_cta")
                 
-                if btn_guardar_prov:
-                    if nombre_prov.strip() and rif_prov.strip():
-                        try:
-                            conn_ins = conectar_db(db_actual)
-                            cursor_ins = conn_ins.cursor() if conn_ins else None
-                            if cursor_ins:
-                                query_ins = """
-                                    INSERT INTO proveedores_carga 
-                                    (empresa_db, nombre, rif, codigo_cuenta, descripcion_cuenta, telefono, email, banco, nro_cuenta, tipo_cuenta)
-                                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                                """
-                                cursor_ins.execute(query_ins, (
-                                    str(db_actual), 
-                                    nombre_prov.strip(), 
-                                    rif_prov.strip(), 
-                                    cod_cuenta_prov.strip(), 
-                                    desc_cuenta_prov.strip(), 
-                                    telefono_prov.strip(), 
-                                    email_prov.strip(), 
-                                    banco_prov, 
-                                    nro_cuenta_prov.strip(), 
-                                    tipo_cuenta_prov
-                                ))
-                                conn_ins.commit()
-                                cursor_ins.close()
-                                conn_ins.close()
-                                
-                                # 1. Limpiar completamente el session_state para vaciar los campos visualmente
-                                st.session_state["prov_form_nombre"] = ""
-                                st.session_state["prov_form_rif"] = ""
-                                st.session_state["prov_form_cod_cta"] = ""
-                                st.session_state["prov_form_desc_cta"] = ""
-                                st.session_state["prov_form_tel"] = ""
-                                st.session_state["prov_form_email"] = ""
-                                st.session_state["prov_form_banco"] = "Banesco"
-                                st.session_state["prov_form_nro_cta"] = ""
-                                st.session_state["prov_form_tipo_cta"] = "Corriente"
+            st.markdown("")
+            btn_guardar_prov = st.button("💾 Guardar en Tabla Proveedores Carga", type="primary", use_container_width=True)
+            
+            if btn_guardar_prov:
+                if nombre_prov.strip() and rif_prov.strip():
+                    try:
+                        conn_ins = conectar_db(db_actual)
+                        cursor_ins = conn_ins.cursor() if conn_ins else None
+                        if cursor_ins:
+                            query_ins = """
+                                INSERT INTO proveedores_carga 
+                                (empresa_db, nombre, rif, codigo_cuenta, descripcion_cuenta, telefono, email, banco, nro_cuenta, tipo_cuenta)
+                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                            """
+                            cursor_ins.execute(query_ins, (
+                                str(db_actual), 
+                                nombre_prov.strip(), 
+                                rif_prov.strip(), 
+                                cod_cuenta_prov.strip(), 
+                                desc_cuenta_prov.strip(), 
+                                telefono_prov.strip(), 
+                                email_prov.strip(), 
+                                banco_prov, 
+                                nro_cuenta_prov.strip(), 
+                                tipo_cuenta_prov
+                            ))
+                            conn_ins.commit()
+                            cursor_ins.close()
+                            conn_ins.close()
+                            
+                            # 1. Limpiar completamente el session_state asignando valores vacíos
+                            st.session_state["prov_form_nombre"] = ""
+                            st.session_state["prov_form_rif"] = ""
+                            st.session_state["prov_form_cod_cta"] = ""
+                            st.session_state["prov_form_desc_cta"] = ""
+                            st.session_state["prov_form_tel"] = ""
+                            st.session_state["prov_form_email"] = ""
+                            st.session_state["prov_form_banco"] = "Banesco"
+                            st.session_state["prov_form_nro_cta"] = ""
+                            st.session_state["prov_form_tipo_cta"] = "Corriente"
 
-                                # 2. Limpiar la caché de datos para forzar la actualización inmediata de la tabla inferior
-                                cargar_datos_proveedores_tab1.clear()
+                            # 2. Limpiar caché de datos para actualizar la tabla inferior
+                            cargar_datos_proveedores_tab1.clear()
 
-                                st.success(f"✅ ¡Proveedor '{nombre_prov}' guardado con éxito y campos limpios!")
-                                st.rerun()
-                        except Exception as e:
-                            st.error(f"❌ Error al guardar en `proveedores_carga`: {e}")
-                    else:
-                        st.warning("⚠️ Debe existir un nombre y un RIF válido para procesar el registro.")
+                            st.success(f"✅ ¡Proveedor '{nombre_prov}' guardado con éxito y campos limpios!")
+                            st.rerun()
+                    except Exception as e:
+                        st.error(f"❌ Error al guardar en `proveedores_carga`: {e}")
+                else:
+                    st.warning("⚠️ Debe existir un nombre y un RIF válido para procesar el registro.")
 
             st.divider()
 
@@ -13076,7 +13067,7 @@ estado: {sel_data['estado']}""", language="yaml")
                     if df_prov is not None and not df_prov.empty:
                         st.dataframe(df_prov, use_container_width=True, hide_index=True)
                     else:
-                        st.info("ℹ️️ La tabla `proveedores_carga` está vacía para esta empresa actualmente.")
+                        st.info("ℹ️ La tabla `proveedores_carga` está vacía para esta empresa actualmente.")
             except Exception as e:
                 st.error(f"Error al cargar la lista: {e}")
 
