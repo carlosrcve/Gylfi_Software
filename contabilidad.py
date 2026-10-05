@@ -14046,7 +14046,7 @@ estado: {sel_data['estado']}""", language="yaml")
                     with col_m5:
                         monto_bruto = st.number_input("9) Monto Total Factura", value=calc_bruto, min_value=0.0, format="%.2f", disabled=True)
 
-                    st.info(f"📊 **Resumen Fiscal:** Base Imponible: **${base_imponible:,.2f}** | Exento: **${monto_exento:,.2f}** | IVA ({alicuota_iva}%): **${monto_iva:,.2f}** | **Total Bruto: ${monto_bruto:,.2f}**")
+                    st.info(f"📊 **Resumen Fiscal:** Base Imponible: **${base_imponible:,.2f}** \vert{} Exento: **${monto_exento:,.2f}** | IVA ({alicuota_iva}%): **${monto_iva:,.2f}** \vert{} **Total Bruto:${monto_bruto:,.2f}**")
 
                     st.divider()
                     st.markdown("#### 🏦 Datos Preliminares del Cobro / Referencia Bancaria (Opcional si es a crédito)")
@@ -14172,6 +14172,7 @@ estado: {sel_data['estado']}""", language="yaml")
 
                                     st.success(f"✅ ¡Factura #{nro_factura} emitida con éxito! Se han ejecutado los 3 disparadores (Libro de Ventas, Asiento Contable y Tesorería/Banco).")
                                     st.balloons()
+                                    st.rerun()
 
                                 else:
                                     st.error("❌ No se pudo establecer conexión con la base de datos para guardar la transacción.")
@@ -14179,7 +14180,69 @@ estado: {sel_data['estado']}""", language="yaml")
                             except Exception as err_fac:
                                 st.error(f"❌ Error crítico al procesar la factura y sus asientos: {err_fac}")
                         else:
-                            st.warning("⚠️ Debes rellenar obligatoriamente el Número de Factura y el Número de Control fiscal.")
+                            st.warning("⚠️️ Debes rellenar obligatoriamente el Número de Factura y el Número de Control fiscal.")
+
+                    # =========================================================================
+                    # 📊 PANEL DE VISUALIZACIÓN EN TIEMPO REAL (LOS 3 FRAMES + ÓRDENES)
+                    # =========================================================================
+                    st.divider()
+                    st.markdown("### 🔍 Registros Recientes en los Tres Frentes (Empresa: `" + str(db_actual) + "`)")
+                    
+                    sub_tab1, sub_tab2, sub_tab3, sub_tab4 = st.tabs([
+                        "🧾 Órdenes de Cobranza", 
+                        "📖 Libro de Ventas", 
+                        "⚖️ Asientos Contables", 
+                        "🏦 Movimientos Bancarios"
+                    ])
+
+                    conn_vis = conectar_db(db_actual)
+                    if conn_vis:
+                        with sub_tab1:
+                            st.markdown("#### Órdenes de Cobranza Registradas")
+                            try:
+                                df_oc = ejecutar_consulta("SELECT id, n_factura, n_control, fecha_emision, rif_cliente, monto_bruto, estado_cobro, referencia_banco FROM ordenes_cobranza ORDER BY id DESC LIMIT 20", conn_vis)
+                                if df_oc is not None and not df_oc.empty:
+                                    st.dataframe(df_oc, use_container_width=True)
+                                else:
+                                    st.info("No hay órdenes de cobranza registradas todavía.")
+                            except Exception as e:
+                                st.info("La tabla `ordenes_cobranza` aún no tiene datos o está por crearse.")
+
+                        with sub_tab2:
+                            st.markdown("#### Libro de Ventas (Fiscal)")
+                            try:
+                                df_lv = ejecutar_consulta("SELECT id, fecha_factura, n_factura, n_control, rif, nombre_razon_social, base_imponible, debito_fiscal, total_ventas_con_iva FROM libro_ventas ORDER BY id DESC LIMIT 20", conn_vis)
+                                if df_lv is not None and not df_lv.empty:
+                                    st.dataframe(df_lv, use_container_width=True)
+                                else:
+                                    st.info("No hay registros en el libro de ventas.")
+                            except Exception as e:
+                                st.info("Libro de ventas vacío o pendiente de primer registro.")
+
+                        with sub_tab3:
+                            st.markdown("#### Últimos Asientos Contables Generados")
+                            try:
+                                df_ac = ejecutar_consulta("SELECT id, n_comprobante, fecha, cuenta_contable, referencia, debe, haber, descripcion FROM asientos_contables ORDER BY id DESC LIMIT 30", conn_vis)
+                                if df_ac is not None and not df_ac.empty:
+                                    st.dataframe(df_ac, use_container_width=True)
+                                else:
+                                    st.info("No hay asientos contables registrados.")
+                            except Exception as e:
+                                st.info("Tabla de asientos contables vacía.")
+
+                        with sub_tab4:
+                            st.markdown("#### Movimientos de Tesorería / Bancos")
+                            try:
+                                df_bm = ejecutar_consulta("SELECT id, fecha_movimiento, banco_nombre, referencia, descripcion, monto, estado_conciliacion FROM banco_movimientos ORDER BY id DESC LIMIT 20", conn_vis)
+                                if df_bm is not None and not df_bm.empty:
+                                    st.dataframe(df_bm, use_container_width=True)
+                                else:
+                                    st.info("No hay movimientos bancarios registrados.")
+                            except Exception as e:
+                                st.info("Tabla de movimientos bancarios vacía.")
+
+                        conn_vis.close()
+
                 else:
                     st.info("ℹ️ No se encontraron clientes comerciales registrados. Cárgalos primero en el maestro de clientes.")
 
