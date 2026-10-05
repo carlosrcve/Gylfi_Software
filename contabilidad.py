@@ -13133,10 +13133,9 @@ estado: {sel_data['estado']}""", language="yaml")
             if "orden_guardada_exito" not in st.session_state:
                 st.session_state.orden_guardada_exito = False
 
-            # --- FASE 1: EMITIR NUEVA ORDEN DE PAGO (CÁLCULOS EN TIEMPO REAL FUERA/DENTRO DE CONTENEDORES FLUIDOS) ---
+            # --- FASE 1: EMITIR NUEVA ORDEN DE PAGO ---
             st.markdown("### ✍️ Emitir Nueva Orden de Pago")
             
-            # Datos básicos fuera del form o en columnas independientes para permitir el cálculo reactivo
             col_f1_1, col_f1_2 = st.columns(2)
             with col_f1_1:
                 prov_seleccionado_form = st.selectbox("Seleccionar Proveedor", options=lista_provs if lista_provs else ["No hay proveedores"], key="f1_prov")
@@ -13158,11 +13157,9 @@ estado: {sel_data['estado']}""", language="yaml")
             with col_f1_3:
                 alicuota_iva_form = st.selectbox("Alícuota IVA", options=[16.0, 8.0, 31.0, 0.0], format_func=lambda x: f"{x}%", key="f1_alicuota")
             with col_f1_4:
-                # CÁLCULO AUTOMÁTICO DE IVA EN TIEMPO REAL
                 calc_iva_val = base_imponible_form * (alicuota_iva_form / 100.0)
                 monto_iva_form = st.number_input("Monto IVA (Calculado)", value=calc_iva_val, min_value=0.0, format="%.2f", key="f1_iva_calc_input")
 
-            # CÁLCULO DE MONTO BRUTO
             calc_bruto_val = base_imponible_form + monto_exento_form + monto_iva_form
             monto_bruto_form = st.number_input("Monto Bruto / Total Factura (Calculado)", value=calc_bruto_val, min_value=0.0, format="%.2f", key="f1_bruto_calc_input")
             
@@ -13174,7 +13171,6 @@ estado: {sel_data['estado']}""", language="yaml")
             with col_f2_1:
                 porcentaje_ret_iva = st.selectbox("Porcentaje Retención IVA", options=[75.0, 100.0, 25.0, 50.0], format_func=lambda x: f"{x}%", key="f2_porc_ret_iva")
             with col_f2_2:
-                # CÁLCULO RETENCIÓN DE IVA
                 calc_ret_iva_val = monto_iva_form * (porcentaje_ret_iva / 100.0)
                 retencion_iva_form = st.number_input("Monto Retención IVA (Calculado)", value=calc_ret_iva_val, min_value=0.0, format="%.2f", key="f2_ret_iva_calc_input")
             
@@ -13190,7 +13186,6 @@ estado: {sel_data['estado']}""", language="yaml")
             with col_f3_3:
                 islr_sustraendo_form = st.number_input("Sustraendo ISLR", min_value=0.0, format="%.2f", key="f3_sustraendo")
             with col_f3_4:
-                # CÁLCULO ISLR
                 calc_islr_val = max(0.0, (base_imponible_form * (islr_porcentaje_form / 100.0)) - islr_sustraendo_form)
                 retencion_islr_form = st.number_input("Monto Retención ISLR Final", value=calc_islr_val, min_value=0.0, format="%.2f", key="f3_ret_islr_input")
 
@@ -13208,8 +13203,16 @@ estado: {sel_data['estado']}""", language="yaml")
 
             st.markdown("---")
             
-            # Botón único de guardado fuera del form rígido para procesar la inserción directa con los valores calculados
-            if st.button("💾 Guardar y Registrar Orden de Pago", type="primary", use_container_width=True):
+            # --- BOTONES VISIBLES DE ACCIÓN ---
+            col_btn1, col_btn2 = st.columns(2)
+            with col_btn1:
+                btn_calcular = st.button("🧮 Calcular / Refrescar Montos", use_container_width=True)
+                if btn_calcular:
+                    st.rerun() # Fuerza la actualización inmediata de los cálculos en pantalla
+            with col_btn2:
+                btn_guardar_op = st.button("💾 Guardar y Registrar Orden de Pago", type="primary", use_container_width=True)
+
+            if btn_guardar_op:
                 if not nro_factura_form:
                     st.error("⚠️ El número de factura es obligatorio.")
                 elif not lista_provs:
@@ -13258,7 +13261,7 @@ estado: {sel_data['estado']}""", language="yaml")
                     except Exception as err_ins:
                         st.error(f"❌ Error al guardar la orden de pago: {err_ins}")
 
-            # --- FASE 2 Y 3: SOLO SE ABREN DESPUÉS DE GUARDAR EXITOSAMENTE LA ORDEN ---
+            # --- FASE 2 Y 3: HISTORIAL Y CONFIGURACIÓN (DESPUÉS DE GUARDAR) ---
             if st.session_state.orden_guardada_exito:
                 st.markdown("---")
                 st.markdown("### 📊 Historial de Órdenes de Pago y Previsualización YAML")
