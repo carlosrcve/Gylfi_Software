@@ -13075,7 +13075,7 @@ estado: {sel_data['estado']}""", language="yaml")
         with tab2:
             st.markdown("### 🧾 Gestión y Generación de Órdenes de Pago y Cruce")
 
-            # --- CARGAR PROVEEDORES Y PLAN DE CUENTAS CON CACHÉ PARA ELIMINAR LA LENTITUD ---
+            # --- CARGAR PROVEEDORES Y PLAN DE CUENTAS CON CACHÉ OPTIMIZADA ---
             @st.cache_data(ttl=60)
             def cargar_datos_maestros(empresa):
                 p_lista = []
@@ -13124,11 +13124,11 @@ estado: {sel_data['estado']}""", language="yaml")
 
             lista_provs, dict_provs, lista_cuentas_detalle, dict_cuentas_detalle = cargar_datos_maestros(db_actual)
 
-            # --- INICIALIZAR ESTADO DE FLUJO POR FASES ---
+            # --- INICIALIZAR ESTADOS DE FLUJO ---
             if "orden_guardada_exito" not in st.session_state:
                 st.session_state.orden_guardada_exito = False
 
-            # --- FASE 1: EMITIR NUEVA ORDEN DE PAGO (SIEMPRE VISIBLE PRIMERO) ---
+            # --- FASE 1: EMITIR NUEVA ORDEN DE PAGO ---
             st.markdown("### ✍️ Emitir Nueva Orden de Pago")
             
             with st.container():
@@ -13333,7 +13333,7 @@ estado: {sel_data['estado']}""", language="yaml")
                             sel_data = opciones_ordenes[seleccion_op_key]
                             
                             st.markdown("---")
-                            st.markdown(f"### ⚙️ Configuración de Cuentas para la Orden #{sel_data['id']}")
+                            st.markdown(f"### ⚙️️ Configuración de Cuentas para la Orden #{sel_data['id']}")
                             
                             col_c1, col_c2, col_c3 = st.columns(3)
                             with col_c1:
