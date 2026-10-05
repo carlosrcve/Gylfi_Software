@@ -13129,9 +13129,11 @@ estado: {sel_data['estado']}""", language="yaml")
             except Exception as e:
                 st.error(f"Error cargando datos de BD: {e}")
 
-            # --- INICIALIZAR ESTADO DE FLUJO POR FASES ---
+            # --- INICIALIZAR ESTADOS DE CÁLCULO Y FLUJO ---
             if "orden_guardada_exito" not in st.session_state:
                 st.session_state.orden_guardada_exito = False
+            if "calc_ejecutado" not in st.session_state:
+                st.session_state.calc_ejecutado = False
 
             # --- FASE 1: EMITIR NUEVA ORDEN DE PAGO (SIEMPRE VISIBLE PRIMERO) ---
             st.markdown("### ✍️ Emitir Nueva Orden de Pago")
@@ -13204,6 +13206,11 @@ estado: {sel_data['estado']}""", language="yaml")
                 with col_f4_2:
                     observaciones_form = st.text_area("Observaciones / Concepto del Pago", key="f4_obs")
 
+                st.markdown("---")
+                
+                # Botón interno de cálculo dentro del formulario para refrescar/validar montos
+                btn_calcular_valores = st.form_submit_button("🧮 Calcular / Refrescar Montos", use_container_width=False)
+                
                 st.markdown("---")
                 
                 btn_guardar_op = st.form_submit_button("💾 Guardar y Registrar Orden de Pago", type="primary", use_container_width=True)
@@ -13356,16 +13363,16 @@ estado: {sel_data['estado']}""", language="yaml")
                             with col_f1:
                                 st.markdown("#### 📄 `libro_compras`")
                                 st.code(f"""fecha_operacion: {sel_data['fecha_emision']}
-        tipo_documento: Factura
-        n_factura: {sel_data['nro_factura']}
-        n_control: {sel_data['nro_control']}
-        proveedor: {sel_data['proveedor']}
-        rif: {sel_data['proveedor_rif']}
-        total_compras: {sel_data['monto_bruto']:,.2f}
-        base_imponible: {sel_data['base_imponible']:,.2f}
-        iva_porcentaje: {sel_data['iva_porcentaje']}%
-        iva_monto: {sel_data['monto_iva']:,.2f}
-        retencion_islr: {sel_data['retencion_islr']:,.2f}""", language="yaml")
+                tipo_documento: Factura
+                n_factura: {sel_data['nro_factura']}
+                n_control: {sel_data['nro_control']}
+                proveedor: {sel_data['proveedor']}
+                rif: {sel_data['proveedor_rif']}
+                total_compras: {sel_data['monto_bruto']:,.2f}
+                base_imponible: {sel_data['base_imponible']:,.2f}
+                iva_porcentaje: {sel_data['iva_porcentaje']}%
+                iva_monto: {sel_data['monto_iva']:,.2f}
+                retencion_islr: {sel_data['retencion_islr']:,.2f}""", language="yaml")
                                 
                                 if st.button("💾 Guardar Libro de Compras", key=f"btn_guardar_libro_{sel_data['id']}", use_container_width=True):
                                     try:
@@ -13410,23 +13417,23 @@ estado: {sel_data['estado']}""", language="yaml")
                             with col_f2:
                                 st.markdown("#### 📒 `asientos_contables`")
                                 st.code(f"""- n_comprobante: OP-{sel_data['nro_factura']}
-          fecha: {sel_data['fecha_emision']}
-          asientos:
-            - plan_cuentas: {info_gasto['codigo']}
-              debe: {sel_data['base_imponible']:,.2f}
-              haber: 0.00
-            - plan_cuentas: {info_iva['codigo']}
-              debe: {sel_data['monto_iva']:,.2f}
-              haber: 0.00
-            - plan_cuentas: 2.1.2.01.005
-              debe: 0.00
-              haber: {sel_data['retencion_islr']:,.2f}
-            - plan_cuentas: 2.1.2.01.003
-              debe: 0.00
-              haber: {sel_data['retencion_iva']:,.2f}
-            - plan_cuentas: {info_banco['codigo']}
-              debe: 0.00
-              haber: {sel_data['monto_neto']:,.2f}""", language="yaml")
+                  fecha: {sel_data['fecha_emision']}
+                  asientos:
+                    - plan_cuentas: {info_gasto['codigo']}
+                      debe: {sel_data['base_imponible']:,.2f}
+                      haber: 0.00
+                    - plan_cuentas: {info_iva['codigo']}
+                      debe: {sel_data['monto_iva']:,.2f}
+                      haber: 0.00
+                    - plan_cuentas: 2.1.2.01.005
+                      debe: 0.00
+                      haber: {sel_data['retencion_islr']:,.2f}
+                    - plan_cuentas: 2.1.2.01.003
+                      debe: 0.00
+                      haber: {sel_data['retencion_iva']:,.2f}
+                    - plan_cuentas: {info_banco['codigo']}
+                      debe: 0.00
+                      haber: {sel_data['monto_neto']:,.2f}""", language="yaml")
                                 
                                 if st.button("💾 Guardar Asiento Contable", key=f"btn_guardar_asiento_{sel_data['id']}", use_container_width=True):
                                     try:
@@ -13476,10 +13483,10 @@ estado: {sel_data['estado']}""", language="yaml")
                                 desc_val = f"Pago Factura Nro {nro_fact} - {prov_nombre} (RIF: {prov_rif})"
 
                                 st.code(f"""banco_nombre: {info_banco['nombre']}
-        reference: OP-{nro_fact}
-        descripcion: {desc_val}
-        monto: {sel_data['monto_neto']:,.2f}
-        estado: {sel_data['estado']}""", language="yaml")
+                reference: OP-{nro_fact}
+                descripcion: {desc_val}
+                monto: {sel_data['monto_neto']:,.2f}
+                estado: {sel_data['estado']}""", language="yaml")
                                 
                                 if st.button("💾 Guardar Movimiento Bancario", key=f"btn_guardar_banco_{sel_data['id']}", use_container_width=True):
                                     try:
@@ -13511,7 +13518,7 @@ estado: {sel_data['estado']}""", language="yaml")
                                         st.error(f"❌ Error al guardar movimiento bancario: {err_b}")
 
                 except Exception as err_hist:
-                    st.error(f"Error cargando historial de órdenes de pago: {err_hist}")
+            st.error(f"Error cargando historial de órdenes de pago: {err_hist}")
 
         
         with tab3:
