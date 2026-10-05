@@ -12871,25 +12871,22 @@ estado: {sel_data['estado']}""", language="yaml")
                             INDEX (empresa_db)
                         )
                     """)
-                    # Por si la tabla ya existía de antes sin el campo rif, aseguramos alterarla si no lo tiene
                     try:
                         cur_p.execute("ALTER TABLE proveedores_carga ADD COLUMN rif VARCHAR(50) NOT NULL AFTER nombre;")
                         conn_p.commit()
                     except Exception:
-                        pass # Si ya existe el campo, continúa sin problema
-                    
+                        pass
                     cur_p.close()
                     conn_p.close()
             except Exception as ex_prov:
                 st.warning(f"Aviso en tabla proveedores_carga: {ex_prov}")
 
-            # --- CARGAR DATOS DESDE LA TABLA HISTÓRICA 'proveedores' (Catálogo Base) ---
+            # --- CARGAR DATOS DESDE LA TABLA HISTÓRICA 'proveedores' (Catálogo Base) ORDENADOS A-Z ---
             lista_maestros = []
             dict_maestros = {}
             try:
                 conn_m = conectar_db(db_actual)
                 if conn_m:
-                    # Añadido ORDER BY razon_social ASC para ordenarlos alfabéticamente
                     df_maestro = ejecutar_consulta("SELECT rif, razon_social, codigo_cuenta, descripcion_cuenta FROM proveedores ORDER BY razon_social ASC", conn_m)
                     conn_m.close()
                     if df_maestro is not None and not df_maestro.empty:
@@ -12931,7 +12928,7 @@ estado: {sel_data['estado']}""", language="yaml")
             except Exception as e:
                 pass
 
-            # --- GESTIÓN DE SESSION STATE PARA AUTOCOMPLETAR ---
+            # --- GESTIÓN DE SESSION STATE PARA LOS CAMPOS ---
             if "prov_form_nombre" not in st.session_state:
                 st.session_state["prov_form_nombre"] = ""
             if "prov_form_rif" not in st.session_state:
@@ -12951,23 +12948,41 @@ estado: {sel_data['estado']}""", language="yaml")
             if "prov_form_tipo_cta" not in st.session_state:
                 st.session_state["prov_form_tipo_cta"] = "Corriente"
 
-            # --- SECCIÓN DE AUTORELLENO RÁPIDO DESDE PROVEEDORES YA GUARDADOS ---
-            if lista_cargados:
-                with st.expander("⚡ Autocompletar con Proveedores Registrados Anteriormente", expanded=False):
-                    sel_autocompletar = st.selectbox("Seleccione un proveedor guardado para rellenar el formulario:", lista_cargados)
-                    if st.button("🔄 Cargar datos en el formulario"):
-                        datos_auto = dict_cargados.get(sel_autocompletar, {})
-                        st.session_state["prov_form_nombre"] = datos_auto.get("nombre", "")
-                        st.session_state["prov_form_rif"] = datos_auto.get("rif", "")
-                        st.session_state["prov_form_cod_cta"] = datos_auto.get("codigo_cuenta", "")
-                        st.session_state["prov_form_desc_cta"] = datos_auto.get("descripcion_cuenta", "")
-                        st.session_state["prov_form_tel"] = datos_auto.get("telefono", "")
-                        st.session_state["prov_form_email"] = datos_auto.get("email", "")
-                        st.session_state["prov_form_banco"] = datos_auto.get("banco", "Banesco")
-                        st.session_state["prov_form_nro_cta"] = datos_auto.get("nro_cuenta", "")
-                        st.session_state["prov_form_tipo_cta"] = datos_auto.get("tipo_cuenta", "Corriente")
-                        st.success("¡Datos cargados en el formulario exitosamente!")
-                        st.rerun()
+            # --- SECCIÓN SUPERIOR DE IMPORTACIÓN / AUTOCOMPLETAR (FUERA DEL FORMULARIO) ---
+            col_imp1, col_imp2 = st.columns(2)
+            
+            with col_imp1:
+                if lista_maestros:
+                    with st.expander("📥 Importar desde catálogo 'proveedores' (A-Z)", expanded=False):
+                        prov_seleccionado = st.selectbox("Seleccione proveedor del catálogo:", lista_maestros, key="sel_cat_maestro")
+                        if st.button("🔄 Cargar datos del catálogo"):
+                            datos_sel = dict_maestros.get(prov_seleccionado, {})
+                            st.session_state["prov_form_nombre"] = datos_sel.get("razon_social", "")
+                            st.session_state["prov_form_rif"] = datos_sel.get("rif", "")
+                            st.session_state["prov_form_cod_cta"] = datos_sel.get("codigo_cuenta", "")
+                            st.session_state["prov_form_desc_cta"] = datos_sel.get("descripcion_cuenta", "")
+                            st.success("¡Datos importados al formulario!")
+                            st.rerun()
+
+            with col_imp2:
+                if lista_cargados:
+                    with st.expander("⚡ Autocompletar con Proveedores Registrados", expanded=False):
+                        sel_autocompletar = st.selectbox("Seleccione proveedor guardado:", lista_cargados, key="sel_cat_cargado")
+                        if st.button("🔄 Cargar datos guardados"):
+                            datos_auto = dict_cargados.get(sel_autocompletar, {})
+                            st.session_state["prov_form_nombre"] = datos_auto.get("nombre", "")
+                            st.session_state["prov_form_rif"] = datos_auto.get("rif", "")
+                            st.session_state["prov_form_cod_cta"] = datos_auto.get("codigo_cuenta", "")
+                            st.session_state["prov_form_desc_cta"] = datos_auto.get("descripcion_cuenta", "")
+                            st.session_state["prov_form_tel"] = datos_auto.get("telefono", "")
+                            st.session_state["prov_form_email"] = datos_auto.get("email", "")
+                            st.session_state["prov_form_banco"] = datos_auto.get("banco", "Banesco")
+                            st.session_state["prov_form_nro_cta"] = datos_auto.get("nro_cuenta", "")
+                            st.session_state["prov_form_tipo_cta"] = datos_auto.get("tipo_cuenta", "Corriente")
+                            st.success("¡Datos cargados en el formulario!")
+                            st.rerun()
+
+            st.markdown("---")
 
             # --- FORMULARIO DE REGISTRO HACIA 'proveedores_carga' ---
             with st.form("form_nuevo_proveedor_carga", clear_on_submit=False):
@@ -12975,16 +12990,6 @@ estado: {sel_data['estado']}""", language="yaml")
                 
                 with col_p1:
                     st.markdown("#### 🏢 Datos de Identificación y Contabilidad")
-                    
-                    # Opción auxiliar por si quiere jalar del maestro histórico
-                    if lista_maestros:
-                        prov_seleccionado = st.selectbox("📥 O importar desde catálogo 'proveedores'", ["-- Seleccione --"] + lista_maestros)
-                        if prov_seleccionado != "-- Seleccione --":
-                            datos_sel = dict_maestros.get(prov_seleccionado, {})
-                            st.session_state["prov_form_nombre"] = datos_sel.get("razon_social", "")
-                            st.session_state["prov_form_rif"] = datos_sel.get("rif", "")
-                            st.session_state["prov_form_cod_cta"] = datos_sel.get("codigo_cuenta", "")
-                            st.session_state["prov_form_desc_cta"] = datos_sel.get("descripcion_cuenta", "")
 
                     nombre_prov = st.text_input("Nombre / Razón Social del Proveedor", value=st.session_state["prov_form_nombre"])
                     rif_prov = st.text_input("RIF o Documento de Identidad (ej: J-12345678-9)", value=st.session_state["prov_form_rif"])
