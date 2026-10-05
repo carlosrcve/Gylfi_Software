@@ -14043,8 +14043,8 @@ estado: {sel_data['estado']}""", language="yaml")
                         monto_iva = st.number_input("8) Monto IVA", value=calc_iva, min_value=0.0, format="%.2f", disabled=True)
                     with col_m5:
                         monto_bruto = st.number_input("9) Monto Total Factura", value=calc_bruto, min_value=0.0, format="%.2f", disabled=True)
-
-                    st.info(f"📊 **Resumen Fiscal:** Base Imponible: ${base_imponible:,.2f} \vert{} Exento:${monto_exento:,.2f} | IVA ({alicuota_iva}%): ${monto_iva:,.2f} \vert{} Total Bruto:${monto_bruto:,.2f}")
+                    st.info(f"📊 **Resumen Fiscal:** Base Imponible: ${base_imponible:,.2f} | Exento: ${monto_exento:,.2f} | IVA ({alicuota_iva}%): ${monto_iva:,.2f} | Total Bruto: ${monto_bruto:,.2f}")
+                    st.divider()
                     st.divider()
                     st.markdown("#### 🏦 Datos Preliminares del Cobro / Referencia Bancaria (Opcional si es a crédito)")
                     
@@ -14298,7 +14298,7 @@ estado: {sel_data['estado']}""", language="yaml")
 
             except Exception as e_tab6:
                 st.error(f"Error general en el módulo de facturación: {e_tab6}")
-        
+
     elif sub_opcion == "Consultar Comprobante":
         st.subheader("🔍 Buscador de Comprobantes")
 
