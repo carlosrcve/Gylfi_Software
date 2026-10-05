@@ -14031,7 +14031,7 @@ estado: {sel_data['estado']}""", language="yaml")
 
                     col_m1, col_m2, col_m3 = st.columns(3)
                     with col_m1:
-                        base_imponible = st.number_input("5) Base Imponible ($ / Bs)", min_format="%.2f", min_value=0.0, step=100.0, format="%.2f")
+                        base_imponible = st.number_input("5) Base Imponible ($ / Bs)", min_value=0.0, step=100.0, format="%.2f")
                     with col_m2:
                         monto_exento = st.number_input("6) Monto Exento", min_value=0.0, step=0.0, format="%.2f")
                     with col_m3:
