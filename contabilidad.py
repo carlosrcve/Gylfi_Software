@@ -13581,8 +13581,19 @@ estado: {sel_data['estado']}""", language="yaml")
                     if df_pendientes is not None and not df_pendientes.empty:
                         st.markdown(f"📋 Tienes **{len(df_pendientes)}** orden(es) de pago pendiente(s) de conciliación.")
                         
-                        # Mostrar tabla de pendientes para referencia visual rápida
-                        st.dataframe(df_pendientes[['id', 'proveedor', 'nro_factura', 'monto_neto', 'fecha_emision']], use_container_width=True, hide_index=True)
+                        # Mostrar tabla de pendientes con formato numérico en monto_neto
+                        st.dataframe(
+                            df_pendientes[['id', 'proveedor', 'nro_factura', 'monto_neto', 'fecha_emision']], 
+                            use_container_width=True, 
+                            hide_index=True,
+                            column_config={
+                                "monto_neto": st.column_config.NumberColumn(
+                                    "Monto Neto",
+                                    format="$%,.2f",
+                                    help="Monto neto a pagar"
+                                )
+                            }
+                        )
                         
                         st.divider()
                         st.markdown("#### ⚡ Realizar el Cruce de Pago y Emitir Comprobante")
@@ -13672,10 +13683,20 @@ estado: {sel_data['estado']}""", language="yaml")
                         ORDER BY op.fecha_pago DESC
                     """
                     df_conciliados = ejecutar_consulta(query_conciliados, conn_match, params=(str(db_actual),))
-                    conn_match.close()
 
                     if df_conciliados is not None and not df_conciliados.empty:
-                        st.dataframe(df_conciliados, use_container_width=True, hide_index=True)
+                        st.dataframe(
+                            df_conciliados, 
+                            use_container_width=True, 
+                            hide_index=True,
+                            column_config={
+                                "monto_neto": st.column_config.NumberColumn(
+                                    "Monto Neto",
+                                    format="$%,.2f",
+                                    help="Monto neto pagado"
+                                )
+                            }
+                        )
                         
                         # --- CONVERSIÓN A EXCEL (.xlsx) USANDO IO.BYTESIO ---
                         import io
@@ -13693,12 +13714,11 @@ estado: {sel_data['estado']}""", language="yaml")
                     else:
                         st.info("ℹ️ Aún no hay pagos conciliados registrados en el historial.")
 
-                    # --- 3. REPORTE DE MOVIMIENTOS BANCARIOS (NUEVO) ---
+                    # --- 3. REPORTE DE MOVIMIENTOS BANCARIOS ---
                     st.divider()
                     st.markdown("### 🏦 Reporte de Movimientos Bancarios (Filtro por Fechas)")
                     st.markdown("Consulta y descarga el histórico de movimientos bancarios registrados en la base de datos aplicando un filtro por rango de fechas.")
 
-                    # Filtros de fecha en columnas
                     col_fec1, col_fec2 = st.columns(2)
                     with col_fec1:
                         fecha_desde = st.date_input("Fecha Desde", key="banco_fecha_desde")
@@ -13721,7 +13741,18 @@ estado: {sel_data['estado']}""", language="yaml")
 
                             if df_banco_movs is not None and not df_banco_movs.empty:
                                 st.markdown(f"📊 Se encontraron **{len(df_banco_movs)}** movimiento(s) en el rango seleccionado.")
-                                st.dataframe(df_banco_movs, use_container_width=True, hide_index=True)
+                                st.dataframe(
+                                    df_banco_movs, 
+                                    use_container_width=True, 
+                                    hide_index=True,
+                                    column_config={
+                                        "monto": st.column_config.NumberColumn(
+                                            "Monto",
+                                            format="$%,.2f",
+                                            help="Monto del movimiento bancario"
+                                        )
+                                    }
+                                )
 
                                 # --- CONVERSIÓN A EXCEL (.xlsx) DE MOVIMIENTOS BANCARIOS ---
                                 import io
@@ -13741,6 +13772,9 @@ estado: {sel_data['estado']}""", language="yaml")
                                 st.info("ℹ️ No se encontraron movimientos bancarios registrados para el rango de fechas seleccionado.")
                     except Exception as err_bm:
                         st.error(f"❌ Error al consultar la tabla banco_movimientos: {err_bm}")
+
+                    if conn_match:
+                        conn_match.close()
 
             except Exception as e:
                 st.error(f"Error en el módulo de conciliación: {e}")
