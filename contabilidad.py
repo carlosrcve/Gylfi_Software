@@ -12881,52 +12881,60 @@ estado: {sel_data['estado']}""", language="yaml")
             except Exception as ex_prov:
                 st.warning(f"Aviso en tabla proveedores_carga: {ex_prov}")
 
-            # --- CARGAR DATOS DESDE LA TABLA HISTÓRICA 'proveedores' (Catálogo Base) ORDENADOS A-Z ---
-            lista_maestros = []
-            dict_maestros = {}
-            try:
-                conn_m = conectar_db(db_actual)
-                if conn_m:
-                    df_maestro = ejecutar_consulta("SELECT rif, razon_social, codigo_cuenta, descripcion_cuenta FROM proveedores ORDER BY razon_social ASC", conn_m)
-                    conn_m.close()
-                    if df_maestro is not None and not df_maestro.empty:
-                        for _, row in df_maestro.iterrows():
-                            label_m = f"{row['razon_social']} (RIF: {row['rif']})"
-                            lista_maestros.append(label_m)
-                            dict_maestros[label_m] = {
-                                "razon_social": row['razon_social'] or "",
-                                "rif": row['rif'] or "",
-                                "codigo_cuenta": row.get('codigo_cuenta', '') or "",
-                                "descripcion_cuenta": row.get('descripcion_cuenta', '') or ""
-                            }
-            except Exception as e:
-                st.info("ℹ️ La tabla histórica 'proveedores' no devolvió registros o no existe en esta base de datos.")
+            # --- FUNCIÓN CON CACHÉ PARA ACELERAR LA CARGA DE DATOS ---
+            @st.cache_data(ttl=60)
+            def cargar_datos_proveedores_tab1(empresa):
+                m_lista = []
+                m_dict = {}
+                c_lista = []
+                c_dict = {}
+                
+                # 1. Cargar Catálogo Base 'proveedores'
+                try:
+                    conn_m = conectar_db(empresa)
+                    if conn_m:
+                        df_maestro = ejecutar_consulta("SELECT rif, razon_social, codigo_cuenta, descripcion_cuenta FROM proveedores ORDER BY razon_social ASC", conn_m)
+                        conn_m.close()
+                        if df_maestro is not None and not df_maestro.empty:
+                            for _, row in df_maestro.iterrows():
+                                label_m = f"{row['razon_social']} (RIF: {row['rif']})"
+                                m_lista.append(label_m)
+                                m_dict[label_m] = {
+                                    "razon_social": row['razon_social'] or "",
+                                    "rif": row['rif'] or "",
+                                    "codigo_cuenta": row.get('codigo_cuenta', '') or "",
+                                    "descripcion_cuenta": row.get('descripcion_cuenta', '') or ""
+                                }
+                except Exception:
+                    pass
 
-            # --- CARGAR DATOS DESDE 'proveedores_carga' (Proveedores ya guardados previamente) ---
-            lista_cargados = []
-            dict_cargados = {}
-            try:
-                conn_c = conectar_db(db_actual)
-                if conn_c:
-                    df_cargados = ejecutar_consulta("SELECT id, nombre, rif, codigo_cuenta, descripcion_cuenta, telefono, email, banco, nro_cuenta, tipo_cuenta FROM proveedores_carga WHERE empresa_db = %s ORDER BY nombre ASC", conn_c, params=(str(db_actual),))
-                    conn_c.close()
-                    if df_cargados is not None and not df_cargados.empty:
-                        for _, row in df_cargados.iterrows():
-                            label_c = f"💾 [Guardado] {row['nombre']} (RIF: {row['rif']})"
-                            lista_cargados.append(label_c)
-                            dict_cargados[label_c] = {
-                                "nombre": row['nombre'] or "",
-                                "rif": row['rif'] or "",
-                                "codigo_cuenta": row['codigo_cuenta'] or "",
-                                "descripcion_cuenta": row['descripcion_cuenta'] or "",
-                                "telefono": row['telefono'] or "",
-                                "email": row['email'] or "",
-                                "banco": row['banco'] or "Banesco",
-                                "nro_cuenta": row['nro_cuenta'] or "",
-                                "tipo_cuenta": row['tipo_cuenta'] or "Corriente"
-                            }
-            except Exception as e:
-                pass
+                # 2. Cargar 'proveedores_carga' (Guardados previamente)
+                try:
+                    conn_c = conectar_db(empresa)
+                    if conn_c:
+                        df_cargados = ejecutar_consulta("SELECT id, nombre, rif, codigo_cuenta, descripcion_cuenta, telefono, email, banco, nro_cuenta, tipo_cuenta FROM proveedores_carga WHERE empresa_db = %s ORDER BY nombre ASC", conn_c, params=(str(empresa),))
+                        conn_c.close()
+                        if df_cargados is not None and not df_cargados.empty:
+                            for _, row in df_cargados.iterrows():
+                                label_c = f"💾 [Guardado] {row['nombre']} (RIF: {row['rif']})"
+                                c_lista.append(label_c)
+                                c_dict[label_c] = {
+                                    "nombre": row['nombre'] or "",
+                                    "rif": row['rif'] or "",
+                                    "codigo_cuenta": row['codigo_cuenta'] or "",
+                                    "descripcion_cuenta": row['descripcion_cuenta'] or "",
+                                    "telefono": row['telefono'] or "",
+                                    "email": row['email'] or "",
+                                    "banco": row['banco'] or "Banesco",
+                                    "nro_cuenta": row['nro_cuenta'] or "",
+                                    "tipo_cuenta": row['tipo_cuenta'] or "Corriente"
+                                }
+                except Exception:
+                    pass
+                    
+                return m_lista, m_dict, c_lista, c_dict
+
+            lista_maestros, dict_maestros, lista_cargados, dict_cargados = cargar_datos_proveedores_tab1(db_actual)
 
             # --- GESTIÓN DE SESSION STATE PARA LOS CAMPOS ---
             if "prov_form_nombre" not in st.session_state:
@@ -12955,20 +12963,20 @@ estado: {sel_data['estado']}""", language="yaml")
                 if lista_maestros:
                     with st.expander("📥 Importar desde catálogo 'proveedores' (A-Z)", expanded=False):
                         prov_seleccionado = st.selectbox("Seleccione proveedor del catálogo:", lista_maestros, key="sel_cat_maestro")
-                        if st.button("🔄 Cargar datos del catálogo"):
+                        if st.button("🔄 Cargar datos del catálogo", key="btn_load_catalogo"):
                             datos_sel = dict_maestros.get(prov_seleccionado, {})
                             st.session_state["prov_form_nombre"] = datos_sel.get("razon_social", "")
                             st.session_state["prov_form_rif"] = datos_sel.get("rif", "")
                             st.session_state["prov_form_cod_cta"] = datos_sel.get("codigo_cuenta", "")
                             st.session_state["prov_form_desc_cta"] = datos_sel.get("descripcion_cuenta", "")
-                            st.success("¡Datos importados al formulario!")
+                            st.toast("✅ ¡Datos importados al formulario!", icon="📥")
                             st.rerun()
 
             with col_imp2:
                 if lista_cargados:
                     with st.expander("⚡ Autocompletar con Proveedores Registrados", expanded=False):
                         sel_autocompletar = st.selectbox("Seleccione proveedor guardado:", lista_cargados, key="sel_cat_cargado")
-                        if st.button("🔄 Cargar datos guardados"):
+                        if st.button("🔄 Cargar datos guardados", key="btn_load_guardados"):
                             datos_auto = dict_cargados.get(sel_autocompletar, {})
                             st.session_state["prov_form_nombre"] = datos_auto.get("nombre", "")
                             st.session_state["prov_form_rif"] = datos_auto.get("rif", "")
@@ -12979,7 +12987,7 @@ estado: {sel_data['estado']}""", language="yaml")
                             st.session_state["prov_form_banco"] = datos_auto.get("banco", "Banesco")
                             st.session_state["prov_form_nro_cta"] = datos_auto.get("nro_cuenta", "")
                             st.session_state["prov_form_tipo_cta"] = datos_auto.get("tipo_cuenta", "Corriente")
-                            st.success("¡Datos cargados en el formulario!")
+                            st.toast("✅ ¡Datos cargados en el formulario!", icon="⚡")
                             st.rerun()
 
             st.markdown("---")
@@ -13081,65 +13089,60 @@ estado: {sel_data['estado']}""", language="yaml")
         with tab2:
             st.markdown("### 🧾 Gestión y Generación de Órdenes de Pago y Cruce")
 
-            # --- CARGAR PROVEEDORES Y PLAN DE CUENTAS DIRECTO DE LA BD ---
-            lista_provs = []
-            dict_provs = {}
-            lista_cuentas_detalle = []
-            dict_cuentas_detalle = {}
-            
-            try:
-                conn_cp = conectar_db(db_actual)
-                if conn_cp:
-                    df_cp = ejecutar_consulta(
-                        "SELECT id, nombre, rif, codigo_cuenta, descripcion_cuenta FROM proveedores_carga WHERE empresa_db = %s ORDER BY nombre ASC", 
-                        conn_cp, 
-                        params=(str(db_actual),)
-                    )
-                    df_cuentas = ejecutar_consulta(
-                        "SELECT id, codigo, nombre, nivel, tipo, padre FROM plan_cuentas WHERE tipo = 'Detalle'", 
-                        conn_cp
-                    )
-                    conn_cp.close()
-                    
-                    # 1. Procesar Proveedores
-                    if df_cp is not None and not df_cp.empty:
-                        for _, row in df_cp.iterrows():
-                            prov_id_val = row['id']
-                            label_p = f"{row['nombre']} (RIF: {row['rif']})"
-                            if label_p not in lista_provs:
-                                lista_provs.append(label_p)
-                            dict_provs[label_p] = {
-                                'id_interno': prov_id_val,
-                                'rif': row['rif'],
-                                'nombre': row['nombre'],
-                                'codigo_cuenta': str(row.get('codigo_cuenta', 'N/A')),
-                                'descripcion_cuenta': str(row.get('descripcion_cuenta', 'N/A'))
-                            }
-                    
-                    # 2. Procesar Plan de Cuentas
-                    if df_cuentas is not None and not df_cuentas.empty:
-                        for _, row in df_cuentas.iterrows():
-                            c_label = f"{str(row['codigo']).strip()} - {str(row['nombre']).strip()}"
-                            if c_label not in lista_cuentas_detalle:
-                                lista_cuentas_detalle.append(c_label)
-                                dict_cuentas_detalle[c_label] = {
-                                    'codigo': str(row['codigo']).strip(),
-                                    'nombre': str(row['nombre']).strip()
+            # --- CARGAR PROVEEDORES Y PLAN DE CUENTAS CON CACHÉ PARA ELIMINAR LA LENTITUD ---
+            @st.cache_data(ttl=60)
+            def cargar_datos_maestros(empresa):
+                p_lista = []
+                p_dict = {}
+                c_lista = []
+                c_dict = {}
+                try:
+                    conn = conectar_db(empresa)
+                    if conn:
+                        df_cp = ejecutar_consulta(
+                            "SELECT id, nombre, rif, codigo_cuenta, descripcion_cuenta FROM proveedores_carga WHERE empresa_db = %s ORDER BY nombre ASC", 
+                            conn, params=(str(empresa),)
+                        )
+                        df_cuentas = ejecutar_consulta(
+                            "SELECT id, codigo, nombre, nivel, tipo, padre FROM plan_cuentas WHERE tipo = 'Detalle'", 
+                            conn
+                        )
+                        conn.close()
+                        
+                        if df_cp is not None and not df_cp.empty:
+                            for _, row in df_cp.iterrows():
+                                pid = row['id']
+                                label = f"{row['nombre']} (RIF: {row['rif'])})" if 'rif' in row else row['nombre']
+                                # Aseguramos formato limpio
+                                label = f"{row['nombre']} (RIF: {row['rif']})"
+                                if label not in p_lista:
+                                    p_lista.append(label)
+                                p_dict[label] = {
+                                    'id_interno': pid,
+                                    'rif': row['rif'],
+                                    'nombre': row['nombre'],
+                                    'codigo_cuenta': str(row.get('codigo_cuenta', 'N/A')),
+                                    'descripcion_cuenta': str(row.get('descripcion_cuenta', 'N/A'))
                                 }
-            except Exception as e:
-                st.error(f"Error cargando datos de BD: {e}")
+                        
+                        if df_cuentas is not None and not df_cuentas.empty:
+                            for _, row in df_cuentas.iterrows():
+                                clabel = f"{str(row['codigo']).strip()} - {str(row['nombre']).strip()}"
+                                if clabel not in c_lista:
+                                    c_lista.append(clabel)
+                                    c_dict[clabel] = {
+                                        'codigo': str(row['codigo']).strip(),
+                                        'nombre': str(row['nombre']).strip()
+                                    }
+                except Exception as ex:
+                    st.error(f"Error en caché de BD: {ex}")
+                return p_lista, p_dict, c_lista, c_dict
 
-            # --- INICIALIZAR ESTADOS DE FLUJO Y CÁLCULO ---
+            lista_provs, dict_provs, lista_cuentas_detalle, dict_cuentas_detalle = cargar_datos_maestros(db_actual)
+
+            # --- INICIALIZAR ESTADO DE FLUJO POR FASES ---
             if "orden_guardada_exito" not in st.session_state:
                 st.session_state.orden_guardada_exito = False
-
-            # Inicializar variables de cálculo en session_state para control total
-            if "s_base" not in st.session_state: st.session_state.s_base = 0.0
-            if "s_exento" not in st.session_state: st.session_state.s_exento = 0.0
-            if "s_alicuota" not in st.session_state: st.session_state.s_alicuota = 16.0
-            if "s_porc_ret_iva" not in st.session_state: st.session_state.s_porc_ret_iva = 75.0
-            if "s_porc_islr" not in st.session_state: st.session_state.s_porc_islr = 1.0
-            if "s_sustraendo" not in st.session_state: st.session_state.s_sustraendo = 0.0
 
             # --- FASE 1: EMITIR NUEVA ORDEN DE PAGO (SIEMPRE VISIBLE PRIMERO) ---
             st.markdown("### ✍️ Emitir Nueva Orden de Pago")
@@ -13166,11 +13169,9 @@ estado: {sel_data['estado']}""", language="yaml")
                 with col_f1_3:
                     alicuota_iva_form = st.selectbox("Alícuota IVA", options=[16.0, 8.0, 31.0, 0.0], format_func=lambda x: f"{x}%", key="f1_alicuota")
                 with col_f1_4:
-                    # CÁLCULO AUTOMÁTICO DE IVA
                     monto_iva_calculado = base_imponible_form * (alicuota_iva_form / 100.0)
                     st.metric(label="Monto IVA (Calculado)", value=f"{monto_iva_calculado:,.2f}")
 
-                # CÁLCULO AUTOMÁTICO DE MONTO BRUTO
                 monto_bruto_calculado = base_imponible_form + monto_exento_form + monto_iva_calculado
                 st.metric(label="Monto Bruto / Total Factura (Calculado)", value=f"{monto_bruto_calculado:,.2f}")
                 
@@ -13222,7 +13223,7 @@ estado: {sel_data['estado']}""", language="yaml")
                     btn_guardar_op = st.button("💾 Guardar y Registrar Orden de Pago", type="primary", key="btn_guardar_principal", use_container_width=True)
 
                 if btn_calcular:
-                    st.toast("✅ ¡Cálculos recalculados y sincronizados!", icon="🧮")
+                    st.toast("✅ ¡Cálculos actualizados al instante!", icon="🧮")
                     st.rerun()
 
                 if btn_guardar_op:
@@ -13268,14 +13269,13 @@ estado: {sel_data['estado']}""", language="yaml")
                                 cursor.close()
                                 conn_ins.close()
                                 
-                                # Activamos la bandera para desbloquear las Fases 2 y 3 abajo
                                 st.session_state.orden_guardada_exito = True
                                 st.success("🎉 ¡Orden de pago guardada con éxito en la BD!")
                                 st.rerun()
                         except Exception as err_ins:
                             st.error(f"❌ Error al guardar la orden de pago: {err_ins}")
 
-            # --- FASE 2 Y 3: SOLO SE ABREN DESPUÉS DE GUARDAR EXITOSAMENTE LA ORDEN ---
+            # --- FASE 2 Y 3: HISTORIAL Y MÓDULOS INDEPENDIENTES ---
             if st.session_state.orden_guardada_exito:
                 st.markdown("---")
                 st.markdown("### 📊 Historial de Órdenes de Pago y Previsualización YAML")
@@ -13415,7 +13415,6 @@ estado: {sel_data['estado']}""", language="yaml")
                                                         ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
                                                     """
                                                     
-                                                    # Exactamente 18 valores para los 18 placeholders %s (más NOW() de la BD)
                                                     valores_libro = (
                                                         str(sel_data['fecha_emision']),
                                                         "Factura",
@@ -13424,16 +13423,16 @@ estado: {sel_data['estado']}""", language="yaml")
                                                         None,
                                                         prov_val if prov_val and prov_val != 'None' else 'Proveedor Genérico',
                                                         rif_val,
-                                                        "01", # tipo_transaccion por defecto
+                                                        "01",
                                                         float(sel_data.get('monto_bruto', 0.0)),
                                                         float(sel_data.get('monto_exento', 0.0)),
                                                         float(sel_data.get('base_imponible', 0.0)),
                                                         float(sel_data.get('iva_porcentaje', 16.0)),
                                                         float(sel_data.get('monto_iva', 0.0)),
-                                                        1 if float(sel_data.get('retencion_iva', 0.0)) > 0 else 0, # retencion_realizada (tinyint)
-                                                        float(sel_data.get('retencion_iva', 0.0)), # retencion_iva_realizada
+                                                        1 if float(sel_data.get('retencion_iva', 0.0)) > 0 else 0,
+                                                        float(sel_data.get('retencion_iva', 0.0)),
                                                         f"COMP-{fact_val}",
-                                                        float(sel_data.get('retencion_iva', 0.0)), # monto_iva_retenido
+                                                        float(sel_data.get('retencion_iva', 0.0)),
                                                         str(sel_data['fecha_emision'])
                                                     )
                                                     
