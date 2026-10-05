@@ -13380,8 +13380,7 @@ estado: {sel_data['estado']}""", language="yaml")
                 total_compras: {sel_data['monto_bruto']:,.2f}
                 base_imponible: {sel_data['base_imponible']:,.2f}
                 iva_porcentaje: {sel_data['iva_porcentaje']}%
-                iva_monto: {sel_data['monto_iva']:,.2f}
-                retencion_islr: {sel_data['retencion_islr']:,.2f}""", language="yaml")
+                iva_monto: {sel_data['monto_iva']:,.2f}""", language="yaml")
                                 
                                 if st.button("💾 Guardar Libro de Compras", key=f"btn_guardar_libro_{sel_data['id']}", use_container_width=True):
                                     rif_val = str(sel_data.get('proveedor_rif', '')).strip()
