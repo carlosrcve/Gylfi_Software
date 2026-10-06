@@ -13996,6 +13996,7 @@ estado: {sel_data['estado']}""", language="yaml")
             st.markdown("Selecciona productos del inventario, genera la factura detallada por ítems, guarda la orden de cobranza y procesa independientemente cada frente fiscal, contable y bancario.")
 
             # 0. Asegurar la existencia de las tablas necesarias (producto, factura, factura_detalle) y datos iniciales
+            # 0. Asegurar la existencia de las tablas necesarias y datos iniciales
             try:
                 conn_init = conectar_db(db_actual)
                 if conn_init:
@@ -14047,7 +14048,7 @@ estado: {sel_data['estado']}""", language="yaml")
                         )
                     """)
 
-                    # Tabla factura_detalle (ítems de cada factura)
+                    # Tabla factura_detalle (CORREGIDO: sin espacios y sin comentarios dentro del SQL)
                     cur_init.execute("""
                         CREATE TABLE IF NOT EXISTS factura_detalle (
                             id INT AUTO_INCREMENT PRIMARY KEY,
@@ -14056,7 +14057,7 @@ estado: {sel_data['estado']}""", language="yaml")
                             descripcion VARCHAR(255),
                             cantidad DECIMAL(18,2),
                             precio_unitario DECIMAL(18,2),
-                            total_ linea DECIMAL(18,2), -- ❌ TIENE UN ESPACIO ENTRE "total_" y "linea"
+                            total_linea DECIMAL(18,2),
                             fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                         )
                     """)
