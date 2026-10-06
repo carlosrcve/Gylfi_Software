@@ -13993,7 +13993,7 @@ estado: {sel_data['estado']}""", language="yaml")
             # TAB 6: EMISIÓN DE FACTURAS, LIBRO DE VENTAS Y GESTIÓN POR FRENTES (CxC)
             # =========================================================================
             st.markdown("### 🧾 Emisión de Facturas, Libro de Ventas y Registro de Cobranza (CxC)")
-            st.markdown("Genera la factura de venta a tus clientes comerciales, guarda la orden de cobranza y procesa independientemente cada frente fiscal, contable y bancario.")
+            st.markdown("Genera la factura detallada por ítems, guarda la orden de cobranza y procesa independientemente cada frente fiscal, contable y bancario.")
 
             try:
                 # 1. Cargar clientes comerciales desde la base de datos existente
@@ -14028,26 +14028,56 @@ estado: {sel_data['estado']}""", language="yaml")
                     with col_f3:
                         fecha_emision = st.date_input("4) Fecha de Emisión", key="input_fecha_emision")
 
+                    # =========================================================================
+                    # 📦 DETALLE DE ÍTEMS / LÍNEAS DE LA FACTURA (st.data_editor)
+                    # =========================================================================
                     st.divider()
-                    st.markdown("#### 💰 Montos y Desglose Impositivo")
+                    st.markdown("#### 🛒 Detalle de Ítems / Líneas de Venta")
+                    st.markdown("Agrega, edita o elimina los productos/servicios. La Base Imponible se calculará de forma automática.")
 
-                    col_m1, col_m2, col_m3, col_m4, col_m5 = st.columns(5)
+                    if "df_items_factura" not in st.session_state:
+                        st.session_state.df_items_factura = pd.DataFrame([
+                            {"Cantidad": 1.0, "Descripción": "Servicio o Producto Principal", "Precio Unitario": 0.0}
+                        ])
+
+                    edited_items_df = st.data_editor(
+                        st.session_state.df_items_factura,
+                        num_rows="dynamic",
+                        use_container_width=True,
+                        key="editor_lineas_factura",
+                        column_config={
+                            "Cantidad": st.column_config.NumberColumn("Cantidad", min_value=0.01, step=1.0, format="%.2f"),
+                            "Descripción": st.column_config.TextColumn("Descripción del Producto / Servicio"),
+                            "Precio Unitario": st.column_config.NumberColumn("Precio Unitario ($)", min_value=0.0, step=1.0, format="%.2f")
+                        }
+                    )
+
+                    # Cálculo automático de la Base Imponible a partir de los ítems
+                    if not edited_items_df.empty:
+                        edited_items_df["Total Línea"] = edited_items_df["Cantidad"] * edited_items_df["Precio Unitario"]
+                        base_imponible = float(edited_items_df["Total Línea"].sum())
+                    else:
+                        base_imponible = 0.0
+
+                    st.divider()
+                    st.markdown("#### 💰 Desglose Impositivo y Totales")
+
+                    col_m1, col_m2, col_m3, col_m4 = st.columns(4)
                     with col_m1:
-                        base_imponible = st.number_input("5) Base Imponible", min_value=0.0, step=100.0, format="%.2f", key="input_base_imp")
+                        monto_exento = st.number_input("Monto Exento", min_value=0.0, step=0.0, format="%.2f", key="input_monto_ex")
                     with col_m2:
-                        monto_exento = st.number_input("6) Monto Exento", min_value=0.0, step=0.0, format="%.2f", key="input_monto_ex")
-                    with col_m3:
-                        alicuota_iva = st.selectbox("7) Alícuota IVA (%)", [16.0, 8.0, 0.0], index=0, key="select_alicuota")
+                        alicuota_iva = st.selectbox("Alícuota IVA (%)", [16.0, 8.0, 0.0], index=0, key="select_alicuota")
                     
                     calc_iva = base_imponible * (alicuota_iva / 100.0)
                     calc_bruto = base_imponible + monto_exento + calc_iva
 
+                    with col_m3:
+                        monto_iva = st.number_input("Monto IVA", value=calc_iva, min_value=0.0, format="%.2f", disabled=True, key="input_monto_iva_f")
                     with col_m4:
-                        monto_iva = st.number_input("8) Monto IVA", value=calc_iva, min_value=0.0, format="%.2f", disabled=True, key="input_monto_iva_f")
-                    with col_m5:
-                        monto_bruto = st.number_input("9) Monto Total Factura", value=calc_bruto, min_value=0.0, format="%.2f", disabled=True, key="input_monto_bruto_f")
+                        monto_bruto = st.number_input("Monto Total Factura", value=calc_bruto, min_value=0.0, format="%.2f", disabled=True, key="input_monto_bruto_f")
 
-                    st.info(f"📊 **Resumen Fiscal:** Base Imponible: ${base_imponible:,.2f} | Exento: ${monto_exento:,.2f} | IVA ({alicuota_iva}%): ${monto_iva:,.2f} | Total Bruto: ${monto_bruto:,.2f}")
+                    st.info(f"📊 **Resumen Fiscal:** Base Imponible (Ítems): ${base_imponible:,.2f} | Exento: ${monto_exento:,.2f} | IVA ({alicuota_iva}%): ${monto_iva:,.2f} | Total Bruto: ${monto_bruto:,.2f}")
+                    
                     st.divider()
                     st.markdown("#### 🏦 Datos Preliminares del Cobro / Referencia Bancaria (Opcional si es a crédito)")
                     
@@ -14055,7 +14085,8 @@ estado: {sel_data['estado']}""", language="yaml")
                     try:
                         conn_pc = conectar_db(db_actual)
                         if conn_pc:
-                            query_pc = "SELECT codigo, nombre FROM plan_cuentas WHERE tipo = 'Detalle' AND (codigo LIKE '101%' OR nombre LIKE '%Banco%' OR nombre LIKE '%Caja%') ORDER BY nombre ASC"
+                            # Consulta con porcentajes escapados (%%) para evitar conflictos con el formateador de Python
+                            query_pc = "SELECT codigo, nombre FROM plan_cuentas WHERE tipo = 'Detalle' AND (codigo LIKE '101%%' OR nombre LIKE '%%Banco%%' OR nombre LIKE '%%Caja%%') ORDER BY nombre ASC"
                             df_bancos = ejecutar_consulta(query_pc, conn_pc)
                             conn_pc.close()
                             
@@ -14079,7 +14110,7 @@ estado: {sel_data['estado']}""", language="yaml")
                     st.divider()
 
                     # BOTÓN PARA GUARDAR LA ORDEN DE COBRANZA INICIAL
-                    if st.button("🚀 Guardar Orden de Cobranza", type="primary", use_container_width=True, key="btn_guardar_orden_cobranza"):
+                    if st.button("🚀 Guardar Orden de Cobranza y Factura", type="primary", use_container_width=True, key="btn_guardar_orden_cobranza"):
                         if nro_factura and nro_control:
                             try:
                                 conn_trans = conectar_db(db_actual)
@@ -14120,7 +14151,7 @@ estado: {sel_data['estado']}""", language="yaml")
                                     cursor.close()
                                     conn_trans.close()
 
-                                    st.success("✅ ¡Orden de cobranza guardada con éxito! Ya puedes procesarla en los frentes inferiores.")
+                                    st.success("✅ ¡Orden de cobranza y factura guardadas con éxito! Ya puedes procesarlas en los frentes inferiores.")
                                     st.balloons()
                                     st.rerun()
                                 else:
