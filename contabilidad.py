@@ -14029,13 +14029,13 @@ estado: {sel_data['estado']}""", language="yaml")
                         fecha_emision = st.date_input("4) Fecha de Emisión", key="input_fecha_emision")
 
                     # =========================================================================
-                    # 🛒 DETALLE DE ÍTEMS / LÍNEAS DE VENTA (Versión Limpia y Única)
+                    # 🛒 DETALLE DE ÍTEMS / LÍNEAS DE VENTA (Versión Blindada contra Filas Nuevas)
                     # =========================================================================
                     st.divider()
                     st.markdown("#### 🛒 Detalle de Ítems / Líneas de Venta")
                     st.markdown("Agrega, edita o elimina los productos/servicios. El total se calcula automáticamente.")
 
-                    # 1. Inicializar el estado asegurando que tenga la columna Total desde el inicio
+                    # 1. Inicializar el estado asegurando la estructura base
                     if "df_items_factura" not in st.session_state:
                         st.session_state.df_items_factura = pd.DataFrame([
                             {
@@ -14046,13 +14046,14 @@ estado: {sel_data['estado']}""", language="yaml")
                             }
                         ])
 
-                    # Asegurarnos de que el DataFrame del estado tenga la columna Total sincronizada antes de renderizar
+                    # 2. Asegurarnos de limpiar y convertir valores nulos del estado previo antes de renderizar
                     df_actual = st.session_state.df_items_factura.copy()
                     df_actual["Cantidad"] = pd.to_numeric(df_actual["Cantidad"], errors='coerce').fillna(0.0)
                     df_actual["Precio Unitario"] = pd.to_numeric(df_actual["Precio Unitario"], errors='coerce').fillna(0.0)
+                    df_actual["Descripción"] = df_actual["Descripción"].fillna("Nuevo Ítem")
                     df_actual["Total ($)"] = df_actual["Cantidad"] * df_actual["Precio Unitario"]
 
-                    # 2. Renderizar UN SOLO st.data_editor con las 4 columnas (Total deshabilitado)
+                    # 3. Renderizar el st.data_editor
                     edited_items_df = st.data_editor(
                         df_actual,
                         num_rows="dynamic",
@@ -14066,15 +14067,17 @@ estado: {sel_data['estado']}""", language="yaml")
                         }
                     )
 
-                    # 3. Recalcular de inmediato sobre lo que el usuario editó y guardar en el session_state
+                    # 4. Procesar y blindar contra filas recién añadidas que contengan None o valores vacíos
                     if not edited_items_df.empty:
+                        # Rellenar cualquier celda vacía/None generada al añadir una fila con valores por defecto seguros
                         edited_items_df["Cantidad"] = pd.to_numeric(edited_items_df["Cantidad"], errors='coerce').fillna(0.0)
                         edited_items_df["Precio Unitario"] = pd.to_numeric(edited_items_df["Precio Unitario"], errors='coerce').fillna(0.0)
+                        edited_items_df["Descripción"] = edited_items_df["Descripción"].fillna("Sin descripción")
                         
-                        # Multiplicación estricta en tiempo real
+                        # Multiplicación estricta libre de None
                         edited_items_df["Total ($)"] = edited_items_df["Cantidad"] * edited_items_df["Precio Unitario"]
                         
-                        # Actualizar session_state para el siguiente ciclo
+                        # Guardar estado limpio
                         st.session_state.df_items_factura = edited_items_df.copy()
                         
                         base_imponible = float(edited_items_df["Total ($)"].sum())
