@@ -14035,6 +14035,7 @@ estado: {sel_data['estado']}""", language="yaml")
                     st.markdown("#### 🛒 Detalle de Ítems / Líneas de Venta")
                     st.markdown("Agrega, edita o elimina los productos/servicios. La Base Imponible se calculará de forma automática.")
 
+                    # Inicializar el estado si no existe
                     if "df_items_factura" not in st.session_state:
                         st.session_state.df_items_factura = pd.DataFrame([
                             {"Cantidad": 1.0, "Descripción": "Servicio o Producto Principal", "Precio Unitario": 0.0, "Total": 0.0}
@@ -14044,6 +14045,7 @@ estado: {sel_data['estado']}""", language="yaml")
                         if "Total" not in st.session_state.df_items_factura.columns:
                             st.session_state.df_items_factura["Total"] = st.session_state.df_items_factura["Cantidad"] * st.session_state.df_items_factura["Precio Unitario"]
 
+                    # Renderizar el editor y capturar los cambios del usuario
                     edited_items_df = st.data_editor(
                         st.session_state.df_items_factura,
                         num_rows="dynamic",
@@ -14057,9 +14059,10 @@ estado: {sel_data['estado']}""", language="yaml")
                         }
                     )
 
-                    # Cálculo automático de la Base Imponible y actualización de la columna Total en tiempo real
+                    # 🔑 CLAVE: Actualizar el Total inmediatamente antes de calcular la base imponible y el session_state
                     if not edited_items_df.empty:
                         edited_items_df["Total"] = edited_items_df["Cantidad"] * edited_items_df["Precio Unitario"]
+                        st.session_state.df_items_factura = edited_items_df  # Sincronizamos con el estado global de la sesión
                         base_imponible = float(edited_items_df["Total"].sum())
                     else:
                         base_imponible = 0.0
@@ -14082,7 +14085,6 @@ estado: {sel_data['estado']}""", language="yaml")
                         monto_bruto = st.number_input("Monto Total Factura", value=calc_bruto, min_value=0.0, format="%.2f", disabled=True, key="input_monto_bruto_f")
 
                     st.info(f"📊 **Resumen Fiscal:** Base Imponible (Ítems): ${base_imponible:,.2f} | Exento: ${monto_exento:,.2f} | IVA ({alicuota_iva}%): ${monto_iva:,.2f} | Total Bruto: ${monto_bruto:,.2f}")
-                    
                     st.divider()
                     st.markdown("#### 🏦 Datos Preliminares del Cobro / Referencia Bancaria (Opcional si es a crédito)")
                     
