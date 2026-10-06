@@ -14029,7 +14029,7 @@ estado: {sel_data['estado']}""", language="yaml")
                         fecha_emision = st.date_input("4) Fecha de Emisión", key="input_fecha_emision")
 
                     # =========================================================================
-                    # 🛒 DETALLE DE ÍTEMS / LÍNEAS DE VENTA (Versión Corregida)
+                    # 🛒 DETALLE DE ÍTEMS / LÍNEAS DE VENTA (Versión Definitiva con Índices Sincronizados)
                     # =========================================================================
                     st.divider()
                     st.markdown("#### 🛒 Detalle de Ítems / Líneas de Venta")
@@ -14046,23 +14046,11 @@ estado: {sel_data['estado']}""", language="yaml")
                             }
                         ])
 
-                    # 2. CAPTURAR Y CALCULAR PRIMERO: Asegurar que el DataFrame del estado tenga los cálculos hechos
-                    df_actual = st.session_state.df_items_factura.copy()
-                    
-                    # Limpieza estricta de tipos numéricos
-                    df_actual["Cantidad"] = pd.to_numeric(df_actual["Cantidad"], errors='coerce').fillna(0.0)
-                    df_actual["Precio Unitario"] = pd.to_numeric(df_actual["Precio Unitario"], errors='coerce').fillna(0.0)
-                    df_actual["Descripción"] = df_actual["Descripción"].fillna("Servicio o Producto")
-                    
-                    # Multiplicación síncrona inmediata antes de renderizar
-                    df_actual["Total ($)"] = df_actual["Cantidad"] * df_actual["Precio Unitario"]
-                    
-                    # Actualizar de una vez el session_state con los datos limpios
-                    st.session_state.df_items_factura = df_actual.copy()
+                    # 2. Renderizar el st.data_editor usando directamente el estado actual ordenado
+                    df_input = st.session_state.df_items_factura.copy().reset_index(drop=True)
 
-                    # 3. Renderizar el st.data_editor (este sí acepta "%,.2f" sin problema)
                     edited_items_df = st.data_editor(
-                        st.session_state.df_items_factura,
+                        df_input,
                         num_rows="dynamic",
                         use_container_width=True,
                         key="editor_lineas_factura",
@@ -14093,13 +14081,20 @@ estado: {sel_data['estado']}""", language="yaml")
                         }
                     )
 
-                    # 4. POST-PROCESAMIENTO INMEDIATO: Capturar la edición del usuario y recalcular al vuelo
+                    # 3. POST-PROCESAMIENTO RIGUROSO: Limpiar, resetear índice y recalcular matemáticamente
                     if not edited_items_df.empty:
+                        # Limpiar tipos de datos y evitar nulos
                         edited_items_df["Cantidad"] = pd.to_numeric(edited_items_df["Cantidad"], errors='coerce').fillna(0.0)
                         edited_items_df["Precio Unitario"] = pd.to_numeric(edited_items_df["Precio Unitario"], errors='coerce').fillna(0.0)
                         edited_items_df["Descripción"] = edited_items_df["Descripción"].fillna("Sin descripción")
                         
+                        # MULTIPLICACIÓN MATEMÁTICA ESTRICTA FILA POR FILA (Garantiza 100% de precisión)
                         edited_items_df["Total ($)"] = edited_items_df["Cantidad"] * edited_items_df["Precio Unitario"]
+                        
+                        # Reseteo vital de índices para evitar que se desfasen las filas al agregarlas o borrarlas
+                        edited_items_df = edited_items_df.reset_index(drop=True)
+                        
+                        # Guardar de inmediato en el session_state limpio y sincronizado
                         st.session_state.df_items_factura = edited_items_df.copy()
                         
                         base_imponible = float(edited_items_df["Total ($)"].sum())
@@ -14111,7 +14106,6 @@ estado: {sel_data['estado']}""", language="yaml")
 
                     col_m1, col_m2, col_m3, col_m4 = st.columns(4)
                     with col_m1:
-                        # CORREGIDO: Se cambió format="%,.2f" por format="%0.2f"
                         monto_exento = st.number_input("Monto Exento", min_value=0.0, step=1.0, format="%0.2f", key="input_monto_ex")
                     with col_m2:
                         alicuota_iva = st.selectbox("Alícuota IVA (%)", [16.0, 8.0, 0.0], index=0, key="select_alicuota")
@@ -14120,10 +14114,8 @@ estado: {sel_data['estado']}""", language="yaml")
                     calc_bruto = base_imponible + monto_exento + calc_iva
 
                     with col_m3:
-                        # CORREGIDO: Se cambió format="%,.2f" por format="%0.2f"
                         monto_iva = st.number_input("Monto IVA", value=calc_iva, min_value=0.0, format="%0.2f", disabled=True, key="input_monto_iva_f")
                     with col_m4:
-                        # CORREGIDO: Se cambió format="%,.2f" por format="%0.2f"
                         monto_bruto = st.number_input("Monto Total Factura", value=calc_bruto, min_value=0.0, format="%0.2f", disabled=True, key="input_monto_bruto_f")
 
                     st.info(f"📊 **Resumen Fiscal:** Base Imponible (Ítems): ${base_imponible:,.2f} | Exento: ${monto_exento:,.2f} | IVA ({alicuota_iva}%): ${monto_iva:,.2f} | Total Bruto: ${monto_bruto:,.2f}")
