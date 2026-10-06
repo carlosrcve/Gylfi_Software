@@ -13989,7 +13989,7 @@ estado: {sel_data['estado']}""", language="yaml")
                     st.warning("⚠️ Debes marcar la casilla de confirmación de seguridad para proceder.")
 
         with tab6:
-            # =========================================================================
+            #=========================================================================
             # TAB 6: EMISIÓN DE FACTURAS, LIBRO DE VENTAS Y GESTIÓN POR FRENTES (CxC)
             # =========================================================================
             st.markdown("### 🧾 Emisión de Facturas, Libro de Ventas y Registro de Cobranza (CxC)")
@@ -14254,7 +14254,7 @@ estado: {sel_data['estado']}""", language="yaml")
                         # SUB-TAB 3: Asientos Contables
                         # -------------------------------------------------------------
                         with sub_tab3:
-                            st.markdown("#### ⚖️️ Asientos Contables - Facturas Pendientes de Registrar")
+                            st.markdown("#### ⚖ Asientos Contables - Facturas Pendientes de Registrar")
                             try:
                                 df_oc_ac = ejecutar_consulta("SELECT id, fecha_emision, n_factura, rif_cliente, monto_bruto, base_imponible, monto_iva FROM ordenes_cobranza ORDER BY id DESC LIMIT 10", conn_vis)
                                 
@@ -14355,8 +14355,8 @@ estado: {sel_data['estado']}""", language="yaml")
                                                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW())
                                             """, (
                                                 banco_receptor if banco_receptor else "Banco Principal", "Principal",
-                                                selected_row_bm['fecha_emision'], selected_row_bm['referencia_banco'],
-                                                f"Cobro Factura {selected_row_bm['n_factura']}", selected_row_bm['monto_bruto'],
+                                                selected_row_bm['fecha_movimiento'], selected_row_bm['referencia'],
+                                                f"Cobro Factura {selected_row_bm['referencia']}", selected_row_bm['monto'],
                                                 "Conciliado", None
                                             ))
                                             conn_bm.commit()
@@ -14367,17 +14367,16 @@ estado: {sel_data['estado']}""", language="yaml")
                                         except Exception as err_ins_bm:
                                             st.error(f"❌ Error al guardar en banco_movimientos: {err_ins_bm}")
                                 else:
-                                    st.info("No hay órdenes de cobranza con referencia bancaria registradas.")
+                                    st.info("No hay pagos con referencia bancaria registrados pendientes.")
                             except Exception as e_bm_err:
                                 st.error(f"Error cargando frame: {e_bm_err}")
-                    
+
+                        # Cerrar conexión de visualización general
                         conn_vis.close()
-
-                    else:
-                        st.info("ℹ No se encontraron clientes comerciales registrados. Cárgalos primero en el maestro de clientes.")
-
-                except Exception as e_tab6:
-                    st.error(f"Error general en el módulo de facturación: {e_tab6}")
+                else:
+                    st.warning("⚠️ No se encontraron clientes comerciales registrados. Por favor, crea al menos un cliente primero.")
+            except Exception as e_tab6:
+                st.error(f"❌ Error general en la Pestaña 6: {e_tab6}")
 
     elif sub_opcion == "Consultar Comprobante":
         st.subheader("🔍 Buscador de Comprobantes")
