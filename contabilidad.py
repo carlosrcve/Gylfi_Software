@@ -14232,7 +14232,7 @@ estado: {sel_data['estado']}""", language="yaml")
                     with col_m4:
                         monto_bruto = st.number_input("Monto Total Factura", value=calc_bruto, min_value=0.0, format="%0.2f", disabled=True, key="input_monto_bruto_f")
 
-                    st.info(f"📊 **Resumen Fiscal:** Base Imponible (Ítems): ${base_imponible:,.2f} \vert{} Exento:${monto_exento:,.2f} | IVA ({alicuota_iva}%): ${monto_iva:,.2f} \vert{} Total Bruto:${monto_bruto:,.2f}")
+                    st.info(f"📊 **Resumen Fiscal:** Base Imponible (Ítems): ${base_imponible:,.2f} | Exento: ${monto_exento:,.2f} | IVA ({alicuota_iva}%): ${monto_iva:,.2f} | Total Bruto: ${monto_bruto:,.2f}")
                     st.divider()
                     st.markdown("#### 🏦 Datos Preliminares del Cobro / Referencia Bancaria (Opcional si es a crédito)")
                     
