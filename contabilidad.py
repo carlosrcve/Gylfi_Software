@@ -13989,6 +13989,9 @@ estado: {sel_data['estado']}""", language="yaml")
                     st.warning("⚠️ Debes marcar la casilla de confirmación de seguridad para proceder.")
 
         with tab6:
+            # =========================================================================
+            # TAB 6: EMISIÓN DE FACTURAS, LIBRO DE VENTAS Y GESTIÓN POR FRENTES (CxC)
+            # =========================================================================
             st.markdown("### 🧾 Emisión de Facturas, Libro de Ventas y Registro de Cobranza (CxC)")
             st.markdown("Genera la factura de venta a tus clientes comerciales, guarda la orden de cobranza y procesa independientemente cada frente fiscal, contable y bancario.")
 
@@ -14019,30 +14022,30 @@ estado: {sel_data['estado']}""", language="yaml")
                     
                     col_f1, col_f2, col_f3 = st.columns(3)
                     with col_f1:
-                        nro_factura = st.text_input("2) Número de Factura", placeholder="Ej. 00001234").strip()
+                        nro_factura = st.text_input("2) Número de Factura", placeholder="Ej. 00001234", key="input_nro_factura").strip()
                     with col_f2:
-                        nro_control = st.text_input("3) Número de Control", placeholder="Ej. 00-000012").strip()
+                        nro_control = st.text_input("3) Número de Control", placeholder="Ej. 00-000012", key="input_nro_control").strip()
                     with col_f3:
-                        fecha_emision = st.date_input("4) Fecha de Emisión")
+                        fecha_emision = st.date_input("4) Fecha de Emisión", key="input_fecha_emision")
 
                     st.divider()
                     st.markdown("#### 💰 Montos y Desglose Impositivo")
 
                     col_m1, col_m2, col_m3, col_m4, col_m5 = st.columns(5)
                     with col_m1:
-                        base_imponible = st.number_input("5) Base Imponible", min_value=0.0, step=100.0, format="%.2f")
+                        base_imponible = st.number_input("5) Base Imponible", min_value=0.0, step=100.0, format="%.2f", key="input_base_imp")
                     with col_m2:
-                        monto_exento = st.number_input("6) Monto Exento", min_value=0.0, step=0.0, format="%.2f")
+                        monto_exento = st.number_input("6) Monto Exento", min_value=0.0, step=0.0, format="%.2f", key="input_monto_ex")
                     with col_m3:
-                        alicuota_iva = st.selectbox("7) Alícuota IVA (%)", [16.0, 8.0, 0.0], index=0)
+                        alicuota_iva = st.selectbox("7) Alícuota IVA (%)", [16.0, 8.0, 0.0], index=0, key="select_alicuota")
                     
                     calc_iva = base_imponible * (alicuota_iva / 100.0)
                     calc_bruto = base_imponible + monto_exento + calc_iva
 
                     with col_m4:
-                        monto_iva = st.number_input("8) Monto IVA", value=calc_iva, min_value=0.0, format="%.2f", disabled=True)
+                        monto_iva = st.number_input("8) Monto IVA", value=calc_iva, min_value=0.0, format="%.2f", disabled=True, key="input_monto_iva_f")
                     with col_m5:
-                        monto_bruto = st.number_input("9) Monto Total Factura", value=calc_bruto, min_value=0.0, format="%.2f", disabled=True)
+                        monto_bruto = st.number_input("9) Monto Total Factura", value=calc_bruto, min_value=0.0, format="%.2f", disabled=True, key="input_monto_bruto_f")
 
                     st.info(f"📊 **Resumen Fiscal:** Base Imponible: ${base_imponible:,.2f} | Exento: ${monto_exento:,.2f} | IVA ({alicuota_iva}%): ${monto_iva:,.2f} | Total Bruto: ${monto_bruto:,.2f}")
                     st.divider()
@@ -14052,7 +14055,7 @@ estado: {sel_data['estado']}""", language="yaml")
                     try:
                         conn_pc = conectar_db(db_actual)
                         if conn_pc:
-                            query_pc = "SELECT codigo, nombre FROM plan_cuentas WHERE tipo = 'Detalle' AND (codigo LIKE '101%%' OR nombre LIKE '%%Banco%%' OR nombre LIKE '%%Caja%%') ORDER BY nombre ASC"
+                            query_pc = "SELECT codigo, nombre FROM plan_cuentas WHERE tipo = 'Detalle' AND (codigo LIKE '101%' OR nombre LIKE '%Banco%' OR nombre LIKE '%Caja%') ORDER BY nombre ASC"
                             df_bancos = ejecutar_consulta(query_pc, conn_pc)
                             conn_pc.close()
                             
@@ -14065,18 +14068,18 @@ estado: {sel_data['estado']}""", language="yaml")
 
                     col_b1, col_b2 = st.columns(2)
                     with col_b1:
-                        ref_banco_cobro = st.text_input("Referencia Bancaria del Pago (si ya fue pagada)").strip()
+                        ref_banco_cobro = st.text_input("Referencia Bancaria del Pago (si ya fue pagada)", key="input_ref_banco").strip()
                     with col_b2:
                         if dict_bancos:
-                            selected_banco_label = st.selectbox("Banco Receptor / Cuenta", list(dict_bancos.keys()))
+                            selected_banco_label = st.selectbox("Banco Receptor / Cuenta", list(dict_bancos.keys()), key="select_banco_receptor")
                             banco_receptor = dict_bancos[selected_banco_label]
                         else:
-                            banco_receptor = st.text_input("Banco Receptor / Cuenta", placeholder="Ej. Banesco Cta Custodia").strip()
+                            banco_receptor = st.text_input("Banco Receptor / Cuenta", placeholder="Ej. Banesco Cta Custodia", key="input_banco_manual").strip()
 
                     st.divider()
 
                     # BOTÓN PARA GUARDAR LA ORDEN DE COBRANZA INICIAL
-                    if st.button("🚀 Guardar Orden de Cobranza", type="primary", use_container_width=True):
+                    if st.button("🚀 Guardar Orden de Cobranza", type="primary", use_container_width=True, key="btn_guardar_orden_cobranza"):
                         if nro_factura and nro_control:
                             try:
                                 conn_trans = conectar_db(db_actual)
@@ -14128,10 +14131,10 @@ estado: {sel_data['estado']}""", language="yaml")
                             st.warning("⚠️ Debes rellenar el Número de Factura y Control.")
 
                     # =========================================================================
-                    # 📊 PANEL DE GESTIÓN POR FRENTES CON LAS COLUMNAS EXACTAS QUE PEDISTE
+                    # 📊 PANEL DE GESTIÓN POR FRENTES
                     # =========================================================================
                     st.divider()
-                    st.markdown("### 🔍 Gestión por Frentes (Empresa: `" + str(db_actual) + "`)")
+                    st.markdown(f"### 🔍 Gestión por Frentes (Empresa: `{db_actual}`)")
                     
                     sub_tab1, sub_tab2, sub_tab3, sub_tab4 = st.tabs([
                         "🧾 Órdenes de Cobranza", 
@@ -14157,17 +14160,14 @@ estado: {sel_data['estado']}""", language="yaml")
                                 st.info("La tabla `ordenes_cobranza` aún no tiene datos o está por crearse.")
 
                         # -------------------------------------------------------------
-                        # SUB-TAB 2: Libro de Ventas (Frame con columnas exactas de la tabla)
+                        # SUB-TAB 2: Libro de Ventas
                         # -------------------------------------------------------------
                         with sub_tab2:
                             st.markdown("#### 📖 Libro de Ventas - Facturas Pendientes de Registrar")
                             try:
-                                # Seleccionamos las órdenes y armamos un DataFrame virtual con la estructura exacta de libro_ventas:
-                                # (id, fecha_factura, nombre_razon_social, rif, n_factura, n_control, total_ventas_con_iva, ventas_exentas, base_imponible, porcentaje_alicuota, debito_fiscal, fecha_registro)
                                 df_oc_pend = ejecutar_consulta("SELECT id, fecha_emision, n_factura, n_control, rif_cliente, monto_bruto, base_imponible, porcentaje_alicuota, monto_iva, monto_exento FROM ordenes_cobranza ORDER BY id DESC LIMIT 10", conn_vis)
                                 
                                 if df_oc_pend is not None and not df_oc_pend.empty:
-                                    # Preparamos el DataFrame con la estructura idéntica a tu tabla libro_ventas
                                     df_frame_lv = pd.DataFrame({
                                         "id": df_oc_pend['id'],
                                         "fecha_factura": df_oc_pend['fecha_emision'],
@@ -14186,10 +14186,10 @@ estado: {sel_data['estado']}""", language="yaml")
                                     st.markdown("##### Frame con Estructura Oficial (`libro_ventas`):")
                                     st.dataframe(df_frame_lv, use_container_width=True)
                                     
-                                    sel_oc_id_lv = st.selectbox("Seleccione ID de Orden de Cobranza a guardar", df_oc_pend['id'].tolist(), key="sel_lv")
+                                    sel_oc_id_lv = st.selectbox("Seleccione ID de Orden de Cobranza a guardar", df_oc_pend['id'].tolist(), key="sel_lv_id")
                                     selected_row_lv = df_frame_lv[df_frame_lv['id'] == sel_oc_id_lv].iloc[0]
 
-                                    if st.button("💾 Guardar en Libro de Ventas", key="btn_save_lv"):
+                                    if st.button("💾 Guardar en Libro de Ventas", key="btn_save_lv_action"):
                                         try:
                                             conn_lv = conectar_db(db_actual)
                                             cur_lv = conn_lv.cursor()
@@ -14216,7 +14216,7 @@ estado: {sel_data['estado']}""", language="yaml")
                                 st.error(f"Error cargando frame: {e_lv_err}")
 
                         # -------------------------------------------------------------
-                        # SUB-TAB 3: Asientos Contables (Frame con columnas exactas de la tabla)
+                        # SUB-TAB 3: Asientos Contables
                         # -------------------------------------------------------------
                         with sub_tab3:
                             st.markdown("#### ⚖️ Asientos Contables - Facturas Pendientes de Registrar")
@@ -14225,7 +14225,6 @@ estado: {sel_data['estado']}""", language="yaml")
                                 
                                 if df_oc_ac is not None and not df_oc_ac.empty:
                                     import time
-                                    # Estructura idéntica a asientos_contables: (id, n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber, bloqueado)
                                     df_frame_ac = pd.DataFrame({
                                         "id": df_oc_ac['id'],
                                         "n_comprobante": [f"FACT-{f}-{int(time.time())}" for f in df_oc_ac['n_factura']],
@@ -14242,10 +14241,10 @@ estado: {sel_data['estado']}""", language="yaml")
                                     st.markdown("##### Frame con Estructura Oficial (`asientos_contables`):")
                                     st.dataframe(df_frame_ac, use_container_width=True)
                                     
-                                    sel_oc_id_ac = st.selectbox("Seleccione ID de Orden de Cobranza a guardar", df_oc_ac['id'].tolist(), key="sel_ac")
+                                    sel_oc_id_ac = st.selectbox("Seleccione ID de Orden de Cobranza a guardar", df_oc_ac['id'].tolist(), key="sel_ac_id")
                                     selected_row_ac = df_oc_ac[df_oc_ac['id'] == sel_oc_id_ac].iloc[0]
 
-                                    if st.button("💾 Guardar en Asientos Contables", key="btn_save_ac"):
+                                    if st.button("💾 Guardar en Asientos Contables", key="btn_save_ac_action"):
                                         try:
                                             conn_ac = conectar_db(db_actual)
                                             cur_ac = conn_ac.cursor()
@@ -14285,7 +14284,7 @@ estado: {sel_data['estado']}""", language="yaml")
                                 st.error(f"Error cargando frame: {e_ac_err}")
 
                         # -------------------------------------------------------------
-                        # SUB-TAB 4: Movimientos Bancarios (Frame con columnas exactas de la tabla)
+                        # SUB-TAB 4: Movimientos Bancarios
                         # -------------------------------------------------------------
                         with sub_tab4:
                             st.markdown("#### 🏦 Movimientos Bancarios - Pagos Pendientes de Registrar")
@@ -14293,7 +14292,6 @@ estado: {sel_data['estado']}""", language="yaml")
                                 df_oc_bm = ejecutar_consulta("SELECT id, fecha_emision, n_factura, monto_bruto, referencia_banco FROM ordenes_cobranza WHERE referencia_banco IS NOT NULL AND referencia_banco != '' ORDER BY id DESC LIMIT 10", conn_vis)
                                 
                                 if df_oc_bm is not None and not df_oc_bm.empty:
-                                    # Estructura idéntica a banco_movimientos: (id, banco_nombre, cuenta_numero, fecha_movimiento, referencia, descripcion, monto, estado_conciliacion, asiento_id, fecha_importacion)
                                     df_frame_bm = pd.DataFrame({
                                         "id": df_oc_bm['id'],
                                         "banco_nombre": banco_receptor if banco_receptor else "Banco Principal",
@@ -14310,10 +14308,10 @@ estado: {sel_data['estado']}""", language="yaml")
                                     st.markdown("##### Frame con Estructura Oficial (`banco_movimientos`):")
                                     st.dataframe(df_frame_bm, use_container_width=True)
                                     
-                                    sel_oc_id_bm = st.selectbox("Seleccione ID de Orden de Cobranza a guardar", df_oc_bm['id'].tolist(), key="sel_bm")
+                                    sel_oc_id_bm = st.selectbox("Seleccione ID de Orden de Cobranza a guardar", df_oc_bm['id'].tolist(), key="sel_bm_id")
                                     selected_row_bm = df_oc_bm[df_oc_bm['id'] == sel_oc_id_bm].iloc[0]
 
-                                    if st.button("💾 Guardar en Movimientos Bancarios", key="btn_save_bm"):
+                                    if st.button("💾 Guardar en Movimientos Bancarios", key="btn_save_bm_action"):
                                         try:
                                             conn_bm = conectar_db(db_actual)
                                             cur_bm = conn_bm.cursor()
@@ -14341,7 +14339,7 @@ estado: {sel_data['estado']}""", language="yaml")
                         conn_vis.close()
 
                 else:
-                    st.info("ℹ️️ No se encontraron clientes comerciales registrados. Cárgalos primero en el maestro de clientes.")
+                    st.info("ℹ No se encontraron clientes comerciales registrados. Cárgalos primero en el maestro de clientes.")
 
             except Exception as e_tab6:
                 st.error(f"Error general en el módulo de facturación: {e_tab6}")
