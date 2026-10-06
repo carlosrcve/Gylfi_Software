@@ -14056,7 +14056,7 @@ estado: {sel_data['estado']}""", language="yaml")
                             descripcion VARCHAR(255),
                             cantidad DECIMAL(18,2),
                             precio_unitario DECIMAL(18,2),
-                            total_ linea DECIMAL(18,2),
+                            total_ linea DECIMAL(18,2), -- ❌ TIENE UN ESPACIO ENTRE "total_" y "linea"
                             fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                         )
                     """)
