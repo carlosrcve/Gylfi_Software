@@ -14029,13 +14029,13 @@ estado: {sel_data['estado']}""", language="yaml")
                         fecha_emision = st.date_input("4) Fecha de Emisión", key="input_fecha_emision")
 
                     # =========================================================================
-                    # 🛒 DETALLE DE ÍTEMS / LÍNEAS DE VENTA (Versión Blindada contra Filas Nuevas)
+                    # 🛒 DETALLE DE ÍTEMS / LÍNEAS DE VENTA (Versión Definitiva Blindada)
                     # =========================================================================
                     st.divider()
                     st.markdown("#### 🛒 Detalle de Ítems / Líneas de Venta")
                     st.markdown("Agrega, edita o elimina los productos/servicios. El total se calcula automáticamente.")
 
-                    # 1. Inicializar el estado asegurando la estructura base
+                    # 1. Inicializar el estado de forma limpia si no existe
                     if "df_items_factura" not in st.session_state:
                         st.session_state.df_items_factura = pd.DataFrame([
                             {
@@ -14046,40 +14046,68 @@ estado: {sel_data['estado']}""", language="yaml")
                             }
                         ])
 
-                    # 2. Asegurarnos de limpiar y convertir valores nulos del estado previo antes de renderizar
+                    # 2. CAPTURAR Y CALCULAR PRIMERO: Asegurar que el DataFrame del estado tenga los cálculos hechos
+                    # Esto evita que el editor reciba valores desfasados al agregar una fila nueva.
                     df_actual = st.session_state.df_items_factura.copy()
+                    
+                    # Limpieza estricta de tipos numéricos
                     df_actual["Cantidad"] = pd.to_numeric(df_actual["Cantidad"], errors='coerce').fillna(0.0)
                     df_actual["Precio Unitario"] = pd.to_numeric(df_actual["Precio Unitario"], errors='coerce').fillna(0.0)
-                    df_actual["Descripción"] = df_actual["Descripción"].fillna("Nuevo Ítem")
+                    df_actual["Descripción"] = df_actual["Descripción"].fillna("Servicio o Producto")
+                    
+                    # Multiplicación síncrona inmediata antes de renderizar
                     df_actual["Total ($)"] = df_actual["Cantidad"] * df_actual["Precio Unitario"]
+                    
+                    # Actualizar de una vez el session_state con los datos limpios
+                    st.session_state.df_items_factura = df_actual.copy()
 
-                    # 3. Renderizar el st.data_editor
+                    # 3. Renderizar el st.data_editor aplicando el formato numérico con comas para miles y puntos para decimales
                     edited_items_df = st.data_editor(
-                        df_actual,
+                        st.session_state.df_items_factura,
                         num_rows="dynamic",
                         use_container_width=True,
                         key="editor_lineas_factura",
                         column_config={
-                            "Cantidad": st.column_config.NumberColumn("Cantidad", min_value=0.01, step=1.0, format="%.2f"),
-                            "Descripción": st.column_config.TextColumn("Descripción del Producto / Servicio"),
-                            "Precio Unitario": st.column_config.NumberColumn("Precio Unitario ($)", min_value=0.0, step=1.0, format="%.2f"),
-                            "Total ($)": st.column_config.NumberColumn("Total ($)", format="%.2f", disabled=True)
+                            "Cantidad": st.column_config.NumberColumn(
+                                "Cantidad", 
+                                min_value=0.01, 
+                                step=1.0, 
+                                format="%,.2f",
+                                help="Cantidad del producto o servicio"
+                            ),
+                            "Descripción": st.column_config.TextColumn(
+                                "Descripción del Producto / Servicio"
+                            ),
+                            "Precio Unitario": st.column_config.NumberColumn(
+                                "Precio Unitario ($)", 
+                                min_value=0.0, 
+                                step=1.0, 
+                                format="%,.2f",
+                                help="Precio unitario en dólares"
+                            ),
+                            "Total ($)": st.column_config.NumberColumn(
+                                "Total ($)", 
+                                format="%,.2f", 
+                                disabled=True,
+                                help="Cálculo automático (Cantidad x Precio Unitario)"
+                            )
                         }
                     )
 
-                    # 4. Procesar y blindar contra filas recién añadidas que contengan None o valores vacíos
+                    # 4. POST-PROCESAMIENTO INMEDIATO: Capturar la edición del usuario y recalcular al vuelo
                     if not edited_items_df.empty:
-                        # Rellenar cualquier celda vacía/None generada al añadir una fila con valores por defecto seguros
+                        # Limpiar nuevamente por si el usuario acaba de escribir en una celda nueva
                         edited_items_df["Cantidad"] = pd.to_numeric(edited_items_df["Cantidad"], errors='coerce').fillna(0.0)
                         edited_items_df["Precio Unitario"] = pd.to_numeric(edited_items_df["Precio Unitario"], errors='coerce').fillna(0.0)
                         edited_items_df["Descripción"] = edited_items_df["Descripción"].fillna("Sin descripción")
                         
-                        # Multiplicación estricta libre de None
+                        # Forzar la multiplicación matemática de forma infalible en cada fila
                         edited_items_df["Total ($)"] = edited_items_df["Cantidad"] * edited_items_df["Precio Unitario"]
                         
-                        # Guardar estado limpio
+                        # Guardar de inmediato en el session_state para mantener la sincronía perfecta
                         st.session_state.df_items_factura = edited_items_df.copy()
                         
+                        # Calcular la base imponible sumando la columna de totales
                         base_imponible = float(edited_items_df["Total ($)"].sum())
                     else:
                         base_imponible = 0.0
@@ -14089,7 +14117,7 @@ estado: {sel_data['estado']}""", language="yaml")
 
                     col_m1, col_m2, col_m3, col_m4 = st.columns(4)
                     with col_m1:
-                        monto_exento = st.number_input("Monto Exento", min_value=0.0, step=0.0, format="%.2f", key="input_monto_ex")
+                        monto_exento = st.number_input("Monto Exento", min_value=0.0, step=0.0, format="%,.2f", key="input_monto_ex")
                     with col_m2:
                         alicuota_iva = st.selectbox("Alícuota IVA (%)", [16.0, 8.0, 0.0], index=0, key="select_alicuota")
                     
@@ -14097,9 +14125,9 @@ estado: {sel_data['estado']}""", language="yaml")
                     calc_bruto = base_imponible + monto_exento + calc_iva
 
                     with col_m3:
-                        monto_iva = st.number_input("Monto IVA", value=calc_iva, min_value=0.0, format="%.2f", disabled=True, key="input_monto_iva_f")
+                        monto_iva = st.number_input("Monto IVA", value=calc_iva, min_value=0.0, format="%,.2f", disabled=True, key="input_monto_iva_f")
                     with col_m4:
-                        monto_bruto = st.number_input("Monto Total Factura", value=calc_bruto, min_value=0.0, format="%.2f", disabled=True, key="input_monto_bruto_f")
+                        monto_bruto = st.number_input("Monto Total Factura", value=calc_bruto, min_value=0.0, format="%,.2f", disabled=True, key="input_monto_bruto_f")
 
                     st.info(f"📊 **Resumen Fiscal:** Base Imponible (Ítems): ${base_imponible:,.2f} | Exento: ${monto_exento:,.2f} | IVA ({alicuota_iva}%): ${monto_iva:,.2f} | Total Bruto: ${monto_bruto:,.2f}")
                     st.divider()
