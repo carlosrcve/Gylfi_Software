@@ -14029,50 +14029,52 @@ estado: {sel_data['estado']}""", language="yaml")
                         fecha_emision = st.date_input("4) Fecha de Emisión", key="input_fecha_emision")
 
                     # =========================================================================
-                    # 📦 DETALLE DE ÍTEMS / LÍNEAS DE LA FACTURA (st.data_editor con 4 columnas)
+                    # 🛒 DETALLE DE ÍTEMS / LÍNEAS DE LA FACTURA (Versión Blindada)
                     # =========================================================================
                     st.divider()
                     st.markdown("#### 🛒 Detalle de Ítems / Líneas de Venta")
-                    st.markdown("Agrega, edita o elimina los productos/servicios. La Base Imponible se calculará de forma automática.")
+                    st.markdown("Agrega, edita o elimina los productos/servicios. El total se calcula automáticamente.")
 
-                    # Inicializar el estado si no existe
+                    # 1. Inicializar el estado de forma limpia (sin la columna Total en el editor para evitar conflictos)
                     if "df_items_factura" not in st.session_state:
-                        st.session_state.df_items_factura = pd.DataFrame({
-                            "Cantidad": [1.0],
-                            "Descripción": ["Servicio o Producto Principal"],
-                            "Precio Unitario": [0.0],
-                            "Total": [0.0]
-                        })
+                        st.session_state.df_items_factura = pd.DataFrame([
+                            {"Cantidad": 1.0, "Descripción": "Servicio o Producto Principal", "Precio Unitario": 0.0}
+                        ])
 
-                    # Asegurarnos de que el DataFrame del session_state siempre tenga calculada la columna Total antes de pintar el editor
-                    df_actual_state = st.session_state.df_items_factura.copy()
-                    df_actual_state["Total"] = df_actual_state["Cantidad"].astype(float) * df_actual_state["Precio Unitario"].astype(float)
+                    # Asegurarnos de limpiar columnas viejas si el session_state arrastraba "Total"
+                    if "Total" in st.session_state.df_items_factura.columns:
+                        st.session_state.df_items_factura = st.session_state.df_items_factura[["Cantidad", "Descripción", "Precio Unitario"]]
 
-                    # Renderizar el editor de datos
+                    # 2. Renderizar el editor SOLAMENTE con Cantidad, Descripción y Precio Unitario
                     edited_items_df = st.data_editor(
-                        df_actual_state,
+                        st.session_state.df_items_factura,
                         num_rows="dynamic",
                         use_container_width=True,
                         key="editor_lineas_factura",
                         column_config={
                             "Cantidad": st.column_config.NumberColumn("Cantidad", min_value=0.01, step=1.0, format="%.2f"),
                             "Descripción": st.column_config.TextColumn("Descripción del Producto / Servicio"),
-                            "Precio Unitario": st.column_config.NumberColumn("Precio Unitario ($)", min_value=0.0, step=1.0, format="%.2f"),
-                            "Total": st.column_config.NumberColumn("Total ($)", format="%.2f", disabled=True)
+                            "Precio Unitario": st.column_config.NumberColumn("Precio Unitario ($)", min_value=0.0, step=1.0, format="%.2f")
                         }
                     )
 
-                    # Recalcular inmediatamente sobre el DataFrame editado por el usuario
+                    # 3. Procesar y calcular matemáticamente de forma segura y estricta
                     if not edited_items_df.empty:
+                        # Limpiar y convertir a numéricos para evitar strings o nulos extraños
                         edited_items_df["Cantidad"] = pd.to_numeric(edited_items_df["Cantidad"], errors='coerce').fillna(0.0)
                         edited_items_df["Precio Unitario"] = pd.to_numeric(edited_items_df["Precio Unitario"], errors='coerce').fillna(0.0)
                         
-                        # FORZAR LA MULTIPLICACIÓN MATEMÁTICA CORRECTA
-                        edited_items_df["Total"] = edited_items_df["Cantidad"] * edited_items_df["Precio Unitario"]
+                        # CREAR la columna Total de manera limpia multiplicando estrictamente las dos columnas numéricas
+                        edited_items_df["Total ($)"] = edited_items_df["Cantidad"] * edited_items_df["Precio Unitario"]
                         
-                        # Guardar en el session_state para mantener la consistencia
-                        st.session_state.df_items_factura = edited_items_df
-                        base_imponible = float(edited_items_df["Total"].sum())
+                        # Guardar el estado limpio (sin la columna de totales interna para no ensuciar el editor en el próximo loop)
+                        st.session_state.df_items_factura = edited_items_df[["Cantidad", "Descripción", "Precio Unitario"]].copy()
+                        
+                        base_imponible = float(edited_items_df["Total ($)"].sum())
+                        
+                        # 4. Mostrar una tabla bonita con el desglose calculado y el Total real de cada línea
+                        st.markdown("##### 📋 Resumen Calculado de Líneas:")
+                        st.dataframe(edited_items_df, use_container_width=True, hide_index=True)
                     else:
                         base_imponible = 0.0
 
