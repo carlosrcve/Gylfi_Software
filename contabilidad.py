@@ -13995,78 +13995,6 @@ estado: {sel_data['estado']}""", language="yaml")
             st.markdown("### 🧾 Emisión de Facturas, Libro de Ventas y Registro de Cobranza (CxC)")
             st.markdown("Selecciona productos del inventario, genera la factura detallada por ítems, guarda la orden de cobranza y procesa independientemente cada frente fiscal, contable y bancario.")
 
-            # 0. Asegurar la existencia de las tablas necesarias (producto, factura, factura_detalle) y datos iniciales
-            # 0. Asegurar la existencia de las tablas necesarias y datos iniciales
-            try:
-                conn_init = conectar_db(db_actual)
-                if conn_init:
-                    cur_init = conn_init.cursor()
-                    
-                    # Tabla producto
-                    cur_init.execute("""
-                        CREATE TABLE IF NOT EXISTS producto (
-                            id INT AUTO_INCREMENT PRIMARY KEY,
-                            codigo_producto VARCHAR(50) UNIQUE,
-                            descripcion VARCHAR(255),
-                            precio_unitario DECIMAL(18,2),
-                            fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                        )
-                    """)
-                    
-                    # Insertar productos iniciales por defecto si la tabla está vacía
-                    cur_init.execute("SELECT COUNT(*) FROM producto")
-                    count_prod = cur_init.fetchone()[0]
-                    if count_prod == 0:
-                        productos_iniciales = [
-                            ('PROD-001', 'Servicio o Producto Principal', 0.00),
-                            ('PROD-002', 'Consultoría Contable y Tributaria', 100.00),
-                            ('PROD-003', 'Asesoría Fiscal Mensual', 150.00)
-                        ]
-                        cur_init.executemany("""
-                            INSERT INTO producto (codigo_producto, descripcion, precio_unitario)
-                            VALUES (%s, %s, %s)
-                        """, productos_iniciales)
-                        conn_init.commit()
-
-                    # Tabla factura principal
-                    cur_init.execute("""
-                        CREATE TABLE IF NOT EXISTS factura (
-                            id INT AUTO_INCREMENT PRIMARY KEY,
-                            empresa_db VARCHAR(50),
-                            rif_cliente VARCHAR(20),
-                            n_factura VARCHAR(50),
-                            n_control VARCHAR(50),
-                            fecha_emision DATE,
-                            base_imponible DECIMAL(18,2),
-                            monto_exento DECIMAL(18,2),
-                            porcentaje_alicuota DECIMAL(5,2),
-                            monto_iva DECIMAL(18,2),
-                            monto_bruto DECIMAL(18,2),
-                            estado_cobro VARCHAR(50) DEFAULT 'Pendiente',
-                            referencia_banco VARCHAR(100),
-                            fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                        )
-                    """)
-
-                    # Tabla factura_detalle (CORREGIDO: sin espacios y sin comentarios dentro del SQL)
-                    cur_init.execute("""
-                        CREATE TABLE IF NOT EXISTS factura_detalle (
-                            id INT AUTO_INCREMENT PRIMARY KEY,
-                            n_factura VARCHAR(50),
-                            codigo_producto VARCHAR(50),
-                            descripcion VARCHAR(255),
-                            cantidad DECIMAL(18,2),
-                            precio_unitario DECIMAL(18,2),
-                            total_linea DECIMAL(18,2),
-                            fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                        )
-                    """)
-                    conn_init.commit()
-                    cur_init.close()
-                    conn_init.close()
-            except Exception as e_init:
-                st.warning(f"Aviso en inicialización de tablas: {e_init}")
-
             try:
                 # 1. Cargar clientes comerciales desde la base de datos existente
                 conn_cli = conectar_db(db_actual)
@@ -14123,7 +14051,6 @@ estado: {sel_data['estado']}""", language="yaml")
                             
                             if df_catalogo_prod is not None and not df_catalogo_prod.empty:
                                 for _, prod_row in df_catalogo_prod.iterrows():
-                                    # Formato legible para la lista desplegable
                                     label_prod = f"{prod_row['codigo_producto']} - {prod_row['descripcion']} (${prod_row['precio_unitario']:,.2f})"
                                     lista_opciones_productos.append(label_prod)
                                     dict_productos[label_prod] = {
@@ -14165,7 +14092,6 @@ estado: {sel_data['estado']}""", language="yaml")
                                     key=f"select_prod_{i}"
                                 )
                             
-                            # Extraer datos del producto seleccionado
                             info_prod = dict_productos[prod_seleccionado]
                             codigo_prod = info_prod["codigo"]
                             desc_prod = info_prod["descripcion"]
@@ -14182,7 +14108,6 @@ estado: {sel_data['estado']}""", language="yaml")
                                 )
                                 
                             with c3:
-                                # Mostrar precio unitario (heredado de la tabla producto, editable o fijo según prefieras)
                                 precio_final_unit = st.number_input(
                                     "Precio Unitario ($)", 
                                     min_value=0.0, 
@@ -14197,7 +14122,6 @@ estado: {sel_data['estado']}""", language="yaml")
                                 
                             base_imponible += total_linea
                             
-                            # Almacenar para el guardado en base de datos
                             items_factura_guardar.append({
                                 "Código": codigo_prod,
                                 "Descripción": desc_prod,
@@ -14210,7 +14134,6 @@ estado: {sel_data['estado']}""", language="yaml")
                         st.warning("⚠️ No se encontraron productos registrados en la tabla `producto`. Por favor registra productos primero en el inventario.")
                         base_imponible = 0.0
 
-                    # DataFrame consolidado para las operaciones posteriores
                     import pandas as pd
                     edited_items_df = pd.DataFrame(items_factura_guardar) if items_factura_guardar else pd.DataFrame(columns=["Código", "Descripción", "Cantidad", "Precio Unitario", "Total ($)"])
 
@@ -14241,7 +14164,7 @@ estado: {sel_data['estado']}""", language="yaml")
                     try:
                         conn_pc = conectar_db(db_actual)
                         if conn_pc:
-                            query_pc = "SELECT codigo, nombre FROM plan_cuentas WHERE tipo = 'Detalle' AND (codigo LIKE '101%%' OR nombre LIKE '%%Banco%%' OR nombre LIKE '%%Caja%%') ORDER BY nombre ASC"
+                            query_pc = "SELECT codigo, nombre FROM plan_cuentas WHERE tipo = 'Detalle' AND (codigo LIKE '101%' OR nombre LIKE '%Banco%' OR nombre LIKE '%Caja%') ORDER BY nombre ASC"
                             df_bancos = ejecutar_consulta(query_pc, conn_pc)
                             conn_pc.close()
                             
@@ -14271,28 +14194,9 @@ estado: {sel_data['estado']}""", language="yaml")
                                 conn_trans = conectar_db(db_actual)
                                 if conn_trans:
                                     cursor = conn_trans.cursor()
-                                    
-                                    # 1. Guardar o actualizar en la tabla 'ordenes_cobranza' (para los frentes inferiores existentes)
-                                    cursor.execute("""
-                                        CREATE TABLE IF NOT EXISTS ordenes_cobranza (
-                                            id INT AUTO_INCREMENT PRIMARY KEY,
-                                            empresa_db VARCHAR(50),
-                                            rif_cliente VARCHAR(20),
-                                            n_factura VARCHAR(50),
-                                            n_control VARCHAR(50),
-                                            fecha_emision DATE,
-                                            base_imponible DECIMAL(18,2),
-                                            monto_exento DECIMAL(18,2),
-                                            porcentaje_alicuota DECIMAL(5,2),
-                                            monto_iva DECIMAL(18,2),
-                                            monto_bruto DECIMAL(18,2),
-                                            estado_cobro VARCHAR(50) DEFAULT 'Pendiente',
-                                            referencia_banco VARCHAR(100),
-                                            fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                                        )
-                                    """)
-
                                     estado_inicial = 'Conciliado' if ref_banco_cobro else 'Pendiente'
+                                    
+                                    # 1. Guardar en la tabla 'ordenes_cobranza'
                                     cursor.execute("""
                                         INSERT INTO ordenes_cobranza 
                                         (empresa_db, rif_cliente, n_factura, n_control, fecha_emision, base_imponible, monto_exento, porcentaje_alicuota, monto_iva, monto_bruto, referencia_banco, estado_cobro)
@@ -14549,7 +14453,6 @@ estado: {sel_data['estado']}""", language="yaml")
                             except Exception as e_bm_err:
                                 st.error(f"Error cargando frame: {e_bm_err}")
 
-                        # Cerrar conexión de visualización general
                         conn_vis.close()
                 else:
                     st.warning("⚠️ No se encontraron clientes comerciales registrados. Por favor, crea al menos un cliente primero.")
