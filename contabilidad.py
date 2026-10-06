@@ -14029,7 +14029,7 @@ estado: {sel_data['estado']}""", language="yaml")
                         fecha_emision = st.date_input("4) Fecha de Emisión", key="input_fecha_emision")
 
                     # =========================================================================
-                    # 📦 DETALLE DE ÍTEMS / LÍNEAS DE LA FACTURA (st.data_editor)
+                    # 📦 DETALLE DE ÍTEMS / LÍNEAS DE LA FACTURA (st.data_editor con 4 columnas)
                     # =========================================================================
                     st.divider()
                     st.markdown("#### 🛒 Detalle de Ítems / Líneas de Venta")
@@ -14037,8 +14037,12 @@ estado: {sel_data['estado']}""", language="yaml")
 
                     if "df_items_factura" not in st.session_state:
                         st.session_state.df_items_factura = pd.DataFrame([
-                            {"Cantidad": 1.0, "Descripción": "Servicio o Producto Principal", "Precio Unitario": 0.0}
+                            {"Cantidad": 1.0, "Descripción": "Servicio o Producto Principal", "Precio Unitario": 0.0, "Total": 0.0}
                         ])
+                    else:
+                        # Asegurar que tenga la columna Total si viene de un estado anterior
+                        if "Total" not in st.session_state.df_items_factura.columns:
+                            st.session_state.df_items_factura["Total"] = st.session_state.df_items_factura["Cantidad"] * st.session_state.df_items_factura["Precio Unitario"]
 
                     edited_items_df = st.data_editor(
                         st.session_state.df_items_factura,
@@ -14048,14 +14052,15 @@ estado: {sel_data['estado']}""", language="yaml")
                         column_config={
                             "Cantidad": st.column_config.NumberColumn("Cantidad", min_value=0.01, step=1.0, format="%.2f"),
                             "Descripción": st.column_config.TextColumn("Descripción del Producto / Servicio"),
-                            "Precio Unitario": st.column_config.NumberColumn("Precio Unitario ($)", min_value=0.0, step=1.0, format="%.2f")
+                            "Precio Unitario": st.column_config.NumberColumn("Precio Unitario ($)", min_value=0.0, step=1.0, format="%.2f"),
+                            "Total": st.column_config.NumberColumn("Total ($)", format="%.2f", disabled=True)
                         }
                     )
 
-                    # Cálculo automático de la Base Imponible a partir de los ítems
+                    # Cálculo automático de la Base Imponible y actualización de la columna Total en tiempo real
                     if not edited_items_df.empty:
-                        edited_items_df["Total Línea"] = edited_items_df["Cantidad"] * edited_items_df["Precio Unitario"]
-                        base_imponible = float(edited_items_df["Total Línea"].sum())
+                        edited_items_df["Total"] = edited_items_df["Cantidad"] * edited_items_df["Precio Unitario"]
+                        base_imponible = float(edited_items_df["Total"].sum())
                     else:
                         base_imponible = 0.0
 
@@ -14085,7 +14090,6 @@ estado: {sel_data['estado']}""", language="yaml")
                     try:
                         conn_pc = conectar_db(db_actual)
                         if conn_pc:
-                            # Consulta con porcentajes escapados (%%) para evitar conflictos con el formateador de Python
                             query_pc = "SELECT codigo, nombre FROM plan_cuentas WHERE tipo = 'Detalle' AND (codigo LIKE '101%%' OR nombre LIKE '%%Banco%%' OR nombre LIKE '%%Caja%%') ORDER BY nombre ASC"
                             df_bancos = ejecutar_consulta(query_pc, conn_pc)
                             conn_pc.close()
@@ -14250,7 +14254,7 @@ estado: {sel_data['estado']}""", language="yaml")
                         # SUB-TAB 3: Asientos Contables
                         # -------------------------------------------------------------
                         with sub_tab3:
-                            st.markdown("#### ⚖️ Asientos Contables - Facturas Pendientes de Registrar")
+                            st.markdown("#### ⚖️️ Asientos Contables - Facturas Pendientes de Registrar")
                             try:
                                 df_oc_ac = ejecutar_consulta("SELECT id, fecha_emision, n_factura, rif_cliente, monto_bruto, base_imponible, monto_iva FROM ordenes_cobranza ORDER BY id DESC LIMIT 10", conn_vis)
                                 
@@ -14340,7 +14344,7 @@ estado: {sel_data['estado']}""", language="yaml")
                                     st.dataframe(df_frame_bm, use_container_width=True)
                                     
                                     sel_oc_id_bm = st.selectbox("Seleccione ID de Orden de Cobranza a guardar", df_oc_bm['id'].tolist(), key="sel_bm_id")
-                                    selected_row_bm = df_oc_bm[df_oc_bm['id'] == sel_oc_id_bm].iloc[0]
+                                    selected_row_bm = df_frame_bm[df_frame_bm['id'] == sel_oc_id_bm].iloc[0]
 
                                     if st.button("💾 Guardar en Movimientos Bancarios", key="btn_save_bm_action"):
                                         try:
@@ -14363,17 +14367,17 @@ estado: {sel_data['estado']}""", language="yaml")
                                         except Exception as err_ins_bm:
                                             st.error(f"❌ Error al guardar en banco_movimientos: {err_ins_bm}")
                                 else:
-                                    st.info("No hay órdenes de cobranza con referencia bancaria de pago.")
+                                    st.info("No hay órdenes de cobranza con referencia bancaria registradas.")
                             except Exception as e_bm_err:
                                 st.error(f"Error cargando frame: {e_bm_err}")
-
+                    
                         conn_vis.close()
 
-                else:
-                    st.info("ℹ No se encontraron clientes comerciales registrados. Cárgalos primero en el maestro de clientes.")
+                    else:
+                        st.info("ℹ No se encontraron clientes comerciales registrados. Cárgalos primero en el maestro de clientes.")
 
-            except Exception as e_tab6:
-                st.error(f"Error general en el módulo de facturación: {e_tab6}")
+                except Exception as e_tab6:
+                    st.error(f"Error general en el módulo de facturación: {e_tab6}")
 
     elif sub_opcion == "Consultar Comprobante":
         st.subheader("🔍 Buscador de Comprobantes")
