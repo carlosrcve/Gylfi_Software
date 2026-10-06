@@ -14017,17 +14017,17 @@ estado: {sel_data['estado']}""", language="yaml")
                     count_prod = cur_init.fetchone()[0]
                     if count_prod == 0:
                         productos_iniciales = [
-                            ("SERV-001", "Servicio o Producto Principal", 0.00),
-                            ("PROD-101", "Consultoría Financiera y Contable (Hora)", 120.00),
-                            ("PROD-102", "Auditoría Fiscal Preventiva", 450.00),
-                            ("PROD-103", "Soporte Técnico de Software", 80.00)
+                            ('PROD-001', 'Servicio o Producto Principal', 0.00),
+                            ('PROD-002', 'Consultoría Contable y Tributaria', 100.00),
+                            ('PROD-003', 'Asesoría Fiscal Mensual', 150.00)
                         ]
                         cur_init.executemany("""
                             INSERT INTO producto (codigo_producto, descripcion, precio_unitario)
                             VALUES (%s, %s, %s)
                         """, productos_iniciales)
+                        conn_init.commit()
 
-                    # Tabla factura (Cabecera)
+                    # Tabla factura principal
                     cur_init.execute("""
                         CREATE TABLE IF NOT EXISTS factura (
                             id INT AUTO_INCREMENT PRIMARY KEY,
@@ -14041,12 +14041,13 @@ estado: {sel_data['estado']}""", language="yaml")
                             porcentaje_alicuota DECIMAL(5,2),
                             monto_iva DECIMAL(18,2),
                             monto_bruto DECIMAL(18,2),
-                            estado_factura VARCHAR(50) DEFAULT 'Emitida',
+                            estado_cobro VARCHAR(50) DEFAULT 'Pendiente',
+                            referencia_banco VARCHAR(100),
                             fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                         )
                     """)
 
-                    # Tabla factura_detalle (Ítems asociados)
+                    # Tabla factura_detalle (ítems de cada factura)
                     cur_init.execute("""
                         CREATE TABLE IF NOT EXISTS factura_detalle (
                             id INT AUTO_INCREMENT PRIMARY KEY,
@@ -14055,16 +14056,15 @@ estado: {sel_data['estado']}""", language="yaml")
                             descripcion VARCHAR(255),
                             cantidad DECIMAL(18,2),
                             precio_unitario DECIMAL(18,2),
-                            total_linea DECIMAL(18,2),
+                            total_ linea DECIMAL(18,2),
                             fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                         )
                     """)
-
                     conn_init.commit()
                     cur_init.close()
                     conn_init.close()
-            except Exception as e_setup:
-                st.error(f"❌ Error al inicializar tablas de productos/facturas: {e_setup}")
+            except Exception as e_init:
+                st.warning(f"Aviso en inicialización de tablas: {e_init}")
 
             try:
                 # 1. Cargar clientes comerciales desde la base de datos existente
@@ -14100,91 +14100,122 @@ estado: {sel_data['estado']}""", language="yaml")
                         fecha_emision = st.date_input("4) Fecha de Emisión", key="input_fecha_emision")
 
                     # =========================================================================
-                    # 🛒 DETALLE DE ÍTEMS / LÍNEAS DE VENTA (Integrado con tabla 'producto')
+                    # 🛒 DETALLE DE ÍTEMS / LÍNEAS DE VENTA CONECTADO A LA TABLA PRODUCTO
                     # =========================================================================
                     st.divider()
                     st.markdown("#### 🛒 Detalle de Ítems / Líneas de Venta")
-                    st.markdown("Selecciona productos del catálogo precargado o escribe libremente. El total se calcula automáticamente.")
+                    st.markdown("Selecciona los productos del inventario y define la cantidad. El precio y el total se calculan automáticamente.")
 
-                    # Cargar productos desde la base de datos para sugerencias/selección
-                    df_productos_db = None
+                    # 1. Cargar catálogo de productos disponibles desde la base de datos MySQL
+                    df_catalogo_prod = None
+                    lista_opciones_productos = []
+                    dict_productos = {}
+
                     try:
-                        conn_prod_load = conectar_db(db_actual)
-                        if conn_prod_load:
-                            df_productos_db = ejecutar_consulta("SELECT codigo_producto, descripcion, precio_unitario FROM producto ORDER BY descripcion ASC", conn_prod_load)
-                            conn_prod_load.close()
-                    except Exception:
-                        pass
-
-                    # 1. Inicializar el estado de forma limpia si no existe
-                    if "df_items_factura" not in st.session_state:
-                        st.session_state.df_items_factura = pd.DataFrame([
-                            {
-                                "Código": "SERV-001",
-                                "Cantidad": 1.0, 
-                                "Descripción": "Servicio o Producto Principal", 
-                                "Precio Unitario": 0.0, 
-                                "Total ($)": 0.0
-                            }
-                        ])
-
-                    # 2. Renderizar el st.data_editor con soporte para códigos y descripciones
-                    df_input = st.session_state.df_items_factura.copy().reset_index(drop=True)
-
-                    edited_items_df = st.data_editor(
-                        df_input,
-                        num_rows="dynamic",
-                        use_container_width=True,
-                        key="editor_lineas_factura",
-                        column_config={
-                            "Código": st.column_config.TextColumn(
-                                "Código Prod.",
-                                help="Código del producto o servicio"
-                            ),
-                            "Cantidad": st.column_config.NumberColumn(
-                                "Cantidad", 
-                                min_value=0.01, 
-                                step=1.0, 
-                                format="%,.2f",
-                                help="Cantidad del producto o servicio"
-                            ),
-                            "Descripción": st.column_config.TextColumn(
-                                "Descripción del Producto / Servicio"
-                            ),
-                            "Precio Unitario": st.column_config.NumberColumn(
-                                "Precio Unitario ($)", 
-                                min_value=0.0, 
-                                step=1.0, 
-                                format="%,.2f",
-                                help="Precio unitario en dólares"
-                            ),
-                            "Total ($)": st.column_config.NumberColumn(
-                                "Total ($)", 
-                                format="%,.2f", 
-                                disabled=True,
-                                help="Cálculo automático (Cantidad x Precio Unitario)"
+                        conn_prod = conectar_db(db_actual)
+                        if conn_prod:
+                            df_catalogo_prod = ejecutar_consulta(
+                                "SELECT codigo_producto, descripcion, precio_unitario FROM producto ORDER BY descripcion ASC", 
+                                conn_prod
                             )
-                        }
-                    )
+                            conn_prod.close()
+                            
+                            if df_catalogo_prod is not None and not df_catalogo_prod.empty:
+                                for _, prod_row in df_catalogo_prod.iterrows():
+                                    # Formato legible para la lista desplegable
+                                    label_prod = f"{prod_row['codigo_producto']} - {prod_row['descripcion']} (${prod_row['precio_unitario']:,.2f})"
+                                    lista_opciones_productos.append(label_prod)
+                                    dict_productos[label_prod] = {
+                                        "codigo": prod_row['codigo_producto'],
+                                        "descripcion": prod_row['descripcion'],
+                                        "precio": float(prod_row['precio_unitario'])
+                                    }
+                    except Exception as e:
+                        st.error(f"Error al cargar el catálogo de productos: {e}")
 
-                    # 3. POST-PROCESAMIENTO RIGUROSO: Limpiar, resetear índice y recalcular matemáticamente
-                    if not edited_items_df.empty:
-                        edited_items_df["Cantidad"] = pd.to_numeric(edited_items_df["Cantidad"], errors='coerce').fillna(0.0)
-                        edited_items_df["Precio Unitario"] = pd.to_numeric(edited_items_df["Precio Unitario"], errors='coerce').fillna(0.0)
-                        edited_items_df["Descripción"] = edited_items_df["Descripción"].fillna("Sin descripción")
-                        edited_items_df["Código"] = edited_items_df["Código"].fillna("GEN")
-                        
-                        # MULTIPLICACIÓN MATEMÁTICA ESTRICTA FILA POR FILA
-                        edited_items_df["Total ($)"] = edited_items_df["Cantidad"] * edited_items_df["Precio Unitario"]
-                        
-                        edited_items_df = edited_items_df.reset_index(drop=True)
-                        st.session_state.df_items_factura = edited_items_df.copy()
-                        
-                        base_imponible = float(edited_items_df["Total ($)"].sum())
+                    # 2. Controlar el número de líneas de la factura en el session_state
+                    if "num_lineas_factura" not in st.session_state:
+                        st.session_state.num_lineas_factura = 1
+
+                    col_add_btn, col_del_btn = st.columns([1, 1])
+                    with col_add_btn:
+                        if st.button("➕ Agregar Línea de Producto"):
+                            st.session_state.num_lineas_factura += 1
+                            st.rerun()
+                    with col_del_btn:
+                        if st.session_state.num_lineas_factura > 1:
+                            if st.button("➖ Eliminar Última Línea"):
+                                st.session_state.num_lineas_factura -= 1
+                                st.rerun()
+
+                    # 3. Renderizar filas interactivas
+                    items_factura_guardar = []
+                    base_imponible = 0.0
+
+                    if lista_opciones_productos:
+                        for i in range(st.session_state.num_lineas_factura):
+                            st.markdown(f"**Renglón #{i+1}**")
+                            c1, c2, c3, c4 = st.columns([3, 1.5, 2, 2])
+                            
+                            with c1:
+                                prod_seleccionado = st.selectbox(
+                                    "Producto / Servicio", 
+                                    options=lista_opciones_productos, 
+                                    key=f"select_prod_{i}"
+                                )
+                            
+                            # Extraer datos del producto seleccionado
+                            info_prod = dict_productos[prod_seleccionado]
+                            codigo_prod = info_prod["codigo"]
+                            desc_prod = info_prod["descripcion"]
+                            precio_unit = info_prod["precio"]
+                            
+                            with c2:
+                                cantidad = st.number_input(
+                                    "Cantidad", 
+                                    min_value=0.01, 
+                                    value=1.0, 
+                                    step=1.0, 
+                                    format="%.2f", 
+                                    key=f"cant_prod_{i}"
+                                )
+                                
+                            with c3:
+                                # Mostrar precio unitario (heredado de la tabla producto, editable o fijo según prefieras)
+                                precio_final_unit = st.number_input(
+                                    "Precio Unitario ($)", 
+                                    min_value=0.0, 
+                                    value=precio_unit, 
+                                    format="%.2f", 
+                                    key=f"precio_prod_{i}"
+                                )
+                                
+                            with c4:
+                                total_linea = cantidad * precio_final_unit
+                                st.metric(label="Total Línea ($)", value=f"${total_linea:,.2f}")
+                                
+                            base_imponible += total_linea
+                            
+                            # Almacenar para el guardado en base de datos
+                            items_factura_guardar.append({
+                                "Código": codigo_prod,
+                                "Descripción": desc_prod,
+                                "Cantidad": cantidad,
+                                "Precio Unitario": precio_final_unit,
+                                "Total ($)": total_linea
+                            })
+                            st.divider()
                     else:
+                        st.warning("⚠️ No se encontraron productos registrados en la tabla `producto`. Por favor registra productos primero en el inventario.")
                         base_imponible = 0.0
 
-                    st.divider()
+                    # DataFrame consolidado para las operaciones posteriores
+                    import pandas as pd
+                    edited_items_df = pd.DataFrame(items_factura_guardar) if items_factura_guardar else pd.DataFrame(columns=["Código", "Descripción", "Cantidad", "Precio Unitario", "Total ($)"])
+
+                    # =========================================================================
+                    # 💰 DESGLOSE IMPOSITIVO Y TOTALES
+                    # =========================================================================
                     st.markdown("#### 💰 Desglose Impositivo y Totales")
 
                     col_m1, col_m2, col_m3, col_m4 = st.columns(4)
@@ -14192,7 +14223,7 @@ estado: {sel_data['estado']}""", language="yaml")
                         monto_exento = st.number_input("Monto Exento", min_value=0.0, step=1.0, format="%0.2f", key="input_monto_ex")
                     with col_m2:
                         alicuota_iva = st.selectbox("Alícuota IVA (%)", [16.0, 8.0, 0.0], index=0, key="select_alicuota")
-                    
+
                     calc_iva = base_imponible * (alicuota_iva / 100.0)
                     calc_bruto = base_imponible + monto_exento + calc_iva
 
@@ -14201,7 +14232,7 @@ estado: {sel_data['estado']}""", language="yaml")
                     with col_m4:
                         monto_bruto = st.number_input("Monto Total Factura", value=calc_bruto, min_value=0.0, format="%0.2f", disabled=True, key="input_monto_bruto_f")
 
-                    st.info(f"📊 **Resumen Fiscal:** Base Imponible (Ítems): ${base_imponible:,.2f} | Exento: ${monto_exento:,.2f} | IVA ({alicuota_iva}%): ${monto_iva:,.2f} | Total Bruto: ${monto_bruto:,.2f}")
+                    st.info(f"📊 **Resumen Fiscal:** Base Imponible (Ítems): ${base_imponible:,.2f} \vert{} Exento:${monto_exento:,.2f} | IVA ({alicuota_iva}%): ${monto_iva:,.2f} \vert{} Total Bruto:${monto_bruto:,.2f}")
                     st.divider()
                     st.markdown("#### 🏦 Datos Preliminares del Cobro / Referencia Bancaria (Opcional si es a crédito)")
                     
@@ -14232,40 +14263,15 @@ estado: {sel_data['estado']}""", language="yaml")
 
                     st.divider()
 
-                    # BOTÓN PARA GUARDAR FACTURA, DETALLES Y ORDEN DE COBRANZA INTEGRADA
-                    if st.button("🚀 Guardar Factura, Detalle y Orden de Cobranza", type="primary", use_container_width=True, key="btn_guardar_orden_cobranza"):
+                    # BOTÓN PARA GUARDAR LA FACTURA, DETALLES Y ORDEN DE COBRANZA
+                    if st.button("🚀 Guardar Factura, Detalles y Orden de Cobranza", type="primary", use_container_width=True, key="btn_guardar_orden_cobranza"):
                         if nro_factura and nro_control:
                             try:
                                 conn_trans = conectar_db(db_actual)
                                 if conn_trans:
                                     cursor = conn_trans.cursor()
                                     
-                                    # 1. Guardar en cabecera 'factura'
-                                    cursor.execute("""
-                                        INSERT INTO factura 
-                                        (empresa_db, rif_cliente, n_factura, n_control, fecha_emision, base_imponible, monto_exento, porcentaje_alicuota, monto_iva, monto_bruto, estado_factura)
-                                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                                    """, (
-                                        str(db_actual), cli_info['rif'], nro_factura, nro_control, fecha_emision,
-                                        base_imponible, monto_exento, alicuota_iva, monto_iva, monto_bruto, 'Emitida'
-                                    ))
-
-                                    # 2. Guardar líneas en 'factura_detalle'
-                                    for _, row_item in edited_items_df.iterrows():
-                                        cursor.execute("""
-                                            INSERT INTO factura_detalle 
-                                            (n_factura, codigo_producto, descripcion, cantidad, precio_unitario, total_linea)
-                                            VALUES (%s, %s, %s, %s, %s, %s)
-                                        """, (
-                                            nro_factura,
-                                            str(row_item.get('Código', 'GEN')),
-                                            str(row_item.get('Descripción', 'Sin descripción')),
-                                            float(row_item.get('Cantidad', 0.0)),
-                                            float(row_item.get('Precio Unitario', 0.0)),
-                                            float(row_item.get('Total ($)', 0.0))
-                                        ))
-
-                                    # 3. Guardar Orden de Cobranza (mantiene compatibilidad con los frentes inferiores)
+                                    # 1. Guardar o actualizar en la tabla 'ordenes_cobranza' (para los frentes inferiores existentes)
                                     cursor.execute("""
                                         CREATE TABLE IF NOT EXISTS ordenes_cobranza (
                                             id INT AUTO_INCREMENT PRIMARY KEY,
@@ -14296,11 +14302,37 @@ estado: {sel_data['estado']}""", language="yaml")
                                         ref_banco_cobro if ref_banco_cobro else None, estado_inicial
                                     ))
 
+                                    # 2. Guardar en la tabla maestra 'factura'
+                                    cursor.execute("""
+                                        INSERT INTO factura 
+                                        (empresa_db, rif_cliente, n_factura, n_control, fecha_emision, base_imponible, monto_exento, porcentaje_alicuota, monto_iva, monto_bruto, estado_cobro, referencia_banco)
+                                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                    """, (
+                                        str(db_actual), cli_info['rif'], nro_factura, nro_control, fecha_emision,
+                                        base_imponible, monto_exento, alicuota_iva, monto_iva, monto_bruto,
+                                        estado_inicial, ref_banco_cobro if ref_banco_cobro else None
+                                    ))
+
+                                    # 3. Guardar cada ítem en la tabla 'factura_detalle'
+                                    for _, row_item in edited_items_df.iterrows():
+                                        cursor.execute("""
+                                            INSERT INTO factura_detalle 
+                                            (n_factura, codigo_producto, descripcion, cantidad, precio_unitario, total_linea)
+                                            VALUES (%s, %s, %s, %s, %s, %s)
+                                        """, (
+                                            nro_factura,
+                                            str(row_item['Código']),
+                                            str(row_item['Descripción']),
+                                            float(row_item['Cantidad']),
+                                            float(row_item['Precio Unitario']),
+                                            float(row_item['Total ($)'])
+                                        ))
+
                                     conn_trans.commit()
                                     cursor.close()
                                     conn_trans.close()
 
-                                    st.success("✅ ¡Factura, detalles de ítems y orden de cobranza guardados con éxito!")
+                                    st.success("✅ ¡Factura, detalles y orden de cobranza guardados con éxito en la base de datos!")
                                     st.balloons()
                                     st.rerun()
                                 else:
@@ -14311,7 +14343,7 @@ estado: {sel_data['estado']}""", language="yaml")
                             st.warning("⚠️ Debes rellenar el Número de Factura y Control.")
 
                     # =========================================================================
-                    # 📊 PANEL DE GESTIÓN POR FRENTES (Sin tocar libro_ventas, asientos ni bancos abajo)
+                    # 📊 PANEL DE GESTIÓN POR FRENTES (SIN MODIFICAR LOS OTROS 3 FRAMES)
                     # =========================================================================
                     st.divider()
                     st.markdown(f"### 🔍 Gestión por Frentes (Empresa: `{db_actual}`)")
@@ -14484,13 +14516,44 @@ estado: {sel_data['estado']}""", language="yaml")
                                         "asiento_id": None,
                                         "fecha_importacion": pd.Timestamp.now()
                                     })
+
+                                    st.markdown("##### Frame con Estructura Oficial (`banco_movimientos`):")
                                     st.dataframe(df_frame_bm, use_container_width=True)
-                            except Exception as e_bm:
-                                st.info(f"No hay movimientos bancarios pendientes: {e_bm}")
+                                    
+                                    sel_oc_id_bm = st.selectbox("Seleccione ID de Orden de Cobranza a guardar", df_oc_bm['id'].tolist(), key="sel_bm_id")
+                                    selected_row_bm = df_frame_bm[df_frame_bm['id'] == sel_oc_id_bm].iloc[0]
+
+                                    if st.button("💾 Guardar en Movimientos Bancarios", key="btn_save_bm_action"):
+                                        try:
+                                            conn_bm = conectar_db(db_actual)
+                                            cur_bm = conn_bm.cursor()
+                                            cur_bm.execute("""
+                                                INSERT INTO banco_movimientos (banco_nombre, cuenta_numero, fecha_movimiento, referencia, descripcion, monto, estado_conciliacion, asiento_id, fecha_importacion)
+                                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                                            """, (
+                                                banco_receptor if banco_receptor else "Banco Principal", "Principal",
+                                                selected_row_bm['fecha_movimiento'], selected_row_bm['referencia'],
+                                                f"Cobro Factura {selected_row_bm['referencia']}", selected_row_bm['monto'],
+                                                "Conciliado", None
+                                            ))
+                                            conn_bm.commit()
+                                            cur_bm.close()
+                                            conn_bm.close()
+                                            st.success("✅ ¡Movimiento bancario guardado con éxito con su estructura exacta!")
+                                            st.rerun()
+                                        except Exception as err_ins_bm:
+                                            st.error(f"❌ Error al guardar en banco_movimientos: {err_ins_bm}")
+                                else:
+                                    st.info("No hay pagos con referencia bancaria registrados pendientes.")
+                            except Exception as e_bm_err:
+                                st.error(f"Error cargando frame: {e_bm_err}")
+
+                        # Cerrar conexión de visualización general
+                        conn_vis.close()
                 else:
-                    st.warning("⚠️ No se encontraron clientes comerciales registrados en la base de datos.")
-            except Exception as e_main_tab6:
-                st.error(f"❌ Error general en la Tab 6: {e_main_tab6}")
+                    st.warning("⚠️ No se encontraron clientes comerciales registrados. Por favor, crea al menos un cliente primero.")
+            except Exception as e_tab6:
+                st.error(f"❌ Error general en la Pestaña 6: {e_tab6}")
 
     elif sub_opcion == "Consultar Comprobante":
         st.subheader("🔍 Buscador de Comprobantes")
