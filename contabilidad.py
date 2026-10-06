@@ -14037,17 +14037,20 @@ estado: {sel_data['estado']}""", language="yaml")
 
                     # Inicializar el estado si no existe
                     if "df_items_factura" not in st.session_state:
-                        st.session_state.df_items_factura = pd.DataFrame([
-                            {"Cantidad": 1.0, "Descripción": "Servicio o Producto Principal", "Precio Unitario": 0.0, "Total": 0.0}
-                        ])
-                    else:
-                        # Asegurar que tenga la columna Total si viene de un estado anterior
-                        if "Total" not in st.session_state.df_items_factura.columns:
-                            st.session_state.df_items_factura["Total"] = st.session_state.df_items_factura["Cantidad"] * st.session_state.df_items_factura["Precio Unitario"]
+                        st.session_state.df_items_factura = pd.DataFrame({
+                            "Cantidad": [1.0],
+                            "Descripción": ["Servicio o Producto Principal"],
+                            "Precio Unitario": [0.0],
+                            "Total": [0.0]
+                        })
 
-                    # Renderizar el editor y capturar los cambios del usuario
+                    # Asegurarnos de que el DataFrame del session_state siempre tenga calculada la columna Total antes de pintar el editor
+                    df_actual_state = st.session_state.df_items_factura.copy()
+                    df_actual_state["Total"] = df_actual_state["Cantidad"].astype(float) * df_actual_state["Precio Unitario"].astype(float)
+
+                    # Renderizar el editor de datos
                     edited_items_df = st.data_editor(
-                        st.session_state.df_items_factura,
+                        df_actual_state,
                         num_rows="dynamic",
                         use_container_width=True,
                         key="editor_lineas_factura",
@@ -14059,10 +14062,16 @@ estado: {sel_data['estado']}""", language="yaml")
                         }
                     )
 
-                    # 🔑 CLAVE: Actualizar el Total inmediatamente antes de calcular la base imponible y el session_state
+                    # Recalcular inmediatamente sobre el DataFrame editado por el usuario
                     if not edited_items_df.empty:
+                        edited_items_df["Cantidad"] = pd.to_numeric(edited_items_df["Cantidad"], errors='coerce').fillna(0.0)
+                        edited_items_df["Precio Unitario"] = pd.to_numeric(edited_items_df["Precio Unitario"], errors='coerce').fillna(0.0)
+                        
+                        # FORZAR LA MULTIPLICACIÓN MATEMÁTICA CORRECTA
                         edited_items_df["Total"] = edited_items_df["Cantidad"] * edited_items_df["Precio Unitario"]
-                        st.session_state.df_items_factura = edited_items_df  # Sincronizamos con el estado global de la sesión
+                        
+                        # Guardar en el session_state para mantener la consistencia
+                        st.session_state.df_items_factura = edited_items_df
                         base_imponible = float(edited_items_df["Total"].sum())
                     else:
                         base_imponible = 0.0
