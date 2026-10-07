@@ -14029,13 +14029,13 @@ estado: {sel_data['estado']}""", language="yaml")
                         fecha_emision = st.date_input("4) Fecha de Emisión", key="input_fecha_emision")
 
                     # =========================================================================
-                    # 🛒 DETALLE DE ÍTEMS / LÍNEAS DE VENTA CONECTADO A LA TABLA PRODUCTO
+                    # 🛒 DETALLE DE ÍTEMS / LÍNEAS DE VENTA (BLOQUE ÚNICO Y CORREGIDO)
                     # =========================================================================
                     st.divider()
                     st.markdown("#### 🛒 Detalle de Ítems / Líneas de Venta")
                     st.markdown("Selecciona los productos del inventario y define la cantidad. El precio y el total se calculan automáticamente.")
 
-                    # 1. Cargar catálogo de productos disponibles desde la base de datos MySQL
+                    # Cargar catálogo de productos disponibles desde la base de datos MySQL
                     df_catalogo_prod = None
                     lista_opciones_productos = []
                     dict_productos = {}
@@ -14061,27 +14061,27 @@ estado: {sel_data['estado']}""", language="yaml")
                     except Exception as e:
                         st.error(f"Error al cargar el catálogo de productos: {e}")
 
-                    # 2. Controlar el número de líneas de la factura en el session_state
-                    if "num_lineas_factura" not in st.session_state:
-                        st.session_state.num_lineas_factura = 1
+                    # Controlar el número de líneas de la factura en el session_state
+                    if "tab6_num_lineas_factura" not in st.session_state:
+                        st.session_state.tab6_num_lineas_factura = 1
 
                     col_add_btn, col_del_btn = st.columns([1, 1])
                     with col_add_btn:
-                        if st.button("➕ Agregar Línea de Producto"):
-                            st.session_state.num_lineas_factura += 1
+                        if st.button("➕ Agregar Línea de Producto", key="tab6_btn_agregar_linea"):
+                            st.session_state.tab6_num_lineas_factura += 1
                             st.rerun()
                     with col_del_btn:
-                        if st.session_state.num_lineas_factura > 1:
-                            if st.button("➖ Eliminar Última Línea"):
-                                st.session_state.num_lineas_factura -= 1
+                        if st.session_state.tab6_num_lineas_factura > 1:
+                            if st.button("➖ Eliminar Última Línea", key="tab6_btn_eliminar_linea"):
+                                st.session_state.tab6_num_lineas_factura -= 1
                                 st.rerun()
 
-                    # 3. Renderizar filas interactivas
+                    # Renderizar filas interactivas y acumular la base imponible real
                     items_factura_guardar = []
-                    base_imponible = 0.0
+                    base_imponible_calculada = 0.0
 
                     if lista_opciones_productos:
-                        for i in range(st.session_state.num_lineas_factura):
+                        for i in range(st.session_state.tab6_num_lineas_factura):
                             st.markdown(f"**Renglón #{i+1}**")
                             c1, c2, c3, c4 = st.columns([3, 1.5, 2, 2])
                             
@@ -14089,7 +14089,7 @@ estado: {sel_data['estado']}""", language="yaml")
                                 prod_seleccionado = st.selectbox(
                                     "Producto / Servicio", 
                                     options=lista_opciones_productos, 
-                                    key=f"select_prod_{i}"
+                                    key=f"tab6_select_prod_{i}"
                                 )
                             
                             info_prod = dict_productos[prod_seleccionado]
@@ -14104,23 +14104,24 @@ estado: {sel_data['estado']}""", language="yaml")
                                     value=1.0, 
                                     step=1.0, 
                                     format="%.2f", 
-                                    key=f"cant_prod_{i}"
+                                    key=f"tab6_cant_prod_{i}"
                                 )
-                                
+                            
                             with c3:
                                 precio_final_unit = st.number_input(
                                     "Precio Unitario ($)", 
                                     min_value=0.0, 
                                     value=precio_unit, 
                                     format="%.2f", 
-                                    key=f"precio_prod_{i}"
+                                    key=f"tab6_precio_prod_{i}"
                                 )
-                                
+                            
                             with c4:
                                 total_linea = cantidad * precio_final_unit
                                 st.metric(label="Total Línea ($)", value=f"${total_linea:,.2f}")
-                                
-                            base_imponible += total_linea
+                            
+                            # Acumular estrictamente la base imponible por cada línea procesada
+                            base_imponible_calculada += total_linea
                             
                             items_factura_guardar.append({
                                 "Código": codigo_prod,
@@ -14131,12 +14132,12 @@ estado: {sel_data['estado']}""", language="yaml")
                             })
                             st.divider()
                     else:
-                        st.warning("⚠️ No se encontraron productos registrados en la tabla `producto`. Por favor registra productos primero en el inventario.")
-                        base_imponible = 0.0
+                        st.warning("⚠️ No se encontraron productos registrados en la tabla `producto`.")
+                        base_imponible_calculada = 0.0
 
                     import pandas as pd
                     edited_items_df = pd.DataFrame(items_factura_guardar) if items_factura_guardar else pd.DataFrame(columns=["Código", "Descripción", "Cantidad", "Precio Unitario", "Total ($)"])
-
+                    
                     # =========================================================================
                     # 🛒 DETALLE DE ÍTEMS / LÍNEAS DE VENTA
                     # =========================================================================
