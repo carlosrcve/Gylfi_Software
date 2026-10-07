@@ -14237,12 +14237,19 @@ estado: {sel_data['estado']}""", language="yaml")
                             key="input_base_imp"
                         )
                     with col_m1:
-                        monto_exento = st.number_input("Monto Exento", min_value=0.0, step=1.0, format="%0.2f", key="input_monto_ex")
+                        monto_exento = st.number_input(
+                            "Monto Exento", 
+                            min_value=0.0, 
+                            step=1.0, 
+                            format="%0.2f", 
+                            key="input_monto_ex"
+                        )
                     with col_m2:
                         alicuota_iva = st.selectbox("Alícuota IVA (%)", [16.0, 8.0, 0.0], index=0, key="select_alicuota")
 
+                    # Cálculo exacto incluyendo Base Imponible + Monto Exento + IVA
                     calc_iva = base_imponible_input * (alicuota_iva / 100.0)
-                    calc_bruto = base_imponible_input + monto_exento + calc_iva
+                    calc_bruto = base_imponible_input + float(monto_exento) + calc_iva
 
                     with col_m3:
                         monto_iva = st.number_input("Monto IVA", value=float(calc_iva), min_value=0.0, format="%0.2f", disabled=True, key="input_monto_iva_f")
@@ -14251,6 +14258,7 @@ estado: {sel_data['estado']}""", language="yaml")
 
                     # Asignar la variable base_imponible para mantener compatibilidad con el resto del código hacia abajo
                     base_imponible = base_imponible_input
+
                     st.info(f"📊 **Resumen Fiscal:** Base Imponible (Ítems): ${base_imponible:,.2f} | Exento: ${monto_exento:,.2f} | IVA ({alicuota_iva}%): ${monto_iva:,.2f} | Total Bruto: ${monto_bruto:,.2f}")
                     st.divider()
                     
