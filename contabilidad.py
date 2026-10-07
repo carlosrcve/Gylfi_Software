@@ -14226,8 +14226,7 @@ estado: {sel_data['estado']}""", language="yaml")
                     # 💰 DESGLOSE IMPOSITIVO Y TOTALES
                     # =========================================================================
                     st.markdown("#### 💰 Desglose Impositivo y Totales")
-                    # Asegurar compatibilidad con el resto de tu código que usa 'base_imponible'
-                    base_imponible = base_imponible_input
+
                     col_m0, col_m1, col_m2, col_m3, col_m4 = st.columns(5)
                     with col_m0:
                         base_imponible_input = st.number_input(
@@ -14250,6 +14249,8 @@ estado: {sel_data['estado']}""", language="yaml")
                     with col_m4:
                         monto_bruto = st.number_input("Monto Total Factura", value=float(calc_bruto), min_value=0.0, format="%0.2f", disabled=True, key="input_monto_bruto_f")
 
+                    # Asignar la variable base_imponible para mantener compatibilidad con el resto del código hacia abajo
+                    base_imponible = base_imponible_input
                     st.info(f"📊 **Resumen Fiscal:** Base Imponible (Ítems): ${base_imponible:,.2f} | Exento: ${monto_exento:,.2f} | IVA ({alicuota_iva}%): ${monto_iva:,.2f} | Total Bruto: ${monto_bruto:,.2f}")
                     st.divider()
                     
