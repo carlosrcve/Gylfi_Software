@@ -14286,16 +14286,6 @@ estado: {sel_data['estado']}""", language="yaml")
                     except Exception:
                         pass
 
-                    col_b1, col_b2 = st.columns(2)
-                    with col_b1:
-                        ref_banco_cobro = st.text_input("Referencia Bancaria del Pago (si ya fue pagada)", key="input_ref_banco").strip()
-                    with col_b2:
-                        if dict_bancos:
-                            selected_banco_label = st.selectbox("Banco Receptor / Cuenta", list(dict_bancos.keys()), key="select_banco_receptor")
-                            banco_receptor = dict_bancos[selected_banco_label]
-                        else:
-                            banco_receptor = st.text_input("Banco Receptor / Cuenta", placeholder="Ej. Banesco Cta Custodia", key="input_banco_manual").strip()
-
                     st.divider()
 
                     # BOTÓN PARA GUARDAR LA FACTURA, DETALLES Y ORDEN DE COBRANZA
