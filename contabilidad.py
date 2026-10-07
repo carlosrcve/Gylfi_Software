@@ -14138,27 +14138,119 @@ estado: {sel_data['estado']}""", language="yaml")
                     edited_items_df = pd.DataFrame(items_factura_guardar) if items_factura_guardar else pd.DataFrame(columns=["Código", "Descripción", "Cantidad", "Precio Unitario", "Total ($)"])
 
                     # =========================================================================
-                    # 💰 DESGLOSE IMPOSITIVO Y TOTALES
+                    # 🛒 DETALLE DE ÍTEMS / LÍNEAS DE VENTA
+                    # =========================================================================
+                    st.divider()
+                    st.markdown("#### 🛒 Detalle de Ítems / Líneas de Venta")
+                    st.markdown("Selecciona los productos del inventario y define la cantidad. El precio y el total se calculan automáticamente.")
+
+                    # Controlar el número de líneas de la factura en el session_state
+                    if "num_lineas_factura" not in st.session_state:
+                        st.session_state.num_lineas_factura = 1
+
+                    col_add_btn, col_del_btn = st.columns([1, 1])
+                    with col_add_btn:
+                        if st.button("➕ Agregar Línea de Producto"):
+                            st.session_state.num_lineas_factura += 1
+                            st.rerun()
+                    with col_del_btn:
+                        if st.session_state.num_lineas_factura > 1:
+                            if st.button("➖ Eliminar Última Línea"):
+                                st.session_state.num_lineas_factura -= 1
+                                st.rerun()
+
+                    # Renderizar filas interactivas y acumular la base imponible real
+                    items_factura_guardar = []
+                    base_imponible_calculada = 0.0
+
+                    if lista_opciones_productos:
+                        for i in range(st.session_state.num_lineas_factura):
+                            st.markdown(f"**Renglón #{i+1}**")
+                            c1, c2, c3, c4 = st.columns([3, 1.5, 2, 2])
+                            
+                            with c1:
+                                prod_seleccionado = st.selectbox(
+                                    "Producto / Servicio", 
+                                    options=lista_opciones_productos, 
+                                    key=f"select_prod_{i}"
+                                )
+                            
+                            info_prod = dict_productos[prod_seleccionado]
+                            codigo_prod = info_prod["codigo"]
+                            desc_prod = info_prod["descripcion"]
+                            precio_unit = info_prod["precio"]
+                            
+                            with c2:
+                                cantidad = st.number_input(
+                                    "Cantidad", 
+                                    min_value=0.01, 
+                                    value=1.0, 
+                                    step=1.0, 
+                                    format="%.2f", 
+                                    key=f"cant_prod_{i}"
+                                )
+                            
+                            with c3:
+                                precio_final_unit = st.number_input(
+                                    "Precio Unitario ($)", 
+                                    min_value=0.0, 
+                                    value=precio_unit, 
+                                    format="%.2f", 
+                                    key=f"precio_prod_{i}"
+                                )
+                            
+                            with c4:
+                                total_linea = cantidad * precio_final_unit
+                                st.metric(label="Total Línea ($)", value=f"${total_linea:,.2f}")
+                            
+                            # Acumular estrictamente la base imponible por cada línea procesada
+                            base_imponible_calculada += total_linea
+                            
+                            items_factura_guardar.append({
+                                "Código": codigo_prod,
+                                "Descripción": desc_prod,
+                                "Cantidad": cantidad,
+                                "Precio Unitario": precio_final_unit,
+                                "Total ($)": total_linea
+                            })
+                            st.divider()
+                    else:
+                        st.warning("⚠️ No se encontraron productos registrados en la tabla `producto`.")
+                        base_imponible_calculada = 0.0
+
+                    import pandas as pd
+                    edited_items_df = pd.DataFrame(items_factura_guardar) if items_factura_guardar else pd.DataFrame(columns=["Código", "Descripción", "Cantidad", "Precio Unitario", "Total ($)"])
+
+                    # =========================================================================
+                    # 💰 DESGLOSE IMPOSITIVO Y TOTALES (REACTIVO Y SUMATORIA REAL)
                     # =========================================================================
                     st.markdown("#### 💰 Desglose Impositivo y Totales")
 
                     col_m0, col_m1, col_m2, col_m3, col_m4 = st.columns(5)
                     with col_m0:
-                        base_imponible_input = st.number_input("Base Imponible", value=base_imponible, min_value=0.0, format="%0.2f", key="input_base_imp")
+                        # Forzamos a que coja el valor acumulado de las líneas y permitimos sobreescritura si es manual
+                        base_imponible_input = st.number_input(
+                            "Base Imponible", 
+                            value=float(base_imponible_calculada), 
+                            min_value=0.0, 
+                            format="%0.2f", 
+                            key="input_base_imp"
+                        )
                     with col_m1:
                         monto_exento = st.number_input("Monto Exento", min_value=0.0, step=1.0, format="%0.2f", key="input_monto_ex")
                     with col_m2:
                         alicuota_iva = st.selectbox("Alícuota IVA (%)", [16.0, 8.0, 0.0], index=0, key="select_alicuota")
 
+                    # Cálculos reactivos instantáneos basados en la base imponible real
                     calc_iva = base_imponible_input * (alicuota_iva / 100.0)
                     calc_bruto = base_imponible_input + monto_exento + calc_iva
 
                     with col_m3:
-                        monto_iva = st.number_input("Monto IVA", value=calc_iva, min_value=0.0, format="%0.2f", disabled=True, key="input_monto_iva_f")
+                        monto_iva = st.number_input("Monto IVA", value=float(calc_iva), min_value=0.0, format="%0.2f", disabled=True, key="input_monto_iva_f")
                     with col_m4:
-                        monto_bruto = st.number_input("Monto Total Factura", value=calc_bruto, min_value=0.0, format="%0.2f", disabled=True, key="input_monto_bruto_f")
+                        monto_bruto = st.number_input("Monto Total Factura", value=float(calc_bruto), min_value=0.0, format="%0.2f", disabled=True, key="input_monto_bruto_f")
 
-                    st.info(f"📊 **Resumen Fiscal:** Base Imponible: ${base_imponible_input:,.2f} | Exento: ${monto_exento:,.2f} | IVA ({alicuota_iva}%): ${monto_iva:,.2f} | Total Bruto: ${monto_bruto:,.2f}")
+                    st.info(f"📊 **Resumen Fiscal:** Base Imponible: ${base_imponible_input:,.2f} \vert{} Exento:${monto_exento:,.2f} | IVA ({alicuota_iva}%): ${monto_iva:,.2f} \vert{} Total Bruto:${monto_bruto:,.2f}")
                     st.divider()
                     st.markdown("#### 🏦 Datos Preliminares del Cobro / Referencia Bancaria (Opcional si es a crédito)")
                     
