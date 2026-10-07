@@ -14150,12 +14150,12 @@ estado: {sel_data['estado']}""", language="yaml")
 
                     col_add_btn, col_del_btn = st.columns([1, 1])
                     with col_add_btn:
-                        if st.button("➕ Agregar Línea de Producto"):
+                        if st.button("➕ Agregar Línea de Producto", key="btn_agregar_linea_unica"):
                             st.session_state.num_lineas_factura += 1
                             st.rerun()
                     with col_del_btn:
                         if st.session_state.num_lineas_factura > 1:
-                            if st.button("➖ Eliminar Última Línea"):
+                            if st.button("➖ Eliminar Última Línea", key="btn_eliminar_linea_unica"):
                                 st.session_state.num_lineas_factura -= 1
                                 st.rerun()
 
@@ -14222,13 +14222,12 @@ estado: {sel_data['estado']}""", language="yaml")
                     edited_items_df = pd.DataFrame(items_factura_guardar) if items_factura_guardar else pd.DataFrame(columns=["Código", "Descripción", "Cantidad", "Precio Unitario", "Total ($)"])
 
                     # =========================================================================
-                    # 💰 DESGLOSE IMPOSITIVO Y TOTALES (REACTIVO Y SUMATORIA REAL)
+                    # 💰 DESGLOSE IMPOSITIVO Y TOTALES
                     # =========================================================================
                     st.markdown("#### 💰 Desglose Impositivo y Totales")
 
                     col_m0, col_m1, col_m2, col_m3, col_m4 = st.columns(5)
                     with col_m0:
-                        # Forzamos a que coja el valor acumulado de las líneas y permitimos sobreescritura si es manual
                         base_imponible_input = st.number_input(
                             "Base Imponible", 
                             value=float(base_imponible_calculada), 
@@ -14241,7 +14240,6 @@ estado: {sel_data['estado']}""", language="yaml")
                     with col_m2:
                         alicuota_iva = st.selectbox("Alícuota IVA (%)", [16.0, 8.0, 0.0], index=0, key="select_alicuota")
 
-                    # Cálculos reactivos instantáneos basados en la base imponible real
                     calc_iva = base_imponible_input * (alicuota_iva / 100.0)
                     calc_bruto = base_imponible_input + monto_exento + calc_iva
 
@@ -14251,7 +14249,7 @@ estado: {sel_data['estado']}""", language="yaml")
                         monto_bruto = st.number_input("Monto Total Factura", value=float(calc_bruto), min_value=0.0, format="%0.2f", disabled=True, key="input_monto_bruto_f")
 
                     st.info(f"📊 **Resumen Fiscal:** Base Imponible (Ítems): ${base_imponible:,.2f} | Exento: ${monto_exento:,.2f} | IVA ({alicuota_iva}%): ${monto_iva:,.2f} | Total Bruto: ${monto_bruto:,.2f}")
-                    st.markdown("#### 🏦 Datos Preliminares del Cobro / Referencia Bancaria (Opcional si es a crédito)")
+                    st.divider()
                     
                     dict_bancos = {}
                     try:
