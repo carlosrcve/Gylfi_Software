@@ -14298,38 +14298,27 @@ estado: {sel_data['estado']}""", language="yaml")
 
                     st.divider()
 
-                    # BOTÓN PARA GUARDAR LA FACTURA, DETALLES Y ORDEN DE COBRANZA
-                    if st.button("🚀 Guardar Factura, Detalles y Orden de Cobranza", type="primary", use_container_width=True, key="btn_guardar_orden_cobranza"):
+                    # =========================================================================
+                    # 🚀 BOTÓN PARA GUARDAR LA FACTURA Y SUS DETALLES
+                    # =========================================================================
+                    if st.button("🚀 Guardar Factura y Detalles", type="primary", use_container_width=True, key="btn_guardar_factura_pura"):
                         if nro_factura and nro_control:
                             try:
                                 conn_trans = conectar_db(db_actual)
                                 if conn_trans:
                                     cursor = conn_trans.cursor()
-                                    estado_inicial = 'Conciliado' if ref_banco_cobro else 'Pendiente'
                                     
-                                    # 1. Guardar en la tabla 'ordenes_cobranza'
-                                    cursor.execute("""
-                                        INSERT INTO ordenes_cobranza 
-                                        (empresa_db, rif_cliente, n_factura, n_control, fecha_emision, base_imponible, monto_exento, porcentaje_alicuota, monto_iva, monto_bruto, referencia_banco, estado_cobro)
-                                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                                    """, (
-                                        str(db_actual), cli_info['rif'], nro_factura, nro_control, fecha_emision,
-                                        base_imponible, monto_exento, alicuota_iva, monto_iva, monto_bruto,
-                                        ref_banco_cobro if ref_banco_cobro else None, estado_inicial
-                                    ))
-
-                                    # 2. Guardar en la tabla maestra 'factura'
+                                    # 1. Guardar estrictamente en la tabla maestra 'factura' con sus campos base
                                     cursor.execute("""
                                         INSERT INTO factura 
-                                        (empresa_db, rif_cliente, n_factura, n_control, fecha_emision, base_imponible, monto_exento, porcentaje_alicuota, monto_iva, monto_bruto, estado_cobro, referencia_banco)
-                                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                        (empresa_db, rif_cliente, n_factura, n_control, fecha_emision, base_imponible, monto_exento, porcentaje_alicuota, monto_iva, monto_bruto)
+                                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                                     """, (
                                         str(db_actual), cli_info['rif'], nro_factura, nro_control, fecha_emision,
-                                        base_imponible, monto_exento, alicuota_iva, monto_iva, monto_bruto,
-                                        estado_inicial, ref_banco_cobro if ref_banco_cobro else None
+                                        base_imponible, monto_exento, alicuota_iva, monto_iva, monto_bruto
                                     ))
 
-                                    # 3. Guardar cada ítem en la tabla 'factura_detalle'
+                                    # 2. Guardar cada ítem en la tabla 'factura_detalle'
                                     for _, row_item in edited_items_df.iterrows():
                                         cursor.execute("""
                                             INSERT INTO factura_detalle 
@@ -14348,15 +14337,15 @@ estado: {sel_data['estado']}""", language="yaml")
                                     cursor.close()
                                     conn_trans.close()
 
-                                    st.success("✅ ¡Factura, detalles y orden de cobranza guardados con éxito en la base de datos!")
+                                    st.success("✅ ¡Factura y detalles guardados con éxito en la base de datos!")
                                     st.balloons()
                                     st.rerun()
                                 else:
                                     st.error("❌ Error de conexión con la base de datos.")
                             except Exception as err_fac:
-                                st.error(f"❌ Error al procesar: {err_fac}")
+                                st.error(f"❌ Error al procesar la factura: {err_fac}")
                         else:
-                            st.warning("⚠️ Debes rellenar el Número de Factura y Control.")
+                            st.warning("⚠️ Debes rellenar el Número de Factura y el Número de Control.")
 
                     # =========================================================================
                     # 📊 PANEL DE GESTIÓN POR FRENTES (SIN MODIFICAR LOS OTROS 3 FRAMES)
