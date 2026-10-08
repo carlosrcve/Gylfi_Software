@@ -14513,7 +14513,7 @@ estado: {sel_data['estado']}""", language="yaml")
 
                                     st.markdown("##### ⚙ Configuración de Cuentas para el Asiento")
                                     
-                                    col_c1, col_c2 = st.columns(2)
+                                    col_c1, col_c2, col_c3 = st.columns(3)
                                     with col_c1:
                                         # Selección de Cuenta para el DEBE (CxC / Cliente)
                                         default_debe_idx = 0
@@ -14530,7 +14530,16 @@ estado: {sel_data['estado']}""", language="yaml")
                                             if "401" in c or "Ingresos" in c:
                                                 default_haber_idx = idx
                                                 break
-                                        cta_haber_sel = st.selectbox("Cuenta Contable Principal (HABER - Ingresos)", opciones_cuentas, index=default_haber_idx, key="sel_cta_haber")
+                                        cta_haber_sel = st.selectbox("Cuenta Principal (HABER - Ingresos)", opciones_cuentas, index=default_haber_idx, key="sel_cta_haber")
+
+                                    with col_c3:
+                                        # Selección de Cuenta para el IVA (Débito Fiscal)
+                                        default_iva_idx = 0
+                                        for idx, c in enumerate(opciones_cuentas):
+                                            if "202" in c or "IVA" in c or "Débito" in c or "Fiscal" in c:
+                                                default_iva_idx = idx
+                                                break
+                                        cta_iva_sel = st.selectbox("Cuenta IVA (HABER - Débito Fiscal)", opciones_cuentas, index=default_iva_idx, key="sel_cta_iva")
 
                                     # Previsualización del asiento en DataFrame
                                     import time
@@ -14543,12 +14552,15 @@ estado: {sel_data['estado']}""", language="yaml")
                                     val_monto_iva = limpiar_val(selected_row_fact['monto_iva'])
                                     val_monto_exento = limpiar_val(selected_row_fact['monto_exento'])
                                     
-                                    # Extraer códigos seleccionados limpiamente
+                                    # Extraer códigos y descripciones seleccionadas limpiamente
                                     cod_cta_debe = cta_debe_sel.split(" - ")[0]
                                     nom_cta_debe = cta_debe_sel.split(" - ")[1] if " - " in cta_debe_sel else "CxC Cliente"
                                     
                                     cod_cta_haber = cta_haber_sel.split(" - ")[0]
                                     nom_cta_haber = cta_haber_sel.split(" - ")[1] if " - " in cta_haber_sel else "Ingresos"
+
+                                    cod_cta_iva = cta_iva_sel.split(" - ")[0]
+                                    nom_cta_iva = cta_iva_sel.split(" - ")[1] if " - " in cta_iva_sel else "Débito Fiscal IVA"
 
                                     asientos_preview_data = [
                                         {
@@ -14592,14 +14604,14 @@ estado: {sel_data['estado']}""", language="yaml")
                                             "bloqueado": 1
                                         })
                                     
-                                    # Si hay IVA, agregar la línea de IVA al Haber
+                                    # Si hay IVA, agregar la línea de IVA al Haber usando la cuenta seleccionada
                                     if val_monto_iva > 0:
                                         asientos_preview_data.append({
                                             "n_comprobante": n_comp_preview,
                                             "descripcion": f"IVA Factura {num_fact_val}",
                                             "fecha": fecha_asiento,
-                                            "plan_cuentas": "202-01",
-                                            "cuenta_contable": "Débito Fiscal IVA por Pagar",
+                                            "plan_cuentas": cod_cta_iva,
+                                            "cuenta_contable": nom_cta_iva,
                                             "referencia": num_fact_val,
                                             "debe": 0.00,
                                             "haber": val_monto_iva,
