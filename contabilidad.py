@@ -14442,7 +14442,7 @@ estado: {sel_data['estado']}""", language="yaml")
                             st.markdown("#### ⚖ Asientos Contables - Registro por Factura")
                             
                             try:
-                                # 1. Cargar directamente desde la tabla exacta 'factura'
+                                # 1. Cargar única y exclusivamente desde la tabla oficial 'factura'
                                 df_facturas = ejecutar_consulta("""
                                     SELECT id, empresa_db, rif_cliente, n_factura, n_control, fecha_emision, base_imponible, monto_exento, porcentaje_alicuota, monto_iva, monto_bruto, estado_factura, fecha_registro 
                                     FROM factura ORDER BY id DESC LIMIT 20
