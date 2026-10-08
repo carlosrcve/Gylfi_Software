@@ -14410,7 +14410,6 @@ estado: {sel_data['estado']}""", language="yaml")
                                     # 2. Frame de Visualización Actual (para ver cómo está la orden seleccionada)
                                     st.markdown(f"##### 📊 Frame Actual de la Orden de Cobranza ID #{selected_oc_id_m}")
                                     
-                                    # Convertimos la fila seleccionada en un DataFrame de una sola línea para el frame
                                     df_single_preview = pd.DataFrame([row_sel_m])
                                     
                                     st.dataframe(
@@ -14436,7 +14435,7 @@ estado: {sel_data['estado']}""", language="yaml")
                                     st.markdown("---")
                                     st.markdown(f"##### 🛠️ Edición de la Orden de Cobranza ID #{selected_oc_id_m}")
 
-                                    # 3. Formulario de Edición con campos estructurados
+                                    # 3. Formulario de Edición con procesamiento interno y seguro
                                     with st.form(key=f"form_editar_oc_{selected_oc_id_m}"):
                                         col_e1, col_e2 = st.columns(2)
                                         
@@ -14488,38 +14487,38 @@ estado: {sel_data['estado']}""", language="yaml")
                                         st.markdown("")
                                         btn_actualizar = st.form_submit_button("💾 Actualizar Orden de Cobranza")
 
-                                    # 4. Procesar Actualización en Base de Datos
-                                    if btn_actualizar:
-                                        try:
-                                            conn_upd = conectar_db(db_actual)
-                                            cur_upd = conn_upd.cursor()
-                                            
-                                            sql_update_oc = """
-                                                UPDATE ordenes_cobranza 
-                                                SET fecha_emision = %s, n_factura = %s, n_control = %s, rif_cliente = %s,
-                                                    monto_bruto = %s, base_imponible = %s, monto_iva = %s, monto_exento = %s,
-                                                    estado_cobro = %s, referencia_banco = %s
-                                                WHERE id = %s
-                                            """
-                                            cur_upd.execute(sql_update_oc, (
-                                                nueva_fecha, nueva_n_factura, nuevo_n_control, nuevo_rif,
-                                                float(nuevo_bruto), float(nueva_base), float(nuevo_iva), float(nuevo_exento),
-                                                nuevo_estado, nueva_ref, selected_oc_id_m
-                                            ))
-                                            
-                                            conn_upd.commit()
-                                            cur_upd.close()
-                                            conn_upd.close()
-                                            
-                                            st.success("✅ ¡Orden de cobranza actualizada exitosamente!")
-                                            st.balloons()
-                                            st.rerun()
-                                        except Exception as err_upd:
-                                            st.error(f"❌ Error al actualizar la orden de cobranza: {str(err_upd)}")
+                                        # Procesar Actualización DENTRO del formulario para garantizar el ámbito de las variables
+                                        if btn_actualizar:
+                                            try:
+                                                conn_upd = conectar_db(db_actual)
+                                                cur_upd = conn_upd.cursor()
+                                                
+                                                sql_update_oc = """
+                                                    UPDATE ordenes_cobranza 
+                                                    SET fecha_emision = %s, n_factura = %s, n_control = %s, rif_cliente = %s,
+                                                        monto_bruto = %s, base_imponible = %s, monto_iva = %s, monto_exento = %s,
+                                                        estado_cobro = %s, referencia_banco = %s
+                                                    WHERE id = %s
+                                                """
+                                                cur_upd.execute(sql_update_oc, (
+                                                    nueva_fecha, nuevo_n_factura, nuevo_n_control, nuevo_rif,
+                                                    float(nuevo_bruto), float(nueva_base), float(nuevo_iva), float(nuevo_exento),
+                                                    nuevo_estado, nueva_ref, selected_oc_id_m
+                                                ))
+                                                
+                                                conn_upd.commit()
+                                                cur_upd.close()
+                                                conn_upd.close()
+                                                
+                                                st.success("✅ ¡Orden de cobranza actualizada exitosamente!")
+                                                st.balloons()
+                                                st.rerun()
+                                            except Exception as err_upd:
+                                                st.error(f"❌ Error al actualizar la orden de cobranza: {str(err_upd)}")
 
                                     st.markdown("---")
                                     
-                                    # 5. Sección de Eliminación Segura
+                                    # 4. Sección de Eliminación Segura
                                     with st.expander("⚠️ Zona de Peligro - Eliminar Orden de Cobranza"):
                                         st.warning("Eliminar esta orden de cobranza desvinculará el registro. Asegúrese de que no posea asientos contables críticos asociados.")
                                         confirmar_borrado = st.checkbox("Confirmo que deseo eliminar permanentemente esta orden de cobranza", key=f"chk_del_{selected_oc_id_m}")
