@@ -14192,7 +14192,28 @@ estado: {sel_data['estado']}""", language="yaml")
                         monto_iva = calc_iva
                         monto_bruto = calc_bruto
 
-                        st.info(f"📊 **Resumen Fiscal:** Base Imponible (Ítems): ${base_imponible:,.2f} \vert{} Exento:${monto_exento:,.2f} | IVA ({alicuota_iva}%): ${monto_iva:,.2f} \vert{} Total Bruto:${monto_bruto:,.2f}")
+                        st.info(f"📊 **Resumen Fiscal:** Base Imponible (Ítems): ${base_imponible:,.2f} | Exento: ${monto_exento:,.2f} | IVA ({alicuota_iva}%): ${monto_iva:,.2f} | Total Bruto: ${monto_bruto:,.2f}")
+                        st.markdown(f"""
+                            <div style="
+                                background-color: #f8f9fa; 
+                                padding: 16px; 
+                                border-radius: 8px; 
+                                border: 1px solid #e0e0e0; 
+                                border-left: 5px solid #2e7d32;
+                                font-family: sans-serif;
+                                margin-bottom: 15px;
+                            ">
+                                <div style="font-size: 16px; font-weight: bold; color: #333; margin-bottom: 8px;">
+                                    📊 Resumen Fiscal de la Factura
+                                </div>
+                                <div style="display: flex; flex-wrap: wrap; gap: 20px; font-size: 14px; color: #555;">
+                                    <div><b>Base Imponible:</b> ${base_imponible:,.2f}</div>
+                                    <div><b>Exento:</b> ${monto_exento:,.2f}</div>
+                                    <div><b>IVA ({alicuota_iva}%):</b> ${monto_iva:,.2f}</div>
+                                    <div><b>Total Bruto:</b> <span style="color: #2e7d32; font-weight: bold; font-size: 15px;">${monto_bruto:,.2f}</span></div>
+                                </div>
+                            </div>
+                        """, unsafe_allow_html=True)
                         st.divider()
 
                         # =========================================================================
