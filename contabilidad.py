@@ -14442,25 +14442,15 @@ estado: {sel_data['estado']}""", language="yaml")
                             st.markdown("#### ⚖ Asientos Contables - Registro por Factura")
                             
                             try:
-                                # 1. Seleccionar la factura desde la tabla real 'facturas'
+                                # 1. Seleccionar la factura desde la tabla real 'facturas' con sus nombres de columnas exactos
                                 df_facturas = ejecutar_consulta("""
-                                    SELECT id, fecha_emision, numero_factura, numero_control, id_cliente, nombre_clientevarchar, monto_total, base_imponible, monto_iva, monto_exento 
+                                    SELECT id, fecha_emision, numero_factura, numero_control, id_cliente, nombre_cliente, monto_total, base_imponible, monto_iva, monto_exento 
                                     FROM facturas ORDER BY id DESC LIMIT 20
                                 """, conn_vis)
                                 
-                                # Nota de respaldo por si el nombre de la columna en tu BD es exactamente nombre_cliente (sin 'varchar')
-                                if df_facturas is None or df_facturas.empty:
-                                    df_facturas = ejecutar_consulta("""
-                                        SELECT id, fecha_emision, numero_factura, numero_control, id_cliente, nombre_cliente, monto_total, base_imponible, monto_iva, monto_exento 
-                                        FROM facturas ORDER BY id DESC LIMIT 20
-                                    """, conn_vis)
-                                
                                 if df_facturas is not None and not df_facturas.empty:
-                                    # Normalizar nombre de columna de cliente por seguridad
-                                    col_nom_cli = 'nombre_cliente' if 'nombre_cliente' in df_facturas.columns else 'nombre_clientevarchar'
-                                    
                                     # Selector de factura
-                                    factura_opciones = {f"Factura: {row['numero_factura']} | ID/RIF Cliente: {row['id_cliente']} | Cliente: {row[col_nom_cli]} | Total: ${row['monto_total']:,.2f}": row['id'] for _, row in df_facturas.iterrows()}
+                                    factura_opciones = {f"Factura: {row['numero_factura']} | ID/RIF Cliente: {row['id_cliente']} | Cliente: {row['nombre_cliente']} | Total: ${row['monto_total']:,.2f}": row['id'] for _, row in df_facturas.iterrows()}
                                     sel_factura_label = st.selectbox("Seleccione la Factura a Asentar", list(factura_opciones.keys()), key="sel_factura_asiento")
                                     
                                     selected_fact_id = factura_opciones[sel_factura_label]
@@ -14468,7 +14458,7 @@ estado: {sel_data['estado']}""", language="yaml")
                                     
                                     rif_factura = str(selected_row_fact['id_cliente'])
                                     
-                                    # 2. Buscar datos del cliente en 'clientes_comerciales' usando el RIF/id_cliente
+                                    # 2. Buscar datos del cliente en 'clientes_comerciales' usando el RIF / id_cliente
                                     df_cliente_com = ejecutar_consulta(f"SELECT codigo_cuenta, descripcion_cuenta, razon_social FROM clientes_comerciales WHERE rif = '{rif_factura}'", conn_vis)
                                     
                                     cuenta_cliente_default = ""
@@ -14477,7 +14467,7 @@ estado: {sel_data['estado']}""", language="yaml")
                                         cuenta_cliente_default = df_cliente_com.iloc[0]['codigo_cuenta'] or ""
                                         desc_cliente_default = df_cliente_com.iloc[0]['descripcion_cuenta'] or "CxC Cliente"
                                     
-                                    st.info(f"📋 **Cliente Asociado:** {selected_row_fact[col_nom_cli]} (ID/RIF: {rif_factura}) | Cuenta Contable Sugerida: `{cuenta_cliente_default} - {desc_cliente_default}`")
+                                    st.info(f"📋 **Cliente Asociado:** {selected_row_fact['nombre_cliente']} (ID/RIF: {rif_factura}) | Cuenta Contable Sugerida: `{cuenta_cliente_default} - {desc_cliente_default}`")
 
                                     # 3. Cargar el Plan de Cuentas para las listas desplegables
                                     df_plan = ejecutar_consulta("SELECT codigo, descripcion FROM plan_cuentas ORDER BY codigo ASC", conn_vis)
