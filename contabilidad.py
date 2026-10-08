@@ -14439,70 +14439,155 @@ estado: {sel_data['estado']}""", language="yaml")
                         # SUB-TAB 3: Asientos Contables
                         # -------------------------------------------------------------
                         with sub_tab3:
-                            st.markdown("#### ⚖ Asientos Contables - Facturas Pendientes de Registrar")
+                            st.markdown("#### ⚖ Asientos Contables - Registro por Factura")
+                            
                             try:
-                                df_oc_ac = ejecutar_consulta("SELECT id, fecha_emision, n_factura, rif_cliente, monto_bruto, base_imponible, monto_iva FROM ordenes_cobranza ORDER BY id DESC LIMIT 10", conn_vis)
+                                # 1. Seleccionar la factura desde la tabla 'factura' (o ordenes_cobranza vinculada)
+                                df_facturas = ejecutar_consulta("""
+                                    SELECT id, fecha, n_factura, n_control, rif, razon_social, monto_bruto, base_imponible, monto_iva, monto_exento 
+                                    FROM factura ORDER BY id DESC LIMIT 20
+                                """, conn_vis)
                                 
-                                if df_oc_ac is not None and not df_oc_ac.empty:
-                                    import time
-                                    df_frame_ac = pd.DataFrame({
-                                        "id": df_oc_ac['id'],
-                                        "n_comprobante": [f"FACT-{f}-{int(time.time())}" for f in df_oc_ac['n_factura']],
-                                        "descripcion": [f"Venta según Factura {f}" for f in df_oc_ac['n_factura']],
-                                        "fecha": df_oc_ac['fecha_emision'],
-                                        "plan_cuentas": cli_info['cuenta'],
-                                        "cuenta_contable": "CxC Cliente",
-                                        "referencia": df_oc_ac['n_factura'],
-                                        "debe": df_oc_ac['monto_bruto'],
-                                        "haber": 0.00,
-                                        "bloqueado": 1
-                                    })
+                                if df_facturas is not None and not df_facturas.empty:
+                                    # Selector de factura
+                                    factura_opciones = {f"Factura: {row['n_factura']} | RIF: {row['rif']} | Cliente: {row['razon_social']} | Total: ${row['monto_bruto']:,.2f}": row['id'] for _, row in df_facturas.iterrows()}
+                                    sel_factura_label = st.selectbox("Seleccione la Factura a Asentar", list(factura_opciones.keys()), key="sel_factura_asiento")
+                                    
+                                    selected_fact_id = factura_opciones[sel_factura_label]
+                                    selected_row_fact = df_facturas[df_facturas['id'] == selected_fact_id].iloc[0]
+                                    
+                                    rif_factura = selected_row_fact['rif']
+                                    
+                                    # 2. Buscar datos del cliente en 'clientes_comerciales' usando el RIF
+                                    df_cliente_com = ejecutar_consulta(f"SELECT codigo_cuenta, descripcion_cuenta, razon_social FROM clientes_comerciales WHERE rif = '{rif_factura}'", conn_vis)
+                                    
+                                    cuenta_cliente_default = ""
+                                    desc_cliente_default = ""
+                                    if df_cliente_com is not None and not df_cliente_com.empty:
+                                        cuenta_cliente_default = df_cliente_com.iloc[0]['codigo_cuenta'] or ""
+                                        desc_cliente_default = df_cliente_com.iloc[0]['descripcion_cuenta'] or "CxC Cliente"
+                                    
+                                    st.info(f"📋 **Cliente Asociado:** {selected_row_fact['razon_social']} (RIF: {rif_factura}) | Cuenta Contable Sugerida: `{cuenta_cliente_default} - {desc_cliente_default}`")
 
-                                    st.markdown("##### Frame con Estructura Oficial (`asientos_contables`):")
+                                    # 3. Cargar el Plan de Cuentas para las listas desplegables
+                                    df_plan = ejecutar_consulta("SELECT codigo, descripcion FROM plan_cuentas ORDER BY codigo ASC", conn_vis)
+                                    opciones_cuentas = []
+                                    if df_plan is not None and not df_plan.empty:
+                                        opciones_cuentas = [f"{row['codigo']} - {row['descripcion']}" for _, row in df_plan.iterrows()]
+                                    else:
+                                        opciones_cuentas = [f"{cuenta_cliente_default} - {desc_cliente_default}", "401-01 - Ingresos por Ventas / Servicios", "202-01 - Débito Fiscal IVA por Pagar"]
+
+                                    st.markdown("##### ⚙ Configuración de Cuentas para el Asiento")
+                                    
+                                    col_c1, col_c2 = st.columns(2)
+                                    with col_c1:
+                                        # Selección de Cuenta para el DEBE (CxC / Cliente)
+                                        default_debe_idx = 0
+                                        for idx, c in enumerate(opciones_cuentas):
+                                            if cuenta_cliente_default in c:
+                                                default_debe_idx = idx
+                                                break
+                                        cta_debe_sel = st.selectbox("Cuenta Contable (DEBE - CxC)", opciones_cuentas, index=default_debe_idx, key="sel_cta_debe")
+                                    
+                                    with col_c2:
+                                        # Selección de Cuenta para el HABER (Ingresos)
+                                        default_haber_idx = 0
+                                        for idx, c in enumerate(opciones_cuentas):
+                                            if "401" in c or "Ingresos" in c:
+                                                default_haber_idx = idx
+                                                break
+                                        cta_haber_sel = st.selectbox("Cuenta Contable Principal (HABER - Ingresos)", opciones_cuentas, index=default_haber_idx, key="sel_cta_haber")
+
+                                    # Previsualización del asiento en DataFrame
+                                    import time
+                                    n_comp_preview = f"FACT-{selected_row_fact['n_factura']}-{int(time.time())}"
+                                    fecha_asiento = selected_row_fact['fecha']
+                                    
+                                    # Extraer códigos seleccionados limpiamente
+                                    cod_cta_debe = cta_debe_sel.split(" - ")[0]
+                                    nom_cta_debe = cta_debe_sel.split(" - ")[1] if " - " in cta_debe_sel else "CxC Cliente"
+                                    
+                                    cod_cta_haber = cta_haber_sel.split(" - ")[0]
+                                    nom_cta_haber = cta_haber_sel.split(" - ")[1] if " - " in cta_haber_sel else "Ingresos"
+
+                                    asientos_preview_data = [
+                                        {
+                                            "n_comprobante": n_comp_preview,
+                                            "descripcion": f"Venta según Factura {selected_row_fact['n_factura']}",
+                                            "fecha": fecha_asiento,
+                                            "plan_cuentas": cod_cta_debe,
+                                            "cuenta_contable": nom_cta_debe,
+                                            "referencia": selected_row_fact['n_factura'],
+                                            "debe": selected_row_fact['monto_bruto'],
+                                            "haber": 0.00,
+                                            "bloqueado": 1
+                                        },
+                                        {
+                                            "n_comprobante": n_comp_preview,
+                                            "descripcion": f"Venta según Factura {selected_row_fact['n_factura']}",
+                                            "fecha": fecha_asiento,
+                                            "plan_cuentas": cod_cta_haber,
+                                            "cuenta_contable": nom_cta_haber,
+                                            "referencia": selected_row_fact['n_factura'],
+                                            "debe": 0.00,
+                                            "haber": selected_row_fact['base_imponible'],
+                                            "bloqueado": 1
+                                        }
+                                    ]
+                                    
+                                    # Si hay IVA, agregar la línea de IVA al Haber
+                                    if selected_row_fact['monto_iva'] > 0:
+                                        asientos_preview_data.append({
+                                            "n_comprobante": n_comp_preview,
+                                            "descripcion": f"IVA Factura {selected_row_fact['n_factura']}",
+                                            "fecha": fecha_asiento,
+                                            "plan_cuentas": "202-01",
+                                            "cuenta_contable": "Débito Fiscal IVA por Pagar",
+                                            "referencia": selected_row_fact['n_factura'],
+                                            "debe": 0.00,
+                                            "haber": selected_row_fact['monto_iva'],
+                                            "bloqueado": 1
+                                        })
+
+                                    df_frame_ac = pd.DataFrame(asientos_preview_data)
+
+                                    st.markdown("##### 📊 Previsualización del Asiento Contable:")
                                     st.dataframe(df_frame_ac, use_container_width=True)
                                     
-                                    sel_oc_id_ac = st.selectbox("Seleccione ID de Orden de Cobranza a guardar", df_oc_ac['id'].tolist(), key="sel_ac_id")
-                                    selected_row_ac = df_oc_ac[df_oc_ac['id'] == sel_oc_id_ac].iloc[0]
-
-                                    if st.button("💾 Guardar en Asientos Contables", key="btn_save_ac_action"):
+                                    # Botón de Guardado
+                                    if st.button("💾 Guardar Asiento Contable Oficial", key="btn_save_ac_action"):
                                         try:
                                             conn_ac = conectar_db(db_actual)
                                             cur_ac = conn_ac.cursor()
-                                            n_comp = f"FACT-{selected_row_ac['n_factura']}-{int(time.time())}"
-                                            desc_ast = f"Venta según Factura {selected_row_ac['n_factura']}"
-
-                                            # 1. Débito (CxC)
-                                            cur_ac.execute("""
-                                                INSERT INTO asientos_contables (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber, bloqueado)
-                                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                                            """, (n_comp, desc_ast, selected_row_ac['fecha_emision'], cli_info['cuenta'], "CxC Cliente", selected_row_ac['n_factura'], selected_row_ac['monto_bruto'], 0.00, 1))
-
-                                            # 2. Haber (Ingresos)
-                                            if selected_row_ac['base_imponible'] > 0:
+                                            
+                                            for row_data in asientos_preview_data:
                                                 cur_ac.execute("""
-                                                    INSERT INTO asientos_contables (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber, bloqueado)
+                                                    INSERT INTO asientos_contables 
+                                                    (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber, bloqueado)
                                                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                                                """, (n_comp, desc_ast, selected_row_ac['fecha_emision'], "401-01", "Ingresos por Ventas / Servicios", selected_row_ac['n_factura'], 0.00, selected_row_ac['base_imponible'], 1))
-
-                                            # 3. Haber (IVA)
-                                            if selected_row_ac['monto_iva'] > 0:
-                                                cur_ac.execute("""
-                                                    INSERT INTO asientos_contables (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber, bloqueado)
-                                                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                                                """, (n_comp, desc_ast, selected_row_ac['fecha_emision'], "202-01", "Débito Fiscal IVA por Pagar", selected_row_ac['n_factura'], 0.00, selected_row_ac['monto_iva'], 1))
-
+                                                """, (
+                                                    row_data['n_comprobante'],
+                                                    row_data['descripcion'],
+                                                    row_data['fecha'],
+                                                    row_data['plan_cuentas'],
+                                                    row_data['cuenta_contable'],
+                                                    row_data['referencia'],
+                                                    row_data['debe'],
+                                                    row_data['haber'],
+                                                    row_data['bloqueado']
+                                                ))
+                                            
                                             conn_ac.commit()
                                             cur_ac.close()
                                             conn_ac.close()
-                                            st.success("✅ ¡Asiento contable guardado con éxito con su estructura exacta!")
+                                            st.success("✅ ¡Asiento contable registrado e integrado exitosamente!")
                                             st.rerun()
                                         except Exception as err_ins_ac:
                                             st.error(f"❌ Error al guardar en asientos_contables: {err_ins_ac}")
                                 else:
-                                    st.info("No hay órdenes de cobranza disponibles.")
+                                    st.info("No hay facturas registradas en la tabla `factura` para generar asientos contables.")
                             except Exception as e_ac_err:
-                                st.error(f"Error cargando frame: {e_ac_err}")
-
+                                st.error(f"Error cargando módulo de asientos contables: {e_ac_err}")
                         # -------------------------------------------------------------
                         # SUB-TAB 4: Movimientos Bancarios
                         # -------------------------------------------------------------
