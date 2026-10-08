@@ -14749,10 +14749,19 @@ estado: {sel_data['estado']}""", language="yaml")
                                         val_monto = st.number_input("Monto", value=monto_default, format="%.2f", key="flujo_monto")
 
                                     with col2:
-                                        try:
-                                            f_default = pd.to_datetime(fila_elegida.get('fecha_emision')).date()
-                                        except:
-                                            f_default = pd.Timestamp.now().date()
+                                        # Extracción y limpieza ultra segura de la fecha para evitar que Streamlit explote
+                                        raw_fecha = fila_elegida.get('fecha_emision')
+                                        f_default = pd.Timestamp.now().date()
+                                        
+                                        if raw_fecha is not None:
+                                            try:
+                                                # Intentamos parsearlo a string primero y luego a fecha
+                                                parsed_dt = pd.to_datetime(str(raw_fecha))
+                                                if not pd.isna(parsed_dt):
+                                                    f_default = parsed_dt.date()
+                                            except:
+                                                pass
+                                                
                                         val_fecha = st.date_input("Fecha", value=f_default, key="flujo_fecha")
                                         
                                         val_desc = st.text_input("Descripción", value=f"Cobro Factura {str(fila_elegida.get('n_factura', 'S/N'))}", key="flujo_desc")
