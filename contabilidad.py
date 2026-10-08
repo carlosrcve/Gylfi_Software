@@ -14716,38 +14716,44 @@ estado: {sel_data['estado']}""", language="yaml")
                                 nombre_banco_sel = partes_banco[1] if len(partes_banco) > 1 else cta_banco_sel
 
                                 # 2. Cargar órdenes de cobranza pendientes
+                                                                # 2. Cargar órdenes de cobranza pendientes
                                 df_oc_bm = ejecutar_consulta("SELECT id, fecha_emision, n_factura, monto_bruto, referencia_banco FROM ordenes_cobranza WHERE referencia_banco IS NOT NULL AND referencia_banco != '' ORDER BY id DESC LIMIT 20", conn_vis)
 
                                 if df_oc_bm is not None and not df_oc_bm.empty:
                                     oc_opciones = {}
                                     for _, row_oc in df_oc_bm.iterrows():
-                                        # Limpieza radical a string y float puros
+                                        # 1. Asegurar ID como string puro para evitar problemas con 'd'
                                         try:
-                                            o_id = int(float(row_oc.get('id', 0) or 0))
+                                            o_id_int = int(float(row_oc.get('id', 0)))
+                                            o_id_str = str(o_id_int)
                                         except:
-                                            o_id = 0
+                                            o_id_str = "0"
+                                            o_id_int = 0
                                             
-                                        num_f = str(row_oc.get('n_factura', 'S/N') or 'S/N')
-                                        ref_b = str(row_oc.get('referencia_banco', 'S/Ref') or 'S/Ref')
+                                        # 2. Forzar strings limpios en texto
+                                        num_f = str(row_oc.get('n_factura') if row_oc.get('n_factura') is not None else 'S/N')
+                                        ref_b = str(row_oc.get('referencia_banco') if row_oc.get('referencia_banco') is not None else 'S/Ref')
                                         
+                                        # 3. Forzar flotante limpio para el monto
                                         raw_monto = row_oc.get('monto_bruto', 0.0)
                                         try:
                                             monto_b = float(raw_monto) if raw_monto is not None else 0.0
                                         except:
                                             monto_b = 0.0
                                             
-                                        fecha_e = str(row_oc.get('fecha_emision', 'S/Fecha') or 'S/Fecha')
+                                        fecha_e = str(row_oc.get('fecha_emision') if row_oc.get('fecha_emision') is not None else 'S/Fecha')
 
-                                        # Etiqueta limpia sin formatos de enteros ocultos
-                                        label_oc = f"ID: {o_id} | Factura: {num_f} | Ref: {ref_b} | Monto: ${monto_b:,.2f} | Fecha: {fecha_e}"
-                                        oc_opciones[label_oc] = o_id
+                                        # 4. Construcción segura de la etiqueta: usamos format numérico estricto solo en el float
+                                        label_oc = f"ID: {o_id_str} | Factura: {num_f} | Ref: {ref_b} | Monto: ${monto_b:,.2f} | Fecha: {fecha_e}"
+                                        oc_opciones[label_oc] = o_id_int
 
                                     sel_oc_label = st.selectbox("Seleccione la Orden de Cobranza a Registrar", list(oc_opciones.keys()), key="sel_oc_bm_label")
                                     selected_oc_id = oc_opciones[sel_oc_label]
                                     
-                                    # Filtrado seguro por ID entero
+                                    # Filtrado seguro convirtiendo la columna completa a entero para comparar
                                     df_oc_bm['id_int'] = df_oc_bm['id'].apply(lambda x: int(float(x)) if x is not None else 0)
                                     selected_row_oc = df_oc_bm[df_oc_bm['id_int'] == selected_oc_id].iloc[0]
+
 
                                     st.markdown("##### 📝 Datos Autocompletados del Cobro:")
                                     
