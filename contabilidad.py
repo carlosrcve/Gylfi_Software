@@ -14696,6 +14696,10 @@ estado: {sel_data['estado']}""", language="yaml")
                         # -------------------------------------------------------------
                         with sub_tab4:
                             st.markdown("#### 🏦 Movimientos Bancarios - Registro de Cobros (Flujo Directo)")
+                            try:
+                                st.markdown("#### 🏦 Movimientos Bancarios - Registro de Cobros (Flujo Directo)")
+                            except Exception as e_flujo:
+                                st.error("Error en módulo de movimientos bancarios: " + str(e_flujo))
                             
                         conn_vis.close()
                 else:
