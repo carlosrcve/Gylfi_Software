@@ -14442,24 +14442,14 @@ estado: {sel_data['estado']}""", language="yaml")
                             st.markdown("#### ⚖ Asientos Contables - Registro por Factura")
                             
                             try:
-                                # 1. Intentar cargar desde la tabla 'facturas'
+                                # 1. Cargar directamente desde la tabla exacta 'factura'
                                 df_facturas = ejecutar_consulta("""
-                                    SELECT id, fecha_emision, numero_factura, numero_control, id_cliente, nombre_cliente, monto_total, base_imponible, monto_iva, monto_exento 
-                                    FROM facturas ORDER BY id DESC LIMIT 20
+                                    SELECT id, empresa_db, rif_cliente, n_factura, n_control, fecha_emision, base_imponible, monto_exento, porcentaje_alicuota, monto_iva, monto_bruto, estado_factura, fecha_registro 
+                                    FROM factura ORDER BY id DESC LIMIT 20
                                 """, conn_vis)
-                                
-                                origen_datos = "facturas"
-                                
-                                # Si 'facturas' está vacía, intentamos rescatar de 'ordenes_cobranza'
-                                if df_facturas is None or df_facturas.empty:
-                                    df_facturas = ejecutar_consulta("""
-                                        SELECT id, fecha_emision, n_factura as numero_factura, n_control as numero_control, rif_cliente as id_cliente, 'Cliente General' as nombre_cliente, monto_bruto as monto_total, base_imponible, monto_iva, monto_exento 
-                                        FROM ordenes_cobranza ORDER BY id DESC LIMIT 20
-                                    """, conn_vis)
-                                    origen_datos = "ordenes_cobranza"
 
                                 if df_facturas is not None and not df_facturas.empty:
-                                    st.caption(f"ℹ️ Mostrando registros disponibles desde la tabla: `{origen_datos}`")
+                                    st.caption("ℹ️ Seleccionando registros oficiales desde la tabla: `factura`")
                                     
                                     # Función auxiliar para evitar errores con valores None o vacíos
                                     def limpiar_val(val):
@@ -14471,12 +14461,11 @@ estado: {sel_data['estado']}""", language="yaml")
                                     # Selector de factura con manejo seguro de nulos
                                     factura_opciones = {}
                                     for _, row in df_facturas.iterrows():
-                                        num_fact = row['numero_factura'] if row['numero_factura'] is not None else "S/N"
-                                        id_cli = row['id_cliente'] if row['id_cliente'] is not None else "S/R"
-                                        nom_cli = row['nombre_cliente'] if row['nombre_cliente'] is not None else "Cliente"
-                                        monto_tot = limpiar_val(row['monto_total'])
+                                        num_fact = row['n_factura'] if row['n_factura'] is not None else "S/N"
+                                        rif_cli = row['rif_cliente'] if row['rif_cliente'] is not None else "S/R"
+                                        monto_tot = limpiar_val(row['monto_bruto'])
                                         
-                                        label = f"Factura: {num_fact} | ID/RIF: {id_cli} | Cliente: {nom_cli} | Total: ${monto_tot:,.2f}"
+                                        label = f"Factura: {num_fact} | RIF: {rif_cli} | Total Bruto: ${monto_tot:,.2f} | Fecha: {row['fecha_emision']}"
                                         factura_opciones[label] = row['id']
                                     
                                     sel_factura_label = st.selectbox("Seleccione la Factura a Asentar", list(factura_opciones.keys()), key="sel_factura_asiento")
@@ -14484,21 +14473,22 @@ estado: {sel_data['estado']}""", language="yaml")
                                     selected_fact_id = factura_opciones[sel_factura_label]
                                     selected_row_fact = df_facturas[df_facturas['id'] == selected_fact_id].iloc[0]
                                     
-                                    rif_factura = str(selected_row_fact['id_cliente']) if selected_row_fact['id_cliente'] is not None else ""
+                                    rif_factura = str(selected_row_fact['rif_cliente']) if selected_row_fact['rif_cliente'] is not None else ""
                                     
-                                    # 2. Buscar datos del cliente en 'clientes_comerciales' usando el RIF / id_cliente
+                                    # 2. Buscar datos del cliente en 'clientes_comerciales' usando el RIF exacto
                                     df_cliente_com = ejecutar_consulta(f"SELECT codigo_cuenta, descripcion_cuenta, razon_social FROM clientes_comerciales WHERE rif = '{rif_factura}'", conn_vis)
                                     
                                     cuenta_cliente_default = ""
                                     desc_cliente_default = ""
+                                    razon_social_cliente = "Cliente Comercial"
                                     if df_cliente_com is not None and not df_cliente_com.empty:
                                         cuenta_cliente_default = df_cliente_com.iloc[0]['codigo_cuenta'] or ""
                                         desc_cliente_default = df_cliente_com.iloc[0]['descripcion_cuenta'] or "CxC Cliente"
+                                        razon_social_cliente = df_cliente_com.iloc[0]['razon_social'] or "Cliente Comercial"
                                     
-                                    nom_cliente_mostrado = selected_row_fact['nombre_cliente'] if selected_row_fact['nombre_cliente'] is not None else "Cliente"
-                                    st.info(f"📋 **Cliente Asociado:** {nom_cliente_mostrado} (ID/RIF: {rif_factura}) | Cuenta Contable Sugerida: `{cuenta_cliente_default} - {desc_cliente_default}`")
+                                    st.info(f"📋 **Cliente Comercial:** {razon_social_cliente} (RIF: {rif_factura}) | Cuenta Sugerida: `{cuenta_cliente_default} - {desc_cliente_default}`")
 
-                                    # 3. Cargar el Plan de Cuentas de forma segura (solo consultando el código y adaptándose si hay nombre o no)
+                                    # 3. Cargar el Plan de Cuentas de forma segura
                                     df_plan = None
                                     for query_intent in [
                                         "SELECT codigo, nombre as descripcion FROM plan_cuentas ORDER BY codigo ASC",
@@ -14514,9 +14504,9 @@ estado: {sel_data['estado']}""", language="yaml")
 
                                     opciones_cuentas = []
                                     if df_plan is not None and not df_plan.empty:
-                                        for _, row in df_plan.iterrows():
-                                            cod = row['codigo']
-                                            desc = row['descripcion'] if 'descripcion' in df_plan.columns and row['descripcion'] else "Cuenta Contable"
+                                        for _, row_p in df_plan.iterrows():
+                                            cod = row_p['codigo']
+                                            desc = row_p['descripcion'] if 'descripcion' in df_plan.columns and row_p['descripcion'] else "Cuenta Contable"
                                             opciones_cuentas.append(f"{cod} - {desc}")
                                     else:
                                         opciones_cuentas = [f"{cuenta_cliente_default} - {desc_cliente_default}", "401-01 - Ingresos por Ventas / Servicios", "202-01 - Débito Fiscal IVA por Pagar"]
@@ -14544,13 +14534,14 @@ estado: {sel_data['estado']}""", language="yaml")
 
                                     # Previsualización del asiento en DataFrame
                                     import time
-                                    num_fact_val = selected_row_fact['numero_factura'] if selected_row_fact['numero_factura'] is not None else "S-N"
+                                    num_fact_val = selected_row_fact['n_factura'] if selected_row_fact['n_factura'] is not None else "S-N"
                                     n_comp_preview = f"FACT-{num_fact_val}-{int(time.time())}"
                                     fecha_asiento = selected_row_fact['fecha_emision']
                                     
-                                    val_monto_total = limpiar_val(selected_row_fact['monto_total'])
+                                    val_monto_bruto = limpiar_val(selected_row_fact['monto_bruto'])
                                     val_base_imp = limpiar_val(selected_row_fact['base_imponible'])
                                     val_monto_iva = limpiar_val(selected_row_fact['monto_iva'])
+                                    val_monto_exento = limpiar_val(selected_row_fact['monto_exento'])
                                     
                                     # Extraer códigos seleccionados limpiamente
                                     cod_cta_debe = cta_debe_sel.split(" - ")[0]
@@ -14567,13 +14558,17 @@ estado: {sel_data['estado']}""", language="yaml")
                                             "plan_cuentas": cod_cta_debe,
                                             "cuenta_contable": nom_cta_debe,
                                             "referencia": num_fact_val,
-                                            "debe": val_monto_total,
+                                            "debe": val_monto_bruto,
                                             "haber": 0.00,
                                             "bloqueado": 1
-                                        },
-                                        {
+                                        }
+                                    ]
+                                    
+                                    # Agregar base imponible al Haber (si aplica)
+                                    if val_base_imp > 0:
+                                        asientos_preview_data.append({
                                             "n_comprobante": n_comp_preview,
-                                            "descripcion": f"Venta según Factura {num_fact_val}",
+                                            "descripcion": f"Ingresos Gravados Factura {num_fact_val}",
                                             "fecha": fecha_asiento,
                                             "plan_cuentas": cod_cta_haber,
                                             "cuenta_contable": nom_cta_haber,
@@ -14581,8 +14576,21 @@ estado: {sel_data['estado']}""", language="yaml")
                                             "debe": 0.00,
                                             "haber": val_base_imp,
                                             "bloqueado": 1
-                                        }
-                                    ]
+                                        })
+
+                                    # Agregar monto exento al Haber (si aplica)
+                                    if val_monto_exento > 0:
+                                        asientos_preview_data.append({
+                                            "n_comprobante": n_comp_preview,
+                                            "descripcion": f"Ingresos Exentos Factura {num_fact_val}",
+                                            "fecha": fecha_asiento,
+                                            "plan_cuentas": cod_cta_haber,
+                                            "cuenta_contable": nom_cta_haber,
+                                            "referencia": num_fact_val,
+                                            "debe": 0.00,
+                                            "haber": val_monto_exento,
+                                            "bloqueado": 1
+                                        })
                                     
                                     # Si hay IVA, agregar la línea de IVA al Haber
                                     if val_monto_iva > 0:
@@ -14634,7 +14642,7 @@ estado: {sel_data['estado']}""", language="yaml")
                                         except Exception as err_ins_ac:
                                             st.error(f"❌ Error al guardar en asientos_contables: {err_ins_ac}")
                                 else:
-                                    st.warning("⚠️ No se encontraron registros ni en la tabla `facturas` ni en `ordenes_cobranza`. Emite al menos una factura para poder generar su asiento contable.")
+                                    st.warning("⚠️ No se encontraron registros en la tabla `factura`. Emite al menos una factura para poder generar su asiento contable.")
                             except Exception as e_ac_err:
                                 st.error(f"Error cargando módulo de asientos contables: {e_ac_err}")
                         # -------------------------------------------------------------
