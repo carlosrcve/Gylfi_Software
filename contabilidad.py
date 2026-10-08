@@ -128,8 +128,8 @@ def ejecutar_consulta(query, conn, params=None):
         resultados = cursor.fetchall()
         return pd.DataFrame(resultados) if resultados else pd.DataFrame()
     except Exception as e:
-        # ACTIVADO: Esto te mostrará el error exacto en la app si algo falla en SQL
-        st.error(f"❌ Error crítico en ejecutar_consulta: {e} | Query: {query}")
+        # CONVERSIÓN SEGURA: Forzamos str(e) para evitar que Python falle formateando objetos internos
+        st.error(f"❌ Error crítico en ejecutar_consulta: {str(e)} | Query: {query}")
         return pd.DataFrame()
     finally:
         if cursor:
