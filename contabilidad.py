@@ -14152,12 +14152,16 @@ estado: {sel_data['estado']}""", language="yaml")
                         # =========================================================================
                         st.markdown("#### 💰 Desglose Impositivo y Totales")
 
+                        # Forzar la actualización automática en el session_state si cambian los ítems
+                        if "input_base_imp" not in st.session_state or st.session_state.get("last_calc_base", 0.0) != base_imponible_calculada:
+                            st.session_state.input_base_imp = float(base_imponible_calculada)
+                            st.session_state.last_calc_base = base_imponible_calculada
+
                         col_m0, col_m1, col_m2, col_m3, col_m4 = st.columns(5)
-                        
+
                         with col_m0:
                             base_imponible_input = st.number_input(
                                 "Base Imponible", 
-                                value=float(base_imponible_calculada), 
                                 min_value=0.0, 
                                 format="%0.2f", 
                                 key="input_base_imp"
@@ -14191,7 +14195,6 @@ estado: {sel_data['estado']}""", language="yaml")
                         base_imponible = base_imponible_input
                         monto_iva = calc_iva
                         monto_bruto = calc_bruto
-
                         st.info(f"📊 **Resumen Fiscal:** Base Imponible (Ítems): ${base_imponible:,.2f} | Exento: ${monto_exento:,.2f} | IVA ({alicuota_iva}%): ${monto_iva:,.2f} | Total Bruto: ${monto_bruto:,.2f}")
                         st.markdown(f"""
                             <div style="
