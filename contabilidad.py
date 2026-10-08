@@ -14442,15 +14442,27 @@ estado: {sel_data['estado']}""", language="yaml")
                             st.markdown("#### ⚖ Asientos Contables - Registro por Factura")
                             
                             try:
-                                # 1. Seleccionar la factura desde la tabla real 'facturas' con sus nombres de columnas exactos
+                                # 1. Intentar cargar desde la tabla 'facturas'
                                 df_facturas = ejecutar_consulta("""
                                     SELECT id, fecha_emision, numero_factura, numero_control, id_cliente, nombre_cliente, monto_total, base_imponible, monto_iva, monto_exento 
                                     FROM facturas ORDER BY id DESC LIMIT 20
                                 """, conn_vis)
                                 
+                                origen_datos = "facturas"
+                                
+                                # Si 'facturas' está vacía, intentamos rescatar de 'ordenes_cobranza' como respaldo operativo
+                                if df_facturas is None or df_facturas.empty:
+                                    df_facturas = ejecutar_consulta("""
+                                        SELECT id, fecha_emision, n_factura as numero_factura, n_control as numero_control, rif_cliente as id_cliente, 'Cliente General' as nombre_cliente, monto_bruto as monto_total, base_imponible, monto_iva, monto_exento 
+                                        FROM ordenes_cobranza ORDER BY id DESC LIMIT 20
+                                    """, conn_vis)
+                                    origen_datos = "ordenes_cobranza"
+
                                 if df_facturas is not None and not df_facturas.empty:
+                                    st.caption(f"ℹ️ Mostrando registros disponibles desde la tabla: `{origen_datos}`")
+                                    
                                     # Selector de factura
-                                    factura_opciones = {f"Factura: {row['numero_factura']} | ID/RIF Cliente: {row['id_cliente']} | Cliente: {row['nombre_cliente']} | Total: ${row['monto_total']:,.2f}": row['id'] for _, row in df_facturas.iterrows()}
+                                    factura_opciones = {f"Factura: {row['numero_factura']} | ID/RIF: {row['id_cliente']} | Cliente: {row['nombre_cliente']} | Total: ${row['monto_total']:,.2f}": row['id'] for _, row in df_facturas.iterrows()}
                                     sel_factura_label = st.selectbox("Seleccione la Factura a Asentar", list(factura_opciones.keys()), key="sel_factura_asiento")
                                     
                                     selected_fact_id = factura_opciones[sel_factura_label]
@@ -14585,7 +14597,7 @@ estado: {sel_data['estado']}""", language="yaml")
                                         except Exception as err_ins_ac:
                                             st.error(f"❌ Error al guardar en asientos_contables: {err_ins_ac}")
                                 else:
-                                    st.info("No hay facturas registradas en la tabla `facturas` para generar asientos contables.")
+                                    st.warning("⚠️ No se encontraron registros ni en la tabla `facturas` ni en `ordenes_cobranza`. Emite al menos una factura para poder generar su asiento contable.")
                             except Exception as e_ac_err:
                                 st.error(f"Error cargando módulo de asientos contables: {e_ac_err}")
                         # -------------------------------------------------------------
