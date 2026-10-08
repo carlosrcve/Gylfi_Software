@@ -14498,11 +14498,26 @@ estado: {sel_data['estado']}""", language="yaml")
                                     nom_cliente_mostrado = selected_row_fact['nombre_cliente'] if selected_row_fact['nombre_cliente'] is not None else "Cliente"
                                     st.info(f"📋 **Cliente Asociado:** {nom_cliente_mostrado} (ID/RIF: {rif_factura}) | Cuenta Contable Sugerida: `{cuenta_cliente_default} - {desc_cliente_default}`")
 
-                                    # 3. Cargar el Plan de Cuentas para las listas desplegables
-                                    df_plan = ejecutar_consulta("SELECT codigo, descripcion FROM plan_cuentas ORDER BY codigo ASC", conn_vis)
+                                    # 3. Cargar el Plan de Cuentas de forma segura (solo consultando el código y adaptándose si hay nombre o no)
+                                    df_plan = None
+                                    for query_intent in [
+                                        "SELECT codigo, nombre as descripcion FROM plan_cuentas ORDER BY codigo ASC",
+                                        "SELECT codigo, cuenta as descripcion FROM plan_cuentas ORDER BY codigo ASC",
+                                        "SELECT codigo FROM plan_cuentas ORDER BY codigo ASC"
+                                    ]:
+                                        try:
+                                            df_plan = ejecutar_consulta(query_intent, conn_vis)
+                                            if df_plan is not None and not df_plan.empty:
+                                                break
+                                        except:
+                                            continue
+
                                     opciones_cuentas = []
                                     if df_plan is not None and not df_plan.empty:
-                                        opciones_cuentas = [f"{row['codigo']} - {row['descripcion']}" for _, row in df_plan.iterrows()]
+                                        for _, row in df_plan.iterrows():
+                                            cod = row['codigo']
+                                            desc = row['descripcion'] if 'descripcion' in df_plan.columns and row['descripcion'] else "Cuenta Contable"
+                                            opciones_cuentas.append(f"{cod} - {desc}")
                                     else:
                                         opciones_cuentas = [f"{cuenta_cliente_default} - {desc_cliente_default}", "401-01 - Ingresos por Ventas / Servicios", "202-01 - Débito Fiscal IVA por Pagar"]
 
