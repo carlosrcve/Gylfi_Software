@@ -14380,7 +14380,7 @@ estado: {sel_data['estado']}""", language="yaml")
                                 st.info("La tabla `ordenes_cobranza` aún no tiene datos o está por crearse.")
 
                         # -------------------------------------------------------------
-                        # SUB-TAB 2: Libro de Ventas (Automático desde Órdenes de Cobranza)
+                        # SUB-TAB 2: Libro de Ventas (Automático desde Órdenes de Cobranza con Editor Configurado)
                         # -------------------------------------------------------------
                         with sub_tab2:
                             st.markdown("#### 📖 Libro de Ventas - Registro Automático desde Órdenes de Cobranza")
@@ -14463,24 +14463,66 @@ estado: {sel_data['estado']}""", language="yaml")
                                     except:
                                         debito_fiscal = 0.0
 
-                                    # Armar un DataFrame resumen para que el usuario visualice lo que se va a registrar
+                                    # Armar un DataFrame resumen adaptado para el editor interactivo con formato profesional
                                     df_preview_lv = pd.DataFrame([{
-                                        "Fecha Factura": fecha_factura_val,
-                                        "Razón Social": razon_social_val,
-                                        "RIF": rif_val,
-                                        "Factura": n_factura_val,
-                                        "Control": n_control_val,
-                                        "Base Imponible": base_imponible,
-                                        "Exentas": ventas_exentas,
-                                        "Alícuota %": porcentaje_alicuota,
-                                        "Débito Fiscal": debito_fiscal,
-                                        "Total c/ IVA": total_con_iva
+                                        "fecha_factura": fecha_factura_val,
+                                        "nombre_razon_social": razon_social_val,
+                                        "rif": rif_val,
+                                        "n_factura": n_factura_val,
+                                        "n_control": n_control_val,
+                                        "base_imponible": base_imponible,
+                                        "ventas_exentas": ventas_exentas,
+                                        "porcentaje_alicuota": porcentaje_alicuota,
+                                        "debito_fiscal": debito_fiscal,
+                                        "total_ventas_con_iva": total_con_iva
                                     }])
 
-                                    st.markdown("##### 🔍 Vista Previa del Registro en el Libro de Ventas:")
-                                    st.dataframe(df_preview_lv, use_container_width=True)
+                                    st.markdown("##### 🔍 Vista Previa y Verificación del Registro en el Libro de Ventas:")
+                                    
+                                    # Editor interactivo aplicando la configuración de columnas numéricas con formato contable
+                                    df_editado_lv = st.data_editor(
+                                        df_preview_lv,
+                                        use_container_width=True,
+                                        hide_index=True,
+                                        key="editor_libro_ventas",
+                                        column_config={
+                                            "fecha_factura": st.column_config.DateColumn("Fecha Factura", format="YYYY-MM-DD"),
+                                            "nombre_razon_social": st.column_config.TextColumn("Razón Social"),
+                                            "rif": st.column_config.TextColumn("RIF"),
+                                            "n_factura": st.column_config.TextColumn("N° Factura"),
+                                            "n_control": st.column_config.TextColumn("N° Control"),
+                                            "base_imponible": st.column_config.NumberColumn(
+                                                "Base Imponible",
+                                                format="%,.2f",
+                                                help="Monto de la base imponible gravada"
+                                            ),
+                                            "ventas_exentas": st.column_config.NumberColumn(
+                                                "Monto Exento",
+                                                format="%,.2f",
+                                                help="Monto de ventas exentas o no sujetas"
+                                            ),
+                                            "porcentaje_alicuota": st.column_config.NumberColumn(
+                                                "Alícuota %",
+                                                format="%,.1f%%",
+                                                help="Porcentaje de alícuota de IVA aplicada"
+                                            ),
+                                            "debito_fiscal": st.column_config.NumberColumn(
+                                                "Monto IVA (Débito)",
+                                                format="%,.2f",
+                                                help="Monto del impuesto generado (Débito Fiscal)"
+                                            ),
+                                            "total_ventas_con_iva": st.column_config.NumberColumn(
+                                                "Monto Total c/ IVA",
+                                                format="%,.2f",
+                                                help="Monto total de la factura con IVA incluido"
+                                            )
+                                        }
+                                    )
 
-                                    # 3. Botón de acción para persistir en la base de datos
+                                    # Tomamos la primera fila del editor (en caso de que el usuario haya hecho algún ajuste menor en pantalla)
+                                    row_a_guardar = df_editado_lv.iloc[0]
+
+                                    # 3. Botón de acción para persistir en la base de datos de forma segura
                                     if st.button("💾 Guardar en Libro de Ventas", key="btn_save_lv_action"):
                                         try:
                                             conn_lv = conectar_db(db_actual)
@@ -14494,16 +14536,16 @@ estado: {sel_data['estado']}""", language="yaml")
                                             """
                                             
                                             cur_lv.execute(sql_insert_lv, (
-                                                fecha_factura_val, 
-                                                razon_social_val, 
-                                                rif_val,
-                                                n_factura_val, 
-                                                n_control_val, 
-                                                total_con_iva,
-                                                ventas_exentas, 
-                                                base_imponible, 
-                                                porcentaje_alicuota, 
-                                                debito_fiscal
+                                                row_a_guardar['fecha_factura'], 
+                                                str(row_a_guardar['nombre_razon_social']), 
+                                                str(row_a_guardar['rif']),
+                                                str(row_a_guardar['n_factura']), 
+                                                str(row_a_guardar['n_control']), 
+                                                float(row_a_guardar['total_ventas_con_iva']),
+                                                float(row_a_guardar['ventas_exentas']), 
+                                                float(row_a_guardar['base_imponible']), 
+                                                float(row_a_guardar['porcentaje_alicuota']), 
+                                                float(row_a_guardar['debito_fiscal'])
                                             ))
                                             
                                             conn_lv.commit()
@@ -14521,7 +14563,6 @@ estado: {sel_data['estado']}""", language="yaml")
                                     
                             except Exception as e_lv_err:
                                 st.error(f"⚠️ Error cargando módulo de Libro de Ventas: {str(e_lv_err)}")
-
                         # -------------------------------------------------------------
                         # SUB-TAB 3: Asientos Contables
                         # -------------------------------------------------------------
