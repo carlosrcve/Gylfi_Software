@@ -14119,7 +14119,7 @@ estado: {sel_data['estado']}""", language="yaml")
                                 
                                 with c3:
                                     precio_final_unit = st.number_input(
-                                        "Precio Unitario ($)", 
+                                        "Precio Unitario (Bs.)", 
                                         min_value=0.0, 
                                         value=precio_unit, 
                                         format="%.2f", 
@@ -14128,7 +14128,7 @@ estado: {sel_data['estado']}""", language="yaml")
                                 
                                 with c4:
                                     total_linea = cantidad * precio_final_unit
-                                    st.metric(label="Total Línea ($)", value=f"${total_linea:,.2f}")
+                                    st.metric(label="Total Línea (Bs.)", value=f"Bs. {total_linea:,.2f}")
                                 
                                 base_imponible_calculada += total_linea
                                 
@@ -14187,15 +14187,14 @@ estado: {sel_data['estado']}""", language="yaml")
                         calc_bruto = base_imponible_input + float(monto_exento) + calc_iva
 
                         with col_m3:
-                            st.metric(label="Monto IVA", value=f"${calc_iva:,.2f}")
+                            st.metric(label="Monto IVA", value=f" Bs. {calc_iva:,.2f}")
 
                         with col_m4:
-                            st.metric(label="Monto Total Factura", value=f"${calc_bruto:,.2f}")
+                            st.metric(label="Monto Total Factura", value=f"Bs. {calc_bruto:,.2f}")
 
                         base_imponible = base_imponible_input
                         monto_iva = calc_iva
                         monto_bruto = calc_bruto
-                        st.info(f"📊 **Resumen Fiscal:** Base Imponible (Ítems): ${base_imponible:,.2f} | Exento: ${monto_exento:,.2f} | IVA ({alicuota_iva}%): ${monto_iva:,.2f} | Total Bruto: ${monto_bruto:,.2f}")
                         st.markdown(f"""
                             <div style="
                                 background-color: #f8f9fa; 
@@ -14210,10 +14209,10 @@ estado: {sel_data['estado']}""", language="yaml")
                                     📊 Resumen Fiscal de la Factura
                                 </div>
                                 <div style="display: flex; flex-wrap: wrap; gap: 20px; font-size: 14px; color: #555;">
-                                    <div><b>Base Imponible:</b> ${base_imponible:,.2f}</div>
-                                    <div><b>Exento:</b> ${monto_exento:,.2f}</div>
-                                    <div><b>IVA ({alicuota_iva}%):</b> ${monto_iva:,.2f}</div>
-                                    <div><b>Total Bruto:</b> <span style="color: #2e7d32; font-weight: bold; font-size: 15px;">${monto_bruto:,.2f}</span></div>
+                                    <div><b>Base Imponible:</b> Bs. {base_imponible:,.2f}</div>
+                                    <div><b>Exento:</b> Bs. {monto_exento:,.2f}</div>
+                                    <div><b>IVA ({alicuota_iva}%):</b> Bs. {monto_iva:,.2f}</div>
+                                    <div><b>Total Bruto:</b> <span style="color: #2e7d32; font-weight: bold; font-size: 15px;">Bs. {monto_bruto:,.2f}</span></div>
                                 </div>
                             </div>
                         """, unsafe_allow_html=True)
@@ -14365,7 +14364,7 @@ estado: {sel_data['estado']}""", language="yaml")
 
                     conn_vis = conectar_db(db_actual)
                     if conn_vis:
-                        
+
                         # -------------------------------------------------------------
                         # SUB-TAB 1: Órdenes de Cobranza (Consulta, Frame Visual, Edición y Eliminación)
                         # -------------------------------------------------------------
@@ -14473,7 +14472,7 @@ estado: {sel_data['estado']}""", language="yaml")
                                                 val_iva = float(row_sel_m.get('monto_iva', 0.0) or 0.0)
                                             except:
                                                 val_iva = 0.0
-                                            st.number_input("Monto IVA ($)", value=val_iva, format="%.2f", key=f"ed_iva_{selected_oc_id_m}")
+                                            st.number_input("Monto IVA (Bs. )", value=val_iva, format="%.2f", key=f"ed_iva_{selected_oc_id_m}")
 
                                             try:
                                                 val_bruto = float(row_sel_m.get('monto_bruto', 0.0) or 0.0)
