@@ -14697,75 +14697,76 @@ estado: {sel_data['estado']}""", language="yaml")
                         with sub_tab4:
                             st.markdown("#### 🏦 Movimientos Bancarios - Registro de Cobros")
                             try:
-                                def limpiar_num(val):
-                                    try:
-                                        return float(val) if val is not None else 0.0
-                                    except:
-                                        return 0.0
-
                                 # 1. Cargar cuentas de detalle desde el plan de cuentas
                                 df_plan_all = ejecutar_consulta("SELECT codigo, nombre FROM plan_cuentas WHERE tipo = 'Detalle' ORDER BY codigo ASC", conn_vis)
 
                                 opciones_bancos_pc = []
                                 if df_plan_all is not None and not df_plan_all.empty:
                                     for _, row_pc in df_plan_all.iterrows():
-                                        cod = str(row_pc['codigo']) if row_pc['codigo'] is not None else ""
-                                        nom = str(row_pc['nombre']).lower() if row_pc['nombre'] is not None else ""
-                                        if 'banco' in nom or 'caja' in nom or cod.startswith('1.1.1') or cod.startswith('1.1.2'):
-                                            opciones_bancos_pc.append(f"{row_pc['codigo']} - {row_pc['nombre']}")
-                                    if not opciones_bancos_pc:
-                                        for _, row_pc in df_plan_all.iterrows():
-                                            opciones_bancos_pc.append(f"{row_pc['codigo']} - {row_pc['nombre']}")
-                                else:
+                                        cod = str(row_pc.get('codigo', ''))
+                                        nom = str(row_pc.get('nombre', ''))
+                                        opciones_bancos_pc.append(f"{cod} - {nom}")
+                                
+                                if not opciones_bancos_pc:
                                     opciones_bancos_pc = ["1.1.1.01 - Caja Principal", "1.1.2.01 - Banco Principal"]
 
                                 cta_banco_sel = st.selectbox("Banco Receptor (Plan de Cuentas)", opciones_bancos_pc, key="sel_banco_receptor_pc")
-                                nombre_banco_sel = cta_banco_sel.split(" - ")[1] if " - " in cta_banco_sel else cta_banco_sel
-                                codigo_banco_sel = cta_banco_sel.split(" - ")[0] if " - " in cta_banco_sel else ""
+                                partes_banco = cta_banco_sel.split(" - ")
+                                codigo_banco_sel = partes_banco[0] if len(partes_banco) > 0 else ""
+                                nombre_banco_sel = partes_banco[1] if len(partes_banco) > 1 else cta_banco_sel
 
-                                # 2. Cargar órdenes de cobranza pendientes con referencia bancaria
+                                # 2. Cargar órdenes de cobranza pendientes
                                 df_oc_bm = ejecutar_consulta("SELECT id, fecha_emision, n_factura, monto_bruto, referencia_banco FROM ordenes_cobranza WHERE referencia_banco IS NOT NULL AND referencia_banco != '' ORDER BY id DESC LIMIT 20", conn_vis)
-                                
+
                                 if df_oc_bm is not None and not df_oc_bm.empty:
                                     oc_opciones = {}
                                     for _, row_oc in df_oc_bm.iterrows():
-                                        raw_factura = row_oc['n_factura']
-                                        if raw_factura is not None:
-                                            try:
-                                                num_f = str(raw_factura)
-                                            except:
-                                                num_f = "S/N"
-                                        else:
-                                            num_f = "S/N"
-                                            
-                                        ref_b = str(row_oc['referencia_banco']) if row_oc['referencia_banco'] is not None else "S/Ref"
-                                        monto_b = limpiar_num(row_oc['monto_bruto'])
-                                        fecha_e = str(row_oc['fecha_emision']) if row_oc['fecha_emision'] is not None else "S/Fecha"
+                                        # Extracción segura convertida a string para evitar conflictos de tipo
+                                        o_id = str(row_oc.get('id', ''))
+                                        num_f = str(row_oc.get('n_factura', 'S/N'))
+                                        ref_b = str(row_oc.get('referencia_banco', 'S/Ref'))
                                         
-                                        # Usamos formato decimal estándar sin arriesgar códigos de tipo entero
+                                        # Manejo seguro del monto a float por separado
+                                        raw_monto = row_oc.get('monto_bruto', 0.0)
+                                        try:
+                                            monto_b = float(raw_monto) if raw_monto is not None else 0.0
+                                        except:
+                                            monto_b = 0.0
+                                            
+                                        fecha_e = str(row_oc.get('fecha_emision', 'S/Fecha'))
+
+                                        # Construcción de etiqueta sin formatos numéricos complejos que puedan fallar
                                         label_oc = f"Factura: {num_f} | Ref: {ref_b} | Monto: ${monto_b:.2f} | Fecha: {fecha_e}"
-                                        oc_opciones[label_oc] = row_oc['id']
+                                        oc_opciones[label_oc] = row_oc.get('id')
 
                                     sel_oc_label = st.selectbox("Seleccione la Orden de Cobranza a Registrar", list(oc_opciones.keys()), key="sel_oc_bm_label")
                                     selected_oc_id = oc_opciones[sel_oc_label]
+                                    
                                     selected_row_oc = df_oc_bm[df_oc_bm['id'] == selected_oc_id].iloc[0]
 
                                     st.markdown("##### 📝 Datos Autocompletados del Cobro:")
                                     
                                     col_m1, col_m2 = st.columns(2)
                                     with col_m1:
-                                        ref_banco_val = st.text_input("Referencia Bancaria", value=str(selected_row_oc['referencia_banco'] or ''), key="bm_ref_input")
-                                        monto_val = st.number_input("Monto del Cobro", value=limpiar_num(selected_row_oc['monto_bruto']), format="%.2f", key="bm_monto_input")
+                                        ref_banco_val = st.text_input("Referencia Bancaria", value=str(selected_row_oc.get('referencia_banco', '')), key="bm_ref_input")
+                                        
+                                        raw_m_val = selected_row_oc.get('monto_bruto', 0.0)
+                                        try:
+                                            val_monto_num = float(raw_m_val) if raw_m_val is not None else 0.0
+                                        except:
+                                            val_monto_num = 0.0
+                                            
+                                        monto_val = st.number_input("Monto del Cobro", value=val_monto_num, format="%.2f", key="bm_monto_input")
+                                        
                                     with col_m2:
                                         try:
-                                            fecha_default = pd.to_datetime(selected_row_oc['fecha_emision']).date()
+                                            fecha_default = pd.to_datetime(selected_row_oc.get('fecha_emision')).date()
                                         except:
                                             fecha_default = pd.Timestamp.now().date()
                                             
                                         fecha_val = st.date_input("Fecha del Cobro", value=fecha_default, key="bm_fecha_input")
                                         
-                                        raw_f_desc = selected_row_oc['n_factura']
-                                        desc_factura_str = str(raw_f_desc) if raw_f_desc is not None else 'S/N'
+                                        desc_factura_str = str(selected_row_oc.get('n_factura', 'S/N'))
                                         desc_val = st.text_input("Descripción del Cobro", value=f"Cobro Factura {desc_factura_str}", key="bm_desc_input")
 
                                     if st.button("💾 Guardar en Movimientos Bancarios", key="btn_save_bm_action"):
@@ -14773,7 +14774,6 @@ estado: {sel_data['estado']}""", language="yaml")
                                             conn_bm = conectar_db(db_actual)
                                             cur_bm = conn_bm.cursor()
                                             
-                                            # Inserción ajustada exactamente a las columnas de tu tabla banco_movimientos
                                             cur_bm.execute("""
                                                 INSERT INTO banco_movimientos 
                                                 (banco_nombre, cuenta_numero, fecha_movimiento, referencia, descripcion, monto, banco_receptor, estado_conciliacion, asiento_id, fecha_importacion)
