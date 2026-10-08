@@ -14442,14 +14442,16 @@ estado: {sel_data['estado']}""", language="yaml")
                             st.markdown("#### ⚖ Asientos Contables - Registro por Factura")
                             
                             try:
-                                # 1. Cargar única y exclusivamente desde la tabla oficial 'factura'
+                                # 1. Cargar únicamente las facturas pendientes de asentar (excluyendo las ya procesadas/asentadas)
                                 df_facturas = ejecutar_consulta("""
                                     SELECT id, empresa_db, rif_cliente, n_factura, n_control, fecha_emision, base_imponible, monto_exento, porcentaje_alicuota, monto_iva, monto_bruto, estado_factura, fecha_registro 
-                                    FROM factura ORDER BY id DESC LIMIT 20
+                                    FROM factura 
+                                    WHERE estado_factura IS NULL OR estado_factura NOT IN ('Asentada', 'Contabilizada', 'Anulada')
+                                    ORDER BY id DESC LIMIT 20
                                 """, conn_vis)
 
                                 if df_facturas is not None and not df_facturas.empty:
-                                    st.caption("ℹ️ Seleccionando registros oficiales desde la tabla: `factura`")
+                                    st.caption("ℹ️ Seleccionando facturas pendientes de contabilización desde la tabla: `factura`")
                                     
                                     # Función auxiliar para evitar errores con valores None o vacíos
                                     def limpiar_val(val):
@@ -14631,12 +14633,12 @@ estado: {sel_data['estado']}""", language="yaml")
                                         column_config={
                                             "debe": st.column_config.NumberColumn(
                                                 "Debe",
-                                                format="%,.2f",  # Aplica comas para miles y punto para decimales en la interfaz del editor
+                                                format="%,.2f",
                                                 help="Monto del debe"
                                             ),
                                             "haber": st.column_config.NumberColumn(
                                                 "Haber",
-                                                format="%,.2f",  # Aplica comas para miles y punto para decimales en la interfaz del editor
+                                                format="%,.2f",
                                                 help="Monto del haber"
                                             )
                                         }
@@ -14648,6 +14650,7 @@ estado: {sel_data['estado']}""", language="yaml")
                                             conn_ac = conectar_db(db_actual)
                                             cur_ac = conn_ac.cursor()
                                             
+                                            # 1. Insertar las líneas del asiento contable
                                             for _, row_data in df_editado.iterrows():
                                                 cur_ac.execute("""
                                                     INSERT INTO asientos_contables 
@@ -14665,19 +14668,26 @@ estado: {sel_data['estado']}""", language="yaml")
                                                     int(row_data['bloqueado']) if 'bloqueado' in row_data else 1
                                                 ))
                                             
+                                            # 2. Marcar la factura como 'Asentada' para que se bloquee y no vuelva a aparecer en el selector
+                                            cur_ac.execute("""
+                                                UPDATE factura 
+                                                SET estado_factura = 'Asentada' 
+                                                WHERE id = %s
+                                            """, (selected_fact_id,))
+                                            
                                             conn_ac.commit()
                                             cur_ac.close()
                                             conn_ac.close()
                                             
-                                            # Mensaje de éxito y animación de globos
-                                            st.success("✅ ¡Asiento contable registrado e integrado exitosamente!")
+                                            # Mensaje de éxito, animación de globos y recarga
+                                            st.success("✅ ¡Asiento contable registrado y factura bloqueada exitosamente!")
                                             st.balloons()
-                                            
                                             st.rerun()
+                                            
                                         except Exception as err_ins_ac:
                                             st.error(f"❌ Error al guardar en asientos_contables: {err_ins_ac}")
                                 else:
-                                    st.warning("⚠️ No se encontraron registros en la tabla `factura`. Emite al menos una factura para poder generar su asiento contable.")
+                                    st.warning("⚠️ No hay facturas pendientes de asentar. Todas las facturas ya han sido procesadas contablemente.")
                             except Exception as e_ac_err:
                                 st.error(f"Error cargando módulo de asientos contables: {e_ac_err}")
                         # -------------------------------------------------------------
