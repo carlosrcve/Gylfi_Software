@@ -14668,7 +14668,11 @@ estado: {sel_data['estado']}""", language="yaml")
                                             conn_ac.commit()
                                             cur_ac.close()
                                             conn_ac.close()
+                                            
+                                            # Mensaje de éxito y animación de globos
                                             st.success("✅ ¡Asiento contable registrado e integrado exitosamente!")
+                                            st.balloons()
+                                            
                                             st.rerun()
                                         except Exception as err_ins_ac:
                                             st.error(f"❌ Error al guardar en asientos_contables: {err_ins_ac}")
