@@ -14716,6 +14716,22 @@ estado: {sel_data['estado']}""", language="yaml")
                                 # Paso 2: Consultar Órdenes de Cobranza con Referencia
                                 df_oc = ejecutar_consulta("SELECT id, fecha_emision, n_factura, monto_bruto, referencia_banco FROM ordenes_cobranza WHERE referencia_banco IS NOT NULL AND referencia_banco != '' ORDER BY id DESC LIMIT 20", conn_vis)
 
+                                if df_oc is not None and not df_oc.empty:
+                                    st.markdown("##### Seleccione la Orden de Cobranza a registrar:")
+                                    
+                                    # Creamos una lista de strings planos para evitar cualquier error de formato de tipos
+                                    opciones_planas = []
+                                    for idx, row in df_oc.iterrows():
+                                        id_txt = str(row.get('id', ''))
+                                        fac_txt = str(row.get('n_factura', 'S/N'))
+                                        ref_txt = str(row.get('referencia_banco', 'S/Ref'))
+                                        monto_txt = str(row.get('monto_bruto', '0.00'))
+                                        
+                                        texto_opcion = f"Registro #{id_txt} | Factura: {fac_txt} | Ref: {ref_txt} | Monto: ${monto_txt}"
+                                        opciones_planas.append(texto_opcion)
+
+                                    seleccion_usuario = st.selectbox("Órdenes pendientes con referencia", opciones_planas, key="flujo_selectbox_oc")
+
                             except Exception as e_flujo:
                                 st.error("Error en módulo de movimientos bancarios: " + str(e_flujo))
                             
