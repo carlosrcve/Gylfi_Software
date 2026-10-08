@@ -14697,24 +14697,22 @@ estado: {sel_data['estado']}""", language="yaml")
                         with sub_tab4:
                             st.markdown("#### 🏦 Movimientos Bancarios - Pagos Pendientes de Registrar")
                             try:
-                                # 1. Cargar las cuentas de Banco o Caja usando concatenación para evitar conflictos de formato
-                                df_cuentas_banco = ejecutar_consulta("""
-                                    SELECT codigo, nombre FROM plan_cuentas 
-                                    WHERE (nombre LIKE CONCAT('%', 'Banco', '%') OR nombre LIKE CONCAT('%', 'Caja', '%') OR codigo LIKE CONCAT('1.1.1', '%') OR codigo LIKE CONCAT('1.1.2', '%')) 
-                                    AND tipo = 'Detalle'
-                                    ORDER BY codigo ASC
-                                """, conn_vis)
-
-                                # Si por alguna razón el filtro no trae nada, traemos todas las cuentas de detalle
-                                if df_cuentas_banco is None or df_cuentas_banco.empty:
-                                    df_cuentas_banco = ejecutar_consulta("""
-                                        SELECT codigo, nombre FROM plan_cuentas WHERE tipo = 'Detalle' ORDER BY codigo ASC
-                                    """, conn_vis)
+                                # 1. Traer todas las cuentas de detalle sin comodines SQL para evitar errores de formato en Python
+                                df_plan_all = ejecutar_consulta("SELECT codigo, nombre FROM plan_cuentas WHERE tipo = 'Detalle' ORDER BY codigo ASC", conn_vis)
 
                                 opciones_bancos_pc = []
-                                if df_cuentas_banco is not None and not df_cuentas_banco.empty:
-                                    for _, row_pc in df_cuentas_banco.iterrows():
-                                        opciones_bancos_pc.append(f"{row_pc['codigo']} - {row_pc['nombre']}")
+                                if df_plan_all is not None and not df_plan_all.empty:
+                                    # Filtrar en Python las cuentas de banco, caja o activos circulantes iniciales
+                                    for _, row_pc in df_plan_all.iterrows():
+                                        cod = str(row_pc['codigo'])
+                                        nom = str(row_pc['nombre']).lower()
+                                        if 'banco' in nom or 'caja' in nom or cod.startswith('1.1.1') or cod.startswith('1.1.2'):
+                                            opciones_bancos_pc.append(f"{row_pc['codigo']} - {row_pc['nombre']}")
+                                    
+                                    # Si el filtro en Python no encontró nada específico, cargamos todas las de detalle para no dejar vacío el selector
+                                    if not opciones_bancos_pc:
+                                        for _, row_pc in df_plan_all.iterrows():
+                                            opciones_bancos_pc.append(f"{row_pc['codigo']} - {row_pc['nombre']}")
                                 else:
                                     opciones_bancos_pc = ["1.1.1.01 - Caja Principal", "1.1.2.01 - Banco Principal"]
 
