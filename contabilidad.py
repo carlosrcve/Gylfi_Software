@@ -14450,7 +14450,7 @@ estado: {sel_data['estado']}""", language="yaml")
                                 
                                 origen_datos = "facturas"
                                 
-                                # Si 'facturas' está vacía, intentamos rescatar de 'ordenes_cobranza' como respaldo operativo
+                                # Si 'facturas' está vacía, intentamos rescatar de 'ordenes_cobranza'
                                 if df_facturas is None or df_facturas.empty:
                                     df_facturas = ejecutar_consulta("""
                                         SELECT id, fecha_emision, n_factura as numero_factura, n_control as numero_control, rif_cliente as id_cliente, 'Cliente General' as nombre_cliente, monto_bruto as monto_total, base_imponible, monto_iva, monto_exento 
@@ -14461,14 +14461,30 @@ estado: {sel_data['estado']}""", language="yaml")
                                 if df_facturas is not None and not df_facturas.empty:
                                     st.caption(f"ℹ️ Mostrando registros disponibles desde la tabla: `{origen_datos}`")
                                     
-                                    # Selector de factura
-                                    factura_opciones = {f"Factura: {row['numero_factura']} | ID/RIF: {row['id_cliente']} | Cliente: {row['nombre_cliente']} | Total: ${row['monto_total']:,.2f}": row['id'] for _, row in df_facturas.iterrows()}
+                                    # Función auxiliar para evitar errores con valores None o vacíos
+                                    def limpiar_val(val):
+                                        try:
+                                            return float(val) if val is not None else 0.0
+                                        except:
+                                            return 0.0
+
+                                    # Selector de factura con manejo seguro de nulos
+                                    factura_opciones = {}
+                                    for _, row in df_facturas.iterrows():
+                                        num_fact = row['numero_factura'] if row['numero_factura'] is not None else "S/N"
+                                        id_cli = row['id_cliente'] if row['id_cliente'] is not None else "S/R"
+                                        nom_cli = row['nombre_cliente'] if row['nombre_cliente'] is not None else "Cliente"
+                                        monto_tot = limpiar_val(row['monto_total'])
+                                        
+                                        label = f"Factura: {num_fact} | ID/RIF: {id_cli} | Cliente: {nom_cli} | Total: ${monto_tot:,.2f}"
+                                        factura_opciones[label] = row['id']
+                                    
                                     sel_factura_label = st.selectbox("Seleccione la Factura a Asentar", list(factura_opciones.keys()), key="sel_factura_asiento")
                                     
                                     selected_fact_id = factura_opciones[sel_factura_label]
                                     selected_row_fact = df_facturas[df_facturas['id'] == selected_fact_id].iloc[0]
                                     
-                                    rif_factura = str(selected_row_fact['id_cliente'])
+                                    rif_factura = str(selected_row_fact['id_cliente']) if selected_row_fact['id_cliente'] is not None else ""
                                     
                                     # 2. Buscar datos del cliente en 'clientes_comerciales' usando el RIF / id_cliente
                                     df_cliente_com = ejecutar_consulta(f"SELECT codigo_cuenta, descripcion_cuenta, razon_social FROM clientes_comerciales WHERE rif = '{rif_factura}'", conn_vis)
@@ -14479,7 +14495,8 @@ estado: {sel_data['estado']}""", language="yaml")
                                         cuenta_cliente_default = df_cliente_com.iloc[0]['codigo_cuenta'] or ""
                                         desc_cliente_default = df_cliente_com.iloc[0]['descripcion_cuenta'] or "CxC Cliente"
                                     
-                                    st.info(f"📋 **Cliente Asociado:** {selected_row_fact['nombre_cliente']} (ID/RIF: {rif_factura}) | Cuenta Contable Sugerida: `{cuenta_cliente_default} - {desc_cliente_default}`")
+                                    nom_cliente_mostrado = selected_row_fact['nombre_cliente'] if selected_row_fact['nombre_cliente'] is not None else "Cliente"
+                                    st.info(f"📋 **Cliente Asociado:** {nom_cliente_mostrado} (ID/RIF: {rif_factura}) | Cuenta Contable Sugerida: `{cuenta_cliente_default} - {desc_cliente_default}`")
 
                                     # 3. Cargar el Plan de Cuentas para las listas desplegables
                                     df_plan = ejecutar_consulta("SELECT codigo, descripcion FROM plan_cuentas ORDER BY codigo ASC", conn_vis)
@@ -14496,7 +14513,7 @@ estado: {sel_data['estado']}""", language="yaml")
                                         # Selección de Cuenta para el DEBE (CxC / Cliente)
                                         default_debe_idx = 0
                                         for idx, c in enumerate(opciones_cuentas):
-                                            if cuenta_cliente_default in c:
+                                            if cuenta_cliente_default and cuenta_cliente_default in c:
                                                 default_debe_idx = idx
                                                 break
                                         cta_debe_sel = st.selectbox("Cuenta Contable (DEBE - CxC)", opciones_cuentas, index=default_debe_idx, key="sel_cta_debe")
@@ -14512,8 +14529,13 @@ estado: {sel_data['estado']}""", language="yaml")
 
                                     # Previsualización del asiento en DataFrame
                                     import time
-                                    n_comp_preview = f"FACT-{selected_row_fact['numero_factura']}-{int(time.time())}"
+                                    num_fact_val = selected_row_fact['numero_factura'] if selected_row_fact['numero_factura'] is not None else "S-N"
+                                    n_comp_preview = f"FACT-{num_fact_val}-{int(time.time())}"
                                     fecha_asiento = selected_row_fact['fecha_emision']
+                                    
+                                    val_monto_total = limpiar_val(selected_row_fact['monto_total'])
+                                    val_base_imp = limpiar_val(selected_row_fact['base_imponible'])
+                                    val_monto_iva = limpiar_val(selected_row_fact['monto_iva'])
                                     
                                     # Extraer códigos seleccionados limpiamente
                                     cod_cta_debe = cta_debe_sel.split(" - ")[0]
@@ -14525,39 +14547,39 @@ estado: {sel_data['estado']}""", language="yaml")
                                     asientos_preview_data = [
                                         {
                                             "n_comprobante": n_comp_preview,
-                                            "descripcion": f"Venta según Factura {selected_row_fact['numero_factura']}",
+                                            "descripcion": f"Venta según Factura {num_fact_val}",
                                             "fecha": fecha_asiento,
                                             "plan_cuentas": cod_cta_debe,
                                             "cuenta_contable": nom_cta_debe,
-                                            "referencia": selected_row_fact['numero_factura'],
-                                            "debe": selected_row_fact['monto_total'],
+                                            "referencia": num_fact_val,
+                                            "debe": val_monto_total,
                                             "haber": 0.00,
                                             "bloqueado": 1
                                         },
                                         {
                                             "n_comprobante": n_comp_preview,
-                                            "descripcion": f"Venta según Factura {selected_row_fact['numero_factura']}",
+                                            "descripcion": f"Venta según Factura {num_fact_val}",
                                             "fecha": fecha_asiento,
                                             "plan_cuentas": cod_cta_haber,
                                             "cuenta_contable": nom_cta_haber,
-                                            "referencia": selected_row_fact['numero_factura'],
+                                            "referencia": num_fact_val,
                                             "debe": 0.00,
-                                            "haber": selected_row_fact['base_imponible'],
+                                            "haber": val_base_imp,
                                             "bloqueado": 1
                                         }
                                     ]
                                     
                                     # Si hay IVA, agregar la línea de IVA al Haber
-                                    if selected_row_fact['monto_iva'] > 0:
+                                    if val_monto_iva > 0:
                                         asientos_preview_data.append({
                                             "n_comprobante": n_comp_preview,
-                                            "descripcion": f"IVA Factura {selected_row_fact['numero_factura']}",
+                                            "descripcion": f"IVA Factura {num_fact_val}",
                                             "fecha": fecha_asiento,
                                             "plan_cuentas": "202-01",
                                             "cuenta_contable": "Débito Fiscal IVA por Pagar",
-                                            "referencia": selected_row_fact['numero_factura'],
+                                            "referencia": num_fact_val,
                                             "debe": 0.00,
-                                            "haber": selected_row_fact['monto_iva'],
+                                            "haber": val_monto_iva,
                                             "bloqueado": 1
                                         })
 
