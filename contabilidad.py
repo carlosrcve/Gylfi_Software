@@ -14697,14 +14697,13 @@ estado: {sel_data['estado']}""", language="yaml")
                         with sub_tab4:
                             st.markdown("#### 🏦 Movimientos Bancarios - Registro de Cobros")
                             try:
-                                # Función auxiliar para limpiar y evitar errores con valores None o tipos extraños
                                 def limpiar_num(val):
                                     try:
                                         return float(val) if val is not None else 0.0
                                     except:
                                         return 0.0
 
-                                # 1. Cargar cuentas de detalle desde el plan de cuentas para el banco receptor
+                                # 1. Cargar cuentas de detalle desde el plan de cuentas
                                 df_plan_all = ejecutar_consulta("SELECT codigo, nombre FROM plan_cuentas WHERE tipo = 'Detalle' ORDER BY codigo ASC", conn_vis)
 
                                 opciones_bancos_pc = []
@@ -14720,7 +14719,6 @@ estado: {sel_data['estado']}""", language="yaml")
                                 else:
                                     opciones_bancos_pc = ["1.1.1.01 - Caja Principal", "1.1.2.01 - Banco Principal"]
 
-                                # Selección única del Banco Receptor
                                 cta_banco_sel = st.selectbox("Banco Receptor (Plan de Cuentas)", opciones_bancos_pc, key="sel_banco_receptor_pc")
                                 nombre_banco_sel = cta_banco_sel.split(" - ")[1] if " - " in cta_banco_sel else cta_banco_sel
                                 codigo_banco_sel = cta_banco_sel.split(" - ")[0] if " - " in cta_banco_sel else ""
@@ -14731,13 +14729,12 @@ estado: {sel_data['estado']}""", language="yaml")
                                 if df_oc_bm is not None and not df_oc_bm.empty:
                                     oc_opciones = {}
                                     for _, row_oc in df_oc_bm.iterrows():
-                                        # Casteo seguro a string o entero limpio para evitar cualquier error de formato float/int
                                         raw_factura = row_oc['n_factura']
                                         if raw_factura is not None:
                                             try:
-                                                num_f = str(int(float(raw_factura)))
-                                            except:
                                                 num_f = str(raw_factura)
+                                            except:
+                                                num_f = "S/N"
                                         else:
                                             num_f = "S/N"
                                             
@@ -14745,15 +14742,14 @@ estado: {sel_data['estado']}""", language="yaml")
                                         monto_b = limpiar_num(row_oc['monto_bruto'])
                                         fecha_e = str(row_oc['fecha_emision']) if row_oc['fecha_emision'] is not None else "S/Fecha"
                                         
-                                        # Etiqueta completamente limpia de errores de tipo
-                                        label_oc = f"Factura: {num_f} | Ref: {ref_b} | Monto: ${monto_b:,.2f} | Fecha: {fecha_e}"
+                                        # Usamos formato decimal estándar sin arriesgar códigos de tipo entero
+                                        label_oc = f"Factura: {num_f} | Ref: {ref_b} | Monto: ${monto_b:.2f} | Fecha: {fecha_e}"
                                         oc_opciones[label_oc] = row_oc['id']
 
                                     sel_oc_label = st.selectbox("Seleccione la Orden de Cobranza a Registrar", list(oc_opciones.keys()), key="sel_oc_bm_label")
                                     selected_oc_id = oc_opciones[sel_oc_label]
                                     selected_row_oc = df_oc_bm[df_oc_bm['id'] == selected_oc_id].iloc[0]
 
-                                    # 3. Campos autocompletados listos para verificar y guardar
                                     st.markdown("##### 📝 Datos Autocompletados del Cobro:")
                                     
                                     col_m1, col_m2 = st.columns(2)
@@ -14768,21 +14764,16 @@ estado: {sel_data['estado']}""", language="yaml")
                                             
                                         fecha_val = st.date_input("Fecha del Cobro", value=fecha_default, key="bm_fecha_input")
                                         
-                                        # Limpieza segura para el número de factura en la descripción
                                         raw_f_desc = selected_row_oc['n_factura']
-                                        try:
-                                            desc_factura_str = str(int(float(raw_f_desc))) if raw_f_desc is not None else 'S/N'
-                                        except:
-                                            desc_factura_str = str(raw_f_desc or 'S/N')
-                                            
+                                        desc_factura_str = str(raw_f_desc) if raw_f_desc is not None else 'S/N'
                                         desc_val = st.text_input("Descripción del Cobro", value=f"Cobro Factura {desc_factura_str}", key="bm_desc_input")
 
-                                    # 4. Botón de guardado oficial
                                     if st.button("💾 Guardar en Movimientos Bancarios", key="btn_save_bm_action"):
                                         try:
                                             conn_bm = conectar_db(db_actual)
                                             cur_bm = conn_bm.cursor()
                                             
+                                            # Inserción ajustada exactamente a las columnas de tu tabla banco_movimientos
                                             cur_bm.execute("""
                                                 INSERT INTO banco_movimientos 
                                                 (banco_nombre, cuenta_numero, fecha_movimiento, referencia, descripcion, monto, banco_receptor, estado_conciliacion, asiento_id, fecha_importacion)
@@ -14808,11 +14799,11 @@ estado: {sel_data['estado']}""", language="yaml")
                                             st.rerun()
                                             
                                         except Exception as err_ins_bm:
-                                            st.error(f"❌ Error al guardar en banco_movimientos: {err_ins_bm}")
+                                            st.error("❌ Error al guardar en banco_movimientos: " + str(err_ins_bm))
                                 else:
                                     st.info("No hay pagos con referencia bancaria registrados pendientes en órdenes de cobranza.")
                             except Exception as e_bm_err:
-                                st.error(f"Error cargando módulo de movimientos bancarios: {e_bm_err}")
+                                st.error("Error cargando módulo de movimientos bancarios: " + str(e_bm_err))
 
                         conn_vis.close()
                 else:
