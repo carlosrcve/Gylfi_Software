@@ -14692,16 +14692,13 @@ estado: {sel_data['estado']}""", language="yaml")
                                 st.error(f"Error cargando módulo de asientos contables: {e_ac_err}")
                         
                         # -------------------------------------------------------------
-                        # SUB-TAB 4: Movimientos Bancarios (Con rastreo de depuración)
+                        # SUB-TAB 4: Movimientos Bancarios (Blindaje total de IDs)
                         # -------------------------------------------------------------
                         with sub_tab4:
                             st.markdown("#### 🏦 Movimientos Bancarios - Registro de Cobros")
                             try:
-                                st.write("🔍 [1] Iniciando Sub-Tab 4...")
-
                                 # 1. Cargar cuentas de detalle desde el plan de cuentas
                                 df_plan_all = ejecutar_consulta("SELECT codigo, nombre FROM plan_cuentas WHERE tipo = 'Detalle' ORDER BY codigo ASC", conn_vis)
-                                st.write("🔍 [2] Plan de cuentas cargado. Filas:", len(df_plan_all) if df_plan_all is not None else "None")
 
                                 opciones_bancos_pc = []
                                 if df_plan_all is not None and not df_plan_all.empty:
@@ -14717,17 +14714,19 @@ estado: {sel_data['estado']}""", language="yaml")
                                 partes_banco = cta_banco_sel.split(" - ")
                                 codigo_banco_sel = partes_banco[0] if len(partes_banco) > 0 else ""
                                 nombre_banco_sel = partes_banco[1] if len(partes_banco) > 1 else cta_banco_sel
-                                
-                                st.write("🔍 [3] Banco receptor seleccionado con éxito.")
 
                                 # 2. Cargar órdenes de cobranza pendientes
                                 df_oc_bm = ejecutar_consulta("SELECT id, fecha_emision, n_factura, monto_bruto, referencia_banco FROM ordenes_cobranza WHERE referencia_banco IS NOT NULL AND referencia_banco != '' ORDER BY id DESC LIMIT 20", conn_vis)
-                                st.write("🔍 [4] Órdenes de cobranza consultadas. Filas:", len(df_oc_bm) if df_oc_bm is not None else "None")
 
                                 if df_oc_bm is not None and not df_oc_bm.empty:
                                     oc_opciones = {}
                                     for _, row_oc in df_oc_bm.iterrows():
-                                        o_id = str(row_oc.get('id', ''))
+                                        # Forzar ID a entero seguro para evitar cualquier tipo float
+                                        try:
+                                            o_id = int(float(row_oc.get('id', 0)))
+                                        except:
+                                            o_id = 0
+                                            
                                         num_f = str(row_oc.get('n_factura', 'S/N'))
                                         ref_b = str(row_oc.get('referencia_banco', 'S/Ref'))
                                         
@@ -14739,15 +14738,15 @@ estado: {sel_data['estado']}""", language="yaml")
                                             
                                         fecha_e = str(row_oc.get('fecha_emision', 'S/Fecha'))
 
-                                        label_oc = f"Factura: {num_f} | Ref: {ref_b} | Monto: ${monto_b:.2f} | Fecha: {fecha_e}"
-                                        oc_opciones[label_oc] = row_oc.get('id')
-
-                                    st.write("🔍 [5] Opciones de cobranza mapeadas correctamente.")
+                                        label_oc = f"ID: {o_id} | Factura: {num_f} | Ref: {ref_b} | Monto: ${monto_b:.2f} | Fecha: {fecha_e}"
+                                        oc_opciones[label_oc] = o_id
 
                                     sel_oc_label = st.selectbox("Seleccione la Orden de Cobranza a Registrar", list(oc_opciones.keys()), key="sel_oc_bm_label")
                                     selected_oc_id = oc_opciones[sel_oc_label]
                                     
-                                    selected_row_oc = df_oc_bm[df_oc_bm['id'] == selected_oc_id].iloc[0]
+                                    # Asegurar coerción a entero en la columna id del dataframe para el filtrado seguro
+                                    df_oc_bm['id_int'] = df_oc_bm['id'].apply(lambda x: int(float(x)) if x is not None else 0)
+                                    selected_row_oc = df_oc_bm[df_oc_bm['id_int'] == selected_oc_id].iloc[0]
 
                                     st.markdown("##### 📝 Datos Autocompletados del Cobro:")
                                     
