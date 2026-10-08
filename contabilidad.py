@@ -14286,29 +14286,20 @@ estado: {sel_data['estado']}""", language="yaml")
                     except Exception:
                         pass
 
-                    col_b1, col_b2 = st.columns(2)
-                    with col_b1:
-                        ref_banco_cobro = st.text_input("Referencia Bancaria del Pago (si ya fue pagada)", key="input_ref_banco").strip()
-                    with col_b2:
-                        if dict_bancos:
-                            selected_banco_label = st.selectbox("Banco Receptor / Cuenta", list(dict_bancos.keys()), key="select_banco_receptor")
-                            banco_receptor = dict_bancos[selected_banco_label]
-                        else:
-                            banco_receptor = st.text_input("Banco Receptor / Cuenta", placeholder="Ej. Banesco Cta Custodia", key="input_banco_manual").strip()
-
-                    st.divider()
-
                     # =========================================================================
-                    # 🚀 BOTÓN PARA GUARDAR LA FACTURA Y SUS DETALLES
+                    # 🚀 BOTÓN PARA GUARDAR FACTURA, DETALLES Y ORDEN DE COBRANZA
                     # =========================================================================
-                    if st.button("🚀 Guardar Factura y Detalles", type="primary", use_container_width=True, key="btn_guardar_factura_pura"):
+                    if st.button("🚀 Guardar Factura y Orden de Cobranza", type="primary", use_container_width=True, key="btn_guardar_factura_y_cobranza"):
                         if nro_factura and nro_control:
                             try:
                                 conn_trans = conectar_db(db_actual)
                                 if conn_trans:
                                     cursor = conn_trans.cursor()
                                     
-                                    # 1. Guardar estrictamente en la tabla maestra 'factura' con sus campos base
+                                    # Definir estado inicial según si colocaron referencia de pago o no
+                                    estado_inicial = 'Conciliado' if ref_banco_cobro else 'Pendiente'
+                                    
+                                    # 1. Guardar estrictamente la factura maestra
                                     cursor.execute("""
                                         INSERT INTO factura 
                                         (empresa_db, rif_cliente, n_factura, n_control, fecha_emision, base_imponible, monto_exento, porcentaje_alicuota, monto_iva, monto_bruto)
@@ -14333,17 +14324,30 @@ estado: {sel_data['estado']}""", language="yaml")
                                             float(row_item['Total ($)'])
                                         ))
 
+                                    # 3. Registrar de una vez la orden de cobranza llamando a la factura recién creada
+                                    cursor.execute("""
+                                        INSERT INTO ordenes_cobranza 
+                                        (empresa_db, rif_cliente, n_factura, n_control, fecha_emision, base_imponible, monto_exento, porcentaje_alicuota, monto_iva, monto_bruto, referencia_banco, banco_receptor, estado_cobro)
+                                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                    """, (
+                                        str(db_actual), cli_info['rif'], nro_factura, nro_control, fecha_emision,
+                                        base_imponible, monto_exento, alicuota_iva, monto_iva, monto_bruto,
+                                        ref_banco_cobro if ref_banco_cobro else None,
+                                        banco_receptor if 'banco_receptor' in locals() else None,
+                                        estado_inicial
+                                    ))
+
                                     conn_trans.commit()
                                     cursor.close()
                                     conn_trans.close()
 
-                                    st.success("✅ ¡Factura y detalles guardados con éxito en la base de datos!")
+                                    st.success("✅ ¡Factura, detalles y orden de cobranza registrados con éxito!")
                                     st.balloons()
                                     st.rerun()
                                 else:
                                     st.error("❌ Error de conexión con la base de datos.")
                             except Exception as err_fac:
-                                st.error(f"❌ Error al procesar la factura: {err_fac}")
+                                st.error(f"❌ Error al procesar: {err_fac}")
                         else:
                             st.warning("⚠️ Debes rellenar el Número de Factura y el Número de Control.")
 
