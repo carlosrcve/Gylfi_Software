@@ -14715,18 +14715,18 @@ estado: {sel_data['estado']}""", language="yaml")
                                 codigo_banco_sel = partes_banco[0] if len(partes_banco) > 0 else ""
                                 nombre_banco_sel = partes_banco[1] if len(partes_banco) > 1 else cta_banco_sel
 
-                                # 2. Cargar órdenes de cobranza pendientes
+                                                                # 2. Cargar órdenes de cobranza pendientes
                                 df_oc_bm = ejecutar_consulta("SELECT id, fecha_emision, n_factura, monto_bruto, referencia_banco FROM ordenes_cobranza WHERE referencia_banco IS NOT NULL AND referencia_banco != '' ORDER BY id DESC LIMIT 20", conn_vis)
 
                                 if df_oc_bm is not None and not df_oc_bm.empty:
+                                    # SOLUCIÓN RADICAL PANDAS: Convertir la columna id a tipo Entero de Pandas (admite NaN sin forzar float)
+                                    df_oc_bm['id'] = pd.to_numeric(df_oc_bm['id'], errors='coerce').fillna(0).astype('int64')
+                                    
                                     oc_opciones = {}
                                     for _, row_oc in df_oc_bm.iterrows():
-                                        try:
-                                            o_id_int = int(float(row_oc.get('id', 0)))
-                                            o_id_str = str(o_id_int)
-                                        except:
-                                            o_id_str = "0"
-                                            o_id_int = 0
+                                        # Extraemos como entero nativo de Python de forma garantizada
+                                        o_id_int = int(row_oc['id'])
+                                        o_id_str = str(o_id_int)
                                             
                                         num_f = str(row_oc.get('n_factura') if row_oc.get('n_factura') is not None else 'S/N')
                                         ref_b = str(row_oc.get('referencia_banco') if row_oc.get('referencia_banco') is not None else 'S/Ref')
@@ -14739,17 +14739,16 @@ estado: {sel_data['estado']}""", language="yaml")
                                             
                                         fecha_e = str(row_oc.get('fecha_emision') if row_oc.get('fecha_emision') is not None else 'S/Fecha')
 
-                                        # Construcción con formateo explícito e independiente
+                                        # Construcción manual de texto para aislar los formateadores del motor de f-strings
                                         monto_formateado = "{:,.2f}".format(monto_b)
-                                        label_oc = f"ID: {o_id_str} | Factura: {num_f} | Ref: {ref_b} | Monto: ${monto_formateado} | Fecha: {fecha_e}"
+                                        label_oc = "ID: " + o_id_str + " | Factura: " + num_f + " | Ref: " + ref_b + " | Monto: $" + monto_formateado + " | Fecha: " + fecha_e
                                         oc_opciones[label_oc] = o_id_int
 
                                     sel_oc_label = st.selectbox("Seleccione la Orden de Cobranza a Registrar", list(oc_opciones.keys()), key="sel_oc_bm_label")
                                     selected_oc_id = int(oc_opciones[sel_oc_label])
                                     
-                                    # Filtrado seguro en Pandas
-                                    df_oc_bm['id_int'] = df_oc_bm['id'].apply(lambda x: int(float(x)) if x is not None else 0)
-                                    selected_row_oc = df_oc_bm[df_oc_bm['id_int'] == selected_oc_id].iloc[0]
+                                    # Filtrado seguro utilizando el tipo de dato unificado (int64)
+                                    selected_row_oc = df_oc_bm[df_oc_bm['id'] == selected_oc_id].iloc[0]
 
                                     st.markdown("##### 📝 Datos Autocompletados del Cobro:")
                                     
@@ -14763,8 +14762,8 @@ estado: {sel_data['estado']}""", language="yaml")
                                         except:
                                             val_monto_num = 0.0
                                             
-                                        # CORRECCIÓN DE FORMATO: Forzamos '%f' puro de Python para evitar conflictos en el widget
-                                        monto_val = st.number_input("Monto del Cobro", value=val_monto_num, format="%f", key="bm_monto_input")
+                                        # Eliminamos por completo el parámetro format para evitar que Streamlit intente usar máscaras internas erróneas
+                                        monto_val = st.number_input("Monto del Cobro", value=val_monto_num, key="bm_monto_input")
                                         
                                     with col_m2:
                                         try:
@@ -14808,8 +14807,6 @@ estado: {sel_data['estado']}""", language="yaml")
                                             st.error(f"Error en base de datos: {e_db}")
                             except Exception as e_modulo:
                                 st.error(f"Error cargando módulo de movimientos bancarios: {e_modulo}")
-
-
                         conn_vis.close()
                 else:
                     st.warning("⚠️ No se encontraron clientes comerciales registrados. Por favor, crea al menos un cliente primero.")
