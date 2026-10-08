@@ -14464,6 +14464,12 @@ estado: {sel_data['estado']}""", language="yaml")
                                             nuevo_exento = st.number_input("Monto Exento ($)", value=val_ex, format="%.2f")
 
                                             try:
+                                                val_alic = float(row_sel_m.get('porcentaje_alicuota', 16.0) or 16.0)
+                                            except:
+                                                val_alic = 16.0
+                                            nueva_alicuota = st.number_input("Alícuota IVA (%)", value=val_alic, format="%.2f")
+
+                                            try:
                                                 val_iva = float(row_sel_m.get('monto_iva', 0.0) or 0.0)
                                             except:
                                                 val_iva = 0.0
@@ -14496,14 +14502,14 @@ estado: {sel_data['estado']}""", language="yaml")
                                                 sql_update_oc = """
                                                     UPDATE ordenes_cobranza 
                                                     SET fecha_emision = %s, n_factura = %s, n_control = %s, rif_cliente = %s,
-                                                        monto_bruto = %s, base_imponible = %s, monto_iva = %s, monto_exento = %s,
-                                                        estado_cobro = %s, referencia_banco = %s
+                                                        monto_bruto = %s, base_imponible = %s, porcentaje_alicuota = %s, 
+                                                        monto_iva = %s, monto_exento = %s, estado_cobro = %s, referencia_banco = %s
                                                     WHERE id = %s
                                                 """
                                                 cur_upd.execute(sql_update_oc, (
-                                                    nueva_fecha, nuevo_n_factura, nuevo_n_control, nuevo_rif,
-                                                    float(nuevo_bruto), float(nueva_base), float(nuevo_iva), float(nuevo_exento),
-                                                    nuevo_estado, nueva_ref, selected_oc_id_m
+                                                    nueva_fecha, nueva_n_factura, nuevo_n_control, nuevo_rif,
+                                                    float(nuevo_bruto), float(nueva_base), float(nueva_alicuota), 
+                                                    float(nuevo_iva), float(nuevo_exento), nuevo_estado, nueva_ref, selected_oc_id_m
                                                 ))
                                                 
                                                 conn_upd.commit()
