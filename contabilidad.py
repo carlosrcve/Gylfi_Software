@@ -14697,7 +14697,7 @@ estado: {sel_data['estado']}""", language="yaml")
                         with sub_tab4:
                             st.markdown("#### 🏦 Movimientos Bancarios - Registro de Cobros")
                             try:
-                                # Función auxiliar para limpiar y evitar errores con valores None
+                                # Función auxiliar para limpiar y evitar errores con valores None o tipos extraños
                                 def limpiar_num(val):
                                     try:
                                         return float(val) if val is not None else 0.0
@@ -14720,7 +14720,7 @@ estado: {sel_data['estado']}""", language="yaml")
                                 else:
                                     opciones_bancos_pc = ["1.1.1.01 - Caja Principal", "1.1.2.01 - Banco Principal"]
 
-                                # Selección única del Banco Receptor (Se eliminó el campo Número de Cuenta)
+                                # Selección única del Banco Receptor
                                 cta_banco_sel = st.selectbox("Banco Receptor (Plan de Cuentas)", opciones_bancos_pc, key="sel_banco_receptor_pc")
                                 nombre_banco_sel = cta_banco_sel.split(" - ")[1] if " - " in cta_banco_sel else cta_banco_sel
                                 codigo_banco_sel = cta_banco_sel.split(" - ")[0] if " - " in cta_banco_sel else ""
@@ -14731,11 +14731,21 @@ estado: {sel_data['estado']}""", language="yaml")
                                 if df_oc_bm is not None and not df_oc_bm.empty:
                                     oc_opciones = {}
                                     for _, row_oc in df_oc_bm.iterrows():
-                                        num_f = str(row_oc['n_factura']) if row_oc['n_factura'] is not None else "S/N"
+                                        # Casteo seguro a string o entero limpio para evitar cualquier error de formato float/int
+                                        raw_factura = row_oc['n_factura']
+                                        if raw_factura is not None:
+                                            try:
+                                                num_f = str(int(float(raw_factura)))
+                                            except:
+                                                num_f = str(raw_factura)
+                                        else:
+                                            num_f = "S/N"
+                                            
                                         ref_b = str(row_oc['referencia_banco']) if row_oc['referencia_banco'] is not None else "S/Ref"
                                         monto_b = limpiar_num(row_oc['monto_bruto'])
                                         fecha_e = str(row_oc['fecha_emision']) if row_oc['fecha_emision'] is not None else "S/Fecha"
                                         
+                                        # Etiqueta completamente limpia de errores de tipo
                                         label_oc = f"Factura: {num_f} | Ref: {ref_b} | Monto: ${monto_b:,.2f} | Fecha: {fecha_e}"
                                         oc_opciones[label_oc] = row_oc['id']
 
@@ -14757,7 +14767,15 @@ estado: {sel_data['estado']}""", language="yaml")
                                             fecha_default = pd.Timestamp.now().date()
                                             
                                         fecha_val = st.date_input("Fecha del Cobro", value=fecha_default, key="bm_fecha_input")
-                                        desc_val = st.text_input("Descripción del Cobro", value=f"Cobro Factura {selected_row_oc['n_factura'] or 'S/N'}", key="bm_desc_input")
+                                        
+                                        # Limpieza segura para el número de factura en la descripción
+                                        raw_f_desc = selected_row_oc['n_factura']
+                                        try:
+                                            desc_factura_str = str(int(float(raw_f_desc))) if raw_f_desc is not None else 'S/N'
+                                        except:
+                                            desc_factura_str = str(raw_f_desc or 'S/N')
+                                            
+                                        desc_val = st.text_input("Descripción del Cobro", value=f"Cobro Factura {desc_factura_str}", key="bm_desc_input")
 
                                     # 4. Botón de guardado oficial
                                     if st.button("💾 Guardar en Movimientos Bancarios", key="btn_save_bm_action"):
@@ -14765,7 +14783,6 @@ estado: {sel_data['estado']}""", language="yaml")
                                             conn_bm = conectar_db(db_actual)
                                             cur_bm = conn_bm.cursor()
                                             
-                                            # Guardamos usando el código/nombre en cuenta_numero y banco_nombre para mantener consistencia
                                             cur_bm.execute("""
                                                 INSERT INTO banco_movimientos 
                                                 (banco_nombre, cuenta_numero, fecha_movimiento, referencia, descripcion, monto, banco_receptor, estado_conciliacion, asiento_id, fecha_importacion)
