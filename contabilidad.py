@@ -14692,19 +14692,22 @@ estado: {sel_data['estado']}""", language="yaml")
                                 st.error(f"Error cargando módulo de asientos contables: {e_ac_err}")
                         
                         # -------------------------------------------------------------
-                        # SUB-TAB 4: Movimientos Bancarios (Flujo Simplificado y Plano)
+                        # SUB-TAB 4: Movimientos Bancarios (Versión Robusta y Profesional)
                         # -------------------------------------------------------------
                         with sub_tab4:
-                            st.markdown("#### 🏦 Movimientos Bancarios - Registro de Cobros (Flujo Directo)")
+                            st.markdown("#### 🏦 Movimientos Bancarios - Registro de Cobros")
                             try:
-                                st.markdown("#### 🏦 Movimientos Bancarios - Registro de Cobros (Flujo Directo)")
-                                # Paso 1: Seleccionar Banco Receptor del Plan de Cuentas
+                                # 1. Cargar cuentas de detalle desde el plan de cuentas de forma segura
                                 df_plan_all = ejecutar_consulta("SELECT codigo, nombre FROM plan_cuentas WHERE tipo = 'Detalle' ORDER BY codigo ASC", conn_vis)
                                 
                                 lista_cuentas = []
                                 if df_plan_all is not None and not df_plan_all.empty:
                                     for _, r in df_plan_all.iterrows():
-                                        lista_cuentas.append(f"{str(r.get('codigo', ''))} - {str(r.get('nombre', ''))}")
+                                        cod = str(r.get('codigo', '') or '').strip()
+                                        nom = str(r.get('nombre', '') or '').strip()
+                                        if cod:
+                                            lista_cuentas.append(f"{cod} - {nom}")
+                                            
                                 if not lista_cuentas:
                                     lista_cuentas = ["1.1.1.01 - Caja Principal"]
                                     
@@ -14713,26 +14716,37 @@ estado: {sel_data['estado']}""", language="yaml")
                                 cod_banco = cta_partes[0] if len(cta_partes) > 0 else ""
                                 nom_banco = cta_partes[1] if len(cta_partes) > 1 else cta_sel
 
-                                # Paso 2: Consultar Órdenes de Cobranza con Referencia
-                                df_oc = ejecutar_consulta("SELECT id, fecha_emision, n_factura, monto_bruto, referencia_banco FROM ordenes_cobranza WHERE referencia_banco IS NOT NULL AND referencia_banco != '' ORDER BY id DESC LIMIT 20", conn_vis)
+                                # 2. Consultar Órdenes de Cobranza pendientes con referencia válida
+                                query_oc = (
+                                    "SELECT id, fecha_emision, n_factura, monto_bruto, referencia_banco "
+                                    "FROM ordenes_cobranza "
+                                    "WHERE referencia_banco IS NOT NULL AND referencia_banco != '' "
+                                    "ORDER BY id DESC LIMIT 25"
+                                )
+                                df_oc = ejecutar_consulta(query_oc, conn_vis)
 
                                 if df_oc is not None and not df_oc.empty:
                                     st.markdown("##### Seleccione la Orden de Cobranza a registrar:")
                                     
-                                    # Creamos una lista de strings planos para evitar cualquier error de formato de tipos
+                                    # Mapeo plano ultraseguro para evitar conflictos de tipos en selectbox
                                     opciones_planas = []
-                                    for idx, row in df_oc.iterrows():
-                                        id_txt = str(row.get('id', ''))
-                                        fac_txt = str(row.get('n_factura', 'S/N'))
-                                        ref_txt = str(row.get('referencia_banco', 'S/Ref'))
-                                        monto_txt = str(row.get('monto_bruto', '0.00'))
+                                    for _, row in df_oc.iterrows():
+                                        id_txt = str(row.get('id', '') or '')
+                                        fac_txt = str(row.get('n_factura', 'S/N') or 'S/N')
+                                        ref_txt = str(row.get('referencia_banco', 'S/Ref') or 'S/Ref')
                                         
-                                        texto_opcion = f"Registro #{id_txt} | Factura: {fac_txt} | Ref: {ref_txt} | Monto: ${monto_txt}"
+                                        # Formateo seguro del monto
+                                        try:
+                                            m_val = float(row.get('monto_bruto', 0.0) or 0.0)
+                                        except:
+                                            m_val = 0.0
+                                            
+                                        texto_opcion = f"ID #{id_txt} | Factura: {fac_txt} | Ref: {ref_txt} | Monto: ${m_val:,.2f}"
                                         opciones_planas.append(texto_opcion)
 
                                     seleccion_usuario = st.selectbox("Órdenes pendientes con referencia", opciones_planas, key="flujo_selectbox_oc")
-
-                                    # Extraemos el ID original buscando el texto del índice seleccionado
+                                    
+                                    # Extraer la fila correspondiente de forma exacta
                                     idx_seleccionado = opciones_planas.index(seleccion_usuario)
                                     fila_elegida = df_oc.iloc[idx_seleccionado]
 
@@ -14740,22 +14754,22 @@ estado: {sel_data['estado']}""", language="yaml")
                                     col1, col2 = st.columns(2)
                                     
                                     with col1:
-                                        val_ref = st.text_input("Referencia Bancaria", value=str(fila_elegida.get('referencia_banco', '')), key="flujo_ref")
+                                        val_ref = st.text_input("Referencia Bancaria", value=str(fila_elegida.get('referencia_banco', '') or ''), key="flujo_ref")
                                         
                                         try:
-                                            monto_default = float(fila_elegida.get('monto_bruto', 0.0))
+                                            monto_default = float(fila_elegida.get('monto_bruto', 0.0) or 0.0)
                                         except:
                                             monto_default = 0.0
+                                            
                                         val_monto = st.number_input("Monto", value=monto_default, format="%.2f", key="flujo_monto")
-
+                                        
                                     with col2:
-                                        # Extracción y limpieza ultra segura de la fecha para evitar que Streamlit explote
+                                        # Blindaje total de fecha para evitar NaT, floats o tipos extraños en Streamlit
                                         raw_fecha = fila_elegida.get('fecha_emision')
                                         f_default = pd.Timestamp.now().date()
                                         
                                         if raw_fecha is not None:
                                             try:
-                                                # Intentamos parsearlo a string primero y luego a fecha
                                                 parsed_dt = pd.to_datetime(str(raw_fecha))
                                                 if not pd.isna(parsed_dt):
                                                     f_default = parsed_dt.date()
@@ -14764,11 +14778,48 @@ estado: {sel_data['estado']}""", language="yaml")
                                                 
                                         val_fecha = st.date_input("Fecha", value=f_default, key="flujo_fecha")
                                         
-                                        val_desc = st.text_input("Descripción", value=f"Cobro Factura {str(fila_elegida.get('n_factura', 'S/N'))}", key="flujo_desc")
+                                        factura_str = str(fila_elegida.get('n_factura', 'S/N') or 'S/N')
+                                        val_desc = st.text_input("Descripción", value=f"Cobro Factura {factura_str}", key="flujo_desc")
 
+                                    # 3. Acción de persistencia transaccional
+                                    if st.button("💾 Guardar Movimiento en Banco", key="flujo_btn_guardar"):
+                                        try:
+                                            conn_ins = conectar_db(db_actual)
+                                            cur_ins = conn_ins.cursor()
+                                            
+                                            sql_insert = """
+                                                INSERT INTO banco_movimientos 
+                                                (banco_nombre, cuenta_numero, fecha_movimiento, referencia, descripcion, monto, banco_receptor, estado_conciliacion, asiento_id, fecha_importacion)
+                                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                                            """
+                                            cur_ins.execute(sql_insert, (
+                                                nom_banco, 
+                                                cod_banco,
+                                                val_fecha, 
+                                                val_ref,
+                                                val_desc, 
+                                                float(val_monto),
+                                                nom_banco,
+                                                "Conciliado", 
+                                                None
+                                            ))
+                                            
+                                            conn_ins.commit()
+                                            cur_ins.close()
+                                            conn_ins.close()
+                                            
+                                            st.success("✅ ¡Movimiento bancario registrado exitosamente!")
+                                            st.balloons()
+                                            st.rerun()
+                                            
+                                        except Exception as e_ins:
+                                            st.error(f"❌ Error al insertar en base de datos: {str(e_ins)}")
+                                else:
+                                    st.info("No hay órdenes de cobranza con referencia pendientes de registrar.")
+                                    
                             except Exception as e_flujo:
-                                st.error("Error en módulo de movimientos bancarios: " + str(e_flujo))
-                            
+                                st.error(f"⚠️ Error cargando módulo de movimientos bancarios: {str(e_flujo)}")
+
                         conn_vis.close()
                 else:
                     st.warning("⚠️ No se encontraron clientes comerciales registrados. Por favor, crea al menos un cliente primero.")
