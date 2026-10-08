@@ -14720,13 +14720,10 @@ estado: {sel_data['estado']}""", language="yaml")
                                 else:
                                     opciones_bancos_pc = ["1.1.1.01 - Caja Principal", "1.1.2.01 - Banco Principal"]
 
-                                col_b1, col_b2 = st.columns(2)
-                                with col_b1:
-                                    cta_banco_sel = st.selectbox("Banco Receptor (Plan de Cuentas)", opciones_bancos_pc, key="sel_banco_receptor_pc")
-                                with col_b2:
-                                    cuenta_numero_input = st.text_input("Número de Cuenta", value="Principal", key="input_cuenta_numero")
-
+                                # Selección única del Banco Receptor (Se eliminó el campo Número de Cuenta)
+                                cta_banco_sel = st.selectbox("Banco Receptor (Plan de Cuentas)", opciones_bancos_pc, key="sel_banco_receptor_pc")
                                 nombre_banco_sel = cta_banco_sel.split(" - ")[1] if " - " in cta_banco_sel else cta_banco_sel
+                                codigo_banco_sel = cta_banco_sel.split(" - ")[0] if " - " in cta_banco_sel else ""
 
                                 # 2. Cargar órdenes de cobranza pendientes con referencia bancaria
                                 df_oc_bm = ejecutar_consulta("SELECT id, fecha_emision, n_factura, monto_bruto, referencia_banco FROM ordenes_cobranza WHERE referencia_banco IS NOT NULL AND referencia_banco != '' ORDER BY id DESC LIMIT 20", conn_vis)
@@ -14734,10 +14731,10 @@ estado: {sel_data['estado']}""", language="yaml")
                                 if df_oc_bm is not None and not df_oc_bm.empty:
                                     oc_opciones = {}
                                     for _, row_oc in df_oc_bm.iterrows():
-                                        num_f = row_oc['n_factura'] if row_oc['n_factura'] is not None else "S/N"
-                                        ref_b = row_oc['referencia_banco'] if row_oc['referencia_banco'] is not None else "S/Ref"
+                                        num_f = str(row_oc['n_factura']) if row_oc['n_factura'] is not None else "S/N"
+                                        ref_b = str(row_oc['referencia_banco']) if row_oc['referencia_banco'] is not None else "S/Ref"
                                         monto_b = limpiar_num(row_oc['monto_bruto'])
-                                        fecha_e = row_oc['fecha_emision'] if row_oc['fecha_emision'] is not None else "S/Fecha"
+                                        fecha_e = str(row_oc['fecha_emision']) if row_oc['fecha_emision'] is not None else "S/Fecha"
                                         
                                         label_oc = f"Factura: {num_f} | Ref: {ref_b} | Monto: ${monto_b:,.2f} | Fecha: {fecha_e}"
                                         oc_opciones[label_oc] = row_oc['id']
@@ -14768,13 +14765,14 @@ estado: {sel_data['estado']}""", language="yaml")
                                             conn_bm = conectar_db(db_actual)
                                             cur_bm = conn_bm.cursor()
                                             
+                                            # Guardamos usando el código/nombre en cuenta_numero y banco_nombre para mantener consistencia
                                             cur_bm.execute("""
                                                 INSERT INTO banco_movimientos 
                                                 (banco_nombre, cuenta_numero, fecha_movimiento, referencia, descripcion, monto, banco_receptor, estado_conciliacion, asiento_id, fecha_importacion)
                                                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
                                             """, (
                                                 nombre_banco_sel, 
-                                                cuenta_numero_input,
+                                                codigo_banco_sel,
                                                 fecha_val, 
                                                 ref_banco_val,
                                                 desc_val, 
