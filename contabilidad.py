@@ -14695,21 +14695,18 @@ estado: {sel_data['estado']}""", language="yaml")
                         # SUB-TAB 4: Movimientos Bancarios
                         # -------------------------------------------------------------
                         with sub_tab4:
-                            st.markdown("#### 🏦 Movimientos Bancarios - Pagos Pendientes de Registrar")
+                            st.markdown("#### 🏦 Movimientos Bancarios - Registro de Cobros")
                             try:
-                                # 1. Traer todas las cuentas de detalle sin comodines SQL para evitar errores de formato en Python
+                                # 1. Cargar cuentas de detalle desde el plan de cuentas para el banco receptor
                                 df_plan_all = ejecutar_consulta("SELECT codigo, nombre FROM plan_cuentas WHERE tipo = 'Detalle' ORDER BY codigo ASC", conn_vis)
 
                                 opciones_bancos_pc = []
                                 if df_plan_all is not None and not df_plan_all.empty:
-                                    # Filtrar en Python las cuentas de banco, caja o activos circulantes iniciales
                                     for _, row_pc in df_plan_all.iterrows():
                                         cod = str(row_pc['codigo'])
                                         nom = str(row_pc['nombre']).lower()
                                         if 'banco' in nom or 'caja' in nom or cod.startswith('1.1.1') or cod.startswith('1.1.2'):
                                             opciones_bancos_pc.append(f"{row_pc['codigo']} - {row_pc['nombre']}")
-                                    
-                                    # Si el filtro en Python no encontró nada específico, cargamos todas las de detalle para no dejar vacío el selector
                                     if not opciones_bancos_pc:
                                         for _, row_pc in df_plan_all.iterrows():
                                             opciones_bancos_pc.append(f"{row_pc['codigo']} - {row_pc['nombre']}")
@@ -14720,36 +14717,35 @@ estado: {sel_data['estado']}""", language="yaml")
                                 with col_b1:
                                     cta_banco_sel = st.selectbox("Banco Receptor (Plan de Cuentas)", opciones_bancos_pc, key="sel_banco_receptor_pc")
                                 with col_b2:
-                                    cuenta_numero_input = st.text_input("Número de Cuenta / Referencia interna", value="Principal", key="input_cuenta_numero")
+                                    cuenta_numero_input = st.text_input("Número de Cuenta", value="Principal", key="input_cuenta_numero")
 
-                                # Extraer limpiamente el código y el nombre del banco seleccionado
-                                codigo_banco_sel = cta_banco_sel.split(" - ")[0] if " - " in cta_banco_sel else ""
                                 nombre_banco_sel = cta_banco_sel.split(" - ")[1] if " - " in cta_banco_sel else cta_banco_sel
 
-                                df_oc_bm = ejecutar_consulta("SELECT id, fecha_emision, n_factura, monto_bruto, referencia_banco FROM ordenes_cobranza WHERE referencia_banco IS NOT NULL AND referencia_banco != '' ORDER BY id DESC LIMIT 10", conn_vis)
+                                # 2. Cargar órdenes de cobranza pendientes con referencia bancaria
+                                df_oc_bm = ejecutar_consulta("SELECT id, fecha_emision, n_factura, monto_bruto, referencia_banco FROM ordenes_cobranza WHERE referencia_banco IS NOT NULL AND referencia_banco != '' ORDER BY id DESC LIMIT 20", conn_vis)
                                 
                                 if df_oc_bm is not None and not df_oc_bm.empty:
-                                    # Construir el DataFrame usando la cuenta seleccionada del plan de cuentas
-                                    df_frame_bm = pd.DataFrame({
-                                        "id": df_oc_bm['id'],
-                                        "banco_nombre": nombre_banco_sel,
-                                        "cuenta_numero": cuenta_numero_input,
-                                        "fecha_movimiento": df_oc_bm['fecha_emision'],
-                                        "referencia": df_oc_bm['referencia_banco'],
-                                        "descripcion": [f"Cobro Factura {f}" for f in df_oc_bm['n_factura']],
-                                        "monto": df_oc_bm['monto_bruto'],
-                                        "banco_receptor": nombre_banco_sel,
-                                        "estado_conciliacion": "Conciliado",
-                                        "asiento_id": None,
-                                        "fecha_importacion": pd.Timestamp.now()
-                                    })
+                                    oc_opciones = {}
+                                    for _, row_oc in df_oc_bm.iterrows():
+                                        label_oc = f"Factura: {row_oc['n_factura']} | Ref: {row_oc['referencia_banco']} | Monto: ${row_oc['monto_bruto']:,.2f} | Fecha: {row_oc['fecha_emision']}"
+                                        oc_opciones[label_oc] = row_oc['id']
 
-                                    st.markdown("##### Frame con Estructura Oficial (`banco_movimientos`):")
-                                    st.dataframe(df_frame_bm, use_container_width=True)
+                                    sel_oc_label = st.selectbox("Seleccione la Orden de Cobranza a Registrar", list(oc_opciones.keys()), key="sel_oc_bm_label")
+                                    selected_oc_id = oc_opciones[sel_oc_label]
+                                    selected_row_oc = df_oc_bm[df_oc_bm['id'] == selected_oc_id].iloc[0]
+
+                                    # 3. Campos autocompletados listos para verificar y guardar
+                                    st.markdown("##### 📝 Datos Autocompletados del Cobro:")
                                     
-                                    sel_oc_id_bm = st.selectbox("Seleccione ID de Orden de Cobranza a guardar", df_oc_bm['id'].tolist(), key="sel_bm_id")
-                                    selected_row_bm = df_frame_bm[df_frame_bm['id'] == sel_oc_id_bm].iloc[0]
+                                    col_m1, col_m2 = st.columns(2)
+                                    with col_m1:
+                                        ref_banco_val = st.text_input("Referencia Bancaria", value=str(selected_row_oc['referencia_banco']), key="bm_ref_input")
+                                        monto_val = st.number_input("Monto del Cobro", value=float(selected_row_oc['monto_bruto']), format="%.2f", key="bm_monto_input")
+                                    with col_m2:
+                                        fecha_val = st.date_input("Fecha del Cobro", value=pd.to_datetime(selected_row_oc['fecha_emision']).date(), key="bm_fecha_input")
+                                        desc_val = st.text_input("Descripción del Cobro", value=f"Cobro Factura {selected_row_oc['n_factura']}", key="bm_desc_input")
 
+                                    # 4. Botón de guardado oficial
                                     if st.button("💾 Guardar en Movimientos Bancarios", key="btn_save_bm_action"):
                                         try:
                                             conn_bm = conectar_db(db_actual)
@@ -14760,31 +14756,31 @@ estado: {sel_data['estado']}""", language="yaml")
                                                 (banco_nombre, cuenta_numero, fecha_movimiento, referencia, descripcion, monto, banco_receptor, estado_conciliacion, asiento_id, fecha_importacion)
                                                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
                                             """, (
-                                                selected_row_bm['banco_nombre'], 
-                                                selected_row_bm['cuenta_numero'],
-                                                selected_row_bm['fecha_movimiento'], 
-                                                selected_row_bm['referencia'],
-                                                selected_row_bm['descripcion'], 
-                                                selected_row_bm['monto'],
-                                                selected_row_bm['banco_receptor'],
-                                                selected_row_bm['estado_conciliacion'], 
-                                                selected_row_bm['asiento_id']
+                                                nombre_banco_sel, 
+                                                cuenta_numero_input,
+                                                fecha_val, 
+                                                ref_banco_val,
+                                                desc_val, 
+                                                monto_val,
+                                                nombre_banco_sel,
+                                                "Conciliado", 
+                                                None
                                             ))
                                             
                                             conn_bm.commit()
                                             cur_bm.close()
                                             conn_bm.close()
                                             
-                                            st.success("✅ ¡Movimiento bancario registrado exitosamente vinculado a su cuenta del Plan de Cuentas!")
+                                            st.success("✅ ¡Movimiento bancario registrado exitosamente!")
                                             st.balloons()
                                             st.rerun()
                                             
                                         except Exception as err_ins_bm:
                                             st.error(f"❌ Error al guardar en banco_movimientos: {err_ins_bm}")
                                 else:
-                                    st.info("No hay pagos con referencia bancaria registrados pendientes.")
+                                    st.info("No hay pagos con referencia bancaria registrados pendientes en órdenes de cobranza.")
                             except Exception as e_bm_err:
-                                st.error(f"Error cargando frame: {e_bm_err}")
+                                st.error(f"Error cargando módulo de movimientos bancarios: {e_bm_err}")
 
                         conn_vis.close()
                 else:
