@@ -14380,60 +14380,147 @@ estado: {sel_data['estado']}""", language="yaml")
                                 st.info("La tabla `ordenes_cobranza` aún no tiene datos o está por crearse.")
 
                         # -------------------------------------------------------------
-                        # SUB-TAB 2: Libro de Ventas
+                        # SUB-TAB 2: Libro de Ventas (Automático desde Órdenes de Cobranza)
                         # -------------------------------------------------------------
                         with sub_tab2:
-                            st.markdown("#### 📖 Libro de Ventas - Facturas Pendientes de Registrar")
+                            st.markdown("#### 📖 Libro de Ventas - Registro Automático desde Órdenes de Cobranza")
                             try:
-                                df_oc_pend = ejecutar_consulta("SELECT id, fecha_emision, n_factura, n_control, rif_cliente, monto_bruto, base_imponible, porcentaje_alicuota, monto_iva, monto_exento FROM ordenes_cobranza ORDER BY id DESC LIMIT 10", conn_vis)
-                                
-                                if df_oc_pend is not None and not df_oc_pend.empty:
-                                    df_frame_lv = pd.DataFrame({
-                                        "id": df_oc_pend['id'],
-                                        "fecha_factura": df_oc_pend['fecha_emision'],
-                                        "nombre_razon_social": cli_info['razon_social'],
-                                        "rif": df_oc_pend['rif_cliente'],
-                                        "n_factura": df_oc_pend['n_factura'],
-                                        "n_control": df_oc_pend['n_control'],
-                                        "total_ventas_con_iva": df_oc_pend['monto_bruto'],
-                                        "ventas_exentas": df_oc_pend['monto_exento'],
-                                        "base_imponible": df_oc_pend['base_imponible'],
-                                        "porcentaje_alicuota": df_oc_pend['porcentaje_alicuota'],
-                                        "debito_fiscal": df_oc_pend['monto_iva'],
-                                        "fecha_registro": pd.Timestamp.now()
-                                    })
-                                    
-                                    st.markdown("##### Frame con Estructura Oficial (`libro_ventas`):")
-                                    st.dataframe(df_frame_lv, use_container_width=True)
-                                    
-                                    sel_oc_id_lv = st.selectbox("Seleccione ID de Orden de Cobranza a guardar", df_oc_pend['id'].tolist(), key="sel_lv_id")
-                                    selected_row_lv = df_frame_lv[df_frame_lv['id'] == sel_oc_id_lv].iloc[0]
+                                # 1. Consultar órdenes de cobranza pendientes/recientes
+                                query_oc_lv = (
+                                    "SELECT id, fecha_emision, n_factura, n_control, rif_cliente, "
+                                    "monto_bruto, base_imponible, porcentaje_alicuota, monto_iva, monto_exento "
+                                    "FROM ordenes_cobranza ORDER BY id DESC LIMIT 20"
+                                )
+                                df_oc_pend = ejecutar_consulta(query_oc_lv, conn_vis)
 
+                                if df_oc_pend is not None and not df_oc_pend.empty:
+                                    # Mapeo plano para el selectbox de forma ultra segura
+                                    opciones_oc_lv = {}
+                                    for _, r_oc in df_oc_pend.iterrows():
+                                        try:
+                                            oc_id_val = int(float(r_oc.get('id', 0) or 0))
+                                        except:
+                                            oc_id_val = 0
+                                            
+                                        factura_num = str(r_oc.get('n_factura', 'S/N') or 'S/N')
+                                        rif_cl = str(r_oc.get('rif_cliente', 'S/RIF') or 'S/RIF')
+                                        
+                                        try:
+                                            monto_tot = float(r_oc.get('monto_bruto', 0.0) or 0.0)
+                                        except:
+                                            monto_tot = 0.0
+
+                                        label_opcion = f"OC ID: {oc_id_val} | Factura: {factura_num} | RIF: {rif_cl} | Total: ${monto_tot:,.2f}"
+                                        opciones_oc_lv[label_opcion] = oc_id_val
+
+                                    sel_label_lv = st.selectbox("Seleccione la Orden de Cobranza a llevar al Libro de Ventas", list(opciones_oc_lv.keys()), key="sel_oc_lv_label")
+                                    selected_oc_id_val = opciones_oc_lv[sel_label_lv]
+
+                                    # Filtrar la fila exacta seleccionada
+                                    df_oc_pend['id_int'] = df_oc_pend['id'].apply(lambda x: int(float(x)) if x is not None else 0)
+                                    selected_row_oc = df_oc_pend[df_oc_pend['id_int'] == selected_oc_id_val].iloc[0]
+
+                                    # 2. Preparar los datos autocompletados según la estructura de la tabla libro_ventas
+                                    razon_social_val = str(cli_info.get('razon_social', 'CLIENTE GENERAL') or 'CLIENTE GENERAL')
+                                    rif_val = str(selected_row_oc.get('rif_cliente', '') or '')
+                                    n_factura_val = str(selected_row_oc.get('n_factura', '') or '')
+                                    n_control_val = str(selected_row_oc.get('n_control', '') or '')
+
+                                    # Procesamiento seguro de fecha de factura
+                                    raw_f_factura = selected_row_oc.get('fecha_emision')
+                                    fecha_factura_val = pd.Timestamp.now().date()
+                                    if raw_f_factura is not None:
+                                        try:
+                                            parsed_f = pd.to_datetime(str(raw_f_factura))
+                                            if not pd.isna(parsed_f):
+                                                fecha_factura_val = parsed_f.date()
+                                        except:
+                                            pass
+
+                                    # Casting numérico limpio para evitar desbordamientos en MySQL
+                                    try:
+                                        total_con_iva = float(selected_row_oc.get('monto_bruto', 0.0) or 0.0)
+                                    except:
+                                        total_con_iva = 0.0
+
+                                    try:
+                                        ventas_exentas = float(selected_row_oc.get('monto_exento', 0.0) or 0.0)
+                                    except:
+                                        ventas_exentas = 0.0
+
+                                    try:
+                                        base_imponible = float(selected_row_oc.get('base_imponible', 0.0) or 0.0)
+                                    except:
+                                        base_imponible = 0.0
+
+                                    try:
+                                        porcentaje_alicuota = float(selected_row_oc.get('porcentaje_alicuota', 16.0) or 16.0)
+                                    except:
+                                        porcentaje_alicuota = 16.0
+
+                                    try:
+                                        debito_fiscal = float(selected_row_oc.get('monto_iva', 0.0) or 0.0)
+                                    except:
+                                        debito_fiscal = 0.0
+
+                                    # Armar un DataFrame resumen para que el usuario visualice lo que se va a registrar
+                                    df_preview_lv = pd.DataFrame([{
+                                        "Fecha Factura": fecha_factura_val,
+                                        "Razón Social": razon_social_val,
+                                        "RIF": rif_val,
+                                        "Factura": n_factura_val,
+                                        "Control": n_control_val,
+                                        "Base Imponible": base_imponible,
+                                        "Exentas": ventas_exentas,
+                                        "Alícuota %": porcentaje_alicuota,
+                                        "Débito Fiscal": debito_fiscal,
+                                        "Total c/ IVA": total_con_iva
+                                    }])
+
+                                    st.markdown("##### 🔍 Vista Previa del Registro en el Libro de Ventas:")
+                                    st.dataframe(df_preview_lv, use_container_width=True)
+
+                                    # 3. Botón de acción para persistir en la base de datos
                                     if st.button("💾 Guardar en Libro de Ventas", key="btn_save_lv_action"):
                                         try:
                                             conn_lv = conectar_db(db_actual)
                                             cur_lv = conn_lv.cursor()
-                                            cur_lv.execute("""
+                                            
+                                            sql_insert_lv = """
                                                 INSERT INTO libro_ventas 
-                                                (fecha_factura, nombre_razon_social, rif, n_factura, n_control, total_ventas_con_iva, ventas_exentas, base_imponible, porcentaje_alicuota, debito_fiscal)
+                                                (fecha_factura, nombre_razon_social, rif, n_factura, n_control, 
+                                                 total_ventas_con_iva, ventas_exentas, base_imponible, porcentaje_alicuota, debito_fiscal)
                                                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                                            """, (
-                                                selected_row_lv['fecha_factura'], selected_row_lv['nombre_razon_social'], selected_row_lv['rif'],
-                                                selected_row_lv['n_factura'], selected_row_lv['n_control'], selected_row_lv['total_ventas_con_iva'],
-                                                selected_row_lv['ventas_exentas'], selected_row_lv['base_imponible'], selected_row_lv['porcentaje_alicuota'],
-                                                selected_row_lv['debito_fiscal']
+                                            """
+                                            
+                                            cur_lv.execute(sql_insert_lv, (
+                                                fecha_factura_val, 
+                                                razon_social_val, 
+                                                rif_val,
+                                                n_factura_val, 
+                                                n_control_val, 
+                                                total_con_iva,
+                                                ventas_exentas, 
+                                                base_imponible, 
+                                                porcentaje_alicuota, 
+                                                debito_fiscal
                                             ))
+                                            
                                             conn_lv.commit()
                                             cur_lv.close()
                                             conn_lv.close()
-                                            st.success("✅ ¡Factura guardada exitosamente en el Libro de Ventas!")
+                                            
+                                            st.success("✅ ¡Factura registrada exitosamente en el Libro de Ventas!")
+                                            st.balloons()
                                             st.rerun()
+                                            
                                         except Exception as err_ins_lv:
-                                            st.error(f"❌ Error al guardar en libro_ventas: {err_ins_lv}")
+                                            st.error(f"❌ Error al guardar en libro_ventas: {str(err_ins_lv)}")
                                 else:
-                                    st.info("No hay órdenes de cobranza disponibles.")
+                                    st.info("No hay órdenes de cobranza disponibles para procesar en el Libro de Ventas.")
+                                    
                             except Exception as e_lv_err:
-                                st.error(f"Error cargando frame: {e_lv_err}")
+                                st.error(f"⚠️ Error cargando módulo de Libro de Ventas: {str(e_lv_err)}")
 
                         # -------------------------------------------------------------
                         # SUB-TAB 3: Asientos Contables
