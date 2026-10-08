@@ -14201,70 +14201,132 @@ estado: {sel_data['estado']}""", language="yaml")
                     except Exception:
                         pass
 
-                    # =========================================================================
-                    # 🚀 BOTÓN PARA GUARDAR FACTURA, DETALLES Y ORDEN DE COBRANZA
-                    # =========================================================================
-                    if st.button("🚀 Guardar Factura y Orden de Cobranza", type="primary", use_container_width=True, key="btn_guardar_factura_y_cobranza"):
-                        if nro_factura and nro_control:
-                            try:
-                                conn_trans = conectar_db(db_actual)
-                                if conn_trans:
-                                    cursor = conn_trans.cursor()
-                                    
-                                    # Definir estado inicial según si colocaron referencia de pago o no
-                                    estado_inicial = 'Conciliado' if ref_banco_cobro else 'Pendiente'
-                                    
-                                    # 1. Guardar estrictamente la factura maestra
-                                    cursor.execute("""
-                                        INSERT INTO factura 
-                                        (empresa_db, rif_cliente, n_factura, n_control, fecha_emision, base_imponible, monto_exento, porcentaje_alicuota, monto_iva, monto_bruto)
-                                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                                    """, (
-                                        str(db_actual), cli_info['rif'], nro_factura, nro_control, fecha_emision,
-                                        base_imponible, monto_exento, alicuota_iva, monto_iva, monto_bruto
-                                    ))
+                    # Inicializar el estado de la sesión para el flujo de la factura
+                    if "factura_guardada_paso1" not in st.session_state:
+                        st.session_state.factura_guardada_paso1 = False
+                        st.session_state.nro_factura_registrada = None
 
-                                    # 2. Guardar cada ítem en la tabla 'factura_detalle'
-                                    for _, row_item in edited_items_df.iterrows():
+                    # =========================================================================
+                    # PASO 1: FORMULARIO DE FACTURACIÓN PURA (Si aún no se ha guardado)
+                    # =========================================================================
+                    if not st.session_state.factura_guardada_paso1:
+                        
+                        # ... [Aquí va tu código actual de inputs de factura, tabla de ítems y cálculos] ...
+                        
+                        st.divider()
+                        
+                        if st.button("🚀 Guardar Factura", type="primary", use_container_width=True, key="btn_guardar_factura_pura"):
+                            if nro_factura and nro_control:
+                                try:
+                                    conn_trans = conectar_db(db_actual)
+                                    if conn_trans:
+                                        cursor = conn_trans.cursor()
+                                        
+                                        # 1. Guardar la factura maestra
                                         cursor.execute("""
-                                            INSERT INTO factura_detalle 
-                                            (n_factura, codigo_producto, descripcion, cantidad, precio_unitario, total_linea)
-                                            VALUES (%s, %s, %s, %s, %s, %s)
+                                            INSERT INTO factura 
+                                            (empresa_db, rif_cliente, n_factura, n_control, fecha_emision, base_imponible, monto_exento, porcentaje_alicuota, monto_iva, monto_bruto)
+                                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                                         """, (
-                                            nro_factura,
-                                            str(row_item['Código']),
-                                            str(row_item['Descripción']),
-                                            float(row_item['Cantidad']),
-                                            float(row_item['Precio Unitario']),
-                                            float(row_item['Total ($)'])
+                                            str(db_actual), cli_info['rif'], nro_factura, nro_control, fecha_emision,
+                                            base_imponible, monto_exento, alicuota_iva, monto_iva, monto_bruto
                                         ))
 
-                                    # 3. Registrar de una vez la orden de cobranza llamando a la factura recién creada
-                                    cursor.execute("""
-                                        INSERT INTO ordenes_cobranza 
-                                        (empresa_db, rif_cliente, n_factura, n_control, fecha_emision, base_imponible, monto_exento, porcentaje_alicuota, monto_iva, monto_bruto, referencia_banco, banco_receptor, estado_cobro)
-                                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                                    """, (
-                                        str(db_actual), cli_info['rif'], nro_factura, nro_control, fecha_emision,
-                                        base_imponible, monto_exento, alicuota_iva, monto_iva, monto_bruto,
-                                        ref_banco_cobro if ref_banco_cobro else None,
-                                        banco_receptor if 'banco_receptor' in locals() else None,
-                                        estado_inicial
-                                    ))
+                                        # 2. Guardar los ítems en 'factura_detalle'
+                                        for _, row_item in edited_items_df.iterrows():
+                                            cursor.execute("""
+                                                INSERT INTO factura_detalle 
+                                                (n_factura, codigo_producto, descripcion, cantidad, precio_unitario, total_linea)
+                                                VALUES (%s, %s, %s, %s, %s, %s)
+                                            """, (
+                                                nro_factura,
+                                                str(row_item['Código']),
+                                                str(row_item['Descripción']),
+                                                float(row_item['Cantidad']),
+                                                float(row_item['Precio Unitario']),
+                                                float(row_item['Total ($)'])
+                                            ))
 
-                                    conn_trans.commit()
-                                    cursor.close()
-                                    conn_trans.close()
+                                        conn_trans.commit()
+                                        cursor.close()
+                                        conn_trans.close()
 
-                                    st.success("✅ ¡Factura, detalles y orden de cobranza registrados con éxito!")
-                                    st.balloons()
-                                    st.rerun()
-                                else:
-                                    st.error("❌ Error de conexión con la base de datos.")
-                            except Exception as err_fac:
-                                st.error(f"❌ Error al procesar: {err_fac}")
-                        else:
-                            st.warning("⚠️ Debes rellenar el Número de Factura y el Número de Control.")
+                                        # Activamos el Paso 2 en la sesión y guardamos temporalmente el nro de factura
+                                        st.session_state.factura_guardada_paso1 = True
+                                        st.session_state.nro_factura_registrada = nro_factura
+                                        
+                                        st.success("✅ ¡Factura registrada con éxito! Ahora proceda con la cobranza.")
+                                        st.rerun()
+                                    else:
+                                        st.error("❌ Error de conexión con la base de datos.")
+                                except Exception as err_fac:
+                                    st.error(f"❌ Error al procesar la factura: {err_fac}")
+                            else:
+                                st.warning("⚠️ Debes rellenar el Número de Factura y el Número de Control.")
+
+                    # =========================================================================
+                    # PASO 2: APARECE TRAS GUARDAR LA FACTURA (Datos de Cobranza / Bancos)
+                    # =========================================================================
+                    else:
+                        st.success(f"📄 Factura Nro. **{st.session_state.nro_factura_registrada}** guardada correctamente.")
+                        st.markdown("### 🏦 Registrar Orden de Cobranza (Pago Recibido)")
+                        st.info("La factura ya se encuentra en el sistema. Si el cliente ya pagó, ingrese los datos bancarios para registrar la orden de cobranza de inmediato.")
+
+                        col_b1, col_b2 = st.columns(2)
+                        with col_b1:
+                            ref_banco_cobro = st.text_input("Referencia Bancaria del Pago", key="input_ref_banco").strip()
+                        with col_b2:
+                            if dict_bancos:
+                                selected_banco_label = st.selectbox("Banco Receptor / Cuenta", list(dict_bancos.keys()), key="select_banco_receptor")
+                                banco_receptor = dict_bancos[selected_banco_label]
+                            else:
+                                banco_receptor = st.text_input("Banco Receptor / Cuenta", placeholder="Ej. Banesco Cta Custodia", key="input_banco_manual").strip()
+
+                        st.divider()
+
+                        col_btn_cobro1, col_btn_cobro2 = st.columns(2)
+                        with col_btn_cobro1:
+                            if st.button("🚀 Guardar Orden de Cobranza", type="primary", use_container_width=True, key="btn_guardar_cobranza"):
+                                try:
+                                    conn_trans = conectar_db(db_actual)
+                                    if conn_trans:
+                                        cursor = conn_trans.cursor()
+                                        
+                                        estado_inicial = 'Conciliado' if ref_banco_cobro else 'Pendiente'
+                                        
+                                        # Registrar en la tabla 'ordenes_cobranza' usando la factura recién creada
+                                        cursor.execute("""
+                                            INSERT INTO ordenes_cobranza 
+                                            (empresa_db, rif_cliente, n_factura, referencia_banco, banco_receptor, estado_cobro)
+                                            VALUES (%s, %s, %s, %s, %s, %s)
+                                        """, (
+                                            str(db_actual), cli_info['rif'], st.session_state.nro_factura_registrada,
+                                            ref_banco_cobro if ref_banco_cobro else None,
+                                            banco_receptor if 'banco_receptor' in locals() else None,
+                                            estado_inicial
+                                        ))
+
+                                        conn_trans.commit()
+                                        cursor.close()
+                                        conn_trans.close()
+
+                                        st.success("✅ ¡Orden de cobranza registrada y vinculada con éxito!")
+                                        st.balloons()
+                                        
+                                        # Reiniciar el flujo para permitir emitir otra factura limpia
+                                        st.session_state.factura_guardada_paso1 = False
+                                        st.session_state.nro_factura_registrada = None
+                                        st.rerun()
+                                except Exception as err_cobro:
+                                    st.error(f"❌ Error al registrar la orden de cobranza: {err_cobro}")
+
+                        with col_btn_cobro2:
+                            if st.button("⏭️ Omitir (Dejar Factura Pendiente de Cobro)", use_container_width=True, key="btn_omitir_cobranza"):
+                                st.warning("⚠️ La factura quedó registrada como pendiente de cobro en Cuentas por Cobrar.")
+                                # Reiniciar el flujo
+                                st.session_state.factura_guardada_paso1 = False
+                                st.session_state.nro_factura_registrada = None
+                                st.rerun()
 
                     # =========================================================================
                     # 📊 PANEL DE GESTIÓN POR FRENTES (SIN MODIFICAR LOS OTROS 3 FRAMES)
