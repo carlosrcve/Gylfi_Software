@@ -14366,18 +14366,159 @@ estado: {sel_data['estado']}""", language="yaml")
                     conn_vis = conectar_db(db_actual)
                     if conn_vis:
                         # -------------------------------------------------------------
-                        # SUB-TAB 1: Órdenes de Cobranza
+                        # SUB-TAB 1: Órdenes de Cobranza (Consulta, Edición y Eliminación)
                         # -------------------------------------------------------------
                         with sub_tab1:
-                            st.markdown("#### Órdenes de Cobranza Registradas")
+                            st.markdown("#### 📋 Gestión de Órdenes de Cobranza")
                             try:
-                                df_oc = ejecutar_consulta("SELECT id, n_factura, n_control, fecha_emision, rif_cliente, monto_bruto, estado_cobro, referencia_banco FROM ordenes_cobranza ORDER BY id DESC LIMIT 20", conn_vis)
-                                if df_oc is not None and not df_oc.empty:
-                                    st.dataframe(df_oc, use_container_width=True)
+                                query_oc_all = (
+                                    "SELECT id, fecha_emision, n_factura, n_control, rif_cliente, "
+                                    "monto_bruto, base_imponible, porcentaje_alicuota, monto_iva, monto_exento, "
+                                    "estado_cobro, referencia_banco "
+                                    "FROM ordenes_cobranza ORDER BY id DESC LIMIT 30"
+                                )
+                                df_oc_master = ejecutar_consulta(query_oc_all, conn_vis)
+
+                                if df_oc_master is not None and not df_oc_master.empty:
+                                    # 1. Mapeo plano ultraseguro para el selector de la orden de cobranza
+                                    opciones_oc_master = {}
+                                    for _, r_m in df_oc_master.iterrows():
+                                        try:
+                                            oc_id_m = int(float(r_m.get('id', 0) or 0))
+                                        except:
+                                            oc_id_m = 0
+                                            
+                                        fac_m = str(r_m.get('n_factura', 'S/N') or 'S/N')
+                                        rif_m = str(r_m.get('rif_cliente', 'S/RIF') or 'S/RIF')
+                                        
+                                        try:
+                                            monto_m = float(r_m.get('monto_bruto', 0.0) or 0.0)
+                                        except:
+                                            monto_m = 0.0
+
+                                        label_m = f"ID #{oc_id_m} | Factura: {fac_m} | RIF: {rif_m} | Total: ${monto_m:,.2f}"
+                                        opciones_oc_master[label_m] = oc_id_m
+
+                                    sel_label_m = st.selectbox("Seleccione la Orden de Cobranza a Gestionar (Editar / Eliminar)", list(opciones_oc_master.keys()), key="sel_oc_master_label")
+                                    selected_oc_id_m = opciones_oc_master[sel_label_m]
+
+                                    # Filtrar exactamente la fila seleccionada
+                                    df_oc_master['id_int'] = df_oc_master['id'].apply(lambda x: int(float(x)) if x is not None else 0)
+                                    row_sel_m = df_oc_master[df_oc_master['id_int'] == selected_oc_id_m].iloc[0]
+
+                                    st.markdown("---")
+                                    st.markdown(f"##### 🛠️ Editando / Administrando Orden de Cobranza ID #{selected_oc_id_m}")
+
+                                    # 2. Formulario de Edición con campos estructurados
+                                    with st.form(key=f"form_editar_oc_{selected_oc_id_m}"):
+                                        col_e1, col_e2 = st.columns(2)
+                                        
+                                        with col_e1:
+                                            nuevo_n_factura = st.text_input("N° Factura", value=str(row_sel_m.get('n_factura', '') or ''))
+                                            nuevo_n_control = st.text_input("N° Control", value=str(row_sel_m.get('n_control', '') or ''))
+                                            nuevo_rif = st.text_input("RIF Cliente", value=str(row_sel_m.get('rif_cliente', '') or ''))
+                                            
+                                            try:
+                                                f_def_oc = pd.to_datetime(str(row_sel_m.get('fecha_emision'))).date()
+                                            except:
+                                                f_def_oc = pd.Timestamp.now().date()
+                                            nueva_fecha = st.date_input("Fecha de Emisión", value=f_def_oc)
+
+                                        with col_e2:
+                                            try:
+                                                val_base = float(row_sel_m.get('base_imponible', 0.0) or 0.0)
+                                            except:
+                                                val_base = 0.0
+                                            nueva_base = st.number_input("Base Imponible ($)", value=val_base, format="%.2f")
+
+                                            try:
+                                                val_ex = float(row_sel_m.get('monto_exento', 0.0) or 0.0)
+                                            except:
+                                                val_ex = 0.0
+                                            nuevo_exento = st.number_input("Monto Exento ($)", value=val_ex, format="%.2f")
+
+                                            try:
+                                                val_iva = float(row_sel_m.get('monto_iva', 0.0) or 0.0)
+                                            except:
+                                                val_iva = 0.0
+                                            nuevo_iva = st.number_input("Monto IVA ($)", value=val_iva, format="%.2f")
+
+                                            try:
+                                                val_bruto = float(row_sel_m.get('monto_bruto', 0.0) or 0.0)
+                                            except:
+                                                val_bruto = 0.0
+                                            nuevo_bruto = st.number_input("Monto Bruto / Total ($)", value=val_bruto, format="%.2f")
+
+                                        col_e3, col_e4 = st.columns(2)
+                                        with col_e3:
+                                            nueva_ref = st.text_input("Referencia Bancaria", value=str(row_sel_m.get('referencia_banco', '') or ''))
+                                        with col_e4:
+                                            estado_actual_str = str(row_sel_m.get('estado_cobro', 'Pendiente') or 'Pendiente')
+                                            estados_posibles = ["Pendiente", "Cobrado", "Conciliado", "Anulado"]
+                                            idx_estado = estados_posibles.index(estado_actual_str) if estado_actual_str in estados_posibles else 0
+                                            nuevo_estado = st.selectbox("Estado de Cobro", estados_posibles, index=idx_estado)
+
+                                        st.markdown("")
+                                        btn_actualizar = st.form_submit_button("💾 Actualizar Orden de Cobranza")
+
+                                    # 3. Procesar Actualización en Base de Datos
+                                    if btn_actualizar:
+                                        try:
+                                            conn_upd = conectar_db(db_actual)
+                                            cur_upd = conn_upd.cursor()
+                                            
+                                            sql_update_oc = """
+                                                UPDATE ordenes_cobranza 
+                                                SET fecha_emision = %s, n_factura = %s, n_control = %s, rif_cliente = %s,
+                                                    monto_bruto = %s, base_imponible = %s, monto_iva = %s, monto_exento = %s,
+                                                    estado_cobro = %s, referencia_banco = %s
+                                                WHERE id = %s
+                                            """
+                                            cur_upd.execute(sql_update_oc, (
+                                                nueva_fecha, nueva_n_factura, nuevo_n_control, nuevo_rif,
+                                                float(nuevo_bruto), float(nueva_base), float(nuevo_iva), float(nuevo_exento),
+                                                nuevo_estado, nueva_ref, selected_oc_id_m
+                                            ))
+                                            
+                                            conn_upd.commit()
+                                            cur_upd.close()
+                                            conn_upd.close()
+                                            
+                                            st.success("✅ ¡Orden de cobranza actualizada exitosamente!")
+                                            st.balloons()
+                                            st.rerun()
+                                        except Exception as err_upd:
+                                            st.error(f"❌ Error al actualizar la orden de cobranza: {str(err_upd)}")
+
+                                    st.markdown("---")
+                                    
+                                    # 4. Sección de Eliminación Segura
+                                    with st.expander("⚠️ Zona de Peligro - Eliminar Orden de Cobranza"):
+                                        st.warning("Eliminar esta orden de cobranza desvinculará el registro. Asegúrese de que no posea asientos contables críticos asociados.")
+                                        confirmar_borrado = st.checkbox("Confirmo que deseo eliminar permanentemente esta orden de cobranza", key=f"chk_del_{selected_oc_id_m}")
+                                        
+                                        if st.button("🗑️ Eliminar Orden de Cobranza Seleccionada", key=f"btn_del_oc_{selected_oc_id_m}"):
+                                            if confirmar_borrado:
+                                                try:
+                                                    conn_del = conectar_db(db_actual)
+                                                    cur_del = conn_del.cursor()
+                                                    cur_del.execute("DELETE FROM ordenes_cobranza WHERE id = %s", (selected_oc_id_m,))
+                                                    conn_del.commit()
+                                                    cur_del.close()
+                                                    conn_del.close()
+                                                    
+                                                    st.success("🗑️ ¡Orden de cobranza eliminada correctamente!")
+                                                    st.rerun()
+                                                except Exception as err_del:
+                                                    st.error(f"❌ Error al eliminar la orden de cobranza: {str(err_del)}")
+                                            else:
+                                                st.error("Debe marcar la casilla de confirmación para poder eliminar el registro.")
+
                                 else:
-                                    st.info("No hay órdenes de cobranza registradas todavía.")
-                            except Exception:
-                                st.info("La tabla `ordenes_cobranza` aún no tiene datos o está por crearse.")
+                                    st.info("No hay órdenes de cobranza registradas para consultar o editar.")
+                                    
+                            except Exception as e_oc_mgmt:
+                                st.error(f"⚠️ Error cargando la gestión de órdenes de cobranza: {str(e_oc_mgmt)}")
 
                         # -------------------------------------------------------------
                         # SUB-TAB 2: Libro de Ventas (Automático desde Órdenes de Cobranza con Editor Configurado)
