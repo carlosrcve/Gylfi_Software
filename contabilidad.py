@@ -14698,6 +14698,24 @@ estado: {sel_data['estado']}""", language="yaml")
                             st.markdown("#### 🏦 Movimientos Bancarios - Registro de Cobros (Flujo Directo)")
                             try:
                                 st.markdown("#### 🏦 Movimientos Bancarios - Registro de Cobros (Flujo Directo)")
+                                # Paso 1: Seleccionar Banco Receptor del Plan de Cuentas
+                                df_plan_all = ejecutar_consulta("SELECT codigo, nombre FROM plan_cuentas WHERE tipo = 'Detalle' ORDER BY codigo ASC", conn_vis)
+                                
+                                lista_cuentas = []
+                                if df_plan_all is not None and not df_plan_all.empty:
+                                    for _, r in df_plan_all.iterrows():
+                                        lista_cuentas.append(f"{str(r.get('codigo', ''))} - {str(r.get('nombre', ''))}")
+                                if not lista_cuentas:
+                                    lista_cuentas = ["1.1.1.01 - Caja Principal"]
+                                    
+                                cta_sel = st.selectbox("Banco Receptor (Plan de Cuentas)", lista_cuentas, key="flujo_banco_sel")
+                                cta_partes = cta_sel.split(" - ")
+                                cod_banco = cta_partes[0] if len(cta_partes) > 0 else ""
+                                nom_banco = cta_partes[1] if len(cta_partes) > 1 else cta_sel
+
+                                # Paso 2: Consultar Órdenes de Cobranza con Referencia
+                                df_oc = ejecutar_consulta("SELECT id, fecha_emision, n_factura, monto_bruto, referencia_banco FROM ordenes_cobranza WHERE referencia_banco IS NOT NULL AND referencia_banco != '' ORDER BY id DESC LIMIT 20", conn_vis)
+
                             except Exception as e_flujo:
                                 st.error("Error en módulo de movimientos bancarios: " + str(e_flujo))
                             
