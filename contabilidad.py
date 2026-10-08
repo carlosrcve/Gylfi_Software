@@ -14692,7 +14692,7 @@ estado: {sel_data['estado']}""", language="yaml")
                                 st.error(f"Error cargando módulo de asientos contables: {e_ac_err}")
                         
                         # -------------------------------------------------------------
-                        # SUB-TAB 4: Movimientos Bancarios (Blindaje total de IDs)
+                        # SUB-TAB 4: Movimientos Bancarios (Solución Definitiva de Tipos)
                         # -------------------------------------------------------------
                         with sub_tab4:
                             st.markdown("#### 🏦 Movimientos Bancarios - Registro de Cobros")
@@ -14703,8 +14703,8 @@ estado: {sel_data['estado']}""", language="yaml")
                                 opciones_bancos_pc = []
                                 if df_plan_all is not None and not df_plan_all.empty:
                                     for _, row_pc in df_plan_all.iterrows():
-                                        cod = str(row_pc.get('codigo', ''))
-                                        nom = str(row_pc.get('nombre', ''))
+                                        cod = str(row_pc.get('codigo', '') or '')
+                                        nom = str(row_pc.get('nombre', '') or '')
                                         opciones_bancos_pc.append(f"{cod} - {nom}")
                                 
                                 if not opciones_bancos_pc:
@@ -14721,14 +14721,14 @@ estado: {sel_data['estado']}""", language="yaml")
                                 if df_oc_bm is not None and not df_oc_bm.empty:
                                     oc_opciones = {}
                                     for _, row_oc in df_oc_bm.iterrows():
-                                        # Forzar ID a entero seguro para evitar cualquier tipo float
+                                        # Limpieza radical a string y float puros
                                         try:
-                                            o_id = int(float(row_oc.get('id', 0)))
+                                            o_id = int(float(row_oc.get('id', 0) or 0))
                                         except:
                                             o_id = 0
                                             
-                                        num_f = str(row_oc.get('n_factura', 'S/N'))
-                                        ref_b = str(row_oc.get('referencia_banco', 'S/Ref'))
+                                        num_f = str(row_oc.get('n_factura', 'S/N') or 'S/N')
+                                        ref_b = str(row_oc.get('referencia_banco', 'S/Ref') or 'S/Ref')
                                         
                                         raw_monto = row_oc.get('monto_bruto', 0.0)
                                         try:
@@ -14736,15 +14736,16 @@ estado: {sel_data['estado']}""", language="yaml")
                                         except:
                                             monto_b = 0.0
                                             
-                                        fecha_e = str(row_oc.get('fecha_emision', 'S/Fecha'))
+                                        fecha_e = str(row_oc.get('fecha_emision', 'S/Fecha') or 'S/Fecha')
 
-                                        label_oc = f"ID: {o_id} | Factura: {num_f} | Ref: {ref_b} | Monto: ${monto_b:.2f} | Fecha: {fecha_e}"
+                                        # Etiqueta limpia sin formatos de enteros ocultos
+                                        label_oc = f"ID: {o_id} | Factura: {num_f} | Ref: {ref_b} | Monto: ${monto_b:,.2f} | Fecha: {fecha_e}"
                                         oc_opciones[label_oc] = o_id
 
                                     sel_oc_label = st.selectbox("Seleccione la Orden de Cobranza a Registrar", list(oc_opciones.keys()), key="sel_oc_bm_label")
                                     selected_oc_id = oc_opciones[sel_oc_label]
                                     
-                                    # Asegurar coerción a entero en la columna id del dataframe para el filtrado seguro
+                                    # Filtrado seguro por ID entero
                                     df_oc_bm['id_int'] = df_oc_bm['id'].apply(lambda x: int(float(x)) if x is not None else 0)
                                     selected_row_oc = df_oc_bm[df_oc_bm['id_int'] == selected_oc_id].iloc[0]
 
@@ -14752,7 +14753,7 @@ estado: {sel_data['estado']}""", language="yaml")
                                     
                                     col_m1, col_m2 = st.columns(2)
                                     with col_m1:
-                                        ref_banco_val = st.text_input("Referencia Bancaria", value=str(selected_row_oc.get('referencia_banco', '')), key="bm_ref_input")
+                                        ref_banco_val = st.text_input("Referencia Bancaria", value=str(selected_row_oc.get('referencia_banco', '') or ''), key="bm_ref_input")
                                         
                                         raw_m_val = selected_row_oc.get('monto_bruto', 0.0)
                                         try:
@@ -14770,7 +14771,7 @@ estado: {sel_data['estado']}""", language="yaml")
                                             
                                         fecha_val = st.date_input("Fecha del Cobro", value=fecha_default, key="bm_fecha_input")
                                         
-                                        desc_factura_str = str(selected_row_oc.get('n_factura', 'S/N'))
+                                        desc_factura_str = str(selected_row_oc.get('n_factura', 'S/N') or 'S/N')
                                         desc_val = st.text_input("Descripción del Cobro", value=f"Cobro Factura {desc_factura_str}", key="bm_desc_input")
 
                                     if st.button("💾 Guardar en Movimientos Bancarios", key="btn_save_bm_action"):
@@ -14788,7 +14789,7 @@ estado: {sel_data['estado']}""", language="yaml")
                                                 fecha_val, 
                                                 ref_banco_val,
                                                 desc_val, 
-                                                monto_val,
+                                                float(monto_val), # Aseguramos float puro
                                                 nombre_banco_sel,
                                                 "Conciliado", 
                                                 None
