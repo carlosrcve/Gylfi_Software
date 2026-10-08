@@ -14690,21 +14690,22 @@ estado: {sel_data['estado']}""", language="yaml")
                                     st.warning("⚠️ No hay facturas pendientes de asentar. Todas las facturas ya han sido procesadas contablemente.")
                             except Exception as e_ac_err:
                                 st.error(f"Error cargando módulo de asientos contables: {e_ac_err}")
+                        
                         # -------------------------------------------------------------
                         # SUB-TAB 4: Movimientos Bancarios
                         # -------------------------------------------------------------
                         with sub_tab4:
                             st.markdown("#### 🏦 Movimientos Bancarios - Pagos Pendientes de Registrar")
                             try:
-                                # 1. Cargar las cuentas de Banco o Caja desde el Plan de Cuentas para el Banco Receptor
+                                # 1. Cargar las cuentas de Banco o Caja usando concatenación para evitar conflictos de formato
                                 df_cuentas_banco = ejecutar_consulta("""
                                     SELECT codigo, nombre FROM plan_cuentas 
-                                    WHERE (nombre LIKE '%Banco%' OR nombre LIKE '%Caja%' OR codigo LIKE '1.1.1%' OR codigo LIKE '1.1.2%') 
+                                    WHERE (nombre LIKE CONCAT('%', 'Banco', '%') OR nombre LIKE CONCAT('%', 'Caja', '%') OR codigo LIKE CONCAT('1.1.1', '%') OR codigo LIKE CONCAT('1.1.2', '%')) 
                                     AND tipo = 'Detalle'
                                     ORDER BY codigo ASC
                                 """, conn_vis)
 
-                                # Si por alguna razón el filtro estricto no trae nada, traemos todas las cuentas de detalle para no trancar al usuario
+                                # Si por alguna razón el filtro no trae nada, traemos todas las cuentas de detalle
                                 if df_cuentas_banco is None or df_cuentas_banco.empty:
                                     df_cuentas_banco = ejecutar_consulta("""
                                         SELECT codigo, nombre FROM plan_cuentas WHERE tipo = 'Detalle' ORDER BY codigo ASC
