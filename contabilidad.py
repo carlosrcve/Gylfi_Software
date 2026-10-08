@@ -14736,27 +14736,6 @@ estado: {sel_data['estado']}""", language="yaml")
                                     idx_seleccionado = opciones_planas.index(seleccion_usuario)
                                     fila_elegida = df_oc.iloc[idx_seleccionado]
 
-                                    st.markdown("##### 📝 Datos para el Movimiento Bancario:")
-                                    col1, col2 = st.columns(2)
-                                    
-                                    with col1:
-                                        val_ref = st.text_input("Referencia Bancaria", value=str(fila_elegida.get('referencia_banco', '')), key="flujo_ref")
-                                        
-                                        try:
-                                            monto_default = float(fila_elegida.get('monto_bruto', 0.0))
-                                        except:
-                                            monto_default = 0.0
-                                        val_monto = st.number_input("Monto", value=monto_default, format="%.2f", key="flujo_monto")
-                                        
-                                    with col2:
-                                        try:
-                                            f_default = pd.to_datetime(fila_elegida.get('fecha_emision')).date()
-                                        except:
-                                            f_default = pd.Timestamp.now().date()
-                                        val_fecha = st.date_input("Fecha", value=f_default, key="flujo_fecha")
-                                        
-                                        val_desc = st.text_input("Descripción", value=f"Cobro Factura {str(fila_elegida.get('n_factura', 'S/N'))}", key="flujo_desc")
-
                             except Exception as e_flujo:
                                 st.error("Error en módulo de movimientos bancarios: " + str(e_flujo))
                             
