@@ -14696,26 +14696,50 @@ estado: {sel_data['estado']}""", language="yaml")
                         with sub_tab4:
                             st.markdown("#### 🏦 Movimientos Bancarios - Pagos Pendientes de Registrar")
                             try:
-                                # Selector rápido o entrada para el banco y cuenta receptora por defecto
+                                # 1. Cargar las cuentas de Banco o Caja desde el Plan de Cuentas para el Banco Receptor
+                                df_cuentas_banco = ejecutar_consulta("""
+                                    SELECT codigo, nombre FROM plan_cuentas 
+                                    WHERE (nombre LIKE '%Banco%' OR nombre LIKE '%Caja%' OR codigo LIKE '1.1.1%' OR codigo LIKE '1.1.2%') 
+                                    AND tipo = 'Detalle'
+                                    ORDER BY codigo ASC
+                                """, conn_vis)
+
+                                # Si por alguna razón el filtro estricto no trae nada, traemos todas las cuentas de detalle para no trancar al usuario
+                                if df_cuentas_banco is None or df_cuentas_banco.empty:
+                                    df_cuentas_banco = ejecutar_consulta("""
+                                        SELECT codigo, nombre FROM plan_cuentas WHERE tipo = 'Detalle' ORDER BY codigo ASC
+                                    """, conn_vis)
+
+                                opciones_bancos_pc = []
+                                if df_cuentas_banco is not None and not df_cuentas_banco.empty:
+                                    for _, row_pc in df_cuentas_banco.iterrows():
+                                        opciones_bancos_pc.append(f"{row_pc['codigo']} - {row_pc['nombre']}")
+                                else:
+                                    opciones_bancos_pc = ["1.1.1.01 - Caja Principal", "1.1.2.01 - Banco Principal"]
+
                                 col_b1, col_b2 = st.columns(2)
                                 with col_b1:
-                                    banco_receptor_input = st.text_input("Banco Receptor", value="Banco Principal", key="input_banco_receptor")
+                                    cta_banco_sel = st.selectbox("Banco Receptor (Plan de Cuentas)", opciones_bancos_pc, key="sel_banco_receptor_pc")
                                 with col_b2:
-                                    cuenta_numero_input = st.text_input("Número de Cuenta", value="Principal", key="input_cuenta_numero")
+                                    cuenta_numero_input = st.text_input("Número de Cuenta / Referencia interna", value="Principal", key="input_cuenta_numero")
+
+                                # Extraer limpiamente el código y el nombre del banco seleccionado
+                                codigo_banco_sel = cta_banco_sel.split(" - ")[0] if " - " in cta_banco_sel else ""
+                                nombre_banco_sel = cta_banco_sel.split(" - ")[1] if " - " in cta_banco_sel else cta_banco_sel
 
                                 df_oc_bm = ejecutar_consulta("SELECT id, fecha_emision, n_factura, monto_bruto, referencia_banco FROM ordenes_cobranza WHERE referencia_banco IS NOT NULL AND referencia_banco != '' ORDER BY id DESC LIMIT 10", conn_vis)
                                 
                                 if df_oc_bm is not None and not df_oc_bm.empty:
-                                    # Construir el DataFrame usando las variables ingresadas con seguridad
+                                    # Construir el DataFrame usando la cuenta seleccionada del plan de cuentas
                                     df_frame_bm = pd.DataFrame({
                                         "id": df_oc_bm['id'],
-                                        "banco_nombre": banco_receptor_input,
+                                        "banco_nombre": nombre_banco_sel,
                                         "cuenta_numero": cuenta_numero_input,
                                         "fecha_movimiento": df_oc_bm['fecha_emision'],
                                         "referencia": df_oc_bm['referencia_banco'],
                                         "descripcion": [f"Cobro Factura {f}" for f in df_oc_bm['n_factura']],
                                         "monto": df_oc_bm['monto_bruto'],
-                                        "banco_receptor": banco_receptor_input,
+                                        "banco_receptor": nombre_banco_sel,
                                         "estado_conciliacion": "Conciliado",
                                         "asiento_id": None,
                                         "fecha_importacion": pd.Timestamp.now()
@@ -14732,7 +14756,6 @@ estado: {sel_data['estado']}""", language="yaml")
                                             conn_bm = conectar_db(db_actual)
                                             cur_bm = conn_bm.cursor()
                                             
-                                            # Incluimos explícitamente 'banco_receptor' en el INSERT según la estructura de la tabla
                                             cur_bm.execute("""
                                                 INSERT INTO banco_movimientos 
                                                 (banco_nombre, cuenta_numero, fecha_movimiento, referencia, descripcion, monto, banco_receptor, estado_conciliacion, asiento_id, fecha_importacion)
@@ -14753,7 +14776,7 @@ estado: {sel_data['estado']}""", language="yaml")
                                             cur_bm.close()
                                             conn_bm.close()
                                             
-                                            st.success("✅ ¡Movimiento bancario guardado con éxito con su estructura exacta!")
+                                            st.success("✅ ¡Movimiento bancario registrado exitosamente vinculado a su cuenta del Plan de Cuentas!")
                                             st.balloons()
                                             st.rerun()
                                             
