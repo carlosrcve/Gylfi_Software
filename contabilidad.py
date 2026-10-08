@@ -14018,189 +14018,6 @@ estado: {sel_data['estado']}""", language="yaml")
                     cli_info = dict_clientes[selected_cliente_label]
 
                     st.divider()
-                    st.markdown("#### 📋 Datos de la Factura y Control Fiscal")
-                    
-                    col_f1, col_f2, col_f3 = st.columns(3)
-                    with col_f1:
-                        nro_factura = st.text_input("2) Número de Factura", placeholder="Ej. 00001234", key="input_nro_factura").strip()
-                    with col_f2:
-                        nro_control = st.text_input("3) Número de Control", placeholder="Ej. 00-000012", key="input_nro_control").strip()
-                    with col_f3:
-                        fecha_emision = st.date_input("4) Fecha de Emisión", key="input_fecha_emision")
-
-                    # =========================================================================
-                    # 🛒 DETALLE DE ÍTEMS / LÍNEAS DE VENTA (BLOQUE ÚNICO Y CORREGIDO)
-                    # =========================================================================
-                    st.divider()
-                    st.markdown("#### 🛒 Detalle de Ítems / Líneas de Venta")
-                    st.markdown("Selecciona los productos del inventario y define la cantidad. El precio y el total se calculan automáticamente.")
-
-                    # Cargar catálogo de productos disponibles desde la base de datos MySQL
-                    df_catalogo_prod = None
-                    lista_opciones_productos = []
-                    dict_productos = {}
-
-                    try:
-                        conn_prod = conectar_db(db_actual)
-                        if conn_prod:
-                            df_catalogo_prod = ejecutar_consulta(
-                                "SELECT codigo_producto, descripcion, precio_unitario FROM producto ORDER BY descripcion ASC", 
-                                conn_prod
-                            )
-                            conn_prod.close()
-                            
-                            if df_catalogo_prod is not None and not df_catalogo_prod.empty:
-                                for _, prod_row in df_catalogo_prod.iterrows():
-                                    label_prod = f"{prod_row['codigo_producto']} - {prod_row['descripcion']} (${prod_row['precio_unitario']:,.2f})"
-                                    lista_opciones_productos.append(label_prod)
-                                    dict_productos[label_prod] = {
-                                        "codigo": prod_row['codigo_producto'],
-                                        "descripcion": prod_row['descripcion'],
-                                        "precio": float(prod_row['precio_unitario'])
-                                    }
-                    except Exception as e:
-                        st.error(f"Error al cargar el catálogo de productos: {e}")
-
-                    # Controlar el número de líneas de la factura en el session_state
-                    if "tab6_num_lineas_factura" not in st.session_state:
-                        st.session_state.tab6_num_lineas_factura = 1
-
-                    col_add_btn, col_del_btn = st.columns([1, 1])
-                    with col_add_btn:
-                        if st.button("➕ Agregar Línea de Producto", key="tab6_btn_agregar_linea"):
-                            st.session_state.tab6_num_lineas_factura += 1
-                            st.rerun()
-                    with col_del_btn:
-                        if st.session_state.tab6_num_lineas_factura > 1:
-                            if st.button("➖ Eliminar Última Línea", key="tab6_btn_eliminar_linea"):
-                                st.session_state.tab6_num_lineas_factura -= 1
-                                st.rerun()
-
-                    # Renderizar filas interactivas y acumular la base imponible real
-                    items_factura_guardar = []
-                    base_imponible_calculada = 0.0
-
-                    if lista_opciones_productos:
-                        for i in range(st.session_state.tab6_num_lineas_factura):
-                            st.markdown(f"**Renglón #{i+1}**")
-                            c1, c2, c3, c4 = st.columns([3, 1.5, 2, 2])
-                            
-                            with c1:
-                                prod_seleccionado = st.selectbox(
-                                    "Producto / Servicio", 
-                                    options=lista_opciones_productos, 
-                                    key=f"tab6_select_prod_{i}"
-                                )
-                            
-                            info_prod = dict_productos[prod_seleccionado]
-                            codigo_prod = info_prod["codigo"]
-                            desc_prod = info_prod["descripcion"]
-                            precio_unit = info_prod["precio"]
-                            
-                            with c2:
-                                cantidad = st.number_input(
-                                    "Cantidad", 
-                                    min_value=0.01, 
-                                    value=1.0, 
-                                    step=1.0, 
-                                    format="%.2f", 
-                                    key=f"tab6_cant_prod_{i}"
-                                )
-                            
-                            with c3:
-                                precio_final_unit = st.number_input(
-                                    "Precio Unitario ($)", 
-                                    min_value=0.0, 
-                                    value=precio_unit, 
-                                    format="%.2f", 
-                                    key=f"tab6_precio_prod_{i}"
-                                )
-                            
-                            with c4:
-                                total_linea = cantidad * precio_final_unit
-                                st.metric(label="Total Línea ($)", value=f"${total_linea:,.2f}")
-                            
-                            # Acumular estrictamente la base imponible por cada línea procesada
-                            base_imponible_calculada += total_linea
-                            
-                            items_factura_guardar.append({
-                                "Código": codigo_prod,
-                                "Descripción": desc_prod,
-                                "Cantidad": cantidad,
-                                "Precio Unitario": precio_final_unit,
-                                "Total ($)": total_linea
-                            })
-                            st.divider()
-                    else:
-                        st.warning("⚠️ No se encontraron productos registrados en la tabla `producto`.")
-                        base_imponible_calculada = 0.0
-
-                    import pandas as pd
-                    edited_items_df = pd.DataFrame(items_factura_guardar) if items_factura_guardar else pd.DataFrame(columns=["Código", "Descripción", "Cantidad", "Precio Unitario", "Total ($)"])
-                    # =========================================================================
-                    # 💰 DESGLOSE IMPOSITIVO Y TOTALES
-                    # =========================================================================
-                    st.markdown("#### 💰 Desglose Impositivo y Totales")
-
-                    col_m0, col_m1, col_m2, col_m3, col_m4 = st.columns(5)
-                    
-                    with col_m0:
-                        base_imponible_input = st.number_input(
-                            "Base Imponible", 
-                            value=float(base_imponible_calculada), 
-                            min_value=0.0, 
-                            format="%0.2f", 
-                            key="input_base_imp"
-                        )
-                    with col_m1:
-                        monto_exento = st.number_input(
-                            "Monto Exento", 
-                            min_value=0.0, 
-                            step=1.0, 
-                            format="%0.2f", 
-                            key="input_monto_ex"
-                        )
-                    with col_m2:
-                        alicuota_iva = st.selectbox(
-                            "Alícuota IVA (%)", 
-                            [16.0, 8.0, 0.0], 
-                            index=0, 
-                            key="select_alicuota"
-                        )
-
-                    # Cálculos fiscales exactos (Base Imponible + Exento + IVA)
-                    calc_iva = base_imponible_input * (alicuota_iva / 100.0)
-                    calc_bruto = base_imponible_input + float(monto_exento) + calc_iva
-
-                    with col_m3:
-                        st.metric(label="Monto IVA", value=f"${calc_iva:,.2f}")
-
-                    with col_m4:
-                        st.metric(label="Monto Total Factura", value=f"${calc_bruto:,.2f}")
-
-                    # Asignar la variable base_imponible para mantener compatibilidad con el resto del código hacia abajo
-                    base_imponible = base_imponible_input
-                    monto_iva = calc_iva
-                    monto_bruto = calc_bruto
-
-                    st.info(f"📊 **Resumen Fiscal:** Base Imponible (Ítems): ${base_imponible:,.2f} | Exento: ${monto_exento:,.2f} | IVA ({alicuota_iva}%): ${monto_iva:,.2f} | Total Bruto: ${monto_bruto:,.2f}")
-                    st.divider()
-
-                    dict_bancos = {}
-                    try:
-                        conn_pc = conectar_db(db_actual)
-                        if conn_pc:
-                            query_pc = "SELECT codigo, nombre FROM plan_cuentas WHERE tipo = 'Detalle' AND (codigo LIKE '101%%' OR nombre LIKE '%%Banco%%' OR nombre LIKE '%%Caja%%') ORDER BY nombre ASC"
-                            df_bancos = ejecutar_consulta(query_pc, conn_pc)
-                            conn_pc.close()
-                            
-                            if df_bancos is not None and not df_bancos.empty:
-                                for _, r_b in df_bancos.iterrows():
-                                    lbl_b = f"{r_b['codigo']} - {r_b['nombre']}"
-                                    dict_bancos[lbl_b] = r_b['nombre']
-                    except Exception:
-                        pass
-
                     # Inicializar el estado de la sesión para el flujo de la factura
                     if "factura_guardada_paso1" not in st.session_state:
                         st.session_state.factura_guardada_paso1 = False
@@ -14211,10 +14028,176 @@ estado: {sel_data['estado']}""", language="yaml")
                     # =========================================================================
                     if not st.session_state.factura_guardada_paso1:
                         
-                        # ... [Aquí va tu código actual de inputs de factura, tabla de ítems y cálculos] ...
+                        st.markdown("#### 📋 Datos de la Factura y Control Fiscal")
                         
+                        col_f1, col_f2, col_f3 = st.columns(3)
+                        with col_f1:
+                            nro_factura = st.text_input("2) Número de Factura", placeholder="Ej. 00001234", key="input_nro_factura").strip()
+                        with col_f2:
+                            nro_control = st.text_input("3) Número de Control", placeholder="Ej. 00-000012", key="input_nro_control").strip()
+                        with col_f3:
+                            fecha_emision = st.date_input("4) Fecha de Emisión", key="input_fecha_emision")
+
+                        # =========================================================================
+                        # 🛒 DETALLE DE ÍTEMS / LÍNEAS DE VENTA
+                        # =========================================================================
                         st.divider()
+                        st.markdown("#### 🛒 Detalle de Ítems / Líneas de Venta")
+                        st.markdown("Selecciona los productos del inventario y define la cantidad. El precio y el total se calculan automáticamente.")
+
+                        # Cargar catálogo de productos disponibles desde la base de datos MySQL
+                        df_catalogo_prod = None
+                        lista_opciones_productos = []
+                        dict_productos = {}
+
+                        try:
+                            conn_prod = conectar_db(db_actual)
+                            if conn_prod:
+                                df_catalogo_prod = ejecutar_consulta(
+                                    "SELECT codigo_producto, descripcion, precio_unitario FROM producto ORDER BY descripcion ASC", 
+                                    conn_prod
+                                )
+                                conn_prod.close()
+                                
+                                if df_catalogo_prod is not None and not df_catalogo_prod.empty:
+                                    for _, prod_row in df_catalogo_prod.iterrows():
+                                        label_prod = f"{prod_row['codigo_producto']} - {prod_row['descripcion']} (${prod_row['precio_unitario']:,.2f})"
+                                        lista_opciones_productos.append(label_prod)
+                                        dict_productos[label_prod] = {
+                                            "codigo": prod_row['codigo_producto'],
+                                            "descripcion": prod_row['descripcion'],
+                                            "precio": float(prod_row['precio_unitario'])
+                                        }
+                        except Exception as e:
+                            st.error(f"Error al cargar el catálogo de productos: {e}")
+
+                        # Controlar el número de líneas de la factura en el session_state
+                        if "tab6_num_lineas_factura" not in st.session_state:
+                            st.session_state.tab6_num_lineas_factura = 1
+
+                        col_add_btn, col_del_btn = st.columns([1, 1])
+                        with col_add_btn:
+                            if st.button("➕ Agregar Línea de Producto", key="tab6_btn_agregar_linea"):
+                                st.session_state.tab6_num_lineas_factura += 1
+                                st.rerun()
+                        with col_del_btn:
+                            if st.session_state.tab6_num_lineas_factura > 1:
+                                if st.button("➖ Eliminar Última Línea", key="tab6_btn_eliminar_linea"):
+                                    st.session_state.tab6_num_lineas_factura -= 1
+                                    st.rerun()
+
+                        # Renderizar filas interactivas y acumular la base imponible real
+                        items_factura_guardar = []
+                        base_imponible_calculada = 0.0
+
+                        if lista_opciones_productos:
+                            for i in range(st.session_state.tab6_num_lineas_factura):
+                                st.markdown(f"**Renglón #{i+1}**")
+                                c1, c2, c3, c4 = st.columns([3, 1.5, 2, 2])
+                                
+                                with c1:
+                                    prod_seleccionado = st.selectbox(
+                                        "Producto / Servicio", 
+                                        options=lista_opciones_productos, 
+                                        key=f"tab6_select_prod_{i}"
+                                    )
+                                
+                                info_prod = dict_productos[prod_seleccionado]
+                                codigo_prod = info_prod["codigo"]
+                                desc_prod = info_prod["descripcion"]
+                                precio_unit = info_prod["precio"]
+                                
+                                with c2:
+                                    cantidad = st.number_input(
+                                        "Cantidad", 
+                                        min_value=0.01, 
+                                        value=1.0, 
+                                        step=1.0, 
+                                        format="%.2f", 
+                                        key=f"tab6_cant_prod_{i}"
+                                    )
+                                
+                                with c3:
+                                    precio_final_unit = st.number_input(
+                                        "Precio Unitario ($)", 
+                                        min_value=0.0, 
+                                        value=precio_unit, 
+                                        format="%.2f", 
+                                        key=f"tab6_precio_prod_{i}"
+                                    )
+                                
+                                with c4:
+                                    total_linea = cantidad * precio_final_unit
+                                    st.metric(label="Total Línea ($)", value=f"${total_linea:,.2f}")
+                                
+                                base_imponible_calculada += total_linea
+                                
+                                items_factura_guardar.append({
+                                    "Código": codigo_prod,
+                                    "Descripción": desc_prod,
+                                    "Cantidad": cantidad,
+                                    "Precio Unitario": precio_final_unit,
+                                    "Total ($)": total_linea
+                                })
+                                st.divider()
+                        else:
+                            st.warning("⚠️ No se encontraron productos registrados en la tabla `producto`.")
+                            base_imponible_calculada = 0.0
+
+                        import pandas as pd
+                        edited_items_df = pd.DataFrame(items_factura_guardar) if items_factura_guardar else pd.DataFrame(columns=["Código", "Descripción", "Cantidad", "Precio Unitario", "Total ($)"])
+
+                        # =========================================================================
+                        # 💰 DESGLOSE IMPOSITIVO Y TOTALES
+                        # =========================================================================
+                        st.markdown("#### 💰 Desglose Impositivo y Totales")
+
+                        col_m0, col_m1, col_m2, col_m3, col_m4 = st.columns(5)
                         
+                        with col_m0:
+                            base_imponible_input = st.number_input(
+                                "Base Imponible", 
+                                value=float(base_imponible_calculada), 
+                                min_value=0.0, 
+                                format="%0.2f", 
+                                key="input_base_imp"
+                            )
+                        with col_m1:
+                            monto_exento = st.number_input(
+                                "Monto Exento", 
+                                min_value=0.0, 
+                                step=1.0, 
+                                format="%0.2f", 
+                                key="input_monto_ex"
+                            )
+                        with col_m2:
+                            alicuota_iva = st.selectbox(
+                                "Alícuota IVA (%)", 
+                                [16.0, 8.0, 0.0], 
+                                index=0, 
+                                key="select_alicuota"
+                            )
+
+                        # Cálculos fiscales exactos (Base Imponible + Exento + IVA)
+                        calc_iva = base_imponible_input * (alicuota_iva / 100.0)
+                        calc_bruto = base_imponible_input + float(monto_exento) + calc_iva
+
+                        with col_m3:
+                            st.metric(label="Monto IVA", value=f"${calc_iva:,.2f}")
+
+                        with col_m4:
+                            st.metric(label="Monto Total Factura", value=f"${calc_bruto:,.2f}")
+
+                        base_imponible = base_imponible_input
+                        monto_iva = calc_iva
+                        monto_bruto = calc_bruto
+
+                        st.info(f"📊 **Resumen Fiscal:** Base Imponible (Ítems): ${base_imponible:,.2f} \vert{} Exento:${monto_exento:,.2f} | IVA ({alicuota_iva}%): ${monto_iva:,.2f} \vert{} Total Bruto:${monto_bruto:,.2f}")
+                        st.divider()
+
+                        # =========================================================================
+                        # 🚀 BOTÓN PARA GUARDAR LA FACTURA Y PASAR A COBRANZA
+                        # =========================================================================
                         if st.button("🚀 Guardar Factura", type="primary", use_container_width=True, key="btn_guardar_factura_pura"):
                             if nro_factura and nro_control:
                                 try:
@@ -14271,6 +14254,21 @@ estado: {sel_data['estado']}""", language="yaml")
                         st.success(f"📄 Factura Nro. **{st.session_state.nro_factura_registrada}** guardada correctamente.")
                         st.markdown("### 🏦 Registrar Orden de Cobranza (Pago Recibido)")
                         st.info("La factura ya se encuentra en el sistema. Si el cliente ya pagó, ingrese los datos bancarios para registrar la orden de cobranza de inmediato.")
+
+                        dict_bancos = {}
+                        try:
+                            conn_pc = conectar_db(db_actual)
+                            if conn_pc:
+                                query_pc = "SELECT codigo, nombre FROM plan_cuentas WHERE tipo = 'Detalle' AND (codigo LIKE '101%%' OR nombre LIKE '%%Banco%%' OR nombre LIKE '%%Caja%%') ORDER BY nombre ASC"
+                                df_bancos = ejecutar_consulta(query_pc, conn_pc)
+                                conn_pc.close()
+                                
+                                if df_bancos is not None and not df_bancos.empty:
+                                    for _, r_b in df_bancos.iterrows():
+                                        lbl_b = f"{r_b['codigo']} - {r_b['nombre']}"
+                                        dict_bancos[lbl_b] = r_b['nombre']
+                        except Exception:
+                            pass
 
                         col_b1, col_b2 = st.columns(2)
                         with col_b1:
