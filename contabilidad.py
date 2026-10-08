@@ -14696,17 +14696,26 @@ estado: {sel_data['estado']}""", language="yaml")
                         with sub_tab4:
                             st.markdown("#### 🏦 Movimientos Bancarios - Pagos Pendientes de Registrar")
                             try:
+                                # Selector rápido o entrada para el banco y cuenta receptora por defecto
+                                col_b1, col_b2 = st.columns(2)
+                                with col_b1:
+                                    banco_receptor_input = st.text_input("Banco Receptor", value="Banco Principal", key="input_banco_receptor")
+                                with col_b2:
+                                    cuenta_numero_input = st.text_input("Número de Cuenta", value="Principal", key="input_cuenta_numero")
+
                                 df_oc_bm = ejecutar_consulta("SELECT id, fecha_emision, n_factura, monto_bruto, referencia_banco FROM ordenes_cobranza WHERE referencia_banco IS NOT NULL AND referencia_banco != '' ORDER BY id DESC LIMIT 10", conn_vis)
                                 
                                 if df_oc_bm is not None and not df_oc_bm.empty:
+                                    # Construir el DataFrame usando las variables ingresadas con seguridad
                                     df_frame_bm = pd.DataFrame({
                                         "id": df_oc_bm['id'],
-                                        "banco_nombre": banco_receptor if banco_receptor else "Banco Principal",
-                                        "cuenta_numero": "Principal",
+                                        "banco_nombre": banco_receptor_input,
+                                        "cuenta_numero": cuenta_numero_input,
                                         "fecha_movimiento": df_oc_bm['fecha_emision'],
                                         "referencia": df_oc_bm['referencia_banco'],
                                         "descripcion": [f"Cobro Factura {f}" for f in df_oc_bm['n_factura']],
                                         "monto": df_oc_bm['monto_bruto'],
+                                        "banco_receptor": banco_receptor_input,
                                         "estado_conciliacion": "Conciliado",
                                         "asiento_id": None,
                                         "fecha_importacion": pd.Timestamp.now()
@@ -14722,20 +14731,32 @@ estado: {sel_data['estado']}""", language="yaml")
                                         try:
                                             conn_bm = conectar_db(db_actual)
                                             cur_bm = conn_bm.cursor()
+                                            
+                                            # Incluimos explícitamente 'banco_receptor' en el INSERT según la estructura de la tabla
                                             cur_bm.execute("""
-                                                INSERT INTO banco_movimientos (banco_nombre, cuenta_numero, fecha_movimiento, referencia, descripcion, monto, estado_conciliacion, asiento_id, fecha_importacion)
-                                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                                                INSERT INTO banco_movimientos 
+                                                (banco_nombre, cuenta_numero, fecha_movimiento, referencia, descripcion, monto, banco_receptor, estado_conciliacion, asiento_id, fecha_importacion)
+                                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
                                             """, (
-                                                banco_receptor if banco_receptor else "Banco Principal", "Principal",
-                                                selected_row_bm['fecha_movimiento'], selected_row_bm['referencia'],
-                                                f"Cobro Factura {selected_row_bm['referencia']}", selected_row_bm['monto'],
-                                                "Conciliado", None
+                                                selected_row_bm['banco_nombre'], 
+                                                selected_row_bm['cuenta_numero'],
+                                                selected_row_bm['fecha_movimiento'], 
+                                                selected_row_bm['referencia'],
+                                                selected_row_bm['descripcion'], 
+                                                selected_row_bm['monto'],
+                                                selected_row_bm['banco_receptor'],
+                                                selected_row_bm['estado_conciliacion'], 
+                                                selected_row_bm['asiento_id']
                                             ))
+                                            
                                             conn_bm.commit()
                                             cur_bm.close()
                                             conn_bm.close()
+                                            
                                             st.success("✅ ¡Movimiento bancario guardado con éxito con su estructura exacta!")
+                                            st.balloons()
                                             st.rerun()
+                                            
                                         except Exception as err_ins_bm:
                                             st.error(f"❌ Error al guardar en banco_movimientos: {err_ins_bm}")
                                 else:
