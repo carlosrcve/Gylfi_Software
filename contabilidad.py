@@ -14365,11 +14365,12 @@ estado: {sel_data['estado']}""", language="yaml")
 
                     conn_vis = conectar_db(db_actual)
                     if conn_vis:
+                        
                         # -------------------------------------------------------------
-                        # SUB-TAB 1: Órdenes de Cobranza (Consulta, Edición y Eliminación)
+                        # SUB-TAB 1: Órdenes de Cobranza (Consulta, Frame Visual, Edición y Eliminación)
                         # -------------------------------------------------------------
                         with sub_tab1:
-                            st.markdown("#### 📋 Gestión de Órdenes de Cobranza")
+                            st.markdown("#### 📋 Gestión y Auditoría de Órdenes de Cobranza")
                             try:
                                 query_oc_all = (
                                     "SELECT id, fecha_emision, n_factura, n_control, rif_cliente, "
@@ -14399,17 +14400,43 @@ estado: {sel_data['estado']}""", language="yaml")
                                         label_m = f"ID #{oc_id_m} | Factura: {fac_m} | RIF: {rif_m} | Total: ${monto_m:,.2f}"
                                         opciones_oc_master[label_m] = oc_id_m
 
-                                    sel_label_m = st.selectbox("Seleccione la Orden de Cobranza a Gestionar (Editar / Eliminar)", list(opciones_oc_master.keys()), key="sel_oc_master_label")
+                                    sel_label_m = st.selectbox("Seleccione la Orden de Cobranza a Gestionar", list(opciones_oc_master.keys()), key="sel_oc_master_label")
                                     selected_oc_id_m = opciones_oc_master[sel_label_m]
 
                                     # Filtrar exactamente la fila seleccionada
                                     df_oc_master['id_int'] = df_oc_master['id'].apply(lambda x: int(float(x)) if x is not None else 0)
                                     row_sel_m = df_oc_master[df_oc_master['id_int'] == selected_oc_id_m].iloc[0]
 
-                                    st.markdown("---")
-                                    st.markdown(f"##### 🛠️ Editando / Administrando Orden de Cobranza ID #{selected_oc_id_m}")
+                                    # 2. Frame de Visualización Actual (para ver cómo está la orden seleccionada)
+                                    st.markdown(f"##### 📊 Frame Actual de la Orden de Cobranza ID #{selected_oc_id_m}")
+                                    
+                                    # Convertimos la fila seleccionada en un DataFrame de una sola línea para el frame
+                                    df_single_preview = pd.DataFrame([row_sel_m])
+                                    
+                                    st.dataframe(
+                                        df_single_preview,
+                                        use_container_width=True,
+                                        hide_index=True,
+                                        column_config={
+                                            "id": st.column_config.NumberColumn("ID", format="%d"),
+                                            "fecha_emision": st.column_config.DateColumn("Fecha Emisión", format="YYYY-MM-DD"),
+                                            "n_factura": st.column_config.TextColumn("N° Factura"),
+                                            "n_control": st.column_config.TextColumn("N° Control"),
+                                            "rif_cliente": st.column_config.TextColumn("RIF Cliente"),
+                                            "base_imponible": st.column_config.NumberColumn("Base Imponible", format="%,.2f"),
+                                            "monto_exento": st.column_config.NumberColumn("Monto Exento", format="%,.2f"),
+                                            "porcentaje_alicuota": st.column_config.NumberColumn("Alícuota %", format="%,.1f%%"),
+                                            "monto_iva": st.column_config.NumberColumn("Monto IVA", format="%,.2f"),
+                                            "monto_bruto": st.column_config.NumberColumn("Monto Bruto / Total", format="%,.2f"),
+                                            "estado_cobro": st.column_config.TextColumn("Estado Cobro"),
+                                            "referencia_banco": st.column_config.TextColumn("Ref. Banco")
+                                        }
+                                    )
 
-                                    # 2. Formulario de Edición con campos estructurados
+                                    st.markdown("---")
+                                    st.markdown(f"##### 🛠️ Edición de la Orden de Cobranza ID #{selected_oc_id_m}")
+
+                                    # 3. Formulario de Edición con campos estructurados
                                     with st.form(key=f"form_editar_oc_{selected_oc_id_m}"):
                                         col_e1, col_e2 = st.columns(2)
                                         
@@ -14461,7 +14488,7 @@ estado: {sel_data['estado']}""", language="yaml")
                                         st.markdown("")
                                         btn_actualizar = st.form_submit_button("💾 Actualizar Orden de Cobranza")
 
-                                    # 3. Procesar Actualización en Base de Datos
+                                    # 4. Procesar Actualización en Base de Datos
                                     if btn_actualizar:
                                         try:
                                             conn_upd = conectar_db(db_actual)
@@ -14492,7 +14519,7 @@ estado: {sel_data['estado']}""", language="yaml")
 
                                     st.markdown("---")
                                     
-                                    # 4. Sección de Eliminación Segura
+                                    # 5. Sección de Eliminación Segura
                                     with st.expander("⚠️ Zona de Peligro - Eliminar Orden de Cobranza"):
                                         st.warning("Eliminar esta orden de cobranza desvinculará el registro. Asegúrese de que no posea asientos contables críticos asociados.")
                                         confirmar_borrado = st.checkbox("Confirmo que deseo eliminar permanentemente esta orden de cobranza", key=f"chk_del_{selected_oc_id_m}")
