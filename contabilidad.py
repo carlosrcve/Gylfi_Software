@@ -4072,7 +4072,7 @@ def obtener_detalle_comprobante(id_registro):
                 conn.ping(reconnect=True)
             except Exception:
                 pass
-            
+
 def eliminar_registro_retencion(id_registro):
     db_actual = st.session_state.get('DB_ACTUAL')
     conn = conectar_db(db_actual)
@@ -4554,7 +4554,7 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
 
                             # 2. Cambiamos la etiqueta superior para indicar que es la dirección del proveedor
                             pdf.set_font("Arial", "", 8)
-                            pdf.text(17, 59, "Dirección Fiscal del Sujeto Retenido (Proveedor):")
+                            pdf.text(17, 59, "Dirección Fiscal del Agente de Retencion:")
 
                             # 3. Configuramos la fuente pequeña para el texto
                             pdf.set_font("Arial", "", 7)
@@ -4563,7 +4563,7 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                             pdf.set_xy(17, 61) 
 
                             # 5. Obtenemos la dirección del proveedor directamente desde MySQL (d)
-                            domicilio_real = str(d.get('direccion_fiscal_proveedor') or 'SIN DIRECCIÓN REGISTRADA EN BASE DE DATOS')
+                            domicilio_real = str(d.get('Direccion_FiscalAgente_Retencion') or 'SIN DIRECCIÓN REGISTRADA EN BASE DE DATOS')
 
                             # 6. Imprimimos con multi_cell usando el ancho del recuadro (170)
                             pdf.multi_cell(170, 3.2, domicilio_real.upper())
