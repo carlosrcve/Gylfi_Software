@@ -4686,7 +4686,6 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                                     tot_gen_ret8 += r8
 
                                 # Capturamos el valor probando todas las posibles variaciones de la llave
-                                # Capturamos el número de factura afectada de forma segura desde la fila actual
                                 fac_afectada = str(
                                     d_row.get('NFactura_Afectada') or 
                                     d_row.get('nfactura_afectada') or 
@@ -4697,10 +4696,11 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                                     fac_afectada = ""
 
                                 if tiene_notas:
-                                    pdf.cell(w[1], 4, tipo_doc, 1, 0, 'C')
-                                    pdf.cell(w[2], 4, nro_doc, 1, 0, 'C')
-                                    pdf.cell(w[3], 4, nro_ctrl, 1, 0, 'C')
-                                    pdf.cell(w[4], 4, fac_afectada, 1, 0, 'C') # <-- AQUí VA LA FACTURA AFECTADA CORRECTA
+                                    # Usamos la variable que ya tenías para el tipo y el número de documento original
+                                    pdf.cell(w[1], 4, str(d_row.get('tipo', tipo_doc_calculado if 'tipo_doc_calculado' in locals() else '03')), 1, 0, 'C')
+                                    pdf.cell(w[2], 4, str(d_row.get('Numero_Factura', '')), 1, 0, 'C')
+                                    pdf.cell(w[3], 4, str(d_row.get('Numero_Contro', '')), 1, 0, 'C')
+                                    pdf.cell(w[4], 4, fac_afectada, 1, 0, 'C') # <--- AQUÍ VA LA FACTURA AFECTADA
                                     pdf.cell(w[5], 4, f"{total_fila:,.2f}", 1, 0, 'R')
                                     pdf.cell(w[6], 4, f"{exento:,.2f}", 1, 0, 'R')
                                     pdf.cell(w[7], 4, f"{b16:,.2f}", 1, 0, 'R')
@@ -4715,8 +4715,8 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                                     else:
                                         pdf.cell(w[10], 4, f"{valor_a_mostrar_r16:,.2f}", 1, 1, 'R', fill=True)
                                 else:
-                                    pdf.cell(w[1], 4, nro_doc, 1, 0, 'C')
-                                    pdf.cell(w[2], 4, nro_ctrl, 1, 0, 'C')
+                                    pdf.cell(w[1], 4, str(d_row.get('Numero_Factura', '')), 1, 0, 'C')
+                                    pdf.cell(w[2], 4, str(d_row.get('Numero_Contro', '')), 1, 0, 'C')
                                     pdf.cell(w[3], 4, f"{total_fila:,.2f}", 1, 0, 'R')
                                     pdf.cell(w[4], 4, f"{exento:,.2f}", 1, 0, 'R')
                                     pdf.cell(w[5], 4, f"{b16:,.2f}", 1, 0, 'R')
