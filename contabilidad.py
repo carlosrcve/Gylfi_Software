@@ -4023,7 +4023,8 @@ def obtener_detalle_comprobante(id_registro):
         
         cursor = conn.cursor()
         
-        # CONSULTA EXPLÍCITA ACTUALIZADA CON CAMPOS DE NOTAS Y FACTURA AFECTADA
+        # CONSULTA SEGURA: Extraemos los campos principales de retenciones_iva 
+        # y cruzamos con libro_compras o proveedores de manera flexible para no rompernos si falta una columna.
         query = """
             SELECT 
                 r.id, 
@@ -4047,13 +4048,14 @@ def obtener_detalle_comprobante(id_registro):
                 r.IVA_Retenido, 
                 r.IVA_8, 
                 r.RET_IVA_8,
-                r.tipo_documento,
-                r.nota_credito,
-                r.nota_debito,
-                r.n_factura_afectada,
+                COALESCE(lc.tipo_documento, '01') AS tipo_documento,
+                lc.nota_credito,
+                lc.nota_debito,
+                lc.n_factura_afectada,
                 COALESCE(p.direccion_fiscal, 'DIRECCIÓN NO REGISTRADA EN PROVEEDORES') AS direccion_fiscal_proveedor
             FROM retenciones_iva r
             LEFT JOIN proveedores p ON TRIM(r.RIF_Sujeto_Retenido) = TRIM(p.rif)
+            LEFT JOIN libro_compras lc ON (TRIM(r.Numero_Factura) = TRIM(lc.n_factura) AND TRIM(r.RIF_Sujeto_Retenido) = TRIM(lc.rif))
             WHERE r.N_Comprobante1 = (SELECT N_Comprobante1 FROM retenciones_iva WHERE id = %s)
         """
         
@@ -4076,7 +4078,6 @@ def obtener_detalle_comprobante(id_registro):
                 conn.ping(reconnect=True)
             except Exception:
                 pass
-
 def eliminar_registro_retencion(id_registro):
     db_actual = st.session_state.get('DB_ACTUAL')
     conn = conectar_db(db_actual)
