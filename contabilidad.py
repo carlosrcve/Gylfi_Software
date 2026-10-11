@@ -16264,148 +16264,148 @@ elif opcion_menu == "📚 Libros Fiscales":
                 else:
                     st.success("🎉 ¡Todos los documentos en la cola ya han sido procesados y registrados!")
             with tab6:
-            st.subheader("📝 Gestión de Notas de Crédito y Débito")
-            st.info("💡 **Flujo Fiscal:** Consulta el libro de compras por fecha, selecciona la factura a afectar y genera su documento de ajuste asociado.")
+                st.subheader("📝 Gestión de Notas de Crédito y Débito")
+                st.info("💡 **Flujo Fiscal:** Consulta el libro de compras por fecha, selecciona la factura a afectar y genera su documento de ajuste asociado.")
 
-            # --- PASO 1: FILTRO POR RANGO DE FECHAS ---
-            st.markdown("#### 1️⃣ Seleccionar Periodo del Libro de Compras")
-            col_f1, col_f2, col_f3 = st.columns([2, 2, 1])
-            with col_f1:
-                fecha_desde = st.date_input("Desde", key="nc_fecha_desde")
-            with col_f2:
-                fecha_hasta = st.date_input("Hasta", key="nc_fecha_hasta")
-            with col_f3:
-                st.markdown("<br>", unsafe_allow_html=True)
-                btn_consultar_lc = st.button("🔍 Consultar", key="btn_consultar_lc_nc")
+                # --- PASO 1: FILTRO POR RANGO DE FECHAS ---
+                st.markdown("#### 1️⃣ Seleccionar Periodo del Libro de Compras")
+                col_f1, col_f2, col_f3 = st.columns([2, 2, 1])
+                with col_f1:
+                    fecha_desde = st.date_input("Desde", key="nc_fecha_desde")
+                with col_f2:
+                    fecha_hasta = st.date_input("Hasta", key="nc_fecha_hasta")
+                with col_f3:
+                    st.markdown("<br>", unsafe_allow_html=True)
+                    btn_consultar_lc = st.button("🔍 Consultar", key="btn_consultar_lc_nc")
 
-            if btn_consultar_lc:
-                try:
-                    conn = conectar_db(db_actual)
-                    if conn:
-                        query_lc = """
-                            SELECT id, fecha_operacion, tipo_documento, n_factura, n_control, 
-                                   proveedor, rif, total_compras, importe_exento, base_imponible, iva_monto 
-                            FROM libro_compras 
-                            WHERE fecha_operacion BETWEEN %s AND %s
-                            ORDER BY fecha_operacion DESC
-                        """
-                        df_lc_resultado = pd.read_sql(query_lc, con=conn, params=(fecha_desde, fecha_hasta))
-                        if not df_lc_resultado.empty:
-                            st.session_state.df_nc_libro_compras = df_lc_resultado
-                            st.success(f"✅ Se encontraron {len(df_lc_resultado)} registros en el periodo.")
-                        else:
-                            st.warning("⚠️ No se encontraron facturas en el rango de fechas seleccionado.")
-                            if "df_nc_libro_compras" in st.session_state:
-                                del st.session_state.df_nc_libro_compras
-                except Exception as e:
-                    st.error(f"❌ Error al consultar la base de datos: {e}")
-                finally:
-                    if 'conn' in locals() and conn:
-                        conn.close()
-
-            # --- PASO 2: MOSTRAR TABLA Y SELECCIONAR FACTURA A AFECTAR ---
-            if "df_nc_libro_compras" in st.session_state and not st.session_state.df_nc_libro_compras.empty:
-                st.markdown("---")
-                st.markdown("#### 2️⃣ Selecciona la Factura que será Afectada")
-                
-                df_select = st.session_state.df_nc_libro_compras.copy()
-                df_select.insert(0, "Seleccionar", False)
-
-                # Editor interactivo con checkbox de selección
-                df_seleccionado_usuario = st.data_editor(
-                    df_select,
-                    key="editor_seleccion_factura_nc",
-                    hide_index=True,
-                    column_config={
-                        "Seleccionar": st.column_config.CheckboxColumn("Seleccionar", required=True),
-                        "fecha_operacion": st.column_config.DateColumn("F. Operación"),
-                        "total_compras": st.column_config.NumberColumn("Total", format="%,.2f"),
-                        "base_imponible": st.column_config.NumberColumn("Base Imponible", format="%,.2f"),
-                        "iva_monto": st.column_config.NumberColumn("IVA Monto", format="%,.2f")
-                    },
-                    disabled=["id", "fecha_operacion", "tipo_documento", "n_factura", "n_control", "proveedor", "rif", "total_compras", "importe_exento", "base_imponible", "iva_monto"]
-                )
-
-                # Filtrar la fila seleccionada
-                filas_elegidas = df_seleccionado_usuario[df_seleccionado_usuario["Seleccionar"] == True]
-
-                if len(filas_elegidas) == 1:
-                    factura_base = filas_elegidas.iloc[0]
-                    st.session_state.factura_seleccionada_nc = factura_base
-                    st.info(f"📌 **Factura seleccionada:** Nº {factura_base['n_factura']} | Proveedor: {factura_base['proveedor']}")
-                elif len(filas_elegidas) > 1:
-                    st.warning("⚠️ Por favor selecciona **solo una** factura para aplicarle el documento de ajuste.")
-                
-                # --- PASO 3: FRAME NUEVO PARA AGREGAR LA NOTA HEREDANDO MONTOS ---
-                if "factura_seleccionada_nc" in st.session_state:
-                    fac = st.session_state.factura_seleccionada_nc
-                    
-                    st.markdown("---")
-                    st.markdown("#### 3️⃣ Datos del Documento de Ajuste (Nota de Crédito / Débito)")
-                    
-                    with st.form("form_crear_nota_fiscal"):
-                        col_t1, col_t2 = st.columns(2)
-                        with col_t1:
-                            tipo_ajuste = st.selectbox("Tipo de Ajuste", ["Nota de Crédito", "Nota de Débito"])
-                        with col_t2:
-                            nro_documento_ajuste = st.text_input("Nº de Nota (Crédito o Débito)", placeholder="Ej: NC-000123")
-
-                        st.markdown(f"**Factura Afectada:** `{fac['n_factura']}` | **RIF Proveedor:** `{fac['rif']}` ({fac['proveedor']})")
-                        
-                        # Definimos si los montos van negativos (caso Nota de Crédito resta) o positivos
-                        multiplicador = -1.0 if tipo_ajuste == "Nota de Crédito" else 1.0
-
-                        col_m1, col_m2, col_m3, col_m4 = st.columns(4)
-                        with col_m1:
-                            monto_tot = fac['total_compras'] * multiplicador
-                            st.metric("Total Ajuste", f"{monto_tot:,.2f}")
-                        with col_m2:
-                            monto_base = fac['base_imponible'] * multiplicador
-                            st.metric("Base Imponible", f"{monto_base:,.2f}")
-                        with col_m3:
-                            monto_iva = fac['iva_monto'] * multiplicador
-                            st.metric("IVA Monto", f"{monto_iva:,.2f}")
-                        with col_m4:
-                            monto_exento = fac['importe_exento'] * multiplicador
-                            st.metric("Importe Exento", f"{monto_exento:,.2f}")
-
-                        btn_guardar_nota_db = st.form_submit_button("🚀 Registrar Nota de Ajuste en DB", type="primary")
-
-                        if btn_guardar_nota_db:
-                            if not nro_documento_ajuste.strip():
-                                st.error("❌ Debes ingresar el número de la Nota de Crédito o Débito.")
+                if btn_consultar_lc:
+                    try:
+                        conn = conectar_db(db_actual)
+                        if conn:
+                            query_lc = """
+                                SELECT id, fecha_operacion, tipo_documento, n_factura, n_control, 
+                                       proveedor, rif, total_compras, importe_exento, base_imponible, iva_monto 
+                                FROM libro_compras 
+                                WHERE fecha_operacion BETWEEN %s AND %s
+                                ORDER BY fecha_operacion DESC
+                            """
+                            df_lc_resultado = pd.read_sql(query_lc, con=conn, params=(fecha_desde, fecha_hasta))
+                            if not df_lc_resultado.empty:
+                                st.session_state.df_nc_libro_compras = df_lc_resultado
+                                st.success(f"✅ Se encontraron {len(df_lc_resultado)} registros en el periodo.")
                             else:
-                                try:
-                                    engine = create_engine(f"mysql+mysqlconnector://{DB_CONFIG['user']}:{DB_CONFIG['password']}@{DB_CONFIG['host']}/{db_actual}")
-                                    
-                                    # Mapear columnas de inserción
-                                    data_insert = {
-                                        "fecha_operacion": datetime.now().strftime('%Y-%m-%d'),
-                                        "tipo_documento": "03" if tipo_ajuste == "Nota de Crédito" else "02",
-                                        "n_factura": fac['n_factura'],
-                                        "n_control": fac['n_control'],
-                                        "nota_credito": nro_documento_ajuste if tipo_ajuste == "Nota de Crédito" else None,
-                                        "nota_debito": nro_documento_ajuste if tipo_ajuste == "Nota de Débito" else None,
-                                        "proveedor": fac['proveedor'],
-                                        "rif": fac['rif'],
-                                        "total_compras": monto_tot,
-                                        "importe_exento": monto_exento,
-                                        "base_imponible": monto_base,
-                                        "iva_porcentaje": fac.get('iva_porcentaje', 16.0),
-                                        "iva_monto": monto_iva,
-                                        "tipo_transaccion": "01"
-                                    }
-                                    
-                                    df_to_save = pd.DataFrame([data_insert])
-                                    
-                                    with engine.begin() as conn_trans:
-                                        df_to_save.to_sql('libro_compras', con=conn_trans, if_exists='append', index=False)
-                                    
-                                    st.success(f"✅ ¡{tipo_ajuste} {nro_documento_ajuste} guardada y vinculada exitosamente a la factura {fac['n_factura']}!")
-                                    if "factura_seleccionada_nc" in st.session_state:
-                                        del st.session_state.factura_seleccionada_nc
-                                except Exception as e:
-                                    st.error(f"❌ Error al registrar el ajuste en la base de datos: {e}")
+                                st.warning("⚠️ No se encontraron facturas en el rango de fechas seleccionado.")
+                                if "df_nc_libro_compras" in st.session_state:
+                                    del st.session_state.df_nc_libro_compras
+                    except Exception as e:
+                        st.error(f"❌ Error al consultar la base de datos: {e}")
+                    finally:
+                        if 'conn' in locals() and conn:
+                            conn.close()
+
+                # --- PASO 2: MOSTRAR TABLA Y SELECCIONAR FACTURA A AFECTAR ---
+                if "df_nc_libro_compras" in st.session_state and not st.session_state.df_nc_libro_compras.empty:
+                    st.markdown("---")
+                    st.markdown("#### 2️⃣ Selecciona la Factura que será Afectada")
+                    
+                    df_select = st.session_state.df_nc_libro_compras.copy()
+                    df_select.insert(0, "Seleccionar", False)
+
+                    # Editor interactivo con checkbox de selección
+                    df_seleccionado_usuario = st.data_editor(
+                        df_select,
+                        key="editor_seleccion_factura_nc",
+                        hide_index=True,
+                        column_config={
+                            "Seleccionar": st.column_config.CheckboxColumn("Seleccionar", required=True),
+                            "fecha_operacion": st.column_config.DateColumn("F. Operación"),
+                            "total_compras": st.column_config.NumberColumn("Total", format="%,.2f"),
+                            "base_imponible": st.column_config.NumberColumn("Base Imponible", format="%,.2f"),
+                            "iva_monto": st.column_config.NumberColumn("IVA Monto", format="%,.2f")
+                        },
+                        disabled=["id", "fecha_operacion", "tipo_documento", "n_factura", "n_control", "proveedor", "rif", "total_compras", "importe_exento", "base_imponible", "iva_monto"]
+                    )
+
+                    # Filtrar la fila seleccionada
+                    filas_elegidas = df_seleccionado_usuario[df_seleccionado_usuario["Seleccionar"] == True]
+
+                    if len(filas_elegidas) == 1:
+                        factura_base = filas_elegidas.iloc[0]
+                        st.session_state.factura_seleccionada_nc = factura_base
+                        st.info(f"📌 **Factura seleccionada:** Nº {factura_base['n_factura']} | Proveedor: {factura_base['proveedor']}")
+                    elif len(filas_elegidas) > 1:
+                        st.warning("⚠️ Por favor selecciona **solo una** factura para aplicarle el documento de ajuste.")
+                    
+                    # --- PASO 3: FRAME NUEVO PARA AGREGAR LA NOTA HEREDANDO MONTOS ---
+                    if "factura_seleccionada_nc" in st.session_state:
+                        fac = st.session_state.factura_seleccionada_nc
+                        
+                        st.markdown("---")
+                        st.markdown("#### 3️⃣ Datos del Documento de Ajuste (Nota de Crédito / Débito)")
+                        
+                        with st.form("form_crear_nota_fiscal"):
+                            col_t1, col_t2 = st.columns(2)
+                            with col_t1:
+                                tipo_ajuste = st.selectbox("Tipo de Ajuste", ["Nota de Crédito", "Nota de Débito"])
+                            with col_t2:
+                                nro_documento_ajuste = st.text_input("Nº de Nota (Crédito o Débito)", placeholder="Ej: NC-000123")
+
+                            st.markdown(f"**Factura Afectada:** `{fac['n_factura']}` | **RIF Proveedor:** `{fac['rif']}` ({fac['proveedor']})")
+                            
+                            # Definimos si los montos van negativos (caso Nota de Crédito resta) o positivos
+                            multiplicador = -1.0 if tipo_ajuste == "Nota de Crédito" else 1.0
+
+                            col_m1, col_m2, col_m3, col_m4 = st.columns(4)
+                            with col_m1:
+                                monto_tot = fac['total_compras'] * multiplicador
+                                st.metric("Total Ajuste", f"{monto_tot:,.2f}")
+                            with col_m2:
+                                monto_base = fac['base_imponible'] * multiplicador
+                                st.metric("Base Imponible", f"{monto_base:,.2f}")
+                            with col_m3:
+                                monto_iva = fac['iva_monto'] * multiplicador
+                                st.metric("IVA Monto", f"{monto_iva:,.2f}")
+                            with col_m4:
+                                monto_exento = fac['importe_exento'] * multiplicador
+                                st.metric("Importe Exento", f"{monto_exento:,.2f}")
+
+                            btn_guardar_nota_db = st.form_submit_button("🚀 Registrar Nota de Ajuste en DB", type="primary")
+
+                            if btn_guardar_nota_db:
+                                if not nro_documento_ajuste.strip():
+                                    st.error("❌ Debes ingresar el número de la Nota de Crédito o Débito.")
+                                else:
+                                    try:
+                                        engine = create_engine(f"mysql+mysqlconnector://{DB_CONFIG['user']}:{DB_CONFIG['password']}@{DB_CONFIG['host']}/{db_actual}")
+                                        
+                                        # Mapear columnas de inserción
+                                        data_insert = {
+                                            "fecha_operacion": datetime.now().strftime('%Y-%m-%d'),
+                                            "tipo_documento": "03" if tipo_ajuste == "Nota de Crédito" else "02",
+                                            "n_factura": fac['n_factura'],
+                                            "n_control": fac['n_control'],
+                                            "nota_credito": nro_documento_ajuste if tipo_ajuste == "Nota de Crédito" else None,
+                                            "nota_debito": nro_documento_ajuste if tipo_ajuste == "Nota de Débito" else None,
+                                            "proveedor": fac['proveedor'],
+                                            "rif": fac['rif'],
+                                            "total_compras": monto_tot,
+                                            "importe_exento": monto_exento,
+                                            "base_imponible": monto_base,
+                                            "iva_porcentaje": fac.get('iva_porcentaje', 16.0),
+                                            "iva_monto": monto_iva,
+                                            "tipo_transaccion": "01"
+                                        }
+                                        
+                                        df_to_save = pd.DataFrame([data_insert])
+                                        
+                                        with engine.begin() as conn_trans:
+                                            df_to_save.to_sql('libro_compras', con=conn_trans, if_exists='append', index=False)
+                                        
+                                        st.success(f"✅ ¡{tipo_ajuste} {nro_documento_ajuste} guardada y vinculada exitosamente a la factura {fac['n_factura']}!")
+                                        if "factura_seleccionada_nc" in st.session_state:
+                                            del st.session_state.factura_seleccionada_nc
+                                    except Exception as e:
+                                        st.error(f"❌ Error al registrar el ajuste en la base de datos: {e}")
 
             else:
                 st.info("No hay archivos en la cola de espera. Sube algunos PDFs arriba para comenzar.")
