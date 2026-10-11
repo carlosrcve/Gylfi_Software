@@ -4527,7 +4527,7 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                                 st.error("No se encontraron datos para este comprobante.")
                                 return
 
-                            # --- BLOQUE 1: AGENTE DE RETENCIÓN ---
+                            # --- BLOQUE 1: DATOS SUPERIORES Y AGENTE DE RETENCIÓN ---
                             id_real = st.session_state.get('id_empresa_seleccionada', {}).get('id', 1)
                             if not id_real or id_real == 1:
                                 id_real = int(EMPRESA) if str(EMPRESA).isdigit() else 1
@@ -4536,37 +4536,45 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                             if datos_empresa is None:
                                 datos_empresa = {"nombre_empresa": "NO ENCONTRADO", "rif": "N/A", "direccion": "N/A"}
 
-                            pdf.rect(15, 35, 110, 15) 
-                            pdf.set_font("Arial", "", 8); pdf.text(17, 39, "Razon Social del Agente de Retencion:")
-                            pdf.set_font("Arial", "B", 9); pdf.text(17, 46, str(datos_empresa.get('nombre_empresa', 'N/A'))) 
+                            # 1. Caja Izquierda: Razón Social y Dirección Fiscal del Agente (Ancho: 110, Alto: 20)
+                            pdf.rect(15, 35, 110, 20) 
+                            pdf.set_font("Arial", "", 6)
+                            pdf.text(17, 38, "Razon Social del Agente de Retencion:")
+                            
+                            pdf.set_font("Arial", "B", 8)
+                            pdf.text(17, 43, str(datos_empresa.get('nombre_empresa') or d.get('Razon_Social_del_Agente_de_Retencion', ''))) 
 
-                            pdf.rect(130, 35, 60, 15) 
-                            pdf.set_font("Arial", "", 8); pdf.text(132, 39, "RIF Agente Retencion:")
-                            pdf.set_font("Arial", "B", 10); pdf.text(132, 46, str(datos_empresa.get('rif', 'N/A')))
+                            # Dirección Fiscal del Agente dentro de su propia caja
+                            dir_agente = str(d.get('Direccion_FiscalAgente_Retencion') or datos_empresa.get('direccion', ''))
+                            pdf.set_font("Arial", "", 5.5)
+                            pdf.set_xy(16, 45)
+                            pdf.multi_cell(108, 2.3, dir_agente)
 
-                            pdf.rect(200, 35, 75, 15) 
-                            pdf.set_font("Arial", "", 8); pdf.text(202, 39, "N° Comprobante:")
-                            pdf.set_font("Arial", "B", 11); pdf.text(202, 47, str(d.get('N_Comprobante1', '')))
+                            # 2. Caja Central: RIF del Agente (Ancho: 55, Alto: 20)
+                            pdf.rect(127, 35, 55, 20) 
+                            pdf.set_font("Arial", "", 6)
+                            pdf.text(129, 38, "RIF Agente Retencion:")
+                            pdf.set_font("Arial", "B", 9)
+                            pdf.text(129, 46, str(datos_empresa.get('rif') or d.get('RIF_Agente_Retencion', '')))
 
-                            # ------- BLOQUE 2: DIRECCIÓN Y FECHAS ----------------------
-                            # 1. Dibujamos el recuadro existente en (15, 55) con ancho 175 y alto 15
-                            pdf.rect(15, 55, 175, 15)
+                            # 3. Caja Derecha: N° Comprobante (Ancho: 75, Alto: 20)
+                            pdf.rect(184, 35, 95, 20) 
+                            pdf.set_font("Arial", "", 6)
+                            pdf.text(186, 38, "N° Comprobante:")
+                            pdf.set_font("Arial", "B", 10)
+                            pdf.text(186, 46, str(d.get('N_Comprobante1', '')))
 
-                            # 2. Cambiamos la etiqueta superior para indicar que es la dirección del proveedor
-                            pdf.set_font("Arial", "", 8)
-                            pdf.text(17, 59, "Dirección Fiscal del Sujeto Retenido (Proveedor):")
 
-                            # 3. Configuramos la fuente pequeña para el texto
-                            pdf.set_font("Arial", "", 7)
-
-                            # 4. Posicionamos justo debajo de la etiqueta (y=61) y un poco más adentro (x=17)
-                            pdf.set_xy(17, 61) 
-
-                            # 5. Obtenemos la dirección del proveedor directamente desde MySQL (d)
-                            domicilio_real = str(d.get('direccion_fiscal_proveedor') or 'SIN DIRECCIÓN REGISTRADA EN BASE DE DATOS')
-
-                            # 6. Imprimimos con multi_cell usando el ancho del recuadro (170)
-                            pdf.multi_cell(170, 3.2, domicilio_real.upper())
+                            # --- BLOQUE 2: DIRECCIÓN DEL PROVEEDOR Y FECHAS ---
+                            # 1. Caja Izquierda Ancha: Dirección Fiscal del Proveedor (Ancho: 164, Alto: 15)
+                            pdf.rect(15, 57, 164, 15)
+                            pdf.set_font("Arial", "", 6)
+                            pdf.text(17, 60, "Dirección Fiscal del Sujeto Retenido (Proveedor):")
+                            
+                            pdf.set_font("Arial", "", 5.5)
+                            pdf.set_xy(17, 62) 
+                            domicilio_real = str(d.get('direccion_fiscal_proveedor', 'DIRECCIÓN NO REGISTRADA EN PROVEEDORES'))
+                            pdf.multi_cell(160, 2.5, domicilio_real)
                             # ------- BLOQUE 3:  ----------------------
                             pdf.rect(200, 55, 35, 15) 
                             pdf.set_font("Arial", "", 8); pdf.text(202, 59, "E. Emision:")
