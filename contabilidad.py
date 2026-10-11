@@ -4498,15 +4498,6 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                         with c3: 
                             st.metric("IVA Retenido", f"{float(d.get('IVA_Retenido') or 0):,.2f}")
 
-                        with st.expander("👁️ Ver Datos Completos del Proveedor", expanded=True):
-                            st.write(f"**Razón Social:** {d.get('Razon_Social_Sujeto_Retenido')}")
-                            st.write(f"**RIF:** {d.get('RIF_Sujeto_Retenido')}")
-                            st.write(f"**Fecha de Factura:** {d.get('Fecha_Factura')}")
-                            st.write(f"**Nro. Factura:** {d.get('Numero_Factura')}")
-                            st.write(f"**Nro. Control:** {d.get('Numero_Contro')}")
-                            st.write("Contenido de datos_empresa:", datos_empresa)
-
-
                         # --- LÓGICA DE EXPORTACIÓN A PDF PROFESIONAL (CORREGIDO) ---
                         st.write("---")
                         try:
