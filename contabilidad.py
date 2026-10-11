@@ -4023,7 +4023,7 @@ def obtener_detalle_comprobante(id_registro):
         
         cursor = conn.cursor()
         
-        # CONSULTA EXPLÍCITA: Escribimos los nombres exactos de tu tabla
+        # CONSULTA EXPLÍCITA ACTUALIZADA CON CAMPOS DE NOTAS Y FACTURA AFECTADA
         query = """
             SELECT 
                 r.id, 
@@ -4047,14 +4047,15 @@ def obtener_detalle_comprobante(id_registro):
                 r.IVA_Retenido, 
                 r.IVA_8, 
                 r.RET_IVA_8,
-                p.direccion_fiscal AS direccion_fiscal_proveedor
+                r.tipo_documento,
+                r.nota_credito,
+                r.nota_debito,
+                r.n_factura_afectada,
+                COALESCE(p.direccion_fiscal, 'DIRECCIÓN NO REGISTRADA EN PROVEEDORES') AS direccion_fiscal_proveedor
             FROM retenciones_iva r
-            LEFT JOIN proveedores p ON r.RIF_Sujeto_Retenido = p.rif
+            LEFT JOIN proveedores p ON TRIM(r.RIF_Sujeto_Retenido) = TRIM(p.rif)
             WHERE r.N_Comprobante1 = (SELECT N_Comprobante1 FROM retenciones_iva WHERE id = %s)
         """
-        
-        df = pd.read_sql(query, conn, params=(id_registro,))
-        return df
         
         df = pd.read_sql(query, conn, params=(id_registro,))
         return df
@@ -4075,7 +4076,6 @@ def obtener_detalle_comprobante(id_registro):
                 conn.ping(reconnect=True)
             except Exception:
                 pass
-
 
 def eliminar_registro_retencion(id_registro):
     db_actual = st.session_state.get('DB_ACTUAL')
@@ -4567,8 +4567,13 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                             pdf.text(17, 59, "Dirección Fiscal del Sujeto Retenido (Proveedor):")
                             pdf.set_font("Arial", "", 7)
                             pdf.set_xy(17, 61) 
-                            domicilio_real = str(d.get('direccion_fiscal_proveedor', 'NO REGISTRADO'))
-                            pdf.multi_cell(170, 3.2, domicilio_real)
+
+                            # Obtención segura de la dirección del proveedor
+                            domicilio_real = d.get('direccion_fiscal_proveedor') or d.get('direccion') or d.get('domicilio_fiscal') or "CIUDAD"
+                            if str(domicilio_real).strip() in ['None', 'nan', '', 'N/A']:
+                                domicilio_real = "CIUDAD" # O la dirección por defecto del proveedor
+
+                            pdf.multi_cell(170, 3.2, str(domicilio_real).upper())
 
                             pdf.rect(200, 55, 35, 15) 
                             pdf.set_font("Arial", "", 8); pdf.text(202, 59, "E. Emision:")
@@ -4690,7 +4695,16 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                                 tipo_doc = str(d_row.get('tipo_documento', '03' if total_fila < 0 else '01'))
                                 nro_doc = str(d_row.get('Numero_Factura', ''))
                                 nro_ctrl = str(d_row.get('Numero_Contro', ''))
-                                fac_afectada = str(d_row.get('n_factura_afectada', ''))
+                                # Extracción robusta de la Factura Afectada
+                                fac_afectada = (
+                                    d_row.get('n_factura_afectada') or 
+                                    d_row.get('Numero_Factura_Afectada') or 
+                                    d_row.get('factura_afectada') or 
+                                    d_row.get('n_factura') or ''
+                                )
+                                fac_afectada_str = str(fac_afectada).strip()
+                                if fac_afectada_str in ['None', 'nan', 'N/A']:
+                                    fac_afectada_str = ''
 
                                 pdf.cell(w[0], 4, fecha_op, 1, 0, 'C')
                                 
@@ -4698,7 +4712,7 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                                     pdf.cell(w[1], 4, tipo_doc, 1, 0, 'C')
                                     pdf.cell(w[2], 4, nro_doc, 1, 0, 'C')
                                     pdf.cell(w[3], 4, nro_ctrl, 1, 0, 'C')
-                                    pdf.cell(w[4], 4, fac_afectada if fac_afectada not in ['nan', 'None'] else '', 1, 0, 'C')
+                                    pdf.cell(w[4], 4, fac_afectada_str, 1, 0, 'C') # <-- APLICAMOS LA VARIABLE CORREGIDA
                                     pdf.cell(w[5], 4, f"{total_fila:,.2f}", 1, 0, 'R')
                                     pdf.cell(w[6], 4, f"{exento:,.2f}", 1, 0, 'R')
                                     pdf.cell(w[7], 4, f"{b16:,.2f}", 1, 0, 'R')
