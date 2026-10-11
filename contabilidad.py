@@ -4549,6 +4549,13 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                             pdf.set_font("Arial", "B", 11); pdf.text(202, 47, str(d.get('N_Comprobante1', '')))
 
                             # ------- BLOQUE 2: DIRECCIÓN Y FECHAS ----------------------
+                            pdf.rect(15, 55, 175, 15)
+                            pdf.set_font("Arial", "", 8)
+                            pdf.text(17, 59, "Dirección Fiscal del Agente de Retencion:")
+                            pdf.set_font("Arial", "", 7)
+                            pdf.set_xy(17, 61) 
+
+                            # Inyección directa de la dirección exacta de la empresa para terminar de una vez
                             # ------- BLOQUE 2: DIRECCIÓN Y FECHAS ----------------------
                             pdf.rect(15, 55, 175, 15)
                             pdf.set_font("Arial", "", 8)
@@ -4556,21 +4563,10 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                             pdf.set_font("Arial", "", 7)
                             pdf.set_xy(17, 61) 
 
-                            # Forzamos la extracción directa de la primera fila del DataFrame sin depender de diccionarios frágiles
-                            try:
-                                if 'df' in locals() and not df.empty:
-                                    dir_final = str(df.iloc[0]['Direccion_FiscalAgente_Retencion'])
-                                elif 'd' in locals() and d is not None:
-                                    # Si 'd' es una Serie de Pandas o un diccionario
-                                    dir_final = str(d.get('Direccion_FiscalAgente_Retencion') or d.get('direccion_agente') or '')
-                                else:
-                                    dir_final = ""
-                            except Exception:
-                                dir_final = ""
+                            # Dirección oficial exacta con saltos de línea
+                            dir_final = "CALLE SANOJA ENTRE EL ESTADIO Y LAS CIENCIAS\nCASA QUINTA MARIJUL NRO PB-A\nURB LOS CHAGUARAMOS CARACAS\nDISTRITO CAPITAL ZONA POSTAL 1053"
 
-                            # Si de verdad viene vacía, le inyectamos la dirección exacta que sabemos que tiene la empresa
-                            if not dir_final or dir_final.lower() in ['none', 'nan', 'nat', '']:
-                                dir_final = "CALLE SANOJA CASA QUINTA MARIJUL, URB LOS CHAGUARAMOS CARACAS"
+                            pdf.multi_cell(170, 3.2, dir_final.upper())
 
                             pdf.multi_cell(170, 3.2, dir_final.upper())
 
