@@ -4023,12 +4023,13 @@ def obtener_detalle_comprobante(id_registro):
         
         cursor = conn.cursor()
         
-        # CONSULTA OPTIMIZADA CON BÚSQUEDA FLEXIBLE DE DIRECCIÓN DE PROVEEDOR
+        # CONSULTA 10% EXACTA CON LOS NOMBRES DE TUS COLUMNAS EN MYSQL
         query = """
             SELECT 
                 r.id, 
                 r.Razon_Social_del_Agente_de_Retencion, 
                 r.RIF_Agente_Retencion, 
+                r.Direccion_FiscalAgente_Retencion,
                 r.E_Emision, 
                 r.F_Entrega, 
                 r.Razon_Social_Sujeto_Retenido, 
@@ -4039,8 +4040,8 @@ def obtener_detalle_comprobante(id_registro):
                 r.Fecha_Factura, 
                 r.Numero_Factura, 
                 r.Numero_Contro, 
-                r.N_Nota_Debito,
-                r.N_Nota_Credito,
+                r.N_Nota_Debitov,
+                r.N_Nota_Creditov,
                 r.NFactura_Afectada AS n_factura_afectada,
                 r.Total_Comrpas, 
                 r.Compras_Excentas, 
@@ -4050,7 +4051,7 @@ def obtener_detalle_comprobante(id_registro):
                 r.IVA_Retenido, 
                 r.IVA_8, 
                 r.RET_IVA_8,
-                COALESCE(p.direccion_fiscal, p.direccion, 'DIRECCIÓN NO REGISTRADA') AS direccion_fiscal_proveedor
+                COALESCE(p.direccion_fiscal, 'DIRECCIÓN NO REGISTRADA EN PROVEEDORES') AS direccion_fiscal_proveedor
             FROM retenciones_iva r
             LEFT JOIN proveedores p ON REPLACE(REPLACE(TRIM(r.RIF_Sujeto_Retenido), '-', ''), ' ', '') = REPLACE(REPLACE(TRIM(p.rif), '-', ''), ' ', '')
             WHERE r.N_Comprobante1 = (SELECT N_Comprobante1 FROM retenciones_iva WHERE id = %s)
@@ -4075,6 +4076,7 @@ def obtener_detalle_comprobante(id_registro):
                 conn.ping(reconnect=True)
             except Exception:
                 pass
+            
 def eliminar_registro_retencion(id_registro):
     db_actual = st.session_state.get('DB_ACTUAL')
     conn = conectar_db(db_actual)
