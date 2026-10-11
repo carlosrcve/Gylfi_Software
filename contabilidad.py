@@ -4315,7 +4315,14 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
 
                 empresa_nombre = empresa_data_env.get('nombre_empresa') or empresa_data_env.get('razon_social') or "EMPRESA"
                 empresa_rif = empresa_data_env.get('rif') or "000000000"
-                domicilio_fiscal = empresa_data_env.get('direccion') or "DIRECCIÓN NO REGISTRADA"
+                
+                # Búsqueda robusta de la dirección fiscal por cualquier posible nombre de columna
+                domicilio_fiscal = (
+                    empresa_data_env.get('direccion') or 
+                    empresa_data_env.get('direccion_fiscal') or 
+                    empresa_data_env.get('domicilio_fiscal') or 
+                    "DIRECCIÓN NO REGISTRADA"
+                )
 
                 cursor = None
                 try:
@@ -4333,6 +4340,14 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                         
                         fecha_corta = str(fila['fecha_operacion']).split(" ")[0]
                         ano_f, mes_f = fecha_corta.split("-")[0], fecha_corta.split("-")[1]
+
+                        # Capturamos la factura afectada de la fila seleccionada de forma segura
+                        fac_afectada_val = (
+                            fila.get('nfactura_afectada') or 
+                            fila.get('NFactura_Afectada') or 
+                            fila.get('n_factura_afectada') or 
+                            None
+                        )
 
                         query_ins_iva = """
                             INSERT INTO retenciones_iva (
@@ -4391,7 +4406,7 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                             round(r8, 2),
                             "16%", 
                             f"{porcentaje_ret}%", 
-                            None
+                            fac_afectada_val  # <--- Aquí va el valor real de la factura afectada en lugar de un None fijo
                         )
                         
                         cursor.execute(query_ins_iva, params_iva)
@@ -4564,7 +4579,7 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                             pdf.set_xy(17, 61) 
 
                             # Dirección oficial exacta con saltos de línea
-                            dir_final = "CALLE SANOJA ENTRE EL ESTADIO Y LAS CIENCIAS CASA QUINTA MARIJUL NRO PB-A URB LOS CHAGUARAMOS CARACAS\nDISTRITO CAPITAL ZONA POSTAL 1053"
+                            dir_final = str(d.get('Direccion_FiscalAgente_Retencion', 'NO REGISTRADO'))
 
                             pdf.multi_cell(170, 3.2, dir_final.upper())
 
