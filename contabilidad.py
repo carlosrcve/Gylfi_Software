@@ -4023,12 +4023,13 @@ def obtener_detalle_comprobante(id_registro):
         
         cursor = conn.cursor()
         
+        # FORZAMOS EL ALIAS LIMPIO AS direccion_agente
         query = """
             SELECT 
                 r.id, 
                 r.Razon_Social_del_Agente_de_Retencion, 
                 r.RIF_Agente_Retencion, 
-                r.Direccion_FiscalAgente_Retencion,
+                r.Direccion_FiscalAgente_Retencion AS direccion_agente,
                 r.E_Emision, 
                 r.F_Entrega, 
                 r.Razon_Social_Sujeto_Retenido, 
@@ -4561,16 +4562,10 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                             # 4. Posicionamos justo debajo de la etiqueta (y=61) y un poco más adentro (x=17)
                             pdf.set_xy(17, 61) 
 
-                            # Verificamos si viene en el registro 'd'; si no, la buscamos en la función general de la empresa
-                            dir_mysql = str(d.get('Direccion_FiscalAgente_Retencion', '')).strip()
-                            if not dir_mysql or dir_mysql.lower() in ['none', 'nan', '']:
-                                # Respaldo con la función de la empresa por si la tabla retenciones_iva tiene ese campo vacío en este registro
-                                id_real = st.session_state.get('id_empresa_seleccionada', {}).get('id', 1)
-                                datos_empresa = obtener_datos_agente_db(id_real) or {}
-                                dir_mysql = str(datos_empresa.get('direccion', 'DIRECCIÓN NO REGISTRADA EN BASE DE DATOS'))
+                            # Leemos usando el alias exacto que viene de MySQL
+                            domicilio_real = str(d.get('direccion_agente') or d.get('Direccion_FiscalAgente_Retencion') or 'DIRECCIÓN NO REGISTRADA')
 
-                            # 6. Imprimimos con multi_cell usando el ancho del recuadro (170)
-                            pdf.multi_cell(170, 3.2, dir_mysql.upper())
+                            pdf.multi_cell(170, 3.2, domicilio_real.upper())
 
                             # ------- BLOQUE 3:  ----------------------
                             pdf.rect(200, 55, 35, 15) 
