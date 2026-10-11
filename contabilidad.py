@@ -4029,7 +4029,7 @@ def obtener_detalle_comprobante(id_registro):
                 r.id, 
                 r.Razon_Social_del_Agente_de_Retencion, 
                 r.RIF_Agente_Retencion, 
-                r.Direccion_FiscalAgente_Retencion AS direccion_agente,
+                r.Direccion_FiscalAgente_Retencion,
                 r.E_Emision, 
                 r.F_Entrega, 
                 r.Razon_Social_Sujeto_Retenido, 
@@ -4040,7 +4040,7 @@ def obtener_detalle_comprobante(id_registro):
                 r.Fecha_Factura, 
                 r.Numero_Factura, 
                 r.Numero_Contro, 
-                r.NFactura_Afectada AS n_factura_afectada,
+                r.NFactura_Afectada,
                 r.Total_Comrpas, 
                 r.Compras_Excentas, 
                 r.Base_Imponible, 
@@ -4564,9 +4564,7 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                             pdf.set_xy(17, 61) 
 
                             # Dirección oficial exacta con saltos de línea
-                            dir_final = "CALLE SANOJA ENTRE EL ESTADIO Y LAS CIENCIAS CASA QUINTA MARIJUL NRO PB-A\nURB LOS CHAGUARAMOS CARACAS\nDISTRITO CAPITAL ZONA POSTAL 1053"
-
-                            pdf.multi_cell(170, 3.2, dir_final.upper())
+                            dir_final = "CALLE SANOJA ENTRE EL ESTADIO Y LAS CIENCIAS CASA QUINTA MARIJUL NRO PB-A URB LOS CHAGUARAMOS CARACAS\nDISTRITO CAPITAL ZONA POSTAL 1053"
 
                             pdf.multi_cell(170, 3.2, dir_final.upper())
 
