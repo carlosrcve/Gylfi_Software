@@ -4506,7 +4506,7 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                             st.write("Contenido de datos_empresa:", datos_empresa)
 
 
-                        # --- LÓGICA DE EXPORTACIÓN A PDF PROFESIONAL ---
+                        # --- LÓGICA DE EXPORTACIÓN A PDF PROFESIONAL (CORREGIDO) ---
                         st.write("---")
                         try:
                             from fpdf import FPDF
@@ -4526,13 +4526,12 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                                         "servicios, a quienes la administración tributaria designe como tal"
                                     )
                                     self.multi_cell(0, 4, texto_legal, 0, 'C') 
-                                    self.ln(5)
+                                    self.ln(3)
 
                             pdf = PDF_PRO(orientation='L', unit='mm', format='A4')
                             pdf.add_page()
-                            x_mov = 10 
 
-                            # --- 1. OBTENER DATOS (ANTES DE DIBUJAR) --
+                            # --- 1. OBTENER DATOS DE LA CONSULTA DETALLADA ---
                             df_detalle = obtener_detalle_comprobante(opcion_busqueda)
 
                             if not df_detalle.empty:
@@ -4547,7 +4546,6 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                                 id_real = int(EMPRESA) if str(EMPRESA).isdigit() else 1
 
                             datos_empresa = obtener_datos_agente_db(id_real)
-
                             if datos_empresa is None:
                                 datos_empresa = {"nombre_empresa": "NO ENCONTRADO", "rif": "N/A", "direccion": "N/A"}
 
@@ -4597,11 +4595,7 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                             pdf.set_font("Arial", "", 8); pdf.text(237, 79, "Mes:")
                             pdf.set_font("Arial", "B", 10); pdf.text(237, 86, str(d.get('Mes', '')).zfill(2))
 
-                            # --- TABLA DE DETALLES ---
-                            pdf.set_y(95)
-                            pdf.set_x(15 + x_mov) 
-                            pdf.set_font("Arial", "B", 7)
-                            
+                            # --- DETECCIÓN REAL Y ROBUSTA DE NOTA DE CRÉDITO / DÉBITO ---
                             cols_numericas = ['Compras_Excentas', 'Base_Imponible', 'Impuesto_Iva', 'IVA_Retenido', 
                                              'Base_Imponible_8', 'IVA_8', 'RET_IVA_8']
                             for col in cols_numericas:
@@ -4610,57 +4604,70 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
 
                             tiene_alicuota_8 = 'Base_Imponible_8' in df_detalle.columns and df_detalle['Base_Imponible_8'].sum() > 0
 
-                            # Validar si el lote contiene notas de crédito (03) o débito (02)
-                            tiene_notas = any(str(row.get('tipo_documento', '01')) in ['02', '03'] for _, row in df_detalle.iterrows())
+                            # Evaluamos si hay notas revisando tipos de documento, columnas de notas o montos negativos
+                            tiene_notas = False
+                            for _, r_val in df_detalle.iterrows():
+                                td = str(r_val.get('tipo_documento', '')).strip()
+                                nc = str(r_val.get('nota_credito', '')).strip()
+                                nd = str(r_val.get('nota_debito', '')).strip()
+                                tot_val_check = safe_float(r_val.get('Total_Comrpas') or r_val.get('Total_Compras') or 0)
+                                if td in ['02', '03'] or (nc and nc != 'None' and nc != 'nan') or (nd and nd != 'None' and nd != 'nan') or tot_val_check < 0:
+                                    tiene_notas = True
+                                    break
 
-                            # Definición dinámica de cabeceras según el tipo de documento y alícuota
+                            # ESTRUCTURA Y ANCHOS DE LA TABLA DINÁMICA
                             if tiene_notas:
                                 if tiene_alicuota_8:
-                                    h = ["Fecha", "Tipo Doc", "Nº Doc / Nota", "N.Contr", "Fac. Afectada", "Total", "Exento", "Base 16%", "IVA 16%", "Ret. 16%", "Base 8%", "IVA 8%", "Ret. 8%", "Total Ret."]
-                                    w = [18, 15, 22, 18, 20, 22, 16, 16, 16, 16, 16, 16, 16, 18]
+                                    h = ["Fecha", "Tipo", "Nº Doc/Nota", "N.Contr", "Fac. Afectada", "Total", "Exento", "Base 16%", "IVA 16%", "Ret. 16%", "Base 8%", "IVA 8%", "Ret. 8%", "Total Ret."]
+                                    w = [18, 12, 22, 20, 22, 22, 16, 18, 16, 18, 16, 16, 16, 20]
                                 else:
-                                    h = ["Fecha", "Tipo Doc", "Nº Doc / Nota", "N.Contr", "Fac. Afectada", "Total", "Exento", "Base 16%", "IVA 16%", "Ret. 16%", "Total Ret."]
-                                    w = [20, 16, 25, 20, 22, 25, 18, 18, 18, 18, 22]
+                                    h = ["Fecha", "Tipo", "Nº Doc/Nota", "N.Contr", "Fac. Afectada", "Total", "Exento", "Base 16%", "IVA 16%", "Ret. 16%", "Total Ret."]
+                                    w = [20, 14, 25, 22, 25, 25, 18, 22, 20, 22, 24]
                             else:
                                 if tiene_alicuota_8:
                                     h = ["Fecha", "N.Fact", "N.Contr", "Total", "Exento", "Base 16%", "IVA 16%", "Ret. 16%", "Base 8%", "IVA 8%", "Ret. 8%", "Total Ret."]
-                                    w = [20, 15, 20, 25, 20, 20, 20, 20, 20, 20, 20, 20]
+                                    w = [20, 18, 22, 25, 20, 22, 20, 22, 20, 20, 20, 22]
                                 else:
                                     h = ["Fecha", "N.Fact", "N.Contr", "Total", "Exento", "Base 16%", "IVA 16%", "Ret. 16%", "Total Ret."]
-                                    w = [20, 15, 20, 25, 20, 20, 20, 20, 20]
+                                    w = [22, 20, 25, 28, 22, 26, 22, 26, 28]
 
                             ancho_total_tabla = sum(w) 
-                            margen_centrado = (277 - ancho_total_tabla) / 2
-                            x_mov_dinamico = max(5, 10 + margen_centrado)
+                            # Centramos la tabla correctamente en la página A4 apaisada (297mm de ancho total, 267mm imprimibles)
+                            x_inicio_tabla = (297 - ancho_total_tabla) / 2
 
-                            # DIBUJO DE CABECERA
+                            # --- DIBUJAR CABECERA DE TABLA ---
+                            pdf.set_y(95)
+                            pdf.set_x(x_inicio_tabla)
                             pdf.set_fill_color(240, 240, 240)
                             pdf.set_font("Arial", "B", 7)
-                            pdf.set_x(x_mov_dinamico) 
 
                             for i in range(len(h)):
                                 pdf.cell(w[i], 5, h[i], 1, 0, 'C', fill=True)
                             pdf.ln()
 
                             # Inicializar Totales Generales
-                            tot_gen_total, tot_gen_exento = 0, 0
-                            tot_gen_base16, tot_gen_iva16, tot_gen_ret16 = 0, 0, 0
-                            tot_gen_base8, tot_gen_iva8, tot_gen_ret8 = 0, 0, 0
+                            tot_gen_total, tot_gen_exento = 0.0, 0.0
+                            tot_gen_base16, tot_gen_iva16, tot_gen_ret16 = 0.0, 0.0, 0.0
+                            tot_gen_base8, tot_gen_iva8, tot_gen_ret8 = 0.0, 0.0, 0.0
 
-                            # --- 3. BUCLE DE FACTURAS / NOTAS ---
+                            # --- BUCLE DE REGISTROS ---
                             pdf.set_font("Arial", "", 7)
                             for _, fila in df_detalle.iterrows():
-                                pdf.set_x(x_mov_dinamico)
-                                d = fila.to_dict()
+                                pdf.set_x(x_inicio_tabla)
+                                d_row = fila.to_dict()
                                 
-                                exento = safe_float(d.get('Compras_Excentas'))
-                                b16 = safe_float(d.get('Base_Imponible'))
-                                i16 = safe_float(d.get('Impuesto_Iva'))
-                                r16 = safe_float(d.get('IVA_Retenido'))
-                                b8 = safe_float(d.get('Base_Imponible_8'))
-                                i8 = safe_float(d.get('IVA_8'))
-                                r8 = safe_float(d.get('RET_IVA_8'))
-                                total_fila = exento + b16 + b8 + i16 + i8 
+                                exento = safe_float(d_row.get('Compras_Excentas'))
+                                b16 = safe_float(d_row.get('Base_Imponible'))
+                                i16 = safe_float(d_row.get('Impuesto_Iva'))
+                                r16 = safe_float(d_row.get('IVA_Retenido'))
+                                b8 = safe_float(d_row.get('Base_Imponible_8'))
+                                i8 = safe_float(d_row.get('IVA_8'))
+                                r8 = safe_float(d_row.get('RET_IVA_8'))
+                                
+                                # Si total viene directo de la BD lo usamos, de lo contrario sumamos
+                                total_fila = safe_float(d_row.get('Total_Comrpas') or d_row.get('Total_Compras'))
+                                if total_fila == 0 and (exento != 0 or b16 != 0 or b8 != 0):
+                                    total_fila = exento + b16 + b8 + i16 + i8 
                                 
                                 tot_gen_total += total_fila
                                 tot_gen_exento += exento
@@ -4669,30 +4676,29 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                                 tot_gen_base8 += b8
                                 tot_gen_iva8 += i8
 
-                                valor_a_mostrar_r16 = r16 if b16 > 0 else 0
-                                valor_a_mostrar_r8 = r8 if b8 > 0 else 0
+                                # EVALUAMOS CON ABS() PARA PERMITIR VALORES NEGATIVOS DE NOTAS DE CRÉDITO
+                                valor_a_mostrar_r16 = r16 if abs(b16) > 0 or abs(r16) > 0 else 0.0
+                                valor_a_mostrar_r8 = r8 if abs(b8) > 0 or abs(r8) > 0 else 0.0
                                 total_fila_retencion = valor_a_mostrar_r16 + valor_a_mostrar_r8
 
-                                if b16 > 0:
+                                if abs(b16) > 0 or abs(r16) > 0:
                                     tot_gen_ret16 += r16
-                                if b8 > 0:
+                                if abs(b8) > 0 or abs(r8) > 0:
                                     tot_gen_ret8 += r8
 
-                                # Datos dinámicos para columnas condicionales de notas
-                                fecha_op = str(d.get('Fecha_Factura', ''))
-                                tipo_doc = str(d.get('tipo_documento', '01'))
-                                nro_doc = str(d.get('Numero_Factura', ''))
-                                nro_ctrl = str(d.get('Numero_Contro', ''))
-                                fac_afectada = str(d.get('n_factura_afectada', '')) if 'n_factura_afectada' in d else ''
+                                fecha_op = str(d_row.get('Fecha_Factura', ''))
+                                tipo_doc = str(d_row.get('tipo_documento', '03' if total_fila < 0 else '01'))
+                                nro_doc = str(d_row.get('Numero_Factura', ''))
+                                nro_ctrl = str(d_row.get('Numero_Contro', ''))
+                                fac_afectada = str(d_row.get('n_factura_afectada', ''))
 
-                                # Dibujar celdas fila por fila según estructura
                                 pdf.cell(w[0], 4, fecha_op, 1, 0, 'C')
                                 
                                 if tiene_notas:
                                     pdf.cell(w[1], 4, tipo_doc, 1, 0, 'C')
                                     pdf.cell(w[2], 4, nro_doc, 1, 0, 'C')
                                     pdf.cell(w[3], 4, nro_ctrl, 1, 0, 'C')
-                                    pdf.cell(w[4], 4, fac_afectada if fac_afectada != 'nan' else '', 1, 0, 'C')
+                                    pdf.cell(w[4], 4, fac_afectada if fac_afectada not in ['nan', 'None'] else '', 1, 0, 'C')
                                     pdf.cell(w[5], 4, f"{total_fila:,.2f}", 1, 0, 'R')
                                     pdf.cell(w[6], 4, f"{exento:,.2f}", 1, 0, 'R')
                                     pdf.cell(w[7], 4, f"{b16:,.2f}", 1, 0, 'R')
@@ -4723,8 +4729,8 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                                     else:
                                         pdf.cell(w[8], 4, f"{valor_a_mostrar_r16:,.2f}", 1, 1, 'R', fill=True)
 
-                            # --- 4. FILA DE TOTALES GENERALES ---
-                            pdf.set_x(x_mov_dinamico)
+                            # --- FILA DE TOTALES GENERALES ---
+                            pdf.set_x(x_inicio_tabla)
                             pdf.set_font("Arial", "B", 7)
                             pdf.set_fill_color(220, 220, 220)
 
@@ -4759,30 +4765,34 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                                 else:
                                     pdf.cell(w[8], 5, f"{tot_gen_ret16:,.2f}", 1, 1, 'R', fill=True)
 
-                            # --- SECCIÓN DE FIRMAS ---
-                            limite_pagina = 240 
-                            if pdf.get_y() > limite_pagina:
+                            # --- SECCIÓN DE FIRMAS CONTROLADA DINÁMICAMENTE ---
+                            pos_y_actual = pdf.get_y()
+                            if pos_y_actual > 165:
                                 pdf.add_page()
-                                y_firmas = 40 
+                                y_firmas = 60
                             else:
-                                pdf.ln(35) 
-                                y_firmas = pdf.get_y()
+                                y_firmas = pos_y_actual + 30
 
                             import os
                             ruta_firma = os.path.join("assets", "cielo.png")
 
+                            # Dibujar firma e imágenes alineadas
                             if os.path.exists(ruta_firma):
-                                pdf.image(ruta_firma, x=55 + x_mov, y=y_firmas - 65, w=35)
+                                pdf.image(ruta_firma, x=55, y=y_firmas - 20, w=35)
                                 
-                            pdf.text(50 + x_mov, y_firmas - 28, "AGENTE DE RETENCION")
-                            pdf.text(195 + x_mov, y_firmas - 31, "SUJETO RETENIDO")
+                            pdf.set_font("Arial", "B", 8)
+                            pdf.line(40, y_firmas, 110, y_firmas)
+                            pdf.line(185, y_firmas, 255, y_firmas)
+
+                            pdf.text(52, y_firmas + 5, "AGENTE DE RETENCION")
+                            pdf.text(197, y_firmas + 5, "SUJETO RETENIDO")
 
                             pdf.set_font("Arial", "B", 7)
                             nombre_empresa = datos_empresa.get('nombre_empresa', 'N/A')
                             rif_empresa = datos_empresa.get('rif', 'N/A')
 
-                            pdf.set_xy(40 + x_mov, y_firmas - 25)
-                            pdf.multi_cell(65, 5, f"{nombre_empresa}\nRIF: {rif_empresa}", 0, 'C')
+                            pdf.set_xy(40, y_firmas + 8)
+                            pdf.multi_cell(70, 4, f"{nombre_empresa}\nRIF: {rif_empresa}", 0, 'C')
 
                             pdf_output = bytes(pdf.output())
                             
