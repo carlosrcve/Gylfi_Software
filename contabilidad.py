@@ -4023,7 +4023,7 @@ def obtener_detalle_comprobante(id_registro):
         
         cursor = conn.cursor()
         
-        # INCLUIMOS r.Direccion_FiscalAgente_Retencion AQUÍ PARA QUE VIAJE DESDE MYSQL
+        # CONSULTA PURA: Enfocada únicamente en los datos de la retención y la dirección de la empresa
         query = """
             SELECT 
                 r.id, 
@@ -4040,6 +4040,7 @@ def obtener_detalle_comprobante(id_registro):
                 r.Fecha_Factura, 
                 r.Numero_Factura, 
                 r.Numero_Contro, 
+                r.NFactura_Afectada AS n_factura_afectada,
                 r.Total_Comrpas, 
                 r.Compras_Excentas, 
                 r.Base_Imponible, 
