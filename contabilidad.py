@@ -3690,10 +3690,11 @@ def extraer_datos_factura(archivo):
             7. 'n_factura_afectada': 
                - Si es Nota de Crédito o Débito, extrae el número de la Factura Afectada (ej. "00008274"). 
                - Si es una factura normal, déjalo en null.
-            8. 'rif': RIF del emisor sin guiones ni espacios (ej. J317227719).
-            9. 'tipo_transaccion': Devuelve por defecto '01'.
-            10. Montos: Extrae 'total_compras', 'importe_exento', 'base_imponible', 'iva_porcentaje' e 'iva_monto' expresados numéricamente.
-            11. Devuelve SOLO un JSON puro sin markdown extra.
+            8. 'proveedor': Extrae la **Razón Social completa** del emisor o proveedor (ej. "INVERSIONES COMERCIALES C.A.").
+            9. 'rif': RIF del emisor sin guiones ni espacios (ej. J317227719).
+            10. 'tipo_transaccion': Devuelve por defecto '01'.
+            11. Montos: Extrae 'total_compras', 'importe_exento', 'base_imponible', 'iva_porcentaje' e 'iva_monto' expresados numéricamente.
+            12. Devuelve SOLO un JSON puro sin markdown extra.
 
             Formato requerido estrictamente en JSON (orden exacto de la BD):
             {
@@ -3704,6 +3705,7 @@ def extraer_datos_factura(archivo):
                 "nota_credito": "string",
                 "nota_debito": "string",
                 "n_factura_afectada": "string",
+                "proveedor": "string",
                 "rif": "string",
                 "tipo_transaccion": "string",
                 "total_compras": float,
@@ -3727,6 +3729,7 @@ def extraer_datos_factura(archivo):
         datos = json.loads(texto_limpio)
         
         # Limpieza y blindaje
+        datos['proveedor'] = str(datos.get('proveedor', 'VARIOS')).strip().upper()
         datos['rif'] = str(datos.get('rif', '')).replace('-', '').replace(' ', '').strip().upper()
         datos['n_factura'] = str(datos.get('n_factura', '')).strip().upper()
         datos['n_control'] = str(datos.get('n_control', '')).strip().upper()
