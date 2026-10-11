@@ -3301,20 +3301,23 @@ def obtener_lista_proveedores():
 genai.configure(api_key="AQ.Ab8RN6KEpVYjcWJ4XLcEBNSK1ASqvBcnsuJkon-tb0fhLsVMLA")
 
 def convertir_pdf_a_imagen_bytes(pdf_file_obj):
-    """Convierte la primera página de un PDF subido en Streamlit a bytes de imagen JPEG de forma segura"""
+    """Convierte la primera página de un PDF subido en Streamlit a bytes de imagen JPEG optimizada para velocidad"""
     try:
         pdf_file_obj.seek(0)
         doc = fitz.open(stream=pdf_file_obj.read(), filetype="pdf")
         if len(doc) == 0:
             return None
+        
         page = doc[0] 
-        pix = page.get_pixmap(dpi=120) 
-        img_bytes = pix.tobytes("jpeg")
+        # Reducimos a 96 DPI (calidad estándar de pantalla) para agilizar el renderizado y el envío a la IA
+        pix = page.get_pixmap(dpi=96) 
+        
+        # Comprimimos el JPEG a una calidad óptima (ej. 85) para aligerar los bytes transmitidos
+        img_bytes = pix.tobytes("jpeg", jpg_quality=85)
         return img_bytes
     except Exception as e:
         st.error(f"Error convirtiendo el PDF a imagen: {e}")
         return None
-
 def obtener_modelo_valido():
     """Instancia directamente el modelo actual y oficial de Gemini para el procesamiento OCR."""
     try:
@@ -18277,4 +18280,3 @@ elif opcion_menu == "📦 Respaldos y Exportación":
 elif "Inventarios" in opcion_menu:
     # Invocamos el módulo exclusivo pasando la conexión a la base de datos
     modulo_inventario_pedacito_cielo(conn)  
-
