@@ -4686,6 +4686,7 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                                     tot_gen_ret8 += r8
 
                                 # Capturamos el valor probando todas las posibles variaciones de la llave
+                                # Capturamos la factura afectada de forma segura
                                 fac_afectada = str(
                                     d_row.get('NFactura_Afectada') or 
                                     d_row.get('nfactura_afectada') or 
