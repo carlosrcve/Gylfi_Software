@@ -4685,10 +4685,6 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                                 if abs(b8) > 0 or abs(r8) > 0:
                                     tot_gen_ret8 += r8
 
-                                fecha_op = str(d_row.get('Fecha_Factura', ''))
-                                tipo_doc = str(d_row.get('tipo_documento', '03' if total_fila < 0 else '01'))
-                                nro_doc = str(d_row.get('Numero_Factura', ''))
-                                nro_ctrl = str(d_row.get('Numero_Contro', ''))
                                 # Capturamos el valor probando todas las posibles variaciones de la llave
                                 fac_afectada = str(
                                     d.get('NFactura_Afectada') or 
@@ -4701,14 +4697,11 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                                 if fac_afectada.lower() in ['none', 'nan', 'nat']:
                                     fac_afectada = ""
 
-                                # Imprimimos la celda en la tabla del PDF (ajusta 'w_col' y 'h_row' a los nombres de tus variables actuales)
-                                pdf.cell(w_col, h_row, fac_afectada, border=1, align='C')
-                                
                                 if tiene_notas:
                                     pdf.cell(w[1], 4, tipo_doc, 1, 0, 'C')
                                     pdf.cell(w[2], 4, nro_doc, 1, 0, 'C')
                                     pdf.cell(w[3], 4, nro_ctrl, 1, 0, 'C')
-                                    pdf.cell(w[4], 4, fac_afectada_str, 1, 0, 'C') # <-- APLICAMOS LA VARIABLE CORREGIDA
+                                    pdf.cell(w[4], 4, fac_afectada, 1, 0, 'C') # <-- AQUÍ USAMOS 'fac_afectada' DIRECTAMENTE
                                     pdf.cell(w[5], 4, f"{total_fila:,.2f}", 1, 0, 'R')
                                     pdf.cell(w[6], 4, f"{exento:,.2f}", 1, 0, 'R')
                                     pdf.cell(w[7], 4, f"{b16:,.2f}", 1, 0, 'R')
