@@ -4023,8 +4023,7 @@ def obtener_detalle_comprobante(id_registro):
         
         cursor = conn.cursor()
         
-        # CONSULTA SEGURA: Extraemos los campos principales de retenciones_iva 
-        # y cruzamos con libro_compras o proveedores de manera flexible para no rompernos si falta una columna.
+        # CONSULTA OPTIMIZADA CON BÚSQUEDA FLEXIBLE DE DIRECCIÓN DE PROVEEDOR
         query = """
             SELECT 
                 r.id, 
@@ -4040,6 +4039,9 @@ def obtener_detalle_comprobante(id_registro):
                 r.Fecha_Factura, 
                 r.Numero_Factura, 
                 r.Numero_Contro, 
+                r.N_Nota_Debito,
+                r.N_Nota_Credito,
+                r.NFactura_Afectada AS n_factura_afectada,
                 r.Total_Comrpas, 
                 r.Compras_Excentas, 
                 r.Base_Imponible, 
@@ -4048,14 +4050,9 @@ def obtener_detalle_comprobante(id_registro):
                 r.IVA_Retenido, 
                 r.IVA_8, 
                 r.RET_IVA_8,
-                COALESCE(lc.tipo_documento, '01') AS tipo_documento,
-                lc.nota_credito,
-                lc.nota_debito,
-                lc.n_factura_afectada,
-                COALESCE(p.direccion_fiscal, 'DIRECCIÓN NO REGISTRADA EN PROVEEDORES') AS direccion_fiscal_proveedor
+                COALESCE(p.direccion_fiscal, p.direccion, 'DIRECCIÓN NO REGISTRADA') AS direccion_fiscal_proveedor
             FROM retenciones_iva r
-            LEFT JOIN proveedores p ON TRIM(r.RIF_Sujeto_Retenido) = TRIM(p.rif)
-            LEFT JOIN libro_compras lc ON (TRIM(r.Numero_Factura) = TRIM(lc.n_factura) AND TRIM(r.RIF_Sujeto_Retenido) = TRIM(lc.rif))
+            LEFT JOIN proveedores p ON REPLACE(REPLACE(TRIM(r.RIF_Sujeto_Retenido), '-', ''), ' ', '') = REPLACE(REPLACE(TRIM(p.rif), '-', ''), ' ', '')
             WHERE r.N_Comprobante1 = (SELECT N_Comprobante1 FROM retenciones_iva WHERE id = %s)
         """
         
@@ -4621,7 +4618,7 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                             # ESTRUCTURA Y ANCHOS DE LA TABLA DINÁMICA
                             if tiene_notas:
                                 if tiene_alicuota_8:
-                                    h = ["Fecha", "Tipo", "Nº Doc/Nota", "N.Contr", "Fac. Afectada", "Total", "Exento", "Base 16%", "IVA 16%", "Ret. 16%", "Base 8%", "IVA 8%", "Ret. 8%", "Total Ret."]
+                                    h = ["Fecha", "Tipo", "Nº NCredito", "N.Contr", "Fac. Afectada", "Total", "Exento", "Base 16%", "IVA 16%", "Ret. 16%", "Base 8%", "IVA 8%", "Ret. 8%", "Total Ret."]
                                     w = [18, 12, 22, 20, 22, 22, 16, 18, 16, 18, 16, 16, 16, 20]
                                 else:
                                     h = ["Fecha", "Tipo", "Nº Doc/Nota", "N.Contr", "Fac. Afectada", "Total", "Exento", "Base 16%", "IVA 16%", "Ret. 16%", "Total Ret."]
