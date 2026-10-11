@@ -3676,31 +3676,36 @@ def extraer_datos_factura(archivo):
 
         prompt_instrucciones = """
             Eres un asistente contable experto en OCR fiscal en Venezuela (normativa SENIAT). 
-            Tu tarea es analizar el documento escaneado y determinar si es una Factura (Tipo 01), 
-            una Nota de Crédito (Tipo 03) o una Nota de Débito (Tipo 02).
+            Tu tarea es analizar el documento escaneado y extraer la información adaptada estrictamente al orden y esquema de la tabla de MySQL.
 
             REGLAS DE EXTRACCIÓN:
-            1. 'tipo_documento': Devuelve '01' si es factura, '03' si es Nota de Crédito, o '02' si es Nota de Débito.
-            2. 'n_factura': 
+            1. 'fecha_operacion': Fecha de emisión del documento en formato YYYY-MM-DD.
+            2. 'tipo_documento': Devuelve '01' si es factura, '03' si es Nota de Crédito, o '02' si es Nota de Débito.
+            3. 'n_factura': 
                - Si es factura, extrae el número de factura.
-               - Si es Nota de Crédito/Débito, este campo debe contener el **número de la Factura Afectada** (ej. "00008274").
-            3. 'n_control': Busca la etiqueta "N° de Control" o formato "00-XXXXXX".
-            4. 'nota_credito': Si es Nota de Crédito, extrae su número de documento (ej. "00000720"). De lo contrario, déjalo en blanco o null.
-            5. 'nota_debito': Si es Nota de Débito, extrae su número de documento. De lo contrario, déjalo en blanco o null.
-            6. 'rif': Busca el RIF del emisor (ej. J-317227719). Elimina guiones y espacios.
-            7. 'fecha_operacion': Fecha de emisión del documento en formato YYYY-MM-DD.
-            8. Montos en Moneda Local (Bs.): Extrae los montos convertidos a Bolívares (o calcula si aplica). Asegúrate de capturar 'total_compras', 'importe_exento', 'base_imponible', 'iva_porcentaje' e 'iva_monto'.
-            9. Devuelve SOLO un JSON puro sin markdown extra.
+               - Si es Nota de Crédito o Débito, extrae el número propio del documento de ajuste (ej. "00000720").
+            4. 'n_control': Busca la etiqueta "N° de Control" o formato "00-XXXXXX" (ej. "00-026357").
+            5. 'nota_credito': Si es Nota de Crédito, coloca su número de documento. De lo contrario, null.
+            6. 'nota_debito': Si es Nota de Débito, coloca su número de documento. De lo contrario, null.
+            7. 'n_factura_afectada': 
+               - Si es Nota de Crédito o Débito, extrae el número de la Factura Afectada (ej. "00008274"). 
+               - Si es una factura normal, déjalo en null.
+            8. 'rif': RIF del emisor sin guiones ni espacios (ej. J317227719).
+            9. 'tipo_transaccion': Devuelve por defecto '01'.
+            10. Montos: Extrae 'total_compras', 'importe_exento', 'base_imponible', 'iva_porcentaje' e 'iva_monto' expresados numéricamente.
+            11. Devuelve SOLO un JSON puro sin markdown extra.
 
-            Formato requerido estrictamente en JSON:
+            Formato requerido estrictamente en JSON (orden exacto de la BD):
             {
+                "fecha_operacion": "YYYY-MM-DD",
                 "tipo_documento": "string",
                 "n_factura": "string",
                 "n_control": "string",
                 "nota_credito": "string",
                 "nota_debito": "string",
-                "fecha_operacion": "YYYY-MM-DD",
+                "n_factura_afectada": "string",
                 "rif": "string",
+                "tipo_transaccion": "string",
                 "total_compras": float,
                 "importe_exento": float,
                 "base_imponible": float,
@@ -3725,12 +3730,14 @@ def extraer_datos_factura(archivo):
         datos['rif'] = str(datos.get('rif', '')).replace('-', '').replace(' ', '').strip().upper()
         datos['n_factura'] = str(datos.get('n_factura', '')).strip().upper()
         datos['n_control'] = str(datos.get('n_control', '')).strip().upper()
+        datos['tipo_transaccion'] = str(datos.get('tipo_transaccion', '01')).strip()
         
-        if datos.get('nota_credito'):
-            datos['nota_credito'] = str(datos['nota_credito']).strip().upper()
-        if datos.get('nota_debito'):
-            datos['nota_debito'] = str(datos['nota_debito']).strip().upper()
-            
+        for campo_extra in ['nota_credito', 'nota_debito', 'n_factura_afectada']:
+            if datos.get(campo_extra) and str(datos[campo_extra]).lower() not in ['none', 'nan', '', 'null']:
+                datos[campo_extra] = str(datos[campo_extra]).strip().upper()
+            else:
+                datos[campo_extra] = None
+                
         for campo in ['total_compras', 'importe_exento', 'base_imponible', 'iva_porcentaje', 'iva_monto']:
             try:
                 datos[campo] = float(datos[campo])
@@ -15846,6 +15853,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                         df_a_editar,
                         column_config={
                             "Seleccionar Proveedor": st.column_config.SelectboxColumn("Proveedor", options=lista_proveedores, required=True),
+                            "fecha_operacion": st.column_config.DateColumn("F. Operación"),
                             "tipo_documento": st.column_config.TextColumn("Tipo Doc (01/02/03)"),
                             "n_factura": st.column_config.TextColumn("Nº Documento / Factura", required=True),
                             "n_control": st.column_config.TextColumn("Nº Control", required=True),
