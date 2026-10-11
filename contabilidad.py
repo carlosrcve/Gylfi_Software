@@ -3660,8 +3660,19 @@ def extraer_datos_factura(archivo):
         return None
         
     try:
-        img_data = archivo.getvalue()
-        
+        # --- BLINDAJE DE FORMATO (PDF o Imagen) ---
+        if archivo.type == "application/pdf":
+            img_data = convertir_pdf_a_imagen_bytes(archivo)
+            if not img_data:
+                st.error("No se pudo convertir el PDF a imagen.")
+                return None
+            tipo_mime = "image/jpeg"
+        else:
+            archivo.seek(0)
+            img_data = archivo.read()
+            tipo_mime = archivo.type if archivo.type else "image/jpeg"
+        # ----------------------------------------
+
         prompt_instrucciones = """
             Eres un asistente contable experto en OCR. Tu tarea es extraer datos de facturas fiscales.
             Extrae la información basándote únicamente en las etiquetas visibles en el documento.
@@ -3691,7 +3702,7 @@ def extraer_datos_factura(archivo):
         
         response = model.generate_content([
             prompt_instrucciones,
-            {"mime_type": "image/jpeg", "data": img_data}
+            {"mime_type": tipo_mime, "data": img_data}
         ])
         
         texto_limpio = response.text.replace('```json', '').replace('```', '').strip()
@@ -3722,7 +3733,7 @@ def extraer_datos_factura(archivo):
     except Exception as e:
         st.error(f"Error procesando con el modelo encontrado: {e}")
         return None
-
+    
 def generar_comprobante_pdf(datos, conn):
     """
     Crea el PDF del comprobante ISLR con diseño profesional simétrico,
