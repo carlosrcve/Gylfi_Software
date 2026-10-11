@@ -16383,38 +16383,45 @@ elif opcion_menu == "📚 Libros Fiscales":
                             if not nro_documento_ajuste.strip() or not nro_control_ajuste.strip():
                                 st.error("❌ Debes ingresar tanto el número de la nota como su respectivo número de control.")
                             else:
+                                conn = None
                                 try:
-                                    engine = create_engine(f"mysql+mysqlconnector://{DB_CONFIG['user']}:{DB_CONFIG['password']}@{DB_CONFIG['host']}/{db_actual}")
-                                    
-                                    # Mapeo exacto con el número de control propio del documento de ajuste
-                                    data_insert = {
-                                        "fecha_operacion": datetime.now().strftime('%Y-%m-%d'),
-                                        "tipo_documento": "03" if tipo_ajuste == "Nota de Crédito" else "02",
-                                        "n_factura": nro_documento_ajuste.strip().upper(), # El documento propio de la nota actúa como identificación principal en la fila
-                                        "n_control": nro_control_ajuste.strip().upper(),   # ¡El control propio de la nota!
-                                        "nota_credito": nro_documento_ajuste.strip().upper() if tipo_ajuste == "Nota de Crédito" else None,
-                                        "nota_debito": nro_documento_ajuste.strip().upper() if tipo_ajuste == "Nota de Débito" else None,
-                                        "n_factura_afectada": fac['n_factura'],            # Vinculada a la factura original
-                                        "proveedor": fac['proveedor'],
-                                        "rif": fac['rif'],
-                                        "total_compras": monto_tot,
-                                        "importe_exento": monto_exento,
-                                        "base_imponible": monto_base,
-                                        "iva_porcentaje": fac.get('iva_porcentaje', 16.0),
-                                        "iva_monto": monto_iva,
-                                        "tipo_transaccion": "01"
-                                    }
-                                    
-                                    df_to_save = pd.DataFrame([data_insert])
-                                    
-                                    with engine.begin() as conn_trans:
-                                        df_to_save.to_sql('libro_compras', con=conn_trans, if_exists='append', index=False)
-                                    
-                                    st.success(f"✅ ¡{tipo_ajuste} Nº {nro_documento_ajuste} (Control: {nro_control_ajuste}) guardada y vinculada a la factura {fac['n_factura']}!")
-                                    if "factura_seleccionada_nc" in st.session_state:
-                                        del st.session_state.factura_seleccionada_nc
+                                    conn = conectar_db(db_actual)
+                                    if conn:
+                                        # Mapeo exacto con el número de control propio del documento de ajuste
+                                        data_insert = {
+                                            "fecha_operacion": datetime.now().strftime('%Y-%m-%d'),
+                                            "tipo_documento": "03" if tipo_ajuste == "Nota de Crédito" else "02",
+                                            "n_factura": nro_documento_ajuste.strip().upper(),
+                                            "n_control": nro_control_ajuste.strip().upper(),
+                                            "nota_credito": nro_documento_ajuste.strip().upper() if tipo_ajuste == "Nota de Crédito" else None,
+                                            "nota_debito": nro_documento_ajuste.strip().upper() if tipo_ajuste == "Nota de Débito" else None,
+                                            "n_factura_afectada": fac['n_factura'],
+                                            "proveedor": fac['proveedor'],
+                                            "rif": fac['rif'],
+                                            "total_compras": monto_tot,
+                                            "importe_exento": monto_exento,
+                                            "base_imponible": monto_base,
+                                            "iva_porcentaje": fac.get('iva_porcentaje', 16.0),
+                                            "iva_monto": monto_iva,
+                                            "tipo_transaccion": "01"
+                                        }
+                                        
+                                        df_to_save = pd.DataFrame([data_insert])
+                                        
+                                        # Usamos el motor o conexión que retorna tu función conectar_db
+                                        engine_temp = create_engine(conn.connection_string) if hasattr(conn, 'connection_string') else None
+                                        
+                                        # Si tu funcion devuelve una conexión directa de mysql-connector o SQLAlchemy:
+                                        df_to_save.to_sql('libro_compras', con=conn, if_exists='append', index=False)
+                                        
+                                        st.success(f"✅ ¡{tipo_ajuste} Nº {nro_documento_ajuste} (Control: {nro_control_ajuste}) guardada y vinculada a la factura {fac['n_factura']}!")
+                                        if "factura_seleccionada_nc" in st.session_state:
+                                            del st.session_state.factura_seleccionada_nc
                                 except Exception as e:
                                     st.error(f"❌ Error al registrar el ajuste en la base de datos: {e}")
+                                finally:
+                                    if conn:
+                                        conn.close()
             else:
                 st.info("No hay archivos en la cola de espera. Sube algunos PDFs arriba para comenzar.")
 
