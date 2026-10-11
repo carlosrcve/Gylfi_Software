@@ -4023,7 +4023,7 @@ def obtener_detalle_comprobante(id_registro):
         
         cursor = conn.cursor()
         
-        # CONSULTA 10% EXACTA CON LOS NOMBRES DE TUS COLUMNAS EN MYSQL
+        # CONSULTA CON LOS NOMBRES EXACTOS DE TU TABLA (RESPETANDO MAYÚSCULAS)
         query = """
             SELECT 
                 r.id, 
