@@ -16268,9 +16268,10 @@ elif opcion_menu == "📚 Libros Fiscales":
                                                 conn.close()
                 else:
                     st.success("🎉 ¡Todos los documentos en la cola ya han sido procesados y registrados!")
+        
         with tab6:
             st.subheader("📝 Gestión de Notas de Crédito y Débito")
-            st.info("💡 **Flujo Fiscal:** Consulta el libro de compras por fecha, selecciona la factura a afectar y genera su documento de ajuste asociado.")
+            st.info("💡 **Flujo Fiscal:** Consulta el libro de compras por fecha, selecciona la factura a afectar y genera su documento de ajuste asociado con su respectivo número de control.")
 
             # --- PASO 1: FILTRO POR RANGO DE FECHAS ---
             st.markdown("#### 1️⃣ Seleccionar Periodo del Libro de Compras")
@@ -16349,11 +16350,13 @@ elif opcion_menu == "📚 Libros Fiscales":
                     st.markdown("#### 3️⃣ Datos del Documento de Ajuste (Nota de Crédito / Débito)")
                     
                     with st.form("form_crear_nota_fiscal"):
-                        col_t1, col_t2 = st.columns(2)
+                        col_t1, col_t2, col_t3 = st.columns(3)
                         with col_t1:
                             tipo_ajuste = st.selectbox("Tipo de Ajuste", ["Nota de Crédito", "Nota de Débito"])
                         with col_t2:
-                            nro_documento_ajuste = st.text_input("Nº de Nota (Crédito o Débito)", placeholder="Ej: NC-000123")
+                            nro_documento_ajuste = st.text_input("Nº de Documento (Nota)", placeholder="Ej: 00000720")
+                        with col_t3:
+                            nro_control_ajuste = st.text_input("Nº de Control (Nota)", placeholder="Ej: 00-026357")
 
                         st.markdown(f"**Factura Afectada:** `{fac['n_factura']}` | **RIF Proveedor:** `{fac['rif']}` ({fac['proveedor']})")
                         
@@ -16377,20 +16380,21 @@ elif opcion_menu == "📚 Libros Fiscales":
                         btn_guardar_nota_db = st.form_submit_button("🚀 Registrar Nota de Ajuste en DB", type="primary")
 
                         if btn_guardar_nota_db:
-                            if not nro_documento_ajuste.strip():
-                                st.error("❌ Debes ingresar el número de la Nota de Crédito o Débito.")
+                            if not nro_documento_ajuste.strip() or not nro_control_ajuste.strip():
+                                st.error("❌ Debes ingresar tanto el número de la nota como su respectivo número de control.")
                             else:
                                 try:
                                     engine = create_engine(f"mysql+mysqlconnector://{DB_CONFIG['user']}:{DB_CONFIG['password']}@{DB_CONFIG['host']}/{db_actual}")
                                     
-                                    # Mapear columnas de inserción
+                                    # Mapeo exacto con el número de control propio del documento de ajuste
                                     data_insert = {
                                         "fecha_operacion": datetime.now().strftime('%Y-%m-%d'),
                                         "tipo_documento": "03" if tipo_ajuste == "Nota de Crédito" else "02",
-                                        "n_factura": fac['n_factura'],
-                                        "n_control": fac['n_control'],
-                                        "nota_credito": nro_documento_ajuste if tipo_ajuste == "Nota de Crédito" else None,
-                                        "nota_debito": nro_documento_ajuste if tipo_ajuste == "Nota de Débito" else None,
+                                        "n_factura": nro_documento_ajuste.strip().upper(), # El documento propio de la nota actúa como identificación principal en la fila
+                                        "n_control": nro_control_ajuste.strip().upper(),   # ¡El control propio de la nota!
+                                        "nota_credito": nro_documento_ajuste.strip().upper() if tipo_ajuste == "Nota de Crédito" else None,
+                                        "nota_debito": nro_documento_ajuste.strip().upper() if tipo_ajuste == "Nota de Débito" else None,
+                                        "n_factura_afectada": fac['n_factura'],            # Vinculada a la factura original
                                         "proveedor": fac['proveedor'],
                                         "rif": fac['rif'],
                                         "total_compras": monto_tot,
@@ -16406,12 +16410,11 @@ elif opcion_menu == "📚 Libros Fiscales":
                                     with engine.begin() as conn_trans:
                                         df_to_save.to_sql('libro_compras', con=conn_trans, if_exists='append', index=False)
                                     
-                                    st.success(f"✅ ¡{tipo_ajuste} {nro_documento_ajuste} guardada y vinculada exitosamente a la factura {fac['n_factura']}!")
+                                    st.success(f"✅ ¡{tipo_ajuste} Nº {nro_documento_ajuste} (Control: {nro_control_ajuste}) guardada y vinculada a la factura {fac['n_factura']}!")
                                     if "factura_seleccionada_nc" in st.session_state:
                                         del st.session_state.factura_seleccionada_nc
                                 except Exception as e:
                                     st.error(f"❌ Error al registrar el ajuste en la base de datos: {e}")
-
             else:
                 st.info("No hay archivos en la cola de espera. Sube algunos PDFs arriba para comenzar.")
 
