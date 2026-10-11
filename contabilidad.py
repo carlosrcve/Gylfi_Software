@@ -15855,14 +15855,26 @@ elif opcion_menu == "📚 Libros Fiscales":
                     if "Seleccionar Proveedor" not in df_a_editar.columns:
                         df_a_editar["Seleccionar Proveedor"] = ""
                     
+                    # Ordenar explícitamente las columnas para que la fecha y el proveedor salgan de primeras
+                    columnas_ordenadas = [
+                        "Seleccionar Proveedor", "fecha_operacion", "tipo_documento", 
+                        "n_factura", "n_control", "nota_credito", "nota_debito", 
+                        "n_factura_afectada", "total_compras", "base_imponible", "iva_monto"
+                    ]
+                    
+                    # Asegurar que solo usamos las columnas que existen en el df
+                    columnas_existentes = [col for col in columnas_ordenadas if col in df_a_editar.columns]
+                    otras_cols = [col for col in df_a_editar.columns if col not in columnas_existentes]
+                    df_a_editar = df_a_editar[columnas_existentes + otras_cols]
+                    
                     lista_proveedores = obtener_lista_proveedores()
                     
-                    # Editor interactivo blindado
+                    # Editor interactivo con columnas ordenadas y visibles
                     buffer_editado = st.data_editor(
                         df_a_editar,
                         column_config={
                             "Seleccionar Proveedor": st.column_config.SelectboxColumn("Proveedor", options=lista_proveedores, required=True),
-                            "fecha_operacion": st.column_config.DateColumn("F. Operación", format="YYYY-MM-DD"),
+                            "fecha_operacion": st.column_config.DateColumn("F. Operación", format="YYYY-MM-DD", required=True),
                             "tipo_documento": st.column_config.TextColumn("Tipo Doc (01/02/03)"),
                             "n_factura": st.column_config.TextColumn("Nº Documento / Factura", required=True),
                             "n_control": st.column_config.TextColumn("Nº Control", required=True),
@@ -15973,7 +15985,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                                 st.success(f"✅ Proceso finalizado. Total guardados: {facturas_exitosas} de {len(df_a_procesar)}")
                                 if facturas_exitosas > 0:
                                     st.session_state.df_buffer_escaneo = pd.DataFrame()
-                            
+
         with tab3: # Vaciado de Rango
             st.subheader("🚨 Vaciado de Compras")
             
