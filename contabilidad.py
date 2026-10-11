@@ -15820,20 +15820,25 @@ elif opcion_menu == "📚 Libros Fiscales":
                                     break
                         
                         if resultados:
-                            nueva_fila = pd.DataFrame([resultados])
-                            
-                            # Limpieza y estandarización de columnas del esquema MySQL
-                            for col in ['n_factura', 'n_control', 'nota_credito', 'nota_debito', 'n_factura_afectada']:
-                                if col in nueva_fila.columns:
-                                    nueva_fila[col] = nueva_fila[col].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
-                                    nueva_fila[col] = nueva_fila[col].replace(['nan', 'None', '', 'null'], None)
-                                else:
-                                    nueva_fila[col] = None
-                            
-                            if 'Seleccionar Proveedor' not in nueva_fila.columns:
-                                nueva_fila['Seleccionar Proveedor'] = ""
-                            if 'proveedor' in nueva_fila.columns:
-                                nueva_fila = nueva_fila.drop(columns=['proveedor'])
+                            # --- MAPEO ESTRICTO Y LIMPIEZA DE LLAVES PARA EL FRAME ---
+                            fila_dict = {
+                                "fecha_operacion": resultados.get("fecha_operacion"),
+                                "tipo_documento": str(resultados.get("tipo_documento", "03")),
+                                "n_factura": str(resultados.get("nota_credito") or resultados.get("nota_debito") or resultados.get("n_factura", "")).strip().upper(),
+                                "n_control": str(resultados.get("n_control", "")).strip().upper(),
+                                "nota_credito": str(resultados.get("nota_credito")).strip().upper() if resultados.get("nota_credito") and str(resultados.get("nota_credito")).lower() not in ['none', 'nan', '', 'null'] else None,
+                                "nota_debito": str(resultados.get("nota_debito")).strip().upper() if resultados.get("nota_debito") and str(resultados.get("nota_debito")).lower() not in ['none', 'nan', '', 'null'] else None,
+                                "n_factura_afectada": str(resultados.get("n_factura_afectada")).strip().upper() if resultados.get("n_factura_afectada") and str(resultados.get("n_factura_afectada")).lower() not in ['none', 'nan', '', 'null'] else None,
+                                "tipo_transaccion": "01",
+                                "total_compras": float(resultados.get("total_compras", 0.0)),
+                                "importe_exento": float(resultados.get("importe_exento", 0.0)),
+                                "base_imponible": float(resultados.get("base_imponible", 0.0)),
+                                "iva_porcentaje": float(resultados.get("iva_porcentaje", 16.0)),
+                                "iva_monto": float(resultados.get("iva_monto", 0.0)),
+                                "Seleccionar Proveedor": ""
+                            }
+
+                            nueva_fila = pd.DataFrame([fila_dict])
                             
                             st.session_state.df_buffer_escaneo = pd.concat([st.session_state.df_buffer_escaneo, nueva_fila], ignore_index=True)
                             st.success("✅ Documento agregado al buffer de revisión.")
@@ -15968,6 +15973,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                                 st.success(f"✅ Proceso finalizado. Total guardados: {facturas_exitosas} de {len(df_a_procesar)}")
                                 if facturas_exitosas > 0:
                                     st.session_state.df_buffer_escaneo = pd.DataFrame()
+                            
         with tab3: # Vaciado de Rango
             st.subheader("🚨 Vaciado de Compras")
             
