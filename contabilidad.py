@@ -4023,7 +4023,6 @@ def obtener_detalle_comprobante(id_registro):
         
         cursor = conn.cursor()
         
-        # CONSULTA PURA: Enfocada únicamente en los datos de la retención y la dirección de la empresa
         query = """
             SELECT 
                 r.id, 
@@ -4562,11 +4561,17 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                             # 4. Posicionamos justo debajo de la etiqueta (y=61) y un poco más adentro (x=17)
                             pdf.set_xy(17, 61) 
 
-                            # 5. Obtenemos la dirección del proveedor directamente desde MySQL (d)
-                            domicilio_real = str(d.get('Direccion_FiscalAgente_Retencion') or 'SIN DIRECCIÓN REGISTRADA EN BASE DE DATOS')
+                            # Verificamos si viene en el registro 'd'; si no, la buscamos en la función general de la empresa
+                            dir_mysql = str(d.get('Direccion_FiscalAgente_Retencion', '')).strip()
+                            if not dir_mysql or dir_mysql.lower() in ['none', 'nan', '']:
+                                # Respaldo con la función de la empresa por si la tabla retenciones_iva tiene ese campo vacío en este registro
+                                id_real = st.session_state.get('id_empresa_seleccionada', {}).get('id', 1)
+                                datos_empresa = obtener_datos_agente_db(id_real) or {}
+                                dir_mysql = str(datos_empresa.get('direccion', 'DIRECCIÓN NO REGISTRADA EN BASE DE DATOS'))
 
                             # 6. Imprimimos con multi_cell usando el ancho del recuadro (170)
                             pdf.multi_cell(170, 3.2, domicilio_real.upper())
+
                             # ------- BLOQUE 3:  ----------------------
                             pdf.rect(200, 55, 35, 15) 
                             pdf.set_font("Arial", "", 8); pdf.text(202, 59, "E. Emision:")
