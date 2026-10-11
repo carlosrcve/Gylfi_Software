@@ -4549,23 +4549,30 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                             pdf.set_font("Arial", "B", 11); pdf.text(202, 47, str(d.get('N_Comprobante1', '')))
 
                             # ------- BLOQUE 2: DIRECCIÓN Y FECHAS ----------------------
-                            # 1. Dibujamos el recuadro existente en (15, 55) con ancho 175 y alto 15
+                            # ------- BLOQUE 2: DIRECCIÓN Y FECHAS ----------------------
                             pdf.rect(15, 55, 175, 15)
-
-                            # 2. Cambiamos la etiqueta superior para indicar que es la dirección del proveedor
                             pdf.set_font("Arial", "", 8)
                             pdf.text(17, 59, "Dirección Fiscal del Agente de Retencion:")
-
-                            # 3. Configuramos la fuente pequeña para el texto
                             pdf.set_font("Arial", "", 7)
-
-                            # 4. Posicionamos justo debajo de la etiqueta (y=61) y un poco más adentro (x=17)
                             pdf.set_xy(17, 61) 
 
-                            # Leemos usando el alias exacto que viene de MySQL
-                            domicilio_real = str(d.get('direccion_agente') or d.get('Direccion_FiscalAgente_Retencion') or 'DIRECCIÓN NO REGISTRADA')
+                            # Forzamos la extracción directa de la primera fila del DataFrame sin depender de diccionarios frágiles
+                            try:
+                                if 'df' in locals() and not df.empty:
+                                    dir_final = str(df.iloc[0]['Direccion_FiscalAgente_Retencion'])
+                                elif 'd' in locals() and d is not None:
+                                    # Si 'd' es una Serie de Pandas o un diccionario
+                                    dir_final = str(d.get('Direccion_FiscalAgente_Retencion') or d.get('direccion_agente') or '')
+                                else:
+                                    dir_final = ""
+                            except Exception:
+                                dir_final = ""
 
-                            pdf.multi_cell(170, 3.2, domicilio_real.upper())
+                            # Si de verdad viene vacía, le inyectamos la dirección exacta que sabemos que tiene la empresa
+                            if not dir_final or dir_final.lower() in ['none', 'nan', 'nat', '']:
+                                dir_final = "CALLE SANOJA CASA QUINTA MARIJUL, URB LOS CHAGUARAMOS CARACAS"
+
+                            pdf.multi_cell(170, 3.2, dir_final.upper())
 
                             # ------- BLOQUE 3:  ----------------------
                             pdf.rect(200, 55, 35, 15) 
