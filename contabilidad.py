@@ -15816,8 +15816,8 @@ elif opcion_menu == "📚 Libros Fiscales":
                                 error_str = str(e)
                                 if "429" in error_str:
                                     intentos += 1
-                                    st.warning(f"⚠️ Límite de cuota, reintentando en 15s... ({intentos}/3)")
-                                    time.sleep(15)
+                                    st.warning(f"⚠️ Límite de cuota de la API alcanzado, reintentando en 40s... (Intento {intentos}/3)")
+                                    time.sleep(40) # Subimos a 40 segundos para superar el tiempo de bloqueo del tier gratuito
                                 else:
                                     st.error(f"❌ Error crítico: {error_str}")
                                     break
