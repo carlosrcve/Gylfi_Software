@@ -4686,14 +4686,13 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                                     tot_gen_ret8 += r8
 
                                 # Capturamos el valor probando todas las posibles variaciones de la llave
+                                # Capturamos el número de factura afectada de forma segura desde la fila actual
                                 fac_afectada = str(
-                                    d.get('NFactura_Afectada') or 
-                                    d.get('nfactura_afectada') or 
-                                    d.get('N_Factura_Afectada') or 
+                                    d_row.get('NFactura_Afectada') or 
+                                    d_row.get('nfactura_afectada') or 
+                                    d_row.get('N_Factura_Afectada') or 
                                     ''
                                 ).strip()
-
-                                # Si viene como 'None' o 'nan', lo dejamos en blanco
                                 if fac_afectada.lower() in ['none', 'nan', 'nat']:
                                     fac_afectada = ""
 
@@ -4701,7 +4700,7 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                                     pdf.cell(w[1], 4, tipo_doc, 1, 0, 'C')
                                     pdf.cell(w[2], 4, nro_doc, 1, 0, 'C')
                                     pdf.cell(w[3], 4, nro_ctrl, 1, 0, 'C')
-                                    pdf.cell(w[4], 4, fac_afectada, 1, 0, 'C') # <-- AQUÍ USAMOS 'fac_afectada' DIRECTAMENTE
+                                    pdf.cell(w[4], 4, fac_afectada, 1, 0, 'C') # <-- AQUí VA LA FACTURA AFECTADA CORRECTA
                                     pdf.cell(w[5], 4, f"{total_fila:,.2f}", 1, 0, 'R')
                                     pdf.cell(w[6], 4, f"{exento:,.2f}", 1, 0, 'R')
                                     pdf.cell(w[7], 4, f"{b16:,.2f}", 1, 0, 'R')
