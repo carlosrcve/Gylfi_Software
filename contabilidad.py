@@ -16383,36 +16383,46 @@ elif opcion_menu == "📚 Libros Fiscales":
                             if not nro_documento_ajuste.strip() or not nro_control_ajuste.strip():
                                 st.error("❌ Debes ingresar tanto el número de la nota como su respectivo número de control.")
                             else:
+                                conn = None
                                 try:
-                                    # Reutilizamos el mismo método seguro de conexión que usas en el escáner OCR
-                                    engine = create_engine(f"mysql+mysqlconnector://{DB_CONFIG['user']}:{DB_CONFIG['password']}@{DB_CONFIG['host']}/{db_actual}")
-                                    
-                                    data_insert = {
-                                        "fecha_operacion": datetime.now().strftime('%Y-%m-%d'),
-                                        "tipo_documento": "03" if tipo_ajuste == "Nota de Crédito" else "02",
-                                        "n_factura": nro_documento_ajuste.strip().upper(),
-                                        "n_control": nro_control_ajuste.strip().upper(),
-                                        "nota_credito": nro_documento_ajuste.strip().upper() if tipo_ajuste == "Nota de Crédito" else None,
-                                        "nota_debito": nro_documento_ajuste.strip().upper() if tipo_ajuste == "Nota de Débito" else None,
-                                        "n_factura_afectada": fac['n_factura'],
-                                        "proveedor": fac['proveedor'],
-                                        "rif": fac['rif'],
-                                        "total_compras": monto_tot,
-                                        "importe_exento": monto_exento,
-                                        "base_imponible": monto_base,
-                                        "iva_porcentaje": fac.get('iva_porcentaje', 16.0),
-                                        "iva_monto": monto_iva,
-                                        "tipo_transaccion": "01"
-                                    }
-                                    
-                                    df_to_save = pd.DataFrame([data_insert])
-                                    
-                                    with engine.begin() as conn_trans:
-                                        df_to_save.to_sql('libro_compras', con=conn_trans, if_exists='append', index=False)
-                                    
-                                    st.success(f"✅ ¡{tipo_ajuste} Nº {nro_documento_ajuste} (Control: {nro_control_ajuste}) guardada y vinculada a la factura {fac['n_factura']}!")
-                                    if "factura_seleccionada_nc" in st.session_state:
-                                        del st.session_state.factura_seleccionada_nc
+                                    conn = conectar_db(db_actual)
+                                    if conn:
+                                        cursor = conn.cursor()
+                                        
+                                        query_insert = """
+                                            INSERT INTO libro_compras (
+                                                fecha_operacion, tipo_documento, n_factura, n_control, 
+                                                nota_credito, nota_debito, n_factura_afectada, proveedor, 
+                                                rif, tipo_transaccion, total_compras, importe_exento, 
+                                                base_imponible, iva_porcentaje, iva_monto
+                                            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                        """
+                                        
+                                        valores = (
+                                            datetime.now().strftime('%Y-%m-%d'),
+                                            "03" if tipo_ajuste == "Nota de Crédito" else "02",
+                                            nro_documento_ajuste.strip().upper(),
+                                            nro_control_ajuste.strip().upper(),
+                                            nro_documento_ajuste.strip().upper() if tipo_ajuste == "Nota de Crédito" else None,
+                                            nro_documento_ajuste.strip().upper() if tipo_ajuste == "Nota de Débito" else None,
+                                            fac['n_factura'],
+                                            fac['proveedor'],
+                                            fac['rif'],
+                                            "01",
+                                            monto_tot,
+                                            monto_exento,
+                                            monto_base,
+                                            fac.get('iva_porcentaje', 16.0),
+                                            monto_iva
+                                        )
+                                        
+                                        cursor.execute(query_insert, valores)
+                                        conn.commit()
+                                        cursor.close()
+                                        
+                                        st.success(f"✅ ¡{tipo_ajuste} Nº {nro_documento_ajuste} (Control: {nro_control_ajuste}) guardada y vinculada a la factura {fac['n_factura']}!")
+                                        if "factura_seleccionada_nc" in st.session_state:
+                                            del st.session_state.factura_seleccionada_nc
                                 except Exception as e:
                                     st.error(f"❌ Error al registrar el ajuste en la base de datos: {e}")
                                 finally:
