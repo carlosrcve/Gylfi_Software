@@ -4685,23 +4685,33 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                                 if abs(b8) > 0 or abs(r8) > 0:
                                     tot_gen_ret8 += r8
 
-                                # Capturamos el valor probando todas las posibles variaciones de la llave
-                                # Capturamos la factura afectada de forma segura
+                                # Capturamos la fecha y la factura afectada de forma totalmente segura
+                                fecha_op = str(d_row.get('Fecha_Factura') or '')
+                                tipo_doc = str(d_row.get('tipo', tipo_doc_calculado if 'tipo_doc_calculado' in locals() else ('03' if total_fila < 0 else '01')))
+                                nro_doc = str(d_row.get('Numero_Factura', ''))
+                                nro_ctrl = str(d_row.get('Numero_Contro', ''))
+                                
                                 fac_afectada = str(
                                     d_row.get('NFactura_Afectada') or 
                                     d_row.get('nfactura_afectada') or 
                                     d_row.get('N_Factura_Afectada') or 
                                     ''
                                 ).strip()
-                                if fac_afectada.lower() in ['none', 'nan', 'nat']:
+                                if fac_afectada.lower() in ['none', 'nan', 'nat', '']:
                                     fac_afectada = ""
 
                                 if tiene_notas:
-                                    # Usamos la variable que ya tenías para el tipo y el número de documento original
-                                    pdf.cell(w[1], 4, str(d_row.get('tipo', tipo_doc_calculado if 'tipo_doc_calculado' in locals() else '03')), 1, 0, 'C')
-                                    pdf.cell(w[2], 4, str(d_row.get('Numero_Factura', '')), 1, 0, 'C')
-                                    pdf.cell(w[3], 4, str(d_row.get('Numero_Contro', '')), 1, 0, 'C')
-                                    pdf.cell(w[4], 4, fac_afectada, 1, 0, 'C') # <--- AQUÍ VA LA FACTURA AFECTADA
+                                    # 1. Fecha en w[0] (¡ESTO FALTABA Y DESCUADRABA TODO!)
+                                    pdf.cell(w[0], 4, fecha_op, 1, 0, 'C')
+                                    # 2. Tipo en w[1]
+                                    pdf.cell(w[1], 4, tipo_doc, 1, 0, 'C')
+                                    # 3. N° Doc/Nota en w[2]
+                                    pdf.cell(w[2], 4, nro_doc, 1, 0, 'C')
+                                    # 4. N.Contr en w[3]
+                                    pdf.cell(w[3], 4, nro_ctrl, 1, 0, 'C')
+                                    # 5. Fac. Afectada en w[4] (¡AQUÍ SE PINTA EL NÚMERO!)
+                                    pdf.cell(w[4], 4, fac_afectada, 1, 0, 'C')
+                                    # Resto de columnas intactas
                                     pdf.cell(w[5], 4, f"{total_fila:,.2f}", 1, 0, 'R')
                                     pdf.cell(w[6], 4, f"{exento:,.2f}", 1, 0, 'R')
                                     pdf.cell(w[7], 4, f"{b16:,.2f}", 1, 0, 'R')
@@ -4716,8 +4726,10 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                                     else:
                                         pdf.cell(w[10], 4, f"{valor_a_mostrar_r16:,.2f}", 1, 1, 'R', fill=True)
                                 else:
-                                    pdf.cell(w[1], 4, str(d_row.get('Numero_Factura', '')), 1, 0, 'C')
-                                    pdf.cell(w[2], 4, str(d_row.get('Numero_Contro', '')), 1, 0, 'C')
+                                    # Sin notas (cuando no aplica factura afectada)
+                                    pdf.cell(w[0], 4, fecha_op, 1, 0, 'C')
+                                    pdf.cell(w[1], 4, nro_doc, 1, 0, 'C')
+                                    pdf.cell(w[2], 4, nro_ctrl, 1, 0, 'C')
                                     pdf.cell(w[3], 4, f"{total_fila:,.2f}", 1, 0, 'R')
                                     pdf.cell(w[4], 4, f"{exento:,.2f}", 1, 0, 'R')
                                     pdf.cell(w[5], 4, f"{b16:,.2f}", 1, 0, 'R')
@@ -4731,7 +4743,6 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                                         pdf.cell(w[11], 4, f"{total_fila_retencion:,.2f}", 1, 1, 'R', fill=True)
                                     else:
                                         pdf.cell(w[8], 4, f"{valor_a_mostrar_r16:,.2f}", 1, 1, 'R', fill=True)
-
                             # --- FILA DE TOTALES GENERALES ---
                             pdf.set_x(x_inicio_tabla)
                             pdf.set_font("Arial", "B", 7)
