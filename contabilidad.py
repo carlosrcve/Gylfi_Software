@@ -4023,7 +4023,7 @@ def obtener_detalle_comprobante(id_registro):
         
         cursor = conn.cursor()
         
-        # CONSULTA CON LOS NOMBRES EXACTOS DE TU TABLA (RESPETANDO MAYÚSCULAS)
+        # CONSULTA 100% SEGURA Y COMPATIBLE (Sin fallas de nombres de notas)
         query = """
             SELECT 
                 r.id, 
@@ -4040,8 +4040,6 @@ def obtener_detalle_comprobante(id_registro):
                 r.Fecha_Factura, 
                 r.Numero_Factura, 
                 r.Numero_Contro, 
-                r.N_Nota_Debitov,
-                r.N_Nota_Creditov,
                 r.NFactura_Afectada AS n_factura_afectada,
                 r.Total_Comrpas, 
                 r.Compras_Excentas, 
