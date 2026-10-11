@@ -4023,7 +4023,7 @@ def obtener_detalle_comprobante(id_registro):
         
         cursor = conn.cursor()
         
-        # CONSULTA 100% SEGURA Y COMPATIBLE (Sin fallas de nombres de notas)
+        # CONSULTA CON BÚSQUEDA DIRECTA DE LA DIRECCIÓN DESDE LA TABLA PROVEEDORES
         query = """
             SELECT 
                 r.id, 
@@ -4049,9 +4049,8 @@ def obtener_detalle_comprobante(id_registro):
                 r.IVA_Retenido, 
                 r.IVA_8, 
                 r.RET_IVA_8,
-                COALESCE(p.direccion_fiscal, 'DIRECCIÓN NO REGISTRADA EN PROVEEDORES') AS direccion_fiscal_proveedor
+                (SELECT p.direccion_fiscal FROM proveedores p WHERE TRIM(p.rif) = TRIM(r.RIF_Sujeto_Retenido) LIMIT 1) AS direccion_fiscal_proveedor
             FROM retenciones_iva r
-            LEFT JOIN proveedores p ON REPLACE(REPLACE(TRIM(r.RIF_Sujeto_Retenido), '-', ''), ' ', '') = REPLACE(REPLACE(TRIM(p.rif), '-', ''), ' ', '')
             WHERE r.N_Comprobante1 = (SELECT N_Comprobante1 FROM retenciones_iva WHERE id = %s)
         """
         
@@ -4074,7 +4073,6 @@ def obtener_detalle_comprobante(id_registro):
                 conn.ping(reconnect=True)
             except Exception:
                 pass
-            
 def eliminar_registro_retencion(id_registro):
     db_actual = st.session_state.get('DB_ACTUAL')
     conn = conectar_db(db_actual)
@@ -4564,11 +4562,11 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                             # 4. Posicionamos justo debajo de la etiqueta (y=61) y un poco más adentro (x=17)
                             pdf.set_xy(17, 61) 
 
-                            # 5. Obtenemos la dirección del proveedor desde el registro de la consulta (d)
-                            domicilio_real = str(d.get('direccion_fiscal_proveedor', 'NO REGISTRADO'))
+                            # 5. Obtenemos la dirección del proveedor directamente desde MySQL (d)
+                            domicilio_real = str(d.get('direccion_fiscal_proveedor') or 'SIN DIRECCIÓN REGISTRADA EN BASE DE DATOS')
 
                             # 6. Imprimimos con multi_cell usando el ancho del recuadro (170)
-                            pdf.multi_cell(170, 3.2, domicilio_real)
+                            pdf.multi_cell(170, 3.2, domicilio_real.upper())
                             # ------- BLOQUE 3:  ----------------------
                             pdf.rect(200, 55, 35, 15) 
                             pdf.set_font("Arial", "", 8); pdf.text(202, 59, "E. Emision:")
