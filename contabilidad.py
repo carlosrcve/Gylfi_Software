@@ -4550,23 +4550,20 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
 
                             # ------- BLOQUE 2: DIRECCIÓN Y FECHAS ----------------------
                             # 1. Dibujamos el recuadro existente en (15, 55) con ancho 175 y alto 15
-                            pdf.rect(15, 55, 175, 15)
+                            # Caja Izquierda: Razón Social y Dirección Fiscal del Agente de Retención
+                            pdf.rect(15, 35, 110, 20) 
+                            pdf.set_font("Arial", "", 6)
+                            pdf.text(17, 38, "Razon Social del Agente de Retencion:")
 
-                            # 2. Cambiamos la etiqueta superior para indicar que es la dirección del proveedor
-                            pdf.set_font("Arial", "", 8)
-                            pdf.text(17, 59, "Dirección Fiscal del Sujeto Retenido (Proveedor):")
+                            # Razón social de la empresa emisora
+                            pdf.set_font("Arial", "B", 8)
+                            pdf.text(17, 43, str(d.get('Razon_Social_del_Agente_de_Retencion', ''))) 
 
-                            # 3. Configuramos la fuente pequeña para el texto
-                            pdf.set_font("Arial", "", 7)
-
-                            # 4. Posicionamos justo debajo de la etiqueta (y=61) y un poco más adentro (x=17)
-                            pdf.set_xy(17, 61) 
-
-                            # 5. Obtenemos la dirección del proveedor directamente desde MySQL (d)
-                            domicilio_real = str(d.get('direccion_fiscal_proveedor') or 'SIN DIRECCIÓN REGISTRADA EN BASE DE DATOS')
-
-                            # 6. Imprimimos con multi_cell usando el ancho del recuadro (170)
-                            pdf.multi_cell(170, 3.2, domicilio_real.upper())
+                            # Dirección Fiscal de la empresa emisora (Agente de Retención)
+                            dir_agente = str(d.get('Direccion_FiscalAgente_Retencion', ''))
+                            pdf.set_font("Arial", "", 5.5)
+                            pdf.set_xy(16, 45)
+                            pdf.multi_cell(108, 2.3, dir_agente)
                             # ------- BLOQUE 3:  ----------------------
                             pdf.rect(200, 55, 35, 15) 
                             pdf.set_font("Arial", "", 8); pdf.text(202, 59, "E. Emision:")
