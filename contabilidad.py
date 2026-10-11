@@ -3660,7 +3660,6 @@ def extraer_datos_factura(archivo):
         return None
         
     try:
-        # --- BLINDAJE DE FORMATO (PDF o Imagen) ---
         if archivo.type == "application/pdf":
             img_data = convertir_pdf_a_imagen_bytes(archivo)
             if not img_data:
@@ -3671,25 +3670,32 @@ def extraer_datos_factura(archivo):
             archivo.seek(0)
             img_data = archivo.read()
             tipo_mime = archivo.type if archivo.type else "image/jpeg"
-        # ----------------------------------------
 
         prompt_instrucciones = """
-            Eres un asistente contable experto en OCR. Tu tarea es extraer datos de facturas fiscales.
-            Extrae la información basándote únicamente en las etiquetas visibles en el documento.
+            Eres un asistente contable experto en OCR fiscal en Venezuela (normativa SENIAT). 
+            Tu tarea es analizar el documento escaneado y determinar si es una Factura (Tipo 01), 
+            una Nota de Crédito (Tipo 03) o una Nota de Débito (Tipo 02).
 
-            REGLAS DE ORO:
-            1. 'n_factura': Busca etiquetas como "N° Documento", "Número de Factura" o "Factura N°". Extrae el valor alfanumérico exacto.
-            2. 'n_control': Busca la etiqueta "N° de Control". Es crucial extraer el formato completo (ej. 00-000000).
-            3. 'rif': Busca el RIF del emisor (ej. J-XXXXXXXXX). Elimina guiones y espacios.
-            4. 'fecha_operacion': Busca la fecha de emisión. Conviértela a formato YYYY-MM-DD.
-            5. Montos: Extrae los valores monetarios de la moneda local (Bs.). Ignora montos en otras divisas.
-            6. Si un dato no existe, devuelve el valor en blanco o 0 según corresponda. NO inventes datos.
-            7. Devuelve SOLO un JSON puro.
+            REGLAS DE EXTRACCIÓN:
+            1. 'tipo_documento': Devuelve '01' si es factura, '03' si es Nota de Crédito, o '02' si es Nota de Débito.
+            2. 'n_factura': 
+               - Si es factura, extrae el número de factura.
+               - Si es Nota de Crédito/Débito, este campo debe contener el **número de la Factura Afectada** (ej. "00008274").
+            3. 'n_control': Busca la etiqueta "N° de Control" o formato "00-XXXXXX".
+            4. 'nota_credito': Si es Nota de Crédito, extrae su número de documento (ej. "00000720"). De lo contrario, déjalo en blanco o null.
+            5. 'nota_debito': Si es Nota de Débito, extrae su número de documento. De lo contrario, déjalo en blanco o null.
+            6. 'rif': Busca el RIF del emisor (ej. J-317227719). Elimina guiones y espacios.
+            7. 'fecha_operacion': Fecha de emisión del documento en formato YYYY-MM-DD.
+            8. Montos en Moneda Local (Bs.): Extrae los montos convertidos a Bolívares (o calcula si aplica). Asegúrate de capturar 'total_compras', 'importe_exento', 'base_imponible', 'iva_porcentaje' e 'iva_monto'.
+            9. Devuelve SOLO un JSON puro sin markdown extra.
 
-            Formato requerido:
+            Formato requerido estrictamente en JSON:
             {
+                "tipo_documento": "string",
                 "n_factura": "string",
                 "n_control": "string",
+                "nota_credito": "string",
+                "nota_debito": "string",
                 "fecha_operacion": "YYYY-MM-DD",
                 "rif": "string",
                 "total_compras": float,
@@ -3710,28 +3716,28 @@ def extraer_datos_factura(archivo):
         end = texto_limpio.rfind('}') + 1
         texto_limpio = texto_limpio[start:end]
         
-        # --- NUEVO: BLOQUE DE BLINDAJE Y LIMPIEZA ---
         datos = json.loads(texto_limpio)
         
-        # 1. Limpieza de RIF (Quitar guiones y espacios)
-        datos['rif'] = str(datos['rif']).replace('-', '').replace(' ', '').strip().upper()
+        # Limpieza y blindaje
+        datos['rif'] = str(datos.get('rif', '')).replace('-', '').replace(' ', '').strip().upper()
+        datos['n_factura'] = str(datos.get('n_factura', '')).strip().upper()
+        datos['n_control'] = str(datos.get('n_control', '')).strip().upper()
         
-        # 2. Validación de Control (Forzar formato estándar si el OCR falló)
-        if len(str(datos['n_control'])) < 5:
-            datos['n_control'] = "REVISAR_OCR"
+        if datos.get('nota_credito'):
+            datos['nota_credito'] = str(datos['nota_credito']).strip().upper()
+        if datos.get('nota_debito'):
+            datos['nota_debito'] = str(datos['nota_debito']).strip().upper()
             
-        # 3. Asegurar que los montos sean numéricos
-        for campo in ['total_compras', 'importe_exento', 'base_imponible', 'iva_monto']:
+        for campo in ['total_compras', 'importe_exento', 'base_imponible', 'iva_porcentaje', 'iva_monto']:
             try:
                 datos[campo] = float(datos[campo])
             except:
                 datos[campo] = 0.0
         
         return datos
-        # --------------------------------------------
         
     except Exception as e:
-        st.error(f"Error procesando con el modelo encontrado: {e}")
+        st.error(f"Error procesando con el modelo de IA: {e}")
         return None
 
 def generar_comprobante_pdf(datos, conn):
@@ -18271,3 +18277,4 @@ elif opcion_menu == "📦 Respaldos y Exportación":
 elif "Inventarios" in opcion_menu:
     # Invocamos el módulo exclusivo pasando la conexión a la base de datos
     modulo_inventario_pedacito_cielo(conn)  
+
