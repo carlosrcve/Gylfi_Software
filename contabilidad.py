@@ -4554,19 +4554,25 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                             pdf.set_font("Arial", "B", 11); pdf.text(202, 47, str(d.get('N_Comprobante1', '')))
 
                             # ------- BLOQUE 2: DIRECCIÓN Y FECHAS ----------------------
+                            # 1. Dibujamos el recuadro existente en (15, 55) con ancho 175 y alto 15
                             pdf.rect(15, 55, 175, 15)
+
+                            # 2. Cambiamos la etiqueta superior para indicar que es la dirección del proveedor
                             pdf.set_font("Arial", "", 8)
                             pdf.text(17, 59, "Dirección Fiscal del Sujeto Retenido (Proveedor):")
+
+                            # 3. Configuramos la fuente pequeña para el texto
                             pdf.set_font("Arial", "", 7)
+
+                            # 4. Posicionamos justo debajo de la etiqueta (y=61) y un poco más adentro (x=17)
                             pdf.set_xy(17, 61) 
 
-                            # Obtención segura de la dirección del proveedor
-                            domicilio_real = d.get('direccion_fiscal_proveedor') or d.get('direccion') or d.get('domicilio_fiscal') or "CIUDAD"
-                            if str(domicilio_real).strip() in ['None', 'nan', '', 'N/A']:
-                                domicilio_real = "CIUDAD" # O la dirección por defecto del proveedor
+                            # 5. Obtenemos la dirección del proveedor desde el registro de la consulta (d)
+                            domicilio_real = str(d.get('direccion_fiscal_proveedor', 'NO REGISTRADO'))
 
-                            pdf.multi_cell(170, 3.2, str(domicilio_real).upper())
-
+                            # 6. Imprimimos con multi_cell usando el ancho del recuadro (170)
+                            pdf.multi_cell(170, 3.2, domicilio_real)
+                            # ------- BLOQUE 3:  ----------------------
                             pdf.rect(200, 55, 35, 15) 
                             pdf.set_font("Arial", "", 8); pdf.text(202, 59, "E. Emision:")
                             pdf.set_font("Arial", "B", 9); pdf.text(202, 66, str(d.get('E_Emision', '')))
@@ -4575,7 +4581,7 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                             pdf.set_font("Arial", "", 8); pdf.text(237, 59, "F. Entrega:")
                             pdf.set_font("Arial", "B", 9); pdf.text(237, 66, str(d.get('F_Entrega', '')))
 
-                            # --- BLOQUE 3: SUJETO RETENIDO ---
+                            # --- BLOQUE 4: SUJETO RETENIDO ---
                             pdf.rect(15, 75, 110, 15)
                             pdf.set_font("Arial", "", 8); pdf.text(17, 79, "Razon Social Sujeto Retenido:")
                             pdf.set_font("Arial", "B", 9); pdf.text(17, 86, str(d.get('Razon_Social_Sujeto_Retenido', '')))
