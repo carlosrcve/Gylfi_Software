@@ -3298,7 +3298,7 @@ def obtener_lista_proveedores():
 
 
 # Configura tu clave (asegúrate de que tu api_key esté configurada correctamente)
-genai.configure(api_key="AQ.Ab8RN6KiWY-x727nF8PFCerZu-EDtlkEbT5CJDBzFp188mx2Tw")
+genai.configure(api_key="AQ.Ab8RN6KEpVYjcWJ4XLcEBNSK1ASqvBcnsuJkon-tb0fhLsVMLA")
 
 def convertir_pdf_a_imagen_bytes(pdf_file_obj):
     """Convierte la primera página de un PDF subido en Streamlit a bytes de imagen JPEG de forma segura"""
@@ -15960,7 +15960,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                             
                             if facturas_exitosas > 0:
                                 st.session_state.df_buffer_escaneo = pd.DataFrame()
-                                
+
         with tab3: # Vaciado de Rango
             st.subheader("🚨 Vaciado de Compras")
             
