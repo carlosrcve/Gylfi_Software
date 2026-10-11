@@ -15845,132 +15845,159 @@ elif opcion_menu == "📚 Libros Fiscales":
                         else:
                             st.error("La IA devolvió un resultado vacío.")
 
-            # --- ÁREA DE EDICIÓN Y REVISIÓN ---
-            if not st.session_state.df_buffer_escaneo.empty:
-                st.info(f"💡 Revisando {len(st.session_state.df_buffer_escaneo)} documentos en espera.")
-                
-                df_a_editar = st.session_state.df_buffer_escaneo.copy()
-                
-                if "Seleccionar Proveedor" not in df_a_editar.columns:
-                    df_a_editar["Seleccionar Proveedor"] = ""
-                
-                for col in ["n_factura", "n_control"]:
-                    if col not in df_a_editar.columns:
-                        df_a_editar[col] = "SIN_VALOR"
-                    else:
-                        df_a_editar[col] = df_a_editar[col].astype(str).replace(['nan', 'None', '', 'nan'], 'SIN_VALOR')
-
-                lista_proveedores = obtener_lista_proveedores()
-                
-                # Editor interactivo con soporte ampliado para notas de crédito y débito
-                buffer_editado = st.data_editor(
-                    df_a_editar,
-                    column_config={
-                        "Seleccionar Proveedor": st.column_config.SelectboxColumn(
-                            "Proveedor",
-                            help="Selecciona el proveedor de la lista",
-                            options=lista_proveedores,
-                            required=True,
-                        ),
-                        "tipo_documento": st.column_config.TextColumn("Tipo Doc (01/03/etc.)"),
-                        "n_factura": st.column_config.TextColumn("Nº Factura", required=True),
-                        "n_control": st.column_config.TextColumn("Nº Control", required=True),
-                        "nota_credito": st.column_config.TextColumn("Nº Nota Crédito"),
-                        "nota_debito": st.column_config.TextColumn("Nº Nota Débito"),
-                        "total_compras": st.column_config.NumberColumn("Total", format="%,.2f"),
-                        "base_imponible": st.column_config.NumberColumn("Base Imponible", format="%,.2f"),
-                        "iva_monto": st.column_config.NumberColumn("IVA Monto", format="%,.2f")
-                    },
-                    key="editor_buffer_ocr",
-                    num_rows="dynamic",
-                    width='stretch'
-                )
-                
-                st.session_state.df_buffer_escaneo = buffer_editado
-
-                st.markdown("---")
-                col_b1, col_b2 = st.columns(2)
-                
-                with col_b1:
-                    output = io.BytesIO()
-                    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                        st.session_state.df_buffer_escaneo.to_excel(writer, index=False, sheet_name='Buffer_OCR')
+                # --- ÁREA DE EDICIÓN Y REVISIÓN ---
+                if not st.session_state.df_buffer_escaneo.empty:
+                    st.info(f"💡 Revisando {len(st.session_state.df_buffer_escaneo)} documentos en espera.")
                     
-                    st.download_button(
-                        label="📥 Descargar Buffer a Excel",
-                        data=output.getvalue(),
-                        file_name=f"Backup_OCR_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    df_a_editar = st.session_state.df_buffer_escaneo.copy()
+                    
+                    if "Seleccionar Proveedor" not in df_a_editar.columns:
+                        df_a_editar["Seleccionar Proveedor"] = ""
+                    
+                    for col in ["n_factura", "n_control"]:
+                        if col not in df_a_editar.columns:
+                            df_a_editar[col] = "SIN_VALOR"
+                        else:
+                            df_a_editar[col] = df_a_editar[col].astype(str).replace(['nan', 'None', '', 'nan'], 'SIN_VALOR')
+
+                    lista_proveedores = obtener_lista_proveedores()
+                    
+                    # Editor interactivo con soporte ampliado para notas de crédito y débito
+                    buffer_editado = st.data_editor(
+                        df_a_editar,
+                        column_config={
+                            "Seleccionar Proveedor": st.column_config.SelectboxColumn(
+                                "Proveedor",
+                                help="Selecciona el proveedor de la lista",
+                                options=lista_proveedores,
+                                required=True,
+                            ),
+                            "tipo_documento": st.column_config.TextColumn("Tipo Doc (01/03/etc.)"),
+                            "n_factura": st.column_config.TextColumn("Nº Factura / Afectada", required=True),
+                            "n_control": st.column_config.TextColumn("Nº Control", required=True),
+                            "nota_credito": st.column_config.TextColumn("Nº Nota Crédito"),
+                            "nota_debito": st.column_config.TextColumn("Nº Nota Débito"),
+                            "total_compras": st.column_config.NumberColumn("Total", format="%,.2f"),
+                            "base_imponible": st.column_config.NumberColumn("Base Imponible", format="%,.2f"),
+                            "iva_monto": st.column_config.NumberColumn("IVA Monto", format="%,.2f")
+                        },
+                        key="editor_buffer_ocr",
+                        num_rows="dynamic",
                         width='stretch'
                     )
+                    
+                    st.session_state.df_buffer_escaneo = buffer_editado
 
-                with col_b2:
-                    if st.button("🚀 Guardar TODAS en DB (Modo Seguro)", type="primary", key="btn_guardar_ocr_db"):
-                        if st.session_state.df_buffer_escaneo['Seleccionar Proveedor'].isin(['', None]).any():
-                            st.warning("⚠️ ¡Faltan proveedores por seleccionar!")
-                        else:
-                            df_a_procesar = st.session_state.df_buffer_escaneo.copy()
-                            
-                            dict_proveedores = obtener_lista_proveedores_mapeo()
-                            dict_nombre_por_rif = {v: k for k, v in dict_proveedores.items()}
-                            
-                            engine = create_engine(f"mysql+mysqlconnector://{DB_CONFIG['user']}:{DB_CONFIG['password']}@{DB_CONFIG['host']}/{db_actual}")
-                            
-                            for col in ['n_factura', 'n_control']:
-                                if col not in df_a_procesar.columns:
-                                    df_a_procesar[col] = 'SIN_DATOS'
-                                df_a_procesar[col] = df_a_procesar[col].fillna('SIN_DATOS').astype(str)
+                    st.markdown("---")
+                    col_b1, col_b2 = st.columns(2)
+                    
+                    with col_b1:
+                        output = io.BytesIO()
+                        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                            st.session_state.df_buffer_escaneo.to_excel(writer, index=False, sheet_name='Buffer_OCR')
+                        
+                        st.download_button(
+                            label="📥 Descargar Buffer a Excel",
+                            data=output.getvalue(),
+                            file_name=f"Backup_OCR_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            width='stretch'
+                        )
 
-                            bar = st.progress(0)
-                            facturas_exitosas = 0
-                            
-                            for index, row in df_a_procesar.iterrows():
-                                try:
-                                    fila = row.to_frame().T.copy()
-                                    
-                                    fila['rif'] = fila['Seleccionar Proveedor'].map(dict_proveedores)
-                                    fila['rif'] = fila['rif'].astype(str).str.replace('-', '', regex=False).str.replace(' ', '', regex=False).str.strip().str.upper()
-                                    fila['n_factura'] = fila['n_factura'].astype(str).str.strip().str.upper()
-                                    fila['n_control'] = fila['n_control'].astype(str).str.strip().str.upper()
-                                    
-                                    if 'nota_credito' in fila.columns and fila['nota_credito'].iloc[0]:
-                                        fila['nota_credito'] = str(fila['nota_credito'].iloc[0]).strip().str.upper() if hasattr(fila['nota_credito'].iloc[0], 'strip') else str(fila['nota_credito'].iloc[0])
-                                    if 'nota_debito' in fila.columns and fila['nota_debito'].iloc[0]:
-                                        fila['nota_debito'] = str(fila['nota_debito'].iloc[0]).strip().str.upper() if hasattr(fila['nota_debito'].iloc[0], 'strip') else str(fila['nota_debito'].iloc[0])
+                    with col_b2:
+                        if st.button("🚀 Guardar TODAS en DB (Modo Seguro)", type="primary", key="btn_guardar_ocr_db"):
+                            if st.session_state.df_buffer_escaneo['Seleccionar Proveedor'].isin(['', None]).any():
+                                st.warning("⚠️ ¡Faltan proveedores por seleccionar!")
+                            else:
+                                df_a_procesar = st.session_state.df_buffer_escaneo.copy()
+                                
+                                dict_proveedores = obtener_lista_proveedores_mapeo()
+                                dict_nombre_por_rif = {v: k for k, v in dict_proveedores.items()}
+                                
+                                engine = create_engine(f"mysql+mysqlconnector://{DB_CONFIG['user']}:{DB_CONFIG['password']}@{DB_CONFIG['host']}/{db_actual}")
+                                
+                                for col in ['n_factura', 'n_control']:
+                                    if col not in df_a_procesar.columns:
+                                        df_a_procesar[col] = 'SIN_DATOS'
+                                    df_a_procesar[col] = df_a_procesar[col].fillna('SIN_DATOS').astype(str)
 
-                                    fila['proveedor'] = fila['rif'].map(dict_nombre_por_rif)
-                                    if 'tipo_documento' not in fila.columns or not fila['tipo_documento'].iloc[0]:
-                                        fila['tipo_documento'] = '01'
+                                bar = st.progress(0)
+                                facturas_exitosas = 0
+                                
+                                for index, row in df_a_procesar.iterrows():
+                                    try:
+                                        fila = row.to_frame().T.copy()
                                         
-                                    cols_drop = ['Seleccionar Proveedor']
-                                    if 'proveedor_nombre' in fila.columns:
-                                        cols_drop.append('proveedor_nombre')
-                                    fila = fila.drop(columns=cols_drop, errors='ignore')
+                                        fila['rif'] = fila['Seleccionar Proveedor'].map(dict_proveedores)
+                                        fila['rif'] = fila['rif'].astype(str).str.replace('-', '', regex=False).str.replace(' ', '', regex=False).str.strip().str.upper()
+                                        fila['n_factura'] = fila['n_factura'].astype(str).str.strip().str.upper()
+                                        fila['n_control'] = fila['n_control'].astype(str).str.strip().str.upper()
+                                        
+                                        # Manejo específico de Notas de Crédito / Débito
+                                        nc_val = None
+                                        nd_val = None
+                                        
+                                        if 'nota_credito' in fila.columns and fila['nota_credito'].iloc[0] and str(fila['nota_credito'].iloc[0]).lower() not in ['none', 'nan', '', 'nat']:
+                                            nc_val = str(fila['nota_credito'].iloc[0]).strip().upper()
+                                            fila['nota_credito'] = nc_val
+                                        else:
+                                            fila['nota_credito'] = None
 
-                                    rif_val = fila['rif'].iloc[0]
-                                    nfac_val = fila['n_factura'].iloc[0]
-                                    
-                                    query_check = "SELECT COUNT(*) FROM libro_compras WHERE rif = %s AND n_factura = %s"
-                                    
-                                    with engine.connect() as conn:
-                                        resultado = conn.execute(text(query_check), (rif_val, nfac_val)).scalar()
-                                    
-                                    if resultado > 0:
-                                        st.warning(f"⚠️ Documento / Factura {nfac_val} (RIF {rif_val}) ya registrada. Saltando...")
-                                    else:
-                                        fila.to_sql('libro_compras', con=engine, if_exists='append', index=False)
-                                        facturas_exitosas += 1
-                                        st.write(f"✅ Documento {nfac_val} guardado correctamente.")
+                                        if 'nota_debito' in fila.columns and fila['nota_debito'].iloc[0] and str(fila['nota_debito'].iloc[0]).lower() not in ['none', 'nan', '', 'nat']:
+                                            nd_val = str(fila['nota_debito'].iloc[0]).strip().upper()
+                                            fila['nota_debito'] = nd_val
+                                        else:
+                                            fila['nota_debito'] = None
 
-                                except Exception as e:
-                                    st.error(f"❌ Error al guardar fila {index + 1}: {e}")
+                                        fila['proveedor'] = fila['rif'].map(dict_nombre_por_rif)
+                                        
+                                        if 'tipo_documento' not in fila.columns or not fila['tipo_documento'].iloc[0]:
+                                            if nc_val:
+                                                fila['tipo_documento'] = '03'
+                                            elif nd_val:
+                                                fila['tipo_documento'] = '02'
+                                            else:
+                                                fila['tipo_documento'] = '01'
+                                                
+                                        cols_drop = ['Seleccionar Proveedor']
+                                        if 'proveedor_nombre' in fila.columns:
+                                            cols_drop.append('proveedor_nombre')
+                                        fila = fila.drop(columns=cols_drop, errors='ignore')
 
-                                bar.progress((index + 1) / len(df_a_procesar))
-                            
-                            st.success(f"✅ Proceso finalizado. Total guardados: {facturas_exitosas} de {len(df_a_procesar)}")
-                            
-                            if facturas_exitosas > 0:
-                                st.session_state.df_buffer_escaneo = pd.DataFrame()
+                                        rif_val = fila['rif'].iloc[0]
+                                        nfac_val = fila['n_factura'].iloc[0]
+                                        
+                                        # Validación inteligente de duplicados según sea Factura o Nota de Ajuste
+                                        with engine.connect() as conn:
+                                            if nc_val:
+                                                query_check = "SELECT COUNT(*) FROM libro_compras WHERE rif = %s AND nota_credito = %s"
+                                                resultado = conn.execute(text(query_check), (rif_val, nc_val)).scalar()
+                                                doc_nombre = f"Nota de Crédito {nc_val}"
+                                            elif nd_val:
+                                                query_check = "SELECT COUNT(*) FROM libro_compras WHERE rif = %s AND nota_debito = %s"
+                                                resultado = conn.execute(text(query_check), (rif_val, nd_val)).scalar()
+                                                doc_nombre = f"Nota de Débito {nd_val}"
+                                            else:
+                                                query_check = "SELECT COUNT(*) FROM libro_compras WHERE rif = %s AND n_factura = %s AND (nota_credito IS NULL OR nota_credito = '') AND (nota_debito IS NULL OR nota_debito = '')"
+                                                resultado = conn.execute(text(query_check), (rif_val, nfac_val)).scalar()
+                                                doc_nombre = f"Factura {nfac_val}"
+                                        
+                                        if resultado > 0:
+                                            st.warning(f"⚠️ Documento {doc_nombre} (RIF {rif_val}) ya registrado en DB. Saltando...")
+                                        else:
+                                            fila.to_sql('libro_compras', con=engine, if_exists='append', index=False)
+                                            facturas_exitosas += 1
+                                            st.write(f"✅ {doc_nombre} guardado correctamente.")
+
+                                    except Exception as e:
+                                        st.error(f"❌ Error al guardar fila {index + 1}: {e}")
+
+                                    bar.progress((index + 1) / len(df_a_procesar))
+                                
+                                st.success(f"✅ Proceso finalizado. Total guardados: {facturas_exitosas} de {len(df_a_procesar)}")
+                                
+                                if facturas_exitosas > 0:
+                                    st.session_state.df_buffer_escaneo = pd.DataFrame()
 
         with tab3: # Vaciado de Rango
             st.subheader("🚨 Vaciado de Compras")
