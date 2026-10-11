@@ -4564,7 +4564,7 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                             pdf.set_xy(17, 61) 
 
                             # Dirección oficial exacta con saltos de línea
-                            dir_final = "CALLE SANOJA ENTRE EL ESTADIO Y LAS CIENCIAS\nCASA QUINTA MARIJUL NRO PB-A\nURB LOS CHAGUARAMOS CARACAS\nDISTRITO CAPITAL ZONA POSTAL 1053"
+                            dir_final = "CALLE SANOJA ENTRE EL ESTADIO Y LAS CIENCIAS CASA QUINTA MARIJUL NRO PB-A\nURB LOS CHAGUARAMOS CARACAS\nDISTRITO CAPITAL ZONA POSTAL 1053"
 
                             pdf.multi_cell(170, 3.2, dir_final.upper())
 
