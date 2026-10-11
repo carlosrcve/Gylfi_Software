@@ -4570,7 +4570,7 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                                 dir_mysql = str(datos_empresa.get('direccion', 'DIRECCIÓN NO REGISTRADA EN BASE DE DATOS'))
 
                             # 6. Imprimimos con multi_cell usando el ancho del recuadro (170)
-                            pdf.multi_cell(170, 3.2, domicilio_real.upper())
+                            pdf.multi_cell(170, 3.2, dir_mysql.upper())
 
                             # ------- BLOQUE 3:  ----------------------
                             pdf.rect(200, 55, 35, 15) 
