@@ -4689,18 +4689,20 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                                 tipo_doc = str(d_row.get('tipo_documento', '03' if total_fila < 0 else '01'))
                                 nro_doc = str(d_row.get('Numero_Factura', ''))
                                 nro_ctrl = str(d_row.get('Numero_Contro', ''))
-                                # Extracción robusta de la Factura Afectada
-                                fac_afectada = (
-                                    d_row.get('n_factura_afectada') or 
-                                    d_row.get('Numero_Factura_Afectada') or 
-                                    d_row.get('factura_afectada') or 
-                                    d_row.get('n_factura') or ''
-                                )
-                                fac_afectada_str = str(fac_afectada).strip()
-                                if fac_afectada_str in ['None', 'nan', 'N/A']:
-                                    fac_afectada_str = ''
+                                # Capturamos el valor probando todas las posibles variaciones de la llave
+                                fac_afectada = str(
+                                    d.get('NFactura_Afectada') or 
+                                    d.get('nfactura_afectada') or 
+                                    d.get('N_Factura_Afectada') or 
+                                    ''
+                                ).strip()
 
-                                pdf.cell(w[0], 4, fecha_op, 1, 0, 'C')
+                                # Si viene como 'None' o 'nan', lo dejamos en blanco
+                                if fac_afectada.lower() in ['none', 'nan', 'nat']:
+                                    fac_afectada = ""
+
+                                # Imprimimos la celda en la tabla del PDF (ajusta 'w_col' y 'h_row' a los nombres de tus variables actuales)
+                                pdf.cell(w_col, h_row, fac_afectada, border=1, align='C')
                                 
                                 if tiene_notas:
                                     pdf.cell(w[1], 4, tipo_doc, 1, 0, 'C')
