@@ -3316,17 +3316,13 @@ def convertir_pdf_a_imagen_bytes(pdf_file_obj):
         return None
 
 def obtener_modelo_valido():
-    """Instancia directamente el modelo estable de Gemini para evitar errores de listado o modelos deprecados."""
+    """Instancia directamente el modelo actual y oficial de Gemini para el procesamiento OCR."""
     try:
-        # Intentamos con el modelo estándar principal
-        return genai.GenerativeModel('gemini-1.5-flash')
-    except Exception as e_primario:
-        try:
-            # Fallback secundario por si acaso
-            return genai.GenerativeModel('gemini-2.5-flash')
-        except Exception as e_secundario:
-            st.error(f"❌ Error crítico al inicializar el modelo de IA: {e_secundario}")
-            return None
+        # Apuntamos directamente al modelo oficial requerido por la API
+        return genai.GenerativeModel('gemini-3.8-flash')
+    except Exception as e:
+        st.error(f"❌ Error al inicializar el modelo de IA: {e}")
+        return None
 
 
 def extraer_datos_con_regex(pdf_file_obj):
