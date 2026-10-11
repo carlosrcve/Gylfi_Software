@@ -4023,7 +4023,7 @@ def obtener_detalle_comprobante(id_registro):
         
         cursor = conn.cursor()
         
-        # CONSULTA CON BÚSQUEDA DIRECTA DE LA DIRECCIÓN DESDE LA TABLA PROVEEDORES
+        # CONSULTA CON LA DIRECCIÓN FISCAL DEL AGENTE DE RETENCIÓN EXPLÍCITA
         query = """
             SELECT 
                 r.id, 
