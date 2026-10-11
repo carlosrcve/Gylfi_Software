@@ -15843,17 +15843,21 @@ elif opcion_menu == "📚 Libros Fiscales":
                     st.info(f"💡 Revisando {len(st.session_state.df_buffer_escaneo)} documentos en espera.")
                     df_a_editar = st.session_state.df_buffer_escaneo.copy()
                     
+                    # Asegurar formato de fecha correcto para el DateColumn de Streamlit
+                    if "fecha_operacion" in df_a_editar.columns:
+                        df_a_editar["fecha_operacion"] = pd.to_datetime(df_a_editar["fecha_operacion"], errors='coerce').dt.date
+                    
                     if "Seleccionar Proveedor" not in df_a_editar.columns:
                         df_a_editar["Seleccionar Proveedor"] = ""
                     
                     lista_proveedores = obtener_lista_proveedores()
                     
-                    # Editor interactivo adaptado estrictamente a las columnas de MySQL
+                    # Editor interactivo blindado
                     buffer_editado = st.data_editor(
                         df_a_editar,
                         column_config={
                             "Seleccionar Proveedor": st.column_config.SelectboxColumn("Proveedor", options=lista_proveedores, required=True),
-                            "fecha_operacion": st.column_config.DateColumn("F. Operación"),
+                            "fecha_operacion": st.column_config.DateColumn("F. Operación", format="YYYY-MM-DD"),
                             "tipo_documento": st.column_config.TextColumn("Tipo Doc (01/02/03)"),
                             "n_factura": st.column_config.TextColumn("Nº Documento / Factura", required=True),
                             "n_control": st.column_config.TextColumn("Nº Control", required=True),
@@ -15909,7 +15913,6 @@ elif opcion_menu == "📚 Libros Fiscales":
                                         fila['n_factura'] = fila['n_factura'].astype(str).str.strip().upper()
                                         fila['n_control'] = fila['n_control'].astype(str).str.strip().upper()
                                         
-                                        # Limpieza campos notas y afectada
                                         for c_extra in ['nota_credito', 'nota_debito', 'n_factura_afectada']:
                                             if c_extra in fila.columns and fila[c_extra].iloc[0] and str(fila[c_extra].iloc[0]).lower() not in ['none', 'nan', '', 'nat']:
                                                 fila[c_extra] = str(fila[c_extra].iloc[0]).strip().upper()
@@ -15936,7 +15939,6 @@ elif opcion_menu == "📚 Libros Fiscales":
                                         nc_val = fila['nota_credito'].iloc[0]
                                         nd_val = fila['nota_debito'].iloc[0]
                                         
-                                        # Validación cruzada con MySQL según el tipo de documento
                                         with engine.connect() as conn:
                                             if nc_val:
                                                 query_check = "SELECT COUNT(*) FROM libro_compras WHERE rif = %s AND nota_credito = %s"
@@ -15966,7 +15968,6 @@ elif opcion_menu == "📚 Libros Fiscales":
                                 st.success(f"✅ Proceso finalizado. Total guardados: {facturas_exitosas} de {len(df_a_procesar)}")
                                 if facturas_exitosas > 0:
                                     st.session_state.df_buffer_escaneo = pd.DataFrame()
-
         with tab3: # Vaciado de Rango
             st.subheader("🚨 Vaciado de Compras")
             
