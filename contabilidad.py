@@ -3316,23 +3316,17 @@ def convertir_pdf_a_imagen_bytes(pdf_file_obj):
         return None
 
 def obtener_modelo_valido():
-    """Busca dinámicamente el primer modelo disponible y compatible en tu cuenta para evitar errores 404."""
+    """Instancia directamente el modelo estable de Gemini para evitar errores de listado o modelos deprecados."""
     try:
-        # Consultar los modelos soportados por tu API key de forma dinámica
-        modelos_disponibles = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-        
-        if modelos_disponibles:
-            # Tomar el primer modelo activo que retorne la lista oficial
-            return genai.GenerativeModel(modelos_disponibles[0])
-            
-    except Exception as e:
-        st.warning(f"No se pudo listar los modelos automáticamente: {e}")
-        
-    # Fallback directo por seguridad si la red falla
-    try:
-        return genai.GenerativeModel('gemini-2.5-flash')
-    except:
-        return None
+        # Intentamos con el modelo estándar principal
+        return genai.GenerativeModel('gemini-1.5-flash')
+    except Exception as e_primario:
+        try:
+            # Fallback secundario por si acaso
+            return genai.GenerativeModel('gemini-2.5-flash')
+        except Exception as e_secundario:
+            st.error(f"❌ Error crítico al inicializar el modelo de IA: {e_secundario}")
+            return None
 
 
 def extraer_datos_con_regex(pdf_file_obj):
