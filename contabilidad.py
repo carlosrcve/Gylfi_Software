@@ -15959,7 +15959,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                             
                             try:
                                 from urllib.parse import quote_plus
-                                from sqlalchemy import text  # 🛠️ Importación local garantizada para evitar el error
+                                from sqlalchemy import text
                                 
                                 password_escaped = quote_plus("W3Zkbr4E2trGCfoX")
                                 database_url = f"mysql+pymysql://4K4VAw4t4ZPFUTF.root:{password_escaped}@gateway01.us-east-1.prod.aws.tidbcloud.com:4000/{db_actual}"
@@ -15979,52 +15979,59 @@ elif opcion_menu == "📚 Libros Fiscales":
                             bar = st.progress(0)
                             facturas_exitosas = 0
                             
-                            for index, row in df_a_procesar.iterrows():
+                            # 🛠️ Convertimos todo el DataFrame a una lista de diccionarios nativos desde el inicio
+                            registros = df_a_procesar.to_dict(orient='records')
+                            total_regs = len(registros)
+                            
+                            for index, row in enumerate(registros):
                                 try:
-                                    fecha_op = str(row.get('fecha_operacion', '')).split(" ")[0]
-                                    tipo_doc = str(row.get('tipo_documento', '01')).strip()
-                                    n_factura = str(row.get('n_factura', '')).strip().upper()
-                                    n_control = str(row.get('n_control', '')).strip().upper()
+                                    fecha_op = str(row.get('fecha_operacion') or '').split(" ")[0]
+                                    tipo_doc = str(row.get('tipo_documento') or '01').strip()
+                                    n_factura = str(row.get('n_factura') or '').strip().upper()
+                                    n_control = str(row.get('n_control') or '').strip().upper()
                                     
                                     nc_raw = row.get('nota_credito')
-                                    nc_val = str(nc_raw).strip().upper() if nc_raw is not None and str(nc_raw).lower() not in ['none', 'nan', '', 'null', 'nat'] else None
+                                    nc_val = str(nc_raw).strip().upper() if nc_raw is not None and str(nc_raw).lower() not in ['none', 'nan', '', 'null', 'nat', 'none'] else None
+                                    if nc_val == '': nc_val = None
                                     
                                     nd_raw = row.get('nota_debito')
-                                    nd_val = str(nd_raw).strip().upper() if nd_raw is not None and str(nd_raw).lower() not in ['none', 'nan', '', 'null', 'nat'] else None
+                                    nd_val = str(nd_raw).strip().upper() if nd_raw is not None and str(nd_raw).lower() not in ['none', 'nan', '', 'null', 'nat', 'none'] else None
+                                    if nd_val == '': nd_val = None
                                     
                                     afec_raw = row.get('n_factura_afectada')
-                                    afec_val = str(afec_raw).strip().upper() if afec_raw is not None and str(afec_raw).lower() not in ['none', 'nan', '', 'null', 'nat'] else None
+                                    afec_val = str(afec_raw).strip().upper() if afec_raw is not None and str(afec_raw).lower() not in ['none', 'nan', '', 'null', 'nat', 'none'] else None
+                                    if afec_val == '': afec_val = None
                                     
-                                    proveedor = str(row.get('proveedor', 'VARIOS')).strip().upper()
-                                    rif = str(row.get('rif', '')).replace('-', '').replace(' ', '').strip().upper()
-                                    tipo_trans = str(row.get('tipo_transaccion', '01')).strip()
+                                    proveedor = str(row.get('proveedor') or 'VARIOS').strip().upper()
+                                    rif = str(row.get('rif') or '').replace('-', '').replace(' ', '').strip().upper()
+                                    tipo_trans = str(row.get('tipo_transaccion') or '01').strip()
                                     
-                                    total_c = float(row.get('total_compras', 0.0) or 0.0)
-                                    exento = float(row.get('importe_exento', 0.0) or 0.0)
-                                    base_imp = float(row.get('base_imponible', 0.0) or 0.0)
-                                    iva_porc = float(row.get('iva_porcentaje', 16.0) or 16.0)
-                                    iva_monto = float(row.get('iva_monto', 0.0) or 0.0)
+                                    total_c = float(row.get('total_compras') or 0.0)
+                                    exento = float(row.get('importe_exento') or 0.0)
+                                    base_imp = float(row.get('base_imponible') or 0.0)
+                                    iva_porc = float(row.get('iva_porcentaje') or 16.0)
+                                    iva_monto = float(row.get('iva_monto') or 0.0)
 
-                                    # Diccionario estrictamente con tipos nativos de Python (sin Series ni objetos de Pandas)
+                                    # Diccionario 100% nativo y limpio
                                     dict_limpio = {
-                                        'fecha_operacion': str(fecha_op),
-                                        'tipo_documento': str(tipo_doc),
-                                        'n_factura': str(n_factura),
-                                        'n_control': str(n_control),
-                                        'nota_credito': str(nc_val) if nc_val is not None else None,
-                                        'nota_debito': str(nd_val) if nd_val is not None else None,
-                                        'n_factura_afectada': str(afec_val) if afec_val is not None else None,
-                                        'proveedor': str(proveedor),
-                                        'rif': str(rif),
-                                        'tipo_transaccion': str(tipo_trans),
-                                        'total_compras': float(total_c),
-                                        'importe_exento': float(exento),
-                                        'base_imponible': float(base_imp),
-                                        'iva_porcentaje': float(iva_porc),
-                                        'iva_monto': float(iva_monto)
+                                        'fecha_operacion': fecha_op,
+                                        'tipo_documento': tipo_doc,
+                                        'n_factura': n_factura,
+                                        'n_control': n_control,
+                                        'nota_credito': nc_val,
+                                        'nota_debito': nd_val,
+                                        'n_factura_afectada': afec_val,
+                                        'proveedor': proveedor,
+                                        'rif': rif,
+                                        'tipo_transaccion': tipo_trans,
+                                        'total_compras': total_c,
+                                        'importe_exento': exento,
+                                        'base_imponible': base_imp,
+                                        'iva_porcentaje': iva_porc,
+                                        'iva_monto': iva_monto
                                     }
                                     
-                                    # Creamos el DataFrame asegurando que sea una lista pura de un diccionario plano
+                                    # DataFrame de una sola fila creado a partir de un diccionario plano puro
                                     fila_df = pd.DataFrame([dict_limpio])
 
                                     # Validación cruzada con TiDB Cloud
@@ -16052,9 +16059,10 @@ elif opcion_menu == "📚 Libros Fiscales":
                                 except Exception as e:
                                     st.error(f"❌ Error al guardar fila {index + 1}: {e}")
 
-                                bar.progress((index + 1) / len(df_a_procesar))
+                                if total_regs > 0:
+                                    bar.progress((index + 1) / total_regs)
                             
-                            st.success(f"✅ Proceso finalizado. Total guardados: {facturas_exitosas} de {len(df_a_procesar)}")
+                            st.success(f"✅ Proceso finalizado. Total guardados: {facturas_exitosas} de {total_regs}")
                             if facturas_exitosas > 0:
                                 st.session_state.df_buffer_escaneo = pd.DataFrame()
 
