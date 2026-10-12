@@ -15979,7 +15979,6 @@ elif opcion_menu == "📚 Libros Fiscales":
                             bar = st.progress(0)
                             facturas_exitosas = 0
                             
-                            # 🛠️ Convertimos todo el DataFrame a una lista de diccionarios nativos desde el inicio
                             registros = df_a_procesar.to_dict(orient='records')
                             total_regs = len(registros)
                             
@@ -15991,15 +15990,15 @@ elif opcion_menu == "📚 Libros Fiscales":
                                     n_control = str(row.get('n_control') or '').strip().upper()
                                     
                                     nc_raw = row.get('nota_credito')
-                                    nc_val = str(nc_raw).strip().upper() if nc_raw is not None and str(nc_raw).lower() not in ['none', 'nan', '', 'null', 'nat', 'none'] else None
+                                    nc_val = str(nc_raw).strip().upper() if nc_raw is not None and str(nc_raw).lower() not in ['none', 'nan', '', 'null', 'nat'] else None
                                     if nc_val == '': nc_val = None
                                     
                                     nd_raw = row.get('nota_debito')
-                                    nd_val = str(nd_raw).strip().upper() if nd_raw is not None and str(nd_raw).lower() not in ['none', 'nan', '', 'null', 'nat', 'none'] else None
+                                    nd_val = str(nd_raw).strip().upper() if nd_raw is not None and str(nd_raw).lower() not in ['none', 'nan', '', 'null', 'nat'] else None
                                     if nd_val == '': nd_val = None
                                     
                                     afec_raw = row.get('n_factura_afectada')
-                                    afec_val = str(afec_raw).strip().upper() if afec_raw is not None and str(afec_raw).lower() not in ['none', 'nan', '', 'null', 'nat', 'none'] else None
+                                    afec_val = str(afec_raw).strip().upper() if afec_raw is not None and str(afec_raw).lower() not in ['none', 'nan', '', 'null', 'nat'] else None
                                     if afec_val == '': afec_val = None
                                     
                                     proveedor = str(row.get('proveedor') or 'VARIOS').strip().upper()
@@ -16012,7 +16011,6 @@ elif opcion_menu == "📚 Libros Fiscales":
                                     iva_porc = float(row.get('iva_porcentaje') or 16.0)
                                     iva_monto = float(row.get('iva_monto') or 0.0)
 
-                                    # Diccionario 100% nativo y limpio
                                     dict_limpio = {
                                         'fecha_operacion': fecha_op,
                                         'tipo_documento': tipo_doc,
@@ -16031,22 +16029,27 @@ elif opcion_menu == "📚 Libros Fiscales":
                                         'iva_monto': iva_monto
                                     }
                                     
-                                    # DataFrame de una sola fila creado a partir de un diccionario plano puro
                                     fila_df = pd.DataFrame([dict_limpio])
 
-                                    # Validación cruzada con TiDB Cloud
+                                    # Validación cruzada directa con una conexión cruda de SQLAlchemy/PyMySQL
+                                    resultado = 0
+                                    doc_nombre = f"Factura {n_factura}"
+                                    
                                     with engine.connect() as conn:
                                         if nc_val:
-                                            query_check = "SELECT COUNT(*) FROM libro_compras WHERE rif = %s AND nota_credito = %s"
-                                            resultado = conn.execute(text(query_check), (rif, nc_val)).scalar()
+                                            query_check = text("SELECT COUNT(*) FROM libro_compras WHERE rif = :rif AND nota_credito = :nc")
+                                            res = conn.execute(query_check, {"rif": rif, "nc": nc_val}).scalar()
+                                            resultado = res if res is not None else 0
                                             doc_nombre = f"Nota de Crédito {nc_val}"
                                         elif nd_val:
-                                            query_check = "SELECT COUNT(*) FROM libro_compras WHERE rif = %s AND nota_debito = %s"
-                                            resultado = conn.execute(text(query_check), (rif, nd_val)).scalar()
+                                            query_check = text("SELECT COUNT(*) FROM libro_compras WHERE rif = :rif AND nota_debito = :nd")
+                                            res = conn.execute(query_check, {"rif": rif, "nd": nd_val}).scalar()
+                                            resultado = res if res is not None else 0
                                             doc_nombre = f"Nota de Débito {nd_val}"
                                         else:
-                                            query_check = "SELECT COUNT(*) FROM libro_compras WHERE rif = %s AND n_factura = %s AND (nota_credito IS NULL OR nota_credito = '') AND (nota_debito IS NULL OR nota_debito = '')"
-                                            resultado = conn.execute(text(query_check), (rif, n_factura)).scalar()
+                                            query_check = text("SELECT COUNT(*) FROM libro_compras WHERE rif = :rif AND n_factura = :nfac AND (nota_credito IS NULL OR nota_credito = '') AND (nota_debito IS NULL OR nota_debito = '')")
+                                            res = conn.execute(query_check, {"rif": rif, "nfac": n_factura}).scalar()
+                                            resultado = res if res is not None else 0
                                             doc_nombre = f"Factura {n_factura}"
                                     
                                     if resultado > 0:
