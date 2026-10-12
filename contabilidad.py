@@ -4325,6 +4325,7 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                 cursor = None
                 try:
                     cursor = conn_env.cursor()
+        
                     for _, fila in facturas_seleccionadas.iterrows():
                         base = float(fila.get('base_imponible', 0) or 0)
                         impuesto = float(fila.get('iva_monto', 0) or 0)
@@ -4338,22 +4339,36 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                         fecha_corta = str(fila['fecha_operacion']).split(" ")[0]
                         ano_f, mes_f = fecha_corta.split("-")[0], fecha_corta.split("-")[1]
 
-                        # 🛠️ Mapeo correcto de documentos (Facturas vs Notas de Crédito / Débito)
-                        tipo_doc = str(fila.get('tipo_documento', 'Factura')).strip().lower()
-                        num_factura_val = str(fila.get('n_factura', ''))
-                        num_control_val = str(fila.get('n_control', ''))
+                        # 🛠️ CAPTURA Y CLASIFICACIÓN EXACTA DE CAMPOS SEGÚN TU TABLA
+                        n_factura_cruda = str(fila.get('n_factura', '')).strip()
+                        n_control_cruda = str(fila.get('n_control', '')).strip()
                         
+                        tipo_doc = str(fila.get('tipo_documento', '')).strip().lower()
+                        monto_total_fila = float(fila.get('total_compras', 0) or 0)
+                        
+                        es_nota_credito = 'credito' in tipo_doc or 'nota de credito' in tipo_doc or monto_total_fila < 0
+                        es_nota_debito = 'debito' in tipo_doc or 'nota de debito' in tipo_doc
+
+                        num_factura_val = n_factura_cruda
+                        num_control_val = n_control_cruda
                         n_nota_credito_val = None
                         n_nota_debito_val = None
-                        n_factura_afectada_val = None
+                        
+                        # Buscamos el número de la factura afectada en las posibles columnas del DataFrame
+                        n_factura_afectada_val = (
+                            str(fila.get('factura_afectada', '')).strip() or 
+                            str(fila.get('n_factura_afectada', '')).strip() or 
+                            str(fila.get('afectada', '')).strip()
+                        )
+                        if n_factura_afectada_val in ["None", "nan", ""]:
+                            n_factura_afectada_val = None
 
-                        if 'credito' in tipo_doc or 'nota de credito' in tipo_doc:
-                            n_nota_credito_val = num_factura_val
-                            n_factura_afectada_val = str(fila.get('factura_afectada', ''))
-                            num_factura_val = None # La casilla de número de factura principal queda vacía para notas
-                        elif 'debito' in tipo_doc or 'nota de debito' in tipo_doc:
-                            n_nota_debito_val = num_factura_val
-                            n_factura_afectada_val = str(fila.get('factura_afectada', ''))
+                        # Si es nota, el número va a su casilla y la factura principal se anula
+                        if es_nota_credito:
+                            n_nota_credito_val = n_factura_cruda
+                            num_factura_val = None
+                        elif es_nota_debito:
+                            n_nota_debito_val = n_factura_cruda
                             num_factura_val = None
 
                         query_ins_iva = """
@@ -4371,19 +4386,19 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                                 Fecha_Factura, 
                                 Numero_Factura, 
                                 Numero_Contro, 
+                                N_Nota_Debito,
+                                N_Nota_Credito,
+                                NFactura_Afectada,
                                 Total_Comrpas, 
                                 Compras_Excentas, 
                                 Base_Imponible, 
+                                Alicuota,
                                 Impuesto_Iva, 
+                                Alicuota_75,
                                 IVA_Retenido, 
                                 Base_Imponible_8, 
                                 IVA_8, 
-                                RET_IVA_8, 
-                                Alicuota, 
-                                Alicuota_75, 
-                                N_Nota_Debito,
-                                N_Nota_Credito,
-                                NFactura_Afectada
+                                RET_IVA_8
                             ) VALUES (
                                 %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 
                                 %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 
@@ -4403,21 +4418,21 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                             mes_f,
                             nro_comp, 
                             fecha_corta, 
-                            num_factura_val,      # Número de factura limpio (None si es nota)
-                            num_control_val,      # Número de control en su sitio correcto
-                            round(float(fila.get('total_compras', 0)), 2),
-                            round(float(fila.get('importe_exento', 0)), 2),
-                            round(b16, 2), 
-                            round(i16, 2), 
-                            round(iva_retenido_fila, 2),
+                            num_factura_val,       # Número de factura (vacío si es nota)
+                            num_control_val,       # Número de control
+                            n_nota_debito_val,     # N_Nota_Debito
+                            n_nota_credito_val,    # N_Nota_Credito (aquí cae perfecto si es nota de crédito)
+                            n_factura_afectada_val,# NFactura_Afectada (registrada obligatoriamente para notas)
+                            str(round(float(fila.get('total_compras', 0)), 2)),
+                            str(round(float(fila.get('importe_exento', 0)), 2)),
+                            str(round(b16, 2)), 
+                            "16%", 
+                            str(round(i16, 2)), 
+                            f"{porcentaje_ret}%", 
+                            str(round(iva_retenido_fila, 2)),
                             round(b8, 2), 
                             round(i8, 2), 
-                            round(r8, 2),
-                            "16%", 
-                            f"{porcentaje_ret}%", 
-                            n_nota_debito_val,    # Casilla de Nota de Débito
-                            n_nota_credito_val,   # Casilla de Nota de Crédito en su puesto
-                            n_factura_afectada_val # Casilla de Factura Afectada obligatoria
+                            round(r8, 2)
                         )
                         
                         cursor.execute(query_ins_iva, params_iva)
