@@ -4316,7 +4316,6 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                 empresa_nombre = empresa_data_env.get('nombre_empresa') or empresa_data_env.get('razon_social') or "EMPRESA"
                 empresa_rif = empresa_data_env.get('rif') or "000000000"
                 
-                # Búsqueda robusta de la dirección fiscal por cualquier posible nombre de columna
                 domicilio_fiscal = (
                     empresa_data_env.get('direccion') or 
                     empresa_data_env.get('direccion_fiscal') or 
@@ -4341,14 +4340,17 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                         fecha_corta = str(fila['fecha_operacion']).split(" ")[0]
                         ano_f, mes_f = fecha_corta.split("-")[0], fecha_corta.split("-")[1]
 
-                        # Capturamos la factura afectada de la fila seleccionada de forma segura
-                        fac_afectada_val = (
+                        # Capturamos la factura afectada de la fila de manera robusta
+                        fac_afectada_val = str(
                             fila.get('nfactura_afectada') or 
                             fila.get('NFactura_Afectada') or 
                             fila.get('n_factura_afectada') or 
-                            None
-                        )
+                            ''
+                        ).strip()
+                        if fac_afectada_val.lower() in ['none', 'nan', 'nat', '']:
+                            fac_afectada_val = None
 
+                        # Consulta INSERT alineada exactamente con las columnas reales de tu tabla MySQL
                         query_ins_iva = """
                             INSERT INTO retenciones_iva (
                                 Razon_Social_del_Agente_de_Retencion, 
@@ -4364,49 +4366,53 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                                 Fecha_Factura, 
                                 Numero_Factura, 
                                 Numero_Contro, 
+                                N_Nota_Debito,
+                                N_Nota_Credito,
+                                NFactura_Afectada, 
                                 Total_Comrpas, 
                                 Compras_Excentas, 
                                 Base_Imponible, 
+                                Alicuota,
                                 Impuesto_Iva, 
+                                Alicuota_75,
                                 IVA_Retenido, 
                                 Base_Imponible_8, 
                                 IVA_8, 
-                                RET_IVA_8, 
-                                Alicuota, 
-                                Alicuota_75, 
-                                N_Nota_Debito
+                                RET_IVA_8
                             ) VALUES (
                                 %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 
                                 %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 
-                                %s, %s, %s, %s
+                                %s, %s, %s, %s, %s, %s
                             )
                         """
 
                         params_iva = (
-                            empresa_nombre, 
-                            empresa_rif, 
-                            domicilio_fiscal,
-                            fecha_corta, 
-                            fecha_corta, 
-                            razon_social_ret, 
-                            rif_ret, 
-                            ano_f, 
-                            mes_f,
-                            nro_comp, 
-                            fecha_corta, 
-                            str(fila['n_factura']), 
-                            str(fila['n_control']),
-                            round(float(fila.get('total_compras', 0)), 2),
-                            round(float(fila.get('importe_exento', 0)), 2),
-                            round(b16, 2), 
-                            round(i16, 2), 
-                            round(iva_retenido_fila, 2),
-                            round(b8, 2), 
-                            round(i8, 2), 
-                            round(r8, 2),
-                            "16%", 
-                            f"{porcentaje_ret}%", 
-                            fac_afectada_val  # <--- Aquí va el valor real de la factura afectada en lugar de un None fijo
+                            empresa_nombre,                               # Razon_Social_del_Agente_de_Retencion
+                            empresa_rif,                                  # RIF_Agente_Retencion
+                            domicilio_fiscal,                             # Direccion_FiscalAgente_Retencion (¡Ahora sí guardará la dirección fiscal!)
+                            fecha_corta,                                  # E_Emision
+                            fecha_corta,                                  # F_Entrega
+                            razon_social_ret,                             # Razon_Social_Sujeto_Retenido
+                            rif_ret,                                      # RIF_Sujeto_Retenido
+                            ano_f,                                        # Ano
+                            mes_f,                                        # Mes
+                            nro_comp,                                     # N_Comprobante1
+                            fecha_corta,                                  # Fecha_Factura
+                            str(fila['n_factura']),                       # Numero_Factura
+                            str(fila['n_control']),                       # Numero_Contro
+                            None,                                         # N_Nota_Debito
+                            None,                                         # N_Nota_Credito
+                            fac_afectada_val,                             # NFactura_Afectada (¡Aquí va directo a su columna correcta en MySQL!)
+                            round(float(fila.get('total_compras', 0)), 2),# Total_Comrpas
+                            round(float(fila.get('importe_exento', 0)), 2),# Compras_Excentas
+                            round(b16, 2),                                # Base_Imponible
+                            "16%",                                        # Alicuota
+                            round(i16, 2),                                # Impuesto_Iva
+                            f"{porcentaje_ret}%",                         # Alicuota_75
+                            round(iva_retenido_fila, 2),                  # IVA_Retenido
+                            round(b8, 2),                                 # Base_Imponible_8
+                            round(i8, 2),                                 # IVA_8
+                            round(r8, 2)                                  # RET_IVA_8
                         )
                         
                         cursor.execute(query_ins_iva, params_iva)
