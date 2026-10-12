@@ -4448,13 +4448,22 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
 
                 except Exception as e:
                     if conn_env: 
-                        conn_env.rollback()
+                        try:
+                            conn_env.rollback()
+                        except:
+                            pass
                     st.error(f"❌ Error al procesar: {e}")
                 finally:
                     if cursor: 
-                        cursor.close()
+                        try:
+                            cursor.close()
+                        except:
+                            pass
                     if conn_env: 
-                        conn_env.close()
+                        try:
+                            conn_env.close()
+                        except:
+                            pass
                 
         with tab2:
             st.write("Cargando PDF...")
