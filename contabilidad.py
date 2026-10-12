@@ -4294,60 +4294,35 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                 else:
                     empresa_seleccionada = st.selectbox(
                         "Empresa", 
-                        options=[empresa_data], 
-                        format_func=lambda x: x['nombre_empresa']
+                        options=[empresa_data] if isinstance(empresa_data, dict) else empresa_data, 
+                        format_func=lambda x: x.get('nombre_empresa', 'EMPRESA')
                     )
                     st.session_state['id_empresa_seleccionada'] = empresa_seleccionada
 
                 enviado = st.form_submit_button("💾 Guardar y Generar Documentos")
 
             if enviado:
-                # 1. Aseguramos los datos maestros y la dirección fiscal antes de insertar
-                # Capturamos tanto el nombre de la BD como posibles IDs guardados en la sesión
+                empresa_data_env = st.session_state.get('id_empresa_seleccionada') or st.session_state.get('id_empresa_actual')
                 db_nombre = st.session_state.get('DB_ACTUAL')
-                empresa_id = st.session_state.get('id_empresa_seleccionada') or st.session_state.get('id_empresa_actual')
+                
+                if not empresa_data_env or not db_nombre:
+                    st.error("❌ Faltan datos de empresa o base de datos.")
+                    st.stop()
 
-                empresa_data_env = {}
-                try:
-                    conn_central = conectar_db("control_central")
-                    if conn_central:
-                        cursor_c = conn_central.cursor(pymysql.cursors.DictCursor)
-                        
-                        # Query robusto que busca por ID o por nombre de base de datos sin importar mayúsculas
-                        query_cliente = """
-                            SELECT * FROM clientes 
-                            WHERE id = %s OR LOWER(db_nombre) = LOWER(%s)
-                            LIMIT 1
-                        """
-                        cursor_c.execute(query_cliente, (empresa_id or 0, db_nombre or ""))
-                        empresa_data_env = cursor_c.fetchone() or {}
-                        
-                        cursor_c.close()
-                        conn_central.close()
-                except Exception as e:
-                    st.error(f"Error consultando cliente: {e}")
+                conn_env = conectar_db(db_nombre)
+                if not conn_env:
+                    conn_env = conectar_db(db_nombre)
 
                 empresa_nombre = empresa_data_env.get('nombre_empresa') or empresa_data_env.get('razon_social') or "EMPRESA"
                 empresa_rif = empresa_data_env.get('rif') or "000000000"
                 
-                # Leemos la dirección fiscal directo del diccionario resultante del query
+                # 🔍 AQUÍ ESTÁ LA MAGIA: Leemos la dirección fiscal nueva, respaldada con las anteriores
                 domicilio_fiscal = (
                     empresa_data_env.get('direccion_fiscal') or 
                     empresa_data_env.get('direccion') or 
                     empresa_data_env.get('domicilio_fiscal') or 
                     "DIRECCIÓN NO REGISTRADA"
                 )
-
-                # 2. Abrimos una conexión fresca y evitamos el error (0, '') por inactividad
-                try:
-                    conn_env = conectar_db(db_nombre)
-                    if not conn_env:
-                        st.error("❌ No se pudo conectar a la base de datos de la empresa.")
-                        st.stop()
-                    conn_env.ping(reconnect=True)
-                except Exception as e:
-                    st.error(f"❌ Error de conexión: {e}")
-                    st.stop()
 
                 cursor = None
                 try:
@@ -4366,17 +4341,6 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                         fecha_corta = str(fila['fecha_operacion']).split(" ")[0]
                         ano_f, mes_f = fecha_corta.split("-")[0], fecha_corta.split("-")[1]
 
-                        # Capturamos la factura afectada de manera robusta
-                        fac_afectada_val = str(
-                            fila.get('nfactura_afectada') or 
-                            fila.get('NFactura_Afectada') or 
-                            fila.get('n_factura_afectada') or 
-                            ''
-                        ).strip()
-                        if fac_afectada_val.lower() in ['none', 'nan', 'nat', '']:
-                            fac_afectada_val = None
-
-                        # Consulta INSERT alineada exactamente con las columnas reales de tu tabla MySQL
                         query_ins_iva = """
                             INSERT INTO retenciones_iva (
                                 Razon_Social_del_Agente_de_Retencion, 
@@ -4392,53 +4356,49 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                                 Fecha_Factura, 
                                 Numero_Factura, 
                                 Numero_Contro, 
-                                N_Nota_Debito,
-                                N_Nota_Credito,
-                                NFactura_Afectada, 
                                 Total_Comrpas, 
                                 Compras_Excentas, 
                                 Base_Imponible, 
-                                Alicuota,
                                 Impuesto_Iva, 
-                                Alicuota_75,
                                 IVA_Retenido, 
                                 Base_Imponible_8, 
                                 IVA_8, 
-                                RET_IVA_8
+                                RET_IVA_8, 
+                                Alicuota, 
+                                Alicuota_75, 
+                                N_Nota_Debito
                             ) VALUES (
                                 %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 
                                 %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 
-                                %s, %s, %s, %s, %s, %s
+                                %s, %s, %s, %s
                             )
                         """
 
                         params_iva = (
-                            empresa_nombre,                       # Razon_Social_del_Agente_de_Retencion
-                            empresa_rif,                          # RIF_Agente_Retencion
-                            domicilio_fiscal,                     # Direccion_FiscalAgente_Retencion (¡Ahora sí garantizado!)
-                            fecha_corta,                          # E_Emision
-                            fecha_corta,                          # F_Entrega
-                            razon_social_ret,                     # Razon_Social_Sujeto_Retenido
-                            rif_ret,                              # RIF_Sujeto_Retenido
-                            ano_f,                                # Ano
-                            mes_f,                                # Mes
-                            nro_comp,                             # N_Comprobante1
-                            fecha_corta,                          # Fecha_Factura
-                            str(fila['n_factura']),               # Numero_Factura
-                            str(fila['n_control']),               # Numero_Contro
-                            None,                                 # N_Nota_Debito
-                            None,                                 # N_Nota_Credito
-                            fac_afectada_val,                     # NFactura_Afectada
+                            empresa_nombre, 
+                            empresa_rif, 
+                            domicilio_fiscal, # <- Aquí entra directa y limpia la dirección fiscal
+                            fecha_corta, 
+                            fecha_corta, 
+                            razon_social_ret, 
+                            rif_ret, 
+                            ano_f, 
+                            mes_f,
+                            nro_comp, 
+                            fecha_corta, 
+                            str(fila['n_factura']), 
+                            str(fila['n_control']),
                             round(float(fila.get('total_compras', 0)), 2),
                             round(float(fila.get('importe_exento', 0)), 2),
-                            round(b16, 2),
-                            "16%",
-                            round(i16, 2),
-                            f"{porcentaje_ret}%",
+                            round(b16, 2), 
+                            round(i16, 2), 
                             round(iva_retenido_fila, 2),
-                            round(b8, 2),
-                            round(i8, 2),
-                            round(r8, 2)
+                            round(b8, 2), 
+                            round(i8, 2), 
+                            round(r8, 2),
+                            "16%", 
+                            f"{porcentaje_ret}%", 
+                            None
                         )
                         
                         cursor.execute(query_ins_iva, params_iva)
@@ -4457,22 +4417,13 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
 
                 except Exception as e:
                     if conn_env: 
-                        try:
-                            conn_env.rollback()
-                        except:
-                            pass
+                        conn_env.rollback()
                     st.error(f"❌ Error al procesar: {e}")
                 finally:
                     if cursor: 
-                        try:
-                            cursor.close()
-                        except:
-                            pass
+                        cursor.close()
                     if conn_env: 
-                        try:
-                            conn_env.close()
-                        except:
-                            pass
+                        conn_env.close()
                 
         with tab2:
             st.write("Cargando PDF...")
