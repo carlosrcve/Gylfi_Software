@@ -16361,8 +16361,9 @@ elif opcion_menu == "📚 Libros Fiscales":
                         with col_t1:
                             tipo_ajuste = st.selectbox("Tipo de Ajuste", ["Nota de Crédito", "Nota de Débito"])
                         with col_t2:
-                            # 📅 Solución directa usando datetime
-                            fecha_emision_ajuste = st.date_input("Fecha de Emisión (Nota)", value=datetime.date.today(), key="nc_fecha_emision_val")
+                            # Solución robusta para la fecha actual
+                            from datetime import date
+                            fecha_emision_ajuste = st.date_input("Fecha de Emisión (Nota)", value=date.today(), key="nc_fecha_emision_val")
                         with col_t3:
                             nro_documento_ajuste = st.text_input("Nº de Documento (Nota)", placeholder="Ej: 00000720")
                         with col_t4:
