@@ -15957,13 +15957,9 @@ elif opcion_menu == "📚 Libros Fiscales":
 
                             df_a_procesar = st.session_state.df_buffer_escaneo.copy()
                             
-                            # 🛠️ Solución definitiva para evitar el NameError de DB_CONFIG:
-                            # Usamos tu función estándar de conexión o definimos los parámetros de host/usuario locales
                             try:
-                                host_db = "localhost"  # O tu host configurado
-                                user_db = "root"       # O tu usuario de base de datos
-                                pass_db = ""           # O tu contraseña
-                                engine = create_engine(f"mysql+mysqlconnector://{user_db}:{pass_db}@{host_db}/{db_actual}")
+                                # Conexión exacta a tu clúster de TiDB Cloud usando las credenciales globales de tu app
+                                engine = create_engine(f"mysql+mysqlconnector://{DB_CONFIG['user']}:{DB_CONFIG['password']}@{DB_CONFIG['host']}:{DB_CONFIG.get('port', 4000)}/{db_actual}")
                             except Exception as ex_eng:
                                 st.error(f"❌ Error al crear el motor de base de datos: {ex_eng}")
                                 st.stop()
@@ -16016,7 +16012,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                                     }
                                     fila_df = pd.DataFrame([dict_limpio])
 
-                                    # Validación cruzada con MySQL usando el engine correcto de la app
+                                    # Validación cruzada con MySQL usando TiDB Cloud
                                     with engine.connect() as conn:
                                         if nc_val:
                                             query_check = "SELECT COUNT(*) FROM libro_compras WHERE rif = %s AND nota_credito = %s"
