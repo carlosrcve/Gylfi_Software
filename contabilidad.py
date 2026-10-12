@@ -4327,11 +4327,26 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                     cursor = conn_env.cursor()
         
                     for _, fila in facturas_seleccionadas.iterrows():
-                        base = float(fila.get('base_imponible', 0) or 0)
-                        impuesto = float(fila.get('iva_monto', 0) or 0)
+                        # Extraemos los valores absolutos por si vienen con signo negativo
+                        total_fila = abs(float(fila.get('total_compras', 0) or 0))
+                        base = abs(float(fila.get('base_imponible', 0) or 0))
+                        impuesto = abs(float(fila.get('iva_monto', 0) or fila.get('impuesto_iva', 0) or 0))
+                        exento = abs(float(fila.get('importe_exento', 0) or 0))
+
+                        # Si la base o el IVA vienen en 0 pero hay un total, los recalculamos matemáticamente
+                        if base == 0 and impuesto == 0 and total_fila > 0:
+                            # Asumiendo 16% por defecto si no está desglosado
+                            if exento > 0:
+                                base = total_fila - exento
+                            else:
+                                base = round(total_fila / 1.16, 2)
+                            impuesto = round(total_fila - exento - base, 2)
+
                         ratio = round(impuesto / base, 2) if base > 0 else 0
                         es_8 = ratio <= 0.08
-                        iva_retenido_fila = (impuesto * porcentaje_ret) / 100
+                        
+                        # Cálculo exacto del IVA retenido en positivo
+                        iva_retenido_fila = round((impuesto * porcentaje_ret) / 100, 2)
                         
                         b16, i16, r16 = (base, impuesto, iva_retenido_fila) if not es_8 else (0.0, 0.0, 0.0)
                         b8, i8, r8 = (base, impuesto, iva_retenido_fila) if es_8 else (0.0, 0.0, 0.0)
