@@ -4302,35 +4302,30 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                 enviado = st.form_submit_button("💾 Guardar y Generar Documentos")
 
             if enviado:
-                db_nombre = st.session_state.get('DB_ACTUAL')
+                # Recuperamos los datos de la empresa desde el estado de la sesión o usando la función original que sí te funcionaba
+                empresa_data_env = st.session_state.get('empresa_seleccionada') or st.session_state.get('datos_empresa') or {}
                 
-                if not db_nombre:
-                    st.error("❌ Falta el nombre de la base de datos actual.")
-                    st.stop()
+                # Si por alguna razón no está en session_state, usamos el valor de la empresa actual
+                db_nombre = st.session_state.get('DB_ACTUAL')
 
-                # Consultamos de forma directa y segura los datos maestros en la tabla clientes de control_central
-                empresa_data_env = {}
-                try:
-                    conn_central = conectar_db() # Conecta a control_central
-                    if conn_central:
-                        cursor_c = conn_central.cursor(pymysql.cursors.DictCursor)
-                        cursor_c.execute("SELECT * FROM clientes WHERE db_nombre = %s", (db_nombre,))
-                        resultado_cliente = cursor_c.fetchone()
-                        if resultado_cliente:
-                            empresa_data_env = resultado_cliente
-                        cursor_c.close()
-                        conn_central.close()
-                except Exception as e:
-                    pass
-
-                conn_env = conectar_db(db_nombre)
-                if not conn_env:
-                    conn_env = conectar_db(db_nombre)
+                # Si tenemos el nombre de la BD, consultamos la tabla clientes asegurándonos de pasarle el parámetro a la función central
+                if not empresa_data_env and db_nombre:
+                    try:
+                        # Usamos tu función o una consulta limpia apuntando a la BD central explícitamente
+                        conn_central = conectar_db("control_central") 
+                        if conn_central:
+                            cursor_c = conn_central.cursor(pymysql.cursors.DictCursor)
+                            cursor_c.execute("SELECT * FROM clientes WHERE db_nombre = %s", (db_nombre,))
+                            empresa_data_env = cursor_c.fetchone() or {}
+                            cursor_c.close()
+                            conn_central.close()
+                    except Exception:
+                        empresa_data_env = {}
 
                 empresa_nombre = empresa_data_env.get('nombre_empresa') or empresa_data_env.get('razon_social') or "EMPRESA"
                 empresa_rif = empresa_data_env.get('rif') or "000000000"
                 
-                # Búsqueda infalible de la dirección fiscal (priorizando la nueva columna direccion_fiscal)
+                # Extraemos la dirección fiscal priorizando la nueva columna que creamos
                 domicilio_fiscal = (
                     empresa_data_env.get('direccion_fiscal') or 
                     empresa_data_env.get('direccion') or 
