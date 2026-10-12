@@ -4305,28 +4305,32 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                 # 1. Aseguramos los datos maestros y la dirección fiscal antes de insertar
                 # Capturamos tanto el nombre de la BD como posibles IDs guardados en la sesión
                 db_nombre = st.session_state.get('DB_ACTUAL')
-                empresa_id = st.session_state.get('id_empresa_seleccionada') or st.session_state.get('id_empresa_actual') or 0
+                empresa_id = st.session_state.get('id_empresa_seleccionada') or st.session_state.get('id_empresa_actual')
 
                 empresa_data_env = {}
                 try:
                     conn_central = conectar_db("control_central")
                     if conn_central:
                         cursor_c = conn_central.cursor(pymysql.cursors.DictCursor)
-                        # Buscamos de forma flexible: por db_nombre O por id
-                        cursor_c.execute(
-                            "SELECT * FROM clientes WHERE db_nombre = %s OR id = %s", 
-                            (db_nombre, empresa_id)
-                        )
+                        
+                        # Query robusto que busca por ID o por nombre de base de datos sin importar mayúsculas
+                        query_cliente = """
+                            SELECT * FROM clientes 
+                            WHERE id = %s OR LOWER(db_nombre) = LOWER(%s)
+                            LIMIT 1
+                        """
+                        cursor_c.execute(query_cliente, (empresa_id or 0, db_nombre or ""))
                         empresa_data_env = cursor_c.fetchone() or {}
+                        
                         cursor_c.close()
                         conn_central.close()
                 except Exception as e:
-                    pass
+                    st.error(f"Error consultando cliente: {e}")
 
                 empresa_nombre = empresa_data_env.get('nombre_empresa') or empresa_data_env.get('razon_social') or "EMPRESA"
                 empresa_rif = empresa_data_env.get('rif') or "000000000"
                 
-                # Extraemos la dirección fiscal de la columna que creamos en control_central
+                # Leemos la dirección fiscal directo del diccionario resultante del query
                 domicilio_fiscal = (
                     empresa_data_env.get('direccion_fiscal') or 
                     empresa_data_env.get('direccion') or 
