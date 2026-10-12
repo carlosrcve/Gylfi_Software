@@ -5007,7 +5007,7 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
             st.info("Seleccione el rango de fechas para consolidar las retenciones.")
 
             # --- BLINDAJE LOCAL DE FECHAS ---
-            from datetime import date as d_tipo
+            from datetime import date as d_tipo, datetime
 
             hoy = d_tipo.today()
             inicio_mes = hoy.replace(day=1)
@@ -5019,14 +5019,12 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                 fecha_fin = st.date_input("Fecha Fin", hoy, key="txt_f_fin")
 
             if st.button("🔍 Filtrar y Generar TXT"):
-                # Aseguramos obtener la BD actual de la sesión
                 db_nombre = st.session_state.get('DB_ACTUAL')
                 if not db_nombre:
                     st.error("Error: No se ha seleccionado una base de datos.")
                 else:
                     conn = conectar_db(db_nombre)
                     try:
-                        # CORREGIDO PARA PYMYSQL: Usamos cursorclass DictCursor en lugar de dictionary=True
                         import pymysql
                         cursor = conn.cursor(pymysql.cursors.DictCursor)
                         
@@ -5038,49 +5036,78 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                         if registros_txt:
                             lineas_txt = []
                             for reg in registros_txt:
-                                # 1. Detectar si es alícuota del 8% o 16%
+                                # 1. Detectar si es Nota de Crédito o Nota de Débito
+                                nc_raw = str(reg.get('N_Nota_Credito') or reg.get('nota_credito') or '').strip()
+                                nd_raw = str(reg.get('N_Nota_Debito') or reg.get('nota_debito') or '').strip()
+                                
+                                tiene_nc = nc_raw and nc_raw.lower() not in ['none', 'nan', '', 'null', 'nat']
+                                tiene_nd = nd_raw and nd_raw.lower() not in ['none', 'nan', '', 'null', 'nat']
+                                
+                                if tiene_nc:
+                                    tipo_doc = '03'  # Nota de Crédito
+                                    num_doc = nc_raw
+                                    factura_afectada = str(reg.get('NFactura_Afectada') or reg.get('n_factura_afectada') or '').strip()
+                                elif tiene_nd:
+                                    tipo_doc = '02'  # Nota de Débito
+                                    num_doc = nd_raw
+                                    factura_afectada = str(reg.get('NFactura_Afectada') or reg.get('n_factura_afectada') or '').strip()
+                                else:
+                                    tipo_doc = str(reg.get('Tipo_Documento') or reg.get('tipo_documento') or '01').strip()
+                                    num_doc = str(reg.get('Numero_Factura') or reg.get('n_factura') or '').strip()
+                                    factura_afectada = ""
+
+                                # 2. Manejo de Alícuotas y Montos (¡Absolutamente en positivo, sin signos negativos!)
                                 es_ocho = float(reg.get('Base_Imponible_8', 0) or 0) > 0
                                 
-                                # Definir montos dinámicamente según la alícuota
                                 if es_ocho:
-                                    m_base = f"{float(reg.get('Base_Imponible_8', 0) or 0):.2f}"
-                                    m_ret = f"{float(reg.get('RET_IVA_8', 0) or 0):.2f}"
+                                    m_base = abs(float(reg.get('Base_Imponible_8', 0) or 0))
+                                    m_ret = abs(float(reg.get('RET_IVA_8', 0) or 0))
                                     m_ali = "8.00"
                                 else:
-                                    m_base = f"{float(reg.get('Base_Imponible', 0) or 0):.2f}"
-                                    m_ret = f"{float(reg.get('IVA_Retenido', 0) or 0):.2f}"
+                                    m_base = abs(float(reg.get('Base_Imponible', reg.get('base_imponible', 0)) or 0))
+                                    m_ret = abs(float(reg.get('IVA_Retenido', reg.get('monto_iva_retenido', 0)) or 0))
                                     m_ali = "16.00"
 
-                                # 2. Otros campos
-                                fecha_raw = reg.get('Fecha_Factura', '')
-                                # Manejo seguro de fecha
+                                exento = abs(float(reg.get('Compras_Excentas', reg.get('importe_exento', 0)) or 0))
+                                
+                                # Cálculo estricto del IVA y Total Compras exigido por el SENIAT
+                                iva_monto_calc = round(m_base * (float(m_ali) / 100.0), 2)
+                                total_compras_calc = round(exento + m_base + iva_monto_calc, 2)
+                                
+                                # Si el monto retenido viene en 0, lo calculamos de forma predeterminada (ej. 75% o 100%)
+                                if m_ret == 0.0 and iva_monto_calc > 0:
+                                    m_ret = round(iva_monto_calc * 0.75, 2) # Ajusta el porcentaje según tu cliente (0.75 o 1.0)
+
+                                # 3. Manejo seguro de fecha
+                                fecha_raw = reg.get('Fecha_Factura') or reg.get('fecha_operacion') or ''
                                 try:
-                                    f_obj = datetime.strptime(str(fecha_raw), '%Y-%m-%d')
+                                    f_obj = datetime.strptime(str(fecha_raw).split(" ")[0], '%Y-%m-%d')
                                 except:
                                     f_obj = datetime.now()
                                 periodo = f_obj.strftime("%Y%m")
                                 
-                                # 3. Construcción de campos
+                                # 4. Construcción estricta de los 15 campos del SENIAT
                                 campos = [
                                     str(reg.get('RIF_Agente_Retencion', '')).replace('-', '').strip(),
                                     periodo,
                                     f_obj.strftime('%Y-%m-%d'),
-                                    'C', '01',
-                                    str(reg.get('RIF_Sujeto_Retenido', '')).replace('-', '').strip(),
-                                    str(reg.get('Numero_Factura', '')).strip(),
-                                    str(reg.get('Numero_Contro', '')).strip(),
-                                    f"{float(reg.get('Total_Comrpas', 0) or 0):.2f}",
-                                    m_base, 
-                                    m_ret, 
+                                    'C', 
+                                    tipo_doc,  # '01' Factura, '03' Nota de Crédito
+                                    str(reg.get('RIF_Sujeto_Retenido', reg.get('rif', ''))).replace('-', '').strip(),
+                                    num_doc,  # Número de Factura o de Nota de Crédito
+                                    str(reg.get('Numero_Contro', reg.get('n_control', ''))).strip(),
+                                    f"{total_compras_calc:.2f}",
+                                    f"{m_base:.2f}", 
+                                    f"{m_ret:.2f}", 
                                     '0',
-                                    str(reg.get('N_Comprobante1', '')).strip(),
-                                    f"{float(reg.get('Compras_Excentas', 0) or 0):.2f}",
+                                    str(reg.get('N_Comprobante1', reg.get('n_comprobante_retencion', ''))).strip(),
+                                    f"{exento:.2f}",
                                     m_ali, 
                                     '0'
                                 ]
+                                
                                 lineas_txt.append("\t".join(campos))
                             
-                            # Generar contenido
                             contenido_final_txt = "\n".join(lineas_txt)
                             st.code(contenido_final_txt)
                             
@@ -5102,7 +5129,6 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                                 conn.close()
                             except Exception:
                                 pass
-
 
 def generar_excel_formateado(conn, df, titulo, subtitulo):
     # Registro de actividad
