@@ -4302,12 +4302,26 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                 enviado = st.form_submit_button("💾 Guardar y Generar Documentos")
 
             if enviado:
-                empresa_data_env = st.session_state.get('id_empresa_seleccionada') or st.session_state.get('id_empresa_actual')
                 db_nombre = st.session_state.get('DB_ACTUAL')
                 
-                if not empresa_data_env or not db_nombre:
-                    st.error("❌ Faltan datos de empresa o base de datos.")
+                if not db_nombre:
+                    st.error("❌ Falta el nombre de la base de datos actual.")
                     st.stop()
+
+                # Consultamos de forma directa y segura los datos maestros en la tabla clientes de control_central
+                empresa_data_env = {}
+                try:
+                    conn_central = conectar_db() # Conecta a control_central
+                    if conn_central:
+                        cursor_c = conn_central.cursor(pymysql.cursors.DictCursor)
+                        cursor_c.execute("SELECT * FROM clientes WHERE db_nombre = %s", (db_nombre,))
+                        resultado_cliente = cursor_c.fetchone()
+                        if resultado_cliente:
+                            empresa_data_env = resultado_cliente
+                        cursor_c.close()
+                        conn_central.close()
+                except Exception as e:
+                    pass
 
                 conn_env = conectar_db(db_nombre)
                 if not conn_env:
@@ -4316,9 +4330,10 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                 empresa_nombre = empresa_data_env.get('nombre_empresa') or empresa_data_env.get('razon_social') or "EMPRESA"
                 empresa_rif = empresa_data_env.get('rif') or "000000000"
                 
+                # Búsqueda infalible de la dirección fiscal (priorizando la nueva columna direccion_fiscal)
                 domicilio_fiscal = (
-                    empresa_data_env.get('direccion') or 
                     empresa_data_env.get('direccion_fiscal') or 
+                    empresa_data_env.get('direccion') or 
                     empresa_data_env.get('domicilio_fiscal') or 
                     "DIRECCIÓN NO REGISTRADA"
                 )
