@@ -16357,12 +16357,15 @@ elif opcion_menu == "📚 Libros Fiscales":
                     st.markdown("#### 3️⃣ Datos del Documento de Ajuste (Nota de Crédito / Débito)")
                     
                     with st.form("form_crear_nota_fiscal"):
-                        col_t1, col_t2, col_t3 = st.columns(3)
+                        col_t1, col_t2, col_t3, col_t4 = st.columns([2, 2, 2, 2])
                         with col_t1:
                             tipo_ajuste = st.selectbox("Tipo de Ajuste", ["Nota de Crédito", "Nota de Débito"])
                         with col_t2:
-                            nro_documento_ajuste = st.text_input("Nº de Documento (Nota)", placeholder="Ej: 00000720")
+                            # 📅 CAMPO NUEVO: Fecha de emisión de la nota de ajuste (ej: periodo actual de octubre)
+                            fecha_emision_ajuste = st.date_input("Fecha de Emisión (Nota)", value=dt.date.today(), key="nc_fecha_emision_val")
                         with col_t3:
+                            nro_documento_ajuste = st.text_input("Nº de Documento (Nota)", placeholder="Ej: 00000720")
+                        with col_t4:
                             nro_control_ajuste = st.text_input("Nº de Control (Nota)", placeholder="Ej: 00-026357")
 
                         st.markdown(f"**Factura Afectada:** `{fac['n_factura']}` | **RIF Proveedor:** `{fac['rif']}` ({fac['proveedor']})")
@@ -16406,7 +16409,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                                         """
                                         
                                         valores = (
-                                            datetime.now().strftime('%Y-%m-%d'),
+                                            fecha_emision_ajuste.strftime('%Y-%m-%d'),  # <--- Usamos la fecha seleccionada de emisión de la nota
                                             "03" if tipo_ajuste == "Nota de Crédito" else "02",
                                             nro_documento_ajuste.strip().upper(),
                                             nro_control_ajuste.strip().upper(),
@@ -16427,7 +16430,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                                         conn.commit()
                                         cursor.close()
                                         
-                                        st.success(f"✅ ¡{tipo_ajuste} Nº {nro_documento_ajuste} (Control: {nro_control_ajuste}) guardada y vinculada a la factura {fac['n_factura']}!")
+                                        st.success(f"✅ ¡{tipo_ajuste} Nº {nro_documento_ajuste} (Emitida el {fecha_emision_ajuste}) guardada y vinculada a la factura {fac['n_factura']}!")
                                         if "factura_seleccionada_nc" in st.session_state:
                                             del st.session_state.factura_seleccionada_nc
                                 except Exception as e:
