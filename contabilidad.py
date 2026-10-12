@@ -4338,6 +4338,10 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                         
                         fecha_corta = str(fila['fecha_operacion']).split(" ")[0]
                         ano_f, mes_f = fecha_corta.split("-")[0], fecha_corta.split("-")[1]
+                        # --- DEPURACIÓN VISIBLE ---
+                        st.write("🔍 Contenido de empresa_data_env:", empresa_data_env)
+                        st.write("🔍 Dirección fiscal extraída:", domicilio_fiscal)
+    # --------------------------
 
                         query_ins_iva = """
                             INSERT INTO retenciones_iva (
