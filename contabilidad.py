@@ -1358,7 +1358,6 @@ def consultar_tabla_db(conn, nombre_tabla, limite=None):
 
 @st.cache_data(ttl=300)
 def obtener_datos_agente_db(valor_busqueda):
-    # Usamos una versión 'v2' para que Streamlit detecte que es una función nueva
     return _obtener_datos_agente_db_v2(valor_busqueda)
 
 def _obtener_datos_agente_db_v2(valor_busqueda):
@@ -1370,11 +1369,11 @@ def _obtener_datos_agente_db_v2(valor_busqueda):
     try:
         cursor = conn_central.cursor(pymysql.cursors.DictCursor)
         
-        # CONSULTA LIMPIA: Solo pedimos columnas que sabemos que existen según tu captura de pantalla
+        # ¡Añadimos direccion_fiscal a las columnas seleccionadas!
         if isinstance(valor_busqueda, str):
-            query = "SELECT id, nombre_empresa, rif, db_nombre, estado FROM clientes WHERE db_nombre = %s"
+            query = "SELECT id, nombre_empresa, rif, db_nombre, estado, direccion_fiscal FROM clientes WHERE db_nombre = %s"
         else:
-            query = "SELECT id, nombre_empresa, rif, db_nombre, estado FROM clientes WHERE id = %s"
+            query = "SELECT id, nombre_empresa, rif, db_nombre, estado, direccion_fiscal FROM clientes WHERE id = %s"
         
         cursor.execute(query, (valor_busqueda,))
         datos = cursor.fetchone()
