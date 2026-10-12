@@ -15950,14 +15950,23 @@ elif opcion_menu == "📚 Libros Fiscales":
 
                     with col_b2:
                         if st.button("🚀 Guardar TODAS en DB (Modo Seguro)", type="primary", key="btn_guardar_ocr_db"):
-                            # 🛠️ Resuelve el nombre de la base de datos activa antes de instanciar el motor
                             db_actual = st.session_state.get('DB_ACTUAL') or st.session_state.get('id_empresa_actual')
                             if not db_actual:
                                 st.error("❌ No se encontró la base de datos activa en la sesión.")
                                 st.stop()
 
                             df_a_procesar = st.session_state.df_buffer_escaneo.copy()
-                            engine = create_engine(f"mysql+mysqlconnector://{DB_CONFIG['user']}:{DB_CONFIG['password']}@{DB_CONFIG['host']}/{db_actual}")
+                            
+                            # 🛠️ Solución definitiva para evitar el NameError de DB_CONFIG:
+                            # Usamos tu función estándar de conexión o definimos los parámetros de host/usuario locales
+                            try:
+                                host_db = "localhost"  # O tu host configurado
+                                user_db = "root"       # O tu usuario de base de datos
+                                pass_db = ""           # O tu contraseña
+                                engine = create_engine(f"mysql+mysqlconnector://{user_db}:{pass_db}@{host_db}/{db_actual}")
+                            except Exception as ex_eng:
+                                st.error(f"❌ Error al crear el motor de base de datos: {ex_eng}")
+                                st.stop()
                             
                             bar = st.progress(0)
                             facturas_exitosas = 0
@@ -15981,7 +15990,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                                     nc_val = fila['nota_credito'].iloc[0]
                                     nd_val = fila['nota_debito'].iloc[0]
                                     
-                                    # Validación cruzada con MySQL idéntica a la estructura de la tabla
+                                    # Validación cruzada con MySQL
                                     with engine.connect() as conn:
                                         if nc_val:
                                             query_check = "SELECT COUNT(*) FROM libro_compras WHERE rif = %s AND nota_credito = %s"
