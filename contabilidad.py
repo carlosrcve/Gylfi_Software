@@ -15950,6 +15950,12 @@ elif opcion_menu == "📚 Libros Fiscales":
 
                     with col_b2:
                         if st.button("🚀 Guardar TODAS en DB (Modo Seguro)", type="primary", key="btn_guardar_ocr_db"):
+                            # 🛠️ Resuelve el nombre de la base de datos activa antes de instanciar el motor
+                            db_actual = st.session_state.get('DB_ACTUAL') or st.session_state.get('id_empresa_actual')
+                            if not db_actual:
+                                st.error("❌ No se encontró la base de datos activa en la sesión.")
+                                st.stop()
+
                             df_a_procesar = st.session_state.df_buffer_escaneo.copy()
                             engine = create_engine(f"mysql+mysqlconnector://{DB_CONFIG['user']}:{DB_CONFIG['password']}@{DB_CONFIG['host']}/{db_actual}")
                             
