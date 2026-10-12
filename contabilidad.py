@@ -15973,42 +15973,71 @@ elif opcion_menu == "📚 Libros Fiscales":
                             
                             for index, row in df_a_procesar.iterrows():
                                 try:
-                                    fila = row.to_frame().T.copy()
+                                    # Extraemos los valores limpios directamente como escalares del row
+                                    fecha_op = str(row.get('fecha_operacion', '')).split(" ")[0]
+                                    tipo_doc = str(row.get('tipo_documento', '01')).strip()
+                                    n_factura = str(row.get('n_factura', '')).strip().upper()
+                                    n_control = str(row.get('n_control', '')).strip().upper()
                                     
-                                    fila['rif'] = fila['rif'].astype(str).str.replace('-', '', regex=False).str.replace(' ', '', regex=False).strip().upper()
-                                    fila['n_factura'] = fila['n_factura'].astype(str).str.strip().upper()
-                                    fila['n_control'] = fila['n_control'].astype(str).str.strip().upper()
+                                    # Campos opcionales / notas
+                                    nc_raw = row.get('nota_credito')
+                                    nc_val = str(nc_raw).strip().upper() if nc_raw is not None and str(nc_raw).lower() not in ['none', 'nan', '', 'null', 'nat'] else None
                                     
-                                    for c_extra in ['nota_credito', 'nota_debito', 'n_factura_afectada']:
-                                        if c_extra in fila.columns and fila[c_extra].iloc[0] and str(fila[c_extra].iloc[0]).lower() not in ['none', 'nan', '', 'nat']:
-                                            fila[c_extra] = str(fila[c_extra].iloc[0]).strip().upper()
-                                        else:
-                                            fila[c_extra] = None
+                                    nd_raw = row.get('nota_debito')
+                                    nd_val = str(nd_raw).strip().upper() if nd_raw is not None and str(nd_raw).lower() not in ['none', 'nan', '', 'null', 'nat'] else None
+                                    
+                                    afec_raw = row.get('n_factura_afectada')
+                                    afec_val = str(afec_raw).strip().upper() if afec_raw is not None and str(afec_raw).lower() not in ['none', 'nan', '', 'null', 'nat'] else None
+                                    
+                                    proveedor = str(row.get('proveedor', 'VARIOS')).strip().upper()
+                                    rif = str(row.get('rif', '')).replace('-', '').replace(' ', '').strip().upper()
+                                    tipo_trans = str(row.get('tipo_transaccion', '01')).strip()
+                                    
+                                    total_c = float(row.get('total_compras', 0.0) or 0.0)
+                                    exento = float(row.get('importe_exento', 0.0) or 0.0)
+                                    base_imp = float(row.get('base_imponible', 0.0) or 0.0)
+                                    iva_porc = float(row.get('iva_porcentaje', 16.0) or 16.0)
+                                    iva_monto = float(row.get('iva_monto', 0.0) or 0.0)
 
-                                    rif_val = fila['rif'].iloc[0]
-                                    nfac_val = fila['n_factura'].iloc[0]
-                                    nc_val = fila['nota_credito'].iloc[0]
-                                    nd_val = fila['nota_debito'].iloc[0]
-                                    
+                                    # Reconstruimos un DataFrame de una sola fila limpia para to_sql
+                                    dict_limpio = {
+                                        'fecha_operacion': fecha_op,
+                                        'tipo_documento': tipo_doc,
+                                        'n_factura': n_factura,
+                                        'n_control': n_control,
+                                        'nota_credito': nc_val,
+                                        'nota_debito': nd_val,
+                                        'n_factura_afectada': afec_val,
+                                        'proveedor': proveedor,
+                                        'rif': rif,
+                                        'tipo_transaccion': tipo_trans,
+                                        'total_compras': total_c,
+                                        'importe_exento': exento,
+                                        'base_imponible': base_imp,
+                                        'iva_porcentaje': iva_porc,
+                                        'iva_monto': iva_monto
+                                    }
+                                    fila_df = pd.DataFrame([dict_limpio])
+
                                     # Validación cruzada con MySQL
                                     with engine.connect() as conn:
                                         if nc_val:
                                             query_check = "SELECT COUNT(*) FROM libro_compras WHERE rif = %s AND nota_credito = %s"
-                                            resultado = conn.execute(text(query_check), (rif_val, nc_val)).scalar()
+                                            resultado = conn.execute(text(query_check), (rif, nc_val)).scalar()
                                             doc_nombre = f"Nota de Crédito {nc_val}"
                                         elif nd_val:
                                             query_check = "SELECT COUNT(*) FROM libro_compras WHERE rif = %s AND nota_debito = %s"
-                                            resultado = conn.execute(text(query_check), (rif_val, nd_val)).scalar()
+                                            resultado = conn.execute(text(query_check), (rif, nd_val)).scalar()
                                             doc_nombre = f"Nota de Débito {nd_val}"
                                         else:
                                             query_check = "SELECT COUNT(*) FROM libro_compras WHERE rif = %s AND n_factura = %s AND (nota_credito IS NULL OR nota_credito = '') AND (nota_debito IS NULL OR nota_debito = '')"
-                                            resultado = conn.execute(text(query_check), (rif_val, nfac_val)).scalar()
-                                            doc_nombre = f"Factura {nfac_val}"
+                                            resultado = conn.execute(text(query_check), (rif, n_factura)).scalar()
+                                            doc_nombre = f"Factura {n_factura}"
                                     
                                     if resultado > 0:
-                                        st.warning(f"⚠️ Documento {doc_nombre} (RIF {rif_val}) ya registrado en DB. Saltando...")
+                                        st.warning(f"⚠️ Documento {doc_nombre} (RIF {rif}) ya registrado en DB. Saltando...")
                                     else:
-                                        fila.to_sql('libro_compras', con=engine, if_exists='append', index=False)
+                                        fila_df.to_sql('libro_compras', con=engine, if_exists='append', index=False)
                                         facturas_exitosas += 1
                                         st.write(f"✅ {doc_nombre} guardado correctamente.")
 
