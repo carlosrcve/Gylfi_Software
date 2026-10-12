@@ -4302,24 +4302,15 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                 enviado = st.form_submit_button("💾 Guardar y Generar Documentos")
 
             if enviado:
+                # 1. Aseguramos los datos maestros y la dirección fiscal antes de insertar
+                # 1. Aseguramos los datos maestros y la dirección fiscal antes de insertar
                 db_nombre = st.session_state.get('DB_ACTUAL')
                 
-                if not db_nombre:
-                    st.error("❌ Falta el nombre de la base de datos actual.")
-                    st.stop()
-
-                # 1. Conectamos correctamente a la base de datos de la empresa (evitando el NameError)
-                conn_env = conectar_db(db_nombre)
-                if not conn_env:
-                    st.error("❌ No se pudo conectar a la base de datos de la empresa.")
-                    st.stop()
-
-                # 2. Recuperamos los datos de la empresa para la Razón Social, RIF y Dirección Fiscal
-                empresa_data_env = st.session_state.get('empresa_seleccionada') or st.session_state.get('datos_empresa') or {}
-                
-                if not empresa_data_env:
+                # Buscamos la información fresca directo de control_central para asegurar la direccion_fiscal
+                empresa_data_env = {}
+                if db_nombre:
                     try:
-                        conn_central = conectar_db("control_central") 
+                        conn_central = conectar_db("control_central")
                         if conn_central:
                             cursor_c = conn_central.cursor(pymysql.cursors.DictCursor)
                             cursor_c.execute("SELECT * FROM clientes WHERE db_nombre = %s", (db_nombre,))
@@ -4327,18 +4318,29 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                             cursor_c.close()
                             conn_central.close()
                     except Exception:
-                        empresa_data_env = {}
+                        pass
 
                 empresa_nombre = empresa_data_env.get('nombre_empresa') or empresa_data_env.get('razon_social') or "EMPRESA"
                 empresa_rif = empresa_data_env.get('rif') or "000000000"
                 
-                # 3. Extraemos la dirección fiscal de la nueva columna de control_central
+                # ¡Aquí está la clave para que la dirección fiscal se guarde de verdad!
                 domicilio_fiscal = (
                     empresa_data_env.get('direccion_fiscal') or 
                     empresa_data_env.get('direccion') or 
                     empresa_data_env.get('domicilio_fiscal') or 
                     "DIRECCIÓN NO REGISTRADA"
                 )
+
+                # 2. Abrimos una conexión fresca y evitamos el error (0, '') por inactividad
+                try:
+                    conn_env = conectar_db(db_nombre)
+                    if not conn_env:
+                        st.error("❌ No se pudo conectar a la base de datos de la empresa.")
+                        st.stop()
+                    conn_env.ping(reconnect=True)
+                except Exception as e:
+                    st.error(f"❌ Error de conexión: {e}")
+                    st.stop()
 
                 cursor = None
                 try:
@@ -4357,7 +4359,7 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                         fecha_corta = str(fila['fecha_operacion']).split(" ")[0]
                         ano_f, mes_f = fecha_corta.split("-")[0], fecha_corta.split("-")[1]
 
-                        # Capturamos la factura afectada de la fila de manera robusta
+                        # Capturamos la factura afectada de manera robusta
                         fac_afectada_val = str(
                             fila.get('nfactura_afectada') or 
                             fila.get('NFactura_Afectada') or 
@@ -4404,32 +4406,32 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                         """
 
                         params_iva = (
-                            empresa_nombre,                               # Razon_Social_del_Agente_de_Retencion
-                            empresa_rif,                                  # RIF_Agente_Retencion
-                            domicilio_fiscal,                             # Direccion_FiscalAgente_Retencion (¡Ahora sí guardará la dirección fiscal!)
-                            fecha_corta,                                  # E_Emision
-                            fecha_corta,                                  # F_Entrega
-                            razon_social_ret,                             # Razon_Social_Sujeto_Retenido
-                            rif_ret,                                      # RIF_Sujeto_Retenido
-                            ano_f,                                        # Ano
-                            mes_f,                                        # Mes
-                            nro_comp,                                     # N_Comprobante1
-                            fecha_corta,                                  # Fecha_Factura
-                            str(fila['n_factura']),                       # Numero_Factura
-                            str(fila['n_control']),                       # Numero_Contro
-                            None,                                         # N_Nota_Debito
-                            None,                                         # N_Nota_Credito
-                            fac_afectada_val,                             # NFactura_Afectada (¡Aquí va directo a su columna correcta en MySQL!)
-                            round(float(fila.get('total_compras', 0)), 2),# Total_Comrpas
-                            round(float(fila.get('importe_exento', 0)), 2),# Compras_Excentas
-                            round(b16, 2),                                # Base_Imponible
-                            "16%",                                        # Alicuota
-                            round(i16, 2),                                # Impuesto_Iva
-                            f"{porcentaje_ret}%",                         # Alicuota_75
-                            round(iva_retenido_fila, 2),                  # IVA_Retenido
-                            round(b8, 2),                                 # Base_Imponible_8
-                            round(i8, 2),                                 # IVA_8
-                            round(r8, 2)                                  # RET_IVA_8
+                            empresa_nombre,                       # Razon_Social_del_Agente_de_Retencion
+                            empresa_rif,                          # RIF_Agente_Retencion
+                            domicilio_fiscal,                     # Direccion_FiscalAgente_Retencion (¡Ahora sí garantizado!)
+                            fecha_corta,                          # E_Emision
+                            fecha_corta,                          # F_Entrega
+                            razon_social_ret,                     # Razon_Social_Sujeto_Retenido
+                            rif_ret,                              # RIF_Sujeto_Retenido
+                            ano_f,                                # Ano
+                            mes_f,                                # Mes
+                            nro_comp,                             # N_Comprobante1
+                            fecha_corta,                          # Fecha_Factura
+                            str(fila['n_factura']),               # Numero_Factura
+                            str(fila['n_control']),               # Numero_Contro
+                            None,                                 # N_Nota_Debito
+                            None,                                 # N_Nota_Credito
+                            fac_afectada_val,                     # NFactura_Afectada
+                            round(float(fila.get('total_compras', 0)), 2),
+                            round(float(fila.get('importe_exento', 0)), 2),
+                            round(b16, 2),
+                            "16%",
+                            round(i16, 2),
+                            f"{porcentaje_ret}%",
+                            round(iva_retenido_fila, 2),
+                            round(b8, 2),
+                            round(i8, 2),
+                            round(r8, 2)
                         )
                         
                         cursor.execute(query_ins_iva, params_iva)
