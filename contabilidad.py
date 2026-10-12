@@ -4302,16 +4302,23 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                 enviado = st.form_submit_button("💾 Guardar y Generar Documentos")
 
             if enviado:
-                # Recuperamos los datos de la empresa desde el estado de la sesión o usando la función original que sí te funcionaba
+                db_nombre = st.session_state.get('DB_ACTUAL')
+                
+                if not db_nombre:
+                    st.error("❌ Falta el nombre de la base de datos actual.")
+                    st.stop()
+
+                # 1. Conectamos correctamente a la base de datos de la empresa (evitando el NameError)
+                conn_env = conectar_db(db_nombre)
+                if not conn_env:
+                    st.error("❌ No se pudo conectar a la base de datos de la empresa.")
+                    st.stop()
+
+                # 2. Recuperamos los datos de la empresa para la Razón Social, RIF y Dirección Fiscal
                 empresa_data_env = st.session_state.get('empresa_seleccionada') or st.session_state.get('datos_empresa') or {}
                 
-                # Si por alguna razón no está en session_state, usamos el valor de la empresa actual
-                db_nombre = st.session_state.get('DB_ACTUAL')
-
-                # Si tenemos el nombre de la BD, consultamos la tabla clientes asegurándonos de pasarle el parámetro a la función central
-                if not empresa_data_env and db_nombre:
+                if not empresa_data_env:
                     try:
-                        # Usamos tu función o una consulta limpia apuntando a la BD central explícitamente
                         conn_central = conectar_db("control_central") 
                         if conn_central:
                             cursor_c = conn_central.cursor(pymysql.cursors.DictCursor)
@@ -4325,7 +4332,7 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                 empresa_nombre = empresa_data_env.get('nombre_empresa') or empresa_data_env.get('razon_social') or "EMPRESA"
                 empresa_rif = empresa_data_env.get('rif') or "000000000"
                 
-                # Extraemos la dirección fiscal priorizando la nueva columna que creamos
+                # 3. Extraemos la dirección fiscal de la nueva columna de control_central
                 domicilio_fiscal = (
                     empresa_data_env.get('direccion_fiscal') or 
                     empresa_data_env.get('direccion') or 
