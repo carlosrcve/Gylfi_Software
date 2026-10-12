@@ -20,7 +20,7 @@ import base64
 from PIL import Image, ImageEnhance
 import json
 from openai import OpenAI
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine,text
 import warnings
 import bcrypt
 import time
@@ -15958,10 +15958,10 @@ elif opcion_menu == "📚 Libros Fiscales":
                             df_a_procesar = st.session_state.df_buffer_escaneo.copy()
                             
                             try:
-                                # Creamos el engine usando las credenciales exactas de tu función conectar_db con soporte SSL
                                 from urllib.parse import quote_plus
-                                password_escaped = quote_plus("W3Zkbr4E2trGCfoX")
+                                from sqlalchemy import text  # 🛠️ Importación local garantizada para evitar el error
                                 
+                                password_escaped = quote_plus("W3Zkbr4E2trGCfoX")
                                 database_url = f"mysql+pymysql://4K4VAw4t4ZPFUTF.root:{password_escaped}@gateway01.us-east-1.prod.aws.tidbcloud.com:4000/{db_actual}"
                                 engine = create_engine(
                                     database_url,
