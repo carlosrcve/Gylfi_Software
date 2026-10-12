@@ -16005,23 +16005,26 @@ elif opcion_menu == "📚 Libros Fiscales":
                                     iva_porc = float(row.get('iva_porcentaje', 16.0) or 16.0)
                                     iva_monto = float(row.get('iva_monto', 0.0) or 0.0)
 
+                                    # Diccionario estrictamente con tipos nativos de Python (sin Series ni objetos de Pandas)
                                     dict_limpio = {
-                                        'fecha_operacion': fecha_op,
-                                        'tipo_documento': tipo_doc,
-                                        'n_factura': n_factura,
-                                        'n_control': n_control,
-                                        'nota_credito': nc_val,
-                                        'nota_debito': nd_val,
-                                        'n_factura_afectada': afec_val,
-                                        'proveedor': proveedor,
-                                        'rif': rif,
-                                        'tipo_transaccion': tipo_trans,
-                                        'total_compras': total_c,
-                                        'importe_exento': exento,
-                                        'base_imponible': base_imp,
-                                        'iva_porcentaje': iva_porc,
-                                        'iva_monto': iva_monto
+                                        'fecha_operacion': str(fecha_op),
+                                        'tipo_documento': str(tipo_doc),
+                                        'n_factura': str(n_factura),
+                                        'n_control': str(n_control),
+                                        'nota_credito': str(nc_val) if nc_val is not None else None,
+                                        'nota_debito': str(nd_val) if nd_val is not None else None,
+                                        'n_factura_afectada': str(afec_val) if afec_val is not None else None,
+                                        'proveedor': str(proveedor),
+                                        'rif': str(rif),
+                                        'tipo_transaccion': str(tipo_trans),
+                                        'total_compras': float(total_c),
+                                        'importe_exento': float(exento),
+                                        'base_imponible': float(base_imp),
+                                        'iva_porcentaje': float(iva_porc),
+                                        'iva_monto': float(iva_monto)
                                     }
+                                    
+                                    # Creamos el DataFrame asegurando que sea una lista pura de un diccionario plano
                                     fila_df = pd.DataFrame([dict_limpio])
 
                                     # Validación cruzada con TiDB Cloud
