@@ -15973,13 +15973,11 @@ elif opcion_menu == "📚 Libros Fiscales":
                             
                             for index, row in df_a_procesar.iterrows():
                                 try:
-                                    # Extraemos los valores limpios directamente como escalares del row
                                     fecha_op = str(row.get('fecha_operacion', '')).split(" ")[0]
                                     tipo_doc = str(row.get('tipo_documento', '01')).strip()
                                     n_factura = str(row.get('n_factura', '')).strip().upper()
                                     n_control = str(row.get('n_control', '')).strip().upper()
                                     
-                                    # Campos opcionales / notas
                                     nc_raw = row.get('nota_credito')
                                     nc_val = str(nc_raw).strip().upper() if nc_raw is not None and str(nc_raw).lower() not in ['none', 'nan', '', 'null', 'nat'] else None
                                     
@@ -15999,7 +15997,6 @@ elif opcion_menu == "📚 Libros Fiscales":
                                     iva_porc = float(row.get('iva_porcentaje', 16.0) or 16.0)
                                     iva_monto = float(row.get('iva_monto', 0.0) or 0.0)
 
-                                    # Reconstruimos un DataFrame de una sola fila limpia para to_sql
                                     dict_limpio = {
                                         'fecha_operacion': fecha_op,
                                         'tipo_documento': tipo_doc,
@@ -16019,7 +16016,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                                     }
                                     fila_df = pd.DataFrame([dict_limpio])
 
-                                    # Validación cruzada con MySQL
+                                    # Validación cruzada con MySQL usando el engine correcto de la app
                                     with engine.connect() as conn:
                                         if nc_val:
                                             query_check = "SELECT COUNT(*) FROM libro_compras WHERE rif = %s AND nota_credito = %s"
