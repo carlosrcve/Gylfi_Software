@@ -4370,7 +4370,7 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                         num_factura_val = n_factura_cruda
                         num_control_val = n_control_cruda
                         n_nota_credito_val = None
-                        N_nota_debito_val = None
+                        n_nota_debito_val = None  # 🛠️ Corregido con minúscula al inicio
                         
                         n_factura_afectada_val = (
                             str(fila.get('factura_afectada', '')).strip() or 
