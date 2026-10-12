@@ -4319,7 +4319,6 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                 domicilio_fiscal = (
                     empresa_data_env.get('direccion_fiscal') or 
                     empresa_data_env.get('direccion') or 
-                    empresa_data_env.get('domicilio_fiscal') or 
                     "DIRECCIÓN NO REGISTRADA"
                 )
 
