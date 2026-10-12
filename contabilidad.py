@@ -16211,9 +16211,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                                 n_control = st.text_input("Nº de Control", value=str(datos_pre.get("n_control", "")))
                                 n_factura_afectada = st.text_input("Nº Factura Afectada (Opcional)", value="")
                                 
-                            with col_t2:
-                                # 📅 CAMPO CORREGIDO: Usando datetime directamente
-                                fecha_emision_ajuste = st.date_input("Fecha de Emisión (Nota)", value=datetime.date.today(), key="nc_fecha_emision_val")
+                            with col2:
                                 proveedor = st.text_input("Nombre del Proveedor", value=str(datos_pre.get("proveedor", "")))
                                 rif = st.text_input("RIF del Proveedor", value=str(datos_pre.get("rif", "")))
                                 tipo_transaccion = st.text_input("Tipo de Transacción", value="01")
@@ -16363,8 +16361,8 @@ elif opcion_menu == "📚 Libros Fiscales":
                         with col_t1:
                             tipo_ajuste = st.selectbox("Tipo de Ajuste", ["Nota de Crédito", "Nota de Débito"])
                         with col_t2:
-                            # 📅 CAMPO NUEVO: Fecha de emisión de la nota de ajuste (ej: periodo actual de octubre)
-                            fecha_emision_ajuste = st.date_input("Fecha de Emisión (Nota)", value=dt.date.today(), key="nc_fecha_emision_val")
+                            # 📅 Solución directa usando datetime
+                            fecha_emision_ajuste = st.date_input("Fecha de Emisión (Nota)", value=datetime.date.today(), key="nc_fecha_emision_val")
                         with col_t3:
                             nro_documento_ajuste = st.text_input("Nº de Documento (Nota)", placeholder="Ej: 00000720")
                         with col_t4:
