@@ -4729,7 +4729,18 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                                 # Capturamos la fecha y la factura afectada de forma totalmente segura
                                 fecha_op = str(d_row.get('Fecha_Factura') or '')
                                 tipo_doc = str(d_row.get('tipo', tipo_doc_calculado if 'tipo_doc_calculado' in locals() else ('03' if total_fila < 0 else '01')))
-                                nro_doc = str(d_row.get('Numero_Factura', ''))
+                                
+                                # 🛠️ CAPTURA INTELIGENTE DEL NÚMERO DE DOCUMENTO (Evita que salga "None")
+                                nro_doc = str(
+                                    d_row.get('Numero_Factura') or 
+                                    d_row.get('N_Nota_Credito') or 
+                                    d_row.get('N_Nota_Debito') or 
+                                    d_row.get('n_factura') or 
+                                    ''
+                                ).strip()
+                                if nro_doc.lower() in ['none', 'nan', 'nat', '']:
+                                    nro_doc = ""
+
                                 nro_ctrl = str(d_row.get('Numero_Contro', ''))
                                 
                                 fac_afectada = str(
