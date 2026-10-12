@@ -4327,26 +4327,33 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                     cursor = conn_env.cursor()
         
                     for _, fila in facturas_seleccionadas.iterrows():
-                        # Extraemos los valores absolutos por si vienen con signo negativo
-                        total_fila = abs(float(fila.get('total_compras', 0) or 0))
-                        base = abs(float(fila.get('base_imponible', 0) or 0))
-                        impuesto = abs(float(fila.get('iva_monto', 0) or fila.get('impuesto_iva', 0) or 0))
-                        exento = abs(float(fila.get('importe_exento', 0) or 0))
+                        # 1. Detectar si es Nota de Crédito
+                        tipo_doc_str = str(fila.get('tipo_documento', '')).strip().lower()
+                        monto_total_fila = float(fila.get('total_compras', 0) or 0)
+                        es_nc = 'credito' in tipo_doc_str or 'nota de credito' in tipo_doc_str or monto_total_fila < 0
+                        
+                        # Factor de signo: -1 si es nota de crédito, 1 si es factura normal
+                        signo = -1 if es_nc else 1
 
-                        # Si la base o el IVA vienen en 0 pero hay un total, los recalculamos matemáticamente
-                        if base == 0 and impuesto == 0 and total_fila > 0:
-                            # Asumiendo 16% por defecto si no está desglosado
-                            if exento > 0:
-                                base = total_fila - exento
+                        # Extraemos los valores base respetando su signo natural o forzando el signo correcto
+                        total_fila = abs(float(fila.get('total_compras', 0) or 0)) * signo
+                        base = abs(float(fila.get('base_imponible', 0) or 0)) * signo
+                        impuesto = abs(float(fila.get('iva_monto', 0) or fila.get('impuesto_iva', 0) or 0)) * signo
+                        exento = abs(float(fila.get('importe_exento', 0) or 0)) * signo
+
+                        # Si la base o el IVA vienen en 0 pero hay un total, los recalculamos
+                        if abs(base) == 0 and abs(impuesto) == 0 and abs(total_fila) > 0:
+                            if abs(exento) > 0:
+                                base = (abs(total_fila) - abs(exento)) * signo
                             else:
-                                base = round(total_fila / 1.16, 2)
-                            impuesto = round(total_fila - exento - base, 2)
+                                base = round(abs(total_fila) / 1.16, 2) * signo
+                            impuesto = round(abs(total_fila) - abs(exento) - abs(base), 2) * signo
 
-                        ratio = round(impuesto / base, 2) if base > 0 else 0
+                        ratio = round(abs(impuesto) / abs(base), 2) if abs(base) > 0 else 0
                         es_8 = ratio <= 0.08
                         
-                        # Cálculo exacto del IVA retenido en positivo
-                        iva_retenido_fila = round((impuesto * porcentaje_ret) / 100, 2)
+                        # Cálculo exacto del IVA retenido (75% del IVA, aplicando el signo correspondiente)
+                        iva_retenido_fila = round((abs(impuesto) * porcentaje_ret) / 100, 2) * signo
                         
                         b16, i16, r16 = (base, impuesto, iva_retenido_fila) if not es_8 else (0.0, 0.0, 0.0)
                         b8, i8, r8 = (base, impuesto, iva_retenido_fila) if es_8 else (0.0, 0.0, 0.0)
@@ -4354,22 +4361,17 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                         fecha_corta = str(fila['fecha_operacion']).split(" ")[0]
                         ano_f, mes_f = fecha_corta.split("-")[0], fecha_corta.split("-")[1]
 
-                        # 🛠️ CAPTURA Y CLASIFICACIÓN EXACTA DE CAMPOS SEGÚN TU TABLA
                         n_factura_cruda = str(fila.get('n_factura', '')).strip()
                         n_control_cruda = str(fila.get('n_control', '')).strip()
                         
-                        tipo_doc = str(fila.get('tipo_documento', '')).strip().lower()
-                        monto_total_fila = float(fila.get('total_compras', 0) or 0)
-                        
-                        es_nota_credito = 'credito' in tipo_doc or 'nota de credito' in tipo_doc or monto_total_fila < 0
-                        es_nota_debito = 'debito' in tipo_doc or 'nota de debito' in tipo_doc
+                        es_nota_credito = es_nc
+                        es_nota_debito = 'debito' in tipo_doc_str or 'nota de debito' in tipo_doc_str
 
                         num_factura_val = n_factura_cruda
                         num_control_val = n_control_cruda
                         n_nota_credito_val = None
-                        n_nota_debito_val = None
+                        N_nota_debito_val = None
                         
-                        # Buscamos el número de la factura afectada en las posibles columnas del DataFrame
                         n_factura_afectada_val = (
                             str(fila.get('factura_afectada', '')).strip() or 
                             str(fila.get('n_factura_afectada', '')).strip() or 
@@ -4378,7 +4380,6 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                         if n_factura_afectada_val in ["None", "nan", ""]:
                             n_factura_afectada_val = None
 
-                        # Si es nota, el número va a su casilla y la factura principal se anula
                         if es_nota_credito:
                             n_nota_credito_val = n_factura_cruda
                             num_factura_val = None
