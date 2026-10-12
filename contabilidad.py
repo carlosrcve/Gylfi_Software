@@ -15958,8 +15958,20 @@ elif opcion_menu == "📚 Libros Fiscales":
                             df_a_procesar = st.session_state.df_buffer_escaneo.copy()
                             
                             try:
-                                # Conexión exacta a tu clúster de TiDB Cloud usando las credenciales globales de tu app
-                                engine = create_engine(f"mysql+mysqlconnector://{DB_CONFIG['user']}:{DB_CONFIG['password']}@{DB_CONFIG['host']}:{DB_CONFIG.get('port', 4000)}/{db_actual}")
+                                # Creamos el engine usando las credenciales exactas de tu función conectar_db con soporte SSL
+                                from urllib.parse import quote_plus
+                                password_escaped = quote_plus("W3Zkbr4E2trGCfoX")
+                                
+                                database_url = f"mysql+pymysql://4K4VAw4t4ZPFUTF.root:{password_escaped}@gateway01.us-east-1.prod.aws.tidbcloud.com:4000/{db_actual}"
+                                engine = create_engine(
+                                    database_url,
+                                    connect_args={
+                                        "ssl": {
+                                            "ssl_ca": None,
+                                            "check_hostname": False
+                                        }
+                                    }
+                                )
                             except Exception as ex_eng:
                                 st.error(f"❌ Error al crear el motor de base de datos: {ex_eng}")
                                 st.stop()
@@ -16012,7 +16024,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                                     }
                                     fila_df = pd.DataFrame([dict_limpio])
 
-                                    # Validación cruzada con MySQL usando TiDB Cloud
+                                    # Validación cruzada con TiDB Cloud
                                     with engine.connect() as conn:
                                         if nc_val:
                                             query_check = "SELECT COUNT(*) FROM libro_compras WHERE rif = %s AND nota_credito = %s"
