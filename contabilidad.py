@@ -4661,7 +4661,7 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                                     h = ["Fecha", "Tipo", "Nº NCredito", "N.Contr", "Fac. Afectada", "Total", "Exento", "Base 16%", "IVA 16%", "Ret. 16%", "Base 8%", "IVA 8%", "Ret. 8%", "Total Ret."]
                                     w = [18, 12, 22, 20, 22, 22, 16, 18, 16, 18, 16, 16, 16, 20]
                                 else:
-                                    h = ["Fecha", "Tipo", "Nº Doc/Nota", "N.Contr", "Fac. Afectada", "Total", "Exento", "Base 16%", "IVA 16%", "Ret. 16%", "Total Ret."]
+                                    h = ["Fecha", "Tipo", "Nº Fact", "N.Contr", "Fac. Afectada", "Total", "Exento", "Base 16%", "IVA 16%", "Ret. 16%", "Total Ret."]
                                     w = [20, 14, 25, 22, 25, 25, 18, 22, 20, 22, 24]
                             else:
                                 if tiene_alicuota_8:
