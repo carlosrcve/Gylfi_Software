@@ -4303,27 +4303,30 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
 
             if enviado:
                 # 1. Aseguramos los datos maestros y la dirección fiscal antes de insertar
-                # 1. Aseguramos los datos maestros y la dirección fiscal antes de insertar
+                # Capturamos tanto el nombre de la BD como posibles IDs guardados en la sesión
                 db_nombre = st.session_state.get('DB_ACTUAL')
-                
-                # Buscamos la información fresca directo de control_central para asegurar la direccion_fiscal
+                empresa_id = st.session_state.get('id_empresa_seleccionada') or st.session_state.get('id_empresa_actual') or 0
+
                 empresa_data_env = {}
-                if db_nombre:
-                    try:
-                        conn_central = conectar_db("control_central")
-                        if conn_central:
-                            cursor_c = conn_central.cursor(pymysql.cursors.DictCursor)
-                            cursor_c.execute("SELECT * FROM clientes WHERE db_nombre = %s", (db_nombre,))
-                            empresa_data_env = cursor_c.fetchone() or {}
-                            cursor_c.close()
-                            conn_central.close()
-                    except Exception:
-                        pass
+                try:
+                    conn_central = conectar_db("control_central")
+                    if conn_central:
+                        cursor_c = conn_central.cursor(pymysql.cursors.DictCursor)
+                        # Buscamos de forma flexible: por db_nombre O por id
+                        cursor_c.execute(
+                            "SELECT * FROM clientes WHERE db_nombre = %s OR id = %s", 
+                            (db_nombre, empresa_id)
+                        )
+                        empresa_data_env = cursor_c.fetchone() or {}
+                        cursor_c.close()
+                        conn_central.close()
+                except Exception as e:
+                    pass
 
                 empresa_nombre = empresa_data_env.get('nombre_empresa') or empresa_data_env.get('razon_social') or "EMPRESA"
                 empresa_rif = empresa_data_env.get('rif') or "000000000"
                 
-                # ¡Aquí está la clave para que la dirección fiscal se guarde de verdad!
+                # Extraemos la dirección fiscal de la columna que creamos en control_central
                 domicilio_fiscal = (
                     empresa_data_env.get('direccion_fiscal') or 
                     empresa_data_env.get('direccion') or 
