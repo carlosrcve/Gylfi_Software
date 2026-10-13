@@ -3871,18 +3871,7 @@ def generar_comprobante_pdf(datos, conn):
         except Exception:
             pass
 
-    # --- CONSULTA DINÁMICA BLINDADA DESDE control_central.clientes ---
-    db_activa = st.session_state.get('DB_ACTUAL')
-    cliente_id_sesion = st.session_state.get('cliente_id')
-    
-    # TRAZA DE DEPURACIÓN (Temporal: puedes ver esto en tu pantalla para saber qué busca)
-    # st.write(f"DEBUG -> DB_ACTUAL en sesión: {db_activa} | cliente_id: {cliente_id_sesion}")
-
-    # --- CONSULTAR DINÁMICAMENTE LOS DATOS DE LA EMPRESA DESDE control_central.clientes ---
-    db_activa = st.session_state.get('DB_ACTUAL')
-    cliente_id_sesion = st.session_state.get('cliente_id')
-    
-    # --- CONSULTAR DINÁMICAMENTE USANDO LA CONEXIÓN ACTIVA ---
+    # --- CONSULTA DIRECTA USANDO CLIENTE_ID EN control_central ---
     datos_agente_dinamicos = {
         "nombre": "EMPRESA NO IDENTIFICADA",
         "rif": "J-00000000-0",
@@ -3890,39 +3879,28 @@ def generar_comprobante_pdf(datos, conn):
     }
 
     try:
-        # Usamos la conexión 'conn' que ya viene en la función, o abrimos una de emergencia si viene nula
-        conn_uso = conn if conn is not None else conectar_db()
-        
-        if conn_uso:
-            cursor_agente = conn_agente.cursor(dictionary=True) if hasattr(conn_uso, 'cursor') else None
-            if cursor_agente:
-                # 1. Intentamos buscar por el cliente_id de la sesión si existe
-                cliente_id_sesion = st.session_state.get('cliente_id')
+        conn_central = conectar_db("control_central")
+        if conn_central:
+            cursor_c = conn_central.cursor(dictionary=True) if hasattr(conn_central, 'cursor') else None
+            
+            if cursor_c:
                 res_agente = None
-                
+                cliente_id_sesion = st.session_state.get('cliente_id')
+
+                # 1. Buscamos directamente por el ID de la empresa en control_central.clientes
                 if cliente_id_sesion:
-                    cursor_agente.execute(
-                        "SELECT nombre_empresa, rif, direccion_fiscal FROM control_central.clientes WHERE id = %s", 
+                    cursor_c.execute(
+                        "SELECT nombre_empresa, rif, direccion_fiscal FROM clientes WHERE id = %s", 
                         (cliente_id_sesion,)
                     )
-                    res_agente = cursor_agente.fetchone()
-                
-                # 2. Si no hay cliente_id o no arrojó resultados, buscamos por DB_ACTUAL o db_actual de la sesión
-                if not res_agente:
-                    db_activa = st.session_state.get('DB_ACTUAL') or st.session_state.get('db_actual')
-                    if db_activa:
-                        cursor_agente.execute(
-                            "SELECT nombre_empresa, rif, direccion_fiscal FROM control_central.clientes WHERE db_nombre = %s", 
-                            (db_activa,)
-                        )
-                        res_agente = cursor_agente.fetchone()
+                    res_agente = cursor_c.fetchone()
 
-                # 3. RESPALDO ABSOLUTO: Si la sesión sigue vacía, traemos la primera empresa configurada en control_central
+                # 2. Respaldo absoluto: si no hay id en sesión, trae el primer registro
                 if not res_agente:
-                    cursor_agente.execute(
-                        "SELECT nombre_empresa, rif, direccion_fiscal FROM control_central.clientes LIMIT 1"
+                    cursor_c.execute(
+                        "SELECT nombre_empresa, rif, direccion_fiscal FROM clientes LIMIT 1"
                     )
-                    res_agente = cursor_agente.fetchone()
+                    res_agente = cursor_c.fetchone()
 
                 if res_agente:
                     datos_agente_dinamicos = {
@@ -3931,19 +3909,12 @@ def generar_comprobante_pdf(datos, conn):
                         "direccion": res_agente.get("direccion_fiscal", "DIRECCIÓN NO REGISTRADA")
                     }
                 
-                cursor_agente.close()
-                if conn is None: # Si abrimos una conexión local de emergencia, la cerramos
-                    conn_uso.close()
+                cursor_c.close()
+            conn_central.close()
     except Exception as e:
         print(f"Error crítico obteniendo datos del agente: {e}")
 
     # Asignamos los datos reales al diccionario del PDF
-    datos['agente'] = datos_agente_dinamicos
-
-    # Asignamos de forma segura los datos al agente
-    datos['agente'] = datos_agente_dinamicos
-
-    # Asignamos de forma segura los datos al agente
     datos['agente'] = datos_agente_dinamicos
 
     pdf = FPDF(orientation='P', unit='mm', format='A4')
