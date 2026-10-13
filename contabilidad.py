@@ -15769,21 +15769,34 @@ elif opcion_menu == "📚 Libros Fiscales":
                 st.markdown("---")
                 st.markdown("### 💰 Control de Montos, Alícuota e IVA Automático")
 
-                # 1. Inicialización de estados para los cálculos en tiempo real
+                # 1. Inicialización robusta de estados en sesión
                 if "rt_base" not in st.session_state:
                     st.session_state.rt_base = 0.00
                 if "rt_exento" not in st.session_state:
                     st.session_state.rt_exento = 0.00
+                if "rt_alicuota" not in st.session_state:
+                    st.session_state.rt_alicuota = "General (16%)"
 
                 alicuota_opciones = {
                     "General (16%)": 16.0,
                     "Reducida (8%)": 8.0,
                     "Exonerada / Otra (0%)": 0.0,
                 }
+
+                # Función callback para recalcular el IVA automáticamente al cambiar cualquier parámetro
+                def recalcular_iva():
+                    porcentaje = alicuota_opciones.get(st.session_state.rt_alicuota, 16.0)
+                    st.session_state.rt_iva_calc = st.session_state.rt_base * (porcentaje / 100.0)
+
+                # Asegurar cálculo inicial si no existe en sesión
+                if "rt_iva_calc" not in st.session_state:
+                    recalcular_iva()
+
                 alicuota_label = st.selectbox(
                     "Seleccione la Alícuota de IVA",
                     options=list(alicuota_opciones.keys()),
                     key="rt_alicuota",
+                    on_change=recalcular_iva,
                 )
                 iva_porcentaje_val = alicuota_opciones[alicuota_label]
 
@@ -15795,16 +15808,19 @@ elif opcion_menu == "📚 Libros Fiscales":
                         format="%.2f",
                         step=100.00,
                         key="rt_base",
+                        on_change=recalcular_iva,
                     )
                 with col_m2:
-                    # Cálculo directo e inmediato del IVA basado en la base imponible introducida
-                    iva_monto_input = base_imp_input * (iva_porcentaje_val / 100.0)
+                    # Sincronizamos el cálculo en tiempo real con el estado actual
+                    recalcular_iva()
+                    iva_monto_input = st.session_state.rt_iva_calc
+                    
                     st.number_input(
                         f"IVA Monto ({iva_porcentaje_val}% Automático)",
                         value=iva_monto_input,
                         format="%.2f",
                         disabled=True,
-                        key="rt_iva_auto_display",
+                        key="rt_iva_display",
                     )
                 with col_m3:
                     exento_input = st.number_input(
@@ -15813,33 +15829,22 @@ elif opcion_menu == "📚 Libros Fiscales":
                         format="%.2f",
                         step=100.00,
                         key="rt_exento",
+                        on_change=recalcular_iva,
                     )
 
-                # Sumatoria estricta: Total = Base Imponible + IVA Monto + Monto Exento
-                total_calculado = base_imp_input + iva_monto_input + exento_input
+                # Sumatoria total precisa usando las variables de sesión sincronizadas
+                total_calculado = st.session_state.rt_base + st.session_state.rt_iva_calc + st.session_state.rt_exento
 
-
-                # Función para formatear los montos con puntos de miles y comas decimales (Ej: 178.000,00)
+                # Función para formatear con el estilo numérico venezolano (Ej: 62.376,00)
                 def formato_venezuela(val):
-                    return (
-                        f"{val:,.2f}"
-                        .replace(",", "X")
-                        .replace(".", ",")
-                        .replace("X", ".")
-                    )
-
+                    return f"{val:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
                 st.success(
-                    f"💵 **Monto Total Calculado Automáticamente:**"
-                    f" **{formato_venezuela(total_calculado)}**"
+                    f"💵 **Monto Total Calculado Automáticamente:** **{formato_venezuela(total_calculado)}**"
                 )
 
                 # Botón de guardado definitivo en base de datos
-                if st.button(
-                    "💾 Guardar Factura en Base de Datos",
-                    type="primary",
-                    key="rt_btn_guardar",
-                ):
+                if st.button("💾 Guardar Factura en Base de Datos", type="primary", key="rt_btn_guardar"):
                     if not n_factura_val or n_factura_val == "0":
                         st.error("❌ El número de factura es obligatorio.")
                     else:
@@ -15861,19 +15866,16 @@ elif opcion_menu == "📚 Libros Fiscales":
                                     razon_social_val,
                                     rif_val,
                                     total_calculado,
-                                    exento_input,
-                                    base_imp_input,
+                                    st.session_state.rt_exento,
+                                    st.session_state.rt_base,
                                     iva_porcentaje_val,
-                                    iva_monto_input,
+                                    st.session_state.rt_iva_calc,
                                 )
                                 cursor_ins.execute(query_insert_single, valores)
                                 conn_ins.commit()
                                 cursor_ins.close()
                                 conn_ins.close()
-                                st.success(
-                                    "✅ ¡Factura agregada exitosamente con proveedor,"
-                                    " alícuota y cálculos automáticos!"
-                                )
+                                st.success("✅ ¡Factura agregada exitosamente con proveedor, alícuota y cálculos automáticos!")
                                 st.rerun()
                         except Exception as e:
                             st.error(f"❌ Error al guardar la factura: {e}")
