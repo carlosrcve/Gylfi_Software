@@ -4179,6 +4179,29 @@ def cargar_datos_reimpresion(f_desde, f_hasta):
             except Exception:
                 pass
 
+def registrar_log_automatico(conn, accion, detalles):
+    """Registra automáticamente las interacciones del usuario en la tabla logs_auditoria
+    ubicada en la base de datos central de control.
+    """
+    cursor = None
+    try:
+        if conn is not None:
+            usuario = st.session_state.get("usuario", "Desconocido")
+            cliente_id = str(st.session_state.get("cliente_id", ""))
+
+            cursor = conn.cursor()
+            query = """
+                INSERT INTO control_central.logs_auditoria (usuario_id, accion, detalles, ip_address, fecha) 
+                VALUES (%s, %s, %s, %s, NOW())
+            """
+            cursor.execute(query, (usuario, accion, detalles, cliente_id))
+            conn.commit()
+    except Exception as e:
+        # Manejo de error silencioso o impreso para depuración
+        print(f"Error registrando log: {e}")
+    finally:
+        if cursor:
+            cursor.close()
 
 def obtener_detalle_comprobante(id_registro):
     db_actual = st.session_state.get('DB_ACTUAL')
