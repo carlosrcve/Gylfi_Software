@@ -15769,11 +15769,11 @@ elif opcion_menu == "📚 Libros Fiscales":
                 st.markdown("---")
                 st.markdown("### 💰 Control de Montos, Alícuota e IVA Automático")
 
-                # Inicializar estados de texto si no existen
-                if "rt_base_txt" not in st.session_state:
-                    st.session_state.rt_base_txt = "0,00"
-                if "rt_exento_txt" not in st.session_state:
-                    st.session_state.rt_exento_txt = "0,00"
+                # 1. Inicialización limpia de estados de sesión
+                if "rt_base" not in st.session_state:
+                    st.session_state.rt_base = 0.0
+                if "rt_exento" not in st.session_state:
+                    st.session_state.rt_exento = 0.0
 
                 alicuota_opciones = {
                     "General (16%)": 16.0,
@@ -15787,50 +15787,68 @@ elif opcion_menu == "📚 Libros Fiscales":
                 )
                 iva_porcentaje_val = alicuota_opciones[alicuota_label]
 
-                # Función para limpiar y convertir texto con formato (ej: 178.000,00) a float de Python
-                def parsear_monto(txt):
-                    try:
-                        if not txt:
-                            return 0.0
-                        # Quitamos los puntos de miles y cambiamos la coma decimal por punto
-                        limpio = txt.replace(".", "").replace(",", ".")
-                        return float(limpio)
-                    except ValueError:
-                        return 0.0
+                # 2. Función que fuerza la recarga instantánea al cambiar los montos
+                def disparar_recalculo():
+                    # Forzamos un rerun de Streamlit para que actualice todos los campos colindantes al instante
+                    st.rerun()
 
                 col_m1, col_m2, col_m3 = st.columns(3)
                 with col_m1:
-                    base_txt = st.text_input("Base Imponible", key="rt_base_txt")
-                    base_imp_input = parsear_monto(base_txt)
-
+                    base_imp_input = st.number_input(
+                        "Base Imponible",
+                        min_value=0.00,
+                        format="%.2f",
+                        step=100.00,
+                        key="rt_base",
+                        on_change=disparar_recalculo,
+                    )
                 with col_m2:
-                    # Cálculo del IVA en tiempo real
-                    iva_monto_input = base_imp_input * (iva_porcentaje_val / 100.0)
-                    
-                    def formato_venezuela(val):
-                        return f"{val:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-
-                    # Mostramos el IVA calculado con el formato exacto requerido
-                    st.text_input(
+                    # Cálculo directo y seguro en tiempo real sobre la variable de sesión actual
+                    iva_monto_input = st.session_state.rt_base * (
+                        iva_porcentaje_val / 100.0
+                    )
+                    st.number_input(
                         f"IVA Monto ({iva_porcentaje_val}% Automático)",
-                        value=formato_venezuela(iva_monto_input),
+                        value=iva_monto_input,
+                        format="%.2f",
                         disabled=True,
-                        key="rt_iva_display_txt"
+                        key="rt_iva_display",
+                    )
+                with col_m3:
+                    exento_input = st.number_input(
+                        "Monto Exento",
+                        min_value=0.00,
+                        format="%.2f",
+                        step=100.00,
+                        key="rt_exento",
+                        on_change=disparar_recalculo,
                     )
 
-                with col_m3:
-                    exento_txt = st.text_input("Monto Exento", key="rt_exento_txt")
-                    exento_input = parsear_monto(exento_txt)
+                # Sumatoria estricta en tiempo real
+                total_calculado = (
+                    st.session_state.rt_base + iva_monto_input + st.session_state.rt_exento
+                )
 
-                # Sumatoria total precisa
-                total_calculado = base_imp_input + iva_monto_input + exento_input
+                # Función para formatear con el estilo numérico local (Ej: 786.458,45)
+                def formato_venezuela(val):
+                    return (
+                        f"{val:,.2f}"
+                        .replace(",", "X")
+                        .replace(".", ",")
+                        .replace("X", ".")
+                    )
 
                 st.success(
-                    f"💵 **Monto Total Calculado Automáticamente:** **{formato_venezuela(total_calculado)}**"
+                    f"💵 **Monto Total Calculado Automáticamente:**"
+                    f" **{formato_venezuela(total_calculado)}**"
                 )
 
                 # Botón de guardado definitivo en base de datos
-                if st.button("💾 Guardar Factura en Base de Datos", type="primary", key="rt_btn_guardar"):
+                if st.button(
+                    "💾 Guardar Factura en Base de Datos",
+                    type="primary",
+                    key="rt_btn_guardar",
+                ):
                     if not n_factura_val or n_factura_val == "0":
                         st.error("❌ El número de factura es obligatorio.")
                     else:
@@ -15852,8 +15870,8 @@ elif opcion_menu == "📚 Libros Fiscales":
                                     razon_social_val,
                                     rif_val,
                                     total_calculado,
-                                    exento_input,
-                                    base_imp_input,
+                                    st.session_state.rt_exento,
+                                    st.session_state.rt_base,
                                     iva_porcentaje_val,
                                     iva_monto_input,
                                 )
@@ -15861,7 +15879,10 @@ elif opcion_menu == "📚 Libros Fiscales":
                                 conn_ins.commit()
                                 cursor_ins.close()
                                 conn_ins.close()
-                                st.success("✅ ¡Factura agregada exitosamente con el formato y cálculos requeridos!")
+                                st.success(
+                                    "✅ ¡Factura agregada exitosamente con proveedor,"
+                                    " alícuota y cálculos automáticos!"
+                                )
                                 st.rerun()
                         except Exception as e:
                             st.error(f"❌ Error al guardar la factura: {e}")
