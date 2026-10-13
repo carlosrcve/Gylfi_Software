@@ -16987,10 +16987,17 @@ elif opcion_menu == "📚 Libros Fiscales":
                     conn = conectar_db(db_actual)
                     if conn:
                         try:
+                            cursor = conn.cursor()
+                            # 1. Asegurar el contexto de la base de datos activa
+                            if db_actual:
+                                cursor.execute(f"USE {db_actual}")
+
+                            # 2. Cargar directorio de proveedores de forma segura
                             st.session_state.df_prov_fiscal = ejecutar_consulta(
                                 "SELECT rif, razon_social, direccion_fiscal FROM proveedores", conn
                             )
 
+                            # 3. Consulta robusta al libro de compras
                             query = """
                                 SELECT 
                                     lc.id AS id, 
@@ -17006,26 +17013,30 @@ elif opcion_menu == "📚 Libros Fiscales":
                                     0.00 AS porcentaje_retencion, 0.00 AS monto_retenido, 
                                     NULL AS periodo_retenido, 
                                     0.00 AS sustraendo, 
-                                    NULL AS n_comprob_islr
+                                    NULL AS n_comprob_islr 
                                 FROM libro_compras lc
                                 LEFT JOIN (
                                     SELECT razon_social, direccion_fiscal, 
                                            TRIM(REPLACE(REPLACE(rif, '-', ''), ' ', '')) AS rif_limpio
                                     FROM proveedores
                                 ) p ON TRIM(REPLACE(REPLACE(lc.rif, '-', ''), ' ', '')) COLLATE utf8mb4_unicode_ci = p.rif_limpio COLLATE utf8mb4_unicode_ci
-                                WHERE (lc.retencion_realizada = 0 OR lc.retencion_realizada IS NULL)
-                                AND lc.fecha_operacion BETWEEN %s AND %s
+                                WHERE lc.fecha_operacion BETWEEN %s AND %s
                                 ORDER BY lc.fecha_operacion ASC
                             """
 
                             df_temp = ejecutar_consulta(query, conn, params=(f_xml_desde_n, f_xml_hasta_n))
                             
                             # Limpiamos de una vez las que ya se hayan procesado en esta sesión
-                            if not df_temp.empty and st.session_state.facturas_procesadas_ids:
+                            if df_temp is not None and not df_temp.empty and st.session_state.facturas_procesadas_ids:
                                 df_temp = df_temp[~df_temp['id'].isin(st.session_state.facturas_procesadas_ids)]
 
-                            st.session_state.df_retencion = df_temp
-                            st.success("✅ Facturas y Directorio de Proveedores cargados con éxito.")
+                            st.session_state.df_retencion = df_temp if df_temp is not None else pd.DataFrame()
+                            
+                            if not st.session_state.df_retencion.empty:
+                                st.success(f"✅ ¡Se encontraron {len(st.session_state.df_retencion)} facturas en el rango!")
+                            else:
+                                st.warning("⚠️ No se encontraron registros de facturas en el libro de compras para el rango de fechas seleccionado.")
+                                
                         except Exception as e:
                             st.error(f"❌ Error al consultar la base de datos: {e}")
                         finally:
