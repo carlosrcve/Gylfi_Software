@@ -10318,21 +10318,14 @@ elif opcion_menu == "📝 Asientos Contables":
 
                 if aplica_retenciones == "Sí":
                     st.markdown("---")
-                    # --- 2DO FRAME: RETENCIÓN DE IVA (Usamos number_input para escribir o bajar a 0.0 libremente) ---
+                    # --- 2DO FRAME: RETENCIÓN DE IVA ---
                     st.markdown("#### 2️⃣ Frame: Retención de IVA")
                     col_f2_1, col_f2_2 = st.columns(2)
                     with col_f2_1:
-                        porcentaje_ret_iva = st.number_input(
-                            "% Retención IVA", 
-                            min_value=0.0, 
-                            max_value=100.0, 
-                            value=75.0, 
-                            step=25.0, 
-                            format="%.1f", 
-                            key="f2_porc_ret_iva_num"
-                        )
+                        # Usamos text_input para que escribas 0.0 o 75.0 con total libertad y cero restricciones de lista
+                        porcentaje_ret_iva_str = st.text_input("% Retención IVA (Ej: 75.0 o 0.0)", value="75.0", key="f2_porc_iva_texto")
                     with col_f2_2:
-                        anular_iva_manual = st.checkbox("Forzar Retención IVA a 0.00", value=False, key="chk_anular_iva_v2")
+                        anular_iva_manual = st.checkbox("Forzar Retención IVA a 0.00", value=False, key="chk_anular_iva")
                     
                     st.markdown("---")
 
@@ -10359,15 +10352,18 @@ elif opcion_menu == "📝 Asientos Contables":
 
                 if btn_guardar_op:
                     if not nro_factura_form:
-                        st.error("⚠️ El número de factura is obligatorio.")
+                        st.error("⚠️ El número de factura es obligatorio.")
                     elif not lista_provs:
                         st.error("⚠️ No hay proveedores cargados para asociar la orden.")
                     else:
                         try:
-                            # Convertimos de manera segura los textos a números flotantes al presionar el botón
+                            # Convertimos de manera segura los textos a números flotantes
                             base_imponible_form = float(base_imponible_str.replace(",", ".")) if base_imponible_str else 0.0
                             monto_exento_form = float(monto_exento_str.replace(",", ".")) if monto_exento_str else 0.0
                             
+                            # 👈 AQUÍ ES DONDE VA LA LÍNEA DEL PORCENTAJE DE IVA:
+                            porcentaje_ret_iva = float(porcentaje_ret_iva_str.replace(",", ".")) if porcentaje_ret_iva_str else 0.0
+
                             if aplica_retenciones == "Sí":
                                 islr_sustraendo_form = float(islr_sustraendo_str.replace(",", ".")) if islr_sustraendo_str else 0.0
                             else:
@@ -10377,14 +10373,13 @@ elif opcion_menu == "📝 Asientos Contables":
                             monto_iva_form = base_imponible_form * (alicuota_iva_form / 100.0)
                             monto_bruto_form = base_imponible_form + monto_exento_form + monto_iva_form
                             
-                            # Cálculo de Retención de IVA (respeta el 0.0% del selectbox o el checkbox de forzar a cero)
+                            # Cálculo de Retención de IVA
                             if aplica_retenciones == "No" or porcentaje_ret_iva == 0.0 or anular_iva_manual:
                                 retencion_iva_form = 0.0
                             else:
                                 retencion_iva_form = monto_iva_form * (porcentaje_ret_iva / 100.0)
 
-                            # Cálculo de Retención de ISLR (respeta si colocas 0 en el porcentaje o marcas el checkbox)
-                            islr_sustraendo_form = float(islr_sustraendo_str.replace(",", ".")) if islr_sustraendo_str else 0.0
+                            # Cálculo de Retención de ISLR
                             if aplica_retenciones == "No" or islr_porcentaje_form == 0.0 or anular_islr_manual:
                                 retencion_islr_form = 0.0
                                 islr_porcentaje_form = 0.0
@@ -10392,6 +10387,8 @@ elif opcion_menu == "📝 Asientos Contables":
                                 retencion_islr_form = max(0.0, (base_imponible_form * (islr_porcentaje_form / 100.0)) - islr_sustraendo_form)
 
                             monto_neto_calculado = monto_bruto_form - retencion_islr_form - retencion_iva_form
+                    
+                    # ... (aquí continúa tu código del INSERT INTO ordenes_pago)
 
                             info_prov_form = dict_provs[prov_seleccionado_form]
                             
