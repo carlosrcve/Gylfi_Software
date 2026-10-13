@@ -15775,17 +15775,12 @@ elif opcion_menu == "📚 Libros Fiscales":
                     "Exonerada / Otra (0%)": 0.0,
                 }
 
-                # Selector de Alícuota con recarga forzosa inmediata
                 alicuota_label = st.selectbox(
                     "Seleccione la Alícuota de IVA",
                     options=list(alicuota_opciones.keys()),
-                    key="rt_alicuota",
-                    on_change=lambda: st.rerun()
+                    key="rt_alicuota"
                 )
-                
-                # Obtenemos el porcentaje directamente del estado actual de forma segura
-                label_actual = st.session_state.get("rt_alicuota", "General (16%)")
-                iva_porcentaje_val = alicuota_opciones.get(label_actual, 16.0)
+                iva_porcentaje_val = alicuota_opciones[alicuota_label]
 
                 col_m1, col_m2, col_m3 = st.columns(3)
                 with col_m1:
@@ -15797,15 +15792,15 @@ elif opcion_menu == "📚 Libros Fiscales":
                         key="rt_base"
                     )
                 with col_m2:
-                    # Cálculo del IVA usando el porcentaje actualizado al instante
+                    # Cálculo directo en tiempo real
                     iva_monto_input = base_imp_input * (iva_porcentaje_val / 100.0)
                     
+                    # SIN KEY: Obliga a Streamlit a actualizar el valor en pantalla inmediatamente al cambiar la alícuota o la base
                     st.number_input(
                         f"IVA Monto ({iva_porcentaje_val}% Automático)",
-                        value=iva_monto_input,
+                        value=float(iva_monto_input),
                         format="%.2f",
-                        disabled=True,
-                        key="rt_iva_auto_display"
+                        disabled=True
                     )
                 with col_m3:
                     exento_input = st.number_input(
@@ -15819,7 +15814,6 @@ elif opcion_menu == "📚 Libros Fiscales":
                 # Sumatoria estricta: Total = Base Imponible + IVA Monto + Monto Exento
                 total_calculado = base_imp_input + iva_monto_input + exento_input
 
-                # Función para formatear con el estilo numérico venezolano (Ej: 62.376,00)
                 def formato_venezuela(val):
                     return f"{val:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
@@ -15849,7 +15843,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                                     nota_cred_val if nota_cred_val else None,
                                     razon_social_val,
                                     rif_val,
-                                    total_calculado,  # Monto total guardado correctamente en la BD
+                                    total_calculado,  # <-- Monto total guardado correctamente en la BD
                                     exento_input,
                                     base_imp_input,
                                     iva_porcentaje_val,
