@@ -10271,17 +10271,17 @@ elif opcion_menu == "📝 Asientos Contables":
             # --- EMISIÓN DE ORDEN DE PAGO CON CONTROL DINÁMICO DE RETENCIONES ---
             st.markdown("### ✍️ Emitir Nueva Orden de Pago")
             
-            with st.form("form_emision_orden_pago_fluido", clear_on_submit=False):
+            with st.form("form_emision_orden_pago_fluido_v2", clear_on_submit=False):
                 # --- 1ER FRAME: DATOS DE LA FACTURA Y MONTOS ---
                 st.markdown("#### 1️⃣ Frame: Datos Básicos, Proveedor y Montos de la Factura")
                 
                 col_f1_1, col_f1_2 = st.columns(2)
                 with col_f1_1:
-                    prov_seleccionado_form = st.selectbox("Seleccionar Proveedor", options=lista_provs if lista_provs else ["No hay proveedores"], key="f1_prov")
-                    nro_factura_form = st.text_input("Número de Factura", key="f1_fact")
-                    nro_control_form = st.text_input("Número de Control", key="f1_ctrl")
+                    prov_seleccionado_form = st.selectbox("Seleccionar Proveedor", options=lista_provs if lista_provs else ["No hay proveedores"], key="f1_prov_v2")
+                    nro_factura_form = st.text_input("Número de Factura", key="f1_fact_v2")
+                    nro_control_form = st.text_input("Número de Control", key="f1_ctrl_v2")
                 with col_f1_2:
-                    fecha_emision_form = st.date_input("Fecha de Emisión", key="f1_fecha")
+                    fecha_emision_form = st.date_input("Fecha de Emisión", key="f1_fecha_v2")
                     
                     st.markdown("""
                         <div style="background-color: #e8f8f5; padding: 6px 12px; border-radius: 6px; border: 1px solid #a3e4d7; margin-bottom: 5px;">
@@ -10289,12 +10289,12 @@ elif opcion_menu == "📝 Asientos Contables":
                         </div>
                     """, unsafe_allow_html=True)
                     
-                    base_imponible_str = st.text_input("Base Imponible (Ej: 1000.00)", value="0.00", key="f1_base_str")
-                    monto_exento_str = st.text_input("Monto Exento (Ej: 0.00)", value="0.00", key="f1_exento_str")
+                    base_imponible_str = st.text_input("Base Imponible (Ej: 1000.00)", value="0.00", key="f1_base_str_v2")
+                    monto_exento_str = st.text_input("Monto Exento (Ej: 0.00)", value="0.00", key="f1_exento_str_v2")
 
                 col_f1_3, _ = st.columns(2)
                 with col_f1_3:
-                    alicuota_iva_form = st.selectbox("Alícuota IVA", options=[16.0, 8.0, 31.0, 0.0], format_func=lambda x: f"{x}%", key="f1_alicuota")
+                    alicuota_iva_form = st.selectbox("Alícuota IVA", options=[16.0, 8.0, 31.0, 0.0], format_func=lambda x: f"{x}%", key="f1_alicuota_v2")
 
                 st.markdown("---")
 
@@ -10305,10 +10305,9 @@ elif opcion_menu == "📝 Asientos Contables":
                     options=["Sí", "No"],
                     index=0,
                     horizontal=True,
-                    key="radio_aplica_ret"
+                    key="radio_aplica_ret_v2"
                 )
 
-                # Variables por defecto para los porcentajes y valores de retención
                 porcentaje_ret_iva = 0.0
                 tipo_persona_form = "No Aplica"
                 islr_porcentaje_form = 0.0
@@ -10317,39 +10316,41 @@ elif opcion_menu == "📝 Asientos Contables":
                 anular_iva_manual = False
                 anular_islr_manual = False
 
-                # --- FRENTS 2 Y 3 (CONDICIONALES SEGÚN EL RADIO) ---
                 if aplica_retenciones == "Sí":
                     st.markdown("---")
-                    # --- 2DO FRAME: RETENCIÓN DE IVA ---
+                    # --- 2DO FRAME: RETENCIÓN DE IVA (Usamos number_input para escribir o bajar a 0.0 libremente) ---
                     st.markdown("#### 2️⃣ Frame: Retención de IVA")
                     col_f2_1, col_f2_2 = st.columns(2)
                     with col_f2_1:
-                        # Colocamos el 0.0 de PRIMERO en la lista y cambiamos la key a v2 para forzar el refresco de Streamlit
-                        porcentaje_ret_iva = st.selectbox(
-                            "Porcentaje Retención IVA", 
-                            options=[0.0, 75.0, 100.0, 50.0, 25.0], 
-                            format_func=lambda x: f"{x}% (Sin retención / Exento)" if x == 0.0 else f"{x}%", 
-                            key="f2_porc_ret_iva_v2"
+                        porcentaje_ret_iva = st.number_input(
+                            "% Retención IVA", 
+                            min_value=0.0, 
+                            max_value=100.0, 
+                            value=75.0, 
+                            step=25.0, 
+                            format="%.1f", 
+                            key="f2_porc_ret_iva_num"
                         )
                     with col_f2_2:
-                        anular_iva_manual = st.checkbox("Forzar Retención IVA a 0.00", value=False, key="chk_anular_iva")
-                                        
+                        anular_iva_manual = st.checkbox("Forzar Retención IVA a 0.00", value=False, key="chk_anular_iva_v2")
+                    
                     st.markdown("---")
 
                     # --- 3ER FRAME: RETENCIÓN DE ISLR ---
                     st.markdown("#### 3️⃣ Frame: Retención de ISLR")
                     col_f3_1, col_f3_2, col_f3_3, col_f3_4 = st.columns(4)
                     with col_f3_1:
-                        tipo_persona_form = st.selectbox("Tipo de Persona", options=["Jurídico Domiciliado", "Natural Residenciado", "Otro", "No Aplica"], key="f3_tipo_p")
+                        tipo_persona_form = st.selectbox("Tipo de Persona", options=["Jurídico Domiciliado", "Natural Residenciado", "Otro", "No Aplica"], key="f3_tipo_p_v2")
                     with col_f3_2:
-                        islr_porcentaje_form = st.number_input("% Retención ISLR", min_value=0.0, max_value=100.0, value=1.0, format="%.2f", key="f3_porc_islr")
+                        islr_porcentaje_form = st.number_input("% Retención ISLR", min_value=0.0, max_value=100.0, value=1.0, format="%.2f", key="f3_porc_islr_v2")
                     with col_f3_3:
-                        islr_sustraendo_str = st.text_input("Sustraendo ISLR", value="0.00", key="f3_sustraendo_str")
+                        islr_sustraendo_str = st.text_input("Sustraendo ISLR", value="0.00", key="f3_sustraendo_str_v2")
                     with col_f3_4:
-                        anular_islr_manual = st.checkbox("Forzar ISLR a 0.00", value=False, key="chk_anular_islr")
+                        anular_islr_manual = st.checkbox("Forzar ISLR a 0.00", value=False, key="chk_anular_islr_v2")
                 else:
-                    st.info("ℹ️ Has seleccionado **No**. Las retenciones de IVA e ISLR se registrarán automáticamente en **0.00** para cumplir con la estructura de la base de datos.")
-                observaciones_form = st.text_area("Observaciones / Concepto del Pago", key="f4_obs")
+                    st.info("ℹ️ Has seleccionado **No**. Las retenciones de IVA e ISLR se registrarán automáticamente en **0.00**.")
+
+                observaciones_form = st.text_area("Observaciones / Concepto del Pago", key="f4_obs_v2")
 
                 st.markdown("---")
                 
