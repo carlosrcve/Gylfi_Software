@@ -446,6 +446,127 @@ def panel_administracion(conn):
 
 def panel_administracion_empresas(conn):
     st.header("⚙️ Gestión de Empresas y Accesos")
+    st.info("💡 Desde este panel, el administrador puede registrar y administrar las empresas clientes que operan en el sistema.")
+
+    # ==========================================
+    # 1. FORMULARIO DE REGISTRO DE NUEVA EMPRESA
+    # ==========================================
+    with st.expander("➕ Registrar Nueva Empresa / Cliente en el Sistema", expanded=True):
+        with st.form("registro_empresa_form", clear_on_submit=True):
+            col1, col2 = st.columns(2)
+
+            with col1:
+                nombre_empresa = st.text_input("Razón Social de la Empresa", placeholder="Ej: Empresas Oviedo, C.A.")
+                rif = st.text_input("R.I.F.", placeholder="Ej: J-57894514-9")
+                direccion_fiscal = st.text_area("Dirección Fiscal", placeholder="Ej: Ver RIF Digital emitido por el SENIAT")
+                tipo_contribuyente = st.selectbox(
+                    "Tipo de Contribuyente", 
+                    options=["Contribuyente Ordinario", "Contribuyente Especial"]
+                )
+
+            with col2:
+                db_nombre = st.text_input("Nombre de la Base de Datos (MySQL)", placeholder="Ej: db_empresas_oviedo")
+                estado_empresa = st.selectbox("Estado Inicial", options=["Activo", "Suspendido"])
+                fecha_vencimiento = st.date_input("Fecha de Vencimiento de Licencia / Contrato")
+                ultimo_digito = st.number_input("Último Dígito del RIF (Para Retenciones)", min_value=0, max_value=9, step=1, value=0)
+
+            btn_guardar_empresa = st.form_submit_button("💾 Guardar Empresa en Base de Datos", type="primary")
+
+            if btn_guardar_empresa:
+                if not nombre_empresa or not rif or not db_nombre:
+                    st.error("❌ Los campos Razón Social, RIF y Nombre de Base de Datos son obligatorios.")
+                else:
+                    try:
+                        cursor = conn.cursor()
+                        query_insert_empresa = """
+                            INSERT INTO clientes 
+                            (nombre_empresa, rif, db_nombre, estado, fecha_vencimiento, tipo_contribuyente, ultimo_digito, direccion_fiscal)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                        """
+                        valores = (
+                            nombre_empresa.strip(),
+                            rif.strip(),
+                            db_nombre.strip(),
+                            estado_empresa,
+                            fecha_vencimiento.strftime("%Y-%m-%d"),
+                            tipo_contribuyente,
+                            int(ultimo_digito),
+                            direccion_fiscal.strip()
+                        )
+                        cursor.execute(query_insert_empresa, valores)
+                        conn.commit()
+                        cursor.close()
+                        st.success(f"✅ ¡Empresa **{nombre_empresa}** registrada exitosamente en MySQL con su base de datos asignada (`{db_nombre}`)!")
+                    except Exception as e:
+                        st.error(f"❌ Error al registrar la empresa en la base de datos: {e}")
+
+    st.markdown("---")
+
+    # ==========================================
+    # 2. CONSULTA Y ADMINISTRACIÓN DE EMPRESAS EXISTENTES
+    # ==========================================
+    st.subheader("📋 Listado y Administración de Empresas Clientes")
+
+    try:
+        df_clientes = pd.read_sql("SELECT * FROM clientes ORDER BY id DESC", conn)
+    except Exception as e:
+        st.error(f"Error al consultar la tabla clientes: {e}")
+        df_clientes = pd.DataFrame()
+
+    if not df_clientes.empty:
+        st.info("💡 Puedes editar la información de las empresas directamente en la tabla o eliminar registros usando el icono de papelera y haciendo clic en guardar.")
+
+        key_editor_clientes = "editor_tabla_clientes_admin"
+
+        df_editado_clientes = st.data_editor(
+            df_clientes,
+            key=key_editor_clientes,
+            num_rows="fixed",
+            width="stretch",
+            hide_index=True,
+            column_config={
+                "id": st.column_config.NumberColumn("ID", disabled=True),
+                "nombre_empresa": st.column_config.TextColumn("Razón Social"),
+                "rif": st.column_config.TextColumn("RIF"),
+                "db_nombre": st.column_config.TextColumn("Base de Datos (MySQL)"),
+                "logo_path": st.column_config.TextColumn("Logo Path"),
+                "estado": st.column_config.SelectboxColumn("Estado", options=["Activo", "Suspendido"], required=True),
+                "fecha_vencimiento": st.column_config.DateColumn("Vencimiento", format="DD/MM/YYYY"),
+                "tipo_contribuyente": st.column_config.SelectboxColumn("Tipo Contribuyente", options=["Contribuyente Ordinario", "Contribuyente Especial"], required=True),
+                "ultimo_digito": st.column_config.NumberColumn("Últ. Dígito", format="%d"),
+                "direccion_fiscal": st.column_config.TextColumn("Dirección Fiscal")
+            }
+        )
+
+        if st.button("💾 Guardar Cambios de Empresas en DB", type="primary", key="btn_guardar_cambios_clientes"):
+            cambios_cli = st.session_state.get(key_editor_clientes, {})
+            try:
+                cursor_upd = conn.cursor()
+                cursor_upd.execute("START TRANSACTION")
+
+                # 1. Actualizar filas modificadas
+                for idx_str, dict_mod in cambios_cli.get("edited_rows", {}).items():
+                    id_row = int(df_clientes.iloc[int(idx_str)]["id"])
+                    if dict_mod:
+                        cols_sql = [f"{k} = %s" for k in dict_mod.keys()]
+                        vals_sql = list(dict_mod.values())
+                        sql_u = f"UPDATE clientes SET {', '.join(cols_sql)} WHERE id = %s"
+                        cursor_upd.execute(sql_u, vals_sql + [id_row])
+
+                # 2. Eliminar filas seleccionadas
+                for idx_del in cambios_cli.get("deleted_rows", []):
+                    id_del = int(df_clientes.iloc[idx_del]["id"])
+                    cursor_upd.execute("DELETE FROM clientes WHERE id = %s", (id_del,))
+
+                conn.commit()
+                cursor_upd.close()
+                st.success("✅ ¡Cambios en empresas guardados correctamente en MySQL!")
+                st.rerun()
+            except Exception as e:
+                conn.rollback()
+                st.error(f"❌ Error al guardar los cambios: {e}")
+    else:
+        st.warning("⚠️ No hay empresas registradas en la tabla de clientes actualmente.")
     
     
 
@@ -6835,9 +6956,10 @@ if menu_lateral == "⚙️ Gestión de Usuarios":
         st.error(f"Error al acceder a la gestión central: {e}")
     st.stop()
 
-if menu_lateral == "⚙️ Gestión de Empresas":    
+if menu_lateral == "⚙️ Gestión de Empresas":
     try:
-        conn = conectar_db() 
+        # Nota: Ajusta 'conectar_db()' según cómo pases el parámetro de conexión en tu app principal
+        conn = conectar_db(db_actual) if "db_actual" in locals() else conectar_db() 
         if conn:
             panel_administracion_empresas(conn)
             try:
@@ -6847,9 +6969,8 @@ if menu_lateral == "⚙️ Gestión de Empresas":
         else:
             st.error("🔌 No se pudo establecer conexión con el servidor MySQL.")
     except Exception as e:
-        st.error(f"Error al acceder a la gestión central: {e}")
+        st.error(f"Error al acceder a la gestión central de empresas: {e}")
     st.stop()
-
 
 # Sacamos los datos directamente de lo que ya se seleccionó en el Sidebar
 if 'DB_ACTUAL' in st.session_state and st.session_state.get('DB_ACTUAL'):
