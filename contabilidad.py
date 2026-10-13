@@ -3882,7 +3882,7 @@ def generar_comprobante_pdf(datos, conn):
         except Exception:
             pass
 
-    # --- CONSULTAR DINÁMICAMENTE LOS DATOS DE LA EMPRESA ACTIVA (AGENTE DE RETENCIÓN) ---
+    # --- CONSULTAR DINÁMICAMENTE LOS DATOS DE LA EMPRESA DESDE control_central.clientes ---
     db_activa = st.session_state.get('DB_ACTUAL')
     cliente_id_sesion = st.session_state.get('cliente_id')
     
@@ -3893,31 +3893,31 @@ def generar_comprobante_pdf(datos, conn):
     }
 
     try:
-        conn_agente = conectar_db() # Conexión a la base central donde reside la tabla 'clientes'
+        conn_agente = conectar_db() # Conexión global al servidor MySQL
         if conn_agente:
             cursor_agente = conn_agente.cursor(dictionary=True)
             res_agente = None
             
-            # 1. Intentamos buscar por db_nombre si existe
+            # 1. Intentamos buscar por db_nombre exacto en control_central.clientes
             if db_activa:
                 cursor_agente.execute(
-                    "SELECT nombre_empresa, rif, direccion_fiscal FROM clientes WHERE db_nombre = %s", 
+                    "SELECT nombre_empresa, rif, direccion_fiscal FROM control_central.clientes WHERE db_nombre = %s", 
                     (db_activa,)
                 )
                 res_agente = cursor_agente.fetchone()
             
-            # 2. Si no se encontró por db_nombre, intentamos buscar por el cliente_id de la sesión
+            # 2. Si no se encontró, intentamos buscar por el cliente_id de la sesión
             if not res_agente and cliente_id_sesion:
                 cursor_agente.execute(
-                    "SELECT nombre_empresa, rif, direccion_fiscal FROM clientes WHERE id = %s", 
+                    "SELECT nombre_empresa, rif, direccion_fiscal FROM control_central.clientes WHERE id = %s", 
                     (cliente_id_sesion,)
                 )
                 res_agente = cursor_agente.fetchone()
                 
-            # 3. Respaldo absoluto: si aún no aparece, traemos el primer registro disponible
+            # 3. Respaldo absoluto: si aún no aparece, traemos el primer registro de control_central.clientes
             if not res_agente:
                 cursor_agente.execute(
-                    "SELECT nombre_empresa, rif, direccion_fiscal FROM clientes LIMIT 1"
+                    "SELECT nombre_empresa, rif, direccion_fiscal FROM control_central.clientes LIMIT 1"
                 )
                 res_agente = cursor_agente.fetchone()
 
@@ -3931,9 +3931,9 @@ def generar_comprobante_pdf(datos, conn):
             cursor_agente.close()
             conn_agente.close()
     except Exception as e:
-        print(f"Error obteniendo datos dinámicos del agente: {e}")
+        print(f"Error obteniendo datos dinámicos del agente desde control_central: {e}")
 
-    # Sobrescribimos el agente con los datos reales de la empresa activa
+    # Sobrescribimos el agente con los datos reales extraídos de control_central.clientes
     datos['agente'] = datos_agente_dinamicos
 
     pdf = FPDF(orientation='P', unit='mm', format='A4')
