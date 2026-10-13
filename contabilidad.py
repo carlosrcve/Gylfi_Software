@@ -15774,11 +15774,16 @@ elif opcion_menu == "📚 Libros Fiscales":
                     "Reducida (8%)": 8.0,
                     "Exonerada / Otra (0%)": 0.0,
                 }
-                
+
+                # Función para forzar la actualización inmediata al cambiar la alícuota
+                def actualizar_alicuota():
+                    st.rerun()
+
                 alicuota_label = st.selectbox(
                     "Seleccione la Alícuota de IVA",
                     options=list(alicuota_opciones.keys()),
-                    key="rt_alicuota"
+                    key="rt_alicuota",
+                    on_change=actualizar_alicuota
                 )
                 iva_porcentaje_val = alicuota_opciones[alicuota_label]
 
@@ -15792,7 +15797,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                         key="rt_base"
                     )
                 with col_m2:
-                    # Cálculo directo en tiempo real basado en el valor actual de la base imponible
+                    # Cálculo exacto en tiempo real según la base imponible y la alícuota seleccionada
                     iva_monto_input = base_imp_input * (iva_porcentaje_val / 100.0)
                     
                     st.number_input(
@@ -15811,10 +15816,10 @@ elif opcion_menu == "📚 Libros Fiscales":
                         key="rt_exento"
                     )
 
-                # Sumatoria estricta y directa
+                # Sumatoria estricta: Total = Base Imponible + IVA Monto + Monto Exento
                 total_calculado = base_imp_input + iva_monto_input + exento_input
 
-                # Función para formatear con el estilo numérico local venezolano (Ej: 62.376,00)
+                # Función para formatear con el estilo numérico venezolano (Ej: 62.376,00)
                 def formato_venezuela(val):
                     return f"{val:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
@@ -15822,7 +15827,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                     f"💵 **Monto Total Calculado Automáticamente:** **{formato_venezuela(total_calculado)}**"
                 )
 
-                # Botón de guardado definitivo en base de datos
+                # Botón de guardado definitivo en base de datos (con total_compras incluido en el INSERT)
                 if st.button("💾 Guardar Factura en Base de Datos", type="primary", key="rt_btn_guardar"):
                     if not n_factura_val or n_factura_val == "0":
                         st.error("❌ El número de factura es obligatorio.")
@@ -15844,7 +15849,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                                     nota_cred_val if nota_cred_val else None,
                                     razon_social_val,
                                     rif_val,
-                                    total_calculado,
+                                    total_calculado,  # <-- Aquí se guarda correctamente el monto total en la BD
                                     exento_input,
                                     base_imp_input,
                                     iva_porcentaje_val,
@@ -15854,7 +15859,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                                 conn_ins.commit()
                                 cursor_ins.close()
                                 conn_ins.close()
-                                st.success("✅ ¡Factura agregada exitosamente con proveedor, alícuota y cálculos automáticos!")
+                                st.success("✅ ¡Factura agregada exitosamente con su monto total, proveedor y alícuota calculada!")
                                 st.rerun()
                         except Exception as e:
                             st.error(f"❌ Error al guardar la factura: {e}")
