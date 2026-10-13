@@ -15769,11 +15769,11 @@ elif opcion_menu == "📚 Libros Fiscales":
                 st.markdown("---")
                 st.markdown("### 💰 Control de Montos, Alícuota e IVA Automático")
 
-                # 1. Inicialización limpia de estados de sesión
+                # 1. Inicialización de estados para los cálculos en tiempo real
                 if "rt_base" not in st.session_state:
-                    st.session_state.rt_base = 0.0
+                    st.session_state.rt_base = 0.00
                 if "rt_exento" not in st.session_state:
-                    st.session_state.rt_exento = 0.0
+                    st.session_state.rt_exento = 0.00
 
                 alicuota_opciones = {
                     "General (16%)": 16.0,
@@ -15787,11 +15787,6 @@ elif opcion_menu == "📚 Libros Fiscales":
                 )
                 iva_porcentaje_val = alicuota_opciones[alicuota_label]
 
-                # 2. Función que fuerza la recarga instantánea al cambiar los montos
-                def disparar_recalculo():
-                    # Forzamos un rerun de Streamlit para que actualice todos los campos colindantes al instante
-                    st.rerun()
-
                 col_m1, col_m2, col_m3 = st.columns(3)
                 with col_m1:
                     base_imp_input = st.number_input(
@@ -15800,19 +15795,16 @@ elif opcion_menu == "📚 Libros Fiscales":
                         format="%.2f",
                         step=100.00,
                         key="rt_base",
-                        on_change=disparar_recalculo,
                     )
                 with col_m2:
-                    # Cálculo directo y seguro en tiempo real sobre la variable de sesión actual
-                    iva_monto_input = st.session_state.rt_base * (
-                        iva_porcentaje_val / 100.0
-                    )
+                    # Cálculo directo e inmediato del IVA basado en la base imponible introducida
+                    iva_monto_input = base_imp_input * (iva_porcentaje_val / 100.0)
                     st.number_input(
                         f"IVA Monto ({iva_porcentaje_val}% Automático)",
                         value=iva_monto_input,
                         format="%.2f",
                         disabled=True,
-                        key="rt_iva_display",
+                        key="rt_iva_auto_display",
                     )
                 with col_m3:
                     exento_input = st.number_input(
@@ -15821,15 +15813,13 @@ elif opcion_menu == "📚 Libros Fiscales":
                         format="%.2f",
                         step=100.00,
                         key="rt_exento",
-                        on_change=disparar_recalculo,
                     )
 
-                # Sumatoria estricta en tiempo real
-                total_calculado = (
-                    st.session_state.rt_base + iva_monto_input + st.session_state.rt_exento
-                )
+                # Sumatoria estricta: Total = Base Imponible + IVA Monto + Monto Exento
+                total_calculado = base_imp_input + iva_monto_input + exento_input
 
-                # Función para formatear con el estilo numérico local (Ej: 786.458,45)
+
+                # Función para formatear los montos con puntos de miles y comas decimales (Ej: 178.000,00)
                 def formato_venezuela(val):
                     return (
                         f"{val:,.2f}"
@@ -15837,6 +15827,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                         .replace(".", ",")
                         .replace("X", ".")
                     )
+
 
                 st.success(
                     f"💵 **Monto Total Calculado Automáticamente:**"
@@ -15870,8 +15861,8 @@ elif opcion_menu == "📚 Libros Fiscales":
                                     razon_social_val,
                                     rif_val,
                                     total_calculado,
-                                    st.session_state.rt_exento,
-                                    st.session_state.rt_base,
+                                    exento_input,
+                                    base_imp_input,
                                     iva_porcentaje_val,
                                     iva_monto_input,
                                 )
