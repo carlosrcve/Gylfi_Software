@@ -10268,10 +10268,10 @@ elif opcion_menu == "📝 Asientos Contables":
             except Exception as e:
                 st.error(f"Error cargando datos de BD: {e}")
 
-            # --- FORMULARIO OFICIAL DE EMISIÓN (EVITA EL CONGELAMIENTO TECLA POR TECLA) ---
+            # --- EMISIÓN DE ORDEN DE PAGO CON CAMPOS DE TEXTO LIBRES (CERO CONGELAMIENTO) ---
             st.markdown("### ✍️ Emitir Nueva Orden de Pago")
             
-            with st.form("form_emision_orden_pago", clear_on_submit=False):
+            with st.form("form_emision_orden_pago_fluido", clear_on_submit=False):
                 # --- 1ER FRAME: DATOS DE LA FACTURA Y MONTOS ---
                 st.markdown("#### 1️⃣ Frame: Datos Básicos, Proveedor y Montos de la Factura")
                 
@@ -10284,67 +10284,37 @@ elif opcion_menu == "📝 Asientos Contables":
                     fecha_emision_form = st.date_input("Fecha de Emisión", key="f1_fecha")
                     
                     st.markdown("""
-                        <div style="background-color: #ffe6e6; padding: 6px 12px; border-radius: 6px; border: 1px solid #ff9999; margin-bottom: 5px;">
-                            <span style="color: #c0392b; font-weight: bold; font-size: 13px;">🔴 Campos de ingreso numérico libre</span>
+                        <div style="background-color: #e8f8f5; padding: 6px 12px; border-radius: 6px; border: 1px solid #a3e4d7; margin-bottom: 5px;">
+                            <span style="color: #117a65; font-weight: bold; font-size: 13px;">⚡ Ingreso fluido (sin bloqueos al escribir)</span>
                         </div>
                     """, unsafe_allow_html=True)
                     
-                    base_imponible_form = st.number_input("Base Imponible", min_value=0.0, format="%.2f", key="f1_base")
-                    monto_exento_form = st.number_input("Monto Exento", min_value=0.0, format="%.2f", key="f1_exento")
+                    # Usamos st.text_input para evitar que Streamlit piense tecla por tecla
+                    base_imponible_str = st.text_input("Base Imponible (Ej: 1000.00)", value="0.00", key="f1_base_str")
+                    monto_exento_str = st.text_input("Monto Exento (Ej: 0.00)", value="0.00", key="f1_exento_str")
 
                 col_f1_3, col_f1_4 = st.columns(2)
                 with col_f1_3:
                     alicuota_iva_form = st.selectbox("Alícuota IVA", options=[16.0, 8.0, 31.0, 0.0], format_func=lambda x: f"{x}%", key="f1_alicuota")
                 with col_f1_4:
-                    # Cálculo directo sin forzar reruns molestos
-                    monto_iva_calc = base_imponible_form * (alicuota_iva_form / 100.0)
-                    monto_iva_form = st.number_input("Monto IVA (Calculado)", value=monto_iva_calc, min_value=0.0, format="%.2f", key="f1_iva_calc")
-
-                monto_bruto_calc = base_imponible_form + monto_exento_form + monto_iva_form
-                monto_bruto_form = st.number_input("Monto Bruto / Total Factura (Calculado)", value=monto_bruto_calc, min_value=0.0, format="%.2f", key="f1_bruto_calc")
-                
-                st.markdown("---")
-
-                # --- 2DO FRAME: RETENCIÓN DE IVA ---
-                st.markdown("#### 2️⃣ Frame: Retención de IVA")
-                col_f2_1, col_f2_2 = st.columns(2)
-                with col_f2_1:
                     porcentaje_ret_iva = st.selectbox("Porcentaje Retención IVA", options=[75.0, 100.0, 25.0, 50.0], format_func=lambda x: f"{x}%", key="f2_porc_ret_iva")
-                with col_f2_2:
-                    ret_iva_calc = monto_iva_form * (porcentaje_ret_iva / 100.0)
-                    retencion_iva_form = st.number_input("Monto Retención IVA (Calculado)", value=ret_iva_calc, min_value=0.0, format="%.2f", key="f2_ret_iva_calc")
-                
-                st.markdown("---")
 
                 # --- 3ER FRAME: RETENCIÓN DE ISLR ---
                 st.markdown("#### 3️⃣ Frame: Retención de ISLR")
-                col_f3_1, col_f3_2, col_f3_3, col_f3_4 = st.columns(4)
+                col_f3_1, col_f3_2, col_f3_3 = st.columns(3)
                 with col_f3_1:
                     tipo_persona_form = st.selectbox("Tipo de Persona", options=["Jurídico Domiciliado", "Natural Residenciado", "Otro"], key="f3_tipo_p")
                 with col_f3_2:
                     islr_porcentaje_form = st.number_input("% Retención ISLR", min_value=0.0, max_value=100.0, value=1.0, format="%.2f", key="f3_porc_islr")
                 with col_f3_3:
-                    islr_sustraendo_form = st.number_input("Sustraendo ISLR", min_value=0.0, format="%.2f", key="f3_sustraendo")
-                with col_f3_4:
-                    ret_islr_calc = max(0.0, (base_imponible_form * (islr_porcentaje_form / 100.0)) - islr_sustraendo_form)
-                    retencion_islr_form = st.number_input("Monto Retención ISLR Final", value=ret_islr_calc, min_value=0.0, format="%.2f", key="f3_ret_islr")
+                    islr_sustraendo_str = st.text_input("Sustraendo ISLR", value="0.00", key="f3_sustraendo_str")
+
+                observaciones_form = st.text_area("Observaciones / Concepto del Pago", key="f4_obs")
 
                 st.markdown("---")
                 
-                # --- 4TO FRAME: MONTO NETO Y OBSERVACIONES ---
-                st.markdown("#### 4️⃣ Frame: Cálculo del Monto Neto a Pagar")
-                monto_neto_calculado = monto_bruto_form - retencion_islr_form - retencion_iva_form
-                
-                col_f4_1, col_f4_2 = st.columns(2)
-                with col_f4_1:
-                    st.metric(label="💵 Monto Neto a Pagar", value=f"{monto_neto_calculado:,.2f}")
-                with col_f4_2:
-                    observaciones_form = st.text_area("Observaciones / Concepto del Pago", key="f4_obs")
-
-                st.markdown("---")
-                
-                # --- BOTÓN DE GUARDADO DENTRO DEL FORMULARIO ---
-                btn_guardar_op = st.form_submit_button("💾 Guardar y Registrar Orden de Pago", type="primary", use_container_width=True)
+                # --- BOTÓN DE PROCESAR Y GUARDAR ---
+                btn_guardar_op = st.form_submit_button("💾 Calcular y Registrar Orden de Pago", type="primary", use_container_width=True)
 
                 if btn_guardar_op:
                     if not nro_factura_form:
@@ -10353,6 +10323,18 @@ elif opcion_menu == "📝 Asientos Contables":
                         st.error("⚠️ No hay proveedores cargados para asociar la orden.")
                     else:
                         try:
+                            # Convertimos de manera segura los textos a números flotantes al presionar el botón
+                            base_imponible_form = float(base_imponible_str.replace(",", ".")) if base_imponible_str else 0.0
+                            monto_exento_form = float(monto_exento_str.replace(",", ".")) if monto_exento_str else 0.0
+                            islr_sustraendo_form = float(islr_sustraendo_str.replace(",", ".")) if islr_sustraendo_str else 0.0
+
+                            # Cálculos automáticos limpios
+                            monto_iva_form = base_imponible_form * (alicuota_iva_form / 100.0)
+                            monto_bruto_form = base_imponible_form + monto_exento_form + monto_iva_form
+                            retencion_iva_form = monto_iva_form * (porcentaje_ret_iva / 100.0)
+                            retencion_islr_form = max(0.0, (base_imponible_form * (islr_porcentaje_form / 100.0)) - islr_sustraendo_form)
+                            monto_neto_calculado = monto_bruto_form - retencion_islr_form - retencion_iva_form
+
                             info_prov_form = dict_provs[prov_seleccionado_form]
                             
                             conn_ins = conectar_db(db_actual)
@@ -10389,8 +10371,10 @@ elif opcion_menu == "📝 Asientos Contables":
                                 conn_ins.commit()
                                 cursor.close()
                                 conn_ins.close()
-                                st.success("🎉 ¡Orden de pago guardada con éxito en la BD! Recargando...")
+                                st.success("🎉 ¡Orden de pago calculada y guardada con éxito en la BD! Recargando...")
                                 st.rerun()
+                        except ValueError:
+                            st.error("⚠️ Error en los formatos numéricos. Asegúrate de usar números válidos en Base Imponible, Monto Exento y Sustraendo.")
                         except Exception as err_ins:
                             st.error(f"❌ Error al guardar la orden de pago: {err_ins}")
 
@@ -10413,7 +10397,7 @@ elif opcion_menu == "📝 Asientos Contables":
                         conn_list_op2.close()
                 
                 if df_ops is None or df_ops.empty:
-                    st.warning("⚠️ No hay órdenes de pago registradas todavía. Llena los 4 frames de arriba para emitir la primera.")
+                    st.warning("⚠️ No hay órdenes de pago registradas todavía.")
                 else:
                     lista_ops_procesadas = []
                     for _, r_op in df_ops.iterrows():
