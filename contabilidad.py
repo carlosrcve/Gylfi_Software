@@ -1,4 +1,3 @@
-20261000000001
 # contabilidad.py
 import os
 import streamlit as st
@@ -21,7 +20,7 @@ import base64
 from PIL import Image, ImageEnhance
 import json
 from openai import OpenAI
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine,text
 import warnings
 import bcrypt
 import time
@@ -1359,7 +1358,6 @@ def consultar_tabla_db(conn, nombre_tabla, limite=None):
 
 @st.cache_data(ttl=300)
 def obtener_datos_agente_db(valor_busqueda):
-    # Usamos una versión 'v2' para que Streamlit detecte que es una función nueva
     return _obtener_datos_agente_db_v2(valor_busqueda)
 
 def _obtener_datos_agente_db_v2(valor_busqueda):
@@ -1371,11 +1369,11 @@ def _obtener_datos_agente_db_v2(valor_busqueda):
     try:
         cursor = conn_central.cursor(pymysql.cursors.DictCursor)
         
-        # CONSULTA LIMPIA: Solo pedimos columnas que sabemos que existen según tu captura de pantalla
+        # ¡Añadimos direccion_fiscal a las columnas seleccionadas!
         if isinstance(valor_busqueda, str):
-            query = "SELECT id, nombre_empresa, rif, db_nombre, estado FROM clientes WHERE db_nombre = %s"
+            query = "SELECT id, nombre_empresa, rif, db_nombre, estado, direccion_fiscal FROM clientes WHERE db_nombre = %s"
         else:
-            query = "SELECT id, nombre_empresa, rif, db_nombre, estado FROM clientes WHERE id = %s"
+            query = "SELECT id, nombre_empresa, rif, db_nombre, estado, direccion_fiscal FROM clientes WHERE id = %s"
         
         cursor.execute(query, (valor_busqueda,))
         datos = cursor.fetchone()
@@ -4024,12 +4022,13 @@ def obtener_detalle_comprobante(id_registro):
         
         cursor = conn.cursor()
         
-        # CONSULTA EXPLÍCITA: Escribimos los nombres exactos de tu tabla
+        # FORZAMOS EL ALIAS LIMPIO AS direccion_agente
         query = """
             SELECT 
                 r.id, 
                 r.Razon_Social_del_Agente_de_Retencion, 
                 r.RIF_Agente_Retencion, 
+                r.Direccion_FiscalAgente_Retencion,
                 r.E_Emision, 
                 r.F_Entrega, 
                 r.Razon_Social_Sujeto_Retenido, 
@@ -4040,6 +4039,7 @@ def obtener_detalle_comprobante(id_registro):
                 r.Fecha_Factura, 
                 r.Numero_Factura, 
                 r.Numero_Contro, 
+                r.NFactura_Afectada,
                 r.Total_Comrpas, 
                 r.Compras_Excentas, 
                 r.Base_Imponible, 
@@ -4047,15 +4047,10 @@ def obtener_detalle_comprobante(id_registro):
                 r.Impuesto_Iva, 
                 r.IVA_Retenido, 
                 r.IVA_8, 
-                r.RET_IVA_8,
-                p.direccion_fiscal AS direccion_fiscal_proveedor
+                r.RET_IVA_8
             FROM retenciones_iva r
-            LEFT JOIN proveedores p ON r.RIF_Sujeto_Retenido = p.rif
             WHERE r.N_Comprobante1 = (SELECT N_Comprobante1 FROM retenciones_iva WHERE id = %s)
         """
-        
-        df = pd.read_sql(query, conn, params=(id_registro,))
-        return df
         
         df = pd.read_sql(query, conn, params=(id_registro,))
         return df
@@ -4076,7 +4071,6 @@ def obtener_detalle_comprobante(id_registro):
                 conn.ping(reconnect=True)
             except Exception:
                 pass
-
 
 def eliminar_registro_retencion(id_registro):
     db_actual = st.session_state.get('DB_ACTUAL')
@@ -4299,8 +4293,8 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                 else:
                     empresa_seleccionada = st.selectbox(
                         "Empresa", 
-                        options=[empresa_data], 
-                        format_func=lambda x: x['nombre_empresa']
+                        options=[empresa_data] if isinstance(empresa_data, dict) else empresa_data, 
+                        format_func=lambda x: x.get('nombre_empresa', 'EMPRESA')
                     )
                     st.session_state['id_empresa_seleccionada'] = empresa_seleccionada
 
@@ -4320,24 +4314,78 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
 
                 empresa_nombre = empresa_data_env.get('nombre_empresa') or empresa_data_env.get('razon_social') or "EMPRESA"
                 empresa_rif = empresa_data_env.get('rif') or "000000000"
-                domicilio_fiscal = empresa_data_env.get('direccion') or "DIRECCIÓN NO REGISTRADA"
+                
+                # 🔍 AQUÍ ESTÁ LA MAGIA: Leemos la dirección fiscal nueva, respaldada con las anteriores
+                domicilio_fiscal = (
+                    empresa_data_env.get('direccion_fiscal') or 
+                    empresa_data_env.get('direccion') or 
+                    "DIRECCIÓN NO REGISTRADA"
+                )
 
                 cursor = None
                 try:
                     cursor = conn_env.cursor()
-                    
+        
                     for _, fila in facturas_seleccionadas.iterrows():
-                        base = float(fila.get('base_imponible', 0) or 0)
-                        impuesto = float(fila.get('iva_monto', 0) or 0)
-                        ratio = round(impuesto / base, 2) if base > 0 else 0
+                        # 1. Detectar si es Nota de Crédito
+                        tipo_doc_str = str(fila.get('tipo_documento', '')).strip().lower()
+                        monto_total_fila = float(fila.get('total_compras', 0) or 0)
+                        es_nc = 'credito' in tipo_doc_str or 'nota de credito' in tipo_doc_str or monto_total_fila < 0
+                        
+                        # Factor de signo: -1 si es nota de crédito, 1 si es factura normal
+                        signo = -1 if es_nc else 1
+
+                        # Extraemos los valores base respetando su signo natural o forzando el signo correcto
+                        total_fila = abs(float(fila.get('total_compras', 0) or 0)) * signo
+                        base = abs(float(fila.get('base_imponible', 0) or 0)) * signo
+                        impuesto = abs(float(fila.get('iva_monto', 0) or fila.get('impuesto_iva', 0) or 0)) * signo
+                        exento = abs(float(fila.get('importe_exento', 0) or 0)) * signo
+
+                        # Si la base o el IVA vienen en 0 pero hay un total, los recalculamos
+                        if abs(base) == 0 and abs(impuesto) == 0 and abs(total_fila) > 0:
+                            if abs(exento) > 0:
+                                base = (abs(total_fila) - abs(exento)) * signo
+                            else:
+                                base = round(abs(total_fila) / 1.16, 2) * signo
+                            impuesto = round(abs(total_fila) - abs(exento) - abs(base), 2) * signo
+
+                        ratio = round(abs(impuesto) / abs(base), 2) if abs(base) > 0 else 0
                         es_8 = ratio <= 0.08
-                        iva_retenido_fila = (impuesto * porcentaje_ret) / 100
+                        
+                        # Cálculo exacto del IVA retenido (75% del IVA, aplicando el signo correspondiente)
+                        iva_retenido_fila = round((abs(impuesto) * porcentaje_ret) / 100, 2) * signo
                         
                         b16, i16, r16 = (base, impuesto, iva_retenido_fila) if not es_8 else (0.0, 0.0, 0.0)
                         b8, i8, r8 = (base, impuesto, iva_retenido_fila) if es_8 else (0.0, 0.0, 0.0)
                         
                         fecha_corta = str(fila['fecha_operacion']).split(" ")[0]
                         ano_f, mes_f = fecha_corta.split("-")[0], fecha_corta.split("-")[1]
+
+                        n_factura_cruda = str(fila.get('n_factura', '')).strip()
+                        n_control_cruda = str(fila.get('n_control', '')).strip()
+                        
+                        es_nota_credito = es_nc
+                        es_nota_debito = 'debito' in tipo_doc_str or 'nota de debito' in tipo_doc_str
+
+                        num_factura_val = n_factura_cruda
+                        num_control_val = n_control_cruda
+                        n_nota_credito_val = None
+                        n_nota_debito_val = None  # 🛠️ Corregido con minúscula al inicio
+                        
+                        n_factura_afectada_val = (
+                            str(fila.get('factura_afectada', '')).strip() or 
+                            str(fila.get('n_factura_afectada', '')).strip() or 
+                            str(fila.get('afectada', '')).strip()
+                        )
+                        if n_factura_afectada_val in ["None", "nan", ""]:
+                            n_factura_afectada_val = None
+
+                        if es_nota_credito:
+                            n_nota_credito_val = n_factura_cruda
+                            num_factura_val = None
+                        elif es_nota_debito:
+                            n_nota_debito_val = n_factura_cruda
+                            num_factura_val = None
 
                         query_ins_iva = """
                             INSERT INTO retenciones_iva (
@@ -4354,21 +4402,23 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                                 Fecha_Factura, 
                                 Numero_Factura, 
                                 Numero_Contro, 
+                                N_Nota_Debito,
+                                N_Nota_Credito,
+                                NFactura_Afectada,
                                 Total_Comrpas, 
                                 Compras_Excentas, 
                                 Base_Imponible, 
+                                Alicuota,
                                 Impuesto_Iva, 
+                                Alicuota_75,
                                 IVA_Retenido, 
                                 Base_Imponible_8, 
                                 IVA_8, 
-                                RET_IVA_8, 
-                                Alicuota, 
-                                Alicuota_75, 
-                                N_Nota_Debito
+                                RET_IVA_8
                             ) VALUES (
                                 %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 
                                 %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 
-                                %s, %s, %s, %s
+                                %s, %s, %s, %s, %s, %s
                             )
                         """
 
@@ -4384,19 +4434,21 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                             mes_f,
                             nro_comp, 
                             fecha_corta, 
-                            str(fila['n_factura']), 
-                            str(fila['n_control']),
-                            round(float(fila.get('total_compras', 0)), 2),
-                            round(float(fila.get('importe_exento', 0)), 2),
-                            round(b16, 2), 
-                            round(i16, 2), 
-                            round(iva_retenido_fila, 2),
+                            num_factura_val,       # Número de factura (vacío si es nota)
+                            num_control_val,       # Número de control
+                            n_nota_debito_val,     # N_Nota_Debito
+                            n_nota_credito_val,    # N_Nota_Credito (aquí cae perfecto si es nota de crédito)
+                            n_factura_afectada_val,# NFactura_Afectada (registrada obligatoriamente para notas)
+                            str(round(float(fila.get('total_compras', 0)), 2)),
+                            str(round(float(fila.get('importe_exento', 0)), 2)),
+                            str(round(b16, 2)), 
+                            "16%", 
+                            str(round(i16, 2)), 
+                            f"{porcentaje_ret}%", 
+                            str(round(iva_retenido_fila, 2)),
                             round(b8, 2), 
                             round(i8, 2), 
-                            round(r8, 2),
-                            "16%", 
-                            f"{porcentaje_ret}%", 
-                            None
+                            round(r8, 2)
                         )
                         
                         cursor.execute(query_ins_iva, params_iva)
@@ -4498,16 +4550,7 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                         with c3: 
                             st.metric("IVA Retenido", f"{float(d.get('IVA_Retenido') or 0):,.2f}")
 
-                        with st.expander("👁️ Ver Datos Completos del Proveedor", expanded=True):
-                            st.write(f"**Razón Social:** {d.get('Razon_Social_Sujeto_Retenido')}")
-                            st.write(f"**RIF:** {d.get('RIF_Sujeto_Retenido')}")
-                            st.write(f"**Fecha de Factura:** {d.get('Fecha_Factura')}")
-                            st.write(f"**Nro. Factura:** {d.get('Numero_Factura')}")
-                            st.write(f"**Nro. Control:** {d.get('Numero_Contro')}")
-                            st.write("Contenido de datos_empresa:", datos_empresa)
-
-
-                        # --- LÓGICA DE EXPORTACIÓN A PDF PROFESIONAL ---
+                        # --- LÓGICA DE EXPORTACIÓN A PDF PROFESIONAL (CORREGIDO) ---
                         st.write("---")
                         try:
                             from fpdf import FPDF
@@ -4527,40 +4570,29 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                                         "servicios, a quienes la administración tributaria designe como tal"
                                     )
                                     self.multi_cell(0, 4, texto_legal, 0, 'C') 
-                                    self.ln(5)
+                                    self.ln(3)
 
                             pdf = PDF_PRO(orientation='L', unit='mm', format='A4')
                             pdf.add_page()
-                            x_mov = 10 
 
-                            # --- 1. OBTENER DATOS (ANTES DE DIBUJAR) --
-                            df_detalle = obtener_detalle_comprobante(opcion_busqueda) # <--- CAMBIADO A LA VARIABLE CORRECTA
+                            # --- 1. OBTENER DATOS DE LA CONSULTA DETALLADA ---
+                            df_detalle = obtener_detalle_comprobante(opcion_busqueda)
 
                             if not df_detalle.empty:
-                                # Convertimos la primera fila a diccionario para que d.get() funcione
                                 d = df_detalle.iloc[0].to_dict()
                             else:
                                 st.error("No se encontraron datos para este comprobante.")
-                                return # O maneja el error como prefieras
+                                return
 
                             # --- BLOQUE 1: AGENTE DE RETENCIÓN ---
-                            # Obtenemos el ID real de forma segura desde el session_state o reutilizando la lógica superior
                             id_real = st.session_state.get('id_empresa_seleccionada', {}).get('id', 1)
                             if not id_real or id_real == 1:
                                 id_real = int(EMPRESA) if str(EMPRESA).isdigit() else 1
 
-                            # 2. Llamamos a la función usando el ID correcto
                             datos_empresa = obtener_datos_agente_db(id_real)
-
-                            # Doble protección por si devuelve None
                             if datos_empresa is None:
-                                # CORREGIDO: Usamos 'direccion' en lugar de 'domicilio_fiscal'
                                 datos_empresa = {"nombre_empresa": "NO ENCONTRADO", "rif": "N/A", "direccion": "N/A"}
 
-                            # DEBUG (Opcional, para verificar)
-                            st.sidebar.info(f"Generando PDF para ID: {id_real}")
-
-                            # 3. Dibujamos en el PDF usando los datos correctos
                             pdf.rect(15, 35, 110, 15) 
                             pdf.set_font("Arial", "", 8); pdf.text(17, 39, "Razon Social del Agente de Retencion:")
                             pdf.set_font("Arial", "B", 9); pdf.text(17, 46, str(datos_empresa.get('nombre_empresa', 'N/A'))) 
@@ -4574,27 +4606,26 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                             pdf.set_font("Arial", "B", 11); pdf.text(202, 47, str(d.get('N_Comprobante1', '')))
 
                             # ------- BLOQUE 2: DIRECCIÓN Y FECHAS ----------------------
-                            # 1. Dibujamos el recuadro existente en (15, 55) con ancho 175 y alto 15
                             pdf.rect(15, 55, 175, 15)
-
-                            # 2. Cambiamos la etiqueta superior para indicar que es la dirección del proveedor
                             pdf.set_font("Arial", "", 8)
-                            pdf.text(17, 59, "Dirección Fiscal del Sujeto Retenido (Proveedor):")
-
-                            # 3. Configuramos la fuente pequeña para el texto
+                            pdf.text(17, 59, "Dirección Fiscal del Agente de Retencion:")
                             pdf.set_font("Arial", "", 7)
-
-                            # 4. Posicionamos justo debajo de la etiqueta (y=61) y un poco más adentro (x=17)
                             pdf.set_xy(17, 61) 
 
-                            # 5. Obtenemos la dirección del proveedor desde el registro de la consulta (d)
-                            domicilio_real = str(d.get('direccion_fiscal_proveedor', 'NO REGISTRADO'))
+                            # Inyección directa de la dirección exacta de la empresa para terminar de una vez
+                            # ------- BLOQUE 2: DIRECCIÓN Y FECHAS ----------------------
+                            pdf.rect(15, 55, 175, 15)
+                            pdf.set_font("Arial", "", 8)
+                            pdf.text(17, 59, "Dirección Fiscal del Agente de Retencion:")
+                            pdf.set_font("Arial", "", 7)
+                            pdf.set_xy(17, 61) 
 
-                            # 6. Imprimimos con multi_cell usando el ancho del recuadro (170)
-                            pdf.multi_cell(170, 3.2, domicilio_real)
+                            # Dirección oficial exacta con saltos de línea
+                            dir_final = str(d.get('Direccion_FiscalAgente_Retencion', 'NO REGISTRADO'))
+
+                            pdf.multi_cell(170, 3.2, dir_final.upper())
 
                             # ------- BLOQUE 3:  ----------------------
-
                             pdf.rect(200, 55, 35, 15) 
                             pdf.set_font("Arial", "", 8); pdf.text(202, 59, "E. Emision:")
                             pdf.set_font("Arial", "B", 9); pdf.text(202, 66, str(d.get('E_Emision', '')))
@@ -4603,7 +4634,7 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                             pdf.set_font("Arial", "", 8); pdf.text(237, 59, "F. Entrega:")
                             pdf.set_font("Arial", "B", 9); pdf.text(237, 66, str(d.get('F_Entrega', '')))
 
-                            # --- BLOQUE 3: SUJETO RETENIDO ---
+                            # --- BLOQUE 4: SUJETO RETENIDO ---
                             pdf.rect(15, 75, 110, 15)
                             pdf.set_font("Arial", "", 8); pdf.text(17, 79, "Razon Social Sujeto Retenido:")
                             pdf.set_font("Arial", "B", 9); pdf.text(17, 86, str(d.get('Razon_Social_Sujeto_Retenido', '')))
@@ -4620,209 +4651,231 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                             pdf.set_font("Arial", "", 8); pdf.text(237, 79, "Mes:")
                             pdf.set_font("Arial", "B", 10); pdf.text(237, 86, str(d.get('Mes', '')).zfill(2))
 
-                            # --- EXTRACCIÓN PROTEGIDA DE VALORES NUMÉRICOS ---
-                            total_val = safe_float(d.get('Total_Comrpas'))
-                            exento_val = safe_float(d.get('Compras_Excentas'))
-                            base_val = safe_float(d.get('Base_Imponible'))
-                            alicuota_val = safe_float(d.get('Alicuota'))
-                            iva_val = safe_float(d.get('Impuesto_Iva'))
-                            ret_val = safe_float(d.get('IVA_Retenido'))
-
-                            # --- TABLA DE DETALLES ---
-                            pdf.set_y(95)
-                            pdf.set_x(15 + x_mov) 
-                            pdf.set_font("Arial", "B", 7)
-                            
-                            # --- TABLA DE DETALLES (ACTUALIZADA PARA 8% Y 16%) ---
-                            # Cabecera de tabla
-                            
+                            # --- DETECCIÓN REAL Y ROBUSTA DE NOTA DE CRÉDITO / DÉBITO ---
                             cols_numericas = ['Compras_Excentas', 'Base_Imponible', 'Impuesto_Iva', 'IVA_Retenido', 
-                                              'Base_Imponible_8', 'IVA_8', 'RET_IVA_8']
+                                             'Base_Imponible_8', 'IVA_8', 'RET_IVA_8']
                             for col in cols_numericas:
-                                df_detalle[col] = df_detalle[col].fillna(0)
+                                if col in df_detalle.columns:
+                                    df_detalle[col] = df_detalle[col].fillna(0)
 
-                            # 2. Determinar si hay alícuota del 8%
-                            tiene_alicuota_8 = df_detalle['Base_Imponible_8'].sum() > 0
+                            tiene_alicuota_8 = 'Base_Imponible_8' in df_detalle.columns and df_detalle['Base_Imponible_8'].sum() > 0
 
-                            # 3. Definir estructuras según el caso (Longitud Variable)
-                            if tiene_alicuota_8:
-                                h = ["Fecha", "N.Fact", "N.Contr", "Total", "Exento", "Base 16%", "IVA 16%", "Ret. 16%", "Base 8%", "IVA 8%", "Ret. 8%", "Total Ret."]
-                                w = [20, 15, 20, 25, 20, 20, 20, 20, 20, 20, 20, 20]
+                            # Evaluamos si hay notas revisando tipos de documento, columnas de notas o montos negativos
+                            tiene_notas = False
+                            for _, r_val in df_detalle.iterrows():
+                                td = str(r_val.get('tipo_documento', '')).strip()
+                                nc = str(r_val.get('nota_credito', '')).strip()
+                                nd = str(r_val.get('nota_debito', '')).strip()
+                                tot_val_check = safe_float(r_val.get('Total_Comrpas') or r_val.get('Total_Compras') or 0)
+                                if td in ['02', '03'] or (nc and nc != 'None' and nc != 'nan') or (nd and nd != 'None' and nd != 'nan') or tot_val_check < 0:
+                                    tiene_notas = True
+                                    break
+
+                            # ESTRUCTURA Y ANCHOS DE LA TABLA DINÁMICA
+                            if tiene_notas:
+                                if tiene_alicuota_8:
+                                    h = ["Fecha", "Tipo", "Nº NCredito", "N.Contr", "Fac. Afectada", "Total", "Exento", "Base 16%", "IVA 16%", "Ret. 16%", "Base 8%", "IVA 8%", "Ret. 8%", "Total Ret."]
+                                    w = [18, 12, 22, 20, 22, 22, 16, 18, 16, 18, 16, 16, 16, 20]
+                                else:
+                                    h = ["Fecha", "Tipo", "Nº Fact", "N.Contr", "Fac. Afectada", "Total", "Exento", "Base 16%", "IVA 16%", "Ret. 16%", "Total Ret."]
+                                    w = [20, 14, 25, 22, 25, 25, 18, 22, 20, 22, 24]
                             else:
-                                # AQUÍ NO USAS 0, simplemente eliminas las columnas del 8% de la lista
-                                h = ["Fecha", "N.Fact", "N.Contr", "Total", "Exento", "Base 16%", "IVA 16%", "Ret. 16%", "Total Ret."]
-                                w = [20, 15, 20, 25, 20, 20, 20, 20, 20]
+                                if tiene_alicuota_8:
+                                    h = ["Fecha", "N.Fact", "N.Contr", "Total", "Exento", "Base 16%", "IVA 16%", "Ret. 16%", "Base 8%", "IVA 8%", "Ret. 8%", "Total Ret."]
+                                    w = [20, 18, 22, 25, 20, 22, 20, 22, 20, 20, 20, 22]
+                                else:
+                                    h = ["Fecha", "N.Fact", "N.Contr", "Total", "Exento", "Base 16%", "IVA 16%", "Ret. 16%", "Total Ret."]
+                                    w = [22, 20, 25, 28, 22, 26, 22, 26, 28]
 
-                            # 4. Cálculo del centrado
                             ancho_total_tabla = sum(w) 
-                            margen_centrado = (277 - ancho_total_tabla) / 2
-                            x_mov_dinamico = 10 + margen_centrado
+                            # Centramos la tabla correctamente en la página A4 apaisada (297mm de ancho total, 267mm imprimibles)
+                            x_inicio_tabla = (297 - ancho_total_tabla) / 2
 
-                            # 5. DIBUJO DE CABECERA (SOLO ESTE BLOQUE DEBE EXISTIR)
+                            # --- DIBUJAR CABECERA DE TABLA ---
+                            pdf.set_y(95)
+                            pdf.set_x(x_inicio_tabla)
                             pdf.set_fill_color(240, 240, 240)
                             pdf.set_font("Arial", "B", 7)
-                            pdf.set_x(x_mov_dinamico) 
 
                             for i in range(len(h)):
                                 pdf.cell(w[i], 5, h[i], 1, 0, 'C', fill=True)
                             pdf.ln()
 
-                            # 6. Inicializar Totales Generales
-                            tot_gen_total, tot_gen_exento = 0, 0
-                            tot_gen_base16, tot_gen_iva16, tot_gen_ret16 = 0, 0, 0
-                            tot_gen_base8, tot_gen_iva8, tot_gen_ret8 = 0, 0, 0
+                            # Inicializar Totales Generales
+                            tot_gen_total, tot_gen_exento = 0.0, 0.0
+                            tot_gen_base16, tot_gen_iva16, tot_gen_ret16 = 0.0, 0.0, 0.0
+                            tot_gen_base8, tot_gen_iva8, tot_gen_ret8 = 0.0, 0.0, 0.0
 
-                            # --- 3. BUCLE DE FACTURAS ---
+                            # --- BUCLE DE REGISTROS ---
                             pdf.set_font("Arial", "", 7)
                             for _, fila in df_detalle.iterrows():
-                                pdf.set_x(x_mov_dinamico)
-                                d = fila.to_dict()
+                                pdf.set_x(x_inicio_tabla)
+                                d_row = fila.to_dict()
                                 
-                                # Extraer valores seguros
-                                exento = safe_float(d.get('Compras_Excentas'))
-                                b16 = safe_float(d.get('Base_Imponible'))
-                                i16 = safe_float(d.get('Impuesto_Iva'))
-                                r16 = safe_float(d.get('IVA_Retenido'))
-                                b8 = safe_float(d.get('Base_Imponible_8'))
-                                i8 = safe_float(d.get('IVA_8'))
-                                r8 = safe_float(d.get('RET_IVA_8'))
-                                total_fila = exento + b16 + b8 + i16 + i8 # Asegúrate que tu lógica de total sea correcta
+                                exento = safe_float(d_row.get('Compras_Excentas'))
+                                b16 = safe_float(d_row.get('Base_Imponible'))
+                                i16 = safe_float(d_row.get('Impuesto_Iva'))
+                                r16 = safe_float(d_row.get('IVA_Retenido'))
+                                b8 = safe_float(d_row.get('Base_Imponible_8'))
+                                i8 = safe_float(d_row.get('IVA_8'))
+                                r8 = safe_float(d_row.get('RET_IVA_8'))
                                 
-                                # Acumular totales
-
+                                # Si total viene directo de la BD lo usamos, de lo contrario sumamos
+                                total_fila = safe_float(d_row.get('Total_Comrpas') or d_row.get('Total_Compras'))
+                                if total_fila == 0 and (exento != 0 or b16 != 0 or b8 != 0):
+                                    total_fila = exento + b16 + b8 + i16 + i8 
+                                
                                 tot_gen_total += total_fila
                                 tot_gen_exento += exento
                                 tot_gen_base16 += b16
                                 tot_gen_iva16 += i16
                                 tot_gen_base8 += b8
                                 tot_gen_iva8 += i8
-                                retencion_fila = r16 + r8
-                                # Si la columna es 16%, solo debe mostrar r16. Si es 8%, solo r8
-                                total_retencion_general = tot_gen_ret16 + tot_gen_ret8
-                                valor_mostrar_r16 = r16 
-                                valor_mostrar_r8 = r8 if tiene_alicuota_8 else 0
-                                mostrar_r16 = r16 if (b16 > 0) else 0
-                                mostrar_r8 = r8 if (b8 > 0) else 0
-                                #total_fila_retencion = mostrar_r16 + mostrar_r8
 
-                                valor_a_mostrar_r16 = r16 if b16 > 0 else 0
-                                valor_a_mostrar_r8 = r8 if b8 > 0 else 0
-                                # Esta es la suma REAL de la fila actual
+                                # EVALUAMOS CON ABS() PARA PERMITIR VALORES NEGATIVOS DE NOTAS DE CRÉDITO
+                                valor_a_mostrar_r16 = r16 if abs(b16) > 0 or abs(r16) > 0 else 0.0
+                                valor_a_mostrar_r8 = r8 if abs(b8) > 0 or abs(r8) > 0 else 0.0
                                 total_fila_retencion = valor_a_mostrar_r16 + valor_a_mostrar_r8
 
-                               # Lógica de exclusión para la columna del 16%
-                               # Si es una fila exclusiva de 8%, la columna Ret. 16% debe ser 0.00
-                                # 1. ACUMULACIÓN CONTROLADA (¡ESTO ES LO QUE TE FALTA!)
-                                if b16 > 0:
+                                if abs(b16) > 0 or abs(r16) > 0:
                                     tot_gen_ret16 += r16
-                                if b8 > 0:
+                                if abs(b8) > 0 or abs(r8) > 0:
                                     tot_gen_ret8 += r8
 
-                                # Dibujar fila
-                                pdf.set_x(x_mov_dinamico)
-                                pdf.cell(w[0], 4, str(d.get('Fecha_Factura', '')), 1, 0, 'C')
-                                pdf.cell(w[1], 4, str(d.get('Numero_Factura', '')), 1, 0, 'C')
-                                pdf.cell(w[2], 4, str(d.get('Numero_Contro', '')), 1, 0, 'C')
-                                pdf.cell(w[3], 4, f"{total_fila:,.2f}", 1, 0, 'R')
-                                pdf.cell(w[4], 4, f"{exento:,.2f}", 1, 0, 'R')
-                                pdf.cell(w[5], 4, f"{b16:,.2f}", 1, 0, 'R')
-                                pdf.cell(w[6], 4, f"{i16:,.2f}", 1, 0, 'R')
-    
-                                # Columnas opcionales (Solo si tiene_alicuota_8 es True)
-                                pdf.cell(w[7], 4, f"{valor_a_mostrar_r16:,.2f}", 1, 0, 'R')
+                                # Capturamos la fecha y la factura afectada de forma totalmente segura
+                                fecha_op = str(d_row.get('Fecha_Factura') or '')
+                                tipo_doc = str(d_row.get('tipo', tipo_doc_calculado if 'tipo_doc_calculado' in locals() else ('03' if total_fila < 0 else '01')))
+                                
+                                # 🛠️ CAPTURA INTELIGENTE DEL NÚMERO DE DOCUMENTO (Evita que salga "None")
+                                nro_doc = str(
+                                    d_row.get('Numero_Factura') or 
+                                    d_row.get('N_Nota_Credito') or 
+                                    d_row.get('N_Nota_Debito') or 
+                                    d_row.get('n_factura') or 
+                                    ''
+                                ).strip()
+                                if nro_doc.lower() in ['none', 'nan', 'nat', '']:
+                                    nro_doc = ""
 
-                                if tiene_alicuota_8:
-                                    pdf.cell(w[8], 4, f"{b8:,.2f}", 1, 0, 'R')
-                                    pdf.cell(w[9], 4, f"{i8:,.2f}", 1, 0, 'R')
-                                    # Celda Ret. 8% (Columna 10)
-                                    pdf.cell(w[10], 4, f"{valor_a_mostrar_r8:,.2f}", 1, 0, 'R')
-                                    # Total Ret. de la FILA (Columna 11)
-                                    pdf.cell(w[11], 4, f"{total_fila_retencion:,.2f}", 1, 1, 'R', fill=True)
+                                nro_ctrl = str(d_row.get('Numero_Contro', ''))
+                                
+                                fac_afectada = str(
+                                    d_row.get('NFactura_Afectada') or 
+                                    d_row.get('nfactura_afectada') or 
+                                    d_row.get('N_Factura_Afectada') or 
+                                    ''
+                                ).strip()
+                                if fac_afectada.lower() in ['none', 'nan', 'nat', '']:
+                                    fac_afectada = ""
+
+                                if tiene_notas:
+                                    # 1. Fecha en w[0] (¡ESTO FALTABA Y DESCUADRABA TODO!)
+                                    pdf.cell(w[0], 4, fecha_op, 1, 0, 'C')
+                                    # 2. Tipo en w[1]
+                                    pdf.cell(w[1], 4, tipo_doc, 1, 0, 'C')
+                                    # 3. N° Doc/Nota en w[2]
+                                    pdf.cell(w[2], 4, nro_doc, 1, 0, 'C')
+                                    # 4. N.Contr en w[3]
+                                    pdf.cell(w[3], 4, nro_ctrl, 1, 0, 'C')
+                                    # 5. Fac. Afectada en w[4] (¡AQUÍ SE PINTA EL NÚMERO!)
+                                    pdf.cell(w[4], 4, fac_afectada, 1, 0, 'C')
+                                    # Resto de columnas intactas
+                                    pdf.cell(w[5], 4, f"{total_fila:,.2f}", 1, 0, 'R')
+                                    pdf.cell(w[6], 4, f"{exento:,.2f}", 1, 0, 'R')
+                                    pdf.cell(w[7], 4, f"{b16:,.2f}", 1, 0, 'R')
+                                    pdf.cell(w[8], 4, f"{i16:,.2f}", 1, 0, 'R')
+                                    pdf.cell(w[9], 4, f"{valor_a_mostrar_r16:,.2f}", 1, 0, 'R')
+
+                                    if tiene_alicuota_8:
+                                        pdf.cell(w[10], 4, f"{b8:,.2f}", 1, 0, 'R')
+                                        pdf.cell(w[11], 4, f"{i8:,.2f}", 1, 0, 'R')
+                                        pdf.cell(w[12], 4, f"{valor_a_mostrar_r8:,.2f}", 1, 0, 'R')
+                                        pdf.cell(w[13], 4, f"{total_fila_retencion:,.2f}", 1, 1, 'R', fill=True)
+                                    else:
+                                        pdf.cell(w[10], 4, f"{valor_a_mostrar_r16:,.2f}", 1, 1, 'R', fill=True)
                                 else:
-                                    # Si no hay 8%, el total de la fila es solo el 16%
-                                    pdf.cell(w[8], 4, f"{valor_a_mostrar_r16:,.2f}", 1, 1, 'R', fill=True)
-                                #pdf.ln()
+                                    # Sin notas (cuando no aplica factura afectada)
+                                    pdf.cell(w[0], 4, fecha_op, 1, 0, 'C')
+                                    pdf.cell(w[1], 4, nro_doc, 1, 0, 'C')
+                                    pdf.cell(w[2], 4, nro_ctrl, 1, 0, 'C')
+                                    pdf.cell(w[3], 4, f"{total_fila:,.2f}", 1, 0, 'R')
+                                    pdf.cell(w[4], 4, f"{exento:,.2f}", 1, 0, 'R')
+                                    pdf.cell(w[5], 4, f"{b16:,.2f}", 1, 0, 'R')
+                                    pdf.cell(w[6], 4, f"{i16:,.2f}", 1, 0, 'R')
+                                    pdf.cell(w[7], 4, f"{valor_a_mostrar_r16:,.2f}", 1, 0, 'R')
 
-                            # --- 4. FILA DE TOTALES (FUERA DEL BUCLE) ---
-                            # --- TOTALES DENTRO DE LA TABLA ---
-                            # --- 4. FILA DE TOTALES (CORRECCIÓN DE ANCHO) ---
-                            st.warning(f"DEBUG: tot_gen_ret16 es: {tot_gen_ret16}")
-                            st.warning(f"DEBUG: tot_gen_ret8 es: {tot_gen_ret8}")
-                            total_retencion_general = tot_gen_ret16 + tot_gen_ret8
-                            pdf.set_x(x_mov_dinamico)
+                                    if tiene_alicuota_8:
+                                        pdf.cell(w[8], 4, f"{b8:,.2f}", 1, 0, 'R')
+                                        pdf.cell(w[9], 4, f"{i8:,.2f}", 1, 0, 'R')
+                                        pdf.cell(w[10], 4, f"{valor_a_mostrar_r8:,.2f}", 1, 0, 'R')
+                                        pdf.cell(w[11], 4, f"{total_fila_retencion:,.2f}", 1, 1, 'R', fill=True)
+                                    else:
+                                        pdf.cell(w[8], 4, f"{valor_a_mostrar_r16:,.2f}", 1, 1, 'R', fill=True)
+                            # --- FILA DE TOTALES GENERALES ---
+                            pdf.set_x(x_inicio_tabla)
                             pdf.set_font("Arial", "B", 7)
                             pdf.set_fill_color(220, 220, 220)
 
-                            # 1. Ajustamos la celda "TOTALES" para que sea más pequeña si es necesario
-                            # Si la tabla tiene 11 columnas (w[0] a w[10]), el total general ocupa una columna extra
-                            pdf.cell(sum(w[:3]), 5, "TOTALES", 1, 0, 'R', fill=True)
+                            if tiene_notas:
+                                pdf.cell(sum(w[:5]), 5, "TOTALES", 1, 0, 'R', fill=True)
+                                pdf.cell(w[5], 5, f"{tot_gen_total:,.2f}", 1, 0, 'R')
+                                pdf.cell(w[6], 5, f"{tot_gen_exento:,.2f}", 1, 0, 'R')
+                                pdf.cell(w[7], 5, f"{tot_gen_base16:,.2f}", 1, 0, 'R')
+                                pdf.cell(w[8], 5, f"{tot_gen_iva16:,.2f}", 1, 0, 'R')
+                                pdf.cell(w[9], 5, f"{tot_gen_ret16:,.2f}", 1, 0, 'R')
 
-                            # 2. Imprimimos el resto de totales normales
-                            pdf.cell(w[3], 5, f"{tot_gen_total:,.2f}", 1, 0, 'R')
-                            pdf.cell(w[4], 5, f"{tot_gen_exento:,.2f}", 1, 0, 'R')
-                            pdf.cell(w[5], 5, f"{tot_gen_base16:,.2f}", 1, 0, 'R')
-                            pdf.cell(w[6], 5, f"{tot_gen_iva16:,.2f}", 1, 0, 'R')
-                            pdf.cell(w[7], 5, f"{tot_gen_ret16:,.2f}", 1, 0, 'R')
-
-                            if tiene_alicuota_8:
-                                pdf.cell(w[8], 5, f"{tot_gen_base8:,.2f}", 1, 0, 'R')
-                                pdf.cell(w[9], 5, f"{tot_gen_iva8:,.2f}", 1, 0, 'R')
-                                # AQUÍ: Imprime el acumulado REAL del 8% (debe dar 743.96)
-                                pdf.cell(w[10], 5, f"{tot_gen_ret8:,.2f}", 1, 0, 'R') 
-                                # AQUÍ: Suma los dos acumulados reales (8,636.86 + 743.96 = 9,380.82)
-                                pdf.cell(w[11], 5, f"{tot_gen_ret16 + tot_gen_ret8:,.2f}", 1, 1, 'R', fill=True)
-                                
+                                if tiene_alicuota_8:
+                                    pdf.cell(w[10], 5, f"{tot_gen_base8:,.2f}", 1, 0, 'R')
+                                    pdf.cell(w[11], 5, f"{tot_gen_iva8:,.2f}", 1, 0, 'R')
+                                    pdf.cell(w[12], 5, f"{tot_gen_ret8:,.2f}", 1, 0, 'R')
+                                    pdf.cell(w[13], 5, f"{tot_gen_ret16 + tot_gen_ret8:,.2f}", 1, 1, 'R', fill=True)
+                                else:
+                                    pdf.cell(w[10], 5, f"{tot_gen_ret16:,.2f}", 1, 1, 'R', fill=True)
                             else:
-                                # Caso donde no hay alícuota del 8%, el total retención es solo el 16%
-                                pdf.cell(w[8], 5, f"{tot_gen_ret16:,.2f}", 1, 1, 'R', fill=True)
+                                pdf.cell(sum(w[:3]), 5, "TOTALES", 1, 0, 'R', fill=True)
+                                pdf.cell(w[3], 5, f"{tot_gen_total:,.2f}", 1, 0, 'R')
+                                pdf.cell(w[4], 5, f"{tot_gen_exento:,.2f}", 1, 0, 'R')
+                                pdf.cell(w[5], 5, f"{tot_gen_base16:,.2f}", 1, 0, 'R')
+                                pdf.cell(w[6], 5, f"{tot_gen_iva16:,.2f}", 1, 0, 'R')
+                                pdf.cell(w[7], 5, f"{tot_gen_ret16:,.2f}", 1, 0, 'R')
 
-                            # --- SECCIÓN DE FIRMAS (Ajustada con x_mov) ---
-                            pdf.ln(35)
-                            y_firmas = pdf.get_y()
-                            pdf.set_font("Arial", "B", 8)
-                            
-                            # Líneas de firma
-                            pdf.line(40 + x_mov, y_firmas, 110 + x_mov, y_firmas)
-                            pdf.line(180 + x_mov, y_firmas, 250 + x_mov, y_firmas)
-                            
-                            # Textos de firma
-                            # Usamos una ruta relativa: busca dentro de la carpeta 'assets'
-                            import os
+                                if tiene_alicuota_8:
+                                    pdf.cell(w[8], 5, f"{tot_gen_base8:,.2f}", 1, 0, 'R')
+                                    pdf.cell(w[9], 5, f"{tot_gen_iva8:,.2f}", 1, 0, 'R')
+                                    pdf.cell(w[10], 5, f"{tot_gen_ret8:,.2f}", 1, 0, 'R')
+                                    pdf.cell(w[11], 5, f"{tot_gen_ret16 + tot_gen_ret8:,.2f}", 1, 1, 'R', fill=True)
+                                else:
+                                    pdf.cell(w[8], 5, f"{tot_gen_ret16:,.2f}", 1, 1, 'R', fill=True)
 
-                            # --- SECCIÓN DE FIRMAS ---
-                            # 1. Definimos un límite seguro antes de dibujar
-                            limite_pagina = 240 # Si estás más abajo de 240mm, mejor saltar a página nueva
-
-                            if pdf.get_y() > limite_pagina:
+                            # --- SECCIÓN DE FIRMAS CONTROLADA DINÁMICAMENTE ---
+                            pos_y_actual = pdf.get_y()
+                            if pos_y_actual > 165:
                                 pdf.add_page()
-                                # (Opcional) Aquí podrías volver a poner un encabezado si fuera necesario
-                                y_firmas = 40 # Posición inicial en la nueva página
+                                y_firmas = 60
                             else:
-                                pdf.ln(35) # Espacio si hay lugar en la misma página
-                                y_firmas = pdf.get_y()
+                                y_firmas = pos_y_actual + 30
 
-                            # 2. Ahora dibujamos todo usando y_firmas como referencia
                             import os
                             ruta_firma = os.path.join("assets", "cielo.png")
 
-                            # --- AJUSTE DE FIRMAS MÁS HACIA ARRIBA ---
-                            # Aumentamos los valores restados para subir los elementos en la página
+                            # Dibujar firma e imágenes alineadas
+                            if os.path.exists(ruta_firma):
+                                pdf.image(ruta_firma, x=55, y=y_firmas - 20, w=35)
+                                
+                            pdf.set_font("Arial", "B", 8)
+                            pdf.line(40, y_firmas, 110, y_firmas)
+                            pdf.line(185, y_firmas, 255, y_firmas)
 
+                            pdf.text(52, y_firmas + 5, "AGENTE DE RETENCION")
+                            pdf.text(197, y_firmas + 5, "SUJETO RETENIDO")
 
-                            # Dibujar firma e imagen
-                            pdf.image(ruta_firma, x=55 + x_mov, y=y_firmas - 65, w=35)
-                            pdf.text(50 + x_mov, y_firmas - 28, "AGENTE DE RETENCION")
-                            pdf.text(195 + x_mov, y_firmas - 31, "SUJETO RETENIDO")
-
-                            # 3. Datos DINÁMICOS
                             pdf.set_font("Arial", "B", 7)
                             nombre_empresa = datos_empresa.get('nombre_empresa', 'N/A')
                             rif_empresa = datos_empresa.get('rif', 'N/A')
 
-                            pdf.set_xy(40 + x_mov, y_firmas - 25)
-                            pdf.multi_cell(65, 5, f"{nombre_empresa}\nRIF: {rif_empresa}", 0, 'C')
+                            pdf.set_xy(40, y_firmas + 8)
+                            pdf.multi_cell(70, 4, f"{nombre_empresa}\nRIF: {rif_empresa}", 0, 'C')
 
-                            # Finalizar
                             pdf_output = bytes(pdf.output())
                             
                             st.download_button(
@@ -4970,7 +5023,7 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
             st.info("Seleccione el rango de fechas para consolidar las retenciones.")
 
             # --- BLINDAJE LOCAL DE FECHAS ---
-            from datetime import date as d_tipo
+            from datetime import date as d_tipo, datetime
 
             hoy = d_tipo.today()
             inicio_mes = hoy.replace(day=1)
@@ -4982,14 +5035,12 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                 fecha_fin = st.date_input("Fecha Fin", hoy, key="txt_f_fin")
 
             if st.button("🔍 Filtrar y Generar TXT"):
-                # Aseguramos obtener la BD actual de la sesión
                 db_nombre = st.session_state.get('DB_ACTUAL')
                 if not db_nombre:
                     st.error("Error: No se ha seleccionado una base de datos.")
                 else:
                     conn = conectar_db(db_nombre)
                     try:
-                        # CORREGIDO PARA PYMYSQL: Usamos cursorclass DictCursor en lugar de dictionary=True
                         import pymysql
                         cursor = conn.cursor(pymysql.cursors.DictCursor)
                         
@@ -5001,49 +5052,78 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                         if registros_txt:
                             lineas_txt = []
                             for reg in registros_txt:
-                                # 1. Detectar si es alícuota del 8% o 16%
+                                # 1. Detectar si es Nota de Crédito o Nota de Débito
+                                nc_raw = str(reg.get('N_Nota_Credito') or reg.get('nota_credito') or '').strip()
+                                nd_raw = str(reg.get('N_Nota_Debito') or reg.get('nota_debito') or '').strip()
+                                
+                                tiene_nc = nc_raw and nc_raw.lower() not in ['none', 'nan', '', 'null', 'nat']
+                                tiene_nd = nd_raw and nd_raw.lower() not in ['none', 'nan', '', 'null', 'nat']
+                                
+                                if tiene_nc:
+                                    tipo_doc = '03'  # Nota de Crédito
+                                    num_doc = nc_raw
+                                    factura_afectada = str(reg.get('NFactura_Afectada') or reg.get('n_factura_afectada') or '').strip()
+                                elif tiene_nd:
+                                    tipo_doc = '02'  # Nota de Débito
+                                    num_doc = nd_raw
+                                    factura_afectada = str(reg.get('NFactura_Afectada') or reg.get('n_factura_afectada') or '').strip()
+                                else:
+                                    tipo_doc = str(reg.get('Tipo_Documento') or reg.get('tipo_documento') or '01').strip()
+                                    num_doc = str(reg.get('Numero_Factura') or reg.get('n_factura') or '').strip()
+                                    factura_afectada = ""
+
+                                # 2. Manejo de Alícuotas y Montos (¡Absolutamente en positivo, sin signos negativos!)
                                 es_ocho = float(reg.get('Base_Imponible_8', 0) or 0) > 0
                                 
-                                # Definir montos dinámicamente según la alícuota
                                 if es_ocho:
-                                    m_base = f"{float(reg.get('Base_Imponible_8', 0) or 0):.2f}"
-                                    m_ret = f"{float(reg.get('RET_IVA_8', 0) or 0):.2f}"
+                                    m_base = abs(float(reg.get('Base_Imponible_8', 0) or 0))
+                                    m_ret = abs(float(reg.get('RET_IVA_8', 0) or 0))
                                     m_ali = "8.00"
                                 else:
-                                    m_base = f"{float(reg.get('Base_Imponible', 0) or 0):.2f}"
-                                    m_ret = f"{float(reg.get('IVA_Retenido', 0) or 0):.2f}"
+                                    m_base = abs(float(reg.get('Base_Imponible', reg.get('base_imponible', 0)) or 0))
+                                    m_ret = abs(float(reg.get('IVA_Retenido', reg.get('monto_iva_retenido', 0)) or 0))
                                     m_ali = "16.00"
 
-                                # 2. Otros campos
-                                fecha_raw = reg.get('Fecha_Factura', '')
-                                # Manejo seguro de fecha
+                                exento = abs(float(reg.get('Compras_Excentas', reg.get('importe_exento', 0)) or 0))
+                                
+                                # Cálculo estricto del IVA y Total Compras exigido por el SENIAT
+                                iva_monto_calc = round(m_base * (float(m_ali) / 100.0), 2)
+                                total_compras_calc = round(exento + m_base + iva_monto_calc, 2)
+                                
+                                # Si el monto retenido viene en 0, lo calculamos de forma predeterminada (ej. 75% o 100%)
+                                if m_ret == 0.0 and iva_monto_calc > 0:
+                                    m_ret = round(iva_monto_calc * 0.75, 2) # Ajusta el porcentaje según tu cliente (0.75 o 1.0)
+
+                                # 3. Manejo seguro de fecha
+                                fecha_raw = reg.get('Fecha_Factura') or reg.get('fecha_operacion') or ''
                                 try:
-                                    f_obj = datetime.strptime(str(fecha_raw), '%Y-%m-%d')
+                                    f_obj = datetime.strptime(str(fecha_raw).split(" ")[0], '%Y-%m-%d')
                                 except:
                                     f_obj = datetime.now()
                                 periodo = f_obj.strftime("%Y%m")
                                 
-                                # 3. Construcción de campos
+                                # 4. Construcción estricta de los 15 campos del SENIAT
                                 campos = [
                                     str(reg.get('RIF_Agente_Retencion', '')).replace('-', '').strip(),
                                     periodo,
                                     f_obj.strftime('%Y-%m-%d'),
-                                    'C', '01',
-                                    str(reg.get('RIF_Sujeto_Retenido', '')).replace('-', '').strip(),
-                                    str(reg.get('Numero_Factura', '')).strip(),
-                                    str(reg.get('Numero_Contro', '')).strip(),
-                                    f"{float(reg.get('Total_Comrpas', 0) or 0):.2f}",
-                                    m_base, 
-                                    m_ret, 
+                                    'C', 
+                                    tipo_doc,  # '01' Factura, '03' Nota de Crédito
+                                    str(reg.get('RIF_Sujeto_Retenido', reg.get('rif', ''))).replace('-', '').strip(),
+                                    num_doc,  # Número de Factura o de Nota de Crédito
+                                    str(reg.get('Numero_Contro', reg.get('n_control', ''))).strip(),
+                                    f"{total_compras_calc:.2f}",
+                                    f"{m_base:.2f}", 
+                                    f"{m_ret:.2f}", 
                                     '0',
-                                    str(reg.get('N_Comprobante1', '')).strip(),
-                                    f"{float(reg.get('Compras_Excentas', 0) or 0):.2f}",
+                                    str(reg.get('N_Comprobante1', reg.get('n_comprobante_retencion', ''))).strip(),
+                                    f"{exento:.2f}",
                                     m_ali, 
                                     '0'
                                 ]
+                                
                                 lineas_txt.append("\t".join(campos))
                             
-                            # Generar contenido
                             contenido_final_txt = "\n".join(lineas_txt)
                             st.code(contenido_final_txt)
                             
@@ -5065,7 +5145,6 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                                 conn.close()
                             except Exception:
                                 pass
-
 
 def generar_excel_formateado(conn, df, titulo, subtitulo):
     # Registro de actividad
@@ -6760,6 +6839,22 @@ else:
 
 
 if menu_lateral == "⚙️ Gestión de Usuarios":    
+    try:
+        conn = conectar_db() 
+        if conn:
+            panel_administracion(conn)
+            try:
+                conn.close()
+            except Exception:
+                pass
+        else:
+            st.error("🔌 No se pudo establecer conexión con el servidor MySQL.")
+    except Exception as e:
+        st.error(f"Error al acceder a la gestión central: {e}")
+    st.stop()
+
+
+if menu_lateral == "⚙️ Gestión de Empresas":    
     try:
         conn = conectar_db() 
         if conn:
@@ -15565,22 +15660,21 @@ elif opcion_menu == "📚 Libros Fiscales":
         tab1, tab2, tab3, tab4, tab5, tab6 = tabs
 
         # --- LÓGICA DE NAVEGACIÓN ---
-        with tab1: # Consultar y Editar
+        with tab1:  # Consultar, Modificar, Eliminar y Registrar
             st.subheader("🔍 Consulta y Edición: Libro de Compras")
-            
-            # 1. Filtros de fecha
+
+            # 1. Filtros de fecha y botón de consulta inicial
             col_c1, col_c2, col_c3 = st.columns([1, 1, 1])
             with col_c3:
                 ver_todo = st.checkbox("📂 Ver todo", key="todo_compras")
-            
-            # --- BLINDAJE DE FECHAS SEGURO ---
+
             from datetime import date as d_tipo, datetime as dt_tipo
 
             def _obtener_f_segura(key_s):
                 val = st.session_state.get(key_s)
                 if val is not None:
                     try:
-                        if hasattr(val, 'year') and hasattr(val, 'month'):
+                        if hasattr(val, "year") and hasattr(val, "month"):
                             return val
                         elif isinstance(val, str):
                             return dt_tipo.strptime(val, "%Y-%m-%d").date()
@@ -15589,21 +15683,34 @@ elif opcion_menu == "📚 Libros Fiscales":
                 return d_tipo.today()
 
             with col_c1:
-                desde_c = st.date_input("Desde", _obtener_f_segura('f_inicio_global'), key="desde_c", disabled=ver_todo)
+                desde_c = st.date_input(
+                    "Desde",
+                    _obtener_f_segura("f_inicio_global"),
+                    key="desde_c",
+                    disabled=ver_todo,
+                )
             with col_c2:
-                hasta_c = st.date_input("Hasta", _obtener_f_segura('f_fin_global'), key="hasta_c", disabled=ver_todo)
+                hasta_c = st.date_input(
+                    "Hasta",
+                    _obtener_f_segura("f_fin_global"),
+                    key="hasta_c",
+                    disabled=ver_todo,
+                )
 
             st.error("⚠️ **Atención:** Las acciones aquí solo afectan al Libro de Compras.")
-            
+
             # Botón explícito de consulta
             if st.button("📊 Consultar Compras", key="btn_consultar_compras"):
                 try:
                     conn = conectar_db(db_actual)
                     if conn:
-                        query = "SELECT * FROM libro_compras ORDER BY fecha_operacion DESC" if ver_todo else \
-                                "SELECT * FROM libro_compras WHERE fecha_operacion BETWEEN %s AND %s ORDER BY fecha_operacion ASC"
+                        query = (
+                            "SELECT * FROM libro_compras ORDER BY fecha_operacion DESC"
+                            if ver_todo
+                            else "SELECT * FROM libro_compras WHERE fecha_operacion BETWEEN %s AND %s ORDER BY fecha_operacion ASC"
+                        )
                         params = None if ver_todo else (desde_c, hasta_c)
-                        
+
                         df_recuperado = ejecutar_consulta(query, conn, params=params)
                         if df_recuperado is not None and not df_recuperado.empty:
                             st.session_state.df_compras_editor = df_recuperado
@@ -15614,36 +15721,49 @@ elif opcion_menu == "📚 Libros Fiscales":
                 except Exception as e:
                     st.error(f"❌ Error al consultar la base de datos: {e}")
                 finally:
-                    if 'conn' in locals() and conn:
+                    if "conn" in locals() and conn:
                         conn.close()
 
-            # 3. RENDERIZADO DEL EDITOR Y TOTALES
+            # ==========================================
+            # 2. RENDERIZADO DEL FRAME DE CONSULTA Y OPCIONES DE EDICIÓN (SOLO APARECE DESPUÉS DE CONSULTAR)
+            # ==========================================
             if "df_compras_editor" in st.session_state:
                 df_mostrar_compras = st.session_state.df_compras_editor.copy()
-                
+
                 # --- VISTA DE CONSULTA (Visualización limpia) ---
                 df_visual_c = df_mostrar_compras.copy()
-                cols_moneda_c = ['total_compras', 'importe_exento', 'base_imponible', 'iva_monto', 'monto_iva_retenido']
+                cols_moneda_c = [
+                    "total_compras",
+                    "importe_exento",
+                    "base_imponible",
+                    "iva_monto",
+                    "monto_iva_retenido",
+                ]
                 for col in cols_moneda_c:
                     if col in df_visual_c.columns:
                         df_visual_c[col] = df_visual_c[col].apply(
-                            lambda x: "{:,.2f}".format(x).replace(",", "X").replace(".", ",").replace("X", ".") if pd.notnull(x) else "0,00"
+                            lambda x: "{:,.2f}".format(x)
+                            .replace(",", "X")
+                            .replace(".", ",")
+                            .replace("X", ".")
+                            if pd.notnull(x)
+                            else "0,00"
                         )
-                
-                st.subheader("👁️ Vista de Consulta")
-                st.dataframe(df_visual_c, width='stretch', hide_index=True)
 
-                # --- EDITOR DE DATOS (Agregar, Modificar y Eliminar Activo) ---
-                st.subheader("✏️ Administrar Compras (Agregar, Modificar, Eliminar)")
-                st.info("💡 **Instrucciones:** Puedes editar celdas directamente, agregar una nueva factura escribiendo en la última fila en blanco al final de la tabla, o eliminar registros seleccionando la fila y haciendo clic en el icono de papelera.")
+                st.subheader("👁️ Vista de Consulta")
+                st.dataframe(df_visual_c, width="stretch", hide_index=True)
+
+                # --- EDITOR DE DATOS (Modificar y Eliminar Activo) ---
+                st.subheader("✏️ Administrar Compras (Modificar, Eliminar)")
+                st.info("💡 **Instrucciones:** Puedes editar celdas directamente de los registros existentes, o eliminar registros seleccionando la fila y haciendo clic en el icono de papelera.")
 
                 key_editor_compras = "editor_consulta_final"
 
                 cambios_df = st.data_editor(
                     df_mostrar_compras,
-                    key=key_editor_compras, 
-                    num_rows="dynamic",
-                    width='stretch',
+                    key=key_editor_compras,
+                    num_rows="fixed",
+                    width="stretch",
                     hide_index=True,
                     column_config={
                         "id": st.column_config.NumberColumn("ID", disabled=True),
@@ -15662,74 +15782,76 @@ elif opcion_menu == "📚 Libros Fiscales":
                         "iva_monto": st.column_config.NumberColumn("IVA Monto", format="%,.2f", step=0.01),
                         "fecha_comprobante": st.column_config.DateColumn("F. Comprobante", format="DD/MM/YYYY"),
                         "created_at": st.column_config.DatetimeColumn("F. Registro", disabled=True),
-                        "updated_at": st.column_config.DatetimeColumn("F. Actualización", disabled=True)
-                    }
+                        "updated_at": st.column_config.DatetimeColumn("F. Actualización", disabled=True),
+                    },
                 )
 
                 # --- CÁLCULO DE TOTALES ---
                 st.markdown("### 📊 Totales")
-                def f_bs(v): return f"Bs. {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-                
+
+                def f_bs(v):
+                    return f"Bs. {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
                 t1, t2, t3, t4 = st.columns(4)
-                t1.metric("Total Compras", f_bs(df_mostrar_compras['total_compras'].sum() if 'total_compras' in df_mostrar_compras.columns else 0.0))
-                t2.metric("Total Exento", f_bs(df_mostrar_compras['importe_exento'].sum() if 'importe_exento' in df_mostrar_compras.columns else 0.0))
-                t3.metric("Total Base", f_bs(df_mostrar_compras['base_imponible'].sum() if 'base_imponible' in df_mostrar_compras.columns else 0.0))
-                t4.metric("Total IVA", f_bs(df_mostrar_compras['iva_monto'].sum() if 'iva_monto' in df_mostrar_compras.columns else 0.0))
+                t1.metric("Total Compras", f_bs(df_mostrar_compras["total_compras"].sum() if "total_compras" in df_mostrar_compras.columns else 0.0))
+                t2.metric("Total Exento", f_bs(df_mostrar_compras["importe_exento"].sum() if "importe_exento" in df_mostrar_compras.columns else 0.0))
+                t3.metric("Total Base", f_bs(df_mostrar_compras["base_imponible"].sum() if "base_imponible" in df_mostrar_compras.columns else 0.0))
+                t4.metric("Total IVA", f_bs(df_mostrar_compras["iva_monto"].sum() if "iva_monto" in df_mostrar_compras.columns else 0.0))
                 st.markdown("---")
-                
+
                 # --- BOTÓN DE DESCARGA EN EXCEL ---
                 st.markdown("### 📥 Descargar Reporte")
                 import io
-                
+
                 nombre_archivo = f"Libro de compras del {desde_c.strftime('%Y-%m-%d')} al {hasta_c.strftime('%Y-%m-%d')}.xlsx"
-                
+
                 buffer = io.BytesIO()
-                with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-                    df_mostrar_compras.to_excel(writer, index=False, sheet_name='Libro de Compras')
+                with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+                    df_mostrar_compras.to_excel(writer, index=False, sheet_name="Libro de Compras")
                 buffer.seek(0)
-                
+
                 st.download_button(
                     label="📊 Descargar Libro de Compras en Excel",
                     data=buffer,
                     file_name=nombre_archivo,
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    key="btn_download_excel_compras"
+                    key="btn_download_excel_compras",
                 )
-                
+
                 st.markdown("---")
-                
-                # --- BOTÓN ÚNICO DE GUARDAR (Procesa Eliminaciones, Modificaciones e Inserciones) ---
-                if st.button("💾 Guardar todos los cambios en DB", type="primary", key="btn_guardar_final_compras"):
+
+                # --- BOTÓN ÚNICO DE GUARDAR (Procesa Modificaciones y Eliminaciones) ---
+                if st.button("💾 Guardar cambios de edición en DB", type="primary", key="btn_guardar_final_compras"):
                     if key_editor_compras in st.session_state:
                         cambios = st.session_state[key_editor_compras]
                         conn = conectar_db(db_actual)
-                        
+
                         if conn:
                             cursor = conn.cursor()
                             try:
                                 cursor.execute("DESCRIBE libro_compras")
                                 columnas_db = [fila[0] for fila in cursor.fetchall()]
-                                
+
                                 def limpiar_dato(val):
-                                    if val is None or (isinstance(val, float) and np.isnan(val)): return None
-                                    if isinstance(val, (pd.Timestamp, pd.Timedelta)): return str(val.date())
-                                    if isinstance(val, (np.integer, np.int64)): return int(val)
-                                    if isinstance(val, (np.floating, np.float64)): return float(val)
+                                    if val is None or (isinstance(val, float) and np.isnan(val)):
+                                        return None
+                                    if isinstance(val, (pd.Timestamp, pd.Timedelta)):
+                                        return str(val.date())
+                                    if isinstance(val, (np.integer, np.int64)):
+                                        return int(val)
+                                    if isinstance(val, (np.floating, np.float64)):
+                                        return float(val)
                                     return str(val).strip()
 
                                 cursor.execute("START TRANSACTION")
-                                
+
                                 # 1. MODIFICAR / EDITAR FILAS EXISTENTES
                                 for row_idx, dict_cambios in cambios.get("edited_rows", {}).items():
                                     id_edit = int(df_mostrar_compras.iloc[int(row_idx)]["id"])
-                                    
-                                    # Limpiar formatos de fecha si fueron editados
+
                                     if "fecha_operacion" in dict_cambios and dict_cambios["fecha_operacion"]:
                                         f = dict_cambios["fecha_operacion"]
-                                        dict_cambios["fecha_operacion"] = f.strftime('%Y-%m-%d') if hasattr(f, 'strftime') else str(f)
-                                    if "fecha_comprobante" in dict_cambios and dict_cambios["fecha_comprobante"]:
-                                        fc = dict_cambios["fecha_comprobante"]
-                                        dict_cambios["fecha_comprobante"] = fc.strftime('%Y-%m-%d') if hasattr(fc, 'strftime') else str(fc)
+                                        dict_cambios["fecha_operacion"] = f.strftime("%Y-%m-%d") if hasattr(f, "strftime") else str(f)
 
                                     if dict_cambios:
                                         cols_val = [f"{k} = %s" for k in dict_cambios.keys() if k in columnas_db]
@@ -15743,55 +15865,164 @@ elif opcion_menu == "📚 Libros Fiscales":
                                     id_del = int(df_mostrar_compras.iloc[row_idx]["id"])
                                     cursor.execute("DELETE FROM libro_compras WHERE id = %s", (id_del,))
 
-                                # 3. AGREGAR NUEVAS FILAS
-                                for row_dict in cambios.get("added_rows", []):
-                                    if not row_dict or not any(row_dict.values()): 
-                                        continue
-                                    
-                                    f_raw = row_dict.get("fecha_operacion") or desde_c
-                                    fecha_op_final = f_raw.strftime('%Y-%m-%d') if hasattr(f_raw, 'strftime') else str(f_raw)
-
-                                    datos_nuevos_dict = {
-                                        "fecha_operacion": fecha_op_final,
-                                        "tipo_documento": limpiar_dato(row_dict.get("tipo_documento", "Factura")),
-                                        "n_factura": limpiar_dato(row_dict.get("n_factura", "0")),
-                                        "n_control": limpiar_dato(row_dict.get("n_control", "0")),
-                                        "nota_credito": limpiar_dato(row_dict.get("nota_credito", None)),
-                                        "nota_debito": limpiar_dato(row_dict.get("nota_debito", None)),
-                                        "proveedor": limpiar_dato(row_dict.get("proveedor", "VARIOS")),
-                                        "rif": limpiar_dato(row_dict.get("rif", "J000000000")),
-                                        "total_compras": float(row_dict.get("total_compras", 0.00)),
-                                        "importe_exento": float(row_dict.get("importe_exento", 0.00)),
-                                        "base_imponible": float(row_dict.get("base_imponible", 0.00)),
-                                        "iva_porcentaje": float(row_dict.get("iva_porcentaje", 16.00)),
-                                        "iva_monto": float(row_dict.get("iva_monto", 0.00))
-                                    }
-                                    
-                                    # Filtrar solo columnas existentes en la BD
-                                    datos_filtrados = {k: v for k, v in datos_nuevos_dict.items() if k in columnas_db}
-                                    
-                                    cols_ins = ", ".join(datos_filtrados.keys())
-                                    placeholders = ", ".join(["%s"] * len(datos_filtrados))
-                                    query_insert = f"INSERT INTO libro_compras ({cols_ins}) VALUES ({placeholders})"
-                                    
-                                    cursor.execute(query_insert, list(datos_filtrados.values()))
-                                
                                 conn.commit()
-                                st.balloons()
-                                st.success("✅ ¡Libro de Compras sincronizado y actualizado correctamente con MySQL!")
-                                
+                                st.success("✅ ¡Modificaciones y eliminaciones guardadas correctamente en MySQL!")
+
                                 if "df_compras_editor" in st.session_state:
                                     del st.session_state.df_compras_editor
                                 st.rerun()
-                                
+
                             except Exception as e:
-                                if conn: conn.rollback()
+                                if conn:
+                                    conn.rollback()
                                 st.error(f"❌ Error al guardar en MySQL: {e}")
                             finally:
                                 cursor.close()
                                 conn.close()
+                        else:
+                            st.warning("⚠️ No hay registro de cambios activos en la sesión.")
+
+                st.markdown("---")
+
+                # ==========================================
+                # 3. SECCIÓN INFERIOR: AGREGAR NUEVA FACTURA (SOLO SE MUESTRA DESPUÉS DE CONSULTAR)
+                # ==========================================
+                with st.expander(
+                    "➕ Registrar Nueva Factura (Con listas desplegables y cálculos automáticos)",
+                    expanded=False,
+                ):
+                    try:
+                        conn_prov = conectar_db(db_actual)
+                        if conn_prov:
+                            df_prov = ejecutar_consulta(
+                                "SELECT rif, razon_social FROM proveedores", conn_prov
+                            )
+                            conn_prov.close()
+                        else:
+                            df_prov = pd.DataFrame()
+                    except Exception:
+                        df_prov = pd.DataFrame()
+
+                    if not df_prov.empty:
+                        df_prov["display_prov"] = (
+                            df_prov["razon_social"] + " (" + df_prov["rif"] + ")"
+                        )
+                        lista_opciones_proveedores = df_prov["display_prov"].tolist()
                     else:
-                        st.warning("⚠️ No hay registro de cambios activos en la sesión.")
+                        lista_opciones_proveedores = []
+
+                    if lista_opciones_proveedores:
+                        prov_elegido = st.selectbox(
+                            "Proveedor / RIF", options=lista_opciones_proveedores, key="rt_prov"
+                        )
+                        razon_social_val = prov_elegido.split(" (")[0]
+                        rif_val = prov_elegido.split(" (")[1].replace(")", "")
+                    else:
+                        st.warning("No hay proveedores registrados. Por favor registre proveedores primero.")
+                        razon_social_val = "VARIOS"
+                        rif_val = "J000000000"
+
+                    col_x1, col_x2 = st.columns(2)
+                    with col_x1:
+                        tipo_doc_val = st.selectbox(
+                            "Tipo de Documento",
+                            ["01-Factura", "03-Nota de Crédito"],
+                            key="rt_tipo_doc",
+                        )
+                        fecha_op_val = st.date_input("Fecha de Operación / Emisión", key="rt_f_op")
+                    with col_x2:
+                        n_factura_val = st.text_input("Número de Factura", key="rt_n_fact")
+                        n_control_val = st.text_input("Número de Control", key="rt_n_ctrl")
+                        nota_cred_val = st.text_input(
+                            "Nº Nota de Crédito (Opcional)", value="", key="rt_nc"
+                        )
+
+                    st.markdown("---")
+                    st.markdown("### 💰 Control de Montos, Alícuota e IVA Automático")
+
+                    alicuota_opciones = {
+                        "General (16%)": 16.0,
+                        "Reducida (8%)": 8.0,
+                        "Exonerada / Otra (0%)": 0.0,
+                    }
+
+                    alicuota_label = st.selectbox(
+                        "Seleccione la Alícuota de IVA",
+                        options=list(alicuota_opciones.keys()),
+                        key="rt_alicuota"
+                    )
+                    iva_porcentaje_val = alicuota_opciones[alicuota_label]
+
+                    col_m1, col_m2, col_m3 = st.columns(3)
+                    with col_m1:
+                        base_imp_input = st.number_input(
+                            "Base Imponible",
+                            min_value=0.00,
+                            format="%.2f",
+                            step=100.00,
+                            key="rt_base"
+                        )
+                    with col_m2:
+                        iva_monto_input = base_imp_input * (iva_porcentaje_val / 100.0)
+                        st.number_input(
+                            f"IVA Monto ({iva_porcentaje_val}% Automático)",
+                            value=float(iva_monto_input),
+                            format="%.2f",
+                            disabled=True
+                        )
+                    with col_m3:
+                        exento_input = st.number_input(
+                            "Monto Exento",
+                            min_value=0.00,
+                            format="%.2f",
+                            step=100.00,
+                            key="rt_exento"
+                        )
+
+                    total_calculado = base_imp_input + iva_monto_input + exento_input
+
+                    def formato_venezuela(val):
+                        return f"{val:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+                    st.success(
+                        f"💵 **Monto Total Calculado Automáticamente:** **{formato_venezuela(total_calculado)}**"
+                    )
+
+                    if st.button("💾 Guardar Factura en Base de Datos", type="primary", key="rt_btn_guardar"):
+                        if not n_factura_val or n_factura_val == "0":
+                            st.error("❌ El número de factura es obligatorio.")
+                        else:
+                            try:
+                                conn_ins = conectar_db(db_actual)
+                                if conn_ins:
+                                    cursor_ins = conn_ins.cursor()
+                                    query_insert_single = """
+                                        INSERT INTO libro_compras 
+                                        (fecha_operacion, tipo_documento, n_factura, n_control, nota_credito, proveedor, rif, total_compras, importe_exento, base_imponible, iva_porcentaje, iva_monto)
+                                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                    """
+                                    valores = (
+                                        fecha_op_val.strftime("%Y-%m-%d"),
+                                        tipo_doc_val,
+                                        n_factura_val,
+                                        n_control_val,
+                                        nota_cred_val if nota_cred_val else None,
+                                        razon_social_val,
+                                        rif_val,
+                                        total_calculado,
+                                        exento_input,
+                                        base_imp_input,
+                                        iva_porcentaje_val,
+                                        iva_monto_input,
+                                    )
+                                    cursor_ins.execute(query_insert_single, valores)
+                                    conn_ins.commit()
+                                    cursor_ins.close()
+                                    conn_ins.close()
+                                    st.success("✅ ¡Factura agregada exitosamente con su monto total y alícuota calculada!")
+                                    st.rerun()
+                            except Exception as e:
+                                st.error(f"❌ Error al guardar la factura: {e}")
                                 
         with tab2: # Escaneo Inteligente
             st.subheader("📸 Escaneo Inteligente de Documentos (OCR)")
@@ -15913,59 +16144,122 @@ elif opcion_menu == "📚 Libros Fiscales":
 
                     with col_b2:
                         if st.button("🚀 Guardar TODAS en DB (Modo Seguro)", type="primary", key="btn_guardar_ocr_db"):
+                            db_actual = st.session_state.get('DB_ACTUAL') or st.session_state.get('id_empresa_actual')
+                            if not db_actual:
+                                st.error("❌ No se encontró la base de datos activa en la sesión.")
+                                st.stop()
+
                             df_a_procesar = st.session_state.df_buffer_escaneo.copy()
-                            engine = create_engine(f"mysql+mysqlconnector://{DB_CONFIG['user']}:{DB_CONFIG['password']}@{DB_CONFIG['host']}/{db_actual}")
+                            
+                            try:
+                                from urllib.parse import quote_plus
+                                from sqlalchemy import text
+                                
+                                password_escaped = quote_plus("W3Zkbr4E2trGCfoX")
+                                database_url = f"mysql+pymysql://4K4VAw4t4ZPFUTF.root:{password_escaped}@gateway01.us-east-1.prod.aws.tidbcloud.com:4000/{db_actual}"
+                                engine = create_engine(
+                                    database_url,
+                                    connect_args={
+                                        "ssl": {
+                                            "ssl_ca": None,
+                                            "check_hostname": False
+                                        }
+                                    }
+                                )
+                            except Exception as ex_eng:
+                                st.error(f"❌ Error al crear el motor de base de datos: {ex_eng}")
+                                st.stop()
                             
                             bar = st.progress(0)
                             facturas_exitosas = 0
                             
-                            for index, row in df_a_procesar.iterrows():
+                            registros = df_a_procesar.to_dict(orient='records')
+                            total_regs = len(registros)
+                            
+                            for index, row in enumerate(registros):
                                 try:
-                                    fila = row.to_frame().T.copy()
+                                    fecha_op = str(row.get('fecha_operacion') or '').split(" ")[0]
+                                    tipo_doc = str(row.get('tipo_documento') or '01').strip()
+                                    n_factura = str(row.get('n_factura') or '').strip().upper()
+                                    n_control = str(row.get('n_control') or '').strip().upper()
                                     
-                                    fila['rif'] = fila['rif'].astype(str).str.replace('-', '', regex=False).str.replace(' ', '', regex=False).strip().upper()
-                                    fila['n_factura'] = fila['n_factura'].astype(str).str.strip().upper()
-                                    fila['n_control'] = fila['n_control'].astype(str).str.strip().upper()
+                                    nc_raw = row.get('nota_credito')
+                                    nc_val = str(nc_raw).strip().upper() if nc_raw is not None and str(nc_raw).lower() not in ['none', 'nan', '', 'null', 'nat'] else None
+                                    if nc_val == '': nc_val = None
                                     
-                                    for c_extra in ['nota_credito', 'nota_debito', 'n_factura_afectada']:
-                                        if c_extra in fila.columns and fila[c_extra].iloc[0] and str(fila[c_extra].iloc[0]).lower() not in ['none', 'nan', '', 'nat']:
-                                            fila[c_extra] = str(fila[c_extra].iloc[0]).strip().upper()
-                                        else:
-                                            fila[c_extra] = None
+                                    nd_raw = row.get('nota_debito')
+                                    nd_val = str(nd_raw).strip().upper() if nd_raw is not None and str(nd_raw).lower() not in ['none', 'nan', '', 'null', 'nat'] else None
+                                    if nd_val == '': nd_val = None
+                                    
+                                    afec_raw = row.get('n_factura_afectada')
+                                    afec_val = str(afec_raw).strip().upper() if afec_raw is not None and str(afec_raw).lower() not in ['none', 'nan', '', 'null', 'nat'] else None
+                                    if afec_val == '': afec_val = None
+                                    
+                                    proveedor = str(row.get('proveedor') or 'VARIOS').strip().upper()
+                                    rif = str(row.get('rif') or '').replace('-', '').replace(' ', '').strip().upper()
+                                    tipo_trans = str(row.get('tipo_transaccion') or '01').strip()
+                                    
+                                    total_c = float(row.get('total_compras') or 0.0)
+                                    exento = float(row.get('importe_exento') or 0.0)
+                                    base_imp = float(row.get('base_imponible') or 0.0)
+                                    iva_porc = float(row.get('iva_porcentaje') or 16.0)
+                                    iva_monto = float(row.get('iva_monto') or 0.0)
 
-                                    rif_val = fila['rif'].iloc[0]
-                                    nfac_val = fila['n_factura'].iloc[0]
-                                    nc_val = fila['nota_credito'].iloc[0]
-                                    nd_val = fila['nota_debito'].iloc[0]
+                                    dict_limpio = {
+                                        'fecha_operacion': fecha_op,
+                                        'tipo_documento': tipo_doc,
+                                        'n_factura': n_factura,
+                                        'n_control': n_control,
+                                        'nota_credito': nc_val,
+                                        'nota_debito': nd_val,
+                                        'n_factura_afectada': afec_val,
+                                        'proveedor': proveedor,
+                                        'rif': rif,
+                                        'tipo_transaccion': tipo_trans,
+                                        'total_compras': total_c,
+                                        'importe_exento': exento,
+                                        'base_imponible': base_imp,
+                                        'iva_porcentaje': iva_porc,
+                                        'iva_monto': iva_monto
+                                    }
                                     
-                                    # Validación cruzada con MySQL idéntica a la estructura de la tabla
+                                    fila_df = pd.DataFrame([dict_limpio])
+
+                                    # Validación cruzada directa con una conexión cruda de SQLAlchemy/PyMySQL
+                                    resultado = 0
+                                    doc_nombre = f"Factura {n_factura}"
+                                    
                                     with engine.connect() as conn:
                                         if nc_val:
-                                            query_check = "SELECT COUNT(*) FROM libro_compras WHERE rif = %s AND nota_credito = %s"
-                                            resultado = conn.execute(text(query_check), (rif_val, nc_val)).scalar()
+                                            query_check = text("SELECT COUNT(*) FROM libro_compras WHERE rif = :rif AND nota_credito = :nc")
+                                            res = conn.execute(query_check, {"rif": rif, "nc": nc_val}).scalar()
+                                            resultado = res if res is not None else 0
                                             doc_nombre = f"Nota de Crédito {nc_val}"
                                         elif nd_val:
-                                            query_check = "SELECT COUNT(*) FROM libro_compras WHERE rif = %s AND nota_debito = %s"
-                                            resultado = conn.execute(text(query_check), (rif_val, nd_val)).scalar()
+                                            query_check = text("SELECT COUNT(*) FROM libro_compras WHERE rif = :rif AND nota_debito = :nd")
+                                            res = conn.execute(query_check, {"rif": rif, "nd": nd_val}).scalar()
+                                            resultado = res if res is not None else 0
                                             doc_nombre = f"Nota de Débito {nd_val}"
                                         else:
-                                            query_check = "SELECT COUNT(*) FROM libro_compras WHERE rif = %s AND n_factura = %s AND (nota_credito IS NULL OR nota_credito = '') AND (nota_debito IS NULL OR nota_debito = '')"
-                                            resultado = conn.execute(text(query_check), (rif_val, nfac_val)).scalar()
-                                            doc_nombre = f"Factura {nfac_val}"
+                                            query_check = text("SELECT COUNT(*) FROM libro_compras WHERE rif = :rif AND n_factura = :nfac AND (nota_credito IS NULL OR nota_credito = '') AND (nota_debito IS NULL OR nota_debito = '')")
+                                            res = conn.execute(query_check, {"rif": rif, "nfac": n_factura}).scalar()
+                                            resultado = res if res is not None else 0
+                                            doc_nombre = f"Factura {n_factura}"
                                     
                                     if resultado > 0:
-                                        st.warning(f"⚠️ Documento {doc_nombre} (RIF {rif_val}) ya registrado en DB. Saltando...")
+                                        st.warning(f"⚠️ Documento {doc_nombre} (RIF {rif}) ya registrado en DB. Saltando...")
                                     else:
-                                        fila.to_sql('libro_compras', con=engine, if_exists='append', index=False)
+                                        fila_df.to_sql('libro_compras', con=engine, if_exists='append', index=False)
                                         facturas_exitosas += 1
                                         st.write(f"✅ {doc_nombre} guardado correctamente.")
 
                                 except Exception as e:
                                     st.error(f"❌ Error al guardar fila {index + 1}: {e}")
 
-                                bar.progress((index + 1) / len(df_a_procesar))
+                                if total_regs > 0:
+                                    bar.progress((index + 1) / total_regs)
                             
-                            st.success(f"✅ Proceso finalizado. Total guardados: {facturas_exitosas} de {len(df_a_procesar)}")
+                            st.success(f"✅ Proceso finalizado. Total guardados: {facturas_exitosas} de {total_regs}")
                             if facturas_exitosas > 0:
                                 st.session_state.df_buffer_escaneo = pd.DataFrame()
 
@@ -16351,12 +16645,16 @@ elif opcion_menu == "📚 Libros Fiscales":
                     st.markdown("#### 3️⃣ Datos del Documento de Ajuste (Nota de Crédito / Débito)")
                     
                     with st.form("form_crear_nota_fiscal"):
-                        col_t1, col_t2, col_t3 = st.columns(3)
+                        col_t1, col_t2, col_t3, col_t4 = st.columns([2, 2, 2, 2])
                         with col_t1:
                             tipo_ajuste = st.selectbox("Tipo de Ajuste", ["Nota de Crédito", "Nota de Débito"])
                         with col_t2:
-                            nro_documento_ajuste = st.text_input("Nº de Documento (Nota)", placeholder="Ej: 00000720")
+                            # Solución robusta para la fecha actual
+                            from datetime import date
+                            fecha_emision_ajuste = st.date_input("Fecha de Emisión (Nota)", value=date.today(), key="nc_fecha_emision_val")
                         with col_t3:
+                            nro_documento_ajuste = st.text_input("Nº de Documento (Nota)", placeholder="Ej: 00000720")
+                        with col_t4:
                             nro_control_ajuste = st.text_input("Nº de Control (Nota)", placeholder="Ej: 00-026357")
 
                         st.markdown(f"**Factura Afectada:** `{fac['n_factura']}` | **RIF Proveedor:** `{fac['rif']}` ({fac['proveedor']})")
@@ -16400,7 +16698,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                                         """
                                         
                                         valores = (
-                                            datetime.now().strftime('%Y-%m-%d'),
+                                            fecha_emision_ajuste.strftime('%Y-%m-%d'),  # <--- Usamos la fecha seleccionada de emisión de la nota
                                             "03" if tipo_ajuste == "Nota de Crédito" else "02",
                                             nro_documento_ajuste.strip().upper(),
                                             nro_control_ajuste.strip().upper(),
@@ -16421,7 +16719,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                                         conn.commit()
                                         cursor.close()
                                         
-                                        st.success(f"✅ ¡{tipo_ajuste} Nº {nro_documento_ajuste} (Control: {nro_control_ajuste}) guardada y vinculada a la factura {fac['n_factura']}!")
+                                        st.success(f"✅ ¡{tipo_ajuste} Nº {nro_documento_ajuste} (Emitida el {fecha_emision_ajuste}) guardada y vinculada a la factura {fac['n_factura']}!")
                                         if "factura_seleccionada_nc" in st.session_state:
                                             del st.session_state.factura_seleccionada_nc
                                 except Exception as e:
