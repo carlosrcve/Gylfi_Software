@@ -15769,11 +15769,11 @@ elif opcion_menu == "📚 Libros Fiscales":
                 st.markdown("---")
                 st.markdown("### 💰 Control de Montos, Alícuota e IVA Automático")
 
-                # 1. Inicializar variables en st.session_state si no existen
+                # 1. Inicialización limpia de estados de sesión
                 if "rt_base" not in st.session_state:
-                    st.session_state.rt_base = 0.00
+                    st.session_state.rt_base = 0.0
                 if "rt_exento" not in st.session_state:
-                    st.session_state.rt_exento = 0.00
+                    st.session_state.rt_exento = 0.0
 
                 alicuota_opciones = {
                     "General (16%)": 16.0,
@@ -15787,13 +15787,10 @@ elif opcion_menu == "📚 Libros Fiscales":
                 )
                 iva_porcentaje_val = alicuota_opciones[alicuota_label]
 
-                # 2. Cálculo dinámico inmediato del IVA basado en la base imponible actual
-                iva_monto_calculado = st.session_state.rt_base * (
-                    iva_porcentaje_val / 100.0
-                )
-
-                # Forzamos la actualización del valor del IVA en el estado para que se pinte bien
-                st.session_state.rt_iva_val_real = iva_monto_calculado
+                # 2. Función que fuerza la recarga instantánea al cambiar los montos
+                def disparar_recalculo():
+                    # Forzamos un rerun de Streamlit para que actualice todos los campos colindantes al instante
+                    st.rerun()
 
                 col_m1, col_m2, col_m3 = st.columns(3)
                 with col_m1:
@@ -15803,15 +15800,19 @@ elif opcion_menu == "📚 Libros Fiscales":
                         format="%.2f",
                         step=100.00,
                         key="rt_base",
+                        on_change=disparar_recalculo,
                     )
                 with col_m2:
-                    # Usamos un campo de texto o mostramos el valor actualizado para evitar el bloqueo de key
+                    # Cálculo directo y seguro en tiempo real sobre la variable de sesión actual
+                    iva_monto_input = st.session_state.rt_base * (
+                        iva_porcentaje_val / 100.0
+                    )
                     st.number_input(
                         f"IVA Monto ({iva_porcentaje_val}% Automático)",
-                        value=st.session_state.rt_iva_val_real,
+                        value=iva_monto_input,
                         format="%.2f",
                         disabled=True,
-                        key="rt_iva_display_box",
+                        key="rt_iva_display",
                     )
                 with col_m3:
                     exento_input = st.number_input(
@@ -15820,17 +15821,15 @@ elif opcion_menu == "📚 Libros Fiscales":
                         format="%.2f",
                         step=100.00,
                         key="rt_exento",
+                        on_change=disparar_recalculo,
                     )
 
-                # Sumatoria total con los valores reales
+                # Sumatoria estricta en tiempo real
                 total_calculado = (
-                    st.session_state.rt_base
-                    + st.session_state.rt_iva_val_real
-                    + st.session_state.rt_exento
+                    st.session_state.rt_base + iva_monto_input + st.session_state.rt_exento
                 )
 
-
-                # Función para formatear con puntos de miles y comas decimales (Ej: 786.458,45)
+                # Función para formatear con el estilo numérico local (Ej: 786.458,45)
                 def formato_venezuela(val):
                     return (
                         f"{val:,.2f}"
@@ -15839,13 +15838,12 @@ elif opcion_menu == "📚 Libros Fiscales":
                         .replace("X", ".")
                     )
 
-
                 st.success(
                     f"💵 **Monto Total Calculado Automáticamente:**"
                     f" **{formato_venezuela(total_calculado)}**"
                 )
 
-                # Botón de guardado en base de datos
+                # Botón de guardado definitivo en base de datos
                 if st.button(
                     "💾 Guardar Factura en Base de Datos",
                     type="primary",
@@ -15875,7 +15873,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                                     st.session_state.rt_exento,
                                     st.session_state.rt_base,
                                     iva_porcentaje_val,
-                                    st.session_state.rt_iva_val_real,
+                                    iva_monto_input,
                                 )
                                 cursor_ins.execute(query_insert_single, valores)
                                 conn_ins.commit()
