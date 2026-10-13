@@ -3882,6 +3882,7 @@ def generar_comprobante_pdf(datos, conn):
     db_activa = st.session_state.get('DB_ACTUAL')
     cliente_id_sesion = st.session_state.get('cliente_id')
     
+    # --- CONSULTAR DINÁMICAMENTE USANDO LA CONEXIÓN ACTIVA ---
     datos_agente_dinamicos = {
         "nombre": "EMPRESA NO IDENTIFICADA",
         "rif": "J-00000000-0",
@@ -3889,58 +3890,55 @@ def generar_comprobante_pdf(datos, conn):
     }
 
     try:
-        # Abrimos la conexión general al servidor MySQL
-        conn_agente = conectar_db() 
-        if conn_agente:
-            cursor_agente = conn_agente.cursor(dictionary=True)
-            
-            # Forzamos explícitamente el uso de control_central
-            cursor_agente.execute("USE control_central")
-            
-            res_agente = None
-            
-            # 1. Buscar por db_nombre exacto
-            if db_activa:
-                cursor_agente.execute(
-                    "SELECT nombre_empresa, rif, direccion_fiscal FROM clientes WHERE db_nombre = %s", 
-                    (db_activa,)
-                )
-                res_agente = cursor_agente.fetchone()
-            
-            # 2. Si no encuentra, buscar usando LIKE
-            if not res_agente and db_activa:
-                cursor_agente.execute(
-                    "SELECT nombre_empresa, rif, direccion_fiscal FROM clientes WHERE db_nombre LIKE %s", 
-                    (f"%{db_activa}%",)
-                )
-                res_agente = cursor_agente.fetchone()
-
-            # 3. Si aún no encuentra, buscar por el ID de sesión
-            if not res_agente and cliente_id_sesion:
-                cursor_agente.execute(
-                    "SELECT nombre_empresa, rif, direccion_fiscal FROM clientes WHERE id = %s", 
-                    (cliente_id_sesion,)
-                )
-                res_agente = cursor_agente.fetchone()
+        # Usamos la conexión 'conn' que ya viene en la función, o abrimos una de emergencia si viene nula
+        conn_uso = conn if conn is not None else conectar_db()
+        
+        if conn_uso:
+            cursor_agente = conn_agente.cursor(dictionary=True) if hasattr(conn_uso, 'cursor') else None
+            if cursor_agente:
+                # 1. Intentamos buscar por el cliente_id de la sesión si existe
+                cliente_id_sesion = st.session_state.get('cliente_id')
+                res_agente = None
                 
-            # 4. Respaldo definitivo: el primer cliente de la tabla
-            if not res_agente:
-                cursor_agente.execute(
-                    "SELECT nombre_empresa, rif, direccion_fiscal FROM clientes LIMIT 1"
-                )
-                res_agente = cursor_agente.fetchone()
-
-            if res_agente:
-                datos_agente_dinamicos = {
-                    "nombre": res_agente.get("nombre_empresa", "EMPRESA NO IDENTIFICADA"),
-                    "rif": res_agente.get("rif", "J-00000000-0"),
-                    "direccion": res_agente.get("direccion_fiscal", "DIRECCIÓN NO REGISTRADA")
-                }
+                if cliente_id_sesion:
+                    cursor_agente.execute(
+                        "SELECT nombre_empresa, rif, direccion_fiscal FROM control_central.clientes WHERE id = %s", 
+                        (cliente_id_sesion,)
+                    )
+                    res_agente = cursor_agente.fetchone()
                 
-            cursor_agente.close()
-            conn_agente.close()
+                # 2. Si no hay cliente_id o no arrojó resultados, buscamos por DB_ACTUAL o db_actual de la sesión
+                if not res_agente:
+                    db_activa = st.session_state.get('DB_ACTUAL') or st.session_state.get('db_actual')
+                    if db_activa:
+                        cursor_agente.execute(
+                            "SELECT nombre_empresa, rif, direccion_fiscal FROM control_central.clientes WHERE db_nombre = %s", 
+                            (db_activa,)
+                        )
+                        res_agente = cursor_agente.fetchone()
+
+                # 3. RESPALDO ABSOLUTO: Si la sesión sigue vacía, traemos la primera empresa configurada en control_central
+                if not res_agente:
+                    cursor_agente.execute(
+                        "SELECT nombre_empresa, rif, direccion_fiscal FROM control_central.clientes LIMIT 1"
+                    )
+                    res_agente = cursor_agente.fetchone()
+
+                if res_agente:
+                    datos_agente_dinamicos = {
+                        "nombre": res_agente.get("nombre_empresa", "EMPRESA NO IDENTIFICADA"),
+                        "rif": res_agente.get("rif", "J-00000000-0"),
+                        "direccion": res_agente.get("direccion_fiscal", "DIRECCIÓN NO REGISTRADA")
+                    }
+                
+                cursor_agente.close()
+                if conn is None: # Si abrimos una conexión local de emergencia, la cerramos
+                    conn_uso.close()
     except Exception as e:
-        print(f"Error obteniendo datos dinámicos: {e}")
+        print(f"Error crítico obteniendo datos del agente: {e}")
+
+    # Asignamos los datos reales al diccionario del PDF
+    datos['agente'] = datos_agente_dinamicos
 
     # Asignamos de forma segura los datos al agente
     datos['agente'] = datos_agente_dinamicos
