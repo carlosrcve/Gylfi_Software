@@ -444,29 +444,11 @@ def panel_administracion(conn):
         st.error(f"Error cargando logs: {e}")
 
 
-def registrar_log_automatico(conn, accion, detalles):
-    """Registra automáticamente las interacciones del usuario en la tabla logs_auditoria
-    ubicada en la base de datos central de control.
-    """
-    cursor = None
-    try:
-        if conn is not None:
-            usuario = st.session_state.get("usuario", "Desconocido")
-            cliente_id = str(st.session_state.get("cliente_id", ""))
+def panel_administracion_empresas(conn):
+    st.header("⚙️ Gestión de Empresas y Accesos")
+    
+    
 
-            cursor = conn.cursor()
-            query = """
-                INSERT INTO control_central.logs_auditoria (usuario_id, accion, detalles, ip_address, fecha) 
-                VALUES (%s, %s, %s, %s, NOW())
-            """
-            cursor.execute(query, (usuario, accion, detalles, cliente_id))
-            conn.commit()
-    except Exception as e:
-        # Manejo de error silencioso o impreso para depuración
-        print(f"Error registrando log: {e}")
-    finally:
-        if cursor:
-            cursor.close()
 
 @st.cache_data(ttl=300)
 def _obtener_datos_sidebar_cache():
@@ -6701,7 +6683,7 @@ def gestionar_sidebar():
 
         # --- Navegación ---
         if user_rol == 'admin':
-            menu = st.radio("Navegación", ["📊 Auditoría Contable", "⚙️ Gestión de Usuarios"], key="menu_nav")
+            menu = st.radio("Navegación", ["📊 Auditoría Contable", "⚙️ Gestión de Usuarios","⚙️ Gestión de Usuarios"], key="menu_nav")
         else:
             menu = "📊 Auditoría Contable"
 
@@ -6853,12 +6835,11 @@ if menu_lateral == "⚙️ Gestión de Usuarios":
         st.error(f"Error al acceder a la gestión central: {e}")
     st.stop()
 
-
 if menu_lateral == "⚙️ Gestión de Empresas":    
     try:
         conn = conectar_db() 
         if conn:
-            panel_administracion(conn)
+            panel_administracion_empresas(conn)
             try:
                 conn.close()
             except Exception:
@@ -6868,6 +6849,7 @@ if menu_lateral == "⚙️ Gestión de Empresas":
     except Exception as e:
         st.error(f"Error al acceder a la gestión central: {e}")
     st.stop()
+
 
 # Sacamos los datos directamente de lo que ya se seleccionó en el Sidebar
 if 'DB_ACTUAL' in st.session_state and st.session_state.get('DB_ACTUAL'):
