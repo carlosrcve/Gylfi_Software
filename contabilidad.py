@@ -10324,10 +10324,11 @@ elif opcion_menu == "📝 Asientos Contables":
                     st.markdown("#### 2️⃣ Frame: Retención de IVA")
                     col_f2_1, col_f2_2 = st.columns(2)
                     with col_f2_1:
+                        # Aquí agregamos el 0.0% explícitamente para que aparezca en el desplegable
                         porcentaje_ret_iva = st.selectbox(
                             "Porcentaje Retención IVA", 
                             options=[75.0, 100.0, 25.0, 50.0, 0.0], 
-                            format_func=lambda x: f"{x}% (Sin retención)" if x == 0.0 else f"{x}%", 
+                            format_func=lambda x: f"{x}% (Sin retención / Exento)" if x == 0.0 else f"{x}%", 
                             key="f2_porc_ret_iva"
                         )
                     with col_f2_2:
@@ -10348,7 +10349,6 @@ elif opcion_menu == "📝 Asientos Contables":
                         anular_islr_manual = st.checkbox("Forzar ISLR a 0.00", value=False, key="chk_anular_islr")
                 else:
                     st.info("ℹ️ Has seleccionado **No**. Las retenciones de IVA e ISLR se registrarán automáticamente en **0.00** para cumplir con la estructura de la base de datos.")
-
                 observaciones_form = st.text_area("Observaciones / Concepto del Pago", key="f4_obs")
 
                 st.markdown("---")
@@ -10376,13 +10376,14 @@ elif opcion_menu == "📝 Asientos Contables":
                             monto_iva_form = base_imponible_form * (alicuota_iva_form / 100.0)
                             monto_bruto_form = base_imponible_form + monto_exento_form + monto_iva_form
                             
-                            # Cálculo de Retención de IVA (respeta el radio, el 0% o el checkbox de anulación)
+                            # Cálculo de Retención de IVA (respeta el 0.0% del selectbox o el checkbox de forzar a cero)
                             if aplica_retenciones == "No" or porcentaje_ret_iva == 0.0 or anular_iva_manual:
                                 retencion_iva_form = 0.0
                             else:
                                 retencion_iva_form = monto_iva_form * (porcentaje_ret_iva / 100.0)
 
-                            # Cálculo de Retención de ISLR (respeta el radio, el 0% o el checkbox de anulación)
+                            # Cálculo de Retención de ISLR (respeta si colocas 0 en el porcentaje o marcas el checkbox)
+                            islr_sustraendo_form = float(islr_sustraendo_str.replace(",", ".")) if islr_sustraendo_str else 0.0
                             if aplica_retenciones == "No" or islr_porcentaje_form == 0.0 or anular_islr_manual:
                                 retencion_islr_form = 0.0
                                 islr_porcentaje_form = 0.0
