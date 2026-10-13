@@ -15755,7 +15755,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                     st.markdown("---")
                     st.markdown("### 💰 Control de Montos, Alícuota e IVA Automático")
 
-                    # Selector de Alícuota de IVA (Permite elegir 16%, 8% u otras según la ley)
+                    # Selector de Alícuota de IVA
                     alicuota_opciones = {
                         "General (16%)": 16.0,
                         "Reducida (8%)": 8.0,
@@ -15764,20 +15764,22 @@ elif opcion_menu == "📚 Libros Fiscales":
                     alicuota_label = st.selectbox(
                         "Seleccione la Alícuota de IVA",
                         options=list(alicuota_opciones.keys()),
+                        key="sel_alicuota_form",
                     )
                     iva_porcentaje_val = alicuota_opciones[alicuota_label]
 
                     col_m1, col_m2, col_m3 = st.columns(3)
                     with col_m1:
+                        # Usamos claves para capturar el valor en tiempo real
                         base_imp_input = st.number_input(
                             "Base Imponible",
                             min_value=0.00,
                             format="%.2f",
                             step=100.00,
-                            key="input_base_imp",
+                            key="input_base_imp_rt",
                         )
                     with col_m2:
-                        # Cálculo automático del IVA basado en la alícuota seleccionada
+                        # Cálculo automático instantáneo
                         iva_monto_input = base_imp_input * (
                             iva_porcentaje_val / 100.0
                         )
@@ -15786,7 +15788,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                             value=iva_monto_input,
                             format="%.2f",
                             disabled=True,
-                            key="input_iva_monto_auto",
+                            key="input_iva_monto_rt",
                         )
                     with col_m3:
                         exento_input = st.number_input(
@@ -15794,10 +15796,10 @@ elif opcion_menu == "📚 Libros Fiscales":
                             min_value=0.00,
                             format="%.2f",
                             step=100.00,
-                            key="input_exento",
+                            key="input_exento_rt",
                         )
 
-                    # Sumatoria estricta y correcta: Total = Base Imponible + IVA + Monto Exento
+                    # Sumatoria instantánea: Total = Base Imponible + IVA + Monto Exento
                     total_calculado = base_imp_input + iva_monto_input + exento_input
 
                     st.success(
@@ -15805,8 +15807,11 @@ elif opcion_menu == "📚 Libros Fiscales":
                         f" **{total_calculado:,.2f}**"
                     )
 
-                    btn_guardar_nuevo = st.form_submit_button(
-                        "💾 Guardar Factura en Base de Datos", type="primary"
+                    # Botón de guardado fuera del st.form tradicional para permitir la interactividad fluida
+                    btn_guardar_nuevo = st.button(
+                        "💾 Guardar Factura en Base de Datos",
+                        type="primary",
+                        key="btn_guardar_factura_rt",
                     )
 
                     if btn_guardar_nuevo:
@@ -15833,7 +15838,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                                         total_calculado,
                                         exento_input,
                                         base_imp_input,
-                                        iva_porcentaje_val,  # Se guarda la alícuota real seleccionada
+                                        iva_porcentaje_val,
                                         iva_monto_input,
                                     )
                                     cursor_ins.execute(query_insert_single, valores)
