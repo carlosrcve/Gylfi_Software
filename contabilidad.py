@@ -15769,13 +15769,11 @@ elif opcion_menu == "📚 Libros Fiscales":
                 st.markdown("---")
                 st.markdown("### 💰 Control de Montos, Alícuota e IVA Automático")
 
-                # 1. Inicializar los valores en st.session_state si no existen
+                # 1. Inicializar variables en st.session_state si no existen
                 if "rt_base" not in st.session_state:
                     st.session_state.rt_base = 0.00
                 if "rt_exento" not in st.session_state:
                     st.session_state.rt_exento = 0.00
-                if "rt_iva_calc" not in st.session_state:
-                    st.session_state.rt_iva_calc = 0.00
 
                 alicuota_opciones = {
                     "General (16%)": 16.0,
@@ -15789,35 +15787,31 @@ elif opcion_menu == "📚 Libros Fiscales":
                 )
                 iva_porcentaje_val = alicuota_opciones[alicuota_label]
 
-                # Función para calcular el IVA automáticamente al cambiar la base o la alícuota
-                def actualizar_calculos():
-                    st.session_state.rt_iva_calc = st.session_state.rt_base * (
-                        iva_porcentaje_val / 100.0
-                    )
+                # 2. Cálculo dinámico inmediato del IVA basado en la base imponible actual
+                iva_monto_calculado = st.session_state.rt_base * (
+                    iva_porcentaje_val / 100.0
+                )
 
-                # Ejecutamos la actualización de inmediato
-                actualizar_calculos()
+                # Forzamos la actualización del valor del IVA en el estado para que se pinte bien
+                st.session_state.rt_iva_val_real = iva_monto_calculado
 
                 col_m1, col_m2, col_m3 = st.columns(3)
                 with col_m1:
-                    # Al cambiar este valor, recarga y actualiza el estado
                     base_imp_input = st.number_input(
                         "Base Imponible",
                         min_value=0.00,
                         format="%.2f",
                         step=100.00,
                         key="rt_base",
-                        on_change=actualizar_calculos,
                     )
                 with col_m2:
-                    # Mostramos el IVA calculado dinámicamente desde el estado
-                    iva_monto_input = st.session_state.rt_iva_calc
+                    # Usamos un campo de texto o mostramos el valor actualizado para evitar el bloqueo de key
                     st.number_input(
                         f"IVA Monto ({iva_porcentaje_val}% Automático)",
-                        value=iva_monto_input,
+                        value=st.session_state.rt_iva_val_real,
                         format="%.2f",
                         disabled=True,
-                        key="rt_iva_display",
+                        key="rt_iva_display_box",
                     )
                 with col_m3:
                     exento_input = st.number_input(
@@ -15828,15 +15822,16 @@ elif opcion_menu == "📚 Libros Fiscales":
                         key="rt_exento",
                     )
 
-                # Sumatoria total utilizando los valores vigentes en sesión
+                # Sumatoria total con los valores reales
                 total_calculado = (
                     st.session_state.rt_base
-                    + st.session_state.rt_iva_calc
+                    + st.session_state.rt_iva_val_real
                     + st.session_state.rt_exento
                 )
 
-                # Función local para dar formato de miles y decimales
-                def formato_moneda_local(val):
+
+                # Función para formatear con puntos de miles y comas decimales (Ej: 786.458,45)
+                def formato_venezuela(val):
                     return (
                         f"{val:,.2f}"
                         .replace(",", "X")
@@ -15844,9 +15839,10 @@ elif opcion_menu == "📚 Libros Fiscales":
                         .replace("X", ".")
                     )
 
+
                 st.success(
                     f"💵 **Monto Total Calculado Automáticamente:**"
-                    f" **{formato_moneda_local(total_calculado)}**"
+                    f" **{formato_venezuela(total_calculado)}**"
                 )
 
                 # Botón de guardado en base de datos
@@ -15879,7 +15875,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                                     st.session_state.rt_exento,
                                     st.session_state.rt_base,
                                     iva_porcentaje_val,
-                                    st.session_state.rt_iva_calc,
+                                    st.session_state.rt_iva_val_real,
                                 )
                                 cursor_ins.execute(query_insert_single, valores)
                                 conn_ins.commit()
