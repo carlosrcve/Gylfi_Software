@@ -15645,368 +15645,368 @@ elif opcion_menu == "📚 Libros Fiscales":
 
         # --- LÓGICA DE NAVEGACIÓN ---
         with tab1:  # Consultar, Modificar, Eliminar y Registrar
-        st.subheader("🔍 Consulta y Edición: Libro de Compras")
+            st.subheader("🔍 Consulta y Edición: Libro de Compras")
 
-        # 1. Filtros de fecha y botón de consulta inicial
-        col_c1, col_c2, col_c3 = st.columns([1, 1, 1])
-        with col_c3:
-            ver_todo = st.checkbox("📂 Ver todo", key="todo_compras")
+            # 1. Filtros de fecha y botón de consulta inicial
+            col_c1, col_c2, col_c3 = st.columns([1, 1, 1])
+            with col_c3:
+                ver_todo = st.checkbox("📂 Ver todo", key="todo_compras")
 
-        from datetime import date as d_tipo, datetime as dt_tipo
+            from datetime import date as d_tipo, datetime as dt_tipo
 
-        def _obtener_f_segura(key_s):
-            val = st.session_state.get(key_s)
-            if val is not None:
+            def _obtener_f_segura(key_s):
+                val = st.session_state.get(key_s)
+                if val is not None:
+                    try:
+                        if hasattr(val, "year") and hasattr(val, "month"):
+                            return val
+                        elif isinstance(val, str):
+                            return dt_tipo.strptime(val, "%Y-%m-%d").date()
+                    except Exception:
+                        pass
+                return d_tipo.today()
+
+            with col_c1:
+                desde_c = st.date_input(
+                    "Desde",
+                    _obtener_f_segura("f_inicio_global"),
+                    key="desde_c",
+                    disabled=ver_todo,
+                )
+            with col_c2:
+                hasta_c = st.date_input(
+                    "Hasta",
+                    _obtener_f_segura("f_fin_global"),
+                    key="hasta_c",
+                    disabled=ver_todo,
+                )
+
+            st.error("⚠️ **Atención:** Las acciones aquí solo afectan al Libro de Compras.")
+
+            # Botón explícito de consulta
+            if st.button("📊 Consultar Compras", key="btn_consultar_compras"):
                 try:
-                    if hasattr(val, "year") and hasattr(val, "month"):
-                        return val
-                    elif isinstance(val, str):
-                        return dt_tipo.strptime(val, "%Y-%m-%d").date()
-                except Exception:
-                    pass
-            return d_tipo.today()
-
-        with col_c1:
-            desde_c = st.date_input(
-                "Desde",
-                _obtener_f_segura("f_inicio_global"),
-                key="desde_c",
-                disabled=ver_todo,
-            )
-        with col_c2:
-            hasta_c = st.date_input(
-                "Hasta",
-                _obtener_f_segura("f_fin_global"),
-                key="hasta_c",
-                disabled=ver_todo,
-            )
-
-        st.error("⚠️ **Atención:** Las acciones aquí solo afectan al Libro de Compras.")
-
-        # Botón explícito de consulta
-        if st.button("📊 Consultar Compras", key="btn_consultar_compras"):
-            try:
-                conn = conectar_db(db_actual)
-                if conn:
-                    query = (
-                        "SELECT * FROM libro_compras ORDER BY fecha_operacion DESC"
-                        if ver_todo
-                        else "SELECT * FROM libro_compras WHERE fecha_operacion BETWEEN %s AND %s ORDER BY fecha_operacion ASC"
-                    )
-                    params = None if ver_todo else (desde_c, hasta_c)
-
-                    df_recuperado = ejecutar_consulta(query, conn, params=params)
-                    if df_recuperado is not None and not df_recuperado.empty:
-                        st.session_state.df_compras_editor = df_recuperado
-                    else:
-                        st.warning("No se encontraron registros en el rango seleccionado.")
-                        if "df_compras_editor" in st.session_state:
-                            del st.session_state.df_compras_editor
-            except Exception as e:
-                st.error(f"❌ Error al consultar la base de datos: {e}")
-            finally:
-                if "conn" in locals() and conn:
-                    conn.close()
-
-        # ==========================================
-        # 2. RENDERIZADO DEL FRAME DE CONSULTA Y OPCIONES DE EDICIÓN
-        # ==========================================
-        if "df_compras_editor" in st.session_state:
-            df_mostrar_compras = st.session_state.df_compras_editor.copy()
-
-            # --- VISTA DE CONSULTA (Visualización limpia) ---
-            df_visual_c = df_mostrar_compras.copy()
-            cols_moneda_c = [
-                "total_compras",
-                "importe_exento",
-                "base_imponible",
-                "iva_monto",
-                "monto_iva_retenido",
-            ]
-            for col in cols_moneda_c:
-                if col in df_visual_c.columns:
-                    df_visual_c[col] = df_visual_c[col].apply(
-                        lambda x: "{:,.2f}".format(x)
-                        .replace(",", "X")
-                        .replace(".", ",")
-                        .replace("X", ".")
-                        if pd.notnull(x)
-                        else "0,00"
-                    )
-
-            st.subheader("👁️ Vista de Consulta")
-            st.dataframe(df_visual_c, width="stretch", hide_index=True)
-
-            # --- EDITOR DE DATOS (Modificar y Eliminar Activo) ---
-            st.subheader("✏️ Administrar Compras (Modificar, Eliminar)")
-            st.info("💡 **Instrucciones:** Puedes editar celdas directamente de los registros existentes, o eliminar registros seleccionando la fila y haciendo clic en el icono de papelera.")
-
-            key_editor_compras = "editor_consulta_final"
-
-            cambios_df = st.data_editor(
-                df_mostrar_compras,
-                key=key_editor_compras,
-                num_rows="fixed",
-                width="stretch",
-                hide_index=True,
-                column_config={
-                    "id": st.column_config.NumberColumn("ID", disabled=True),
-                    "fecha_operacion": st.column_config.DateColumn("F. Operación", format="DD/MM/YYYY"),
-                    "tipo_documento": st.column_config.TextColumn("Tipo Doc."),
-                    "n_factura": st.column_config.TextColumn("Nº Factura"),
-                    "n_control": st.column_config.TextColumn("Nº Control"),
-                    "nota_credito": st.column_config.TextColumn("Nº Nota Crédito", help="Número de la Nota de Crédito emitida por el proveedor (si aplica)"),
-                    "nota_debito": st.column_config.TextColumn("Nº Nota Débito", help="Número de la Nota de Débito (si aplica)"),
-                    "proveedor": st.column_config.TextColumn("Proveedor"),
-                    "rif": st.column_config.TextColumn("RIF"),
-                    "total_compras": st.column_config.NumberColumn("Total Compras", format="%,.2f", step=0.01),
-                    "importe_exento": st.column_config.NumberColumn("Importe Exento", format="%,.2f", step=0.01),
-                    "base_imponible": st.column_config.NumberColumn("Base Imponible", format="%,.2f", step=0.01),
-                    "iva_porcentaje": st.column_config.NumberColumn("% IVA", format="%.1f", step=0.1),
-                    "iva_monto": st.column_config.NumberColumn("IVA Monto", format="%,.2f", step=0.01),
-                    "fecha_comprobante": st.column_config.DateColumn("F. Comprobante", format="DD/MM/YYYY"),
-                    "created_at": st.column_config.DatetimeColumn("F. Registro", disabled=True),
-                    "updated_at": st.column_config.DatetimeColumn("F. Actualización", disabled=True),
-                },
-            )
-
-            # --- CÁLCULO DE TOTALES ---
-            st.markdown("### 📊 Totales")
-
-            def f_bs(v):
-                return f"Bs. {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-
-            t1, t2, t3, t4 = st.columns(4)
-            t1.metric("Total Compras", f_bs(df_mostrar_compras["total_compras"].sum() if "total_compras" in df_mostrar_compras.columns else 0.0))
-            t2.metric("Total Exento", f_bs(df_mostrar_compras["importe_exento"].sum() if "importe_exento" in df_mostrar_compras.columns else 0.0))
-            t3.metric("Total Base", f_bs(df_mostrar_compras["base_imponible"].sum() if "base_imponible" in df_mostrar_compras.columns else 0.0))
-            t4.metric("Total IVA", f_bs(df_mostrar_compras["iva_monto"].sum() if "iva_monto" in df_mostrar_compras.columns else 0.0))
-            st.markdown("---")
-
-            # --- BOTÓN DE DESCARGA EN EXCEL ---
-            st.markdown("### 📥 Descargar Reporte")
-            import io
-
-            nombre_archivo = f"Libro de compras del {desde_c.strftime('%Y-%m-%d')} al {hasta_c.strftime('%Y-%m-%d')}.xlsx"
-
-            buffer = io.BytesIO()
-            with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
-                df_mostrar_compras.to_excel(writer, index=False, sheet_name="Libro de Compras")
-            buffer.seek(0)
-
-            st.download_button(
-                label="📊 Descargar Libro de Compras en Excel",
-                data=buffer,
-                file_name=nombre_archivo,
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                key="btn_download_excel_compras",
-            )
-
-            st.markdown("---")
-
-            # --- BOTÓN ÚNICO DE GUARDAR (Procesa Modificaciones y Eliminaciones) ---
-            if st.button("💾 Guardar cambios de edición en DB", type="primary", key="btn_guardar_final_compras"):
-                if key_editor_compras in st.session_state:
-                    cambios = st.session_state[key_editor_compras]
                     conn = conectar_db(db_actual)
-
                     if conn:
-                        cursor = conn.cursor()
-                        try:
-                            cursor.execute("DESCRIBE libro_compras")
-                            columnas_db = [fila[0] for fila in cursor.fetchall()]
+                        query = (
+                            "SELECT * FROM libro_compras ORDER BY fecha_operacion DESC"
+                            if ver_todo
+                            else "SELECT * FROM libro_compras WHERE fecha_operacion BETWEEN %s AND %s ORDER BY fecha_operacion ASC"
+                        )
+                        params = None if ver_todo else (desde_c, hasta_c)
 
-                            def limpiar_dato(val):
-                                if val is None or (isinstance(val, float) and np.isnan(val)):
-                                    return None
-                                if isinstance(val, (pd.Timestamp, pd.Timedelta)):
-                                    return str(val.date())
-                                if isinstance(val, (np.integer, np.int64)):
-                                    return int(val)
-                                if isinstance(val, (np.floating, np.float64)):
-                                    return float(val)
-                                return str(val).strip()
-
-                            cursor.execute("START TRANSACTION")
-
-                            # 1. MODIFICAR / EDITAR FILAS EXISTENTES
-                            for row_idx, dict_cambios in cambios.get("edited_rows", {}).items():
-                                id_edit = int(df_mostrar_compras.iloc[int(row_idx)]["id"])
-
-                                if "fecha_operacion" in dict_cambios and dict_cambios["fecha_operacion"]:
-                                    f = dict_cambios["fecha_operacion"]
-                                    dict_cambios["fecha_operacion"] = f.strftime("%Y-%m-%d") if hasattr(f, "strftime") else str(f)
-
-                                if dict_cambios:
-                                    cols_val = [f"{k} = %s" for k in dict_cambios.keys() if k in columnas_db]
-                                    vals_val = [limpiar_dato(v) for k, v in dict_cambios.items() if k in columnas_db]
-                                    if cols_val:
-                                        sql_upd = f"UPDATE libro_compras SET {', '.join(cols_val)} WHERE id = %s"
-                                        cursor.execute(sql_upd, vals_val + [id_edit])
-
-                            # 2. ELIMINAR FILAS
-                            for row_idx in cambios.get("deleted_rows", []):
-                                id_del = int(df_mostrar_compras.iloc[row_idx]["id"])
-                                cursor.execute("DELETE FROM libro_compras WHERE id = %s", (id_del,))
-
-                            conn.commit()
-                            st.success("✅ ¡Modificaciones y eliminaciones guardadas correctamente en MySQL!")
-
+                        df_recuperado = ejecutar_consulta(query, conn, params=params)
+                        if df_recuperado is not None and not df_recuperado.empty:
+                            st.session_state.df_compras_editor = df_recuperado
+                        else:
+                            st.warning("No se encontraron registros en el rango seleccionado.")
                             if "df_compras_editor" in st.session_state:
                                 del st.session_state.df_compras_editor
-                            st.rerun()
+                except Exception as e:
+                    st.error(f"❌ Error al consultar la base de datos: {e}")
+                finally:
+                    if "conn" in locals() and conn:
+                        conn.close()
 
-                        except Exception as e:
-                            if conn:
-                                conn.rollback()
-                            st.error(f"❌ Error al guardar en MySQL: {e}")
-                        finally:
-                            cursor.close()
-                            conn.close()
-                    else:
-                        st.warning("⚠️ No hay registro de cambios activos en la sesión.")
+            # ==========================================
+            # 2. RENDERIZADO DEL FRAME DE CONSULTA Y OPCIONES DE EDICIÓN
+            # ==========================================
+            if "df_compras_editor" in st.session_state:
+                df_mostrar_compras = st.session_state.df_compras_editor.copy()
 
-        st.markdown("---")
+                # --- VISTA DE CONSULTA (Visualización limpia) ---
+                df_visual_c = df_mostrar_compras.copy()
+                cols_moneda_c = [
+                    "total_compras",
+                    "importe_exento",
+                    "base_imponible",
+                    "iva_monto",
+                    "monto_iva_retenido",
+                ]
+                for col in cols_moneda_c:
+                    if col in df_visual_c.columns:
+                        df_visual_c[col] = df_visual_c[col].apply(
+                            lambda x: "{:,.2f}".format(x)
+                            .replace(",", "X")
+                            .replace(".", ",")
+                            .replace("X", ".")
+                            if pd.notnull(x)
+                            else "0,00"
+                        )
 
-        # ==========================================
-        # 3. SECCIÓN INFERIOR: AGREGAR NUEVA FACTURA
-        # ==========================================
-        with st.expander(
-            "➕ Registrar Nueva Factura (Con listas desplegables y cálculos automáticos)",
-            expanded=False,
-        ):
-            try:
-                conn_prov = conectar_db(db_actual)
-                if conn_prov:
-                    df_prov = ejecutar_consulta(
-                        "SELECT rif, razon_social FROM proveedores", conn_prov
-                    )
-                    conn_prov.close()
-                else:
-                    df_prov = pd.DataFrame()
-            except Exception:
-                df_prov = pd.DataFrame()
+                st.subheader("👁️ Vista de Consulta")
+                st.dataframe(df_visual_c, width="stretch", hide_index=True)
 
-            if not df_prov.empty:
-                df_prov["display_prov"] = (
-                    df_prov["razon_social"] + " (" + df_prov["rif"] + ")"
+                # --- EDITOR DE DATOS (Modificar y Eliminar Activo) ---
+                st.subheader("✏️ Administrar Compras (Modificar, Eliminar)")
+                st.info("💡 **Instrucciones:** Puedes editar celdas directamente de los registros existentes, o eliminar registros seleccionando la fila y haciendo clic en el icono de papelera.")
+
+                key_editor_compras = "editor_consulta_final"
+
+                cambios_df = st.data_editor(
+                    df_mostrar_compras,
+                    key=key_editor_compras,
+                    num_rows="fixed",
+                    width="stretch",
+                    hide_index=True,
+                    column_config={
+                        "id": st.column_config.NumberColumn("ID", disabled=True),
+                        "fecha_operacion": st.column_config.DateColumn("F. Operación", format="DD/MM/YYYY"),
+                        "tipo_documento": st.column_config.TextColumn("Tipo Doc."),
+                        "n_factura": st.column_config.TextColumn("Nº Factura"),
+                        "n_control": st.column_config.TextColumn("Nº Control"),
+                        "nota_credito": st.column_config.TextColumn("Nº Nota Crédito", help="Número de la Nota de Crédito emitida por el proveedor (si aplica)"),
+                        "nota_debito": st.column_config.TextColumn("Nº Nota Débito", help="Número de la Nota de Débito (si aplica)"),
+                        "proveedor": st.column_config.TextColumn("Proveedor"),
+                        "rif": st.column_config.TextColumn("RIF"),
+                        "total_compras": st.column_config.NumberColumn("Total Compras", format="%,.2f", step=0.01),
+                        "importe_exento": st.column_config.NumberColumn("Importe Exento", format="%,.2f", step=0.01),
+                        "base_imponible": st.column_config.NumberColumn("Base Imponible", format="%,.2f", step=0.01),
+                        "iva_porcentaje": st.column_config.NumberColumn("% IVA", format="%.1f", step=0.1),
+                        "iva_monto": st.column_config.NumberColumn("IVA Monto", format="%,.2f", step=0.01),
+                        "fecha_comprobante": st.column_config.DateColumn("F. Comprobante", format="DD/MM/YYYY"),
+                        "created_at": st.column_config.DatetimeColumn("F. Registro", disabled=True),
+                        "updated_at": st.column_config.DatetimeColumn("F. Actualización", disabled=True),
+                    },
                 )
-                lista_opciones_proveedores = df_prov["display_prov"].tolist()
-            else:
-                lista_opciones_proveedores = []
 
-            if lista_opciones_proveedores:
-                prov_elegido = st.selectbox(
-                    "Proveedor / RIF", options=lista_opciones_proveedores, key="rt_prov"
-                )
-                razon_social_val = prov_elegido.split(" (")[0]
-                rif_val = prov_elegido.split(" (")[1].replace(")", "")
-            else:
-                st.warning("No hay proveedores registrados. Por favor registre proveedores primero.")
-                razon_social_val = "VARIOS"
-                rif_val = "J000000000"
+                # --- CÁLCULO DE TOTALES ---
+                st.markdown("### 📊 Totales")
 
-            col_x1, col_x2 = st.columns(2)
-            with col_x1:
-                tipo_doc_val = st.selectbox(
-                    "Tipo de Documento",
-                    ["01-Factura", "03-Nota de Crédito"],
-                    key="rt_tipo_doc",
+                def f_bs(v):
+                    return f"Bs. {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+                t1, t2, t3, t4 = st.columns(4)
+                t1.metric("Total Compras", f_bs(df_mostrar_compras["total_compras"].sum() if "total_compras" in df_mostrar_compras.columns else 0.0))
+                t2.metric("Total Exento", f_bs(df_mostrar_compras["importe_exento"].sum() if "importe_exento" in df_mostrar_compras.columns else 0.0))
+                t3.metric("Total Base", f_bs(df_mostrar_compras["base_imponible"].sum() if "base_imponible" in df_mostrar_compras.columns else 0.0))
+                t4.metric("Total IVA", f_bs(df_mostrar_compras["iva_monto"].sum() if "iva_monto" in df_mostrar_compras.columns else 0.0))
+                st.markdown("---")
+
+                # --- BOTÓN DE DESCARGA EN EXCEL ---
+                st.markdown("### 📥 Descargar Reporte")
+                import io
+
+                nombre_archivo = f"Libro de compras del {desde_c.strftime('%Y-%m-%d')} al {hasta_c.strftime('%Y-%m-%d')}.xlsx"
+
+                buffer = io.BytesIO()
+                with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+                    df_mostrar_compras.to_excel(writer, index=False, sheet_name="Libro de Compras")
+                buffer.seek(0)
+
+                st.download_button(
+                    label="📊 Descargar Libro de Compras en Excel",
+                    data=buffer,
+                    file_name=nombre_archivo,
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    key="btn_download_excel_compras",
                 )
-                fecha_op_val = st.date_input("Fecha de Operación / Emisión", key="rt_f_op")
-            with col_x2:
-                n_factura_val = st.text_input("Número de Factura", key="rt_n_fact")
-                n_control_val = st.text_input("Número de Control", key="rt_n_ctrl")
-                nota_cred_val = st.text_input(
-                    "Nº Nota de Crédito (Opcional)", value="", key="rt_nc"
-                )
+
+                st.markdown("---")
+
+                # --- BOTÓN ÚNICO DE GUARDAR (Procesa Modificaciones y Eliminaciones) ---
+                if st.button("💾 Guardar cambios de edición en DB", type="primary", key="btn_guardar_final_compras"):
+                    if key_editor_compras in st.session_state:
+                        cambios = st.session_state[key_editor_compras]
+                        conn = conectar_db(db_actual)
+
+                        if conn:
+                            cursor = conn.cursor()
+                            try:
+                                cursor.execute("DESCRIBE libro_compras")
+                                columnas_db = [fila[0] for fila in cursor.fetchall()]
+
+                                def limpiar_dato(val):
+                                    if val is None or (isinstance(val, float) and np.isnan(val)):
+                                        return None
+                                    if isinstance(val, (pd.Timestamp, pd.Timedelta)):
+                                        return str(val.date())
+                                    if isinstance(val, (np.integer, np.int64)):
+                                        return int(val)
+                                    if isinstance(val, (np.floating, np.float64)):
+                                        return float(val)
+                                    return str(val).strip()
+
+                                cursor.execute("START TRANSACTION")
+
+                                # 1. MODIFICAR / EDITAR FILAS EXISTENTES
+                                for row_idx, dict_cambios in cambios.get("edited_rows", {}).items():
+                                    id_edit = int(df_mostrar_compras.iloc[int(row_idx)]["id"])
+
+                                    if "fecha_operacion" in dict_cambios and dict_cambios["fecha_operacion"]:
+                                        f = dict_cambios["fecha_operacion"]
+                                        dict_cambios["fecha_operacion"] = f.strftime("%Y-%m-%d") if hasattr(f, "strftime") else str(f)
+
+                                    if dict_cambios:
+                                        cols_val = [f"{k} = %s" for k in dict_cambios.keys() if k in columnas_db]
+                                        vals_val = [limpiar_dato(v) for k, v in dict_cambios.items() if k in columnas_db]
+                                        if cols_val:
+                                            sql_upd = f"UPDATE libro_compras SET {', '.join(cols_val)} WHERE id = %s"
+                                            cursor.execute(sql_upd, vals_val + [id_edit])
+
+                                # 2. ELIMINAR FILAS
+                                for row_idx in cambios.get("deleted_rows", []):
+                                    id_del = int(df_mostrar_compras.iloc[row_idx]["id"])
+                                    cursor.execute("DELETE FROM libro_compras WHERE id = %s", (id_del,))
+
+                                conn.commit()
+                                st.success("✅ ¡Modificaciones y eliminaciones guardadas correctamente en MySQL!")
+
+                                if "df_compras_editor" in st.session_state:
+                                    del st.session_state.df_compras_editor
+                                st.rerun()
+
+                            except Exception as e:
+                                if conn:
+                                    conn.rollback()
+                                st.error(f"❌ Error al guardar en MySQL: {e}")
+                            finally:
+                                cursor.close()
+                                conn.close()
+                        else:
+                            st.warning("⚠️ No hay registro de cambios activos en la sesión.")
 
             st.markdown("---")
-            st.markdown("### 💰 Control de Montos, Alícuota e IVA Automático")
 
-            alicuota_opciones = {
-                "General (16%)": 16.0,
-                "Reducida (8%)": 8.0,
-                "Exonerada / Otra (0%)": 0.0,
-            }
+            # ==========================================
+            # 3. SECCIÓN INFERIOR: AGREGAR NUEVA FACTURA
+            # ==========================================
+            with st.expander(
+                "➕ Registrar Nueva Factura (Con listas desplegables y cálculos automáticos)",
+                expanded=False,
+            ):
+                try:
+                    conn_prov = conectar_db(db_actual)
+                    if conn_prov:
+                        df_prov = ejecutar_consulta(
+                            "SELECT rif, razon_social FROM proveedores", conn_prov
+                        )
+                        conn_prov.close()
+                    else:
+                        df_prov = pd.DataFrame()
+                except Exception:
+                    df_prov = pd.DataFrame()
 
-            alicuota_label = st.selectbox(
-                "Seleccione la Alícuota de IVA",
-                options=list(alicuota_opciones.keys()),
-                key="rt_alicuota"
-            )
-            iva_porcentaje_val = alicuota_opciones[alicuota_label]
-
-            col_m1, col_m2, col_m3 = st.columns(3)
-            with col_m1:
-                base_imp_input = st.number_input(
-                    "Base Imponible",
-                    min_value=0.00,
-                    format="%.2f",
-                    step=100.00,
-                    key="rt_base"
-                )
-            with col_m2:
-                iva_monto_input = base_imp_input * (iva_porcentaje_val / 100.0)
-                st.number_input(
-                    f"IVA Monto ({iva_porcentaje_val}% Automático)",
-                    value=float(iva_monto_input),
-                    format="%.2f",
-                    disabled=True
-                )
-            with col_m3:
-                exento_input = st.number_input(
-                    "Monto Exento",
-                    min_value=0.00,
-                    format="%.2f",
-                    step=100.00,
-                    key="rt_exento"
-                )
-
-            total_calculado = base_imp_input + iva_monto_input + exento_input
-
-            def formato_venezuela(val):
-                return f"{val:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-
-            st.success(
-                f"💵 **Monto Total Calculado Automáticamente:** **{formato_venezuela(total_calculado)}**"
-            )
-
-            if st.button("💾 Guardar Factura en Base de Datos", type="primary", key="rt_btn_guardar"):
-                if not n_factura_val or n_factura_val == "0":
-                    st.error("❌ El número de factura es obligatorio.")
+                if not df_prov.empty:
+                    df_prov["display_prov"] = (
+                        df_prov["razon_social"] + " (" + df_prov["rif"] + ")"
+                    )
+                    lista_opciones_proveedores = df_prov["display_prov"].tolist()
                 else:
-                    try:
-                        conn_ins = conectar_db(db_actual)
-                        if conn_ins:
-                            cursor_ins = conn_ins.cursor()
-                            query_insert_single = """
-                                INSERT INTO libro_compras 
-                                (fecha_operacion, tipo_documento, n_factura, n_control, nota_credito, proveedor, rif, total_compras, importe_exento, base_imponible, iva_porcentaje, iva_monto)
-                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                            """
-                            valores = (
-                                fecha_op_val.strftime("%Y-%m-%d"),
-                                tipo_doc_val,
-                                n_factura_val,
-                                n_control_val,
-                                nota_cred_val if nota_cred_val else None,
-                                razon_social_val,
-                                rif_val,
-                                total_calculado,
-                                exento_input,
-                                base_imp_input,
-                                iva_porcentaje_val,
-                                iva_monto_input,
-                            )
-                            cursor_ins.execute(query_insert_single, valores)
-                            conn_ins.commit()
-                            cursor_ins.close()
-                            conn_ins.close()
-                            st.success("✅ ¡Factura agregada exitosamente con su monto total y alícuota calculada!")
-                            st.rerun()
-                    except Exception as e:
-                        st.error(f"❌ Error al guardar la factura: {e}")
+                    lista_opciones_proveedores = []
+
+                if lista_opciones_proveedores:
+                    prov_elegido = st.selectbox(
+                        "Proveedor / RIF", options=lista_opciones_proveedores, key="rt_prov"
+                    )
+                    razon_social_val = prov_elegido.split(" (")[0]
+                    rif_val = prov_elegido.split(" (")[1].replace(")", "")
+                else:
+                    st.warning("No hay proveedores registrados. Por favor registre proveedores primero.")
+                    razon_social_val = "VARIOS"
+                    rif_val = "J000000000"
+
+                col_x1, col_x2 = st.columns(2)
+                with col_x1:
+                    tipo_doc_val = st.selectbox(
+                        "Tipo de Documento",
+                        ["01-Factura", "03-Nota de Crédito"],
+                        key="rt_tipo_doc",
+                    )
+                    fecha_op_val = st.date_input("Fecha de Operación / Emisión", key="rt_f_op")
+                with col_x2:
+                    n_factura_val = st.text_input("Número de Factura", key="rt_n_fact")
+                    n_control_val = st.text_input("Número de Control", key="rt_n_ctrl")
+                    nota_cred_val = st.text_input(
+                        "Nº Nota de Crédito (Opcional)", value="", key="rt_nc"
+                    )
+
+                st.markdown("---")
+                st.markdown("### 💰 Control de Montos, Alícuota e IVA Automático")
+
+                alicuota_opciones = {
+                    "General (16%)": 16.0,
+                    "Reducida (8%)": 8.0,
+                    "Exonerada / Otra (0%)": 0.0,
+                }
+
+                alicuota_label = st.selectbox(
+                    "Seleccione la Alícuota de IVA",
+                    options=list(alicuota_opciones.keys()),
+                    key="rt_alicuota"
+                )
+                iva_porcentaje_val = alicuota_opciones[alicuota_label]
+
+                col_m1, col_m2, col_m3 = st.columns(3)
+                with col_m1:
+                    base_imp_input = st.number_input(
+                        "Base Imponible",
+                        min_value=0.00,
+                        format="%.2f",
+                        step=100.00,
+                        key="rt_base"
+                    )
+                with col_m2:
+                    iva_monto_input = base_imp_input * (iva_porcentaje_val / 100.0)
+                    st.number_input(
+                        f"IVA Monto ({iva_porcentaje_val}% Automático)",
+                        value=float(iva_monto_input),
+                        format="%.2f",
+                        disabled=True
+                    )
+                with col_m3:
+                    exento_input = st.number_input(
+                        "Monto Exento",
+                        min_value=0.00,
+                        format="%.2f",
+                        step=100.00,
+                        key="rt_exento"
+                    )
+
+                total_calculado = base_imp_input + iva_monto_input + exento_input
+
+                def formato_venezuela(val):
+                    return f"{val:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+                st.success(
+                    f"💵 **Monto Total Calculado Automáticamente:** **{formato_venezuela(total_calculado)}**"
+                )
+
+                if st.button("💾 Guardar Factura en Base de Datos", type="primary", key="rt_btn_guardar"):
+                    if not n_factura_val or n_factura_val == "0":
+                        st.error("❌ El número de factura es obligatorio.")
+                    else:
+                        try:
+                            conn_ins = conectar_db(db_actual)
+                            if conn_ins:
+                                cursor_ins = conn_ins.cursor()
+                                query_insert_single = """
+                                    INSERT INTO libro_compras 
+                                    (fecha_operacion, tipo_documento, n_factura, n_control, nota_credito, proveedor, rif, total_compras, importe_exento, base_imponible, iva_porcentaje, iva_monto)
+                                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                """
+                                valores = (
+                                    fecha_op_val.strftime("%Y-%m-%d"),
+                                    tipo_doc_val,
+                                    n_factura_val,
+                                    n_control_val,
+                                    nota_cred_val if nota_cred_val else None,
+                                    razon_social_val,
+                                    rif_val,
+                                    total_calculado,
+                                    exento_input,
+                                    base_imp_input,
+                                    iva_porcentaje_val,
+                                    iva_monto_input,
+                                )
+                                cursor_ins.execute(query_insert_single, valores)
+                                conn_ins.commit()
+                                cursor_ins.close()
+                                conn_ins.close()
+                                st.success("✅ ¡Factura agregada exitosamente con su monto total y alícuota calculada!")
+                                st.rerun()
+                        except Exception as e:
+                            st.error(f"❌ Error al guardar la factura: {e}")
                                 
         with tab2: # Escaneo Inteligente
             st.subheader("📸 Escaneo Inteligente de Documentos (OCR)")
