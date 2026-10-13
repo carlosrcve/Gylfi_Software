@@ -10314,27 +10314,38 @@ elif opcion_menu == "📝 Asientos Contables":
                 islr_porcentaje_form = 0.0
                 islr_sustraendo_form = 0.0
                 islr_sustraendo_str = "0.00"
+                anular_iva_manual = False
+                anular_islr_manual = False
 
                 # --- FRENTS 2 Y 3 (CONDICIONALES SEGÚN EL RADIO) ---
                 if aplica_retenciones == "Sí":
                     st.markdown("---")
                     # --- 2DO FRAME: RETENCIÓN DE IVA ---
                     st.markdown("#### 2️⃣ Frame: Retención de IVA")
-                    col_f2_1, _ = st.columns(2)
+                    col_f2_1, col_f2_2 = st.columns(2)
                     with col_f2_1:
-                        porcentaje_ret_iva = st.selectbox("Porcentaje Retención IVA", options=[75.0, 100.0, 25.0, 50.0], format_func=lambda x: f"{x}%", key="f2_porc_ret_iva")
+                        porcentaje_ret_iva = st.selectbox(
+                            "Porcentaje Retención IVA", 
+                            options=[75.0, 100.0, 25.0, 50.0, 0.0], 
+                            format_func=lambda x: f"{x}% (Sin retención)" if x == 0.0 else f"{x}%", 
+                            key="f2_porc_ret_iva"
+                        )
+                    with col_f2_2:
+                        anular_iva_manual = st.checkbox("Forzar Retención IVA a 0.00", value=False, key="chk_anular_iva")
                     
                     st.markdown("---")
 
                     # --- 3ER FRAME: RETENCIÓN DE ISLR ---
                     st.markdown("#### 3️⃣ Frame: Retención de ISLR")
-                    col_f3_1, col_f3_2, col_f3_3 = st.columns(3)
+                    col_f3_1, col_f3_2, col_f3_3, col_f3_4 = st.columns(4)
                     with col_f3_1:
-                        tipo_persona_form = st.selectbox("Tipo de Persona", options=["Jurídico Domiciliado", "Natural Residenciado", "Otro"], key="f3_tipo_p")
+                        tipo_persona_form = st.selectbox("Tipo de Persona", options=["Jurídico Domiciliado", "Natural Residenciado", "Otro", "No Aplica"], key="f3_tipo_p")
                     with col_f3_2:
                         islr_porcentaje_form = st.number_input("% Retención ISLR", min_value=0.0, max_value=100.0, value=1.0, format="%.2f", key="f3_porc_islr")
                     with col_f3_3:
                         islr_sustraendo_str = st.text_input("Sustraendo ISLR", value="0.00", key="f3_sustraendo_str")
+                    with col_f3_4:
+                        anular_islr_manual = st.checkbox("Forzar ISLR a 0.00", value=False, key="chk_anular_islr")
                 else:
                     st.info("ℹ️ Has seleccionado **No**. Las retenciones de IVA e ISLR se registrarán automáticamente en **0.00** para cumplir con la estructura de la base de datos.")
 
@@ -10347,7 +10358,7 @@ elif opcion_menu == "📝 Asientos Contables":
 
                 if btn_guardar_op:
                     if not nro_factura_form:
-                        st.error("⚠️ El número de factura es obligatorio.")
+                        st.error("⚠️ El número de factura is obligatorio.")
                     elif not lista_provs:
                         st.error("⚠️ No hay proveedores cargados para asociar la orden.")
                     else:
@@ -10361,16 +10372,22 @@ elif opcion_menu == "📝 Asientos Contables":
                             else:
                                 islr_sustraendo_form = 0.0
 
-                            # Cálculos automáticos limpios (si es No, las retenciones se multiplican por 0 o se fuerzan a 0)
+                            # Cálculos automáticos base
                             monto_iva_form = base_imponible_form * (alicuota_iva_form / 100.0)
                             monto_bruto_form = base_imponible_form + monto_exento_form + monto_iva_form
                             
-                            if aplica_retenciones == "Sí":
-                                retencion_iva_form = monto_iva_form * (porcentaje_ret_iva / 100.0)
-                                retencion_islr_form = max(0.0, (base_imponible_form * (islr_porcentaje_form / 100.0)) - islr_sustraendo_form)
-                            else:
+                            # Cálculo de Retención de IVA (respeta el radio, el 0% o el checkbox de anulación)
+                            if aplica_retenciones == "No" or porcentaje_ret_iva == 0.0 or anular_iva_manual:
                                 retencion_iva_form = 0.0
+                            else:
+                                retencion_iva_form = monto_iva_form * (porcentaje_ret_iva / 100.0)
+
+                            # Cálculo de Retención de ISLR (respeta el radio, el 0% o el checkbox de anulación)
+                            if aplica_retenciones == "No" or islr_porcentaje_form == 0.0 or anular_islr_manual:
                                 retencion_islr_form = 0.0
+                                islr_porcentaje_form = 0.0
+                            else:
+                                retencion_islr_form = max(0.0, (base_imponible_form * (islr_porcentaje_form / 100.0)) - islr_sustraendo_form)
 
                             monto_neto_calculado = monto_bruto_form - retencion_islr_form - retencion_iva_form
 
@@ -10403,7 +10420,7 @@ elif opcion_menu == "📝 Asientos Contables":
                                     'Pendiente',
                                     str(fecha_emision_form),
                                     str(observaciones_form),
-                                    float(islr_porcentaje_form) if aplica_retenciones == "Sí" else 0.0,
+                                    float(islr_porcentaje_form),
                                     float(islr_sustraendo_form),
                                     str(tipo_persona_form)
                                 ))
