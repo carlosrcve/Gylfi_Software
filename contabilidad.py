@@ -3871,7 +3871,10 @@ def generar_comprobante_pdf(datos, conn):
         except Exception:
             pass
 
-    # --- CONSULTA DIRECTA USANDO CLIENTE_ID EN control_central ---
+    # --- TRAZA DE DEPURACIÓN VISUAL EN STREAMLIT ---
+    id_sesion = st.session_state.get('cliente_id')
+    st.write(f"🔍 **DEBUG SESSION:** `cliente_id` actual en sesión es: `{id_sesion}` (Tipo: {type(id_sesion)})")
+
     datos_agente_dinamicos = {
         "nombre": "EMPRESA NO IDENTIFICADA",
         "rif": "J-00000000-0",
@@ -3885,22 +3888,26 @@ def generar_comprobante_pdf(datos, conn):
             
             if cursor_c:
                 res_agente = None
-                cliente_id_sesion = st.session_state.get('cliente_id')
 
-                # 1. Buscamos directamente por el ID de la empresa en control_central.clientes
-                if cliente_id_sesion:
+                if id_sesion is not None:
                     cursor_c.execute(
                         "SELECT nombre_empresa, rif, direccion_fiscal FROM clientes WHERE id = %s", 
-                        (cliente_id_sesion,)
+                        (id_sesion,)
                     )
                     res_agente = cursor_c.fetchone()
+                    st.write(f"🔍 **DEBUG SQL (por ID):** Resultado obtenido -> {res_agente}")
 
-                # 2. Respaldo absoluto: si no hay id en sesión, trae el primer registro
+                # Si por alguna razón no lo halló por ID, probamos un SELECT general para ver qué hay en la tabla
                 if not res_agente:
                     cursor_c.execute(
-                        "SELECT nombre_empresa, rif, direccion_fiscal FROM clientes LIMIT 1"
+                        "SELECT id, nombre_empresa, rif, direccion_fiscal FROM clientes LIMIT 5"
                     )
-                    res_agente = cursor_c.fetchone()
+                    todos_los_clientes = cursor_c.fetchall()
+                    st.write(f"⚠️ **DEBUG TABLA clientes (Primeros 5 registros):** {todos_los_clientes}")
+                    
+                    # Respaldo absoluto: agarramos el primero
+                    if todos_los_clientes:
+                        res_agente = todos_los_clientes[0]
 
                 if res_agente:
                     datos_agente_dinamicos = {
@@ -3912,7 +3919,7 @@ def generar_comprobante_pdf(datos, conn):
                 cursor_c.close()
             conn_central.close()
     except Exception as e:
-        print(f"Error crítico obteniendo datos del agente: {e}")
+        st.error(f"❌ **Error crítico en consulta:** {e}")
 
     # Asignamos los datos reales al diccionario del PDF
     datos['agente'] = datos_agente_dinamicos
@@ -4051,6 +4058,7 @@ def generar_comprobante_pdf(datos, conn):
                 conn.ping(reconnect=True)
         except Exception:
             pass
+
 def comprobar_existencia_comprobante(n_comprobante):
     """Verifica si el número de comprobante ya existe en la DB"""
     db_actual = st.session_state.get('DB_ACTUAL')
