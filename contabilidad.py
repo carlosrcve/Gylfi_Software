@@ -15775,17 +15775,17 @@ elif opcion_menu == "📚 Libros Fiscales":
                     "Exonerada / Otra (0%)": 0.0,
                 }
 
-                # Función para forzar la actualización inmediata al cambiar la alícuota
-                def actualizar_alicuota():
-                    st.rerun()
-
+                # Selector de Alícuota con recarga forzosa inmediata
                 alicuota_label = st.selectbox(
                     "Seleccione la Alícuota de IVA",
                     options=list(alicuota_opciones.keys()),
                     key="rt_alicuota",
-                    on_change=actualizar_alicuota
+                    on_change=lambda: st.rerun()
                 )
-                iva_porcentaje_val = alicuota_opciones[alicuota_label]
+                
+                # Obtenemos el porcentaje directamente del estado actual de forma segura
+                label_actual = st.session_state.get("rt_alicuota", "General (16%)")
+                iva_porcentaje_val = alicuota_opciones.get(label_actual, 16.0)
 
                 col_m1, col_m2, col_m3 = st.columns(3)
                 with col_m1:
@@ -15797,7 +15797,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                         key="rt_base"
                     )
                 with col_m2:
-                    # Cálculo exacto en tiempo real según la base imponible y la alícuota seleccionada
+                    # Cálculo del IVA usando el porcentaje actualizado al instante
                     iva_monto_input = base_imp_input * (iva_porcentaje_val / 100.0)
                     
                     st.number_input(
@@ -15827,7 +15827,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                     f"💵 **Monto Total Calculado Automáticamente:** **{formato_venezuela(total_calculado)}**"
                 )
 
-                # Botón de guardado definitivo en base de datos (con total_compras incluido en el INSERT)
+                # Botón de guardado con el campo total_compras incluido en el INSERT
                 if st.button("💾 Guardar Factura en Base de Datos", type="primary", key="rt_btn_guardar"):
                     if not n_factura_val or n_factura_val == "0":
                         st.error("❌ El número de factura es obligatorio.")
@@ -15849,7 +15849,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                                     nota_cred_val if nota_cred_val else None,
                                     razon_social_val,
                                     rif_val,
-                                    total_calculado,  # <-- Aquí se guarda correctamente el monto total en la BD
+                                    total_calculado,  # Monto total guardado correctamente en la BD
                                     exento_input,
                                     base_imp_input,
                                     iva_porcentaje_val,
@@ -15859,7 +15859,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                                 conn_ins.commit()
                                 cursor_ins.close()
                                 conn_ins.close()
-                                st.success("✅ ¡Factura agregada exitosamente con su monto total, proveedor y alícuota calculada!")
+                                st.success("✅ ¡Factura agregada exitosamente con su monto total y alícuota calculada!")
                                 st.rerun()
                         except Exception as e:
                             st.error(f"❌ Error al guardar la factura: {e}")
