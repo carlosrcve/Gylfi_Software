@@ -3871,9 +3871,7 @@ def generar_comprobante_pdf(datos, conn):
         except Exception:
             pass
 
-    # --- TRAZA DE DEPURACIÓN VISUAL EN STREAMLIT ---
     id_sesion = st.session_state.get('cliente_id')
-    st.write(f"🔍 **DEBUG SESSION:** `cliente_id` actual en sesión es: `{id_sesion}` (Tipo: {type(id_sesion)})")
 
     datos_agente_dinamicos = {
         "nombre": "EMPRESA NO IDENTIFICADA",
@@ -3884,7 +3882,8 @@ def generar_comprobante_pdf(datos, conn):
     try:
         conn_central = conectar_db("control_central")
         if conn_central:
-            cursor_c = conn_central.cursor(dictionary=True) if hasattr(conn_central, 'cursor') else None
+            # Creamos el cursor de forma estándar (sin dictionary=True para evitar el error del driver)
+            cursor_c = conn_central.cursor() if hasattr(conn_central, 'cursor') else None
             
             if cursor_c:
                 res_agente = None
@@ -3894,20 +3893,26 @@ def generar_comprobante_pdf(datos, conn):
                         "SELECT nombre_empresa, rif, direccion_fiscal FROM clientes WHERE id = %s", 
                         (id_sesion,)
                     )
-                    res_agente = cursor_c.fetchone()
-                    st.write(f"🔍 **DEBUG SQL (por ID):** Resultado obtenido -> {res_agente}")
+                    row = cursor_c.fetchone()
+                    if row:
+                        res_agente = {
+                            "nombre_empresa": row[0],
+                            "rif": row[1],
+                            "direccion_fiscal": row[2]
+                        }
 
-                # Si por alguna razón no lo halló por ID, probamos un SELECT general para ver qué hay en la tabla
+                # Respaldo absoluto: si no encuentra por ID, tomamos el primer registro
                 if not res_agente:
                     cursor_c.execute(
-                        "SELECT id, nombre_empresa, rif, direccion_fiscal FROM clientes LIMIT 5"
+                        "SELECT nombre_empresa, rif, direccion_fiscal FROM clientes LIMIT 1"
                     )
-                    todos_los_clientes = cursor_c.fetchall()
-                    st.write(f"⚠️ **DEBUG TABLA clientes (Primeros 5 registros):** {todos_los_clientes}")
-                    
-                    # Respaldo absoluto: agarramos el primero
-                    if todos_los_clientes:
-                        res_agente = todos_los_clientes[0]
+                    row = cursor_c.fetchone()
+                    if row:
+                        res_agente = {
+                            "nombre_empresa": row[0],
+                            "rif": row[1],
+                            "direccion_fiscal": row[2]
+                        }
 
                 if res_agente:
                     datos_agente_dinamicos = {
@@ -3919,7 +3924,7 @@ def generar_comprobante_pdf(datos, conn):
                 cursor_c.close()
             conn_central.close()
     except Exception as e:
-        st.error(f"❌ **Error crítico en consulta:** {e}")
+        st.error(f"❌ Error crítico en consulta: {e}")
 
     # Asignamos los datos reales al diccionario del PDF
     datos['agente'] = datos_agente_dinamicos
