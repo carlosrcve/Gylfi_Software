@@ -15769,6 +15769,12 @@ elif opcion_menu == "📚 Libros Fiscales":
                 st.markdown("---")
                 st.markdown("### 💰 Control de Montos, Alícuota e IVA Automático")
 
+                # Inicializar variables en st.session_state si no existen
+                if "rt_base" not in st.session_state:
+                    st.session_state.rt_base = 0.00
+                if "rt_exento" not in st.session_state:
+                    st.session_state.rt_exento = 0.00
+
                 alicuota_opciones = {
                     "General (16%)": 16.0,
                     "Reducida (8%)": 8.0,
@@ -15791,7 +15797,10 @@ elif opcion_menu == "📚 Libros Fiscales":
                         key="rt_base",
                     )
                 with col_m2:
-                    iva_monto_input = base_imp_input * (iva_porcentaje_val / 100.0)
+                    # Cálculo directo usando el valor de la sesión
+                    iva_monto_input = st.session_state.rt_base * (
+                        iva_porcentaje_val / 100.0
+                    )
                     st.number_input(
                         f"IVA Monto ({iva_porcentaje_val}% Automático)",
                         value=iva_monto_input,
@@ -15808,15 +15817,35 @@ elif opcion_menu == "📚 Libros Fiscales":
                         key="rt_exento",
                     )
 
-                # Sumatoria en tiempo real: Total = Base Imponible + IVA + Monto Exento
-                total_calculado = base_imp_input + iva_monto_input + exento_input
-
-                st.success(
-                    f"💵 **Monto Total Calculado Automáticamente:** **{total_calculado:,.2f}**"
+                # Sumatoria en tiempo real utilizando los estados activos
+                total_calculado = (
+                    st.session_state.rt_base
+                    + iva_monto_input
+                    + st.session_state.rt_exento
                 )
 
-                # Botón de guardado interactivo fuera de st.form, evitando cualquier error de contexto
-                if st.button("💾 Guardar Factura en Base de Datos", type="primary", key="rt_btn_guardar"):
+
+                # Función auxiliar para formatear los montos con estilo de miles y decimales
+                def formato_moneda_local(val):
+                    return (
+                        f"{val:,.2f}"
+                        .replace(",", "X")
+                        .replace(".", ",")
+                        .replace("X", ".")
+                    )
+
+
+                st.success(
+                    f"💵 **Monto Total Calculado Automáticamente:**"
+                    f" **{formato_moneda_local(total_calculado)}**"
+                )
+
+                # Botón de guardado interactivo
+                if st.button(
+                    "💾 Guardar Factura en Base de Datos",
+                    type="primary",
+                    key="rt_btn_guardar",
+                ):
                     if not n_factura_val or n_factura_val == "0":
                         st.error("❌ El número de factura es obligatorio.")
                     else:
@@ -15838,8 +15867,8 @@ elif opcion_menu == "📚 Libros Fiscales":
                                     razon_social_val,
                                     rif_val,
                                     total_calculado,
-                                    exento_input,
-                                    base_imp_input,
+                                    st.session_state.rt_exento,
+                                    st.session_state.rt_base,
                                     iva_porcentaje_val,
                                     iva_monto_input,
                                 )
@@ -15848,7 +15877,8 @@ elif opcion_menu == "📚 Libros Fiscales":
                                 cursor_ins.close()
                                 conn_ins.close()
                                 st.success(
-                                    "✅ ¡Factura agregada exitosamente con proveedor, alícuota y cálculos automáticos!"
+                                    "✅ ¡Factura agregada exitosamente con proveedor,"
+                                    " alícuota y cálculos automáticos!"
                                 )
                                 st.rerun()
                         except Exception as e:
