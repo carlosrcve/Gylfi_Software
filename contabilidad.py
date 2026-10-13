@@ -15709,7 +15709,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                         conn.close()
 
             # ==========================================
-            # 2. RENDERIZADO DEL FRAME DE CONSULTA Y OPCIONES DE EDICIÓN
+            # 2. RENDERIZADO DEL FRAME DE CONSULTA Y OPCIONES DE EDICIÓN (SOLO APARECE DESPUÉS DE CONSULTAR)
             # ==========================================
             if "df_compras_editor" in st.session_state:
                 df_mostrar_compras = st.session_state.df_compras_editor.copy()
@@ -15866,147 +15866,147 @@ elif opcion_menu == "📚 Libros Fiscales":
                         else:
                             st.warning("⚠️ No hay registro de cambios activos en la sesión.")
 
-            st.markdown("---")
-
-            # ==========================================
-            # 3. SECCIÓN INFERIOR: AGREGAR NUEVA FACTURA
-            # ==========================================
-            with st.expander(
-                "➕ Registrar Nueva Factura (Con listas desplegables y cálculos automáticos)",
-                expanded=False,
-            ):
-                try:
-                    conn_prov = conectar_db(db_actual)
-                    if conn_prov:
-                        df_prov = ejecutar_consulta(
-                            "SELECT rif, razon_social FROM proveedores", conn_prov
-                        )
-                        conn_prov.close()
-                    else:
-                        df_prov = pd.DataFrame()
-                except Exception:
-                    df_prov = pd.DataFrame()
-
-                if not df_prov.empty:
-                    df_prov["display_prov"] = (
-                        df_prov["razon_social"] + " (" + df_prov["rif"] + ")"
-                    )
-                    lista_opciones_proveedores = df_prov["display_prov"].tolist()
-                else:
-                    lista_opciones_proveedores = []
-
-                if lista_opciones_proveedores:
-                    prov_elegido = st.selectbox(
-                        "Proveedor / RIF", options=lista_opciones_proveedores, key="rt_prov"
-                    )
-                    razon_social_val = prov_elegido.split(" (")[0]
-                    rif_val = prov_elegido.split(" (")[1].replace(")", "")
-                else:
-                    st.warning("No hay proveedores registrados. Por favor registre proveedores primero.")
-                    razon_social_val = "VARIOS"
-                    rif_val = "J000000000"
-
-                col_x1, col_x2 = st.columns(2)
-                with col_x1:
-                    tipo_doc_val = st.selectbox(
-                        "Tipo de Documento",
-                        ["01-Factura", "03-Nota de Crédito"],
-                        key="rt_tipo_doc",
-                    )
-                    fecha_op_val = st.date_input("Fecha de Operación / Emisión", key="rt_f_op")
-                with col_x2:
-                    n_factura_val = st.text_input("Número de Factura", key="rt_n_fact")
-                    n_control_val = st.text_input("Número de Control", key="rt_n_ctrl")
-                    nota_cred_val = st.text_input(
-                        "Nº Nota de Crédito (Opcional)", value="", key="rt_nc"
-                    )
-
                 st.markdown("---")
-                st.markdown("### 💰 Control de Montos, Alícuota e IVA Automático")
 
-                alicuota_opciones = {
-                    "General (16%)": 16.0,
-                    "Reducida (8%)": 8.0,
-                    "Exonerada / Otra (0%)": 0.0,
-                }
+                # ==========================================
+                # 3. SECCIÓN INFERIOR: AGREGAR NUEVA FACTURA (SOLO SE MUESTRA DESPUÉS DE CONSULTAR)
+                # ==========================================
+                with st.expander(
+                    "➕ Registrar Nueva Factura (Con listas desplegables y cálculos automáticos)",
+                    expanded=False,
+                ):
+                    try:
+                        conn_prov = conectar_db(db_actual)
+                        if conn_prov:
+                            df_prov = ejecutar_consulta(
+                                "SELECT rif, razon_social FROM proveedores", conn_prov
+                            )
+                            conn_prov.close()
+                        else:
+                            df_prov = pd.DataFrame()
+                    except Exception:
+                        df_prov = pd.DataFrame()
 
-                alicuota_label = st.selectbox(
-                    "Seleccione la Alícuota de IVA",
-                    options=list(alicuota_opciones.keys()),
-                    key="rt_alicuota"
-                )
-                iva_porcentaje_val = alicuota_opciones[alicuota_label]
-
-                col_m1, col_m2, col_m3 = st.columns(3)
-                with col_m1:
-                    base_imp_input = st.number_input(
-                        "Base Imponible",
-                        min_value=0.00,
-                        format="%.2f",
-                        step=100.00,
-                        key="rt_base"
-                    )
-                with col_m2:
-                    iva_monto_input = base_imp_input * (iva_porcentaje_val / 100.0)
-                    st.number_input(
-                        f"IVA Monto ({iva_porcentaje_val}% Automático)",
-                        value=float(iva_monto_input),
-                        format="%.2f",
-                        disabled=True
-                    )
-                with col_m3:
-                    exento_input = st.number_input(
-                        "Monto Exento",
-                        min_value=0.00,
-                        format="%.2f",
-                        step=100.00,
-                        key="rt_exento"
-                    )
-
-                total_calculado = base_imp_input + iva_monto_input + exento_input
-
-                def formato_venezuela(val):
-                    return f"{val:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-
-                st.success(
-                    f"💵 **Monto Total Calculado Automáticamente:** **{formato_venezuela(total_calculado)}**"
-                )
-
-                if st.button("💾 Guardar Factura en Base de Datos", type="primary", key="rt_btn_guardar"):
-                    if not n_factura_val or n_factura_val == "0":
-                        st.error("❌ El número de factura es obligatorio.")
+                    if not df_prov.empty:
+                        df_prov["display_prov"] = (
+                            df_prov["razon_social"] + " (" + df_prov["rif"] + ")"
+                        )
+                        lista_opciones_proveedores = df_prov["display_prov"].tolist()
                     else:
-                        try:
-                            conn_ins = conectar_db(db_actual)
-                            if conn_ins:
-                                cursor_ins = conn_ins.cursor()
-                                query_insert_single = """
-                                    INSERT INTO libro_compras 
-                                    (fecha_operacion, tipo_documento, n_factura, n_control, nota_credito, proveedor, rif, total_compras, importe_exento, base_imponible, iva_porcentaje, iva_monto)
-                                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                                """
-                                valores = (
-                                    fecha_op_val.strftime("%Y-%m-%d"),
-                                    tipo_doc_val,
-                                    n_factura_val,
-                                    n_control_val,
-                                    nota_cred_val if nota_cred_val else None,
-                                    razon_social_val,
-                                    rif_val,
-                                    total_calculado,
-                                    exento_input,
-                                    base_imp_input,
-                                    iva_porcentaje_val,
-                                    iva_monto_input,
-                                )
-                                cursor_ins.execute(query_insert_single, valores)
-                                conn_ins.commit()
-                                cursor_ins.close()
-                                conn_ins.close()
-                                st.success("✅ ¡Factura agregada exitosamente con su monto total y alícuota calculada!")
-                                st.rerun()
-                        except Exception as e:
-                            st.error(f"❌ Error al guardar la factura: {e}")
+                        lista_opciones_proveedores = []
+
+                    if lista_opciones_proveedores:
+                        prov_elegido = st.selectbox(
+                            "Proveedor / RIF", options=lista_opciones_proveedores, key="rt_prov"
+                        )
+                        razon_social_val = prov_elegido.split(" (")[0]
+                        rif_val = prov_elegido.split(" (")[1].replace(")", "")
+                    else:
+                        st.warning("No hay proveedores registrados. Por favor registre proveedores primero.")
+                        razon_social_val = "VARIOS"
+                        rif_val = "J000000000"
+
+                    col_x1, col_x2 = st.columns(2)
+                    with col_x1:
+                        tipo_doc_val = st.selectbox(
+                            "Tipo de Documento",
+                            ["01-Factura", "03-Nota de Crédito"],
+                            key="rt_tipo_doc",
+                        )
+                        fecha_op_val = st.date_input("Fecha de Operación / Emisión", key="rt_f_op")
+                    with col_x2:
+                        n_factura_val = st.text_input("Número de Factura", key="rt_n_fact")
+                        n_control_val = st.text_input("Número de Control", key="rt_n_ctrl")
+                        nota_cred_val = st.text_input(
+                            "Nº Nota de Crédito (Opcional)", value="", key="rt_nc"
+                        )
+
+                    st.markdown("---")
+                    st.markdown("### 💰 Control de Montos, Alícuota e IVA Automático")
+
+                    alicuota_opciones = {
+                        "General (16%)": 16.0,
+                        "Reducida (8%)": 8.0,
+                        "Exonerada / Otra (0%)": 0.0,
+                    }
+
+                    alicuota_label = st.selectbox(
+                        "Seleccione la Alícuota de IVA",
+                        options=list(alicuota_opciones.keys()),
+                        key="rt_alicuota"
+                    )
+                    iva_porcentaje_val = alicuota_opciones[alicuota_label]
+
+                    col_m1, col_m2, col_m3 = st.columns(3)
+                    with col_m1:
+                        base_imp_input = st.number_input(
+                            "Base Imponible",
+                            min_value=0.00,
+                            format="%.2f",
+                            step=100.00,
+                            key="rt_base"
+                        )
+                    with col_m2:
+                        iva_monto_input = base_imp_input * (iva_porcentaje_val / 100.0)
+                        st.number_input(
+                            f"IVA Monto ({iva_porcentaje_val}% Automático)",
+                            value=float(iva_monto_input),
+                            format="%.2f",
+                            disabled=True
+                        )
+                    with col_m3:
+                        exento_input = st.number_input(
+                            "Monto Exento",
+                            min_value=0.00,
+                            format="%.2f",
+                            step=100.00,
+                            key="rt_exento"
+                        )
+
+                    total_calculado = base_imp_input + iva_monto_input + exento_input
+
+                    def formato_venezuela(val):
+                        return f"{val:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+                    st.success(
+                        f"💵 **Monto Total Calculado Automáticamente:** **{formato_venezuela(total_calculado)}**"
+                    )
+
+                    if st.button("💾 Guardar Factura en Base de Datos", type="primary", key="rt_btn_guardar"):
+                        if not n_factura_val or n_factura_val == "0":
+                            st.error("❌ El número de factura es obligatorio.")
+                        else:
+                            try:
+                                conn_ins = conectar_db(db_actual)
+                                if conn_ins:
+                                    cursor_ins = conn_ins.cursor()
+                                    query_insert_single = """
+                                        INSERT INTO libro_compras 
+                                        (fecha_operacion, tipo_documento, n_factura, n_control, nota_credito, proveedor, rif, total_compras, importe_exento, base_imponible, iva_porcentaje, iva_monto)
+                                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                    """
+                                    valores = (
+                                        fecha_op_val.strftime("%Y-%m-%d"),
+                                        tipo_doc_val,
+                                        n_factura_val,
+                                        n_control_val,
+                                        nota_cred_val if nota_cred_val else None,
+                                        razon_social_val,
+                                        rif_val,
+                                        total_calculado,
+                                        exento_input,
+                                        base_imp_input,
+                                        iva_porcentaje_val,
+                                        iva_monto_input,
+                                    )
+                                    cursor_ins.execute(query_insert_single, valores)
+                                    conn_ins.commit()
+                                    cursor_ins.close()
+                                    conn_ins.close()
+                                    st.success("✅ ¡Factura agregada exitosamente con su monto total y alícuota calculada!")
+                                    st.rerun()
+                            except Exception as e:
+                                st.error(f"❌ Error al guardar la factura: {e}")
                                 
         with tab2: # Escaneo Inteligente
             st.subheader("📸 Escaneo Inteligente de Documentos (OCR)")
