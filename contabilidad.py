@@ -3861,31 +3861,23 @@ def generar_comprobante_pdf(datos, conn):
     limpieza de etiquetas, RIF con guiones, número de comprobante legal 
     y centrado de celdas.
     """
-    # Se obtienen de forma segura las variables de sesión para evitar NameError
     usuario_actual = st.session_state.get('usuario', 'Sistema')
     cliente_actual = st.session_state.get('cliente_id', 'General')
     
-    # 🛡️ BLINDAJE DE CONEXIÓN: Si 'conn' es None, intentamos rescatarla o la omitimos con seguridad para el log
+    # Blindaje de log
     if conn is not None:
         try:
             registrar_log_automatico(conn, "GENERACION_PDF_RETENCION", f"Usuario {usuario_actual} generó PDF de retención para {cliente_actual}")
         except Exception:
             pass
-    else:
-        # Intentar conectar de emergencia si viene nula
-        try:
-            db_activa = st.session_state.get('DB_ACTUAL')
-            conn_emergencia = conectar_db(db_activa) if db_activa else conectar_db()
-            if conn_emergencia:
-                registrar_log_automatico(conn_emergencia, "GENERACION_PDF_RETENCION", f"Usuario {usuario_actual} generó PDF de retención para {cliente_actual}")
-                conn_emergencia.close()
-        except Exception:
-            pass
 
-    # --- CONSULTAR DINÁMICAMENTE LOS DATOS DE LA EMPRESA DESDE control_central.clientes ---
+    # --- CONSULTA DINÁMICA BLINDADA DESDE control_central.clientes ---
     db_activa = st.session_state.get('DB_ACTUAL')
     cliente_id_sesion = st.session_state.get('cliente_id')
     
+    # TRAZA DE DEPURACIÓN (Temporal: puedes ver esto en tu pantalla para saber qué busca)
+    # st.write(f"DEBUG -> DB_ACTUAL en sesión: {db_activa} | cliente_id: {cliente_id_sesion}")
+
     datos_agente_dinamicos = {
         "nombre": "EMPRESA NO IDENTIFICADA",
         "rif": "J-00000000-0",
@@ -3893,12 +3885,12 @@ def generar_comprobante_pdf(datos, conn):
     }
 
     try:
-        conn_agente = conectar_db() # Conexión global al servidor MySQL
+        conn_agente = conectar_db() 
         if conn_agente:
             cursor_agente = conn_agente.cursor(dictionary=True)
             res_agente = None
             
-            # 1. Intentamos buscar por db_nombre exacto en control_central.clientes
+            # 1. Buscar por db_nombre exacto
             if db_activa:
                 cursor_agente.execute(
                     "SELECT nombre_empresa, rif, direccion_fiscal FROM control_central.clientes WHERE db_nombre = %s", 
@@ -3906,7 +3898,15 @@ def generar_comprobante_pdf(datos, conn):
                 )
                 res_agente = cursor_agente.fetchone()
             
-            # 2. Si no se encontró, intentamos buscar por el cliente_id de la sesión
+            # 2. Si no encuentra, buscar usando LIKE (por si tiene espacios o sufijos)
+            if not res_agente and db_activa:
+                cursor_agente.execute(
+                    "SELECT nombre_empresa, rif, direccion_fiscal FROM control_central.clientes WHERE db_nombre LIKE %s", 
+                    (f"%{db_activa}%",)
+                )
+                res_agente = cursor_agente.fetchone()
+
+            # 3. Si aún no encuentra, buscar por el ID de sesión
             if not res_agente and cliente_id_sesion:
                 cursor_agente.execute(
                     "SELECT nombre_empresa, rif, direccion_fiscal FROM control_central.clientes WHERE id = %s", 
@@ -3914,7 +3914,7 @@ def generar_comprobante_pdf(datos, conn):
                 )
                 res_agente = cursor_agente.fetchone()
                 
-            # 3. Respaldo absoluto: si aún no aparece, traemos el primer registro de control_central.clientes
+            # 4. Respaldo definitivo: el primer cliente de la tabla si todo lo demás falla
             if not res_agente:
                 cursor_agente.execute(
                     "SELECT nombre_empresa, rif, direccion_fiscal FROM control_central.clientes LIMIT 1"
@@ -3931,9 +3931,9 @@ def generar_comprobante_pdf(datos, conn):
             cursor_agente.close()
             conn_agente.close()
     except Exception as e:
-        print(f"Error obteniendo datos dinámicos del agente desde control_central: {e}")
+        print(f"Error obteniendo datos dinámicos: {e}")
 
-    # Sobrescribimos el agente con los datos reales extraídos de control_central.clientes
+    # Asignamos de forma segura los datos al agente
     datos['agente'] = datos_agente_dinamicos
 
     pdf = FPDF(orientation='P', unit='mm', format='A4')
@@ -3947,7 +3947,6 @@ def generar_comprobante_pdf(datos, conn):
         nums = re.findall(r'\d+', str(texto))
         return nums[0] if nums else str(texto)
 
-    # Lógica para formatear RIF con guiones (V-12345678-9)
     def formatear_rif(rif_raw):
         rif = str(rif_raw).upper().replace('-', '').replace(' ', '')
         if len(rif) >= 9:
@@ -4059,16 +4058,13 @@ def generar_comprobante_pdf(datos, conn):
     pdf.cell(110, 5, "Firma y Sello del Proveedor", 0, 1, 'C')
 
     try:
-        # Generación segura del PDF en bytes
         pdf_output = pdf.output()
         if isinstance(pdf_output, str):
             return pdf_output.encode('latin-1', errors='ignore')
         elif isinstance(pdf_output, bytearray):
             return bytes(pdf_output)
         return pdf_output
-    
     finally:
-        # Aseguramos el reintento de conexión de forma segura
         try:
             if conn:
                 conn.ping(reconnect=True)
