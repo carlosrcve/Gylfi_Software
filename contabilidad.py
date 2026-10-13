@@ -11754,6 +11754,8 @@ elif opcion_menu == "📝 Asientos Contables":
                                         st.success("✅ ¡Movimiento Bancario guardado con éxito!")
                                 except Exception as err_b:
                                     st.error(f"❌ Error al guardar movimiento bancario: {err_b}")
+                except Exception as err_hist:
+                    st.error(f"Error cargando historial de órdenes de pago: {err_hist}")
 
 
         with tab3:
