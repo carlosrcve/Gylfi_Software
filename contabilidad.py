@@ -3882,6 +3882,38 @@ def generar_comprobante_pdf(datos, conn):
         except Exception:
             pass
 
+    # --- CONSULTAR DINÁMICAMENTE LOS DATOS DE LA EMPRESA ACTIVA (AGENTE DE RETENCIÓN) ---
+    db_activa = st.session_state.get('DB_ACTUAL')
+    datos_agente_dinamicos = {
+        "nombre": "EMPRESA NO IDENTIFICADA",
+        "rif": "J-00000000-0",
+        "direccion": "DIRECCIÓN NO REGISTRADA"
+    }
+
+    if db_activa:
+        try:
+            conn_agente = conectar_db() # Conexión a la base central donde reside la tabla 'clientes'
+            if conn_agente:
+                cursor_agente = conn_agente.cursor(dictionary=True)
+                cursor_agente.execute(
+                    "SELECT nombre_empresa, rif, direccion_fiscal FROM clientes WHERE db_nombre = %s", 
+                    (db_activa,)
+                )
+                res_agente = cursor_agente.fetchone()
+                if res_agente:
+                    datos_agente_dinamicos = {
+                        "nombre": res_agente.get("nombre_empresa", ""),
+                        "rif": res_agente.get("rif", ""),
+                        "direccion": res_agente.get("direccion_fiscal", "")
+                    }
+                cursor_agente.close()
+                conn_agente.close()
+        except Exception as e:
+            print(f"Error obteniendo datos dinámicos del agente: {e}")
+
+    # Sobrescribimos el agente con los datos reales de la empresa activa
+    datos['agente'] = datos_agente_dinamicos
+
     pdf = FPDF(orientation='P', unit='mm', format='A4')
     pdf.add_page()
     
@@ -4020,7 +4052,6 @@ def generar_comprobante_pdf(datos, conn):
                 conn.ping(reconnect=True)
         except Exception:
             pass
-        
 def comprobar_existencia_comprobante(n_comprobante):
     """Verifica si el número de comprobante ya existe en la DB"""
     db_actual = st.session_state.get('DB_ACTUAL')
