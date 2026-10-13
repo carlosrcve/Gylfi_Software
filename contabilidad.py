@@ -17538,77 +17538,104 @@ elif opcion_menu == "📚 Libros Fiscales":
             with tab5:
                 st.divider()
                 st.subheader("⚙️ Gestión y Desbloqueo de Facturas")
-                st.info("Utiliza esta opción si marcaste una factura como 'Retenida' por error.")
+                st.info("Utiliza esta opción para buscar y habilitar nuevamente una factura que fue marcada como retenida por error.")
 
-                # --- COMUNICACIÓN DINÁMICA MULTI-CLIENTE ---
-                with st.expander("🔍 Listado de Facturas Retenidas en la BD"):
+                db_actual = st.session_state.get('DB_ACTUAL')
+
+                if db_actual:
                     try:
-                        db_actual = st.session_state.get('DB_ACTUAL')
-                        if db_actual:
-                            conn = conectar_db(db_actual)
-                            query_listado = """
-                                SELECT rif_retenido, numero_factura, proveedor_nombre, monto_retenido 
-                                FROM retenciones_islr 
-                                WHERE monto_retenido > 0 OR porcentaje_retencion > 0
-                            """
-                            df = ejecutar_consulta(query_listado, conn)
-                            conn.close()
-
-                            if not df.empty:
-                                # 1. Convertimos a numérico y aplicamos el formato personalizado estilo venezolano: 1.447,58
-                                df['monto_retenido'] = pd.to_numeric(df['monto_retenido'], errors='coerce').fillna(0.0)
-                                df['monto_retenido'] = df['monto_retenido'].apply(lambda x: f"{x:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
-                                
-                                # 2. Aplicamos estilo de Pandas para forzar la alineación a la derecha y centrar la cabecera del monto
-                                df_styled = df.style.set_properties(
-                                    subset=['monto_retenido'], 
-                                    **{'text-align': 'right'}
-                                ).set_table_styles([
-                                    {'selector': 'th.col3', 'props': [('text-align', 'right')]} # Alinea la cabecera de la columna monto
-                                ])
-
-                                # 3. Mostramos la tabla con el Styler
-                                st.dataframe(
-                                    df_styled, 
-                                    use_container_width=True,
-                                    column_config={
-                                        "rif_retenido": "RIF",
-                                        "numero_factura": "N° Factura",
-                                        "proveedor_nombre": "Proveedor",
-                                        "monto_retenido": "Monto Retenido"
-                                    },
-                                    hide_index=True
-                                )
-                            else:
-                                st.info("No hay facturas retenidas registradas actualmente.")
-                        else:
-                            st.error("No se detectó una base de datos activa en la sesión.")
-                    except Exception as e:
-                        st.error(f"Error de conexión: {e}")
-
-                # --- FORMULARIO DE DESBLOQUEO ---
-                with st.form("form_desbloqueo", clear_on_submit=True):
-                    col1, col2 = st.columns(2)
-                    rif_input = col1.text_input("RIF del Proveedor:")
-                    factura_input = col2.text_input("Número de factura:")
-                    
-                    btn_habilitar = st.form_submit_button("🔓 Habilitar Factura para Retención", type="primary")
-
-                    if btn_habilitar:
-                        if factura_input:
-                            db_actual = st.session_state.get('DB_ACTUAL')
-                            resultado = resetear_estado_retencion(factura_input, db_actual)
+                        conn_f = conectar_db(db_actual)
+                        if conn_f:
+                            # --- 1. FILTRO POR RANGO DE FECHAS ---
+                            st.markdown("### 📅 Filtrar Facturas por Rango de Fecha")
+                            col_f1, col_f2 = st.columns(2)
                             
-                            if resultado is True:
-                                if "facturas_procesadas_ids" in st.session_state:
-                                    st.session_state.facturas_procesadas_ids = []
+                            # Definimos un rango predeterminado (por ejemplo, el mes actual o los últimos 30 días)
+                            from datetime import date, timedelta
+                            fecha_desde = col_f1.date_input("Desde la fecha:", value=date.today() - timedelta(days=30))
+                            fecha_hasta = col_f2.date_input("Hasta la fecha:", value=date.today())
+
+                            # --- 2. CONSULTA DINÁMICA DE FACTURAS RETENIDAS SEGÚN EL RANGO ---
+                            query_listado = """
+                                SELECT rif_retenido, numero_factura, proveedor_nombre, monto_retenido, fecha_operacion 
+                                FROM retenciones_islr 
+                                WHERE (monto_retenido > 0 OR porcentaje_retencion > 0)
+                                  AND fecha_operacion BETWEEN %s AND %s
+                                ORDER BY fecha_operacion DESC
+                            """
+                            cursor_f = conn_f.cursor(dictionary=True) if hasattr(conn_f, 'cursor') else None
+                            
+                            # Si tu función auxiliar prefiere usar pandas directamente, adaptamos la consulta con parámetros:
+                            # Nota: Asegúrate de que ejecutar_consulta acepte parámetros o usa cursor directo. 
+                            # Aquí lo hacemos mediante cursor para mayor control del rango:
+                            cursor_f.execute(query_listado, (fecha_desde, fecha_hasta))
+                            facturas_retenidas = cursor_f.fetchall()
+                            cursor_f.close()
+                            conn_f.close()
+
+                            # --- 3. MOSTRAR LISTADO EN EXPANDER ---
+                            with st.expander("🔍 Listado de Facturas Retenidas en el Rango Seleccionado", expanded=True):
+                                if facturas_retenidas:
+                                    import pandas as pd
+                                    df = pd.DataFrame(facturas_retenidas)
                                     
-                                st.success(f"✅ Factura {factura_input} habilitada correctamente. Ya puedes volver a consultarla.")
-                                st.rerun()
+                                    # Formato de monto venezolano: 1.447,58
+                                    df['monto_retenido'] = pd.to_numeric(df['monto_retenido'], errors='coerce').fillna(0.0)
+                                    df['monto_retenido'] = df['monto_retenido'].apply(lambda x: f"{x:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+                                    
+                                    st.dataframe(
+                                        df, 
+                                        use_container_width=True,
+                                        column_config={
+                                            "rif_retenido": "RIF",
+                                            "numero_factura": "N° Factura",
+                                            "proveedor_nombre": "Proveedor",
+                                            "monto_retenido": "Monto Retenido",
+                                            "fecha_operacion": "Fecha Operación"
+                                        },
+                                        hide_index=True
+                                    )
+                                else:
+                                    st.info("No se encontraron facturas retenidas en el rango de fechas seleccionado.")
+
+                            # --- 4. FORMULARIO DE DESBLOQUEO CON LISTA DESPLEGABLE DINÁMICA ---
+                            st.markdown("### 🔓 Desbloquear Factura Específica")
+                            
+                            if facturas_retenidas:
+                                # Creamos opciones amigables para el selectbox: "RIF - Factura N° [Número] (Proveedor)"
+                                opciones_facturas = {
+                                    f"RIF: {f['rif_retenido']} | Factura N°: {f['numero_factura']} ({f['proveedor_nombre']})": f['numero_factura']
+                                    for f in facturas_retenidas
+                                }
+                                
+                                with st.form("form_desbloqueo"):
+                                    seleccion_factura = st.selectbox(
+                                        "Selecciona la factura a habilitar (RIF y Número):",
+                                        options=list(opciones_facturas.keys())
+                                    )
+                                    
+                                    btn_habilitar = st.form_submit_button("🔓 Habilitar Factura para Retención", type="primary")
+
+                                    if btn_habilitar:
+                                        factura_a_desbloquear = opciones_facturas[seleccion_factura]
+                                        resultado = resetear_estado_retencion(factura_a_desbloquear, db_actual)
+                                        
+                                        if resultado is True:
+                                            if "facturas_procesadas_ids" in st.session_state:
+                                                st.session_state.facturas_procesadas_ids = []
+                                                
+                                            st.success(f"✅ Factura N° {factura_a_desbloquear} habilitada correctamente. Ya puedes volver a procesarla.")
+                                            st.rerun()
+                                        else:
+                                            st.error("❌ No se pudo habilitar la factura. Inténtalo de nuevo.")
                             else:
-                                st.error("❌ No se pudo habilitar. Verifica el número.")
+                                st.warning("⚠️ No hay facturas disponibles para desbloquear en el rango de fechas seleccionado.")
                         else:
-                            st.warning("💡 Debes ingresar el número de factura.")
+                            st.error("No se pudo conectar a la base de datos de la empresa activa.")
+                    except Exception as e:
+                        st.error(f"Error procesando la gestión de facturas: {e}")
+                else:
+                    st.error("No se detectó una base de datos activa en la sesión.")
 
             # --- TAB 6: XML SENIAT ---
             with tab6:
