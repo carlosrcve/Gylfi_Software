@@ -17550,7 +17550,6 @@ elif opcion_menu == "📚 Libros Fiscales":
                             st.markdown("### 📅 Filtrar Facturas por Rango de Fecha")
                             col_f1, col_f2 = st.columns(2)
                             
-                            # Definimos un rango predeterminado (por ejemplo, el mes actual o los últimos 30 días)
                             from datetime import date, timedelta
                             fecha_desde = col_f1.date_input("Desde la fecha:", value=date.today() - timedelta(days=30))
                             fecha_hasta = col_f2.date_input("Hasta la fecha:", value=date.today())
@@ -17563,14 +17562,21 @@ elif opcion_menu == "📚 Libros Fiscales":
                                   AND fecha_operacion BETWEEN %s AND %s
                                 ORDER BY fecha_operacion DESC
                             """
-                            cursor_f = conn_f.cursor(dictionary=True) if hasattr(conn_f, 'cursor') else None
+                            cursor_f = conn_f.cursor() if hasattr(conn_f, 'cursor') else None
                             
-                            # Si tu función auxiliar prefiere usar pandas directamente, adaptamos la consulta con parámetros:
-                            # Nota: Asegúrate de que ejecutar_consulta acepte parámetros o usa cursor directo. 
-                            # Aquí lo hacemos mediante cursor para mayor control del rango:
-                            cursor_f.execute(query_listado, (fecha_desde, fecha_hasta))
-                            facturas_retenidas = cursor_f.fetchall()
-                            cursor_f.close()
+                            facturas_retenidas = []
+                            if cursor_f:
+                                cursor_f.execute(query_listado, (fecha_desde, fecha_hasta))
+                                rows = cursor_f.fetchall()
+                                for row in rows:
+                                    facturas_retenidas.append({
+                                        "rif_retenido": row[0],
+                                        "numero_factura": row[1],
+                                        "proveedor_nombre": row[2],
+                                        "monto_retenido": row[3],
+                                        "fecha_operacion": row[4]
+                                    })
+                                cursor_f.close()
                             conn_f.close()
 
                             # --- 3. MOSTRAR LISTADO EN EXPANDER ---
@@ -17602,7 +17608,6 @@ elif opcion_menu == "📚 Libros Fiscales":
                             st.markdown("### 🔓 Desbloquear Factura Específica")
                             
                             if facturas_retenidas:
-                                # Creamos opciones amigables para el selectbox: "RIF - Factura N° [Número] (Proveedor)"
                                 opciones_facturas = {
                                     f"RIF: {f['rif_retenido']} | Factura N°: {f['numero_factura']} ({f['proveedor_nombre']})": f['numero_factura']
                                     for f in facturas_retenidas
