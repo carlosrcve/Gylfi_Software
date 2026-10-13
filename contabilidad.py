@@ -15753,22 +15753,61 @@ elif opcion_menu == "📚 Libros Fiscales":
                         nota_cred_val = st.text_input("Nº Nota de Crédito (Opcional)", value="")
 
                     st.markdown("---")
-                    st.markdown("### 💰 Control de Montos e IVA Automático")
+                    st.markdown("### 💰 Control de Montos, Alícuota e IVA Automático")
+
+                    # Selector de Alícuota de IVA (Permite elegir 16%, 8% u otras según la ley)
+                    alicuota_opciones = {
+                        "General (16%)": 16.0,
+                        "Reducida (8%)": 8.0,
+                        "Exonerada / Otra (0%)": 0.0,
+                    }
+                    alicuota_label = st.selectbox(
+                        "Seleccione la Alícuota de IVA",
+                        options=list(alicuota_opciones.keys()),
+                    )
+                    iva_porcentaje_val = alicuota_opciones[alicuota_label]
 
                     col_m1, col_m2, col_m3 = st.columns(3)
                     with col_m1:
-                        base_imp_input = st.number_input("Base Imponible", min_value=0.00, format="%.2f", step=100.00)
+                        base_imp_input = st.number_input(
+                            "Base Imponible",
+                            min_value=0.00,
+                            format="%.2f",
+                            step=100.00,
+                            key="input_base_imp",
+                        )
                     with col_m2:
-                        iva_monto_input = base_imp_input * 0.16
-                        st.number_input("IVA Monto (16% Automático)", value=iva_monto_input, format="%.2f", disabled=True)
+                        # Cálculo automático del IVA basado en la alícuota seleccionada
+                        iva_monto_input = base_imp_input * (
+                            iva_porcentaje_val / 100.0
+                        )
+                        st.number_input(
+                            f"IVA Monto ({iva_porcentaje_val}% Automático)",
+                            value=iva_monto_input,
+                            format="%.2f",
+                            disabled=True,
+                            key="input_iva_monto_auto",
+                        )
                     with col_m3:
-                        exento_input = st.number_input("Monto Exento", min_value=0.00, format="%.2f", step=100.00)
+                        exento_input = st.number_input(
+                            "Monto Exento",
+                            min_value=0.00,
+                            format="%.2f",
+                            step=100.00,
+                            key="input_exento",
+                        )
 
+                    # Sumatoria estricta y correcta: Total = Base Imponible + IVA + Monto Exento
                     total_calculado = base_imp_input + iva_monto_input + exento_input
 
-                    st.success(f"💵 **Monto Total Calculado Automáticamente:** **{total_calculado:,.2f}**")
+                    st.success(
+                        f"💵 **Monto Total Calculado Automáticamente:**"
+                        f" **{total_calculado:,.2f}**"
+                    )
 
-                    btn_guardar_nuevo = st.form_submit_button("💾 Guardar Factura en Base de Datos", type="primary")
+                    btn_guardar_nuevo = st.form_submit_button(
+                        "💾 Guardar Factura en Base de Datos", type="primary"
+                    )
 
                     if btn_guardar_nuevo:
                         if not n_factura_val or n_factura_val == "0":
@@ -15794,14 +15833,17 @@ elif opcion_menu == "📚 Libros Fiscales":
                                         total_calculado,
                                         exento_input,
                                         base_imp_input,
-                                        16.0,
+                                        iva_porcentaje_val,  # Se guarda la alícuota real seleccionada
                                         iva_monto_input,
                                     )
                                     cursor_ins.execute(query_insert_single, valores)
                                     conn_ins.commit()
                                     cursor_ins.close()
                                     conn_ins.close()
-                                    st.success("✅ ¡Factura agregada exitosamente con proveedor y cálculos automáticos!")
+                                    st.success(
+                                        "✅ ¡Factura agregada exitosamente con proveedor,"
+                                        " alícuota y cálculos automáticos!"
+                                    )
                                     st.rerun()
                             except Exception as e:
                                 st.error(f"❌ Error al guardar la factura: {e}")
