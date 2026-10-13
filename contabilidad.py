@@ -3884,32 +3884,54 @@ def generar_comprobante_pdf(datos, conn):
 
     # --- CONSULTAR DINÁMICAMENTE LOS DATOS DE LA EMPRESA ACTIVA (AGENTE DE RETENCIÓN) ---
     db_activa = st.session_state.get('DB_ACTUAL')
+    cliente_id_sesion = st.session_state.get('cliente_id')
+    
     datos_agente_dinamicos = {
         "nombre": "EMPRESA NO IDENTIFICADA",
         "rif": "J-00000000-0",
         "direccion": "DIRECCIÓN NO REGISTRADA"
     }
 
-    if db_activa:
-        try:
-            conn_agente = conectar_db() # Conexión a la base central donde reside la tabla 'clientes'
-            if conn_agente:
-                cursor_agente = conn_agente.cursor(dictionary=True)
+    try:
+        conn_agente = conectar_db() # Conexión a la base central donde reside la tabla 'clientes'
+        if conn_agente:
+            cursor_agente = conn_agente.cursor(dictionary=True)
+            res_agente = None
+            
+            # 1. Intentamos buscar por db_nombre si existe
+            if db_activa:
                 cursor_agente.execute(
                     "SELECT nombre_empresa, rif, direccion_fiscal FROM clientes WHERE db_nombre = %s", 
                     (db_activa,)
                 )
                 res_agente = cursor_agente.fetchone()
-                if res_agente:
-                    datos_agente_dinamicos = {
-                        "nombre": res_agente.get("nombre_empresa", ""),
-                        "rif": res_agente.get("rif", ""),
-                        "direccion": res_agente.get("direccion_fiscal", "")
-                    }
-                cursor_agente.close()
-                conn_agente.close()
-        except Exception as e:
-            print(f"Error obteniendo datos dinámicos del agente: {e}")
+            
+            # 2. Si no se encontró por db_nombre, intentamos buscar por el cliente_id de la sesión
+            if not res_agente and cliente_id_sesion:
+                cursor_agente.execute(
+                    "SELECT nombre_empresa, rif, direccion_fiscal FROM clientes WHERE id = %s", 
+                    (cliente_id_sesion,)
+                )
+                res_agente = cursor_agente.fetchone()
+                
+            # 3. Respaldo absoluto: si aún no aparece, traemos el primer registro disponible
+            if not res_agente:
+                cursor_agente.execute(
+                    "SELECT nombre_empresa, rif, direccion_fiscal FROM clientes LIMIT 1"
+                )
+                res_agente = cursor_agente.fetchone()
+
+            if res_agente:
+                datos_agente_dinamicos = {
+                    "nombre": res_agente.get("nombre_empresa", "EMPRESA NO IDENTIFICADA"),
+                    "rif": res_agente.get("rif", "J-00000000-0"),
+                    "direccion": res_agente.get("direccion_fiscal", "DIRECCIÓN NO REGISTRADA")
+                }
+                
+            cursor_agente.close()
+            conn_agente.close()
+    except Exception as e:
+        print(f"Error obteniendo datos dinámicos del agente: {e}")
 
     # Sobrescribimos el agente con los datos reales de la empresa activa
     datos['agente'] = datos_agente_dinamicos
