@@ -10324,8 +10324,13 @@ elif opcion_menu == "📝 Asientos Contables":
                     st.markdown("#### 2️⃣ Frame: Retención de IVA")
                     col_f2_1, col_f2_2 = st.columns(2)
                     with col_f2_1:
-                        # Usamos text_input para el porcentaje de IVA para que escribas libremente 0.0, 75.0, etc.
-                        porcentaje_ret_iva_str = st.text_input("% Retención IVA (Ej: 75.0 o 0.0)", value="75.0", key="f2_porc_ret_iva_str")
+                        # Colocamos el 0.0 de primero en la lista para que se vea de inmediato al desplegar
+                        porcentaje_ret_iva = st.selectbox(
+                            "Porcentaje Retención IVA", 
+                            options=[75.0, 100.0, 0.0], 
+                            format_func=lambda x: f"{x}% (Sin retención / Exento)" if x == 0.0 else f"{x}%", 
+                            key="f2_porc_ret_iva"
+                        )
                     with col_f2_2:
                         anular_iva_manual = st.checkbox("Forzar Retención IVA a 0.00", value=False, key="chk_anular_iva")
                     
