@@ -15769,34 +15769,16 @@ elif opcion_menu == "📚 Libros Fiscales":
                 st.markdown("---")
                 st.markdown("### 💰 Control de Montos, Alícuota e IVA Automático")
 
-                # 1. Inicialización robusta de estados en sesión
-                if "rt_base" not in st.session_state:
-                    st.session_state.rt_base = 0.00
-                if "rt_exento" not in st.session_state:
-                    st.session_state.rt_exento = 0.00
-                if "rt_alicuota" not in st.session_state:
-                    st.session_state.rt_alicuota = "General (16%)"
-
                 alicuota_opciones = {
                     "General (16%)": 16.0,
                     "Reducida (8%)": 8.0,
                     "Exonerada / Otra (0%)": 0.0,
                 }
-
-                # Función callback para recalcular el IVA automáticamente al cambiar cualquier parámetro
-                def recalcular_iva():
-                    porcentaje = alicuota_opciones.get(st.session_state.rt_alicuota, 16.0)
-                    st.session_state.rt_iva_calc = st.session_state.rt_base * (porcentaje / 100.0)
-
-                # Asegurar cálculo inicial si no existe en sesión
-                if "rt_iva_calc" not in st.session_state:
-                    recalcular_iva()
-
+                
                 alicuota_label = st.selectbox(
                     "Seleccione la Alícuota de IVA",
                     options=list(alicuota_opciones.keys()),
-                    key="rt_alicuota",
-                    on_change=recalcular_iva,
+                    key="rt_alicuota"
                 )
                 iva_porcentaje_val = alicuota_opciones[alicuota_label]
 
@@ -15807,20 +15789,18 @@ elif opcion_menu == "📚 Libros Fiscales":
                         min_value=0.00,
                         format="%.2f",
                         step=100.00,
-                        key="rt_base",
-                        on_change=recalcular_iva,
+                        key="rt_base"
                     )
                 with col_m2:
-                    # Sincronizamos el cálculo en tiempo real con el estado actual
-                    recalcular_iva()
-                    iva_monto_input = st.session_state.rt_iva_calc
+                    # Cálculo directo en tiempo real basado en el valor actual de la base imponible
+                    iva_monto_input = base_imp_input * (iva_porcentaje_val / 100.0)
                     
                     st.number_input(
                         f"IVA Monto ({iva_porcentaje_val}% Automático)",
                         value=iva_monto_input,
                         format="%.2f",
                         disabled=True,
-                        key="rt_iva_display",
+                        key="rt_iva_auto_display"
                     )
                 with col_m3:
                     exento_input = st.number_input(
@@ -15828,14 +15808,13 @@ elif opcion_menu == "📚 Libros Fiscales":
                         min_value=0.00,
                         format="%.2f",
                         step=100.00,
-                        key="rt_exento",
-                        on_change=recalcular_iva,
+                        key="rt_exento"
                     )
 
-                # Sumatoria total precisa usando las variables de sesión sincronizadas
-                total_calculado = st.session_state.rt_base + st.session_state.rt_iva_calc + st.session_state.rt_exento
+                # Sumatoria estricta y directa
+                total_calculado = base_imp_input + iva_monto_input + exento_input
 
-                # Función para formatear con el estilo numérico venezolano (Ej: 62.376,00)
+                # Función para formatear con el estilo numérico local venezolano (Ej: 62.376,00)
                 def formato_venezuela(val):
                     return f"{val:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
@@ -15866,10 +15845,10 @@ elif opcion_menu == "📚 Libros Fiscales":
                                     razon_social_val,
                                     rif_val,
                                     total_calculado,
-                                    st.session_state.rt_exento,
-                                    st.session_state.rt_base,
+                                    exento_input,
+                                    base_imp_input,
                                     iva_porcentaje_val,
-                                    st.session_state.rt_iva_calc,
+                                    iva_monto_input,
                                 )
                                 cursor_ins.execute(query_insert_single, valores)
                                 conn_ins.commit()
