@@ -3865,7 +3865,22 @@ def generar_comprobante_pdf(datos, conn):
     usuario_actual = st.session_state.get('usuario', 'Sistema')
     cliente_actual = st.session_state.get('cliente_id', 'General')
     
-    registrar_log_automatico(conn, "GENERACION_PDF_RETENCION", f"Usuario {usuario_actual} generó PDF de retención para {cliente_actual}")
+    # 🛡️ BLINDAJE DE CONEXIÓN: Si 'conn' es None, intentamos rescatarla o la omitimos con seguridad para el log
+    if conn is not None:
+        try:
+            registrar_log_automatico(conn, "GENERACION_PDF_RETENCION", f"Usuario {usuario_actual} generó PDF de retención para {cliente_actual}")
+        except Exception:
+            pass
+    else:
+        # Intentar conectar de emergencia si viene nula
+        try:
+            db_activa = st.session_state.get('DB_ACTUAL')
+            conn_emergencia = conectar_db(db_activa) if db_activa else conectar_db()
+            if conn_emergencia:
+                registrar_log_automatico(conn_emergencia, "GENERACION_PDF_RETENCION", f"Usuario {usuario_actual} generó PDF de retención para {cliente_actual}")
+                conn_emergencia.close()
+        except Exception:
+            pass
 
     pdf = FPDF(orientation='P', unit='mm', format='A4')
     pdf.add_page()
@@ -4005,7 +4020,7 @@ def generar_comprobante_pdf(datos, conn):
                 conn.ping(reconnect=True)
         except Exception:
             pass
-
+        
 def comprobar_existencia_comprobante(n_comprobante):
     """Verifica si el número de comprobante ya existe en la DB"""
     db_actual = st.session_state.get('DB_ACTUAL')
