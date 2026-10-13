@@ -360,8 +360,15 @@ def login_screen():
 
 
 
-def panel_administracion(conn):
-    st.header("⚙️ Gestión de Usuarios y Accesos")
+# ==============================================================================
+# 1. PANEL DE ADMINISTRACIÓN DE USUARIOS (Con aislamiento por Firma)
+# ==============================================================================
+def panel_administracion(conn, rol_usuario, firma_id):
+    if rol_usuario == "admin":
+        st.header("⚙️ Gestión Global de Usuarios y Accesos (Super Admin)")
+    else:
+        st.header("⚙️ Gestión de Usuarios de mi Despacho Contable")
+        st.info("💡 Aquí puedes registrar a los operadores fiscales o asistentes de tu propia firma.")
     
     # 1. FORMULARIO DE REGISTRO
     with st.expander("➕ Registrar Nuevo Usuario del Sistema", expanded=True):
@@ -369,23 +376,34 @@ def panel_administracion(conn):
             col1, col2 = st.columns(2)
             
             with col1:
-                nuevo_u = st.text_input("Nombre de Usuario", help="Ej: carlos_admin o king_gerente")
+                nuevo_u = st.text_input("Nombre de Usuario", help="Ej: operador_juan o contador_maria")
                 nueva_p = st.text_input("Contraseña", type="password")
             
             with col2:
-                rol = st.selectbox("Rol del Sistema", ["admin", "cliente"])
+                # Si es Super Admin puede crear admins de firma o clientes. Si es una firma, solo crea operadores/clientes de su despacho.
+                if rol_usuario == "admin":
+                    rol_asignado = st.selectbox("Rol del Sistema", ["admin_firma", "cliente", "admin"])
+                else:
+                    rol_asignado = st.selectbox("Rol del Sistema", ["operador_fiscal", "cliente"])
                 
                 # Buscamos las empresas disponibles para asociar
                 try:
-                    query_cli = "SELECT id, nombre_empresa FROM control_central.clientes"
-                    df_cli = ejecutar_consulta(query_cli, conn)
-                    opciones_clientes = {row['nombre_empresa']: row['id'] for _, row in df_cli.iterrows()}
+                    # Si es admin maestro ve todo; si es admin de firma, solo ve las empresas asignadas a su firma
+                    if rol_usuario == "admin":
+                        query_cli = "SELECT id, nombre_empresa FROM control_central.clientes"
+                        df_cli = ejecutar_consulta(query_cli, conn)
+                    else:
+                        query_cli = "SELECT id, nombre_empresa FROM control_central.clientes WHERE firma_id = %s"
+                        df_cli = ejecutar_consulta(query_cli, conn, params=(firma_id,))
+                        
+                    opciones_clientes = {row['nombre_empresa']: row['id'] for _, row in df_cli.iterrows()} if df_cli is not None and not df_cli.empty else {}
                     
-                    nombre_sel = st.selectbox("Asociar a Empresa (Solo para rol cliente)", 
-                                              ["Ninguna / Acceso Total"] + list(opciones_clientes.keys()))
+                    nombre_sel = st.selectbox("Asociar a Empresa / Cliente", 
+                                             ["Ninguna / Acceso Total"] + list(opciones_clientes.keys()))
                 except Exception as e:
-                    st.warning(f"⚠️ No se pudieron cargar las empresas de la base de datos: {e}")
+                    st.warning(f"⚠️ No se pudieron cargar las empresas: {e}")
                     opciones_clientes = {}
+                    nombre_sel = "Ninguna / Acceso Total"
 
             btn_crear = st.form_submit_button("Guardar Usuario en Base de Datos")
             
@@ -397,78 +415,75 @@ def panel_administracion(conn):
                         salt = bcrypt.gensalt()
                         hash_cifrado = bcrypt.hashpw(nueva_p.encode('utf-8'), salt)
                         
-                        c_id = opciones_clientes.get(nombre_sel) if rol == "cliente" and nombre_sel != "Ninguna / Acceso Total" else None
+                        c_id = opciones_clientes.get(nombre_sel) if nombre_sel != "Ninguna / Acceso Total" else None
                         
                         cursor = conn.cursor()
-                        sql = """INSERT INTO usuarios (usuario, clave_hash, rol, cliente_id) 
-                                 VALUES (%s, %s, %s, %s)"""
-                        
-                        cursor.execute(sql, (nuevo_u, hash_cifrado.decode('utf-8'), rol, c_id))
+                        # Si es una firma, guardamos su firma_id para aislar los datos
+                        if rol_usuario == "admin":
+                            sql = """INSERT INTO usuarios (usuario, clave_hash, rol, cliente_id) VALUES (%s, %s, %s, %s)"""
+                            cursor.execute(sql, (nuevo_u, hash_cifrado.decode('utf-8'), rol_asignado, c_id))
+                        else:
+                            sql = """INSERT INTO usuarios (usuario, clave_hash, rol, cliente_id, firma_id) VALUES (%s, %s, %s, %s, %s)"""
+                            cursor.execute(sql, (nuevo_u, hash_cifrado.decode('utf-8'), rol_asignado, c_id, firma_id))
+                            
                         conn.commit()
                         cursor.close()
                         
-                        st.success(f"✅ Usuario '{nuevo_u}' registrado con seguridad profesional.")
+                        st.success(f"✅ Usuario '{nuevo_u}' registrado exitosamente.")
                         st.balloons()
                     except Exception as e:
                         st.error(f"❌ Error al registrar: Probablemente el usuario ya existe. ({e})")
 
-    # 2. TABLA DE USUARIOS ACTUALES
+    # 2. TABLA DE USUARIOS ACTUALES (Filtrada por permisos)
     st.subheader("👥 Usuarios Registrados")
     try:
-        query_view = """
-            SELECT u.usuario, u.rol, c.nombre_empresa as empresa_asignada 
-            FROM control_central.usuarios u
-            LEFT JOIN control_central.clientes c ON u.cliente_id = c.id
-        """
-        df_usuarios = ejecutar_consulta(query_view, conn)
-        st.dataframe(df_usuarios, width='stretch')
+        if rol_usuario == "admin":
+            query_view = """
+                SELECT u.usuario, u.rol, c.nombre_empresa as empresa_asignada 
+                FROM control_central.usuarios u
+                LEFT JOIN control_central.clientes c ON u.cliente_id = c.id
+            """
+            df_usuarios = ejecutar_consulta(query_view, conn)
+        else:
+            # El despacho contable solo ve los usuarios que pertenecen a su propia firma
+            query_view = """
+                SELECT u.usuario, u.rol, c.nombre_empresa as empresa_asignada 
+                FROM control_central.usuarios u
+                LEFT JOIN control_central.clientes c ON u.cliente_id = c.id
+                WHERE u.firma_id = %s
+            """
+            df_usuarios = ejecutar_consulta(query_view, conn, params=(firma_id,))
+            
+        if df_usuarios is not None and not df_usuarios.empty:
+            st.dataframe(df_usuarios, width='stretch', hide_index=True)
+        else:
+            st.info("No hay usuarios registrados todavía.")
     except Exception:
         st.info("No hay usuarios registrados todavía.")
 
-    # 3. VISOR DE AUDITORÍA INTEGRADO
-    st.divider()
-    st.subheader("🕵️‍♂️ Monitoreo de Interacciones (Logs)")
-    
-    if st.button("🔄 Refrescar Bitácora"):
-        st.rerun()
-        
-    try:
-        query_logs = "SELECT * FROM logs_auditoria ORDER BY fecha DESC LIMIT 100"
-        df_logs = ejecutar_consulta(query_logs, conn)
-        
-        if not df_logs.empty:
-            st.dataframe(df_logs, width='stretch')
-        else:
-            st.info("No se han detectado interacciones todavía.")
-    except Exception as e:
-        st.error(f"Error cargando logs: {e}")
 
-
+# ==============================================================================
+# 2. PANEL DE ADMINISTRACIÓN DE EMPRESAS (Exclusivo Super Admin)
+# ==============================================================================
 def panel_administracion_empresas(conn):
-    st.header("⚙️ Gestión de Empresas y Accesos")
-    st.info("💡 Desde este panel, el administrador puede registrar y administrar las empresas clientes que operan en el sistema.")
+    st.header("⚙️ Gestión Global de Empresas y Despachos (Super Admin)")
+    st.info("💡 Desde este panel maestro, tú (como dueño de Gylfi Software) registras los despachos contables y sus bases de datos asignadas.")
 
-    # ==========================================
-    # 1. FORMULARIO DE REGISTRO DE NUEVA EMPRESA
-    # ==========================================
-    with st.expander("➕ Registrar Nueva Empresa / Cliente en el Sistema", expanded=True):
+    with st.expander("➕ Registrar Nueva Empresa / Despacho Cliente", expanded=True):
         with st.form("registro_empresa_form", clear_on_submit=True):
             col1, col2 = st.columns(2)
 
             with col1:
-                nombre_empresa = st.text_input("Razón Social de la Empresa", placeholder="Ej: Empresas Oviedo, C.A.")
+                nombre_empresa = st.text_input("Razón Social de la Empresa", placeholder="Ej: Despacho Contable Oviedo, C.A.")
                 rif = st.text_input("R.I.F.", placeholder="Ej: J-57894514-9")
-                direccion_fiscal = st.text_area("Dirección Fiscal", placeholder="Ej: Ver RIF Digital emitido por el SENIAT")
-                tipo_contribuyente = st.selectbox(
-                    "Tipo de Contribuyente", 
-                    options=["Contribuyente Ordinario", "Contribuyente Especial"]
-                )
+                direccion_fiscal = st.text_area("Dirección Fiscal", placeholder="Ej: Av. Principal...")
+                tipo_contribuyente = st.selectbox("Tipo de Contribuyente", options=["Contribuyente Ordinario", "Contribuyente Especial"])
 
             with col2:
-                db_nombre = st.text_input("Nombre de la Base de Datos (MySQL)", placeholder="Ej: db_empresas_oviedo")
+                db_nombre = st.text_input("Nombre de la Base de Datos (MySQL)", placeholder="Ej: db_despacho_oviedo")
                 estado_empresa = st.selectbox("Estado Inicial", options=["Activo", "Suspendido"])
-                fecha_vencimiento = st.date_input("Fecha de Vencimiento de Licencia / Contrato")
-                ultimo_digito = st.number_input("Último Dígito del RIF (Para Retenciones)", min_value=0, max_value=9, step=1, value=0)
+                fecha_vencimiento = st.date_input("Fecha de Vencimiento de Licencia")
+                ultimo_digito = st.number_input("Último Dígito del RIF", min_value=0, max_value=9, step=1, value=0)
 
             btn_guardar_empresa = st.form_submit_button("💾 Guardar Empresa en Base de Datos", type="primary")
 
@@ -496,16 +511,12 @@ def panel_administracion_empresas(conn):
                         cursor.execute(query_insert_empresa, valores)
                         conn.commit()
                         cursor.close()
-                        st.success(f"✅ ¡Empresa **{nombre_empresa}** registrada exitosamente en MySQL con su base de datos asignada (`{db_nombre}`)!")
+                        st.success(f"✅ ¡Empresa **{nombre_empresa}** registrada con éxito!")
                     except Exception as e:
-                        st.error(f"❌ Error al registrar la empresa en la base de datos: {e}")
+                        st.error(f"❌ Error al registrar: {e}")
 
     st.markdown("---")
-
-    # ==========================================
-    # 2. CONSULTA Y ADMINISTRACIÓN DE EMPRESAS EXISTENTES
-    # ==========================================
-    st.subheader("📋 Listado y Administración de Empresas Clientes")
+    st.subheader("📋 Listado General de Clientes y Despachos")
 
     try:
         df_clientes = pd.read_sql("SELECT * FROM clientes ORDER BY id DESC", conn)
@@ -514,10 +525,7 @@ def panel_administracion_empresas(conn):
         df_clientes = pd.DataFrame()
 
     if not df_clientes.empty:
-        st.info("💡 Puedes editar la información de las empresas directamente en la tabla o eliminar registros usando el icono de papelera y haciendo clic en guardar.")
-
         key_editor_clientes = "editor_tabla_clientes_admin"
-
         df_editado_clientes = st.data_editor(
             df_clientes,
             key=key_editor_clientes,
@@ -529,22 +537,17 @@ def panel_administracion_empresas(conn):
                 "nombre_empresa": st.column_config.TextColumn("Razón Social"),
                 "rif": st.column_config.TextColumn("RIF"),
                 "db_nombre": st.column_config.TextColumn("Base de Datos (MySQL)"),
-                "logo_path": st.column_config.TextColumn("Logo Path"),
                 "estado": st.column_config.SelectboxColumn("Estado", options=["Activo", "Suspendido"], required=True),
                 "fecha_vencimiento": st.column_config.DateColumn("Vencimiento", format="DD/MM/YYYY"),
                 "tipo_contribuyente": st.column_config.SelectboxColumn("Tipo Contribuyente", options=["Contribuyente Ordinario", "Contribuyente Especial"], required=True),
-                "ultimo_digito": st.column_config.NumberColumn("Últ. Dígito", format="%d"),
-                "direccion_fiscal": st.column_config.TextColumn("Dirección Fiscal")
             }
         )
 
-        if st.button("💾 Guardar Cambios de Empresas en DB", type="primary", key="btn_guardar_cambios_clientes"):
+        if st.button("💾 Guardar Cambios en Empresas", type="primary", key="btn_guardar_cambios_clientes"):
             cambios_cli = st.session_state.get(key_editor_clientes, {})
             try:
                 cursor_upd = conn.cursor()
                 cursor_upd.execute("START TRANSACTION")
-
-                # 1. Actualizar filas modificadas
                 for idx_str, dict_mod in cambios_cli.get("edited_rows", {}).items():
                     id_row = int(df_clientes.iloc[int(idx_str)]["id"])
                     if dict_mod:
@@ -552,21 +555,18 @@ def panel_administracion_empresas(conn):
                         vals_sql = list(dict_mod.values())
                         sql_u = f"UPDATE clientes SET {', '.join(cols_sql)} WHERE id = %s"
                         cursor_upd.execute(sql_u, vals_sql + [id_row])
-
-                # 2. Eliminar filas seleccionadas
                 for idx_del in cambios_cli.get("deleted_rows", []):
                     id_del = int(df_clientes.iloc[idx_del]["id"])
                     cursor_upd.execute("DELETE FROM clientes WHERE id = %s", (id_del,))
-
                 conn.commit()
                 cursor_upd.close()
-                st.success("✅ ¡Cambios en empresas guardados correctamente en MySQL!")
+                st.success("✅ ¡Cambios guardados correctamente!")
                 st.rerun()
             except Exception as e:
                 conn.rollback()
-                st.error(f"❌ Error al guardar los cambios: {e}")
+                st.error(f"❌ Error al guardar: {e}")
     else:
-        st.warning("⚠️ No hay empresas registradas en la tabla de clientes actualmente.")
+        st.warning("⚠️ No hay empresas registradas actualmente.")
     
     
 
@@ -6941,11 +6941,19 @@ else:
     menu_lateral = gestionar_sidebar()
 
 
-if menu_lateral == "⚙️ Gestión de Usuarios":    
+# ==============================================================================
+# ENRUTAMIENTO Y CONTROL DE ACCESO SEGÚN EL ROL (Multi-nivel)
+# ==============================================================================
+
+rol_actual = st.session_state.get('rol', 'cliente') # 'admin' (Tú) o 'admin_firma' (Dueño de Despacho) / 'cliente'
+firma_id_actual = st.session_state.get('firma_id', None) # El ID de la firma a la que pertenece este contador
+
+if menu_lateral == "⚙️ Gestión de Usuarios":
     try:
-        conn = conectar_db() 
+        conn = conectar_db()
         if conn:
-            panel_administracion(conn)
+            # Pasamos el rol y el ID de la firma para que el panel se filtre automáticamente
+            panel_administracion(conn, rol_actual, firma_id_actual)
             try:
                 conn.close()
             except Exception:
@@ -6953,13 +6961,17 @@ if menu_lateral == "⚙️ Gestión de Usuarios":
         else:
             st.error("🔌 No se pudo establecer conexión con el servidor MySQL.")
     except Exception as e:
-        st.error(f"Error al acceder a la gestión central: {e}")
+        st.error(f"Error al acceder a la gestión de usuarios: {e}")
     st.stop()
 
 if menu_lateral == "⚙️ Gestión de Empresas":
+    # 🔒 RESTRICCIÓN ABSOLUTA: Solo el Administrador Maestro (Tú) puede ver la creación de despachos globales
+    if rol_actual != "admin":
+        st.error("⛔ Acceso denegado. Esta sección central es exclusiva para el Administrador General de Gylfi Software.")
+        st.stop()
+        
     try:
-        # Nota: Ajusta 'conectar_db()' según cómo pases el parámetro de conexión en tu app principal
-        conn = conectar_db(db_actual) if "db_actual" in locals() else conectar_db() 
+        conn = conectar_db(db_actual) if "db_actual" in locals() else conectar_db()
         if conn:
             panel_administracion_empresas(conn)
             try:
