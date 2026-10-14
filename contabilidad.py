@@ -11689,16 +11689,16 @@ elif opcion_menu == "📝 Asientos Contables":
                         with col_f1:
                             st.markdown("#### 📄 `libro_compras`")
                             st.code(f"""fecha_operacion: {sel_data['fecha_emision']}
-                    tipo_documento: Factura
-                    n_factura: {sel_data['nro_factura']}
-                    n_control: {sel_data['nro_control']}
-                    proveedor: {sel_data['proveedor']}
-                    rif: {sel_data['proveedor_rif']}
-                    total_compras: {sel_data['monto_bruto']:,.2f}
-                    base_imponible: {sel_data['base_imponible']:,.2f}
-                    iva_porcentaje: {sel_data['iva_porcentaje']}%
-                    iva_monto: {sel_data['monto_iva']:,.2f}
-                    retencion_islr: {sel_data['retencion_islr']:,.2f}""", language="yaml")
+        tipo_documento: Factura
+        n_factura: {sel_data['nro_factura']}
+        n_control: {sel_data['nro_control']}
+        proveedor: {sel_data['proveedor']}
+        rif: {sel_data['proveedor_rif']}
+        total_compras: {sel_data['monto_bruto']:,.2f}
+        base_imponible: {sel_data['base_imponible']:,.2f}
+        iva_porcentaje: {sel_data['iva_porcentaje']}%
+        iva_monto: {sel_data['monto_iva']:,.2f}
+        retencion_islr: {sel_data['retencion_islr']:,.2f}""", language="yaml")
                             
                             if st.button("💾 Guardar Libro de Compras", key=f"btn_guardar_libro_{sel_data['id']}", use_container_width=True):
                                 rif_val = str(sel_data.get('proveedor_rif', '')).strip()
@@ -11765,23 +11765,23 @@ elif opcion_menu == "📝 Asientos Contables":
                         with col_f2:
                             st.markdown("#### 📒 `asientos_contables`")
                             st.code(f"""- n_comprobante: OP-{sel_data['nro_factura']}
-                          fecha: {sel_data['fecha_emision']}
-                          asientos:
-                            - plan_cuentas: {info_gasto['codigo']}
-                              debe: {sel_data['base_imponible']:,.2f}
-                              haber: 0.00
-                            - plan_cuentas: {info_iva['codigo']}
-                              debe: {sel_data['monto_iva']:,.2f}
-                              haber: 0.00
-                            - plan_cuentas: 2.1.2.01.005
-                              debe: 0.00
-                              haber: {sel_data['retencion_islr']:,.2f}
-                            - plan_cuentas: 2.1.2.01.003
-                              debe: 0.00
-                              haber: {sel_data['retencion_iva']:,.2f}
-                            - plan_cuentas: {info_banco['codigo']}
-                              debe: 0.00
-                              haber: {sel_data['monto_neto']:,.2f}""", language="yaml")
+          fecha: {sel_data['fecha_emision']}
+          asientos:
+            - plan_cuentas: {info_gasto['codigo']}
+              debe: {sel_data['base_imponible']:,.2f}
+              haber: 0.00
+            - plan_cuentas: {info_iva['codigo']}
+              debe: {sel_data['monto_iva']:,.2f}
+              haber: 0.00
+            - plan_cuentas: 2.1.2.01.005
+              debe: 0.00
+              haber: {sel_data['retencion_islr']:,.2f}
+            - plan_cuentas: 2.1.2.01.003
+              debe: 0.00
+              haber: {sel_data['retencion_iva']:,.2f}
+            - plan_cuentas: {info_banco['codigo']}
+              debe: 0.00
+              haber: {sel_data['monto_neto']:,.2f}""", language="yaml")
                             
                             if st.button("💾 Guardar Asiento Contable", key=f"btn_guardar_asiento_{sel_data['id']}", use_container_width=True):
                                 try:
@@ -11822,51 +11822,51 @@ elif opcion_menu == "📝 Asientos Contables":
                                 except Exception as err_a:
                                     st.error(f"❌ Error al guardar asiento contable: {err_a}")
 
-                            # --- FRAME 3: MOVIMIENTO BANCARIO ---
-                            with col_f3:
-                                st.markdown("#### 🏦 `banco_movimientos`")
-                                prov_nombre = str(sel_data.get('proveedor', '')).strip()
-                                prov_rif = str(sel_data.get('proveedor_rif', '')).strip()
-                                nro_fact = str(sel_data.get('nro_factura', '')).strip()
-                                desc_val = f"Pago Factura Nro {nro_fact} - {prov_nombre} (RIF: {prov_rif})"
+                        # --- FRAME 3: MOVIMIENTO BANCARIO ---
+                        with col_f3:
+                            st.markdown("#### 🏦 `banco_movimientos`")
+                            prov_nombre = str(sel_data.get('proveedor', '')).strip()
+                            prov_rif = str(sel_data.get('proveedor_rif', '')).strip()
+                            nro_fact = str(sel_data.get('nro_factura', '')).strip()
+                            desc_val = f"Pago Factura Nro {nro_fact} - {prov_nombre} (RIF: {prov_rif})"
 
-                                st.code(f"""banco_nombre: {info_banco['nombre']}
-            reference: OP-{nro_fact}
-            descripcion: {desc_val}
-            monto: {sel_data['monto_neto']:,.2f}
-            estado: {sel_data['estado']}""", language="yaml")
-                                
-                                if st.button("💾 Guardar Movimiento Bancario", key=f"btn_guardar_banco_{sel_data['id']}", use_container_width=True):
-                                    try:
-                                        conn_b = conectar_db(db_actual)
-                                        if conn_b:
-                                            cur_b = conn_b.cursor()
-                                            n_comp_val = f"OP-{nro_fact}"
-                                            fecha_val = str(sel_data['fecha_emision'])
-                                            query_banco = """
-                                                INSERT INTO banco_movimientos (
-                                                    banco_nombre, cuenta_numero, fecha_movimiento, 
-                                                    referencia, descripcion, monto, estado_conciliacion, fecha_importacion
-                                                ) VALUES (%s, %s, %s, %s, %s, %s, %s, NOW())
-                                            """
-                                            cur_b.execute(query_banco, (
-                                                str(info_banco['nombre']),
-                                                str(info_banco['codigo']),
-                                                fecha_val,
-                                                n_comp_val,
-                                                str(desc_val),
-                                                float(sel_data['monto_neto']),
-                                                str(sel_data['estado'])
-                                            ))
-                                            conn_b.commit()
-                                            cur_b.close()
-                                            conn_b.close()
-                                            st.success("✅ ¡Movimiento Bancario guardado con éxito!")
-                                    except Exception as err_b:
-                                        st.error(f"❌ Error al guardar movimiento bancario: {err_b}")
-                        
-                except Exception as err_hist:
-                    st.error(f"Error cargando historial de órdenes de pago: {err_hist}")
+                            st.code(f"""banco_nombre: {info_banco['nombre']}
+        reference: OP-{nro_fact}
+        descripcion: {desc_val}
+        monto: {sel_data['monto_neto']:,.2f}
+        estado: {sel_data['estado']}""", language="yaml")
+                            
+                            if st.button("💾 Guardar Movimiento Bancario", key=f"btn_guardar_banco_{sel_data['id']}", use_container_width=True):
+                                try:
+                                    conn_b = conectar_db(db_actual)
+                                    if conn_b:
+                                        cur_b = conn_b.cursor()
+                                        n_comp_val = f"OP-{nro_fact}"
+                                        fecha_val = str(sel_data['fecha_emision'])
+                                        query_banco = """
+                                            INSERT INTO banco_movimientos (
+                                                banco_nombre, cuenta_numero, fecha_movimiento, 
+                                                referencia, descripcion, monto, estado_conciliacion, fecha_importacion
+                                            ) VALUES (%s, %s, %s, %s, %s, %s, %s, NOW())
+                                        """
+                                        cur_b.execute(query_banco, (
+                                            str(info_banco['nombre']),
+                                            str(info_banco['codigo']),
+                                            fecha_val,
+                                            n_comp_val,
+                                            str(desc_val),
+                                            float(sel_data['monto_neto']),
+                                            str(sel_data['estado'])
+                                        ))
+                                        conn_b.commit()
+                                        cur_b.close()
+                                        conn_b.close()
+                                        st.success("✅ ¡Movimiento Bancario guardado con éxito!")
+                                except Exception as err_b:
+                                    st.error(f"❌ Error al guardar movimiento bancario: {err_b}")
+                                    
+            except Exception as err_hist:
+                st.error(f"Error cargando historial de órdenes de pago: {err_hist}")
 
 
         with tab3:
