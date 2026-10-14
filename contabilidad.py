@@ -11593,8 +11593,8 @@ elif opcion_menu == "📝 Asientos Contables":
 
             st.markdown("---")
 
-            # --- HISTORIAL Y PREVISUALIZACIÓN DE ASIENTOS ABAJO ---
-            st.markdown("### 📊 Historial de Órdenes de Pago y Previsualización YAML")
+            # --- HISTORIAL Y PREVISUALIZACIÓN PROCEDURAL DE ASIENTOS ---
+            st.markdown("### 📊 Historial de Órdenes de Pago y Procesamiento por Etapas")
             try:
                 conn_list_op = conectar_db(db_actual)
                 df_ops = None
@@ -11656,7 +11656,7 @@ elif opcion_menu == "📝 Asientos Contables":
                     opciones_ordenes = {f"ID: {row['id']} | Factura: {row['nro_factura']} | Proveedor: {row['proveedor']} | Estado: {row['estado']}": row for _, row in df_ops_final.iterrows()}
                     
                     seleccion_op_key = st.selectbox(
-                        "🔍 Selecciona una Orden de Pago para configurar sus cuentas y previsualizar los asientos:", 
+                        "🔍 Selecciona una Orden de Pago para gestionar sus asientos y registros por etapas:", 
                         options=list(opciones_ordenes.keys()),
                         index=0,
                         key="select_op_final_v2"
@@ -11681,13 +11681,18 @@ elif opcion_menu == "📝 Asientos Contables":
                             info_banco['nombre'] = info_banco.get('nombre', 'Banco Principal')
 
                         st.markdown("---")
-                        st.markdown("# Previsualización y Guardado Independiente por Módulo")
+                        st.markdown("### 📋 Procesamiento Procedural (Paso a Paso)")
                         
-                        col_f1, col_f2, col_f3 = st.columns(3)
+                        # FLUJO POR PESTAÑAS INTERNAS PARA EVITAR ABRUMAR AL USUARIO
+                        tab_paso1, tab_paso2, tab_paso3 = st.tabs([
+                            "📄 1. Libro de Compras", 
+                            "📒 2. Asiento Contable", 
+                            "🏦 3. Movimiento Bancario"
+                        ])
                         
-                        # --- FRAME 1: LIBRO DE COMPRAS ---
-                        with col_f1:
-                            st.markdown("#### 📄 `libro_compras`")
+                        # --- ETAPA 1: LIBRO DE COMPRAS ---
+                        with tab_paso1:
+                            st.markdown("#### Registro en el Libro de Compras")
                             st.code(f"""fecha_operacion: {sel_data['fecha_emision']}
         tipo_documento: Factura
         n_factura: {sel_data['nro_factura']}
@@ -11761,9 +11766,9 @@ elif opcion_menu == "📝 Asientos Contables":
                                     except Exception as err_l:
                                         st.error(f"❌ Error al guardar libro de compras: {err_l}")
 
-                        # --- FRAME 2: ASIENTO CONTABLE ---
-                        with col_f2:
-                            st.markdown("#### 📒 `asientos_contables`")
+                        # --- ETAPA 2: ASIENTO CONTABLE ---
+                        with tab_paso2:
+                            st.markdown("#### Generación de Asiento Contable")
                             st.code(f"""- n_comprobante: OP-{sel_data['nro_factura']}
           fecha: {sel_data['fecha_emision']}
           asientos:
@@ -11822,9 +11827,9 @@ elif opcion_menu == "📝 Asientos Contables":
                                 except Exception as err_a:
                                     st.error(f"❌ Error al guardar asiento contable: {err_a}")
 
-                        # --- FRAME 3: MOVIMIENTO BANCARIO ---
-                        with col_f3:
-                            st.markdown("#### 🏦 `banco_movimientos`")
+                        # --- ETAPA 3: MOVIMIENTO BANCARIO ---
+                        with tab_paso3:
+                            st.markdown("#### Registro de Movimiento Bancario")
                             prov_nombre = str(sel_data.get('proveedor', '')).strip()
                             prov_rif = str(sel_data.get('proveedor_rif', '')).strip()
                             nro_fact = str(sel_data.get('nro_factura', '')).strip()
@@ -11867,7 +11872,6 @@ elif opcion_menu == "📝 Asientos Contables":
                                     
             except Exception as err_hist:
                 st.error(f"Error cargando historial de órdenes de pago: {err_hist}")
-
 
         with tab3:
             st.markdown("### 🔗 Conciliación, Cruce Bancario y Emisión de Comprobante")
