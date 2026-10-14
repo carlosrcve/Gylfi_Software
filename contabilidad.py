@@ -11849,7 +11849,10 @@ elif opcion_menu == "📝 Asientos Contables":
                                     st.markdown(f"**Concepto / Observaciones:** {fila_op_sel['observaciones']}")
                                     
                                 st.markdown("---")
-                                st.button("🔄 Actualizar Vista", on_click=st.rerun)
+                                
+                                # Botón para actualizar y refrescar la lista limpiando la orden ya conciliada de los pendientes
+                                if st.button("🔄 Continuar y Siguiente", type="primary", key="btn_continuar_siguiente"):
+                                    st.rerun()
 
                             except Exception as ex_m:
                                 st.error(f"❌ Error al ejecutar el cruce en base de datos: {ex_m}")
