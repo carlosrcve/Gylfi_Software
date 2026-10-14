@@ -11707,8 +11707,7 @@ elif opcion_menu == "📝 Asientos Contables":
                                                 else:
                                                     query_libro = """
                                                         INSERT INTO libro_compras (
-                                                            fecha_operacion, tipo_documento, n_factura, n_control, 
-                                                            n_factura_afectada, proveedor, rif, tipo_transaccion, 
+                                                            fecha_operacion, tipo_documento, n_factura, n_control,proveedor, rif, tipo_transaccion, 
                                                             total_compras, importe_exento, base_imponible, iva_porcentaje, 
                                                             iva_monto, retencion_realizada, retencion_iva_realizada, 
                                                             n_comprobante_retencion, monto_iva_retenido, fecha_comprobante, 
