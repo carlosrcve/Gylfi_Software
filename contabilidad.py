@@ -11379,7 +11379,9 @@ elif opcion_menu == "📝 Asientos Contables":
             except Exception as e:
                 st.error(f"Error cargando datos de BD: {e}")
 
-            # --- EMISIÓN DE ORDEN DE PAGO CON CONTROL DINÁMICO DE RETENCIONES Y ESCANEO ---
+            # =========================================================================
+            # PRIMER NIVEL: FORMULARIO PRINCIPAL DE EMISIÓN DE ORDEN DE PAGO
+            # =========================================================================
             st.markdown("### ✍️ Emitir Nueva Orden de Pago")
             
             # Selector de Metodología de Registro (Manual vs Escaneo Automático)
@@ -11430,8 +11432,7 @@ elif opcion_menu == "📝 Asientos Contables":
             import pandas as pd
 
             with st.form("form_emision_orden_pago_fluido_v2", clear_on_submit=False):
-                # --- 1ER FRAME: DATOS DE LA FACTURA Y MONTOS ---
-                st.markdown("#### 1️⃣ Frame: Datos Básicos, Proveedor y Montos de la Factura")
+                st.markdown("#### 1️⃣ Datos Básicos, Proveedor y Montos de la Factura")
                 
                 col_f1_1, col_f1_2 = st.columns(2)
                 with col_f1_1:
@@ -11439,7 +11440,6 @@ elif opcion_menu == "📝 Asientos Contables":
                     nro_factura_form = st.text_input("Número de Factura", value=valores_precargados["nro_factura"], key="f1_fact_v2")
                     nro_control_form = st.text_input("Número de Control", value=valores_precargados["nro_control"], key="f1_ctrl_v2")
                 with col_f1_2:
-                    # Manejo de fecha extraída o por defecto
                     fecha_default = pd.to_datetime(valores_precargados["fecha"]).date() if valores_precargados["fecha"] else None
                     if fecha_default:
                         fecha_emision_form = st.date_input("Fecha de Emisión", value=fecha_default, key="f1_fecha_v2")
@@ -11481,8 +11481,7 @@ elif opcion_menu == "📝 Asientos Contables":
 
                 if aplica_retenciones == "Sí":
                     st.markdown("---")
-                    # --- 2DO FRAME: RETENCIÓN DE IVA ---
-                    st.markdown("#### 2️⃣ Frame: Retención de IVA")
+                    st.markdown("#### 2️⃣ Retención de IVA")
                     col_f2_1, col_f2_2 = st.columns(2)
                     with col_f2_1:
                         porcentaje_ret_iva_str = st.text_input("% Retención IVA (Escribe 0.0 o 75.0)", value="75.0", key="f2_porc_iva_texto_libre")
@@ -11490,9 +11489,7 @@ elif opcion_menu == "📝 Asientos Contables":
                         anular_iva_manual = st.checkbox("Forzar Retención IVA a 0.00", value=False, key="chk_anular_iva")
                     
                     st.markdown("---")
-
-                    # --- 3ER FRAME: RETENCIÓN DE ISLR ---
-                    st.markdown("#### 3️⃣ Frame: Retención de ISLR")
+                    st.markdown("#### 3️⃣ Retención de ISLR")
                     col_f3_1, col_f3_2, col_f3_3, col_f3_4 = st.columns(4)
                     with col_f3_1:
                         tipo_persona_form = st.selectbox("Tipo de Persona", options=["Jurídico Domiciliado", "Natural Residenciado", "Otro", "No Aplica"], key="f3_tipo_p_v2")
@@ -11509,7 +11506,7 @@ elif opcion_menu == "📝 Asientos Contables":
 
                 st.markdown("---")
                 
-                # --- BOTÓN DE PROCESAR Y GUARDAR ---
+                # --- BOTÓN FINAL DE GUARDAR LA ORDEN DE PAGO ---
                 btn_guardar_op = st.form_submit_button("💾 Calcular y Registrar Orden de Pago", type="primary", use_container_width=True)
 
                 if btn_guardar_op:
@@ -11521,7 +11518,6 @@ elif opcion_menu == "📝 Asientos Contables":
                         try:
                             base_imponible_form = float(base_imponible_str.replace(",", ".")) if base_imponible_str else 0.0
                             monto_exento_form = float(monto_exento_str.replace(",", ".")) if monto_exento_str else 0.0
-                            
                             porcentaje_ret_iva = float(porcentaje_ret_iva_str.replace(",", ".")) if porcentaje_ret_iva_str else 0.0
 
                             if aplica_retenciones == "Sí":
@@ -11529,17 +11525,15 @@ elif opcion_menu == "📝 Asientos Contables":
                             else:
                                 islr_sustraendo_form = 0.0
 
-                            # Cálculos automáticos base
+                            # Cálculos
                             monto_iva_form = base_imponible_form * (alicuota_iva_form / 100.0)
                             monto_bruto_form = base_imponible_form + monto_exento_form + monto_iva_form
                             
-                            # Cálculo de Retención de IVA
                             if aplica_retenciones == "No" or porcentaje_ret_iva == 0.0 or anular_iva_manual:
                                 retencion_iva_form = 0.0
                             else:
                                 retencion_iva_form = monto_iva_form * (porcentaje_ret_iva / 100.0)
 
-                            # Cálculo de Retención de ISLR
                             if aplica_retenciones == "No" or islr_porcentaje_form == 0.0 or anular_islr_manual:
                                 retencion_islr_form = 0.0
                                 islr_porcentaje_form = 0.0
@@ -11547,7 +11541,6 @@ elif opcion_menu == "📝 Asientos Contables":
                                 retencion_islr_form = max(0.0, (base_imponible_form * (islr_porcentaje_form / 100.0)) - islr_sustraendo_form)
 
                             monto_neto_calculado = monto_bruto_form - retencion_islr_form - retencion_iva_form
-                    
                             info_prov_form = dict_provs[prov_seleccionado_form]
                             
                             conn_ins = conectar_db(db_actual)
@@ -11584,17 +11577,16 @@ elif opcion_menu == "📝 Asientos Contables":
                                 conn_ins.commit()
                                 cursor.close()
                                 conn_ins.close()
-                                st.success("🎉 ¡Orden de pago calculada y guardada con éxito en la BD! Recargando...")
+                                st.success("🎉 ¡Orden de pago guardada con éxito!")
                                 st.rerun()
                         except ValueError:
-                            st.error("⚠️ Error en los formatos numéricos. Asegúrate de usar números válidos en Base Imponible, Monto Exento y Sustraendo.")
+                            st.error("⚠️ Error en los formatos numéricos.")
                         except Exception as err_ins:
                             st.error(f"❌ Error al guardar la orden de pago: {err_ins}")
 
-            st.markdown("---")
-
-            # --- HISTORIAL Y PREVISUALIZACIÓN PROCEDURAL DE ASIENTOS ---
-            st.markdown("### 📊 Historial de Órdenes de Pago y Procesamiento por Etapas")
+            # =========================================================================
+            # SEGUNDO NIVEL: SOLO SE MUESTRA SI YA EXISTE AL MENOS UNA ORDEN REGISTRADA
+            # =========================================================================
             try:
                 conn_list_op = conectar_db(db_actual)
                 df_ops = None
@@ -11609,9 +11601,10 @@ elif opcion_menu == "📝 Asientos Contables":
                         df_ops = ejecutar_consulta("SELECT * FROM ordenes_pago ORDER BY id DESC", conn_list_op2)
                         conn_list_op2.close()
             
-                if df_ops is None or df_ops.empty:
-                    st.warning("⚠️ No hay órdenes de pago registradas todavía.")
-                else:
+                if df_ops is not None and not df_ops.empty:
+                    st.markdown("---")
+                    st.markdown("### 📊 Registro y Generación de Asientos por Orden de Pago")
+                    
                     lista_ops_procesadas = []
                     for _, r_op in df_ops.iterrows():
                         prov_encontrado = None
@@ -11648,15 +11641,14 @@ elif opcion_menu == "📝 Asientos Contables":
                     
                     df_ops_final = pd.DataFrame(lista_ops_procesadas)
                     
+                    # Tabla resume de las órdenes emitidas
                     df_display = df_ops_final[['id', 'proveedor', 'nro_factura', 'monto_bruto', 'monto_neto', 'retencion_islr', 'estado', 'fecha_emision']]
                     st.dataframe(df_display, use_container_width=True, hide_index=True)
                     
-                    st.markdown("---")
-                    
-                    opciones_ordenes = {f"ID: {row['id']} | Factura: {row['nro_factura']} | Proveedor: {row['proveedor']} | Estado: {row['estado']}": row for _, row in df_ops_final.iterrows()}
+                    opciones_ordenes = {f"ID: {row['id']} | Factura: {row['nro_factura']} | Proveedor: {row['proveedor']}": row for _, row in df_ops_final.iterrows()}
                     
                     seleccion_op_key = st.selectbox(
-                        "🔍 Selecciona una Orden de Pago para gestionar sus asientos y registros por etapas:", 
+                        "🔍 Selecciona la Orden de Pago para desplegar sus módulos correspondientes:", 
                         options=list(opciones_ordenes.keys()),
                         index=0,
                         key="select_op_final_v2"
@@ -11665,8 +11657,7 @@ elif opcion_menu == "📝 Asientos Contables":
                     if seleccion_op_key:
                         sel_data = opciones_ordenes[seleccion_op_key]
                         
-                        st.markdown("---")
-                        st.markdown(f"### ⚙️ Configuración de Cuentas para la Orden #{sel_data['id']}")
+                        st.markdown(f"#### ⚙️ Configuración de Cuentas para la Orden #{sel_data['id']}")
                         
                         col_c1, col_c2, col_c3 = st.columns(3)
                         with col_c1:
@@ -11681,18 +11672,17 @@ elif opcion_menu == "📝 Asientos Contables":
                             info_banco['nombre'] = info_banco.get('nombre', 'Banco Principal')
 
                         st.markdown("---")
-                        st.markdown("### 📋 Procesamiento Procedural (Paso a Paso)")
                         
-                        # FLUJO POR PESTAÑAS INTERNAS PARA EVITAR ABRUMAR AL USUARIO
+                        # PESTAÑAS PROCEDURALES ORGANIZADAS PASO A PASO
                         tab_paso1, tab_paso2, tab_paso3 = st.tabs([
                             "📄 1. Libro de Compras", 
                             "📒 2. Asiento Contable", 
                             "🏦 3. Movimiento Bancario"
                         ])
                         
-                        # --- ETAPA 1: LIBRO DE COMPRAS ---
+                        # --- PASO 1: LIBRO DE COMPRAS ---
                         with tab_paso1:
-                            st.markdown("#### Registro en el Libro de Compras")
+                            st.markdown("##### 📄 Registro en el Libro de Compras")
                             st.code(f"""fecha_operacion: {sel_data['fecha_emision']}
         tipo_documento: Factura
         n_factura: {sel_data['nro_factura']}
@@ -11712,9 +11702,9 @@ elif opcion_menu == "📝 Asientos Contables":
                                 prov_val = str(sel_data.get('proveedor', '')).strip()
                                 
                                 if not fact_val or fact_val in ['None', 'N/A', '?', '']:
-                                    st.error("⚠️ Error: El número de factura está vacío o es inválido en esta Orden de Pago.")
+                                    st.error("⚠️ Error: El número de factura está vacío o es inválido.")
                                 elif not rif_val or rif_val in ['None', 'N/A', '?', '']:
-                                    st.error(f"⚠️ Error: El RIF del proveedor ('{rif_val}') está vacío o no está asociado correctamente.")
+                                    st.error(f"⚠️ Error: El RIF del proveedor está vacío.")
                                 else:
                                     try:
                                         conn_l = conectar_db(db_actual)
@@ -11766,9 +11756,9 @@ elif opcion_menu == "📝 Asientos Contables":
                                     except Exception as err_l:
                                         st.error(f"❌ Error al guardar libro de compras: {err_l}")
 
-                        # --- ETAPA 2: ASIENTO CONTABLE ---
+                        # --- PASO 2: ASIENTO CONTABLE ---
                         with tab_paso2:
-                            st.markdown("#### Generación de Asiento Contable")
+                            st.markdown("##### 📒 Generación de Asiento Contable")
                             st.code(f"""- n_comprobante: OP-{sel_data['nro_factura']}
           fecha: {sel_data['fecha_emision']}
           asientos:
@@ -11827,9 +11817,9 @@ elif opcion_menu == "📝 Asientos Contables":
                                 except Exception as err_a:
                                     st.error(f"❌ Error al guardar asiento contable: {err_a}")
 
-                        # --- ETAPA 3: MOVIMIENTO BANCARIO ---
+                        # --- PASO 3: MOVIMIENTO BANCARIO ---
                         with tab_paso3:
-                            st.markdown("#### Registro de Movimiento Bancario")
+                            st.markdown("##### 🏦 Registro de Movimiento Bancario")
                             prov_nombre = str(sel_data.get('proveedor', '')).strip()
                             prov_rif = str(sel_data.get('proveedor_rif', '')).strip()
                             nro_fact = str(sel_data.get('nro_factura', '')).strip()
@@ -11869,7 +11859,7 @@ elif opcion_menu == "📝 Asientos Contables":
                                         st.success("✅ ¡Movimiento Bancario guardado con éxito!")
                                 except Exception as err_b:
                                     st.error(f"❌ Error al guardar movimiento bancario: {err_b}")
-                                    
+
             except Exception as err_hist:
                 st.error(f"Error cargando historial de órdenes de pago: {err_hist}")
 
