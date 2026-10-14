@@ -11707,35 +11707,35 @@ elif opcion_menu == "📝 Asientos Contables":
                                                 else:
                                                     query_libro = """
                                                         INSERT INTO libro_compras (
-                                                            fecha_operacion, tipo_documento, n_factura, n_control,proveedor, rif, tipo_transaccion, 
+                                                            fecha_operacion, tipo_documento, n_factura, n_control, 
+                                                            n_factura_afectada, proveedor, rif, tipo_transaccion, 
                                                             total_compras, importe_exento, base_imponible, iva_porcentaje, 
                                                             iva_monto, retencion_realizada, retencion_iva_realizada, 
                                                             n_comprobante_retencion, monto_iva_retenido, fecha_comprobante, 
                                                             created_at, updated_at
                                                         ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
                                                     """
-                                                    
+
                                                     valores_libro = (
-                                                        str(sel_data['fecha_emision']),
-                                                        "Factura",
-                                                        fact_val,
-                                                        ctrl_val if ctrl_val and ctrl_val != 'None' else 'S/N',
-                                                        None,
-                                                        prov_val if prov_val and prov_val != 'None' else 'Proveedor Genérico',
-                                                        rif_val,
-                                                        "01",
-                                                        float(sel_data.get('monto_bruto', 0.0)),
-                                                        float(sel_data.get('monto_exento', 0.0)),
-                                                        float(sel_data.get('base_imponible', 0.0)),
-                                                        float(sel_data.get('iva_porcentaje', 16.0)),
-                                                        float(sel_data.get('monto_iva', 0.0)),
-                                                        1 if float(sel_data.get('retencion_iva', 0.0)) > 0 else 0,
-                                                        float(sel_data.get('retencion_iva', 0.0)),
-                                                        f"COMP-{fact_val}",
-                                                        float(sel_data.get('retencion_iva', 0.0)),
-                                                        str(sel_data['fecha_emision'])
+                                                        str(sel_data['fecha_emision']),                                      # 1. fecha_operacion
+                                                        "Factura",                                                           # 2. tipo_documento
+                                                        str(fact_val),                                                       # 3. n_factura
+                                                        str(ctrl_val if ctrl_val and ctrl_val != 'None' else 'S/N'),         # 4. n_control
+                                                        None,                                                                # 5. n_factura_afectada
+                                                        str(prov_val if prov_val and prov_val != 'None' else 'Proveedor Genérico'), # 6. proveedor
+                                                        str(rif_val),                                                        # 7. rif
+                                                        "01",                                                                # 8. tipo_transaccion
+                                                        float(sel_data.get('monto_bruto', 0.0)),                             # 9. total_compras
+                                                        float(sel_data.get('monto_exento', 0.0)),                            # 10. importe_exento
+                                                        float(sel_data.get('base_imponible', 0.0)),                          # 11. base_imponible
+                                                        float(sel_data.get('iva_porcentaje', 16.0)),                         # 12. iva_porcentaje
+                                                        float(sel_data.get('monto_iva', 0.0)),                               # 13. iva_monto
+                                                        1 if float(sel_data.get('retencion_iva', 0.0)) > 0 else 0,           # 14. retencion_realizada
+                                                        1 if float(sel_data.get('retencion_iva', 0.0)) > 0 else 0,           # 15. retencion_iva_realizada
+                                                        str(f"COMP-{fact_val}"),                                             # 16. n_comprobante_retencion
+                                                        float(sel_data.get('retencion_iva', 0.0)),                           # 17. monto_iva_retenido
+                                                        str(sel_data['fecha_emision'])                                       # 18. fecha_comprobante
                                                     )
-                                                    
                                                     cur_l.execute(query_libro, valores_libro)
                                                     conn_l.commit()
                                                     st.success("✅ ¡Libro de Compras guardado con éxito!")
