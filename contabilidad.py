@@ -11144,8 +11144,8 @@ elif opcion_menu == "📝 Asientos Contables":
             except Exception as ex_prov:
                 st.warning(f"Aviso en tabla proveedores_carga: {ex_prov}")
 
-            # --- FUNCIÓN CON CACHÉ PARA ACELERAR LA CARGA DE DATOS ---
-            @st.cache_data(ttl=60)
+            # --- FUNCIÓN CON CACHÉ OPTIMIZADA PARA MÁXIMA VELOCIDAD (TTL 300s) ---
+            @st.cache_data(ttl=300)
             def cargar_datos_proveedores_tab1(empresa):
                 m_lista = []
                 m_dict = {}
@@ -11307,7 +11307,6 @@ elif opcion_menu == "📝 Asientos Contables":
                             cursor_ins.close()
                             conn_ins.close()
                             
-                            # Activamos la bandera de reseteo para limpiar antes de recrear los widgets en el siguiente render
                             st.session_state["form_reset"] = True
                             cargar_datos_proveedores_tab1.clear()
 
@@ -11320,7 +11319,7 @@ elif opcion_menu == "📝 Asientos Contables":
 
             st.divider()
 
-            # --- LISTADO DE LA TABLA 'proveedores_carga' ---
+            # --- LISTADO DE LA TABLA 'proveedores_carga' (Optimizado con carga directa) ---
             st.markdown("### 🗂️ Proveedores Almacenados en `proveedores_carga`")
             try:
                 conn_list = conectar_db(db_actual)
@@ -18143,6 +18142,12 @@ elif "Proveedores" in opcion_menu:
 
             for col in df_para_mostrar.columns:
                 df_para_mostrar[col] = df_para_mostrar[col].astype(str).replace(['None', 'nan', 'NAT'], '')
+
+            # --- ORDENAMIENTO ALFABÉTICO AUTOMÁTICO POR RAZÓN SOCIAL ---
+            if not df_para_mostrar.empty and "razon_social" in df_para_mostrar.columns:
+                # Ordena alfabéticamente ignorando mayúsculas/minúsculas y reindexa
+                df_para_mostrar['orden_aux'] = df_para_mostrar['razon_social'].str.lower()
+                df_para_mostrar = df_para_mostrar.sort_values(by='orden_aux', ascending=True).drop(columns=['orden_aux']).reset_index(drop=True)
 
             # 4. Editor de datos interactivo
             df_editado = st.data_editor(
