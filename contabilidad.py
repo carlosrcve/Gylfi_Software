@@ -10295,6 +10295,64 @@ elif opcion_menu == "📝 Asientos Contables":
         with tab2:
             st.markdown("### 🧾 Gestión y Generación de Órdenes de Pago y Cruce")
 
+            # ==========================================
+            # INTEGRACIÓN EN LA ORDEN DE PAGO (STREAMLIT)
+            # ==========================================
+            st.markdown("### 📝 Módulo de Órdenes de Pago")
+
+            # Selector de Metodología de Registro
+            modo_registro = st.radio(
+                "Seleccione el método de registro de la factura:",
+                ("1. Registro Manual", "2. Escaneo de Factura (Automático)")
+            )
+
+            if modo_registro == "1. Registro Manual":
+                st.info("Formulario tradicional de carga manual de campos.")
+                # Aquí irían tus inputs manuales actuales...
+                nro_factura_input = st.text_input("Número de Factura")
+                nro_control_input = st.text_input("Número de Control")
+                # ... demás campos manuales
+
+            else:
+                st.markdown("#### 📂 Selección de Factura Escaneada")
+                
+                # El usuario busca/selecciona su archivo escaneado (desde su carpeta o gestión documental)
+                archivo_escaneado = st.file_uploader("Seleccione el archivo de la factura escaneada", type=["pdf", "jpg", "png"])
+
+                if archivo_escaneado is not None:
+                    # Botón dedicado para procesar la factura seleccionada
+                    if st.button("🚀 Procesar factura escaneada", type="primary"):
+                        with st.spinner("Leyendo datos fiscales de la factura..."):
+                            # Guardar temporalmente para que la función OpenCV/PyMuPDF lo lea
+                            with tempfile.NamedTemporaryFile(delete=False, suffix=f"_{archivo_escaneado.name}") as tmp_file:
+                                tmp_file.write(archivo_escaneado.getvalue())
+                                ruta_temporal = tmp_file.name
+
+                            # Ejecutar la función adaptada
+                            res_ocr = extraer_datos_factura_local(ruta_temporal)
+                            
+                            # Limpiar archivo temporal
+                            os.unlink(ruta_temporal)
+
+                        if "error" in res_ocr:
+                            st.error(res_ocr["error"])
+                        else:
+                            st.success("¡Factura procesada con éxito! Campos extraídos:")
+                            
+                            # Prellenamos las variables en pantalla (que luego alimentarán tu formulario y tus fórmulas)
+                            col1, col2 = st.columns(2)
+                            with col1:
+                                val_factura = st.text_input("Nro. de Factura", value=res_ocr["nro_factura"])
+                                val_control = st.text_input("Nro. de Control", value=res_ocr["nro_control"])
+                                val_fecha = st.text_input("Fecha", value=res_ocr["fecha"])
+                            with col2:
+                                val_bi = st.text_input("Base Imponible", value=res_ocr["base_imponible"])
+                                val_exento = st.text_input("Monto Exento", value=res_ocr["monto_exento"])
+                            
+                            st.info("💡 Los demás campos (IVA, Retenciones y Total) se calcularán automáticamente con tus fórmulas matemáticas al guardar.")
+
+            st.markdown("---")
+
             # --- CARGAR PROVEEDORES Y PLAN DE CUENTAS DIRECTO DE LA BD ---
             lista_provs = []
             dict_provs = {}
@@ -10463,7 +10521,7 @@ elif opcion_menu == "📝 Asientos Contables":
 
                             monto_neto_calculado = monto_bruto_form - retencion_islr_form - retencion_iva_form
                     
-                    # ... (aquí continúa tu código del INSERT INTO ordenes_pago)
+                            # ... (aquí continúa tu código del INSERT INTO ordenes_pago)
 
                             info_prov_form = dict_provs[prov_seleccionado_form]
                             
@@ -10525,7 +10583,7 @@ elif opcion_menu == "📝 Asientos Contables":
                     if conn_list_op2:
                         df_ops = ejecutar_consulta("SELECT * FROM ordenes_pago ORDER BY id DESC", conn_list_op2)
                         conn_list_op2.close()
-                
+            
                 if df_ops is None or df_ops.empty:
                     st.warning("⚠️ No hay órdenes de pago registradas todavía.")
                 else:
@@ -10607,16 +10665,16 @@ elif opcion_menu == "📝 Asientos Contables":
                         with col_f1:
                             st.markdown("#### 📄 `libro_compras`")
                             st.code(f"""fecha_operacion: {sel_data['fecha_emision']}
-            tipo_documento: Factura
-            n_factura: {sel_data['nro_factura']}
-            n_control: {sel_data['nro_control']}
-            proveedor: {sel_data['proveedor']}
-            rif: {sel_data['proveedor_rif']}
-            total_compras: {sel_data['monto_bruto']:,.2f}
-            base_imponible: {sel_data['base_imponible']:,.2f}
-            iva_porcentaje: {sel_data['iva_porcentaje']}%
-            iva_monto: {sel_data['monto_iva']:,.2f}
-            retencion_islr: {sel_data['retencion_islr']:,.2f}""", language="yaml")
+                    tipo_documento: Factura
+                    n_factura: {sel_data['nro_factura']}
+                    n_control: {sel_data['nro_control']}
+                    proveedor: {sel_data['proveedor']}
+                    rif: {sel_data['proveedor_rif']}
+                    total_compras: {sel_data['monto_bruto']:,.2f}
+                    base_imponible: {sel_data['base_imponible']:,.2f}
+                    iva_porcentaje: {sel_data['iva_porcentaje']}%
+                    iva_monto: {sel_data['monto_iva']:,.2f}
+                    retencion_islr: {sel_data['retencion_islr']:,.2f}""", language="yaml")
                             
                             if st.button("💾 Guardar Libro de Compras", key=f"btn_guardar_libro_{sel_data['id']}", use_container_width=True):
                                 rif_val = str(sel_data.get('proveedor_rif', '')).strip()
@@ -10683,23 +10741,23 @@ elif opcion_menu == "📝 Asientos Contables":
                         with col_f2:
                             st.markdown("#### 📒 `asientos_contables`")
                             st.code(f"""- n_comprobante: OP-{sel_data['nro_factura']}
-                  fecha: {sel_data['fecha_emision']}
-                  asientos:
-                    - plan_cuentas: {info_gasto['codigo']}
-                      debe: {sel_data['base_imponible']:,.2f}
-                      haber: 0.00
-                    - plan_cuentas: {info_iva['codigo']}
-                      debe: {sel_data['monto_iva']:,.2f}
-                      haber: 0.00
-                    - plan_cuentas: 2.1.2.01.005
-                      debe: 0.00
-                      haber: {sel_data['retencion_islr']:,.2f}
-                    - plan_cuentas: 2.1.2.01.003
-                      debe: 0.00
-                      haber: {sel_data['retencion_iva']:,.2f}
-                    - plan_cuentas: {info_banco['codigo']}
-                      debe: 0.00
-                      haber: {sel_data['monto_neto']:,.2f}""", language="yaml")
+                          fecha: {sel_data['fecha_emision']}
+                          asientos:
+                            - plan_cuentas: {info_gasto['codigo']}
+                              debe: {sel_data['base_imponible']:,.2f}
+                              haber: 0.00
+                            - plan_cuentas: {info_iva['codigo']}
+                              debe: {sel_data['monto_iva']:,.2f}
+                              haber: 0.00
+                            - plan_cuentas: 2.1.2.01.005
+                              debe: 0.00
+                              haber: {sel_data['retencion_islr']:,.2f}
+                            - plan_cuentas: 2.1.2.01.003
+                              debe: 0.00
+                              haber: {sel_data['retencion_iva']:,.2f}
+                            - plan_cuentas: {info_banco['codigo']}
+                              debe: 0.00
+                              haber: {sel_data['monto_neto']:,.2f}""", language="yaml")
                             
                             if st.button("💾 Guardar Asiento Contable", key=f"btn_guardar_asiento_{sel_data['id']}", use_container_width=True):
                                 try:
@@ -10743,18 +10801,16 @@ elif opcion_menu == "📝 Asientos Contables":
                         # --- FRAME 3: MOVIMIENTO BANCARIO ---
                         with col_f3:
                             st.markdown("#### 🏦 Movimiento Bancario")
-                            
                             prov_nombre = str(sel_data.get('proveedor', '')).strip()
                             prov_rif = str(sel_data.get('proveedor_rif', '')).strip()
                             nro_fact = str(sel_data.get('nro_factura', '')).strip()
-                            
                             desc_val = f"Pago Factura Nro {nro_fact} - {prov_nombre} (RIF: {prov_rif})"
 
                             st.code(f"""banco_nombre: {info_banco['nombre']}
-        referencia: OP-{nro_fact}
-        descripcion: {desc_val}
-        monto: {sel_data['monto_neto']:,.2f}
-        estado: {sel_data['estado']}""", language="yaml")
+                reference: OP-{nro_fact}
+                descripcion: {desc_val}
+                monto: {sel_data['monto_neto']:,.2f}
+                estado: {sel_data['estado']}""", language="yaml")
                             
                             if st.button("💾 Guardar Movimiento Bancario", key=f"btn_guardar_banco_{sel_data['id']}", use_container_width=True):
                                 try:
@@ -10763,7 +10819,6 @@ elif opcion_menu == "📝 Asientos Contables":
                                         cur_b = conn_b.cursor()
                                         n_comp_val = f"OP-{nro_fact}"
                                         fecha_val = str(sel_data['fecha_emision'])
-                                        
                                         query_banco = """
                                             INSERT INTO banco_movimientos (
                                                 banco_nombre, cuenta_numero, fecha_movimiento, 
@@ -10785,8 +10840,9 @@ elif opcion_menu == "📝 Asientos Contables":
                                         st.success("✅ ¡Movimiento Bancario guardado con éxito!")
                                 except Exception as err_b:
                                     st.error(f"❌ Error al guardar movimiento bancario: {err_b}")
-            except Exception as err_general:
-                st.error(f"Error procesando el historial de órdenes: {err_general}")
+
+            except Exception as err_hist:
+                st.error(f"Error cargando historial de órdenes de pago: {err_hist}")
     
         with tab3:
             st.subheader("📂 Estado de Cuenta Bancario")
