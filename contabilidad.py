@@ -11397,6 +11397,36 @@ elif opcion_menu == "📝 Asientos Contables":
             if not st.session_state.orden_guardada_exito:
                 st.markdown("### ✍️ Emitir Nueva Orden de Pago")
                 
+                # --- SELECTOR DE METODOLOGÍA (NUEVO) ---
+                modo_registro = st.radio(
+                    "Seleccione el método de registro de la factura:",
+                    ("1. Registro Manual", "2. Escaneo de Factura (Automático)"),
+                    horizontal=True,
+                    key="modo_registro_factura"
+                )
+
+                if modo_registro == "2. Escaneo de Factura (Automático)":
+                    archivo_escaneado = st.file_uploader("Seleccione el archivo de la factura escaneada", type=["pdf", "jpg", "png"], key="uploader_factura_escaneada")
+                    if archivo_escaneado is not None:
+                        if st.button("🚀 Procesar factura escaneada", type="primary", key="btn_procesar_escaneo"):
+                            with st.spinner("Leyendo datos fiscales de la factura..."):
+                                with tempfile.NamedTemporaryFile(delete=False, suffix=f"_{archivo_escaneado.name}") as tmp_file:
+                                    tmp_file.write(archivo_escaneado.getvalue())
+                                    ruta_temporal = tmp_file.name
+
+                                res_ocr = extraer_datos_factura_local(ruta_temporal)
+                                os.unlink(ruta_temporal)
+
+                            if "error" in res_ocr:
+                                st.error(res_ocr["error"])
+                            else:
+                                st.success("¡Factura procesada con éxito! Campos extraídos:")
+                                st.session_state["op_fact"] = str(res_ocr.get("nro_factura", ""))
+                                st.session_state["op_ctrl"] = str(res_ocr.get("nro_control", ""))
+                                st.session_state["op_base"] = float(res_ocr.get("base_imponible", 0.0))
+                                st.session_state["op_exento"] = float(res_ocr.get("monto_exento", 0.0))
+                                st.rerun()
+
                 with st.container():
                     col_f1_1, col_f1_2 = st.columns(2)
                     with col_f1_1:
@@ -11549,7 +11579,7 @@ elif opcion_menu == "📝 Asientos Contables":
                         if conn_list_op2:
                             df_ops = ejecutar_consulta("SELECT * FROM ordenes_pago ORDER BY id DESC", conn_list_op2)
                             conn_list_op2.close()
-                    
+                
                     if df_ops is not None and not df_ops.empty:
                         lista_ops_procesadas = []
                         for _, r_op in df_ops.iterrows():
@@ -11705,23 +11735,23 @@ elif opcion_menu == "📝 Asientos Contables":
                             with col_f2:
                                 st.markdown("#### 📒 `asientos_contables`")
                                 st.code(f"""- n_comprobante: OP-{sel_data['nro_factura']}
-          fecha: {sel_data['fecha_emision']}
-          asientos:
-            - plan_cuentas: {info_gasto['codigo']}
-              debe: {sel_data['base_imponible']:,.2f}
-              haber: 0.00
-            - plan_cuentas: {info_iva['codigo']}
-              debe: {sel_data['monto_iva']:,.2f}
-              haber: 0.00
-            - plan_cuentas: 2.1.2.01.005
-              debe: 0.00
-              haber: {sel_data['retencion_islr']:,.2f}
-            - plan_cuentas: 2.1.2.01.003
-              debe: 0.00
-              haber: {sel_data['retencion_iva']:,.2f}
-            - plan_cuentas: {info_banco['codigo']}
-              debe: 0.00
-              haber: {sel_data['monto_neto']:,.2f}""", language="yaml")
+        fecha: {sel_data['fecha_emision']}
+        asientos:
+          - plan_cuentas: {info_gasto['codigo']}
+            debe: {sel_data['base_imponible']:,.2f}
+            haber: 0.00
+          - plan_cuentas: {info_iva['codigo']}
+            debe: {sel_data['monto_iva']:,.2f}
+            haber: 0.00
+          - plan_cuentas: 2.1.2.01.005
+            debe: 0.00
+            haber: {sel_data['retencion_islr']:,.2f}
+          - plan_cuentas: 2.1.2.01.003
+            debe: 0.00
+            haber: {sel_data['retencion_iva']:,.2f}
+          - plan_cuentas: {info_banco['codigo']}
+            debe: 0.00
+            haber: {sel_data['monto_neto']:,.2f}""", language="yaml")
                                 
                                 if st.button("💾 Guardar Asiento Contable", key=f"btn_guardar_asiento_{sel_data['id']}", use_container_width=True):
                                     try:
@@ -11804,6 +11834,7 @@ elif opcion_menu == "📝 Asientos Contables":
                                             st.success("✅ ¡Movimiento Bancario guardado con éxito!")
                                     except Exception as err_b:
                                         st.error(f"❌ Error al guardar movimiento bancario: {err_b}")
+
                 except Exception as err_hist:
                     st.error(f"Error cargando historial de órdenes de pago: {err_hist}")
 
