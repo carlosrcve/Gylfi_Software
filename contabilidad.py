@@ -11822,7 +11822,7 @@ elif opcion_menu == "📝 Asientos Contables":
                                 except Exception as err_a:
                                     st.error(f"❌ Error al guardar asiento contable: {err_a}")
 
-                            # --- MÓDULO 3: MOVIMIENTO BANCARIO ---
+                            # --- FRAME 3: MOVIMIENTO BANCARIO ---
                             with col_f3:
                                 st.markdown("#### 🏦 `banco_movimientos`")
                                 prov_nombre = str(sel_data.get('proveedor', '')).strip()
@@ -11831,10 +11831,10 @@ elif opcion_menu == "📝 Asientos Contables":
                                 desc_val = f"Pago Factura Nro {nro_fact} - {prov_nombre} (RIF: {prov_rif})"
 
                                 st.code(f"""banco_nombre: {info_banco['nombre']}
-        reference: OP-{nro_fact}
-        descripcion: {desc_val}
-        monto: {sel_data['monto_neto']:,.2f}
-        estado: {sel_data['estado']}""", language="yaml")
+            reference: OP-{nro_fact}
+            descripcion: {desc_val}
+            monto: {sel_data['monto_neto']:,.2f}
+            estado: {sel_data['estado']}""", language="yaml")
                                 
                                 if st.button("💾 Guardar Movimiento Bancario", key=f"btn_guardar_banco_{sel_data['id']}", use_container_width=True):
                                     try:
@@ -11864,6 +11864,7 @@ elif opcion_menu == "📝 Asientos Contables":
                                             st.success("✅ ¡Movimiento Bancario guardado con éxito!")
                                     except Exception as err_b:
                                         st.error(f"❌ Error al guardar movimiento bancario: {err_b}")
+                        
                 except Exception as err_hist:
                     st.error(f"Error cargando historial de órdenes de pago: {err_hist}")
 
