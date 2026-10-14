@@ -10304,10 +10304,20 @@ elif opcion_menu == "📝 Asientos Contables":
                 try:
                     conn = conectar_db(empresa)
                     if conn:
+                        # 1. Intentar buscar proveedores filtrando por la empresa actual
                         df_cp = ejecutar_consulta(
-                            "SELECT id, nombre, rif, codigo_cuenta, descripcion_cuenta FROM proveedores_carga WHERE empresa_db = %s ORDER BY nombre ASC", 
+                            "SELECT id, nombre, rif, codigo_cuenta, descripcion_cuenta FROM proveedores_carga WHERE LOWER(empresa_db) = LOWER(%s) ORDER BY nombre ASC", 
                             conn, params=(str(empresa),)
                         )
+                        
+                        # Fallback: Si no trae nada con el filtro, cargar todos los proveedores existentes
+                        if df_cp is None or df_cp.empty:
+                            df_cp = ejecutar_consulta(
+                                "SELECT id, nombre, rif, codigo_cuenta, descripcion_cuenta FROM proveedores_carga ORDER BY nombre ASC", 
+                                conn
+                            )
+
+                        # Cargar Plan de Cuentas
                         df_cuentas = ejecutar_consulta(
                             "SELECT id, codigo, nombre, nivel, tipo, padre FROM plan_cuentas WHERE tipo = 'Detalle'", 
                             conn
@@ -18955,3 +18965,4 @@ elif opcion_menu == "📦 Respaldos y Exportación":
 elif "Inventarios" in opcion_menu:
     # Invocamos el módulo exclusivo pasando la conexión a la base de datos
     modulo_inventario_pedacito_cielo(conn)  
+
