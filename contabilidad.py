@@ -10304,20 +10304,20 @@ elif opcion_menu == "📝 Asientos Contables":
                 try:
                     conn = conectar_db(empresa)
                     if conn:
-                        # 1. Intentar buscar proveedores filtrando por la empresa actual
+                        # 1. Consulta estricta filtrando por empresa
                         df_cp = ejecutar_consulta(
-                            "SELECT id, nombre, rif, codigo_cuenta, descripcion_cuenta FROM proveedores_carga WHERE LOWER(empresa_db) = LOWER(%s) ORDER BY nombre ASC", 
+                            "SELECT id, nombre, rif, codigo_cuenta, descripcion_cuenta FROM proveedores_carga WHERE empresa_db = %s ORDER BY nombre ASC", 
                             conn, params=(str(empresa),)
                         )
                         
-                        # Fallback: Si no trae nada con el filtro, cargar todos los proveedores existentes
+                        # DEPURACIÓN VISUAL TEMPORAL: Esto nos dirá si la tabla tiene datos o viene vacía
                         if df_cp is None or df_cp.empty:
+                            st.warning(f"⚠️ La consulta con filtro empresa_db = '{empresa}' no arrojó resultados. Intentando consultar toda la tabla...")
                             df_cp = ejecutar_consulta(
                                 "SELECT id, nombre, rif, codigo_cuenta, descripcion_cuenta FROM proveedores_carga ORDER BY nombre ASC", 
                                 conn
                             )
 
-                        # Cargar Plan de Cuentas
                         df_cuentas = ejecutar_consulta(
                             "SELECT id, codigo, nombre, nivel, tipo, padre FROM plan_cuentas WHERE tipo = 'Detalle'", 
                             conn
@@ -10325,6 +10325,7 @@ elif opcion_menu == "📝 Asientos Contables":
                         conn.close()
                         
                         if df_cp is not None and not df_cp.empty:
+                            st.success(f"✅ Se encontraron {len(df_cp)} proveedores en la base de datos.")
                             for _, row in df_cp.iterrows():
                                 pid = row['id']
                                 label = f"{row['nombre']} (RIF: {row['rif']})"
@@ -10337,6 +10338,8 @@ elif opcion_menu == "📝 Asientos Contables":
                                     'codigo_cuenta': str(row.get('codigo_cuenta', 'N/A')),
                                     'descripcion_cuenta': str(row.get('descripcion_cuenta', 'N/A'))
                                 }
+                        else:
+                            st.error("❌ La tabla `proveedores_carga` está completamente vacía o no se puede leer en esta base de datos.")
                         
                         if df_cuentas is not None and not df_cuentas.empty:
                             for _, row in df_cuentas.iterrows():
@@ -10350,6 +10353,8 @@ elif opcion_menu == "📝 Asientos Contables":
                 except Exception as ex:
                     st.error(f"Error en consulta de BD: {ex}")
                 return p_lista, p_dict, c_lista, c_dict
+
+            lista_provs, dict_provs, lista_cuentas_detalle, dict_cuentas_detalle = cargar_datos_maestros(db_actual)
 
             lista_provs, dict_provs, lista_cuentas_detalle, dict_cuentas_detalle = cargar_datos_maestros(db_actual)
 
@@ -18965,4 +18970,3 @@ elif opcion_menu == "📦 Respaldos y Exportación":
 elif "Inventarios" in opcion_menu:
     # Invocamos el módulo exclusivo pasando la conexión a la base de datos
     modulo_inventario_pedacito_cielo(conn)  
-
