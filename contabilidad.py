@@ -11375,14 +11375,14 @@ elif opcion_menu == "📝 Asientos Contables":
                     st.session_state[key] = default_val
 
             # ==========================================
-            # 🎛️ SELECTOR DE VISTA (PRIMERO QUE TODO)
+            # 🎛️ SELECTOR DE VISTA (TEXTO LIMPIO SIN EMOJIS EN LAS OPCIONES)
             # ==========================================
             st.markdown("---")
             modo_vista = st.selectbox(
                 "📍 Selecciona la vista de trabajo:",
                 options=[
-                    "➕ Emitir Nueva Orden de Pago", 
-                    "📊 Ver cola de órdenes pendientes por procesar"
+                    "Emitir Nueva Orden de Pago", 
+                    "Ver cola de órdenes pendientes por procesar"
                 ],
                 key="selector_modo_vista_seguro_op"
             )
@@ -11391,7 +11391,7 @@ elif opcion_menu == "📝 Asientos Contables":
             # ==========================================
             # 📋 OPCIÓN 1: EMITIR NUEVA ORDEN DE PAGO
             # ==========================================
-            if "Emitir" in str(modo_vista) or "➕" in str(modo_vista):
+            if modo_vista == "Emitir Nueva Orden de Pago":
                 if not st.session_state.orden_guardada_exito:
                     st.markdown("### ✍️ Emitir Nueva Orden de Pago")
                     
@@ -11507,7 +11507,7 @@ elif opcion_menu == "📝 Asientos Contables":
                         # --- BLOQUE DE REGISTRO DE ORDEN DE PAGO ---
                         if btn_guardar_op:
                             if not nro_factura_form:
-                                st.error("⚠️ El número de factura is obligatorio.")
+                                st.error("⚠️ El número de factura es obligatorio.")
                             elif not lista_provs:
                                 st.error("⚠️ No hay proveedores cargados para asociar la orden.")
                             else:
