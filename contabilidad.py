@@ -11546,7 +11546,7 @@ elif opcion_menu == "📝 Asientos Contables":
             # --- FASE 2 Y 3: HISTORIAL Y MÓDULOS PASO A PASO ---
             if st.session_state.orden_guardada_exito:
                 st.markdown("---")
-                st.markdown("### 📊 Historial de Órdenes de Pago")
+                st.markdown("### 📊 Historial de Órdenes de Pago Pendientes por Contabilizar")
                 try:
                     conn_list_op = conectar_db(db_actual)
                     df_ops = None
@@ -11599,24 +11599,11 @@ elif opcion_menu == "📝 Asientos Contables":
                         import pandas as pd
                         df_ops_final = pd.DataFrame(lista_ops_procesadas)
                         
-                        # =========================================================
-                        # AQUÍ VA EL FILTRO POR ESTADO (CONSERVANDO LA COLA)
-                        # =========================================================
-                        col_f_est, col_f_empty = st.columns([2, 2])
-                        with col_f_est:
-                            filtro_estado = st.selectbox(
-                                "📌 Mostrar órdenes por estado:", 
-                                options=["Todas", "Pendiente", "Contabilizada"], 
-                                index=0, 
-                                key="filtro_estado_ops_v2"
-                            )
-
-                        if filtro_estado != "Todas":
-                            df_ops_final = df_ops_final[df_ops_final['estado'].str.lower() == filtro_estado.lower()]
-                        # =========================================================
-
+                        # --- FILTRO ESTRICTO: SOLO LAS PENDIENTES DESAPARECEN AL TERMINAR ---
+                        df_ops_final = df_ops_final[df_ops_final['estado'].str.lower() == 'pendiente']
+                        
                         if df_ops_final.empty:
-                            st.info(f"ℹ️ No hay órdenes de pago registradas con estado: **{filtro_estado}**.")
+                            st.info("🎉 ¡Excelente! No hay órdenes de pago pendientes por contabilizar en este momento.")
                         else:
                             df_display = df_ops_final[['id', 'proveedor', 'nro_factura', 'monto_bruto', 'monto_neto', 'retencion_islr', 'estado', 'fecha_emision']]
                             st.dataframe(df_display, use_container_width=True, hide_index=True)
@@ -11625,14 +11612,20 @@ elif opcion_menu == "📝 Asientos Contables":
                             
                             opciones_ordenes = {f"ID: {row['id']} | Factura: {row['nro_factura']} | Proveedor: {row['proveedor']} | Estado: {row['estado']}": row for _, row in df_ops_final.iterrows()}
                             
+                            lista_claves_ops = list(opciones_ordenes.keys())
+                            
+                            # Validar que si la clave anterior ya no está en las pendientes, el índice sea 0 de forma segura
+                            if "select_op_final_v2" in st.session_state and st.session_state["select_op_final_v2"] not in lista_claves_ops:
+                                st.session_state["select_op_final_v2"] = lista_claves_ops[0] if lista_claves_ops else None
+                            
                             seleccion_op_key = st.selectbox(
                                 "🔍 Selecciona una Orden de Pago para configurar sus cuentas y previsualizar los asientos:", 
-                                options=list(opciones_ordenes.keys()),
+                                options=lista_claves_ops,
                                 index=0,
                                 key="select_op_final_v2"
                             )
                             
-                            if seleccion_op_key:
+                            if seleccion_op_key and seleccion_op_key in opciones_ordenes:
                                 sel_data = opciones_ordenes[seleccion_op_key]
                                 
                                 st.markdown("---")
@@ -11834,7 +11827,7 @@ estado: {sel_data['estado']}""", language="yaml")
                                                             str(sel_data['estado'])
                                                         ))
                                                         
-                                                        # ACTUALIZAR ESTADO DE LA ORDEN A 'Contabilizada'
+                                                        # ACTUALIZAR ESTADO DE LA ORDEN A 'Contabilizada' PARA QUE DESAPAREZCA
                                                         cur_b.execute("UPDATE ordenes_pago SET estado = 'Contabilizada' WHERE id = %s", (sel_data['id'],))
                                                         conn_b.commit()
                                                     conn_b.close()
