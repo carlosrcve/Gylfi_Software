@@ -11921,7 +11921,7 @@ elif opcion_menu == "📝 Asientos Contables":
                     st.warning(f"Aviso en historial: {ex_historial}")
         with tab3:
             st.markdown("### 🔗 Conciliación, Cruce Bancario y Emisión de Comprobante")
-            st.markdown("Cruza las órdenes de pago con las referencias del estado de cuenta bancario, selecciona la cuenta de salida y genera el asiento contable de cancelación y el comprobante oficial.")
+            st.markdown("Cruza las órdenes de pago con las referencias del estado de cuenta bancario, registra el movimiento en el banco, previsualiza y guarda el asiento contable y genera el comprobante oficial.")
 
             try:
                 # --- CARGAR CUENTAS BANCARIAS DE DETALLE PARA EL SELECTBOX ---
@@ -11946,11 +11946,10 @@ elif opcion_menu == "📝 Asientos Contables":
                                 'nombre': str(r_cta['nombre']).strip()
                             }
 
-                # 1. Consultar TODAS las órdenes de pago (o las que no estén conciliadas para permitir cruce)
+                # 1. Consultar órdenes de pago disponibles
                 conn_pend = conectar_db(db_actual)
                 df_pendientes = None
                 if conn_pend:
-                    # Modificado para traer todas las órdenes o aquellas que falten por conciliar
                     query_pendientes = """
                         SELECT op.id, p.nombre AS proveedor, p.rif, p.banco AS banco_prov, p.nro_cuenta AS cuenta_prov, 
                                op.nro_factura, op.monto_bruto, op.retencion_islr, op.retencion_iva, op.monto_neto, op.fecha_emision, op.observaciones, op.estado
@@ -11979,7 +11978,7 @@ elif opcion_menu == "📝 Asientos Contables":
                     )
                     
                     st.divider()
-                    st.markdown("#### ⚡ Realizar el Cruce de Pago, Asiento Contable y Emitir Comprobante")
+                    st.markdown("#### ⚡ Realizar el Cruce de Pago, Movimiento Bancario y Asiento Contable")
                     
                     # Selector de orden a conciliar
                     dict_ops_pend = {}
@@ -12005,7 +12004,121 @@ elif opcion_menu == "📝 Asientos Contables":
                         key="select_banco_salida_pago"
                     )
                     
-                    if st.button("🤝 Confirmar Cruce, Generar Asiento y Comprobante", type="primary"):
+                    # =========================================================================
+                    # 👁️ FRAME DE PREVISUALIZACIÓN DEL ASIENTO CONTABLE (HTML & CSS)
+                    # Basado en la estructura exacta de la tabla: asientos_contables
+                    # =========================================================================
+                    st.markdown("---")
+                    st.markdown("### 👁️ Previsualización del Asiento Contable (Libro Diario)")
+                    st.info("📌 Así es como se estructurará y guardará el comprobante en la tabla `asientos_contables` y el movimiento en `banco_movimientos` al confirmar.")
+
+                    info_banco_prev = dict_bancos_detalle.get(cta_banco_salida, {'codigo': '1.1.1.01.001', 'nombre': 'Banco Principal'})
+                    monto_prev = float(fila_op_sel['monto_neto'])
+                    n_fact_prev = str(fila_op_sel['nro_factura'])
+                    prov_prev = str(fila_op_sel['proveedor'])
+                    n_comp_prev = f"PAGO-{n_fact_prev}"
+                    desc_prev = f"Cancelación de Pago a {prov_prev} - Factura {n_fact_prev}"
+                    ref_prev = referencia_bancaria if referencia_bancaria else "(Pendiente de Ref)"
+                    fecha_prev = str(fecha_pago_real)
+
+                    html_asiento = f"""
+                    <style>
+                        .tabla-asiento {{
+                            width: 100%;
+                            border-collapse: collapse;
+                            font-family: sans-serif;
+                            font-size: 13px;
+                            margin-top: 10px;
+                            margin-bottom: 10px;
+                            background-color: #ffffff;
+                            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+                            border-radius: 6px;
+                            overflow: hidden;
+                        }}
+                        .tabla-asiento th {{
+                            background-color: #f8f9fa;
+                            color: #333333;
+                            padding: 10px;
+                            text-align: left;
+                            border-bottom: 2px solid #dee2e6;
+                            font-weight: bold;
+                        }}
+                        .tabla-asiento td {{
+                            padding: 9px 10px;
+                            border-bottom: 1px solid #e9ecef;
+                            color: #212529;
+                        }}
+                        .tabla-asiento tr:hover {{
+                            background-color: #f1f3f5;
+                        }}
+                        .monto-col {{
+                            text-align: right;
+                            font-family: monospace;
+                            font-weight: bold;
+                        }}
+                        .badge-bloqueado {{
+                            background-color: #e2e3e5;
+                            color: #383d41;
+                            padding: 2px 6px;
+                            border-radius: 4px;
+                            font-size: 11px;
+                        }}
+                    </style>
+                    <table class="tabla-asiento">
+                        <thead>
+                            <tr>
+                                <th>N° Comprobante</th>
+                                <th>Descripción</th>
+                                <th>Fecha</th>
+                                <th>Plan Cuentas</th>
+                                <th>Cuenta Contable</th>
+                                <th>Referencia</th>
+                                <th style="text-align: right;">Debe</th>
+                                <th style="text-align: right;">Haber</th>
+                                <th style="text-align: center;">Bloq</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- LÍNEA 1: DEBE (Proveedores Nacionales) -->
+                            <tr>
+                                <td><b>{n_comp_prev}</b></td>
+                                <td>{desc_prev}</td>
+                                <td>{fecha_prev}</td>
+                                <td><code>2.1.1.01.001</code></td>
+                                <td>Proveedores Nacionales</td>
+                                <td>{ref_prev}</td>
+                                <td class="monto-col" style="color: #2b8a3e;">${monto_prev:,.2f}</td>
+                                <td class="monto-col">$0.00</td>
+                                <td style="text-align: center;"><span class="badge-bloqueado">0</span></td>
+                            </tr>
+                            <!-- LÍNEA 2: HABER (Cuenta Bancaria de Salida) -->
+                            <tr>
+                                <td><b>{n_comp_prev}</b></td>
+                                <td>{desc_prev}</td>
+                                <td>{fecha_prev}</td>
+                                <td><code>{info_banco_prev['codigo']}</code></td>
+                                <td>{info_banco_prev['nombre']}</td>
+                                <td>{ref_prev}</td>
+                                <td class="monto-col">$0.00</td>
+                                <td class="monto-col" style="color: #c92a2a;">${monto_prev:,.2f}</td>
+                                <td style="text-align: center;"><span class="badge-bloqueado">0</span></td>
+                            </tr>
+                        </tbody>
+                        <tfoot>
+                            <tr style="background-color: #f8f9fa; font-weight: bold;">
+                                <td colspan="6" style="text-align: right;">TOTALES:</td>
+                                <td class="monto-col" style="color: #2b8a3e;">${monto_prev:,.2f}</td>
+                                <td class="monto-col" style="color: #c92a2a;">${monto_prev:,.2f}</td>
+                                <td></td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                    """
+                    st.markdown(html_asiento, unsafe_allow_html=True)
+                    st.markdown("---")
+                    # =========================================================================
+
+                    if st.button("🤝 Confirmar Cruce, Guardar en Banco y Registrar Asiento", type="primary"):
                         if not referencia_bancaria:
                             st.warning("⚠️ Debes introducir obligatoriamente la referencia bancaria del estado de cuenta para validar el cruce.")
                         elif not lista_bancos_detalle or "No hay cuentas" in cta_banco_salida:
@@ -12022,15 +12135,35 @@ elif opcion_menu == "📝 Asientos Contables":
                                 if conn_update:
                                     cursor_m = conn_update.cursor()
                                     
-                                    # 1. Actualizar la orden de pago a Conciliado
-                                    query_update_match = """
-                                        UPDATE ordenes_pago 
-                                        SET referencia_banco = %s, fecha_pago = %s, estado = 'Conciliado'
-                                        WHERE id = %s AND empresa_db = %s
+                                    # 1. Registrar el movimiento en la tabla banco_movimientos
+                                    # Campos: id, banco_nombre, cuenta_numero, fecha_movimiento, referencia, descripcion, monto, estado_conciliacion, asiento_id, fecha_importacion
+                                    import datetime
+                                    fecha_actual_hoy = datetime.date.today().strftime('%Y-%m-%d')
+                                    
+                                    query_banco_mov = """
+                                        INSERT INTO banco_movimientos (
+                                            banco_nombre, cuenta_numero, fecha_movimiento, referencia, 
+                                            descripcion, monto, estado_conciliacion, asiento_id, fecha_importacion
+                                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                                     """
-                                    cursor_m.execute(query_update_match, (referencia_bancaria, fecha_pago_real, int(fila_op_sel['id']), str(db_actual)))
+                                    # Nota: Registramos el monto negativo por ser salida/egreso o según convenga a tu lógica bancaria
+                                    cursor_m.execute(query_banco_mov, (
+                                        info_banco_sel['nombre'],
+                                        info_banco_sel['codigo'],
+                                        str(fecha_pago_real),
+                                        referencia_bancaria,
+                                        f"Pago Factura #{n_fact_val} - {prov_nombre_val}",
+                                        -monto_a_pagar,
+                                        'Conciliado',
+                                        n_comp_asiento,
+                                        fecha_actual_hoy
+                                    ))
+                                    
+                                    # Obtenemos el ID del movimiento bancario insertado si se requiere
+                                    id_banco_mov_generado = cursor_m.lastrowid
 
-                                    # 2. Registrar el Asiento Contable de Cancelación (Debe: Proveedores Nacionales | Haber: Cuenta Bancaria elegida)
+                                    # 2. Registrar el Asiento Contable de Cancelación en la tabla asientos_contables
+                                    # Campos: id, n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber, bloqueado
                                     query_asiento_pago = """
                                         INSERT INTO asientos_contables (
                                             n_comprobante, descripcion, fecha, plan_cuentas, 
@@ -12038,7 +12171,7 @@ elif opcion_menu == "📝 Asientos Contables":
                                         ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 0)
                                     """
                                     
-                                    # Línea 1: Proveedores Nacionales al DEBE (Dando de baja el pasivo)
+                                    # Línea 1: Proveedores Nacionales al DEBE
                                     cursor_m.execute(query_asiento_pago, (
                                         n_comp_asiento,
                                         f"Cancelación de Pago a {prov_nombre_val} - Factura {n_fact_val}",
@@ -12050,7 +12183,7 @@ elif opcion_menu == "📝 Asientos Contables":
                                         0.00
                                     ))
 
-                                    # Línea 2: Banco seleccionado al HABER (Salida de dinero)
+                                    # Línea 2: Banco seleccionado al HABER
                                     cursor_m.execute(query_asiento_pago, (
                                         n_comp_asiento,
                                         f"Cancelación de Pago a {prov_nombre_val} - Factura {n_fact_val}",
@@ -12062,12 +12195,20 @@ elif opcion_menu == "📝 Asientos Contables":
                                         monto_a_pagar
                                     ))
 
+                                    # 3. Actualizar la orden de pago a Conciliado
+                                    query_update_match = """
+                                        UPDATE ordenes_pago 
+                                        SET referencia_banco = %s, fecha_pago = %s, estado = 'Conciliado'
+                                        WHERE id = %s AND empresa_db = %s
+                                    """
+                                    cursor_m.execute(query_update_match, (referencia_bancaria, fecha_pago_real, int(fila_op_sel['id']), str(db_actual)))
+
                                     conn_update.commit()
                                     cursor_m.close()
                                     conn_update.close()
                                 
-                                st.toast("✅ ¡Pago conciliado y asiento contable generado con éxito!", icon="🎉")
-                                st.success(f"✅ ¡Pago conciliado con éxito! Orden #{fila_op_sel['id']} cruzada con la referencia bancaria `{referencia_bancaria}` y asiento contable registrado.")
+                                st.toast("✅ ¡Movimiento bancario y asiento contable guardados con éxito!", icon="🎉")
+                                st.success(f"✅ ¡Conciliación exitosa! Orden #{fila_op_sel['id']} guardada en `banco_movimientos` y registrado el comprobante contable `{n_comp_asiento}`.")
                                 
                                 # --- RENDERIZAR COMPROBANTE DE PAGO OFICIAL INMEDIATO ---
                                 st.divider()
@@ -12108,7 +12249,7 @@ elif opcion_menu == "📝 Asientos Contables":
                                     st.rerun()
 
                             except Exception as ex_m:
-                                st.error(f"❌ Error al ejecutar el cruce y asiento en base de datos: {ex_m}")
+                                st.error(f"❌ Error al ejecutar el cruce, guardar en banco y registrar asiento: {ex_m}")
                 else:
                     st.info("🎉 ¡Excelente! No hay órdenes de pago disponibles para conciliar.")
 
