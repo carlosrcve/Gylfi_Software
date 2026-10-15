@@ -9577,35 +9577,83 @@ elif opcion_menu == "📝 Asientos Contables":
                     
                     if df_diario is not None and not df_diario.empty:
                         df_diario.columns = [c.lower() for c in df_diario.columns]
-                        st.info(f"Mostrando {len(df_diario)} registros para editar.")
+                        st.info(f"Mostrando {len(df_diario)} registros para editar. Puedes modificar montos o agregar nuevas líneas abajo si lo necesitas.")
+
+
+                        # --- CARGAR PLAN DE CUENTAS PARA LAS NUEVAS LÍNEAS (SELECTBOX) ---
+                        try:
+                            conn_pc_mod = conectar_db(db_nombre)
+                            cursor_pc_mod = conn_pc_mod.cursor()
+                            cursor_pc_mod.execute("SELECT codigo, nombre FROM plan_cuentas WHERE tipo = 'Detalle' ORDER BY codigo")
+                            cuentas_db_mod = cursor_pc_mod.fetchall()
+                            cursor_pc_mod.close()
+                            conn_pc_mod.close()
+                        except Exception:
+                            cuentas_db_mod = []
+
+                        opciones_cuentas_mod = [f"{cod} - {nom}" for cod, nom in cuentas_db_mod]
+                        dict_nombres_mod = {cod: nom for cod, nom in cuentas_db_mod}
+
+                        # Configuración del editor con filas dinámicas (permite agregar y eliminar líneas)
+                        column_config_dict = {
+                            "debe": st.column_config.NumberColumn("Debe", format="%,.2f", help="Monto del debe", min_value=0.0),
+                            "haber": st.column_config.NumberColumn("Haber", format="%,.2f", help="Monto del haber", min_value=0.0),
+                            "id": st.column_config.NumberColumn("ID", disabled=True),
+                            "n_comprobante": st.column_config.TextColumn("Comprobante", disabled=True),
+                            "fecha": st.column_config.DateColumn("Fecha"),
+                            "descripcion": st.column_config.TextColumn("Descripción")
+                        }
+
+                        if opciones_cuentas_mod:
+                            column_config_dict["plan_cuentas"] = st.column_config.SelectboxColumn(
+                                "Plan Cuentas",
+                                options=opciones_cuentas_mod,
+                                required=True
+                            )
 
                         df_editado = st.data_editor(
                             df_diario, 
                             width='stretch', 
                             hide_index=True,
-                            key="editor_diario",
-                            column_config={
-                                "debe": st.column_config.NumberColumn(
-                                    "Debe",
-                                    format="%,.2f",
-                                    help="Monto del debe"
-                                ),
-                                "haber": st.column_config.NumberColumn(
-                                    "Haber",
-                                    format="%,.2f",
-                                    help="Monto del haber"
-                                )
-                            }
+                            num_rows="dynamic",  # 👈 ESTO ES LO QUE PERMITE AGREGAR Y ELIMINAR LÍNEAS
+                            key="editor_diario_dinamico",
+                            column_config=column_config_dict
                         )
+
+                        # Rellenar automáticamente datos generales (comprobante, fecha, descripción) en las nuevas filas si el usuario las deja vacías
+                        if not df_editado.empty:
+                            comprobante_fijo = df_diario['n_comprobante'].iloc[0]
+                            fecha_fija = df_diario['fecha'].iloc[0]
+                            desc_fija = df_diario['descripcion'].iloc[0] if 'descripcion' in df_diario.columns else ""
+
+                            df_editado['n_comprobante'] = df_editado['n_comprobante'].fillna(comprobante_fijo)
+                            df_editado['fecha'] = df_editado['fecha'].fillna(fecha_fija)
+                            df_editado['descripcion'] = df_editado['descripcion'].fillna(desc_fija)
+
+                            # Autocompletar la descripción de la cuenta si el usuario usó el selectbox
+                            for idx, row in df_editado.iterrows():
+                                plan_val = str(row.get('plan_cuentas', ''))
+                                if " - " in plan_val:
+                                    codigo_sel = plan_val.split(" - ")[0]
+                                    nombre_correcto = dict_nombres_mod.get(codigo_sel, "")
+                                    if nombre_correcto and row.get('cuenta_contable') != nombre_correcto:
+                                        df_editado.at[idx, 'cuenta_contable'] = nombre_correcto
 
                         if st.button("💾 Guardar Cambios", key="btn_guardar_cambios"):
                             try:
-                                exito = actualizar_libro_diario_en_db(db_nombre, df_editado)
-                                if exito:
-                                    st.success("¡Registros actualizados correctamente en la base de datos!")
-                                    st.rerun()
+                                # Validar que cuadre antes de guardar
+                                t_debe_val = pd.to_numeric(df_editado['debe'], errors='coerce').sum()
+                                t_haber_val = pd.to_numeric(df_editado['haber'], errors='coerce').sum()
+
+                                if abs(t_debe_val - t_haber_val) >= 0.01:
+                                    st.error(f"❌ El asiento no cuadra. Debe: {formato_contable(t_debe_val)} | Haber: {formato_contable(t_haber_val)}")
                                 else:
-                                    st.error("Error al guardar en la base de datos.")
+                                    exito = actualizar_libro_diario_en_db(db_nombre, df_editado)
+                                    if exito:
+                                        st.success("¡Registros y nuevas líneas actualizados correctamente en la base de datos!")
+                                        st.rerun()
+                                    else:
+                                        st.error("Error al guardar en la base de datos.")
                             except Exception as e:
                                 st.error(f"Error técnico: {str(e)}")
                         
@@ -9619,8 +9667,8 @@ elif opcion_menu == "📝 Asientos Contables":
                             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                         )
                         
-                        t_debe = df_editado['debe'].sum()
-                        t_haber = df_editado['haber'].sum()
+                        t_debe = pd.to_numeric(df_editado['debe'], errors='coerce').sum()
+                        t_haber = pd.to_numeric(df_editado['haber'], errors='coerce').sum()
                         
                         st.divider()
                         c1, c2, c3 = st.columns(3)
@@ -9634,7 +9682,7 @@ elif opcion_menu == "📝 Asientos Contables":
                             c3.error(f"❌ DESCUADRE: {formato_contable(t_debe - t_haber)}")
                     else:
                         if modo_busqueda == "🔢 Número de Comprobante":
-                            pass # Ya se manejó el warning arriba si no hay comprobantes
+                            pass
                         else:
                             st.info("No hay asientos registrados para este rango de fechas.")
 
