@@ -9665,6 +9665,8 @@ elif opcion_menu == "📝 Asientos Contables":
                                     if nombre_correcto and row.get('cuenta_contable') != nombre_correcto:
                                         df_editado.at[idx, 'cuenta_contable'] = nombre_correcto
 
+                        import time  # Asegúrate de tener importado time si no lo tienes arriba
+
                         if st.button("💾 Guardar Cambios", key="btn_guardar_cambios"):
                             try:
                                 # Validar que cuadre antes de guardar
@@ -9676,13 +9678,18 @@ elif opcion_menu == "📝 Asientos Contables":
                                 else:
                                     exito = actualizar_libro_diario_en_db(db_nombre, df_editado)
                                     if exito:
+                                        # Usamos st.toast para que la notificación flotante no se pierda con el rerun
+                                        st.toast("¡Registros y nuevas líneas actualizados con éxito!", icon="🎉")
                                         st.success("¡Registros y nuevas líneas actualizados correctamente en la base de datos!")
+                                        
+                                        # Pausa de 1.5 segundos para que el usuario alcance a leer el mensaje antes de recargar
+                                        time.sleep(1.5)
                                         st.rerun()
                                     else:
                                         st.error("Error al guardar en la base de datos.")
                             except Exception as e:
                                 st.error(f"Error técnico: {str(e)}")
-                        
+                                
                         excel_data = exportar_a_excel(df_editado)
                         nombre_archivo = "Libro_Diario_Filtrado.xlsx"
                         
