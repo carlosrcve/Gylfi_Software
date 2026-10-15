@@ -12758,8 +12758,7 @@ elif opcion_menu == "📝 Asientos Contables":
                         st.markdown("#### 🛒 Detalle de Ítems / Líneas de Venta")
                         st.markdown("Selecciona los productos del inventario y define la cantidad. El precio y el total se calculan automáticamente.")
 
-                        # Cargar catálogo de productos disponibles desde la base de datos MySQL
-                        # Cargar catálogo de productos disponibles desde la base de datos MySQL
+                       # Cargar catálogo de productos disponibles desde la base de datos MySQL
                         df_catalogo_prod = None
                         lista_opciones_productos = []
                         dict_productos = {}
@@ -12767,7 +12766,6 @@ elif opcion_menu == "📝 Asientos Contables":
                         try:
                             conn_prod = conectar_db(db_actual)
                             if conn_prod:
-                                # Intentamos consultar la tabla 'producto' (ajusta el nombre si en tu BD es 'productos' o 'articulos')
                                 df_catalogo_prod = ejecutar_consulta(
                                     "SELECT codigo_producto, descripcion, precio_unitario FROM producto ORDER BY descripcion ASC", 
                                     conn_prod
@@ -12784,10 +12782,9 @@ elif opcion_menu == "📝 Asientos Contables":
                                             "precio": float(prod_row['precio_unitario'])
                                         }
                         except Exception as e:
-                            # Capturamos el error si la tabla no existe para evitar que colapse la interfaz
-                            st.warning(⚠️ La tabla de productos no se encontró en la base de datos `{db_actual}` o el nombre es distinto. Detalle: {e}")
+                            st.error(f"Error al cargar el catálogo de productos: {e}")
 
-                        # Lista de respaldo por si la tabla no existe todavía, para que el usuario pueda avanzar
+                        # Respaldo temporal si la tabla no existe o está vacía para que la interfaz no colapse
                         if not lista_opciones_productos:
                             lista_opciones_productos = ["GENERAL - Servicio / Producto General ($0.00)"]
                             dict_productos = {
@@ -12797,61 +12794,78 @@ elif opcion_menu == "📝 Asientos Contables":
                                     "precio": 0.00
                                 }
                             }
-                            st.info("ℹ️ Se ha cargado un ítem genérico temporalmente porque no se halló la tabla `producto` en esta base de datos.")
+                            st.warning(f"⚠️ La tabla `producto` no existe o está vacía en la base de datos `{db_actual}`. Se cargó un ítem temporal.")
 
-                        # Controlar el número de líneas de la factura en el session_state
-                        if "tab6_num_lineas_factura" not in st.session_state:
-                            st.session_state.tab6_num_lineas_factura = 1
+                        # --- GESTIÓN ESTABLE DE LÍNEAS EN SESSION STATE ---
+                        if "tab6_lista_items" not in st.session_state:
+                            st.session_state.tab6_lista_items = [
+                                {"producto": lista_opciones_productos[0], "cantidad": 1.0, "precio": dict_productos.get(lista_opciones_productos[0], {}).get("precio", 0.0)}
+                            ]
 
                         col_add_btn, col_del_btn = st.columns([1, 1])
                         with col_add_btn:
                             if st.button("➕ Agregar Línea de Producto", key="tab6_btn_agregar_linea"):
-                                st.session_state.tab6_num_lineas_factura += 1
+                                default_prod = lista_opciones_productos[0]
+                                def_precio = dict_productos.get(default_prod, {}).get("precio", 0.0)
+                                st.session_state.tab6_lista_items.append(
+                                    {"producto": default_prod, "cantidad": 1.0, "precio": def_precio}
+                                )
                                 st.rerun()
+
                         with col_del_btn:
-                            if st.session_state.tab6_num_lineas_factura > 1:
+                            if len(st.session_state.tab6_lista_items) > 1:
                                 if st.button("➖ Eliminar Última Línea", key="tab6_btn_eliminar_linea"):
-                                    st.session_state.tab6_num_lineas_factura -= 1
+                                    st.session_state.tab6_lista_items.pop()
                                     st.rerun()
 
                         # Renderizar filas interactivas y acumular la base imponible real
                         items_factura_guardar = []
                         base_imponible_calculada = 0.0
 
-                        for i in range(st.session_state.tab6_num_lineas_factura):
+                        for i, item_data in enumerate(st.session_state.tab6_lista_items):
                             st.markdown(f"**Renglón #{i+1}**")
                             c1, c2, c3, c4 = st.columns([3, 1.5, 2, 2])
                             
+                            current_prod = item_data["producto"]
+                            if current_prod not in lista_opciones_productos:
+                                current_prod = lista_opciones_productos[0]
+
                             with c1:
                                 prod_seleccionado = st.selectbox(
                                     "Producto / Servicio", 
                                     options=lista_opciones_productos, 
+                                    index=lista_opciones_productos.index(current_prod) if current_prod in lista_opciones_productos else 0,
                                     key=f"tab6_select_prod_{i}"
                                 )
                             
-                            info_prod = dict_productos[prod_seleccionado]
+                            info_prod = dict_productos.get(prod_seleccionado, {"codigo": "GEN-01", "descripcion": prod_seleccionado, "precio": 0.0})
                             codigo_prod = info_prod["codigo"]
                             desc_prod = info_prod["descripcion"]
-                            precio_unit = info_prod["precio"]
                             
+                            if prod_seleccionado != item_data["producto"]:
+                                item_data["producto"] = prod_seleccionado
+                                item_data["precio"] = info_prod["precio"]
+
                             with c2:
                                 cantidad = st.number_input(
                                     "Cantidad", 
                                     min_value=0.01, 
-                                    value=1.0, 
+                                    value=float(item_data["cantidad"]), 
                                     step=1.0, 
                                     format="%.2f", 
                                     key=f"tab6_cant_prod_{i}"
                                 )
+                                item_data["cantidad"] = cantidad
                             
                             with c3:
                                 precio_final_unit = st.number_input(
                                     "Precio Unitario ($)", 
                                     min_value=0.0, 
-                                    value=precio_unit, 
+                                    value=float(item_data["precio"]), 
                                     format="%.2f", 
                                     key=f"tab6_precio_prod_{i}"
                                 )
+                                item_data["precio"] = precio_final_unit
                             
                             with c4:
                                 total_linea = cantidad * precio_final_unit
