@@ -12457,22 +12457,38 @@ elif opcion_menu == "📝 Asientos Contables":
                     st.error(f"Error en gestión de proveedores: {e}")
                     
             else:
-                st.markdown("#### 🧾 Editar / Actualizar Órdenes de Pago")
+                st.markdown("#### 🧾 Consultar, Editar y Actualizar Órdenes de Pago por Rango de Fechas")
+                
+                # --- FILTROS POR RANGO DE FECHAS ---
+                col_f1, col_f2 = st.columns(2)
+                with col_f1:
+                    fec_desde_edit = st.date_input("Desde la fecha", key="edit_op_fecha_desde")
+                with col_f2:
+                    fec_hasta_edit = st.date_input("Hasta la fecha", key="edit_op_fecha_hasta")
+
                 try:
                     conn_ed2 = conectar_db(db_actual)
                     if conn_ed2:
-                        df_op_edit = ejecutar_consulta("SELECT id, nro_factura, monto_bruto, retencion_islr, retencion_iva, monto_neto, estado, observaciones FROM ordenes_pago WHERE empresa_db = %s", conn_ed2, params=(str(db_actual),))
+                        query_op_edit = """
+                            SELECT id, nro_factura, monto_bruto, retencion_islr, retencion_iva, monto_neto, estado, observaciones, fecha_emision 
+                            FROM ordenes_pago 
+                            WHERE empresa_db = %s AND fecha_emision BETWEEN %s AND %s
+                            ORDER BY fecha_emision DESC
+                        """
+                        df_op_edit = ejecutar_consulta(query_op_edit, conn_ed2, params=(str(db_actual), str(fec_desde_edit), str(fec_hasta_edit)))
                         conn_ed2.close()
                         
                         if df_op_edit is not None and not df_op_edit.empty:
-                            dict_ope = {f"ID: {r['id']} - Factura: {r['nro_factura']} (Neto: ${r['monto_neto']:,.2f} - {r['estado']})": r for _, r in df_op_edit.iterrows()}
+                            st.markdown(f"📊 Se encontraron **{len(df_op_edit)}** orden(es) de pago en el rango seleccionado.")
+                            
+                            dict_ope = {f"ID: {r['id']} | F Fecha: {r['fecha_emision']} | Factura: {r['nro_factura']} | Neto: ${r['monto_neto']:,.2f} | Estado: {r['estado']}": r for _, r in df_op_edit.iterrows()}
                             sel_ope_label = st.selectbox("Selecciona la Orden de Pago a modificar", list(dict_ope.keys()), key="sel_ope_edit_full")
                             
                             fila_ope = dict_ope[sel_ope_label]
                             id_ope_sel = fila_ope['id']
                             
                             with st.form("form_editar_orden_pago"):
-                                st.markdown(f"**Modificando la Orden ID:** `{id_ope_sel}`")
+                                st.markdown(f"**Modificando la Orden ID:** `{id_ope_sel}` (Fecha Emisión: {fila_ope['fecha_emision']})")
                                 
                                 col_eo1, col_eo2 = st.columns(2)
                                 with col_eo1:
@@ -12522,9 +12538,9 @@ elif opcion_menu == "📝 Asientos Contables":
                                         st.success("🗑️ Orden de pago eliminada con éxito.")
                                         st.rerun()
                                     except Exception as ex_dop:
-                                        st.error(f"❌ Error al eliminar la orden: {ex_op_del}")
+                                        st.error(f"❌ Error al eliminar la orden: {ex_dop}")
                         else:
-                            st.info("No hay órdenes de pago registradas para administrar.")
+                            st.info("ℹ️ No hay órdenes de pago registradas para el rango de fechas seleccionado.")
                 except Exception as e:
                     st.error(f"Error en gestión de órdenes: {e}")
 
