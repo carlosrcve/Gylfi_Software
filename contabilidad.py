@@ -11374,171 +11374,8 @@ elif opcion_menu == "📝 Asientos Contables":
                 if key not in st.session_state:
                     st.session_state[key] = default_val
 
-            # --- FASE 1: EMITIR NUEVA ORDEN DE PAGO ---
-            if not st.session_state.orden_guardada_exito:
-                st.markdown("### ✍️ Emitir Nueva Orden de Pago")
-                
-                # --- SELECTOR DE METODOLOGÍA (NUEVO) ---
-                modo_registro = st.radio(
-                    "Seleccione el método de registro de la factura:",
-                    ("1. Registro Manual", "2. Escaneo de Factura (Automático)"),
-                    horizontal=True,
-                    key="modo_registro_factura"
-                )
-
-                if modo_registro == "2. Escaneo de Factura (Automático)":
-                    archivo_escaneado = st.file_uploader("Seleccione el archivo de la factura escaneada", type=["pdf", "jpg", "png"], key="uploader_factura_escaneada")
-                    if archivo_escaneado is not None:
-                        if st.button("🚀 Procesar factura escaneada", type="primary", key="btn_procesar_escaneo"):
-                            with st.spinner("Leyendo datos fiscales de la factura..."):
-                                with tempfile.NamedTemporaryFile(delete=False, suffix=f"_{archivo_escaneado.name}") as tmp_file:
-                                    tmp_file.write(archivo_escaneado.getvalue())
-                                    ruta_temporal = tmp_file.name
-
-                                res_ocr = extraer_datos_factura_local(ruta_temporal)
-                                os.unlink(ruta_temporal)
-
-                            if "error" in res_ocr:
-                                st.error(res_ocr["error"])
-                            else:
-                                st.success("¡Factura procesada con éxito! Campos extraídos:")
-                                st.session_state["op_fact"] = str(res_ocr.get("nro_factura", ""))
-                                st.session_state["op_ctrl"] = str(res_ocr.get("nro_control", ""))
-                                st.session_state["op_base"] = float(res_ocr.get("base_imponible", 0.0))
-                                st.session_state["op_exento"] = float(res_ocr.get("monto_exento", 0.0))
-                                st.rerun()
-
-                with st.container():
-                    col_f1_1, col_f1_2 = st.columns(2)
-                    with col_f1_1:
-                        prov_seleccionado_form = st.selectbox("Seleccionar Proveedor", options=lista_provs if lista_provs else ["No hay proveedores"], key="op_prov")
-                        nro_factura_form = st.text_input("Número de Factura", key="op_fact")
-                        nro_control_form = st.text_input("Número de Control", key="op_ctrl")
-                    with col_f1_2:
-                        fecha_emision_form = st.date_input("Fecha de Emisión", key="op_fecha")
-                        
-                        st.markdown("""
-                            <div style="background-color: #ffe6e6; padding: 6px 12px; border-radius: 6px; border: 1px solid #ff9999; margin-bottom: 5px;">
-                                <span style="color: #c0392b; font-weight: bold; font-size: 13px;">🔴 Campos de ingreso manual</span>
-                            </div>
-                        """, unsafe_allow_html=True)
-                        
-                        base_imponible_form = st.number_input("Base Imponible", min_value=0.0, format="%.2f", key="op_base")
-                        monto_exento_form = st.number_input("Monto Exento", min_value=0.0, format="%.2f", key="op_exento")
-
-                    col_f1_3, col_f1_4 = st.columns(2)
-                    with col_f1_3:
-                        alicuota_iva_form = st.selectbox("Alícuota IVA", options=[16.0, 8.0, 31.0, 0.0], format_func=lambda x: f"{x}%", key="op_alicuota")
-                    with col_f1_4:
-                        monto_iva_calculado = base_imponible_form * (alicuota_iva_form / 100.0)
-                        st.metric(label="Monto IVA (Calculado)", value=f"{monto_iva_calculado:,.2f}")
-
-                    monto_bruto_calculado = base_imponible_form + monto_exento_form + monto_iva_calculado
-                    st.metric(label="Monto Bruto / Total Factura (Calculado)", value=f"{monto_bruto_calculado:,.2f}")
-                    
-                    st.markdown("---")
-
-                    # --- 2DO FRAME: RETENCIÓN DE IVA ---
-                    st.markdown("#### 2️⃣ Frame: Retención de IVA")
-                    col_f2_1, col_f2_2 = st.columns(2)
-                    with col_f2_1:
-                        porcentaje_ret_iva = st.selectbox("Porcentaje Retención IVA", options=[75.0, 100.0, 25.0, 50.0, 0.00], format_func=lambda x: f"{x}%", key="op_porc_ret_iva")
-                    with col_f2_2:
-                        retencion_iva_calculada = monto_iva_calculado * (porcentaje_ret_iva / 100.0)
-                        st.metric(label="Monto Retención IVA (Calculado)", value=f"{retencion_iva_calculada:,.2f}")
-                    
-                    st.markdown("---")
-
-                    # --- 3ER FRAME: RETENCIÓN DE ISLR ---
-                    st.markdown("#### 3️⃣ Frame: Retención de ISLR")
-                    col_f3_1, col_f3_2, col_f3_3, col_f3_4 = st.columns(4)
-                    with col_f3_1:
-                        tipo_persona_form = st.selectbox("Tipo de Persona", options=["Jurídico Domiciliado", "Natural Residenciado", "Otro"], key="op_tipo_p")
-                    with col_f3_2:
-                        islr_porcentaje_form = st.number_input("% Retención ISLR", min_value=0.0, max_value=100.0, format="%.2f", key="op_porc_islr")
-                    with col_f3_3:
-                        islr_sustraendo_form = st.number_input("Sustraendo ISLR", min_value=0.0, format="%.2f", key="op_sustraendo")
-                    with col_f3_4:
-                        retencion_islr_calculada = max(0.0, (base_imponible_form * (islr_porcentaje_form / 100.0)) - islr_sustraendo_form)
-                        st.metric(label="Monto Retención ISLR Final", value=f"{retencion_islr_calculada:,.2f}")
-
-                    st.markdown("---")
-                    
-                    # --- 4TO FRAME: MONTO NETO Y OBSERVACIONES ---
-                    st.markdown("#### 4️⃣ Frame: Cálculo del Monto Neto a Pagar")
-                    monto_neto_calculado = monto_bruto_calculado - retencion_islr_calculada - retencion_iva_calculada
-                    
-                    col_f4_1, col_f4_2 = st.columns(2)
-                    with col_f4_1:
-                        st.metric(label="💵 Monto Neto a Pagar", value=f"{monto_neto_calculado:,.2f}")
-                    with col_f4_2:
-                        observaciones_form = st.text_area("Observaciones / Concepto del Pago", key="op_obs")
-
-                    st.markdown("---")
-                    
-                    # --- BOTONES DE CÁLCULO Y GUARDADO ---
-                    col_btn_1, col_btn_2 = st.columns(2)
-                    with col_btn_1:
-                        btn_calcular = st.button("🧮 Calcular / Refrescar Montos", type="secondary", key="btn_calcular_principal", use_container_width=True)
-                    with col_btn_2:
-                        btn_guardar_op = st.button("💾 Guardar y Registrar Orden de Pago", type="primary", key="btn_guardar_principal", use_container_width=True)
-
-                    if btn_calcular:
-                        st.toast("✅ ¡Cálculos actualizados al instante!", icon="🧮")
-                        st.rerun()
-
-                    # --- BLOQUE DE REGISTRO DE ORDEN DE PAGO ---
-                    if btn_guardar_op:
-                        if not nro_factura_form:
-                            st.error("⚠️ El número de factura es obligatorio.")
-                        elif not lista_provs:
-                            st.error("⚠️ No hay proveedores cargados para asociar la orden.")
-                        else:
-                            try:
-                                info_prov_form = dict_provs[prov_seleccionado_form]
-                                conn_ins = conectar_db(db_actual)
-                                if conn_ins:
-                                    cursor = conn_ins.cursor()
-                                    query_insert = """
-                                        INSERT INTO ordenes_pago (
-                                            empresa_db, proveedor_id, nro_factura, nro_control, 
-                                            monto_bruto, monto_exento, base_imponible, iva_porcentaje, monto_iva, 
-                                            retencion_islr, retencion_iva, monto_neto, estado, fecha_emision, 
-                                            observaciones, islr_porcentaje, islr_sustraendo, tipo_persona
-                                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                                    """
-                                    cursor.execute(query_insert, (
-                                        str(db_actual),
-                                        str(info_prov_form['id_interno']),
-                                        str(nro_factura_form),
-                                        str(nro_control_form),
-                                        float(monto_bruto_calculado),
-                                        float(monto_exento_form),
-                                        float(base_imponible_form),
-                                        float(alicuota_iva_form),
-                                        float(monto_iva_calculado),
-                                        float(retencion_islr_calculada),
-                                        float(retencion_iva_calculada),
-                                        float(monto_neto_calculado),
-                                        'Pendiente',
-                                        str(fecha_emision_form),
-                                        str(observaciones_form),
-                                        float(islr_porcentaje_form),
-                                        float(islr_sustraendo_form),
-                                        str(tipo_persona_form)
-                                    ))
-                                    conn_ins.commit()
-                                    cursor.close()
-                                    conn_ins.close()
-                                    
-                                    st.session_state.op_form_reset = True
-                                    st.success("🎉 ¡Orden de pago guardada con éxito!")
-                                    st.rerun()
-                            except Exception as err_ins:
-                                st.error(f"❌ Error al guardar la orden de pago: {err_ins}")
-
             # ==========================================
-            # 🎛️ SELECTOR DE VISTA (DEBAJO DEL FORMULARIO)
+            # 🎛️ SELECTOR DE VISTA (PRIMERO QUE TODO)
             # ==========================================
             st.markdown("---")
             modo_vista = st.selectbox(
@@ -11549,13 +11386,178 @@ elif opcion_menu == "📝 Asientos Contables":
                 ],
                 key="selector_modo_vista_seguro_op"
             )
-
             st.markdown("---")
+
+            # ==========================================
+            # 📋 OPCIÓN 1: EMITIR NUEVA ORDEN DE PAGO
+            # ==========================================
+            if "Emitir" in str(modo_vista) or "➕" in str(modo_vista):
+                if not st.session_state.orden_guardada_exito:
+                    st.markdown("### ✍️ Emitir Nueva Orden de Pago")
+                    
+                    # --- SELECTOR DE METODOLOGÍA ---
+                    modo_registro = st.radio(
+                        "Seleccione el método de registro de la factura:",
+                        ("1. Registro Manual", "2. Escaneo de Factura (Automático)"),
+                        horizontal=True,
+                        key="modo_registro_factura"
+                    )
+
+                    if modo_registro == "2. Escaneo de Factura (Automático)":
+                        archivo_escaneado = st.file_uploader("Seleccione el archivo de la factura escaneada", type=["pdf", "jpg", "png"], key="uploader_factura_escaneada")
+                        if archivo_escaneado is not None:
+                            if st.button("🚀 Procesar factura escaneada", type="primary", key="btn_procesar_escaneo"):
+                                with st.spinner("Leyendo datos fiscales de la factura..."):
+                                    with tempfile.NamedTemporaryFile(delete=False, suffix=f"_{archivo_escaneado.name}") as tmp_file:
+                                        tmp_file.write(archivo_escaneado.getvalue())
+                                        ruta_temporal = tmp_file.name
+
+                                    res_ocr = extraer_datos_factura_local(ruta_temporal)
+                                    os.unlink(ruta_temporal)
+
+                                if "error" in res_ocr:
+                                    st.error(res_ocr["error"])
+                                else:
+                                    st.success("¡Factura procesada con éxito! Campos extraídos:")
+                                    st.session_state["op_fact"] = str(res_ocr.get("nro_factura", ""))
+                                    st.session_state["op_ctrl"] = str(res_ocr.get("nro_control", ""))
+                                    st.session_state["op_base"] = float(res_ocr.get("base_imponible", 0.0))
+                                    st.session_state["op_exento"] = float(res_ocr.get("monto_exento", 0.0))
+                                    st.rerun()
+
+                    with st.container():
+                        col_f1_1, col_f1_2 = st.columns(2)
+                        with col_f1_1:
+                            prov_seleccionado_form = st.selectbox("Seleccionar Proveedor", options=lista_provs if lista_provs else ["No hay proveedores"], key="op_prov")
+                            nro_factura_form = st.text_input("Número de Factura", key="op_fact")
+                            nro_control_form = st.text_input("Número de Control", key="op_ctrl")
+                        with col_f1_2:
+                            fecha_emision_form = st.date_input("Fecha de Emisión", key="op_fecha")
+                            
+                            st.markdown("""
+                                <div style="background-color: #ffe6e6; padding: 6px 12px; border-radius: 6px; border: 1px solid #ff9999; margin-bottom: 5px;">
+                                    <span style="color: #c0392b; font-weight: bold; font-size: 13px;">🔴 Campos de ingreso manual</span>
+                                </div>
+                            """, unsafe_allow_html=True)
+                            
+                            base_imponible_form = st.number_input("Base Imponible", min_value=0.0, format="%.2f", key="op_base")
+                            monto_exento_form = st.number_input("Monto Exento", min_value=0.0, format="%.2f", key="op_exento")
+
+                        col_f1_3, col_f1_4 = st.columns(2)
+                        with col_f1_3:
+                            alicuota_iva_form = st.selectbox("Alícuota IVA", options=[16.0, 8.0, 31.0, 0.0], format_func=lambda x: f"{x}%", key="op_alicuota")
+                        with col_f1_4:
+                            monto_iva_calculado = base_imponible_form * (alicuota_iva_form / 100.0)
+                            st.metric(label="Monto IVA (Calculado)", value=f"{monto_iva_calculado:,.2f}")
+
+                        monto_bruto_calculado = base_imponible_form + monto_exento_form + monto_iva_calculado
+                        st.metric(label="Monto Bruto / Total Factura (Calculado)", value=f"{monto_bruto_calculado:,.2f}")
+                        
+                        st.markdown("---")
+
+                        # --- 2DO FRAME: RETENCIÓN DE IVA ---
+                        st.markdown("#### 2️⃣ Frame: Retención de IVA")
+                        col_f2_1, col_f2_2 = st.columns(2)
+                        with col_f2_1:
+                            porcentaje_ret_iva = st.selectbox("Porcentaje Retención IVA", options=[75.0, 100.0, 25.0, 50.0, 0.00], format_func=lambda x: f"{x}%", key="op_porc_ret_iva")
+                        with col_f2_2:
+                            retencion_iva_calculada = monto_iva_calculado * (porcentaje_ret_iva / 100.0)
+                            st.metric(label="Monto Retención IVA (Calculado)", value=f"{retencion_iva_calculada:,.2f}")
+                        
+                        st.markdown("---")
+
+                        # --- 3ER FRAME: RETENCIÓN DE ISLR ---
+                        st.markdown("#### 3️⃣ Frame: Retención de ISLR")
+                        col_f3_1, col_f3_2, col_f3_3, col_f3_4 = st.columns(4)
+                        with col_f3_1:
+                            tipo_persona_form = st.selectbox("Tipo de Persona", options=["Jurídico Domiciliado", "Natural Residenciado", "Otro"], key="op_tipo_p")
+                        with col_f3_2:
+                            islr_porcentaje_form = st.number_input("% Retención ISLR", min_value=0.0, max_value=100.0, format="%.2f", key="op_porc_islr")
+                        with col_f3_3:
+                            islr_sustraendo_form = st.number_input("Sustraendo ISLR", min_value=0.0, format="%.2f", key="op_sustraendo")
+                        with col_f3_4:
+                            retencion_islr_calculada = max(0.0, (base_imponible_form * (islr_porcentaje_form / 100.0)) - islr_sustraendo_form)
+                            st.metric(label="Monto Retención ISLR Final", value=f"{retencion_islr_calculada:,.2f}")
+
+                        st.markdown("---")
+                        
+                        # --- 4TO FRAME: MONTO NETO Y OBSERVACIONES ---
+                        st.markdown("#### 4️⃣ Frame: Cálculo del Monto Neto a Pagar")
+                        monto_neto_calculado = monto_bruto_calculado - retencion_islr_calculada - retencion_iva_calculada
+                        
+                        col_f4_1, col_f4_2 = st.columns(2)
+                        with col_f4_1:
+                            st.metric(label="💵 Monto Neto a Pagar", value=f"{monto_neto_calculado:,.2f}")
+                        with col_f4_2:
+                            observaciones_form = st.text_area("Observaciones / Concepto del Pago", key="op_obs")
+
+                        st.markdown("---")
+                        
+                        # --- BOTONES DE CÁLCULO Y GUARDADO ---
+                        col_btn_1, col_btn_2 = st.columns(2)
+                        with col_btn_1:
+                            btn_calcular = st.button("🧮 Calcular / Refrescar Montos", type="secondary", key="btn_calcular_principal", use_container_width=True)
+                        with col_btn_2:
+                            btn_guardar_op = st.button("💾 Guardar y Registrar Orden de Pago", type="primary", key="btn_guardar_principal", use_container_width=True)
+
+                        if btn_calcular:
+                            st.toast("✅ ¡Cálculos actualizados al instante!", icon="🧮")
+                            st.rerun()
+
+                        # --- BLOQUE DE REGISTRO DE ORDEN DE PAGO ---
+                        if btn_guardar_op:
+                            if not nro_factura_form:
+                                st.error("⚠️ El número de factura is obligatorio.")
+                            elif not lista_provs:
+                                st.error("⚠️ No hay proveedores cargados para asociar la orden.")
+                            else:
+                                try:
+                                    info_prov_form = dict_provs[prov_seleccionado_form]
+                                    conn_ins = conectar_db(db_actual)
+                                    if conn_ins:
+                                        cursor = conn_ins.cursor()
+                                        query_insert = """
+                                            INSERT INTO ordenes_pago (
+                                                empresa_db, proveedor_id, nro_factura, nro_control, 
+                                                monto_bruto, monto_exento, base_imponible, iva_porcentaje, monto_iva, 
+                                                retencion_islr, retencion_iva, monto_neto, estado, fecha_emision, 
+                                                observaciones, islr_porcentaje, islr_sustraendo, tipo_persona
+                                            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                        """
+                                        cursor.execute(query_insert, (
+                                            str(db_actual),
+                                            str(info_prov_form['id_interno']),
+                                            str(nro_factura_form),
+                                            str(nro_control_form),
+                                            float(monto_bruto_calculado),
+                                            float(monto_exento_form),
+                                            float(base_imponible_form),
+                                            float(alicuota_iva_form),
+                                            float(monto_iva_calculado),
+                                            float(retencion_islr_calculada),
+                                            float(retencion_iva_calculada),
+                                            float(monto_neto_calculado),
+                                            'Pendiente',
+                                            str(fecha_emision_form),
+                                            str(observaciones_form),
+                                            float(islr_porcentaje_form),
+                                            float(islr_sustraendo_form),
+                                            str(tipo_persona_form)
+                                        ))
+                                        conn_ins.commit()
+                                        cursor.close()
+                                        conn_ins.close()
+                                        
+                                        st.session_state.op_form_reset = True
+                                        st.success("🎉 ¡Orden de pago guardada con éxito!")
+                                        st.rerun()
+                                except Exception as err_ins:
+                                    st.error(f"❌ Error al guardar la orden de pago: {err_ins}")
 
             # ==========================================
             # 📊 OPCIÓN 2: VER COLA DE ÓRDENES PENDIENTES
             # ==========================================
-            if "Ver cola" in modo_vista:
+            else:
                 st.markdown("### 📊 Historial de Órdenes de Pago Pendientes por Contabilizar")
                 try:
                     conn_list_op = conectar_db(db_actual)
