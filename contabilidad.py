@@ -11921,10 +11921,33 @@ elif opcion_menu == "📝 Asientos Contables":
                     st.warning(f"Aviso en historial: {ex_historial}")
         with tab3:
             st.markdown("### 🔗 Conciliación, Cruce Bancario y Emisión de Comprobante")
-            st.markdown("Cruza las órdenes de pago pendientes con las referencias del estado de cuenta bancario para cerrar el ciclo y generar el comprobante oficial.")
+            st.markdown("Cruza las órdenes de pago pendientes con las referencias del estado de cuenta bancario, selecciona la cuenta de salida y genera el asiento contable de cancelación y el comprobante oficial.")
 
             try:
-                # 1. Consultar órdenes pendientes abriendo y cerrando conexión localmente
+                # --- CARGAR CUENTAS BANCARIAS DE DETALLE PARA EL SELECTBOX ---
+                conn_cuentas = conectar_db(db_actual)
+                lista_bancos_detalle = []
+                dict_bancos_detalle = {}
+                if conn_cuentas:
+                    df_ctas_banco = ejecutar_consulta(
+                        "SELECT codigo, nombre FROM plan_cuentas WHERE tipo = 'Detalle' AND (codigo LIKE '1.1.1%' OR LOWER(nombre) LIKE '%banco%' OR LOWER(nombre) LIKE '%caja%') ORDER BY codigo", 
+                        conn_cuentas
+                    )
+                    # Si no encuentra cuentas específicas de banco, traemos todas las de detalle para no trancar al usuario
+                    if df_ctas_banco is None or df_ctas_banco.empty:
+                        df_ctas_banco = ejecutar_consulta("SELECT codigo, nombre FROM plan_cuentas WHERE tipo = 'Detalle' ORDER BY codigo", conn_cuentas)
+                    conn_cuentas.close()
+
+                    if df_ctas_banco is not None and not df_ctas_banco.empty:
+                        for _, r_cta in df_ctas_banco.iterrows():
+                            lbl_cta = f"{str(r_cta['codigo']).strip()} - {str(r_cta['nombre']).strip()}"
+                            lista_bancos_detalle.append(lbl_cta)
+                            dict_bancos_detalle[lbl_cta] = {
+                                'codigo': str(r_cta['codigo']).strip(),
+                                'nombre': str(r_cta['nombre']).strip()
+                            }
+
+                # 1. Consultar órdenes pendientes
                 conn_pend = conectar_db(db_actual)
                 df_pendientes = None
                 if conn_pend:
@@ -11942,7 +11965,6 @@ elif opcion_menu == "📝 Asientos Contables":
                 if df_pendientes is not None and not df_pendientes.empty:
                     st.markdown(f"📋 Tienes **{len(df_pendientes)}** orden(es) de pago pendiente(s) de conciliación.")
                     
-                    # Mostrar tabla de pendientes con formato numérico en monto_neto
                     st.dataframe(
                         df_pendientes[['id', 'proveedor', 'nro_factura', 'monto_neto', 'fecha_emision']], 
                         use_container_width=True, 
@@ -11957,7 +11979,7 @@ elif opcion_menu == "📝 Asientos Contables":
                     )
                     
                     st.divider()
-                    st.markdown("#### ⚡ Realizar el Cruce de Pago y Emitir Comprobante")
+                    st.markdown("#### ⚡ Realizar el Cruce de Pago, Asiento Contable y Emitir Comprobante")
                     
                     # Selector de orden a conciliar
                     dict_ops_pend = {}
@@ -11975,30 +11997,83 @@ elif opcion_menu == "📝 Asientos Contables":
                         referencia_bancaria = st.text_input("Número de Referencia Bancaria (según Estado de Cuenta)").strip()
                     with col_m2:
                         fecha_pago_real = st.date_input("Fecha real del movimiento en el Banco")
-                        
-                    if st.button("🤝 Confirmar Cruce, Conciliar y Generar Comprobante", type="primary"):
-                        if referencia_bancaria:
+
+                    # Selector de cuenta bancaria de la empresa que efectúa el pago
+                    cta_banco_salida = st.selectbox(
+                        "🏦 Selecciona la Cuenta Bancaria / Salida de Dinero (Haber)", 
+                        options=lista_bancos_detalle if lista_bancos_detalle else ["No hay cuentas de detalle disponibles"],
+                        key="select_banco_salida_pago"
+                    )
+                    
+                    if st.button("🤝 Confirmar Cruce, Generar Asiento y Comprobante", type="primary"):
+                        if not referencia_bancaria:
+                            st.warning("⚠️ Debes introducir obligatoriamente la referencia bancaria del estado de cuenta para validar el cruce.")
+                        elif not lista_bancos_detalle or "No hay cuentas" in cta_banco_salida:
+                            st.error("⚠️ Debes seleccionar una cuenta bancaria válida de salida.")
+                        else:
                             try:
+                                info_banco_sel = dict_bancos_detalle.get(cta_banco_salida, {'codigo': '1.1.1.01.001', 'nombre': 'Banco Principal'})
+                                monto_a_pagar = float(fila_op_sel['monto_neto'])
+                                n_fact_val = str(fila_op_sel['nro_factura'])
+                                prov_nombre_val = str(fila_op_sel['proveedor'])
+                                n_comp_asiento = f"PAGO-{n_fact_val}"
+
                                 conn_update = conectar_db(db_actual)
                                 if conn_update:
                                     cursor_m = conn_update.cursor()
+                                    
+                                    # 1. Actualizar la orden de pago a Conciliado
                                     query_update_match = """
                                         UPDATE ordenes_pago 
                                         SET referencia_banco = %s, fecha_pago = %s, estado = 'Conciliado'
                                         WHERE id = %s AND empresa_db = %s
                                     """
                                     cursor_m.execute(query_update_match, (referencia_bancaria, fecha_pago_real, int(fila_op_sel['id']), str(db_actual)))
+
+                                    # 2. Registrar el Asiento Contable de Cancelación (Debe: Proveedores Nacionales | Haber: Cuenta Bancaria elegida)
+                                    query_asiento_pago = """
+                                        INSERT INTO asientos_contables (
+                                            n_comprobante, descripcion, fecha, plan_cuentas, 
+                                            cuenta_contable, referencia, debe, haber, bloqueado
+                                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 0)
+                                    """
+                                    
+                                    # Línea 1: Proveedores Nacionales al DEBE (Dando de baja el pasivo)
+                                    cursor_m.execute(query_asiento_pago, (
+                                        n_comp_asiento,
+                                        f"Cancelación de Pago a {prov_nombre_val} - Factura {n_fact_val}",
+                                        str(fecha_pago_real),
+                                        "2.1.1.01.001",
+                                        "Proveedores Nacionales",
+                                        referencia_bancaria,
+                                        monto_a_pagar,
+                                        0.00
+                                    ))
+
+                                    # Línea 2: Banco seleccionado al HABER (Salida de dinero)
+                                    cursor_m.execute(query_asiento_pago, (
+                                        n_comp_asiento,
+                                        f"Cancelación de Pago a {prov_nombre_val} - Factura {n_fact_val}",
+                                        str(fecha_pago_real),
+                                        info_banco_sel['codigo'],
+                                        info_banco_sel['nombre'],
+                                        referencia_bancaria,
+                                        0.00,
+                                        monto_a_pagar
+                                    ))
+
                                     conn_update.commit()
                                     cursor_m.close()
                                     conn_update.close()
                                 
-                                st.success(f"✅ ¡Pago conciliado con éxito! Orden #{fila_op_sel['id']} cruzada con la referencia bancaria `{referencia_bancaria}`.")
+                                st.toast("✅ ¡Pago conciliado y asiento contable generado con éxito!", icon="🎉")
+                                st.success(f"✅ ¡Pago conciliado con éxito! Orden #{fila_op_sel['id']} cruzada con la referencia bancaria `{referencia_bancaria}` y asiento contable registrado.")
                                 
                                 # --- RENDERIZAR COMPROBANTE DE PAGO OFICIAL INMEDIATO ---
                                 st.divider()
                                 st.markdown("---")
                                 st.markdown("## 📄 COMPROBANTE DE EGRESO Y PAGO CONCILIADO")
-                                st.info("📌 Este comprobante certifica el cruce de la cuenta por pagar con el movimiento emitido por la entidad financiera.")
+                                st.info("📌 Este comprobante certifica el cruce de la cuenta por pagar con el movimiento emitido por la entidad financiera y la afectación contable.")
                                 
                                 col_c1, col_c2 = st.columns(2)
                                 with col_c1:
@@ -12009,11 +12084,12 @@ elif opcion_menu == "📝 Asientos Contables":
                                 with col_c2:
                                     st.markdown(f"**Referencia Bancaria:** `{referencia_bancaria}`")
                                     st.markdown(f"**Fecha del Pago:** `{fecha_pago_real}`")
+                                    st.markdown(f"**Banco Salida:** {info_banco_sel['codigo']} - {info_banco_sel['nombre']}")
                                     st.markdown(f"**Banco Destino:** {fila_op_sel['banco_prov']} - `{fila_op_sel['cuenta_prov']}`")
                                     
                                 st.markdown("### 📊 Desglose Financiero")
                                 data_desglose = {
-                                    "Concepto": ["Monto Bruto Factura", "Menos: Retención ISLR", "Menos: Retención IVA", "Monto Neto Transferido"],
+                                    "Concepto": ["Monto Bruto Factura", "Menos: Retención ISLR", "Menos: Retención IVA", "Monto Neto Transferido (Haber Banco / Debe Proveedor)"],
                                     "Monto": [
                                         f"{fila_op_sel['monto_bruto']:,.2f}",
                                         f"-{fila_op_sel['retencion_islr']:,.2f}",
@@ -12028,23 +12104,19 @@ elif opcion_menu == "📝 Asientos Contables":
                                     
                                 st.markdown("---")
                                 
-                                # Botón para actualizar y refrescar la lista limpiando la orden ya conciliada de los pendientes
                                 if st.button("🔄 Continuar y Siguiente", type="primary", key="btn_continuar_siguiente"):
                                     st.rerun()
 
                             except Exception as ex_m:
-                                st.error(f"❌ Error al ejecutar el cruce en base de datos: {ex_m}")
-                        else:
-                            st.warning("⚠️ Debes introducir obligatoriamente la referencia bancaria del estado de cuenta para validar el cruce.")
+                                st.error(f"❌ Error al ejecutar el cruce y asiento en base de datos: {ex_m}")
                 else:
                     st.info("🎉 ¡Excelente! No hay órdenes de pago pendientes por conciliar. Todas están al día frente al banco.")
 
-                # 2. Historial de Pagos Conciliados, Filtros por Fechas, Edición y Auditoría
+                # 2. Historial de Pagos Conciliados
                 st.divider()
                 st.markdown("### 📜 Historial de Pagos Conciliados y Estado de Cuenta Interno")
                 st.markdown("Consulta, filtra por rango de fechas, edita referencias o revierte los pagos conciliados según tu control interno.")
 
-                # Filtros de fecha para el historial
                 col_fec1, col_fec2 = st.columns(2)
                 with col_fec1:
                     fecha_desde = st.date_input("Historial Desde", key="hist_fecha_desde")
@@ -12081,7 +12153,6 @@ elif opcion_menu == "📝 Asientos Contables":
                     
                     st.markdown("#### ⚙️ Modificar o Revertir un Pago Conciliado")
                     
-                    # Diccionario para seleccionar el pago a modificar/eliminar
                     dict_historial = {f"ID: {r['id']} | Factura: {r['nro_factura']} | Proveedor: {r['proveedor']} | Ref: {r['referencia_banco']}": r for _, r in df_conciliados.iterrows()}
                     selected_hist_label = st.selectbox("Selecciona el registro a gestionar:", list(dict_historial.keys()), key="select_gestion_historial")
                     
@@ -12131,7 +12202,6 @@ elif opcion_menu == "📝 Asientos Contables":
 
                     st.markdown("---")
                     
-                    # --- CONVERSIÓN A EXCEL (.xlsx) USANDO IO.BYTESIO ---
                     import io
                     output_excel = io.BytesIO()
                     with pd.ExcelWriter(output_excel, engine='openpyxl') as writer:
