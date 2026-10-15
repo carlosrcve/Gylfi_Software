@@ -12373,7 +12373,7 @@ elif opcion_menu == "📝 Asientos Contables":
 
             except Exception as e:
                 st.error(f"Error en el módulo de conciliación: {e}")
-                
+
         with tab4:
             st.markdown("### ✏️ Modificar y Actualizar Registros")
             st.markdown("Selecciona la tabla que deseas administrar, filtra por fechas y corrige o elimina el registro necesario.")
@@ -12758,7 +12758,8 @@ elif opcion_menu == "📝 Asientos Contables":
                         st.markdown("#### 🛒 Detalle de Ítems / Líneas de Venta")
                         st.markdown("Selecciona los productos del inventario y define la cantidad. El precio y el total se calculan automáticamente.")
 
-                       # Cargar catálogo de productos disponibles desde la base de datos MySQL
+                        # Cargar catálogo de productos disponibles desde la base de datos MySQL
+                        # Cargar catálogo de productos disponibles desde la tabla correcta 'productos'
                         df_catalogo_prod = None
                         lista_opciones_productos = []
                         dict_productos = {}
@@ -12767,7 +12768,7 @@ elif opcion_menu == "📝 Asientos Contables":
                             conn_prod = conectar_db(db_actual)
                             if conn_prod:
                                 df_catalogo_prod = ejecutar_consulta(
-                                    "SELECT codigo_producto, descripcion, precio_unitario FROM producto ORDER BY descripcion ASC", 
+                                    "SELECT codigo_producto, descripcion, precio_unitario FROM productos WHERE activo = 1 ORDER BY descripcion ASC", 
                                     conn_prod
                                 )
                                 conn_prod.close()
@@ -12784,7 +12785,7 @@ elif opcion_menu == "📝 Asientos Contables":
                         except Exception as e:
                             st.error(f"Error al cargar el catálogo de productos: {e}")
 
-                        # Respaldo temporal si la tabla no existe o está vacía para que la interfaz no colapse
+                        # Respaldo temporal por si la tabla estuviera vacía
                         if not lista_opciones_productos:
                             lista_opciones_productos = ["GENERAL - Servicio / Producto General ($0.00)"]
                             dict_productos = {
@@ -12794,7 +12795,7 @@ elif opcion_menu == "📝 Asientos Contables":
                                     "precio": 0.00
                                 }
                             }
-                            st.warning(f"⚠️ La tabla `producto` no existe o está vacía en la base de datos `{db_actual}`. Se cargó un ítem temporal.")
+                            st.warning(f"⚠️ La tabla `productos` no tiene registros activos en `{db_actual}`. Se cargó un ítem temporal.")
 
                         # --- GESTIÓN ESTABLE DE LÍNEAS EN SESSION STATE ---
                         if "tab6_lista_items" not in st.session_state:
