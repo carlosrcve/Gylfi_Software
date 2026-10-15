@@ -11491,26 +11491,32 @@ elif opcion_menu == "📝 Asientos Contables":
                     # 🎛️ SELECTOR DE VISTA PRINCIPAL (SIEMPRE VISIBLE)
                     # ==========================================
                     st.markdown("---")
-                    modo_vista = st.radio(
+
+                    # Inicializamos la variable de estado si no existe
+                    if "vista_modo_op" not in st.session_state:
+                        st.session_state.vista_modo_op = "Emitir"
+
+                    # Usamos un radio con opciones cortas y seguras para evitar errores de coincidencia de texto
+                    seleccion_vista = st.radio(
                         "📍 Selecciona la vista de trabajo:",
-                        options=[
-                            "➕ Emitir Nueva Orden de Pago", 
-                            "📊 Ver cola de órdenes de pago pendiente por procesar en el libro de compra, asiento diario y movimiento bancario"
-                        ],
-                        key="selector_modo_vista_op"
+                        options=["➕ Emitir Nueva Orden de Pago", "📊 Ver cola de órdenes pendientes por procesar"],
+                        key="selector_modo_vista_seguro"
                     )
 
-                    # Control automático del estado de sesión según lo que elijas
-                    if "Ver cola de órdenes" in modo_vista:
-                        st.session_state.orden_guardada_exito = True
+                    # Actualizamos el estado según la selección
+                    if "Emitir" in seleccion_vista:
+                        st.session_state.vista_modo_op = "Emitir"
                     else:
-                        st.session_state.orden_guardada_exito = False
+                        st.session_state.vista_modo_op = "Cola"
 
 
                     # ==========================================
                     # 📋 OPCIÓN 1: FORMULARIO DE EMISIÓN DE ORDEN
                     # ==========================================
-                    if "Emitir Nueva Orden de Pago" in modo_vista:
+                    if st.session_state.vista_modo_op == "Emitir":
+                        
+                        # --- AQUÍ VA TODO TU FORMULARIO Y TUS FRAMES DE CÁLCULO ---
+                        st.markdown("### 📝 Formulario de Emisión de Orden de Pago")
 
                         # --- BLOQUE DE REGISTRO DE ORDEN DE PAGO ---
                         if btn_guardar_op:
@@ -11557,18 +11563,16 @@ elif opcion_menu == "📝 Asientos Contables":
                                         conn_ins.close()
                                         
                                         st.session_state.op_form_reset = True
-                                        st.session_state.orden_guardada_exito = True
-                                        st.success("🎉 ¡Orden de pago guardada con éxito!")
+                                        st.success("🎉 ¡Orden de pago guardada con éxito! Ya puedes verla en la cola.")
                                         st.rerun()
                                 except Exception as err_ins:
                                     st.error(f"❌ Error al guardar la orden de pago: {err_ins}")
 
 
                     # ==========================================
-                    # 📊 OPCIÓN 2: COLA DE ÓRDENES PENDIENTES Y PROCESAMIENTO
+                    # 📊 OPCIÓN 2: COLA DE ÓRDENES PENDIENTES
                     # ==========================================
                     else:
-                        # --- FASE 2 Y 3: HISTORIAL Y MÓDULOS PASO A PASO ---
                         st.markdown("---")
                         st.markdown("### 📊 Historial de Órdenes de Pago Pendientes por Contabilizar")
                         try:
@@ -11623,7 +11627,6 @@ elif opcion_menu == "📝 Asientos Contables":
                                 import pandas as pd
                                 df_ops_final = pd.DataFrame(lista_ops_procesadas)
                                 
-                                # --- FILTRO ESTRICTO: SOLO LAS PENDIENTES DESAPARECEN AL TERMINAR ---
                                 IDs_ya_procesados = [1, 2, 3]
                                 df_ops_final = df_ops_final[
                                     (df_ops_final['estado'].str.lower() == 'pendiente') & 
@@ -11637,9 +11640,7 @@ elif opcion_menu == "📝 Asientos Contables":
                                     st.dataframe(df_display, use_container_width=True, hide_index=True)
                                     
                                     st.markdown("---")
-                                    
                                     opciones_ordenes = {f"ID: {row['id']} | Factura: {row['nro_factura']} | Proveedor: {row['proveedor']} | Estado: {row['estado']}": row for _, row in df_ops_final.iterrows()}
-                                    
                                     lista_claves_ops = list(opciones_ordenes.keys())
                                     
                                     if "select_op_final_v2" in st.session_state and st.session_state["select_op_final_v2"] not in lista_claves_ops:
@@ -11670,9 +11671,6 @@ elif opcion_menu == "📝 Asientos Contables":
                                             info_banco = dict_cuentas_detalle.get(cta_banco_sel, {'codigo': '1.1.1.01.001', 'nombre': 'Banco Principal'})
                                             info_banco['nombre'] = info_banco.get('nombre', 'Banco Principal')
 
-                                        # ==========================================
-                                        # FLUJO PASO A PASO INTEGRADO Y VELOZ
-                                        # ==========================================
                                         st.markdown("---")
                                         st.markdown("### 🔄 Proceso de Registro por Módulos (Paso a Paso)")
 
@@ -11730,23 +11728,15 @@ elif opcion_menu == "📝 Asientos Contables":
                                                                             ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
                                                                         """
                                                                         valores_libro = (
-                                                                            str(sel_data['fecha_emision']),
-                                                                            "Factura",
-                                                                            str(fact_val),
-                                                                            str(ctrl_val if ctrl_val and ctrl_val != 'None' else 'S/N'),
-                                                                            None,
+                                                                            str(sel_data['fecha_emision']), "Factura", str(fact_val),
+                                                                            str(ctrl_val if ctrl_val and ctrl_val != 'None' else 'S/N'), None,
                                                                             str(prov_val if prov_val and prov_val != 'None' else 'Proveedor Genérico'),
-                                                                            str(rif_val),
-                                                                            "01",
-                                                                            float(sel_data.get('monto_bruto', 0.0)),
-                                                                            float(sel_data.get('monto_exento', 0.0)),
-                                                                            float(sel_data.get('base_imponible', 0.0)),
-                                                                            float(sel_data.get('iva_porcentaje', 16.0)),
-                                                                            float(sel_data.get('monto_iva', 0.0)),
+                                                                            str(rif_val), "01", float(sel_data.get('monto_bruto', 0.0)),
+                                                                            float(sel_data.get('monto_exento', 0.0)), float(sel_data.get('base_imponible', 0.0)),
+                                                                            float(sel_data.get('iva_porcentaje', 16.0)), float(sel_data.get('monto_iva', 0.0)),
                                                                             1 if float(sel_data.get('retencion_iva', 0.0)) > 0 else 0,
                                                                             1 if float(sel_data.get('retencion_iva', 0.0)) > 0 else 0,
-                                                                            str(f"COMP-{fact_val}"),
-                                                                            float(sel_data.get('retencion_iva', 0.0)),
+                                                                            str(f"COMP-{fact_val}"), float(sel_data.get('retencion_iva', 0.0)),
                                                                             str(sel_data['fecha_emision'])
                                                                         )
                                                                         cur_l.execute(query_libro, valores_libro)
@@ -11845,16 +11835,11 @@ elif opcion_menu == "📝 Asientos Contables":
                                                                     ) VALUES (%s, %s, %s, %s, %s, %s, %s, NOW())
                                                                 """
                                                                 cur_b.execute(query_banco, (
-                                                                    str(info_banco['nombre']),
-                                                                    str(info_banco['codigo']),
-                                                                    fecha_val,
-                                                                    n_comp_val,
-                                                                    str(desc_val),
-                                                                    float(sel_data['monto_neto']),
-                                                                    str(sel_data['estado'])
+                                                                    str(info_banco['nombre']), str(info_banco['codigo']),
+                                                                    fecha_val, n_comp_val, str(desc_val),
+                                                                    float(sel_data['monto_neto']), str(sel_data['estado'])
                                                                 ))
                                                                 
-                                                                # ACTUALIZAR ESTADO DE LA ORDEN A 'Contabilizada' PARA QUE DESAPAREZCA
                                                                 cur_b.execute("UPDATE ordenes_pago SET estado = 'Contabilizada' WHERE id = %s", (sel_data['id'],))
                                                                 conn_b.commit()
                                                             conn_b.close()
