@@ -11538,6 +11538,7 @@ elif opcion_menu == "📝 Asientos Contables":
                             except Exception as err_ins:
                                 st.error(f"❌ Error al guardar la orden de pago: {err_ins}")
 
+
                     # ==========================================
                     # 🎛️ SELECTOR DE VISTA (RADIO BUTTON) - SIEMPRE VISIBLE
                     # ==========================================
@@ -11558,10 +11559,8 @@ elif opcion_menu == "📝 Asientos Contables":
                         st.session_state.orden_guardada_exito = False
 
             else:
-                if st.button("➕ Emitir Nueva Orden de Pago", type="secondary", use_container_width=True):
-                    st.session_state.orden_guardada_exito = False
-                    st.session_state.op_form_reset = True
-                    st.rerun()
+                # Opcional: Un pequeño aviso o dejarlo completamente limpio
+                st.info("💡 Estás en el módulo de creación. Usa el selector de arriba si deseas ver la cola de órdenes pendientes.")
 
             # --- FASE 2 Y 3: HISTORIAL Y MÓDULOS PASO A PASO ---
             if st.session_state.orden_guardada_exito:
