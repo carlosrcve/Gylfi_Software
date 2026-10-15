@@ -11488,79 +11488,87 @@ elif opcion_menu == "📝 Asientos Contables":
                         st.rerun()
 
                     # ==========================================
-                    # 🎛️ SELECTOR DE VISTA CON SELECTBOX (100% SEGURO Y SIN BLANCOS)
+                    # 📋 BLOQUE DE REGISTRO DE ORDEN DE PAGO (GUARDAR)
+                    # ==========================================
+                    if btn_guardar_op:
+                        if not nro_factura_form:
+                            st.error("⚠️ El número de factura es obligatorio.")
+                        elif not lista_provs:
+                            st.error("⚠️ No hay proveedores cargados para asociar la orden.")
+                        else:
+                        # ... (aquí va toda tu lógica de try/except para guardar en base de datos) ...
+                            try:
+                                info_prov_form = dict_provs[prov_seleccionado_form]
+                                conn_ins = conectar_db(db_actual)
+                                if conn_ins:
+                                    cursor = conn_ins.cursor()
+                                    query_insert = """
+                                        INSERT INTO ordenes_pago (
+                                            empresa_db, proveedor_id, nro_factura, nro_control, 
+                                            monto_bruto, monto_exento, base_imponible, iva_porcentaje, monto_iva, 
+                                            retencion_islr, retencion_iva, monto_neto, estado, fecha_emision, 
+                                            observaciones, islr_porcentaje, islr_sustraendo, tipo_persona
+                                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                    """
+                                    cursor.execute(query_insert, (
+                                        str(db_actual),
+                                        str(info_prov_form['id_interno']),
+                                        str(nro_factura_form),
+                                        str(nro_control_form),
+                                        float(monto_bruto_calculado),
+                                        float(monto_exento_form),
+                                        float(base_imponible_form),
+                                        float(alicuota_iva_form),
+                                        float(monto_iva_calculado),
+                                        float(retencion_islr_calculada),
+                                        float(retencion_iva_calculada),
+                                        float(monto_neto_calculado),
+                                        'Pendiente',
+                                        str(fecha_emision_form),
+                                        str(observaciones_form),
+                                        float(islr_porcentaje_form),
+                                        float(islr_sustraendo_form),
+                                        str(tipo_persona_form)
+                                    ))
+                                    conn_ins.commit()
+                                    cursor.close()
+                                    conn_ins.close()
+                                    
+                                    st.session_state.op_form_reset = True
+                                    st.success("🎉 ¡Orden de pago guardada con éxito!")
+                                    st.rerun()
+                            except Exception as err_ins:
+                                st.error(f"❌ Error al guardar la orden de pago: {err_ins}")
+
+
+                    # ==========================================
+                    # 🎛️ SELECTOR DE VISTA (DEBAJO DEL BOTÓN GUARDAR)
                     # ==========================================
                     st.markdown("---")
-                    modo_vista = st.selectbox(
+                    modo_vista = st.radio(
                         "📍 Selecciona la vista de trabajo:",
                         options=[
                             "➕ Emitir Nueva Orden de Pago", 
-                            "📊 Ver cola de órdenes pendientes por procesar"
+                            "📊 Ver cola de órdenes de pago pendiente por procesar en el libro de compra, asiento diario y movimiento bancario"
                         ],
-                        key="selector_modo_vista_seguro_op"
+                        key="selector_modo_vista_op"
                     )
 
-                    st.markdown("---")
 
                     # ==========================================
-                    # 📋 OPCIÓN 1: EMITIR NUEVA ORDEN
+                    # 🔀 CONTROL DE VISTAS SEGÚN LA SELECCIÓN
                     # ==========================================
-                    if "Emitir" in modo_vista:
-                        
-                        # --- BLOQUE DE REGISTRO DE ORDEN DE PAGO ---
-                        if btn_guardar_op:
-                            if not nro_factura_form:
-                                st.error("⚠️ El número de factura es obligatorio.")
-                            elif not lista_provs:
-                                st.error("⚠️ No hay proveedores cargados para asociar la orden.")
-                            else:
-                                try:
-                                    info_prov_form = dict_provs[prov_seleccionado_form]
-                                    conn_ins = conectar_db(db_actual)
-                                    if conn_ins:
-                                        cursor = conn_ins.cursor()
-                                        query_insert = """
-                                            INSERT INTO ordenes_pago (
-                                                empresa_db, proveedor_id, nro_factura, nro_control, 
-                                                monto_bruto, monto_exento, base_imponible, iva_porcentaje, monto_iva, 
-                                                retencion_islr, retencion_iva, monto_neto, estado, fecha_emision, 
-                                                observaciones, islr_porcentaje, islr_sustraendo, tipo_persona
-                                            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                                        """
-                                        cursor.execute(query_insert, (
-                                            str(db_actual),
-                                            str(info_prov_form['id_interno']),
-                                            str(nro_factura_form),
-                                            str(nro_control_form),
-                                            float(monto_bruto_calculado),
-                                            float(monto_exento_form),
-                                            float(base_imponible_form),
-                                            float(alicuota_iva_form),
-                                            float(monto_iva_calculado),
-                                            float(retencion_islr_calculada),
-                                            float(retencion_iva_calculada),
-                                            float(monto_neto_calculado),
-                                            'Pendiente',
-                                            str(fecha_emision_form),
-                                            str(observaciones_form),
-                                            float(islr_porcentaje_form),
-                                            float(islr_sustraendo_form),
-                                            str(tipo_persona_form)
-                                        ))
-                                        conn_ins.commit()
-                                        cursor.close()
-                                        conn_ins.close()
-                                        
-                                        st.session_state.op_form_reset = True
-                                        st.success("🎉 ¡Orden de pago guardada con éxito!")
-                                        st.rerun()
-                                except Exception as err_ins:
-                                    st.error(f"❌ Error al guardar la orden de pago: {err_ins}")
+                    if "Emitir Nueva Orden de Pago" in modo_vista:
+                        # Aquí puedes dejar un indicador visual opcional si lo deseas, 
+                        # pero como tus inputs del formulario ya están renderizándose en tu código principal,
+                        # al seleccionar esta opción se mantendrán visibles sin problemas.
+                        pass
 
-                    # ==========================================
-                    # 📊 OPCIÓN 2: VER COLA DE ÓRDENES PENDIENTES
-                    # ==========================================
                     else:
+                        # ==========================================
+                        # 📊 VER COLA DE ÓRDENES PENDIENTES
+                        # ==========================================
+                        st.markdown("---")
                         st.markdown("### 📊 Historial de Órdenes de Pago Pendientes por Contabilizar")
                         try:
                             conn_list_op = conectar_db(db_actual)
