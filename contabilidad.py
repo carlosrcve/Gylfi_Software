@@ -10565,26 +10565,30 @@ elif opcion_menu == "📝 Asientos Contables":
                                 info_banco['nombre'] = info_banco.get('nombre', 'Banco Principal')
 
                             st.markdown("---")
-                            st.markdown("### Previsualización y Guardado Independiente por Módulo")
-                            
-                            col_f1, col_f2, col_f3 = st.columns(3)
-                            
-                            # --- MÓDULO 1: LIBRO DE COMPRAS ---
-                            with col_f1:
-                                st.markdown("#### 📄 `libro_compras`")
+                            st.markdown("### 🔄 Proceso de Registro por Módulos (Paso a Paso)")
+
+                            # Inicializar el control de flujo por pasos si no existe en session_state
+                            if f"paso_actual_{sel_data['id']}" not in st.session_state:
+                                st.session_state[f"paso_actual_{sel_data['id']}]"] = 1
+
+                            paso = st.session_state[f"paso_actual_{sel_data['id']}]"]
+
+                            # --- PASO 1: LIBRO DE COMPRAS ---
+                            if paso == 1:
+                                st.markdown("#### 📄 Paso 1: Registrar en `libro_compras`")
                                 st.code(f"""fecha_operacion: {sel_data['fecha_emision']}
-        tipo_documento: Factura
-        n_factura: {sel_data['nro_factura']}
-        n_control: {sel_data['nro_control']}
-        proveedor: {sel_data['proveedor']}
-        rif: {sel_data['proveedor_rif']}
-        total_compras: {sel_data['monto_bruto']:,.2f}
-        base_imponible: {sel_data['base_imponible']:,.2f}
-        iva_porcentaje: {sel_data['iva_porcentaje']}%
-        iva_monto: {sel_data['monto_iva']:,.2f}
-        retencion_iva: {sel_data['retencion_iva']:,.2f}""", language="yaml")
+                            tipo_documento: Factura
+                            n_factura: {sel_data['nro_factura']}
+                            n_control: {sel_data['nro_control']}
+                            proveedor: {sel_data['proveedor']}
+                            rif: {sel_data['proveedor_rif']}
+                            total_compras: {sel_data['monto_bruto']:,.2f}
+                            base_imponible: {sel_data['base_imponible']:,.2f}
+                            iva_porcentaje: {sel_data['iva_porcentaje']}%
+                            iva_monto: {sel_data['monto_iva']:,.2f}
+                            retencion_iva: {sel_data['retencion_iva']:,.2f}""", language="yaml")
                                 
-                                if st.button("💾 Guardar Libro de Compras", key=f"btn_guardar_libro_{sel_data['id']}", use_container_width=True):
+                                if st.button("💾 Guardar Libro de Compras y Pasar al Asiento", key=f"btn_guardar_libro_{sel_data['id']}", use_container_width=True):
                                     rif_val = str(sel_data.get('proveedor_rif', '')).strip()
                                     fact_val = str(sel_data.get('nro_factura', '')).strip()
                                     ctrl_val = str(sel_data.get('nro_control', '')).strip()
@@ -10603,7 +10607,9 @@ elif opcion_menu == "📝 Asientos Contables":
                                                 existe = cur_l.fetchone()
                                                 
                                                 if existe:
-                                                    st.warning(f"⚠️ La factura **{fact_val}** ya se encuentra registrada en el Libro de Compras.")
+                                                    st.warning(f"⚠️ La factura **{fact_val}** ya se encuentra registrada. Avanzando al siguiente paso...")
+                                                    st.session_state[f"paso_actual_{sel_data['id']}]"] = 2
+                                                    st.rerun()
                                                 else:
                                                     query_libro = """
                                                         INSERT INTO libro_compras (
@@ -10638,34 +10644,36 @@ elif opcion_menu == "📝 Asientos Contables":
                                                     cur_l.execute(query_libro, valores_libro)
                                                     conn_l.commit()
                                                     st.success("✅ ¡Libro de Compras guardado con éxito!")
-                                                cur_l.close()
-                                                conn_l.close()
+                                                    st.session_state[f"paso_actual_{sel_data['id']}]"] = 2
+                                                    cur_l.close()
+                                                    conn_l.close()
+                                                    st.rerun()
                                         except Exception as err_l:
                                             st.error(f"❌ Error al guardar libro de compras: {err_l}")
 
-                            # --- MÓDULO 2: ASIENTO CONTABLE ---
-                            with col_f2:
-                                st.markdown("#### 📒 `asientos_contables`")
+                            # --- PASO 2: ASIENTO CONTABLE ---
+                            elif paso == 2:
+                                st.markdown("#### 📒 Paso 2: Registrar `asientos_contables`")
                                 st.code(f"""- n_comprobante: OP-{sel_data['nro_factura']}
-          fecha: {sel_data['fecha_emision']}
-          asientos:
-            - plan_cuentas: {info_gasto['codigo']}
-              debe: {sel_data['base_imponible']:,.2f}
-              haber: 0.00
-            - plan_cuentas: {info_iva['codigo']}
-              debe: {sel_data['monto_iva']:,.2f}
-              haber: 0.00
-            - plan_cuentas: 2.1.2.01.005
-              debe: 0.00
-              haber: {sel_data['retencion_islr']:,.2f}
-            - plan_cuentas: 2.1.2.01.003
-              debe: 0.00
-              haber: {sel_data['retencion_iva']:,.2f}
-            - plan_cuentas: {info_banco['codigo']}
-              debe: 0.00
-              haber: {sel_data['monto_neto']:,.2f}""", language="yaml")
+                              fecha: {sel_data['fecha_emision']}
+                              asientos:
+                                - plan_cuentas: {info_gasto['codigo']}
+                                  debe: {sel_data['base_imponible']:,.2f}
+                                  haber: 0.00
+                                - plan_cuentas: {info_iva['codigo']}
+                                  debe: {sel_data['monto_iva']:,.2f}
+                                  haber: 0.00
+                                - plan_cuentas: 2.1.2.01.005
+                                  debe: 0.00
+                                  haber: {sel_data['retencion_islr']:,.2f}
+                                - plan_cuentas: 2.1.2.01.003
+                                  debe: 0.00
+                                  haber: {sel_data['retencion_iva']:,.2f}
+                                - plan_cuentas: {info_banco['codigo']}
+                                  debe: 0.00
+                                  haber: {sel_data['monto_neto']:,.2f}""", language="yaml")
                                 
-                                if st.button("💾 Guardar Asiento Contable", key=f"btn_guardar_asiento_{sel_data['id']}", use_container_width=True):
+                                if st.button("💾 Guardar Asiento Contable y Pasar a Banco", key=f"btn_guardar_asiento_{sel_data['id']}", use_container_width=True):
                                     try:
                                         conn_a = conectar_db(db_actual)
                                         if conn_a:
@@ -10701,24 +10709,26 @@ elif opcion_menu == "📝 Asientos Contables":
                                             cur_a.close()
                                             conn_a.close()
                                             st.success("✅ ¡Asiento Contable guardado con éxito!")
+                                            st.session_state[f"paso_actual_{sel_data['id']}]"] = 3
+                                            st.rerun()
                                     except Exception as err_a:
                                         st.error(f"❌ Error al guardar asiento contable: {err_a}")
 
-                            # --- MÓDULO 3: MOVIMIENTO BANCARIO ---
-                            with col_f3:
-                                st.markdown("#### 🏦 `banco_movimientos`")
+                            # --- PASO 3: MOVIMIENTO BANCARIO ---
+                            elif paso == 3:
+                                st.markdown("#### 🏦 Paso 3: Registrar `banco_movimientos`")
                                 prov_nombre = str(sel_data.get('proveedor', '')).strip()
                                 prov_rif = str(sel_data.get('proveedor_rif', '')).strip()
                                 nro_fact = str(sel_data.get('nro_factura', '')).strip()
                                 desc_val = f"Pago Factura Nro {nro_fact} - {prov_nombre} (RIF: {prov_rif})"
 
                                 st.code(f"""banco_nombre: {info_banco['nombre']}
-        reference: OP-{nro_fact}
-        descripcion: {desc_val}
-        monto: {sel_data['monto_neto']:,.2f}
-        estado: {sel_data['estado']}""", language="yaml")
+                            reference: OP-{nro_fact}
+                            descripcion: {desc_val}
+                            monto: {sel_data['monto_neto']:,.2f}
+                            estado: {sel_data['estado']}""", language="yaml")
                                 
-                                if st.button("💾 Guardar Movimiento Bancario", key=f"btn_guardar_banco_{sel_data['id']}", use_container_width=True):
+                                if st.button("💾 Guardar Movimiento Bancario y Finalizar", key=f"btn_guardar_banco_{sel_data['id']}", use_container_width=True):
                                     try:
                                         conn_b = conectar_db(db_actual)
                                         if conn_b:
@@ -10743,7 +10753,10 @@ elif opcion_menu == "📝 Asientos Contables":
                                             conn_b.commit()
                                             cur_b.close()
                                             conn_b.close()
-                                            st.success("✅ ¡Movimiento Bancario guardado con éxito!")
+                                            st.success("🎉 ¡Proceso completo! Movimiento Bancario guardado con éxito.")
+                                            # Reiniciar el paso o marcar como finalizado
+                                            st.session_state[f"paso_actual_{sel_data['id']}]"] = 1
+                                            st.rerun()
                                     except Exception as err_b:
                                         st.error(f"❌ Error al guardar movimiento bancario: {err_b}")
                 except Exception as ex_historial:
