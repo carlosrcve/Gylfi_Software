@@ -11921,7 +11921,7 @@ elif opcion_menu == "📝 Asientos Contables":
                     st.warning(f"Aviso en historial: {ex_historial}")
         with tab3:
             st.markdown("### 🔗 Conciliación, Cruce Bancario y Emisión de Comprobante")
-            st.markdown("Cruza las órdenes de pago, registra primero el movimiento en el banco, previsualiza el asiento contable y guárdalo en la base de datos.")
+            st.markdown("Cruza las órdenes de pago, registra primero el movimiento en el banco, selecciona la cuenta contable de salida, previsualiza el asiento y guárdalo en la base de datos.")
 
             try:
                 # --- CARGAR CUENTAS BANCARIAS DE DETALLE PARA EL SELECTBOX ---
@@ -11978,7 +11978,7 @@ elif opcion_menu == "📝 Asientos Contables":
                     )
                     
                     st.divider()
-                    st.markdown("#### ⚡ Paso 1: Registrar Movimiento Bancario")
+                    st.markdown("#### ⚡ Paso 1: Datos Bancarios y Registro en Banco")
                     
                     # Selector de orden a conciliar
                     dict_ops_pend = {}
@@ -11997,24 +11997,14 @@ elif opcion_menu == "📝 Asientos Contables":
                     with col_m2:
                         fecha_pago_real = st.date_input("Fecha real del movimiento en el Banco", key="input_fec_banco_b")
 
-                    # Selector de cuenta bancaria de la empresa que efectúa el pago
-                    cta_banco_salida = st.selectbox(
-                        "🏦 Selecciona la Cuenta Bancaria / Salida de Dinero (Haber)", 
-                        options=lista_bancos_detalle if lista_bancos_detalle else ["No hay cuentas de detalle disponibles"],
-                        key="select_banco_salida_pago"
-                    )
-                    
                     # -------------------------------------------------------------------------
-                    # BOTÓN PASO 1: GUARDAR EN TABLA `banco_movimientos`
+                    # 📥 BOTÓN PASO 1: GUARDAR EN TABLA `banco_movimientos` (UBICADO ARRIBA)
                     # -------------------------------------------------------------------------
                     if st.button("📥 Registrar Movimiento en Banco", type="secondary", key="btn_guardar_banco_mov"):
                         if not referencia_bancaria:
                             st.warning("⚠️ Debes introducir obligatoriamente la referencia bancaria del estado de cuenta.")
-                        elif not lista_bancos_detalle or "No hay cuentas" in cta_banco_salida:
-                            st.error("⚠️ Debes seleccionar una cuenta bancaria válida.")
                         else:
                             try:
-                                info_banco_sel = dict_bancos_detalle.get(cta_banco_salida, {'codigo': '1.1.1.01.001', 'nombre': 'Banco Principal'})
                                 monto_a_pagar = float(fila_op_sel['monto_neto'])
                                 n_fact_val = str(fila_op_sel['nro_factura'])
                                 prov_nombre_val = str(fila_op_sel['proveedor'])
@@ -12033,8 +12023,8 @@ elif opcion_menu == "📝 Asientos Contables":
                                         ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                                     """
                                     cur_bm.execute(query_banco_mov, (
-                                        info_banco_sel['nombre'],
-                                        info_banco_sel['codigo'],
+                                        str(fila_op_sel['banco_prov']) if fila_op_sel['banco_prov'] else "Banco Emisor",
+                                        str(fila_op_sel['cuenta_prov']) if fila_op_sel['cuenta_prov'] else "N/A",
                                         str(fecha_pago_real),
                                         referencia_bancaria,
                                         f"Pago Factura #{n_fact_val} - {prov_nombre_val}",
@@ -12048,16 +12038,22 @@ elif opcion_menu == "📝 Asientos Contables":
                                     conn_bm.close()
 
                                     st.success(f"✅ ¡Movimiento bancario registrado exitosamente en `banco_movimientos` con referencia `{referencia_bancaria}`!")
-                                    st.session_state['banco_registrado_ok'] = True
                             except Exception as err_bm:
                                 st.error(f"❌ Error al guardar en banco_movimientos: {err_bm}")
 
-                    # =========================================================================
-                    # 👁️ PASO 2: PREVISUALIZACIÓN Y REGISTRO EN `asientos_contables`
-                    # =========================================================================
                     st.divider()
-                    st.markdown("#### ⚡ Paso 2: Previsualización y Registro del Asiento Diario")
+                    st.markdown("#### ⚡ Paso 2: Selección de Cuenta Contable, Previsualización y Registro en Asientos")
 
+                    # Selector de cuenta bancaria de la empresa que efectúa el pago
+                    cta_banco_salida = st.selectbox(
+                        "🏦 Selecciona la Cuenta Bancaria / Salida de Dinero (Haber)", 
+                        options=lista_bancos_detalle if lista_bancos_detalle else ["No hay cuentas de detalle disponibles"],
+                        key="select_banco_salida_pago"
+                    )
+
+                    # =========================================================================
+                    # 👁️ PREVISUALIZACIÓN DEL ASIENTO CONTABLE (HTML & CSS)
+                    # =========================================================================
                     info_banco_prev = dict_bancos_detalle.get(cta_banco_salida, {'codigo': '1.1.1.01.001', 'nombre': 'Banco Principal'})
                     monto_prev = float(fila_op_sel['monto_neto'])
                     n_fact_prev = str(fila_op_sel['nro_factura'])
@@ -12167,6 +12163,8 @@ elif opcion_menu == "📝 Asientos Contables":
                     if st.button("💾 Guardar Asiento en Libro Diario y Conciliar", type="primary", key="btn_guardar_asiento_diario"):
                         if not referencia_bancaria:
                             st.warning("⚠️ Asegúrate de haber ingresado la referencia bancaria.")
+                        elif not lista_bancos_detalle or "No hay cuentas" in cta_banco_salida:
+                            st.error("⚠️ Debes seleccionar una cuenta bancaria válida.")
                         else:
                             try:
                                 monto_a_pagar = float(fila_op_sel['monto_neto'])
