@@ -11921,7 +11921,7 @@ elif opcion_menu == "📝 Asientos Contables":
                     st.warning(f"Aviso en historial: {ex_historial}")
         with tab3:
             st.markdown("### 🔗 Conciliación, Cruce Bancario y Emisión de Comprobante")
-            st.markdown("Cruza las órdenes de pago pendientes con las referencias del estado de cuenta bancario, selecciona la cuenta de salida y genera el asiento contable de cancelación y el comprobante oficial.")
+            st.markdown("Cruza las órdenes de pago con las referencias del estado de cuenta bancario, selecciona la cuenta de salida y genera el asiento contable de cancelación y el comprobante oficial.")
 
             try:
                 # --- CARGAR CUENTAS BANCARIAS DE DETALLE PARA EL SELECTBOX ---
@@ -11929,12 +11929,10 @@ elif opcion_menu == "📝 Asientos Contables":
                 lista_bancos_detalle = []
                 dict_bancos_detalle = {}
                 if conn_cuentas:
-                    # Usamos %% para escapar el comodín en cadenas formateadas o ejecutamos con parámetros seguros
                     df_ctas_banco = ejecutar_consulta(
                         "SELECT codigo, nombre FROM plan_cuentas WHERE tipo = 'Detalle' AND (codigo LIKE '1.1.1%%' OR LOWER(nombre) LIKE '%%banco%%' OR LOWER(nombre) LIKE '%%caja%%') ORDER BY codigo", 
                         conn_cuentas
                     )
-                    # Si no encuentra cuentas específicas de banco, traemos todas las de detalle para no trancar al usuario
                     if df_ctas_banco is None or df_ctas_banco.empty:
                         df_ctas_banco = ejecutar_consulta("SELECT codigo, nombre FROM plan_cuentas WHERE tipo = 'Detalle' ORDER BY codigo", conn_cuentas)
                     conn_cuentas.close()
@@ -11948,26 +11946,27 @@ elif opcion_menu == "📝 Asientos Contables":
                                 'nombre': str(r_cta['nombre']).strip()
                             }
 
-                # 1. Consultar órdenes pendientes
+                # 1. Consultar TODAS las órdenes de pago (o las que no estén conciliadas para permitir cruce)
                 conn_pend = conectar_db(db_actual)
                 df_pendientes = None
                 if conn_pend:
+                    # Modificado para traer todas las órdenes o aquellas que falten por conciliar
                     query_pendientes = """
                         SELECT op.id, p.nombre AS proveedor, p.rif, p.banco AS banco_prov, p.nro_cuenta AS cuenta_prov, 
-                               op.nro_factura, op.monto_bruto, op.retencion_islr, op.retencion_iva, op.monto_neto, op.fecha_emision, op.observaciones
+                               op.nro_factura, op.monto_bruto, op.retencion_islr, op.retencion_iva, op.monto_neto, op.fecha_emision, op.observaciones, op.estado
                         FROM ordenes_pago op
                         JOIN proveedores_carga p ON op.proveedor_id = p.id
-                        WHERE op.empresa_db = %s AND op.estado = 'Pendiente'
+                        WHERE op.empresa_db = %s AND (op.estado != 'Conciliado' OR op.estado IS NULL)
                         ORDER BY op.fecha_emision DESC
                     """
                     df_pendientes = ejecutar_consulta(query_pendientes, conn_pend, params=(str(db_actual),))
                     conn_pend.close()
 
                 if df_pendientes is not None and not df_pendientes.empty:
-                    st.markdown(f"📋 Tienes **{len(df_pendientes)}** orden(es) de pago pendiente(s) de conciliación.")
+                    st.markdown(f"📋 Tienes **{len(df_pendientes)}** orden(es) de pago disponibles para conciliación.")
                     
                     st.dataframe(
-                        df_pendientes[['id', 'proveedor', 'nro_factura', 'monto_neto', 'fecha_emision']], 
+                        df_pendientes[['id', 'proveedor', 'nro_factura', 'monto_neto', 'fecha_emision', 'estado']], 
                         use_container_width=True, 
                         hide_index=True,
                         column_config={
@@ -11985,7 +11984,7 @@ elif opcion_menu == "📝 Asientos Contables":
                     # Selector de orden a conciliar
                     dict_ops_pend = {}
                     for _, row in df_pendientes.iterrows():
-                        label_op = f"ID: {row['id']} | Prov: {row['proveedor']} | Factura: {row['nro_factura']} | Neto: ${row['monto_neto']:,.2f}"
+                        label_op = f"ID: {row['id']} | Prov: {row['proveedor']} | Factura: {row['nro_factura']} | Neto: ${row['monto_neto']:,.2f} | Estado: {row['estado']}"
                         dict_ops_pend[label_op] = row['id']
                     
                     selected_op_label = st.selectbox("Selecciona la Orden de Pago a Conciliar", list(dict_ops_pend.keys()), key="select_op_cruce_tab3")
@@ -12111,7 +12110,7 @@ elif opcion_menu == "📝 Asientos Contables":
                             except Exception as ex_m:
                                 st.error(f"❌ Error al ejecutar el cruce y asiento en base de datos: {ex_m}")
                 else:
-                    st.info("🎉 ¡Excelente! No hay órdenes de pago pendientes por conciliar. Todas están al día frente al banco.")
+                    st.info("🎉 ¡Excelente! No hay órdenes de pago disponibles para conciliar.")
 
                 # 2. Historial de Pagos Conciliados
                 st.divider()
@@ -12220,7 +12219,7 @@ elif opcion_menu == "📝 Asientos Contables":
 
             except Exception as e:
                 st.error(f"Error en el módulo de conciliación: {e}")
-
+                
         with tab4:
             st.markdown("### ✏️ Modificar y Actualizar Registros")
             st.markdown("Selecciona el registro que deseas corregir o actualizar campo por campo, o elimínalo si es necesario.")
