@@ -11734,12 +11734,15 @@ elif opcion_menu == "📝 Asientos Contables":
 
                                 # --- PASO 2: ASIENTO CONTABLE ---
                                 elif paso == 2:
+                                    # Calculamos el total del gasto/costo sumando base imponible + monto exento
+                                    total_gasto_costo = float(sel_data['base_imponible']) + float(sel_data.get('monto_exento', 0.0))
+                                    
                                     st.markdown("#### 📒 Paso 2: Registrar `asientos_contables`")
                                     st.code(f"""- n_comprobante: OP-{sel_data['nro_factura']}
       fecha: {sel_data['fecha_emision']}
       asientos:
         - plan_cuentas: {info_gasto['codigo']}
-          debe: {sel_data['base_imponible']:,.2f}
+          debe: {total_gasto_costo:,.2f}
           haber: 0.00
         - plan_cuentas: {info_iva['codigo']}
           debe: {sel_data['monto_iva']:,.2f}
@@ -11763,7 +11766,7 @@ elif opcion_menu == "📝 Asientos Contables":
                                                         n_comp_val = f"OP-{sel_data['nro_factura']}"
                                                         fecha_val = str(sel_data['fecha_emision'])
                                                         lineas_asiento = [
-                                                            (info_gasto['codigo'], info_gasto['nombre'], float(sel_data['base_imponible']), 0.00),
+                                                            (info_gasto['codigo'], info_gasto['nombre'], total_gasto_costo, 0.00),
                                                             (info_iva['codigo'], info_iva['nombre'], float(sel_data['monto_iva']), 0.00),
                                                             ("2.1.2.01.005", "Retención ISLR Por Pagar", 0.00, float(sel_data['retencion_islr'])),
                                                             ("2.1.2.01.003", "Retención IVA Por Pagar", 0.00, float(sel_data['retencion_iva'])),
