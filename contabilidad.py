@@ -10295,28 +10295,22 @@ elif opcion_menu == "📝 Asientos Contables":
         with tab2:
             st.markdown("### 🧾 Gestión y Generación de Órdenes de Pago y Cruce")
 
-            # --- CARGAR PROVEEDORES Y PLAN DE CUENTAS OPTIMIZADO CON CACHÉ ---
-            @st.cache_data(ttl=300, show_spinner=False) # Caché por 5 minutos para evitar consultas repetitivas pesadas
-            def cargar_datos_maestros_optimizados(empresa):
-                p_lista = []
-                p_dict = {}
-                c_lista = []
-                c_dict = {}
+            # --- CARGAR PROVEEDORES Y PLAN DE CUENTAS ULTRA OPTIMIZADO CON CACHÉ GLOBAL ---
+            @st.cache_data(ttl=600, show_spinner=False)
+            def cargar_datos_maestros_flash(empresa):
+                p_lista, p_dict, c_lista, c_dict = [], {}, [], {}
                 try:
                     conn = conectar_db(empresa)
                     if conn:
-                        # 1. Consulta estricta filtrando por empresa
                         df_cp = ejecutar_consulta(
                             "SELECT id, nombre, rif, codigo_cuenta, descripcion_cuenta FROM proveedores_carga WHERE empresa_db = %s ORDER BY nombre ASC", 
                             conn, params=(str(empresa),)
                         )
-                        
                         if df_cp is None or df_cp.empty:
                             df_cp = ejecutar_consulta(
                                 "SELECT id, nombre, rif, codigo_cuenta, descripcion_cuenta FROM proveedores_carga ORDER BY nombre ASC", 
                                 conn
                             )
-
                         df_cuentas = ejecutar_consulta(
                             "SELECT id, codigo, nombre, nivel, tipo, padre FROM plan_cuentas WHERE tipo = 'Detalle'", 
                             conn
@@ -10325,68 +10319,46 @@ elif opcion_menu == "📝 Asientos Contables":
                         
                         if df_cp is not None and not df_cp.empty:
                             for _, row in df_cp.iterrows():
-                                pid = row['id']
                                 label = f"{row['nombre']} (RIF: {row['rif']})"
-                                if label not in p_lista:
-                                    p_lista.append(label)
+                                p_lista.append(label)
                                 p_dict[label] = {
-                                    'id_interno': pid,
+                                    'id_interno': row['id'],
                                     'rif': row['rif'],
                                     'nombre': row['nombre'],
                                     'codigo_cuenta': str(row.get('codigo_cuenta', 'N/A')),
                                     'descripcion_cuenta': str(row.get('descripcion_cuenta', 'N/A'))
                                 }
-                        
                         if df_cuentas is not None and not df_cuentas.empty:
                             for _, row in df_cuentas.iterrows():
                                 clabel = f"{str(row['codigo']).strip()} - {str(row['nombre']).strip()}"
-                                if clabel not in c_lista:
-                                    c_lista.append(clabel)
-                                    c_dict[clabel] = {
-                                        'codigo': str(row['codigo']).strip(),
-                                        'nombre': str(row['nombre']).strip()
-                                    }
-                except Exception as ex:
-                    pass # Evita congelar la UI si hay un fallo de red aislado
+                                c_lista.append(clabel)
+                                c_dict[clabel] = {
+                                    'codigo': str(row['codigo']).strip(),
+                                    'nombre': str(row['nombre']).strip()
+                                }
+                except Exception:
+                    pass
                 return p_lista, p_dict, c_lista, c_dict
 
-            # Carga instantánea usando caché de sesión
-            lista_provs, dict_provs, lista_cuentas_detalle, dict_cuentas_detalle = cargar_datos_maestros_optimizados(db_actual)
+            lista_provs, dict_provs, lista_cuentas_detalle, dict_cuentas_detalle = cargar_datos_maestros_flash(db_actual)
 
-            # --- GESTIÓN DE SESSION STATE PARA LIMPIEZA DE LA ORDEN DE PAGO ---
-            if "op_form_reset" not in st.session_state: st.session_state["op_form_reset"] = False
+            # --- GESTIÓN DE SESSION STATE ---
+            if "orden_guardada_exito" not in st.session_state:
+                st.session_state["orden_guardada_exito"] = False
 
-            if st.session_state["op_form_reset"]:
-                st.session_state["op_fact"] = ""
-                st.session_state["op_ctrl"] = ""
-                st.session_state["op_base"] = 0.0
-                st.session_state["op_exento"] = 0.0
-                st.session_state["op_porc_islr"] = 1.0
-                st.session_state["op_sustraendo"] = 0.0
-                st.session_state["op_obs"] = ""
-                st.session_state["op_form_reset"] = False
-
-            # Inicializar valores por defecto en el session_state si no existen
-            for key, default_val in [
-                ("op_fact", ""), ("op_ctrl", ""), ("op_base", 0.0), 
-                ("op_exento", 0.0), ("op_porc_islr", 1.0), ("op_sustraendo", 0.0), 
-                ("op_obs", ""), ("orden_guardada_exito", False)
-            ]:
-                if key not in st.session_state:
-                    st.session_state[key] = default_val
-
-            # --- FASE 1: EMITIR NUEVA ORDEN DE PAGO ---
+            # --- FASE 1: EMITIR NUEVA ORDEN DE PAGO CON ST.FORM (MÁXIMA VELOCIDAD) ---
             if not st.session_state.orden_guardada_exito:
                 st.markdown("### ✍️ Emitir Nueva Orden de Pago")
                 
-                with st.container():
+                # st.form agrupa los inputs para evitar recargas molestas por cada letra escrita
+                with st.form("form_emision_op", clear_on_submit=True):
                     col_f1_1, col_f1_2 = st.columns(2)
                     with col_f1_1:
-                        prov_seleccionado_form = st.selectbox("Seleccionar Proveedor", options=lista_provs if lista_provs else ["No hay proveedores"], key="op_prov")
-                        nro_factura_form = st.text_input("Número de Factura", key="op_fact")
-                        nro_control_form = st.text_input("Número de Control", key="op_ctrl")
+                        prov_seleccionado_form = st.selectbox("Seleccionar Proveedor", options=lista_provs if lista_provs else ["No hay proveedores"])
+                        nro_factura_form = st.text_input("Número de Factura")
+                        nro_control_form = st.text_input("Número de Control")
                     with col_f1_2:
-                        fecha_emision_form = st.date_input("Fecha de Emisión", key="op_fecha")
+                        fecha_emision_form = st.date_input("Fecha de Emisión")
                         
                         st.markdown("""
                             <div style="background-color: #ffe6e6; padding: 6px 12px; border-radius: 6px; border: 1px solid #ff9999; margin-bottom: 5px;">
@@ -10394,18 +10366,18 @@ elif opcion_menu == "📝 Asientos Contables":
                             </div>
                         """, unsafe_allow_html=True)
                         
-                        base_imponible_form = st.number_input("Base Imponible", min_value=0.0, format="%.2f", key="op_base")
-                        monto_exento_form = st.number_input("Monto Exento", min_value=0.0, format="%.2f", key="op_exento")
+                        base_imponible_form = st.number_input("Base Imponible", min_value=0.0, format="%.2f")
+                        monto_exento_form = st.number_input("Monto Exento", min_value=0.0, format="%.2f")
 
                     col_f1_3, col_f1_4 = st.columns(2)
                     with col_f1_3:
-                        alicuota_iva_form = st.selectbox("Alícuota IVA", options=[16.0, 8.0, 31.0, 0.0], format_func=lambda x: f"{x}%", key="op_alicuota")
+                        alicuota_iva_form = st.selectbox("Alícuota IVA", options=[16.0, 8.0, 31.0, 0.0], format_func=lambda x: f"{x}%")
                     with col_f1_4:
                         monto_iva_calculado = base_imponible_form * (alicuota_iva_form / 100.0)
-                        st.metric(label="Monto IVA (Calculado)", value=f"{monto_iva_calculado:,.2f}")
+                        st.text(f"Monto IVA (Calculado): {monto_iva_calculado:,.2f}")
 
                     monto_bruto_calculado = base_imponible_form + monto_exento_form + monto_iva_calculado
-                    st.metric(label="Monto Bruto / Total Factura (Calculado)", value=f"{monto_bruto_calculado:,.2f}")
+                    st.text(f"Monto Bruto / Total Factura: {monto_bruto_calculado:,.2f}")
                     
                     st.markdown("---")
 
@@ -10413,10 +10385,10 @@ elif opcion_menu == "📝 Asientos Contables":
                     st.markdown("#### 2️⃣ Frame: Retención de IVA")
                     col_f2_1, col_f2_2 = st.columns(2)
                     with col_f2_1:
-                        porcentaje_ret_iva = st.selectbox("Porcentaje Retención IVA", options=[75.0, 100.0, 25.0, 50.0, 0.00], format_func=lambda x: f"{x}%", key="op_porc_ret_iva")
+                        porcentaje_ret_iva = st.selectbox("Porcentaje Retención IVA", options=[75.0, 100.0, 25.0, 50.0, 0.00], format_func=lambda x: f"{x}%")
                     with col_f2_2:
                         retencion_iva_calculada = monto_iva_calculado * (porcentaje_ret_iva / 100.0)
-                        st.metric(label="Monto Retención IVA (Calculado)", value=f"{retencion_iva_calculada:,.2f}")
+                        st.text(f"Monto Retención IVA: {retencion_iva_calculada:,.2f}")
                     
                     st.markdown("---")
 
@@ -10424,14 +10396,14 @@ elif opcion_menu == "📝 Asientos Contables":
                     st.markdown("#### 3️⃣ Frame: Retención de ISLR")
                     col_f3_1, col_f3_2, col_f3_3, col_f3_4 = st.columns(4)
                     with col_f3_1:
-                        tipo_persona_form = st.selectbox("Tipo de Persona", options=["Jurídico Domiciliado", "Natural Residenciado", "Otro"], key="op_tipo_p")
+                        tipo_persona_form = st.selectbox("Tipo de Persona", options=["Jurídico Domiciliado", "Natural Residenciado", "Otro"])
                     with col_f3_2:
-                        islr_porcentaje_form = st.number_input("% Retención ISLR", min_value=0.0, max_value=100.0, format="%.2f", key="op_porc_islr")
+                        islr_porcentaje_form = st.number_input("% Retención ISLR", min_value=0.0, max_value=100.0, format="%.2f", value=1.0)
                     with col_f3_3:
-                        islr_sustraendo_form = st.number_input("Sustraendo ISLR", min_value=0.0, format="%.2f", key="op_sustraendo")
+                        islr_sustraendo_form = st.number_input("Sustraendo ISLR", min_value=0.0, format="%.2f", value=0.0)
                     with col_f3_4:
                         retencion_islr_calculada = max(0.0, (base_imponible_form * (islr_porcentaje_form / 100.0)) - islr_sustraendo_form)
-                        st.metric(label="Monto Retención ISLR Final", value=f"{retencion_islr_calculada:,.2f}")
+                        st.text(f"Retención ISLR: {retencion_islr_calculada:,.2f}")
 
                     st.markdown("---")
                     
@@ -10441,77 +10413,67 @@ elif opcion_menu == "📝 Asientos Contables":
                     
                     col_f4_1, col_f4_2 = st.columns(2)
                     with col_f4_1:
-                        st.metric(label="💵 Monto Neto a Pagar", value=f"{monto_neto_calculado:,.2f}")
+                        st.text(f"💵 Monto Neto a Pagar: {monto_neto_calculado:,.2f}")
                     with col_f4_2:
-                        observaciones_form = st.text_area("Observaciones / Concepto del Pago", key="op_obs")
+                        observaciones_form = st.text_area("Observaciones / Concepto del Pago")
 
                     st.markdown("---")
                     
-                    # --- BOTONES DE CÁLCULO Y GUARDADO ---
-                    col_btn_1, col_btn_2 = st.columns(2)
-                    with col_btn_1:
-                        btn_calcular = st.button("🧮 Calcular / Refrescar Montos", type="secondary", key="btn_calcular_principal", use_container_width=True)
-                    with col_btn_2:
-                        btn_guardar_op = st.button("💾 Guardar y Registrar Orden de Pago", type="primary", key="btn_guardar_principal", use_container_width=True)
+                    # Botón único de guardado dentro del formulario
+                    btn_guardar_op = st.form_submit_button("💾 Guardar y Registrar Orden de Pago", use_container_width=True)
 
-                    if btn_calcular:
-                        st.toast("✅ ¡Cálculos actualizados al instante!", icon="🧮")
-                        st.rerun()
-
-                    if btn_guardar_op:
-                        if not nro_factura_form:
-                            st.error("⚠️ El número de factura es obligatorio.")
-                        elif not lista_provs:
-                            st.error("⚠️ No hay proveedores cargados para asociar la orden.")
-                        else:
-                            try:
-                                info_prov_form = dict_provs[prov_seleccionado_form]
-                                conn_ins = conectar_db(db_actual)
-                                if conn_ins:
-                                    cursor = conn_ins.cursor()
-                                    query_insert = """
-                                        INSERT INTO ordenes_pago (
-                                            empresa_db, proveedor_id, nro_factura, nro_control, 
-                                            monto_bruto, monto_exento, base_imponible, iva_porcentaje, monto_iva, 
-                                            retencion_islr, retencion_iva, monto_neto, estado, fecha_emision, 
-                                            observaciones, islr_porcentaje, islr_sustraendo, tipo_persona
-                                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                                    """
-                                    cursor.execute(query_insert, (
-                                        str(db_actual),
-                                        str(info_prov_form['id_interno']),
-                                        str(nro_factura_form),
-                                        str(nro_control_form),
-                                        float(monto_bruto_calculado),
-                                        float(monto_exento_form),
-                                        float(base_imponible_form),
-                                        float(alicuota_iva_form),
-                                        float(monto_iva_calculado),
-                                        float(retencion_islr_calculada),
-                                        float(retencion_iva_calculada),
-                                        float(monto_neto_calculado),
-                                        'Pendiente',
-                                        str(fecha_emision_form),
-                                        str(observaciones_form),
-                                        float(islr_porcentaje_form),
-                                        float(islr_sustraendo_form),
-                                        str(tipo_persona_form)
-                                    ))
-                                    conn_ins.commit()
-                                    cursor.close()
-                                    conn_ins.close()
-                                    
-                                    st.session_state.op_form_reset = True
-                                    st.session_state.orden_guardada_exito = True
-                                    st.success("🎉 ¡Orden de pago guardada con éxito!")
-                                    st.rerun()
-                            except Exception as err_ins:
-                                st.error(f"❌ Error al guardar la orden de pago: {err_ins}")
+                if btn_guardar_op:
+                    if not nro_factura_form:
+                        st.error("⚠️ El número de factura es obligatorio.")
+                    elif not lista_provs:
+                        st.error("⚠️ No hay proveedores cargados para asociar la orden.")
+                    else:
+                        try:
+                            info_prov_form = dict_provs[prov_seleccionado_form]
+                            conn_ins = conectar_db(db_actual)
+                            if conn_ins:
+                                cursor = conn_ins.cursor()
+                                query_insert = """
+                                    INSERT INTO ordenes_pago (
+                                        empresa_db, proveedor_id, nro_factura, nro_control, 
+                                        monto_bruto, monto_exento, base_imponible, iva_porcentaje, monto_iva, 
+                                        retencion_islr, retencion_iva, monto_neto, estado, fecha_emision, 
+                                        observaciones, islr_porcentaje, islr_sustraendo, tipo_persona
+                                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                """
+                                cursor.execute(query_insert, (
+                                    str(db_actual),
+                                    str(info_prov_form['id_interno']),
+                                    str(nro_factura_form),
+                                    str(nro_control_form),
+                                    float(monto_bruto_calculado),
+                                    float(monto_exento_form),
+                                    float(base_imponible_form),
+                                    float(alicuota_iva_form),
+                                    float(monto_iva_calculado),
+                                    float(retencion_islr_calculada),
+                                    float(retencion_iva_calculada),
+                                    float(monto_neto_calculado),
+                                    'Pendiente',
+                                    str(fecha_emision_form),
+                                    str(observaciones_form),
+                                    float(islr_porcentaje_form),
+                                    float(islr_sustraendo_form),
+                                    str(tipo_persona_form)
+                                ))
+                                conn_ins.commit()
+                                cursor.close()
+                                conn_ins.close()
+                                
+                                st.session_state.orden_guardada_exito = True
+                                st.success("🎉 ¡Orden de pago guardada con éxito!")
+                                st.rerun()
+                        except Exception as err_ins:
+                            st.error(f"❌ Error al guardar la orden de pago: {err_ins}")
 
             else:
                 if st.button("➕ Emitir Nueva Orden de Pago", type="secondary", use_container_width=True):
                     st.session_state.orden_guardada_exito = False
-                    st.session_state.op_form_reset = True
                     st.rerun()
 
             # --- FASE 2 Y 3: HISTORIAL Y MÓDULOS INDEPENDIENTES ---
@@ -10653,7 +10615,6 @@ elif opcion_menu == "📝 Asientos Contables":
                                                             created_at, updated_at
                                                         ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
                                                     """
-                                                    
                                                     valores_libro = (
                                                         str(sel_data['fecha_emision']),
                                                         "Factura",
@@ -10674,7 +10635,6 @@ elif opcion_menu == "📝 Asientos Contables":
                                                         float(sel_data.get('retencion_iva', 0.0)),
                                                         str(sel_data['fecha_emision'])
                                                     )
-                                                    
                                                     cur_l.execute(query_libro, valores_libro)
                                                     conn_l.commit()
                                                     st.success("✅ ¡Libro de Compras guardado con éxito!")
@@ -10768,17 +10728,17 @@ elif opcion_menu == "📝 Asientos Contables":
                                             query_banco = """
                                                 INSERT INTO banco_movimientos (
                                                     banco_nombre, cuenta_numero, fecha_movimiento, 
-                                                    referencia, descripcion, monto, estado_conciliacion, fecha_importacion
-                                                ) VALUES (%s, %s, %s, %s, %s, %s, %s, NOW())
+                                                    referencia, descripcion, monto, estado_conciliacion
+                                                ) VALUES (%s, %s, %s, %s, %s, %s, %s)
                                             """
                                             cur_b.execute(query_banco, (
-                                                str(info_banco['nombre']),
-                                                str(info_banco['codigo']),
+                                                info_banco['nombre'],
+                                                info_banco['codigo'],
                                                 fecha_val,
-                                                n_comp_val,
-                                                str(desc_val),
+                                                f"OP-{nro_fact}",
+                                                desc_val,
                                                 float(sel_data['monto_neto']),
-                                                str(sel_data['estado'])
+                                                "Pendiente"
                                             ))
                                             conn_b.commit()
                                             cur_b.close()
@@ -10786,8 +10746,8 @@ elif opcion_menu == "📝 Asientos Contables":
                                             st.success("✅ ¡Movimiento Bancario guardado con éxito!")
                                     except Exception as err_b:
                                         st.error(f"❌ Error al guardar movimiento bancario: {err_b}")
-                except Exception as err_hist:
-                    st.error(f"Error cargando historial de órdenes de pago: {err_hist}")
+                except Exception as ex_historial:
+                    st.warning(f"Aviso en historial: {ex_historial}")
     
     
         with tab3:
