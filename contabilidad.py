@@ -12376,9 +12376,14 @@ elif opcion_menu == "📝 Asientos Contables":
                 
         with tab4:
             st.markdown("### ✏️ Modificar y Actualizar Registros")
-            st.markdown("Selecciona el registro que deseas corregir o actualizar campo por campo, o elimínalo si es necesario.")
+            st.markdown("Selecciona la tabla que deseas administrar, filtra por fechas y corrige o elimina el registro necesario.")
             
-            sub_gestion = st.radio("Elige la tabla a administrar:", ["Proveedores Carga", "Órdenes de Pago"], horizontal=True, key="radio_gestion_tab4")
+            sub_gestion = st.radio(
+                "Elige la tabla a administrar:", 
+                ["Proveedores Carga", "Órdenes de Pago", "Movimientos Bancarios"], 
+                horizontal=True, 
+                key="radio_gestion_tab4"
+            )
             
             if sub_gestion == "Proveedores Carga":
                 st.markdown("#### 🏢 Editar / Actualizar Proveedor de Carga")
@@ -12392,7 +12397,6 @@ elif opcion_menu == "📝 Asientos Contables":
                             dict_pc = {f"ID: {r['id']} - {r['nombre']} (RIF: {r['rif']})": r for _, r in df_pc.iterrows()}
                             sel_pc_label = st.selectbox("Selecciona el Proveedor a modificar", list(dict_pc.keys()), key="sel_pc_edit_full")
                             
-                            # Datos actuales de la fila seleccionada
                             fila_pc = dict_pc[sel_pc_label]
                             id_pc_sel = fila_pc['id']
                             
@@ -12437,7 +12441,7 @@ elif opcion_menu == "📝 Asientos Contables":
                                         except Exception as ex_up:
                                             st.error(f"❌ Error al actualizar: {ex_up}")
                                     else:
-                                        st.warning("⚠️ El nombre y el RIF no pueden estar vacíos.")
+                                        st.warning("⚠️ El nombre y el RIF não pueden estar vacíos.")
                                         
                                 if btn_eliminar_pc:
                                     try:
@@ -12456,10 +12460,9 @@ elif opcion_menu == "📝 Asientos Contables":
                 except Exception as e:
                     st.error(f"Error en gestión de proveedores: {e}")
                     
-            else:
+            elif sub_gestion == "Órdenes de Pago":
                 st.markdown("#### 🧾 Consultar, Visualizar y Editar Órdenes de Pago por Rango de Fechas")
                 
-                # --- FILTROS POR RANGO DE FECHAS ---
                 col_f1, col_f2 = st.columns(2)
                 with col_f1:
                     fec_desde_edit = st.date_input("Desde la fecha", key="edit_op_fecha_desde")
@@ -12481,7 +12484,6 @@ elif opcion_menu == "📝 Asientos Contables":
                         if df_op_edit is not None and not df_op_edit.empty:
                             st.markdown(f"📊 Se encontraron **{len(df_op_edit)}** orden(es) de pago en el rango seleccionado:")
                             
-                            # --- FRAME DE VISUALIZACIÓN DE ÓRDENES ---
                             st.dataframe(
                                 df_op_edit[['id', 'fecha_emision', 'nro_factura', 'monto_bruto', 'monto_neto', 'estado']], 
                                 use_container_width=True, 
@@ -12556,6 +12558,103 @@ elif opcion_menu == "📝 Asientos Contables":
                             st.info("ℹ️ No hay órdenes de pago registradas para el rango de fechas seleccionado.")
                 except Exception as e:
                     st.error(f"Error en gestión de órdenes: {e}")
+
+            else:
+                st.markdown("#### 🏦 Consultar, Visualizar y Editar Movimientos Bancarios por Rango de Fechas")
+                
+                col_bm1, col_bm2 = st.columns(2)
+                with col_bm1:
+                    fec_desde_bm = st.date_input("Desde la fecha (Movimiento)", key="edit_bm_fecha_desde")
+                with col_bm2:
+                    fec_hasta_bm = st.date_input("Hasta la fecha (Movimiento)", key="edit_bm_fecha_hasta")
+
+                try:
+                    conn_bm_ed = conectar_db(db_actual)
+                    if conn_bm_ed:
+                        query_bm_edit = """
+                            SELECT id, banco_nombre, cuenta_numero, fecha_movimiento, referencia, descripcion, monto, estado_conciliacion, asiento_id 
+                            FROM banco_movimientos 
+                            WHERE fecha_movimiento BETWEEN %s AND %s
+                            ORDER BY fecha_movimiento DESC
+                        """
+                        df_bm_edit = ejecutar_consulta(query_bm_edit, conn_bm_ed, params=(str(fec_desde_bm), str(fec_hasta_bm)))
+                        conn_bm_ed.close()
+                        
+                        if df_bm_edit is not None and not df_bm_edit.empty:
+                            st.markdown(f"📊 Se encontraron **{len(df_bm_edit)}** movimiento(s) bancario(s) en el rango seleccionado:")
+                            
+                            st.dataframe(
+                                df_bm_edit[['id', 'fecha_movimiento', 'banco_nombre', 'referencia', 'monto', 'estado_conciliacion', 'asiento_id']], 
+                                use_container_width=True, 
+                                hide_index=True,
+                                column_config={
+                                    "monto": st.column_config.NumberColumn("Monto", format="%,.2f")
+                                }
+                            )
+                            
+                            st.divider()
+                            
+                            dict_bm_sel = {f"ID: {r['id']} | Fecha: {r['fecha_movimiento']} | Ref: {r['referencia']} | Monto: ${r['monto']:,.2f} | Banco: {r['banco_nombre']}": r for _, r in df_bm_edit.iterrows()}
+                            sel_bm_label = st.selectbox("Selecciona el Movimiento Bancario a modificar:", list(dict_bm_sel.keys()), key="sel_bm_edit_full")
+                            
+                            fila_bm = dict_bm_sel[sel_bm_label]
+                            id_bm_sel = fila_bm['id']
+                            
+                            with st.form("form_editar_banco_movimiento"):
+                                st.markdown(f"**Modificando Movimiento ID:** `{id_bm_sel}` (Fecha: {fila_bm['fecha_movimiento']})")
+                                
+                                col_be1, col_be2 = st.columns(2)
+                                with col_be1:
+                                    nuevo_banco_nom = st.text_input("Banco Nombre", value=fila_bm['banco_nombre'] or "").strip()
+                                    nuevo_nro_cta_bm = st.text_input("Cuenta Número", value=fila_bm['cuenta_numero'] or "").strip()
+                                    nueva_ref_bm = st.text_input("Referencia Bancaria", value=fila_bm['referencia'] or "").strip()
+                                with col_be2:
+                                    nuevo_monto_bm = st.number_input("Monto", value=float(fila_bm['monto']), step=100.00, format="%.2f")
+                                    nuevo_estado_conc = st.selectbox("Estado Conciliación", ["Conciliado", "Pendiente Asiento", "No Conciliado"], index=0 if not fila_bm['estado_conciliacion'] else ["Conciliado", "Pendiente Asiento", "No Conciliado"].index(fila_bm['estado_conciliacion']) if fila_bm['estado_conciliacion'] in ["Conciliado", "Pendiente Asiento", "No Conciliado"] else 0)
+                                    nuevo_asiento_id = st.text_input("Asiento ID asociado", value=fila_bm['asiento_id'] or "").strip()
+                                
+                                nueva_desc_bm = st.text_area("Descripción del Movimiento", value=fila_bm['descripcion'] or "").strip()
+                                
+                                col_bb1, col_bb2 = st.columns(2)
+                                with col_bb1:
+                                    btn_act_bm = st.form_submit_button("💾 Actualizar Movimiento", type="primary")
+                                with col_bb2:
+                                    btn_del_bm = st.form_submit_button("🗑️ Eliminar Movimiento", type="secondary")
+                                    
+                                if btn_act_bm:
+                                    try:
+                                        conn_ubm = conectar_db(db_actual)
+                                        cur_ubm = conn_ubm.cursor()
+                                        query_up_bm = """
+                                            UPDATE banco_movimientos 
+                                            SET banco_nombre = %s, cuenta_numero = %s, referencia = %s, monto = %s, estado_conciliacion = %s, asiento_id = %s, descripcion = %s
+                                            WHERE id = %s
+                                        """
+                                        cur_ubm.execute(query_up_bm, (nuevo_banco_nom, nuevo_nro_cta_bm, nueva_ref_bm, nuevo_monto_bm, nuevo_estado_conc, nuevo_asiento_id, nueva_desc_bm, id_bm_sel))
+                                        conn_ubm.commit()
+                                        cur_ubm.close()
+                                        conn_ubm.close()
+                                        st.success("✅ ¡Movimiento bancario actualizado con éxito!")
+                                        st.rerun()
+                                    except Exception as ex_ubm:
+                                        st.error(f"❌ Error al actualizar el movimiento: {ex_ubm}")
+                                        
+                                if btn_del_bm:
+                                    try:
+                                        conn_dbm = conectar_db(db_actual)
+                                        cur_dbm = conn_dbm.cursor()
+                                        cur_dbm.execute("DELETE FROM banco_movimientos WHERE id = %s", (id_bm_sel,))
+                                        conn_dbm.commit()
+                                        cur_dbm.close()
+                                        conn_dbm.close()
+                                        st.success("🗑️ Movimiento bancario eliminado con éxito.")
+                                        st.rerun()
+                                    except Exception as ex_dbm:
+                                        st.error(f"❌ Error al eliminar el movimiento: {ex_dbm}")
+                        else:
+                            st.info("ℹ️ No hay movimientos bancarios registrados para el rango de fechas seleccionado.")
+                except Exception as e:
+                    st.error(f"Error en gestión de movimientos bancarios: {e}")
 
         with tab5:
             st.markdown("### 🗑️ Mantenimiento y Borrado Masivo")
