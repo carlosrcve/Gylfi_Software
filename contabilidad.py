@@ -11488,22 +11488,24 @@ elif opcion_menu == "📝 Asientos Contables":
                         st.rerun()
 
                     # ==========================================
-                    # 🎛️ SELECTOR DE VISTA PRINCIPAL (SIEMPRE VISIBLE)
+                    # 🎛️ SELECTOR DE VISTA CON SELECTBOX (100% SEGURO Y SIN BLANCOS)
                     # ==========================================
                     st.markdown("---")
-                    modo_vista = st.radio(
+                    modo_vista = st.selectbox(
                         "📍 Selecciona la vista de trabajo:",
                         options=[
                             "➕ Emitir Nueva Orden de Pago", 
-                            "📊 Ver cola de órdenes de pago pendiente por procesar en el libro de compra, asiento diario y movimiento bancario"
+                            "📊 Ver cola de órdenes pendientes por procesar"
                         ],
-                        key="selector_modo_vista_op"
+                        key="selector_modo_vista_seguro_op"
                     )
 
+                    st.markdown("---")
+
                     # ==========================================
-                    # 📋 CONDICIÓN 1: SI ESTÁ EN MODO EMITIR
+                    # 📋 OPCIÓN 1: EMITIR NUEVA ORDEN
                     # ==========================================
-                    if "Emitir Nueva Orden de Pago" in modo_vista:
+                    if "Emitir" in modo_vista:
                         
                         # --- BLOQUE DE REGISTRO DE ORDEN DE PAGO ---
                         if btn_guardar_op:
@@ -11556,10 +11558,9 @@ elif opcion_menu == "📝 Asientos Contables":
                                     st.error(f"❌ Error al guardar la orden de pago: {err_ins}")
 
                     # ==========================================
-                    # 📊 CONDICIÓN 2: SI SELECCIONA VER LA COLA DE ÓRDENES
+                    # 📊 OPCIÓN 2: VER COLA DE ÓRDENES PENDIENTES
                     # ==========================================
                     else:
-                        st.markdown("---")
                         st.markdown("### 📊 Historial de Órdenes de Pago Pendientes por Contabilizar")
                         try:
                             conn_list_op = conectar_db(db_actual)
