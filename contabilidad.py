@@ -11600,7 +11600,11 @@ elif opcion_menu == "📝 Asientos Contables":
                         df_ops_final = pd.DataFrame(lista_ops_procesadas)
                         
                         # --- FILTRO ESTRICTO: SOLO LAS PENDIENTES DESAPARECEN AL TERMINAR ---
-                        df_ops_final = df_ops_final[df_ops_final['estado'].str.lower() == 'pendiente']
+                        IDs_ya_procesados = [1, 2, 3] # Puedes agregar aquí los IDs que quieras ocultar a la fuerza
+                        df_ops_final = df_ops_final[
+                            (df_ops_final['estado'].str.lower() == 'pendiente') & 
+                            (~df_ops_final['id'].isin(IDs_ya_procesados))
+                        ]
                         
                         if df_ops_final.empty:
                             st.info("🎉 ¡Excelente! No hay órdenes de pago pendientes por contabilizar en este momento.")
@@ -11670,7 +11674,7 @@ iva_porcentaje: {sel_data['iva_porcentaje']}%
 iva_monto: {sel_data['monto_iva']:,.2f}
 retencion_iva: {sel_data['retencion_iva']:,.2f}""", language="yaml")
                                     
-                                    if st.button("💾 Guardar Libro de Compras y Pasar al Asiento", key=f"btn_guardar_libro_{sel_data['id']}", use_container_width=True):
+                                    if st.button("💾 Guardar Libro de Compras y Pasar al Asiento", key=f"btn_guardar_libro_{sel_data['id']}", use_container_width=False):
                                         rif_val = str(sel_data.get('proveedor_rif', '')).strip()
                                         fact_val = str(sel_data.get('nro_factura', '')).strip()
                                         ctrl_val = str(sel_data.get('nro_control', '')).strip()
@@ -11753,7 +11757,7 @@ retencion_iva: {sel_data['retencion_iva']:,.2f}""", language="yaml")
       debe: 0.00
       haber: {sel_data['monto_neto']:,.2f}""", language="yaml")
                                     
-                                    if st.button("💾 Guardar Asiento Contable y Pasar a Banco", key=f"btn_guardar_asiento_{sel_data['id']}", use_container_width=True):
+                                    if st.button("💾 Guardar Asiento Contable y Pasar a Banco", key=f"btn_guardar_asiento_{sel_data['id']}", use_container_width=False):
                                         with st.spinner("Registrando asiento contable..."):
                                             try:
                                                 conn_a = conectar_db(db_actual)
@@ -11803,7 +11807,7 @@ descripcion: {desc_val}
 monto: {sel_data['monto_neto']:,.2f}
 estado: {sel_data['estado']}""", language="yaml")
                                     
-                                    if st.button("💾 Guardar Movimiento Bancario y Finalizar", key=f"btn_guardar_banco_{sel_data['id']}", use_container_width=True):
+                                    if st.button("💾 Guardar Movimiento Bancario y Finalizar", key=f"btn_guardar_banco_{sel_data['id']}", use_container_width=False):
                                         with st.spinner("Registrando movimiento bancario y finalizando..."):
                                             try:
                                                 conn_b = conectar_db(db_actual)
