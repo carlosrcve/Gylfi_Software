@@ -11921,7 +11921,7 @@ elif opcion_menu == "📝 Asientos Contables":
                     st.warning(f"Aviso en historial: {ex_historial}")
         with tab3:
             st.markdown("### 🔗 Conciliación, Cruce Bancario y Emisión de Comprobante")
-            st.markdown("Cruza las órdenes de pago con las referencias del estado de cuenta bancario, registra el movimiento en el banco, previsualiza y guarda el asiento contable y genera el comprobante oficial.")
+            st.markdown("Cruza las órdenes de pago, registra primero el movimiento en el banco, previsualiza el asiento contable y guárdalo en la base de datos.")
 
             try:
                 # --- CARGAR CUENTAS BANCARIAS DE DETALLE PARA EL SELECTBOX ---
@@ -11978,7 +11978,7 @@ elif opcion_menu == "📝 Asientos Contables":
                     )
                     
                     st.divider()
-                    st.markdown("#### ⚡ Realizar el Cruce de Pago, Movimiento Bancario y Asiento Contable")
+                    st.markdown("#### ⚡ Paso 1: Registrar Movimiento Bancario")
                     
                     # Selector de orden a conciliar
                     dict_ops_pend = {}
@@ -11993,9 +11993,9 @@ elif opcion_menu == "📝 Asientos Contables":
                     
                     col_m1, col_m2 = st.columns(2)
                     with col_m1:
-                        referencia_bancaria = st.text_input("Número de Referencia Bancaria (según Estado de Cuenta)").strip()
+                        referencia_bancaria = st.text_input("Número de Referencia Bancaria (según Estado de Cuenta)", key="input_ref_banco_b").strip()
                     with col_m2:
-                        fecha_pago_real = st.date_input("Fecha real del movimiento en el Banco")
+                        fecha_pago_real = st.date_input("Fecha real del movimiento en el Banco", key="input_fec_banco_b")
 
                     # Selector de cuenta bancaria de la empresa que efectúa el pago
                     cta_banco_salida = st.selectbox(
@@ -12004,13 +12004,59 @@ elif opcion_menu == "📝 Asientos Contables":
                         key="select_banco_salida_pago"
                     )
                     
+                    # -------------------------------------------------------------------------
+                    # BOTÓN PASO 1: GUARDAR EN TABLA `banco_movimientos`
+                    # -------------------------------------------------------------------------
+                    if st.button("📥 Registrar Movimiento en Banco", type="secondary", key="btn_guardar_banco_mov"):
+                        if not referencia_bancaria:
+                            st.warning("⚠️ Debes introducir obligatoriamente la referencia bancaria del estado de cuenta.")
+                        elif not lista_bancos_detalle or "No hay cuentas" in cta_banco_salida:
+                            st.error("⚠️ Debes seleccionar una cuenta bancaria válida.")
+                        else:
+                            try:
+                                info_banco_sel = dict_bancos_detalle.get(cta_banco_salida, {'codigo': '1.1.1.01.001', 'nombre': 'Banco Principal'})
+                                monto_a_pagar = float(fila_op_sel['monto_neto'])
+                                n_fact_val = str(fila_op_sel['nro_factura'])
+                                prov_nombre_val = str(fila_op_sel['proveedor'])
+                                n_comp_asiento = f"PAGO-{n_fact_val}"
+
+                                import datetime
+                                fecha_actual_hoy = datetime.date.today().strftime('%Y-%m-%d')
+
+                                conn_bm = conectar_db(db_actual)
+                                if conn_bm:
+                                    cur_bm = conn_bm.cursor()
+                                    query_banco_mov = """
+                                        INSERT INTO banco_movimientos (
+                                            banco_nombre, cuenta_numero, fecha_movimiento, referencia, 
+                                            descripcion, monto, estado_conciliacion, asiento_id, fecha_importacion
+                                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                    """
+                                    cur_bm.execute(query_banco_mov, (
+                                        info_banco_sel['nombre'],
+                                        info_banco_sel['codigo'],
+                                        str(fecha_pago_real),
+                                        referencia_bancaria,
+                                        f"Pago Factura #{n_fact_val} - {prov_nombre_val}",
+                                        -monto_a_pagar,  # Salida de dinero
+                                        'Pendiente Asiento',
+                                        n_comp_asiento,
+                                        fecha_actual_hoy
+                                    ))
+                                    conn_bm.commit()
+                                    cur_bm.close()
+                                    conn_bm.close()
+
+                                    st.success(f"✅ ¡Movimiento bancario registrado exitosamente en `banco_movimientos` con referencia `{referencia_bancaria}`!")
+                                    st.session_state['banco_registrado_ok'] = True
+                            except Exception as err_bm:
+                                st.error(f"❌ Error al guardar en banco_movimientos: {err_bm}")
+
                     # =========================================================================
-                    # 👁️ FRAME DE PREVISUALIZACIÓN DEL ASIENTO CONTABLE (HTML & CSS)
-                    # Basado en la estructura exacta de la tabla: asientos_contables
+                    # 👁️ PASO 2: PREVISUALIZACIÓN Y REGISTRO EN `asientos_contables`
                     # =========================================================================
-                    st.markdown("---")
-                    st.markdown("### 👁️ Previsualización del Asiento Contable (Libro Diario)")
-                    st.info("📌 Así es como se estructurará y guardará el comprobante en la tabla `asientos_contables` y el movimiento en `banco_movimientos` al confirmar.")
+                    st.divider()
+                    st.markdown("#### ⚡ Paso 2: Previsualización y Registro del Asiento Diario")
 
                     info_banco_prev = dict_bancos_detalle.get(cta_banco_salida, {'codigo': '1.1.1.01.001', 'nombre': 'Banco Principal'})
                     monto_prev = float(fila_op_sel['monto_neto'])
@@ -12021,6 +12067,7 @@ elif opcion_menu == "📝 Asientos Contables":
                     ref_prev = referencia_bancaria if referencia_bancaria else "(Pendiente de Ref)"
                     fecha_prev = str(fecha_pago_real)
 
+                    # Estructura HTML y CSS estilizada tipo tabla contable profesional
                     html_asiento = f"""
                     <style>
                         .tabla-asiento {{
@@ -12115,17 +12162,13 @@ elif opcion_menu == "📝 Asientos Contables":
                     </table>
                     """
                     st.markdown(html_asiento, unsafe_allow_html=True)
-                    st.markdown("---")
-                    # =========================================================================
 
-                    if st.button("🤝 Confirmar Cruce, Guardar en Banco y Registrar Asiento", type="primary"):
+                    # Botón para guardar el Asiento en la tabla `asientos_contables` y actualizar orden a Conciliado
+                    if st.button("💾 Guardar Asiento en Libro Diario y Conciliar", type="primary", key="btn_guardar_asiento_diario"):
                         if not referencia_bancaria:
-                            st.warning("⚠️ Debes introducir obligatoriamente la referencia bancaria del estado de cuenta para validar el cruce.")
-                        elif not lista_bancos_detalle or "No hay cuentas" in cta_banco_salida:
-                            st.error("⚠️ Debes seleccionar una cuenta bancaria válida de salida.")
+                            st.warning("⚠️ Asegúrate de haber ingresado la referencia bancaria.")
                         else:
                             try:
-                                info_banco_sel = dict_bancos_detalle.get(cta_banco_salida, {'codigo': '1.1.1.01.001', 'nombre': 'Banco Principal'})
                                 monto_a_pagar = float(fila_op_sel['monto_neto'])
                                 n_fact_val = str(fila_op_sel['nro_factura'])
                                 prov_nombre_val = str(fila_op_sel['proveedor'])
@@ -12135,35 +12178,7 @@ elif opcion_menu == "📝 Asientos Contables":
                                 if conn_update:
                                     cursor_m = conn_update.cursor()
                                     
-                                    # 1. Registrar el movimiento en la tabla banco_movimientos
-                                    # Campos: id, banco_nombre, cuenta_numero, fecha_movimiento, referencia, descripcion, monto, estado_conciliacion, asiento_id, fecha_importacion
-                                    import datetime
-                                    fecha_actual_hoy = datetime.date.today().strftime('%Y-%m-%d')
-                                    
-                                    query_banco_mov = """
-                                        INSERT INTO banco_movimientos (
-                                            banco_nombre, cuenta_numero, fecha_movimiento, referencia, 
-                                            descripcion, monto, estado_conciliacion, asiento_id, fecha_importacion
-                                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                                    """
-                                    # Nota: Registramos el monto negativo por ser salida/egreso o según convenga a tu lógica bancaria
-                                    cursor_m.execute(query_banco_mov, (
-                                        info_banco_sel['nombre'],
-                                        info_banco_sel['codigo'],
-                                        str(fecha_pago_real),
-                                        referencia_bancaria,
-                                        f"Pago Factura #{n_fact_val} - {prov_nombre_val}",
-                                        -monto_a_pagar,
-                                        'Conciliado',
-                                        n_comp_asiento,
-                                        fecha_actual_hoy
-                                    ))
-                                    
-                                    # Obtenemos el ID del movimiento bancario insertado si se requiere
-                                    id_banco_mov_generado = cursor_m.lastrowid
-
-                                    # 2. Registrar el Asiento Contable de Cancelación en la tabla asientos_contables
-                                    # Campos: id, n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber, bloqueado
+                                    # 1. Registrar el Asiento Contable en `asientos_contables`
                                     query_asiento_pago = """
                                         INSERT INTO asientos_contables (
                                             n_comprobante, descripcion, fecha, plan_cuentas, 
@@ -12188,14 +12203,14 @@ elif opcion_menu == "📝 Asientos Contables":
                                         n_comp_asiento,
                                         f"Cancelación de Pago a {prov_nombre_val} - Factura {n_fact_val}",
                                         str(fecha_pago_real),
-                                        info_banco_sel['codigo'],
-                                        info_banco_sel['nombre'],
+                                        info_banco_prev['codigo'],
+                                        info_banco_prev['nombre'],
                                         referencia_bancaria,
                                         0.00,
                                         monto_a_pagar
                                     ))
 
-                                    # 3. Actualizar la orden de pago a Conciliado
+                                    # 2. Actualizar la orden de pago a Conciliado
                                     query_update_match = """
                                         UPDATE ordenes_pago 
                                         SET referencia_banco = %s, fecha_pago = %s, estado = 'Conciliado'
@@ -12207,8 +12222,8 @@ elif opcion_menu == "📝 Asientos Contables":
                                     cursor_m.close()
                                     conn_update.close()
                                 
-                                st.toast("✅ ¡Movimiento bancario y asiento contable guardados con éxito!", icon="🎉")
-                                st.success(f"✅ ¡Conciliación exitosa! Orden #{fila_op_sel['id']} guardada en `banco_movimientos` y registrado el comprobante contable `{n_comp_asiento}`.")
+                                st.toast("✅ ¡Asiento registrado en el libro diario y orden conciliada!", icon="🎉")
+                                st.success(f"✅ ¡Proceso completado! Asiento `{n_comp_asiento}` guardado en `asientos_contables` y orden #{fila_op_sel['id']} marcada como Conciliada.")
                                 
                                 # --- RENDERIZAR COMPROBANTE DE PAGO OFICIAL INMEDIATO ---
                                 st.divider()
@@ -12225,7 +12240,7 @@ elif opcion_menu == "📝 Asientos Contables":
                                 with col_c2:
                                     st.markdown(f"**Referencia Bancaria:** `{referencia_bancaria}`")
                                     st.markdown(f"**Fecha del Pago:** `{fecha_pago_real}`")
-                                    st.markdown(f"**Banco Salida:** {info_banco_sel['codigo']} - {info_banco_sel['nombre']}")
+                                    st.markdown(f"**Banco Salida:** {info_banco_prev['codigo']} - {info_banco_prev['nombre']}")
                                     st.markdown(f"**Banco Destino:** {fila_op_sel['banco_prov']} - `{fila_op_sel['cuenta_prov']}`")
                                     
                                 st.markdown("### 📊 Desglose Financiero")
@@ -12249,7 +12264,7 @@ elif opcion_menu == "📝 Asientos Contables":
                                     st.rerun()
 
                             except Exception as ex_m:
-                                st.error(f"❌ Error al ejecutar el cruce, guardar en banco y registrar asiento: {ex_m}")
+                                st.error(f"❌ Error al registrar el asiento contable: {ex_m}")
                 else:
                     st.info("🎉 ¡Excelente! No hay órdenes de pago disponibles para conciliar.")
 
