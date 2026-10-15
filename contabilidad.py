@@ -9689,7 +9689,7 @@ elif opcion_menu == "📝 Asientos Contables":
                                         st.error("Error al guardar en la base de datos.")
                             except Exception as e:
                                 st.error(f"Error técnico: {str(e)}")
-                                
+
                         excel_data = exportar_a_excel(df_editado)
                         nombre_archivo = "Libro_Diario_Filtrado.xlsx"
                         
@@ -11929,8 +11929,9 @@ elif opcion_menu == "📝 Asientos Contables":
                 lista_bancos_detalle = []
                 dict_bancos_detalle = {}
                 if conn_cuentas:
+                    # Usamos %% para escapar el comodín en cadenas formateadas o ejecutamos con parámetros seguros
                     df_ctas_banco = ejecutar_consulta(
-                        "SELECT codigo, nombre FROM plan_cuentas WHERE tipo = 'Detalle' AND (codigo LIKE '1.1.1%' OR LOWER(nombre) LIKE '%banco%' OR LOWER(nombre) LIKE '%caja%') ORDER BY codigo", 
+                        "SELECT codigo, nombre FROM plan_cuentas WHERE tipo = 'Detalle' AND (codigo LIKE '1.1.1%%' OR LOWER(nombre) LIKE '%%banco%%' OR LOWER(nombre) LIKE '%%caja%%') ORDER BY codigo", 
                         conn_cuentas
                     )
                     # Si no encuentra cuentas específicas de banco, traemos todas las de detalle para no trancar al usuario
