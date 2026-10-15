@@ -10295,8 +10295,9 @@ elif opcion_menu == "📝 Asientos Contables":
         with tab2:
             st.markdown("### 🧾 Gestión y Generación de Órdenes de Pago y Cruce")
 
-            # --- CARGAR PROVEEDORES Y PLAN DE CUENTAS EN TIEMPO REAL (SIN CACHÉ) ---
-            def cargar_datos_maestros(empresa):
+            # --- CARGAR PROVEEDORES Y PLAN DE CUENTAS OPTIMIZADO CON CACHÉ ---
+            @st.cache_data(ttl=300, show_spinner=False) # Caché por 5 minutos para evitar consultas repetitivas pesadas
+            def cargar_datos_maestros_optimizados(empresa):
                 p_lista = []
                 p_dict = {}
                 c_lista = []
@@ -10310,9 +10311,7 @@ elif opcion_menu == "📝 Asientos Contables":
                             conn, params=(str(empresa),)
                         )
                         
-                        # DEPURACIÓN VISUAL TEMPORAL: Esto nos dirá si la tabla tiene datos o viene vacía
                         if df_cp is None or df_cp.empty:
-                            st.warning(f"⚠️ La consulta con filtro empresa_db = '{empresa}' no arrojó resultados. Intentando consultar toda la tabla...")
                             df_cp = ejecutar_consulta(
                                 "SELECT id, nombre, rif, codigo_cuenta, descripcion_cuenta FROM proveedores_carga ORDER BY nombre ASC", 
                                 conn
@@ -10325,7 +10324,6 @@ elif opcion_menu == "📝 Asientos Contables":
                         conn.close()
                         
                         if df_cp is not None and not df_cp.empty:
-                            st.success(f"✅ Se encontraron {len(df_cp)} proveedores en la base de datos.")
                             for _, row in df_cp.iterrows():
                                 pid = row['id']
                                 label = f"{row['nombre']} (RIF: {row['rif']})"
@@ -10338,8 +10336,6 @@ elif opcion_menu == "📝 Asientos Contables":
                                     'codigo_cuenta': str(row.get('codigo_cuenta', 'N/A')),
                                     'descripcion_cuenta': str(row.get('descripcion_cuenta', 'N/A'))
                                 }
-                        else:
-                            st.error("❌ La tabla `proveedores_carga` está completamente vacía o no se puede leer en esta base de datos.")
                         
                         if df_cuentas is not None and not df_cuentas.empty:
                             for _, row in df_cuentas.iterrows():
@@ -10351,12 +10347,11 @@ elif opcion_menu == "📝 Asientos Contables":
                                         'nombre': str(row['nombre']).strip()
                                     }
                 except Exception as ex:
-                    st.error(f"Error en consulta de BD: {ex}")
+                    pass # Evita congelar la UI si hay un fallo de red aislado
                 return p_lista, p_dict, c_lista, c_dict
 
-            lista_provs, dict_provs, lista_cuentas_detalle, dict_cuentas_detalle = cargar_datos_maestros(db_actual)
-
-            lista_provs, dict_provs, lista_cuentas_detalle, dict_cuentas_detalle = cargar_datos_maestros(db_actual)
+            # Carga instantánea usando caché de sesión
+            lista_provs, dict_provs, lista_cuentas_detalle, dict_cuentas_detalle = cargar_datos_maestros_optimizados(db_actual)
 
             # --- GESTIÓN DE SESSION STATE PARA LIMPIEZA DE LA ORDEN DE PAGO ---
             if "op_form_reset" not in st.session_state: st.session_state["op_form_reset"] = False
