@@ -11491,33 +11491,20 @@ elif opcion_menu == "📝 Asientos Contables":
                     # 🎛️ SELECTOR DE VISTA PRINCIPAL (SIEMPRE VISIBLE)
                     # ==========================================
                     st.markdown("---")
-
-                    # Inicializamos la variable de estado si no existe
-                    if "vista_modo_op" not in st.session_state:
-                        st.session_state.vista_modo_op = "Emitir"
-
-                    # Usamos un radio con opciones cortas y seguras para evitar errores de coincidencia de texto
-                    seleccion_vista = st.radio(
+                    modo_vista = st.radio(
                         "📍 Selecciona la vista de trabajo:",
-                        options=["➕ Emitir Nueva Orden de Pago", "📊 Ver cola de órdenes pendientes por procesar"],
-                        key="selector_modo_vista_seguro"
+                        options=[
+                            "➕ Emitir Nueva Orden de Pago", 
+                            "📊 Ver cola de órdenes de pago pendiente por procesar en el libro de compra, asiento diario y movimiento bancario"
+                        ],
+                        key="selector_modo_vista_op"
                     )
 
-                    # Actualizamos el estado según la selección
-                    if "Emitir" in seleccion_vista:
-                        st.session_state.vista_modo_op = "Emitir"
-                    else:
-                        st.session_state.vista_modo_op = "Cola"
-
-
                     # ==========================================
-                    # 📋 OPCIÓN 1: FORMULARIO DE EMISIÓN DE ORDEN
+                    # 📋 CONDICIÓN 1: SI ESTÁ EN MODO EMITIR
                     # ==========================================
-                    if st.session_state.vista_modo_op == "Emitir":
+                    if "Emitir Nueva Orden de Pago" in modo_vista:
                         
-                        # --- AQUÍ VA TODO TU FORMULARIO Y TUS FRAMES DE CÁLCULO ---
-                        st.markdown("### 📝 Formulario de Emisión de Orden de Pago")
-
                         # --- BLOQUE DE REGISTRO DE ORDEN DE PAGO ---
                         if btn_guardar_op:
                             if not nro_factura_form:
@@ -11563,14 +11550,13 @@ elif opcion_menu == "📝 Asientos Contables":
                                         conn_ins.close()
                                         
                                         st.session_state.op_form_reset = True
-                                        st.success("🎉 ¡Orden de pago guardada con éxito! Ya puedes verla en la cola.")
+                                        st.success("🎉 ¡Orden de pago guardada con éxito!")
                                         st.rerun()
                                 except Exception as err_ins:
                                     st.error(f"❌ Error al guardar la orden de pago: {err_ins}")
 
-
                     # ==========================================
-                    # 📊 OPCIÓN 2: COLA DE ÓRDENES PENDIENTES
+                    # 📊 CONDICIÓN 2: SI SELECCIONA VER LA COLA DE ÓRDENES
                     # ==========================================
                     else:
                         st.markdown("---")
