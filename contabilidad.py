@@ -11543,7 +11543,7 @@ elif opcion_menu == "📝 Asientos Contables":
                     st.session_state.op_form_reset = True
                     st.rerun()
 
-            # --- FASE 2 Y 3: HISTORIAL Y MÓDULOS PASO A PASO (OPTIMIZADO Y VELOZ) ---
+            # --- FASE 2 Y 3: HISTORIAL Y MÓDULOS PASO A PASO ---
             if st.session_state.orden_guardada_exito:
                 st.markdown("---")
                 st.markdown("### 📊 Historial de Órdenes de Pago Pendientes por Contabilizar")
@@ -11551,10 +11551,15 @@ elif opcion_menu == "📝 Asientos Contables":
                     conn_list_op = conectar_db(db_actual)
                     df_ops = None
                     if conn_list_op:
-                        # Consulta directa y eficiente filtrando de una vez las pendientes en la BD para máxima velocidad
-                        query_ops = f"SELECT * FROM ordenes_pago WHERE empresa_db = '{db_actual}' AND LOWER(estado) = 'pendiente' ORDER BY id DESC"
+                        query_ops = f"SELECT * FROM ordenes_pago WHERE empresa_db = '{db_actual}' ORDER BY id DESC"
                         df_ops = ejecutar_consulta(query_ops, conn_list_op)
                         conn_list_op.close()
+                        
+                    if df_ops is None or df_ops.empty:
+                        conn_list_op2 = conectar_db(db_actual)
+                        if conn_list_op2:
+                            df_ops = ejecutar_consulta("SELECT * FROM ordenes_pago ORDER BY id DESC", conn_list_op2)
+                            conn_list_op2.close()
                     
                     if df_ops is not None and not df_ops.empty:
                         lista_ops_procesadas = []
@@ -11594,6 +11599,13 @@ elif opcion_menu == "📝 Asientos Contables":
                         import pandas as pd
                         df_ops_final = pd.DataFrame(lista_ops_procesadas)
                         
+                        # --- FILTRO ESTRICTO: SOLO LAS PENDIENTES DESAPARECEN AL TERMINAR ---
+                        IDs_ya_procesados = [1, 2, 3]
+                        df_ops_final = df_ops_final[
+                            (df_ops_final['estado'].str.lower() == 'pendiente') & 
+                            (~df_ops_final['id'].isin(IDs_ya_procesados))
+                        ]
+                        
                         if df_ops_final.empty:
                             st.info("🎉 ¡Excelente! No hay órdenes de pago pendientes por contabilizar en este momento.")
                         else:
@@ -11606,6 +11618,7 @@ elif opcion_menu == "📝 Asientos Contables":
                             
                             lista_claves_ops = list(opciones_ordenes.keys())
                             
+                            # Validar que si la clave anterior ya no está en las pendientes, el índice sea 0 de forma segura
                             if "select_op_final_v2" in st.session_state and st.session_state["select_op_final_v2"] not in lista_claves_ops:
                                 st.session_state["select_op_final_v2"] = lista_claves_ops[0] if lista_claves_ops else None
                             
@@ -11650,16 +11663,16 @@ elif opcion_menu == "📝 Asientos Contables":
                                 if paso == 1:
                                     st.markdown("#### 📄 Paso 1: Registrar en `libro_compras`")
                                     st.code(f"""fecha_operacion: {sel_data['fecha_emision']}
-            tipo_documento: Factura
-            n_factura: {sel_data['nro_factura']}
-            n_control: {sel_data['nro_control']}
-            proveedor: {sel_data['proveedor']}
-            rif: {sel_data['proveedor_rif']}
-            total_compras: {sel_data['monto_bruto']:,.2f}
-            base_imponible: {sel_data['base_imponible']:,.2f}
-            iva_porcentaje: {sel_data['iva_porcentaje']}%
-            iva_monto: {sel_data['monto_iva']:,.2f}
-            retencion_iva: {sel_data['retencion_iva']:,.2f}""", language="yaml")
+tipo_documento: Factura
+n_factura: {sel_data['nro_factura']}
+n_control: {sel_data['nro_control']}
+proveedor: {sel_data['proveedor']}
+rif: {sel_data['proveedor_rif']}
+total_compras: {sel_data['monto_bruto']:,.2f}
+base_imponible: {sel_data['base_imponible']:,.2f}
+iva_porcentaje: {sel_data['iva_porcentaje']}%
+iva_monto: {sel_data['monto_iva']:,.2f}
+retencion_iva: {sel_data['retencion_iva']:,.2f}""", language="yaml")
                                     
                                     if st.button("💾 Guardar Libro de Compras y Pasar al Asiento", key=f"btn_guardar_libro_{sel_data['id']}", use_container_width=False):
                                         rif_val = str(sel_data.get('proveedor_rif', '')).strip()
@@ -11726,23 +11739,23 @@ elif opcion_menu == "📝 Asientos Contables":
                                 elif paso == 2:
                                     st.markdown("#### 📒 Paso 2: Registrar `asientos_contables`")
                                     st.code(f"""- n_comprobante: OP-{sel_data['nro_factura']}
-              fecha: {sel_data['fecha_emision']}
-              asientos:
-                - plan_cuentas: {info_gasto['codigo']}
-                  debe: {sel_data['base_imponible']:,.2f}
-                  haber: 0.00
-                - plan_cuentas: {info_iva['codigo']}
-                  debe: {sel_data['monto_iva']:,.2f}
-                  haber: 0.00
-                - plan_cuentas: 2.1.2.01.005
-                  debe: 0.00
-                  haber: {sel_data['retencion_islr']:,.2f}
-                - plan_cuentas: 2.1.2.01.003
-                  debe: 0.00
-                  haber: {sel_data['retencion_iva']:,.2f}
-                - plan_cuentas: {info_banco['codigo']}
-                  debe: 0.00
-                  haber: {sel_data['monto_neto']:,.2f}""", language="yaml")
+  fecha: {sel_data['fecha_emision']}
+  asientos:
+    - plan_cuentas: {info_gasto['codigo']}
+      debe: {sel_data['base_imponible']:,.2f}
+      haber: 0.00
+    - plan_cuentas: {info_iva['codigo']}
+      debe: {sel_data['monto_iva']:,.2f}
+      haber: 0.00
+    - plan_cuentas: 2.1.2.01.005
+      debe: 0.00
+      haber: {sel_data['retencion_islr']:,.2f}
+    - plan_cuentas: 2.1.2.01.003
+      debe: 0.00
+      haber: {sel_data['retencion_iva']:,.2f}
+    - plan_cuentas: {info_banco['codigo']}
+      debe: 0.00
+      haber: {sel_data['monto_neto']:,.2f}""", language="yaml")
                                     
                                     if st.button("💾 Guardar Asiento Contable y Pasar a Banco", key=f"btn_guardar_asiento_{sel_data['id']}", use_container_width=False):
                                         with st.spinner("Registrando asiento contable..."):
@@ -11789,10 +11802,10 @@ elif opcion_menu == "📝 Asientos Contables":
                                     desc_val = f"Pago Factura Nro {nro_fact} - {prov_nombre} (RIF: {prov_rif})"
 
                                     st.code(f"""banco_nombre: {info_banco['nombre']}
-            reference: OP-{nro_fact}
-            descripcion: {desc_val}
-            monto: {sel_data['monto_neto']:,.2f}
-            estado: {sel_data['estado']}""", language="yaml")
+reference: OP-{nro_fact}
+descripcion: {desc_val}
+monto: {sel_data['monto_neto']:,.2f}
+estado: {sel_data['estado']}""", language="yaml")
                                     
                                     if st.button("💾 Guardar Movimiento Bancario y Finalizar", key=f"btn_guardar_banco_{sel_data['id']}", use_container_width=False):
                                         with st.spinner("Registrando movimiento bancario y finalizando..."):
@@ -11818,7 +11831,7 @@ elif opcion_menu == "📝 Asientos Contables":
                                                             str(sel_data['estado'])
                                                         ))
                                                         
-                                                        # ACTUALIZAR ESTADO DE LA ORDEN A 'Contabilizada' PARA QUE DESAPAREZCA AUTOMÁTICAMENTE
+                                                        # ACTUALIZAR ESTADO DE LA ORDEN A 'Contabilizada' PARA QUE DESAPAREZCA
                                                         cur_b.execute("UPDATE ordenes_pago SET estado = 'Contabilizada' WHERE id = %s", (sel_data['id'],))
                                                         conn_b.commit()
                                                     conn_b.close()
