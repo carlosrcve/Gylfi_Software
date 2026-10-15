@@ -12457,7 +12457,7 @@ elif opcion_menu == "📝 Asientos Contables":
                     st.error(f"Error en gestión de proveedores: {e}")
                     
             else:
-                st.markdown("#### 🧾 Consultar, Editar y Actualizar Órdenes de Pago por Rango de Fechas")
+                st.markdown("#### 🧾 Consultar, Visualizar y Editar Órdenes de Pago por Rango de Fechas")
                 
                 # --- FILTROS POR RANGO DE FECHAS ---
                 col_f1, col_f2 = st.columns(2)
@@ -12479,10 +12479,23 @@ elif opcion_menu == "📝 Asientos Contables":
                         conn_ed2.close()
                         
                         if df_op_edit is not None and not df_op_edit.empty:
-                            st.markdown(f"📊 Se encontraron **{len(df_op_edit)}** orden(es) de pago en el rango seleccionado.")
+                            st.markdown(f"📊 Se encontraron **{len(df_op_edit)}** orden(es) de pago en el rango seleccionado:")
                             
-                            dict_ope = {f"ID: {r['id']} | F Fecha: {r['fecha_emision']} | Factura: {r['nro_factura']} | Neto: ${r['monto_neto']:,.2f} | Estado: {r['estado']}": r for _, r in df_op_edit.iterrows()}
-                            sel_ope_label = st.selectbox("Selecciona la Orden de Pago a modificar", list(dict_ope.keys()), key="sel_ope_edit_full")
+                            # --- FRAME DE VISUALIZACIÓN DE ÓRDENES ---
+                            st.dataframe(
+                                df_op_edit[['id', 'fecha_emision', 'nro_factura', 'monto_bruto', 'monto_neto', 'estado']], 
+                                use_container_width=True, 
+                                hide_index=True,
+                                column_config={
+                                    "monto_bruto": st.column_config.NumberColumn("Monto Bruto", format="%,.2f"),
+                                    "monto_neto": st.column_config.NumberColumn("Monto Neto", format="%,.2f")
+                                }
+                            )
+                            
+                            st.divider()
+                            
+                            dict_ope = {f"ID: {r['id']} | Fecha: {r['fecha_emision']} | Factura: {r['nro_factura']} | Neto: ${r['monto_neto']:,.2f} | Estado: {r['estado']}": r for _, r in df_op_edit.iterrows()}
+                            sel_ope_label = st.selectbox("Selecciona la Orden de Pago a modificar de la lista superior:", list(dict_ope.keys()), key="sel_ope_edit_full")
                             
                             fila_ope = dict_ope[sel_ope_label]
                             id_ope_sel = fila_ope['id']
