@@ -1679,7 +1679,7 @@ def actualizar_libro_diario_en_db(db_nombre, df_cambios):
         
     cursor = conn.cursor()
     try:
-        sql = """
+        sql_update = """
             UPDATE asientos_contables 
             SET n_comprobante = %s, descripcion = %s, fecha = %s, 
                 plan_cuentas = %s, cuenta_contable = %s, referencia = %s, 
@@ -1687,41 +1687,67 @@ def actualizar_libro_diario_en_db(db_nombre, df_cambios):
             WHERE id = %s
         """
         
-        # 1. Preparar una lista de tuplas con todos los datos de forma masiva
-        datos_a_actualizar = [
-            (
-                row['n_comprobante'], 
-                row['descripcion'], 
-                row['fecha'], 
-                row['plan_cuentas'],  # <-- CORREGIDO: cambiado de plan_de_cuentas a plan_cuentas
-                row['cuenta_contable'], 
-                row['referencia'], 
-                float(row['debe']), 
-                float(row['haber']), 
-                int(row['id'])
-            )
-            for _, row in df_cambios.iterrows()
-        ]
+        sql_insert = """
+            INSERT INTO asientos_contables 
+            (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber, bloqueado)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 0)
+        """
         
-        # 2. Ejecutar todas las actualizaciones en una sola llamada optimizada
-        cursor.executemany(sql, datos_a_actualizar)
+        for _, row in df_cambios.iterrows():
+            row_id = row.get('id')
+            
+            # Limpiar y extraer el código de la cuenta si viene en formato "CODIGO - NOMBRE"
+            plan_val = str(row.get('plan_cuentas', ''))
+            plan_cuentas_val = plan_val.split(" - ")[0] if " - " in plan_val else plan_val
+            
+            n_comprobante = str(row.get('n_comprobante', '')).strip()
+            descripcion = str(row.get('descripcion', '')).strip()
+            fecha = str(row.get('fecha', '')).strip()
+            cuenta_contable = str(row.get('cuenta_contable', '')).strip()
+            referencia = str(row.get('referencia', '')).strip()
+            debe = float(row.get('debe', 0.0) or 0.0)
+            haber = float(row.get('haber', 0.0) or 0.0)
+            
+            # Si el ID es nulo, NaN o vacío, significa que es una fila NUEVA (INSERT)
+            if pd.isna(row_id) or str(row_id).strip() in ['', 'None', 'nan']:
+                cursor.execute(sql_insert, (
+                    n_comprobante, 
+                    descripcion, 
+                    fecha, 
+                    plan_cuentas_val, 
+                    cuenta_contable, 
+                    referencia, 
+                    debe, 
+                    haber
+                ))
+            else:
+                # Si tiene ID, es una fila EXISTENTE (UPDATE)
+                cursor.execute(sql_update, (
+                    n_comprobante, 
+                    descripcion, 
+                    fecha, 
+                    plan_cuentas_val, 
+                    cuenta_contable, 
+                    referencia, 
+                    debe, 
+                    haber, 
+                    int(row_id)
+                ))
         
         conn.commit()
         return True
     except Exception as e:
-        conn.rollback() # Revertir cambios si algo falla a mitad de lote
+        conn.rollback() # Revertir cambios si algo falla
         st.error(f"Error técnico en SQL: {str(e)}")
         return False
     finally:
         if cursor:
             cursor.close()
-        # Cierre seguro compatible con PyMySQL
         if conn:
             try:
                 conn.close()
             except Exception:
                 pass
-
 
 def mes_esta_cerrado(conn, mes_nombre, ano, db_nombre=None):
     """
