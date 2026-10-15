@@ -11487,6 +11487,7 @@ elif opcion_menu == "📝 Asientos Contables":
                         st.toast("✅ ¡Cálculos actualizados al instante!", icon="🧮")
                         st.rerun()
 
+                    # --- BLOQUE DE REGISTRO DE ORDEN DE PAGO ---
                     if btn_guardar_op:
                         if not nro_factura_form:
                             st.error("⚠️ El número de factura es obligatorio.")
@@ -11536,6 +11537,25 @@ elif opcion_menu == "📝 Asientos Contables":
                                     st.rerun()
                             except Exception as err_ins:
                                 st.error(f"❌ Error al guardar la orden de pago: {err_ins}")
+
+                    # ==========================================
+                    # 🎛️ SELECTOR DE VISTA (RADIO BUTTON) - SIEMPRE VISIBLE
+                    # ==========================================
+                    st.markdown("---")
+                    modo_vista = st.radio(
+                        "📍 Selecciona la vista de trabajo:",
+                        options=[
+                            "➕ Emitir Nueva Orden de Pago", 
+                            "📊 Ver cola de órdenes de pago pendiente por procesar en el libro de compra, asiento diario y movimiento bancario"
+                        ],
+                        key="selector_modo_vista_op"
+                    )
+
+                    # Control de estado según lo que elijas en el radio button
+                    if "Ver cola de órdenes" in modo_vista:
+                        st.session_state.orden_guardada_exito = True
+                    else:
+                        st.session_state.orden_guardada_exito = False
 
             else:
                 if st.button("➕ Emitir Nueva Orden de Pago", type="secondary", use_container_width=True):
