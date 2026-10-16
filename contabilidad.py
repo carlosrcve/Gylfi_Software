@@ -11955,7 +11955,8 @@ elif opcion_menu == "📝 Asientos Contables":
                                op.nro_factura, op.monto_bruto, op.retencion_islr, op.retencion_iva, op.monto_neto, op.fecha_emision, op.observaciones, op.estado
                         FROM ordenes_pago op
                         JOIN proveedores_carga p ON op.proveedor_id = p.id
-                        WHERE op.empresa_db = %s AND (op.estado NOT IN ('Conciliado', 'Procesado') OR op.estado IS NULL)
+                        WHERE op.empresa_db = %s 
+                          AND (op.estado NOT IN ('Conciliado', 'Procesado', 'Pagado') OR op.estado IS NULL)
                         ORDER BY op.fecha_emision DESC
                     """
                     df_pendientes = ejecutar_consulta(query_pendientes, conn_pend, params=(str(db_actual),))
@@ -11964,8 +11965,6 @@ elif opcion_menu == "📝 Asientos Contables":
                 if df_pendientes is not None and not df_pendientes.empty:
                     import pandas as pd
                     df_pendientes['monto_neto'] = pd.to_numeric(df_pendientes['monto_neto'], errors='coerce').fillna(0.0)
-
-                    st.markdown(f"📋 Tienes **{len(df_pendientes)}** orden(es) de pago disponibles para conciliación.")
                     
                     st.divider()
                     st.markdown("#### ⚡ Paso 1: Datos Bancarios y Registro en Banco")
