@@ -12633,15 +12633,41 @@ elif opcion_menu == "📝 Asientos Contables":
                                     st.warning(texto_msg)
                                 elif tipo_msg == "error":
                                     st.error(texto_msg)
-                                # Limpiamos la alerta para que no se repita en futuros clics
                                 del st.session_state.msg_alerta_bm
                             
                             dict_bm_sel = {f"ID: {r['id']} | Fecha: {r['fecha_movimiento']} | Ref: {r['referencia']} | Monto: ${r['monto']:,.2f} | Banco: {r['banco_nombre']}": r for _, r in df_bm_edit.iterrows()}
-                            sel_bm_label = st.selectbox("Selecciona el Movimiento Bancario a modificar:", list(dict_bm_sel.keys()), key="sel_bm_edit_full")
+                            
+                            # --- SECCIÓN DE ELIMINACIÓN RÁPIDA ---
+                            st.markdown("##### ⚡ Eliminación Rápida de Movimiento")
+                            col_del_fast1, col_del_fast2 = st.columns([3, 1])
+                            with col_del_fast1:
+                                sel_bm_label = st.selectbox("Selecciona el Movimiento Bancario a gestionar:", list(dict_bm_sel.keys()), key="sel_bm_edit_full")
                             
                             fila_bm = dict_bm_sel[sel_bm_label]
                             id_bm_sel = fila_bm['id']
-                            
+
+                            with col_del_fast2:
+                                st.markdown("<br>", unsafe_allow_html=True) # Espaciador visual
+                                # Botón de eliminación directa y rápida fuera del formulario pesado
+                                if st.button("🗑️ Eliminar Rápido", type="secondary", key=f"btn_fast_del_{id_bm_sel}", use_container_width=True):
+                                    try:
+                                        conn_dbm = conectar_db(db_actual)
+                                        if conn_dbm:
+                                            cur_dbm = conn_dbm.cursor()
+                                            cur_dbm.execute("DELETE FROM banco_movimientos WHERE id = %s", (id_bm_sel,))
+                                            conn_dbm.commit()
+                                            cur_dbm.close()
+                                            conn_dbm.close()
+                                            
+                                            st.session_state.msg_alerta_bm = ("warning", f"🗑️ El movimiento bancario ID #{id_bm_sel} fue eliminado correctamente.")
+                                            st.rerun()
+                                    except Exception as ex_dbm:
+                                        st.session_state.msg_alerta_bm = ("error", f"❌ Error al eliminar el movimiento: {ex_dbm}")
+                                        st.rerun()
+
+                            st.divider()
+                            st.markdown("##### ✏️ Editar Detalles del Movimiento Seleccionado")
+
                             with st.form("form_editar_banco_movimiento"):
                                 st.markdown(f"**Modificando Movimiento ID:** `{id_bm_sel}` (Fecha: {fila_bm['fecha_movimiento']})")
                                 
@@ -12663,12 +12689,8 @@ elif opcion_menu == "📝 Asientos Contables":
                                 
                                 nueva_desc_bm = st.text_area("Descripción del Movimiento", value=fila_bm['descripcion'] or "").strip()
                                 
-                                col_bb1, col_bb2 = st.columns(2)
-                                with col_bb1:
-                                    btn_act_bm = st.form_submit_button("💾 Actualizar Movimiento", type="primary")
-                                with col_bb2:
-                                    btn_del_bm = st.form_submit_button("🗑️ Eliminar Movimiento", type="secondary")
-                                    
+                                btn_act_bm = st.form_submit_button("💾 Actualizar Movimiento", type="primary", use_container_width=True)
+                                
                                 if btn_act_bm:
                                     try:
                                         conn_ubm = conectar_db(db_actual)
@@ -12688,22 +12710,6 @@ elif opcion_menu == "📝 Asientos Contables":
                                             st.rerun()
                                     except Exception as ex_ubm:
                                         st.session_state.msg_alerta_bm = ("error", f"❌ Error al actualizar el movimiento: {ex_ubm}")
-                                        st.rerun()
-                                        
-                                if btn_del_bm:
-                                    try:
-                                        conn_dbm = conectar_db(db_actual)
-                                        if conn_dbm:
-                                            cur_dbm = conn_dbm.cursor()
-                                            cur_dbm.execute("DELETE FROM banco_movimientos WHERE id = %s", (id_bm_sel,))
-                                            conn_dbm.commit()
-                                            cur_dbm.close()
-                                            conn_dbm.close()
-                                            
-                                            st.session_state.msg_alerta_bm = ("warning", f"🗑️ El movimiento bancario ID #{id_bm_sel} fue eliminado correctamente de los registros.")
-                                            st.rerun()
-                                    except Exception as ex_dbm:
-                                        st.session_state.msg_alerta_bm = ("error", f"❌ Error al eliminar el movimiento: {ex_dbm}")
                                         st.rerun()
                         else:
                             st.info("ℹ️ No hay movimientos bancarios registrados para el rango de fechas seleccionado.")
