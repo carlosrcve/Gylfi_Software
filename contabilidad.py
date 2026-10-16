@@ -12010,6 +12010,9 @@ elif opcion_menu == "📝 Asientos Contables":
                     # -------------------------------------------------------------------------
                     # 📥 BOTÓN PASO 1: GUARDAR EN TABLA `banco_movimientos` (UBICADO ARRIBA)
                     # -------------------------------------------------------------------------
+                    # -------------------------------------------------------------------------
+                    # 📥 BOTÓN PASO 1: GUARDAR EN TABLA `banco_movimientos` Y VISUALIZAR FRAME
+                    # -------------------------------------------------------------------------
                     if st.button("📥 Registrar Movimiento en Banco", type="secondary", key="btn_guardar_banco_mov"):
                         if not referencia_bancaria:
                             st.warning("⚠️ Debes introducir obligatoriamente la referencia bancaria del estado de cuenta.")
@@ -12046,18 +12049,60 @@ elif opcion_menu == "📝 Asientos Contables":
                                         fecha_actual_hoy
                                     ))
                                     
-                                    # 2. Actualizar estado temporal de la orden para que se refleje en el dataframe superior
+                                    # 2. Actualizar estado temporal de la orden
                                     query_up_est = "UPDATE ordenes_pago SET estado = 'Procesado' WHERE id = %s AND empresa_db = %s"
-                                    cur_up_est.execute(query_up_est, (int(fila_op_sel['id']), str(db_actual))) if 'cur_up_est' in locals() else cur_bm.execute(query_up_est, (int(fila_op_sel['id']), str(db_actual)))
+                                    cur_bm.execute(query_up_est, (int(fila_op_sel['id']), str(db_actual)))
 
                                     conn_bm.commit()
                                     cur_bm.close()
                                     conn_bm.close()
 
-                                    st.success(f"✅ ¡Movimiento registrado y dataframe actualizado!")
-                                    st.rerun() # Esto obliga a Streamlit a recargar la página y actualizar el frame superior
+                                    st.success(f"✅ ¡Movimiento bancario registrado con éxito!")
+                                    st.rerun()
                             except Exception as err_bm:
                                 st.error(f"❌ Error al guardar en banco_movimientos: {err_bm}")
+
+                    # --- FRAME DE VISUALIZACIÓN DE LA TABLA `banco_movimientos` ---
+                    st.markdown("#### 📊 Movimientos Bancarios Registrados (Tabla `banco_movimientos`)")
+                    try:
+                        conn_v_bm = conectar_db(db_actual)
+                        if conn_v_bm:
+                            query_ver_bm = """
+                                SELECT id, banco_nombre, cuenta_numero, fecha_movimiento, referencia, descripcion, monto, estado_conciliacion, asiento_id 
+                                FROM banco_movimientos 
+                                ORDER BY id DESC 
+                                LIMIT 15
+                            """
+                            df_ver_bm = ejecutar_consulta(query_ver_bm, conn_v_bm)
+                            conn_v_bm.close()
+
+                            if df_ver_bm is not None and not df_ver_bm.empty:
+                                import pandas as pd
+                                df_ver_bm['monto'] = pd.to_numeric(df_ver_bm['monto'], errors='coerce').fillna(0.0)
+
+                                st.dataframe(
+                                    df_ver_bm[['id', 'fecha_movimiento', 'banco_nombre', 'referencia', 'descripcion', 'monto', 'estado_conciliacion', 'asiento_id']],
+                                    use_container_width=True,
+                                    hide_index=True,
+                                    column_config={
+                                        "id": "ID",
+                                        "fecha_movimiento": "Fecha Mov.",
+                                        "banco_nombre": "Banco",
+                                        "referencia": "Referencia",
+                                        "descripcion": "Descripción",
+                                        "monto": st.column_config.NumberColumn(
+                                            "Monto ($)",
+                                            format="$%,.2f",
+                                            help="Monto del movimiento bancario"
+                                        ),
+                                        "estado_conciliacion": "Estado",
+                                        "asiento_id": "Comprobante"
+                                    }
+                                )
+                            else:
+                                st.info("ℹ️ No hay movimientos registrados todavía en la tabla `banco_movimientos`.")
+                    except Exception as err_v_bm:
+                        st.error(f"❌ Error al cargar los movimientos bancarios: {err_v_bm}")
 
                     st.divider()
                     st.markdown("#### ⚡ Paso 2: Selección de Cuenta Contable, Previsualización y Registro en Asientos")
