@@ -12623,6 +12623,18 @@ elif opcion_menu == "📝 Asientos Contables":
                             )
                             
                             st.divider()
+
+                            # Mostrar notificaciones pendientes guardadas en session_state si las hay
+                            if "msg_alerta_bm" in st.session_state:
+                                tipo_msg, texto_msg = st.session_state.msg_alerta_bm
+                                if tipo_msg == "success":
+                                    st.success(texto_msg)
+                                elif tipo_msg == "warning":
+                                    st.warning(texto_msg)
+                                elif tipo_msg == "error":
+                                    st.error(texto_msg)
+                                # Limpiamos la alerta para que no se repita en futuros clics
+                                del st.session_state.msg_alerta_bm
                             
                             dict_bm_sel = {f"ID: {r['id']} | Fecha: {r['fecha_movimiento']} | Ref: {r['referencia']} | Monto: ${r['monto']:,.2f} | Banco: {r['banco_nombre']}": r for _, r in df_bm_edit.iterrows()}
                             sel_bm_label = st.selectbox("Selecciona el Movimiento Bancario a modificar:", list(dict_bm_sel.keys()), key="sel_bm_edit_full")
@@ -12640,7 +12652,13 @@ elif opcion_menu == "📝 Asientos Contables":
                                     nueva_ref_bm = st.text_input("Referencia Bancaria", value=fila_bm['referencia'] or "").strip()
                                 with col_be2:
                                     nuevo_monto_bm = st.number_input("Monto", value=float(fila_bm['monto']), step=100.00, format="%.2f")
-                                    nuevo_estado_conc = st.selectbox("Estado Conciliación", ["Conciliado", "Pendiente Asiento", "No Conciliado"], index=0 if not fila_bm['estado_conciliacion'] else ["Conciliado", "Pendiente Asiento", "No Conciliado"].index(fila_bm['estado_conciliacion']) if fila_bm['estado_conciliacion'] in ["Conciliado", "Pendiente Asiento", "No Conciliado"] else 0)
+                                    
+                                    estados_posibles = ["Conciliado", "Pendiente Asiento", "No Conciliado"]
+                                    idx_est = 0
+                                    if fila_bm['estado_conciliacion'] in estados_posibles:
+                                        idx_est = estados_posibles.index(fila_bm['estado_conciliacion'])
+                                    nuevo_estado_conc = st.selectbox("Estado Conciliación", estados_posibles, index=idx_est)
+                                    
                                     nuevo_asiento_id = st.text_input("Asiento ID asociado", value=fila_bm['asiento_id'] or "").strip()
                                 
                                 nueva_desc_bm = st.text_area("Descripción del Movimiento", value=fila_bm['descripcion'] or "").strip()
@@ -12654,33 +12672,39 @@ elif opcion_menu == "📝 Asientos Contables":
                                 if btn_act_bm:
                                     try:
                                         conn_ubm = conectar_db(db_actual)
-                                        cur_ubm = conn_ubm.cursor()
-                                        query_up_bm = """
-                                            UPDATE banco_movimientos 
-                                            SET banco_nombre = %s, cuenta_numero = %s, referencia = %s, monto = %s, estado_conciliacion = %s, asiento_id = %s, descripcion = %s
-                                            WHERE id = %s
-                                        """
-                                        cur_ubm.execute(query_up_bm, (nuevo_banco_nom, nuevo_nro_cta_bm, nueva_ref_bm, nuevo_monto_bm, nuevo_estado_conc, nuevo_asiento_id, nueva_desc_bm, id_bm_sel))
-                                        conn_ubm.commit()
-                                        cur_ubm.close()
-                                        conn_ubm.close()
-                                        st.success("✅ ¡Movimiento bancario actualizado con éxito!")
-                                        st.rerun()
+                                        if conn_ubm:
+                                            cur_ubm = conn_ubm.cursor()
+                                            query_up_bm = """
+                                                UPDATE banco_movimientos 
+                                                SET banco_nombre = %s, cuenta_numero = %s, referencia = %s, monto = %s, estado_conciliacion = %s, asiento_id = %s, descripcion = %s
+                                                WHERE id = %s
+                                            """
+                                            cur_ubm.execute(query_up_bm, (nuevo_banco_nom, nuevo_nro_cta_bm, nueva_ref_bm, nuevo_monto_bm, nuevo_estado_conc, nuevo_asiento_id, nueva_desc_bm, id_bm_sel))
+                                            conn_ubm.commit()
+                                            cur_ubm.close()
+                                            conn_ubm.close()
+                                            
+                                            st.session_state.msg_alerta_bm = ("success", f"✅ ¡El movimiento bancario ID #{id_bm_sel} fue actualizado exitosamente!")
+                                            st.rerun()
                                     except Exception as ex_ubm:
-                                        st.error(f"❌ Error al actualizar el movimiento: {ex_ubm}")
+                                        st.session_state.msg_alerta_bm = ("error", f"❌ Error al actualizar el movimiento: {ex_ubm}")
+                                        st.rerun()
                                         
                                 if btn_del_bm:
                                     try:
                                         conn_dbm = conectar_db(db_actual)
-                                        cur_dbm = conn_dbm.cursor()
-                                        cur_dbm.execute("DELETE FROM banco_movimientos WHERE id = %s", (id_bm_sel,))
-                                        conn_dbm.commit()
-                                        cur_dbm.close()
-                                        conn_dbm.close()
-                                        st.success("🗑️ Movimiento bancario eliminado con éxito.")
-                                        st.rerun()
+                                        if conn_dbm:
+                                            cur_dbm = conn_dbm.cursor()
+                                            cur_dbm.execute("DELETE FROM banco_movimientos WHERE id = %s", (id_bm_sel,))
+                                            conn_dbm.commit()
+                                            cur_dbm.close()
+                                            conn_dbm.close()
+                                            
+                                            st.session_state.msg_alerta_bm = ("warning", f"🗑️ El movimiento bancario ID #{id_bm_sel} fue eliminado correctamente de los registros.")
+                                            st.rerun()
                                     except Exception as ex_dbm:
-                                        st.error(f"❌ Error al eliminar el movimiento: {ex_dbm}")
+                                        st.session_state.msg_alerta_bm = ("error", f"❌ Error al eliminar el movimiento: {ex_dbm}")
+                                        st.rerun()
                         else:
                             st.info("ℹ️ No hay movimientos bancarios registrados para el rango de fechas seleccionado.")
                 except Exception as e:
