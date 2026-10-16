@@ -12007,9 +12007,7 @@ elif opcion_menu == "📝 Asientos Contables":
                     with col_m2:
                         fecha_pago_real = st.date_input("Fecha real del movimiento en el Banco", key="input_fec_banco_b")
 
-                    # -------------------------------------------------------------------------
-                    # 📥 BOTÓN PASO 1: GUARDAR EN TABLA `banco_movimientos` (UBICADO ARRIBA)
-                    # -------------------------------------------------------------------------
+                   
                     # -------------------------------------------------------------------------
                     # 📥 BOTÓN PASO 1: GUARDAR EN TABLA `banco_movimientos` Y VISUALIZAR FRAME
                     # -------------------------------------------------------------------------
@@ -12062,18 +12060,27 @@ elif opcion_menu == "📝 Asientos Contables":
                             except Exception as err_bm:
                                 st.error(f"❌ Error al guardar en banco_movimientos: {err_bm}")
 
-                    # --- FRAME DE VISUALIZACIÓN DE LA TABLA `banco_movimientos` ---
-                    st.markdown("#### 📊 Movimientos Bancarios Registrados (Tabla `banco_movimientos`)")
+                    # --- FRAME DE VISUALIZACIÓN DE LA TABLA `banco_movimientos` POR RANGO DE FECHA ---
+                    st.divider()
+                    st.markdown("#### 📊 Movimientos Bancarios Registrados por Rango de Fecha")
+                    
+                    # Filtros de fecha Desde / Hasta
+                    col_fec_bm1, col_fec_bm2 = st.columns(2)
+                    with col_fec_bm1:
+                        fec_desde_bm_tab3 = st.date_input("Desde la fecha (Movimiento)", key="bm_tab3_fec_desde")
+                    with col_fec_bm2:
+                        fec_hasta_bm_tab3 = st.date_input("Hasta la fecha (Movimiento)", key="bm_tab3_fec_hasta")
+
                     try:
                         conn_v_bm = conectar_db(db_actual)
                         if conn_v_bm:
                             query_ver_bm = """
                                 SELECT id, banco_nombre, cuenta_numero, fecha_movimiento, referencia, descripcion, monto, estado_conciliacion, asiento_id 
                                 FROM banco_movimientos 
-                                ORDER BY id DESC 
-                                LIMIT 15
+                                WHERE fecha_movimiento BETWEEN %s AND %s
+                                ORDER BY fecha_movimiento DESC, id DESC
                             """
-                            df_ver_bm = ejecutar_consulta(query_ver_bm, conn_v_bm)
+                            df_ver_bm = ejecutar_consulta(query_ver_bm, conn_v_bm, params=(str(fec_desde_bm_tab3), str(fec_hasta_bm_tab3)))
                             conn_v_bm.close()
 
                             if df_ver_bm is not None and not df_ver_bm.empty:
@@ -12100,7 +12107,7 @@ elif opcion_menu == "📝 Asientos Contables":
                                     }
                                 )
                             else:
-                                st.info("ℹ️ No hay movimientos registrados todavía en la tabla `banco_movimientos`.")
+                                st.info("ℹ️ No hay movimientos registrados en el rango de fechas seleccionado.")
                     except Exception as err_v_bm:
                         st.error(f"❌ Error al cargar los movimientos bancarios: {err_v_bm}")
 
