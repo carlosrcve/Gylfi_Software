@@ -11873,50 +11873,7 @@ elif opcion_menu == "📝 Asientos Contables":
                                                     st.rerun()
                                             except Exception as err_a:
                                                 st.error(f"❌ Error al guardar asiento contable: {err_a}")
-
-                                # --- PASO 3: MOVIMIENTO BANCARIO ---
-                                elif paso == 3:
-                                    st.markdown("#### 🏦 Paso 3: Registrar `banco_movimientos`")
-                                    prov_nombre = str(sel_data.get('proveedor', '')).strip()
-                                    prov_rif = str(sel_data.get('proveedor_rif', '')).strip()
-                                    nro_fact = str(sel_data.get('nro_factura', '')).strip()
-                                    desc_val = f"Pago Factura Nro {nro_fact} - {prov_nombre} (RIF: {prov_rif})"
-
-                                    st.code(f"""banco_nombre: {info_banco['nombre']}
-    reference: OP-{nro_fact}
-    descripcion: {desc_val}
-    monto: {sel_data['monto_neto']:,.2f}
-    estado: {sel_data['estado']}""", language="yaml")
-                                    
-                                    if st.button("💾 Guardar Movimiento Bancario y Finalizar", key=f"btn_guardar_banco_{sel_data['id']}", use_container_width=False):
-                                        with st.spinner("Registrando movimiento bancario y finalizando..."):
-                                            try:
-                                                conn_b = conectar_db(db_actual)
-                                                if conn_b:
-                                                    with conn_b.cursor() as cur_b:
-                                                        n_comp_val = f"OP-{nro_fact}"
-                                                        fecha_val = str(sel_data['fecha_emision'])
-                                                        query_banco = """
-                                                            INSERT INTO banco_movimientos (
-                                                                banco_nombre, cuenta_numero, fecha_movimiento, 
-                                                                referencia, descripcion, monto, estado_conciliacion, fecha_importacion
-                                                            ) VALUES (%s, %s, %s, %s, %s, %s, %s, NOW())
-                                                        """
-                                                        cur_b.execute(query_banco, (
-                                                            str(info_banco['nombre']), str(info_banco['codigo']),
-                                                            fecha_val, n_comp_val, str(desc_val),
-                                                            float(sel_data['monto_neto']), str(sel_data['estado'])
-                                                        ))
-                                                        
-                                                        cur_b.execute("UPDATE ordenes_pago SET estado = 'Contabilizada' WHERE id = %s", (sel_data['id'],))
-                                                        conn_b.commit()
-                                                    conn_b.close()
-                                                    
-                                                    st.success("🎉 ¡Proceso completo! Orden contabilizada con éxito.")
-                                                    st.session_state[key_paso] = 1
-                                                    st.rerun()
-                                            except Exception as err_b:
-                                                st.error(f"❌ Error al guardar movimiento bancario: {err_b}")
+                                
                 except Exception as ex_historial:
                     st.warning(f"Aviso en historial: {ex_historial}")
         with tab3:
@@ -12597,7 +12554,7 @@ elif opcion_menu == "📝 Asientos Contables":
                     fec_desde_bm = st.date_input("Desde la fecha (Movimiento)", value=date(2026, 1, 1), key="edit_bm_fecha_desde")
                 with col_bm2:
                     fec_hasta_bm = st.date_input("Hasta la fecha (Movimiento)", value=date(2026, 1, 31), key="edit_bm_fecha_hasta")
-                    
+
                 try:
                     conn_bm_ed = conectar_db(db_actual)
                     if conn_bm_ed:
@@ -12605,11 +12562,11 @@ elif opcion_menu == "📝 Asientos Contables":
                         query_bm_edit = """
                             SELECT id, banco_nombre, cuenta_numero, fecha_movimiento, referencia, descripcion, monto, estado_conciliacion, asiento_id 
                             FROM banco_movimientos 
-                            WHERE fecha_movimiento BETWEEN %s AND %s
+                            WHERE empresa_db = %s AND fecha_movimiento BETWEEN %s AND %s
                             ORDER BY fecha_movimiento DESC
                             LIMIT 100
                         """
-                        df_bm_edit = ejecutar_consulta(query_bm_edit, conn_bm_ed, params=(str(fec_desde_bm), str(fec_hasta_bm)))
+                        df_bm_edit = ejecutar_consulta(query_bm_edit, conn_bm_ed, params=(str(db_actual), str(fec_desde_bm), str(fec_hasta_bm)))
                         conn_bm_ed.close()
                         
                         if df_bm_edit is not None and not df_bm_edit.empty:
