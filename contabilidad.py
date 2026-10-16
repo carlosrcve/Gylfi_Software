@@ -12589,8 +12589,7 @@ elif opcion_menu == "📝 Asientos Contables":
                 except Exception as e:
                     st.error(f"Error en gestión de órdenes: {e}")
 
-            else:
-                st.markdown("#### 🏦 Consultar, Visualizar y Editar Movimientos Bancarios por Rango de Fechas")
+            st.markdown("#### 🏦 Consultar, Visualizar y Editar Movimientos Bancarios por Rango de Fechas")
                 
                 col_bm1, col_bm2 = st.columns(2)
                 with col_bm1:
@@ -12637,19 +12636,17 @@ elif opcion_menu == "📝 Asientos Contables":
                             
                             dict_bm_sel = {f"ID: {r['id']} | Fecha: {r['fecha_movimiento']} | Ref: {r['referencia']} | Monto: ${r['monto']:,.2f} | Banco: {r['banco_nombre']}": r for _, r in df_bm_edit.iterrows()}
                             
-                            # --- SECCIÓN DE ELIMINACIÓN RÁPIDA ---
-                            st.markdown("##### ⚡ Eliminación Rápida de Movimiento")
-                            col_del_fast1, col_del_fast2 = st.columns([3, 1])
-                            with col_del_fast1:
+                            # Selector y botón de ELIMINACIÓN RÁPIDA (Fuera del formulario pesado para evitar lentitud)
+                            col_sel_fast, col_btn_fast = st.columns([3, 1])
+                            with col_sel_fast:
                                 sel_bm_label = st.selectbox("Selecciona el Movimiento Bancario a gestionar:", list(dict_bm_sel.keys()), key="sel_bm_edit_full")
                             
                             fila_bm = dict_bm_sel[sel_bm_label]
                             id_bm_sel = fila_bm['id']
 
-                            with col_del_fast2:
-                                st.markdown("<br>", unsafe_allow_html=True) # Espaciador visual
-                                # Botón de eliminación directa y rápida fuera del formulario pesado
-                                if st.button("🗑️ Eliminar Rápido", type="secondary", key=f"btn_fast_del_{id_bm_sel}", use_container_width=True):
+                            with col_btn_fast:
+                                st.markdown("<br>", unsafe_allow_html=True) # Alineación visual
+                                if st.button("🗑️ Eliminar Rápido", type="secondary", key=f"btn_del_fast_{id_bm_sel}", use_container_width=True):
                                     try:
                                         conn_dbm = conectar_db(db_actual)
                                         if conn_dbm:
@@ -12666,8 +12663,8 @@ elif opcion_menu == "📝 Asientos Contables":
                                         st.rerun()
 
                             st.divider()
-                            st.markdown("##### ✏️ Editar Detalles del Movimiento Seleccionado")
 
+                            # Formulario reservado exclusivamente para actualizar (evita el bloqueo al borrar)
                             with st.form("form_editar_banco_movimiento"):
                                 st.markdown(f"**Modificando Movimiento ID:** `{id_bm_sel}` (Fecha: {fila_bm['fecha_movimiento']})")
                                 
