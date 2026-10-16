@@ -11962,38 +11962,18 @@ elif opcion_menu == "📝 Asientos Contables":
                     conn_pend.close()
 
                 if df_pendientes is not None and not df_pendientes.empty:
-                    # Nos aseguramos de limpiar o castear a numérico por si venía como texto o nulo
                     import pandas as pd
                     df_pendientes['monto_neto'] = pd.to_numeric(df_pendientes['monto_neto'], errors='coerce').fillna(0.0)
 
                     st.markdown(f"📋 Tienes **{len(df_pendientes)}** orden(es) de pago disponibles para conciliación.")
                     
-                    # Renderizamos el dataframe con configuración limpia
-                    st.dataframe(
-                        df_pendientes[['id', 'proveedor', 'nro_factura', 'monto_neto', 'fecha_emision', 'estado']], 
-                        use_container_width=True, 
-                        hide_index=True,
-                        column_config={
-                            "id": "ID",
-                            "proveedor": "Proveedor",
-                            "nro_factura": "Nro Factura",
-                            "monto_neto": st.column_config.NumberColumn(
-                                "Monto Neto ($)",
-                                format="$%,.2f",
-                                help="Monto neto a pagar"
-                            ),
-                            "fecha_emision": "Fecha Emisión",
-                            "estado": "Estado"
-                        }
-                    )
-                    
                     st.divider()
                     st.markdown("#### ⚡ Paso 1: Datos Bancarios y Registro en Banco")
                     
-                    # Selector de orden a conciliar
+                    # Selector de orden a conciliar (Sin signo de dólar en el monto)
                     dict_ops_pend = {}
                     for _, row in df_pendientes.iterrows():
-                        label_op = f"ID: {row['id']} | Prov: {row['proveedor']} | Factura: {row['nro_factura']} | Neto: ${row['monto_neto']:,.2f} | Estado: {row['estado']}"
+                        label_op = f"ID: {row['id']} | Prov: {row['proveedor']} | Factura: {row['nro_factura']} | Neto: {row['monto_neto']:,.2f} | Estado: {row['estado']}"
                         dict_ops_pend[label_op] = row['id']
                     
                     selected_op_label = st.selectbox("Selecciona la Orden de Pago a Conciliar", list(dict_ops_pend.keys()), key="select_op_cruce_tab3")
@@ -12007,9 +11987,8 @@ elif opcion_menu == "📝 Asientos Contables":
                     with col_m2:
                         fecha_pago_real = st.date_input("Fecha real del movimiento en el Banco", key="input_fec_banco_b")
 
-                   
                     # -------------------------------------------------------------------------
-                    # 📥 BOTÓN PASO 1: GUARDAR EN TABLA `banco_movimientos` Y VISUALIZAR FRAME
+                    # 📥 BOTÓN PASO 1: GUARDAR EN TABLA `banco_movimientos`
                     # -------------------------------------------------------------------------
                     if st.button("📥 Registrar Movimiento en Banco", type="secondary", key="btn_guardar_banco_mov"):
                         if not referencia_bancaria:
@@ -12028,7 +12007,6 @@ elif opcion_menu == "📝 Asientos Contables":
                                 if conn_bm:
                                     cur_bm = conn_bm.cursor()
                                     
-                                    # 1. Insertar en banco_movimientos
                                     query_banco_mov = """
                                         INSERT INTO banco_movimientos (
                                             banco_nombre, cuenta_numero, fecha_movimiento, referencia, 
@@ -12047,7 +12025,6 @@ elif opcion_menu == "📝 Asientos Contables":
                                         fecha_actual_hoy
                                     ))
                                     
-                                    # 2. Actualizar estado temporal de la orden
                                     query_up_est = "UPDATE ordenes_pago SET estado = 'Procesado' WHERE id = %s AND empresa_db = %s"
                                     cur_bm.execute(query_up_est, (int(fila_op_sel['id']), str(db_actual)))
 
@@ -12060,11 +12037,10 @@ elif opcion_menu == "📝 Asientos Contables":
                             except Exception as err_bm:
                                 st.error(f"❌ Error al guardar en banco_movimientos: {err_bm}")
 
-                    # --- FRAME DE VISUALIZACIÓN DE LA TABLA `banco_movimientos` POR RANGO DE FECHA ---
+                    # --- FRAME DE VISUALIZACIÓN DE LA TABLA `banco_movimientos` CON RANGO DE FECHA ---
                     st.divider()
                     st.markdown("#### 📊 Movimientos Bancarios Registrados por Rango de Fecha")
                     
-                    # Filtros de fecha Desde / Hasta
                     col_fec_bm1, col_fec_bm2 = st.columns(2)
                     with col_fec_bm1:
                         fec_desde_bm_tab3 = st.date_input("Desde la fecha (Movimiento)", key="bm_tab3_fec_desde")
@@ -12084,7 +12060,6 @@ elif opcion_menu == "📝 Asientos Contables":
                             conn_v_bm.close()
 
                             if df_ver_bm is not None and not df_ver_bm.empty:
-                                import pandas as pd
                                 df_ver_bm['monto'] = pd.to_numeric(df_ver_bm['monto'], errors='coerce').fillna(0.0)
 
                                 st.dataframe(
@@ -12098,8 +12073,8 @@ elif opcion_menu == "📝 Asientos Contables":
                                         "referencia": "Referencia",
                                         "descripcion": "Descripción",
                                         "monto": st.column_config.NumberColumn(
-                                            "Monto ($)",
-                                            format="$%,.2f",
+                                            "Monto",
+                                            format="%,.2f",
                                             help="Monto del movimiento bancario"
                                         ),
                                         "estado_conciliacion": "Estado",
@@ -12114,16 +12089,12 @@ elif opcion_menu == "📝 Asientos Contables":
                     st.divider()
                     st.markdown("#### ⚡ Paso 2: Selección de Cuenta Contable, Previsualización y Registro en Asientos")
 
-                    # Selector de cuenta bancaria de la empresa que efectúa el pago
                     cta_banco_salida = st.selectbox(
                         "🏦 Selecciona la Cuenta Bancaria / Salida de Dinero (Haber)", 
                         options=lista_bancos_detalle if lista_bancos_detalle else ["No hay cuentas de detalle disponibles"],
                         key="select_banco_salida_pago"
                     )
 
-                    # =========================================================================
-                    # 👁️ PREVISUALIZACIÓN DEL ASIENTO CONTABLE (HTML & CSS)
-                    # =========================================================================
                     info_banco_prev = dict_bancos_detalle.get(cta_banco_salida, {'codigo': '1.1.1.01.001', 'nombre': 'Banco Principal'})
                     monto_prev = float(fila_op_sel['monto_neto'])
                     n_fact_prev = str(fila_op_sel['nro_factura'])
@@ -12133,7 +12104,6 @@ elif opcion_menu == "📝 Asientos Contables":
                     ref_prev = referencia_bancaria if referencia_bancaria else "(Pendiente de Ref)"
                     fecha_prev = str(fecha_pago_real)
 
-                    # Estructura HTML y CSS estilizada tipo tabla contable profesional
                     html_asiento = f"""
                     <style>
                         .tabla-asiento {{
@@ -12192,7 +12162,6 @@ elif opcion_menu == "📝 Asientos Contables":
                             </tr>
                         </thead>
                         <tbody>
-                            <!-- LÍNEA 1: DEBE (Proveedores Nacionales) -->
                             <tr>
                                 <td><b>{n_comp_prev}</b></td>
                                 <td>{desc_prev}</td>
@@ -12200,11 +12169,10 @@ elif opcion_menu == "📝 Asientos Contables":
                                 <td><code>2.1.1.01.001</code></td>
                                 <td>Proveedores Nacionales</td>
                                 <td>{ref_prev}</td>
-                                <td class="monto-col" style="color: #2b8a3e;">${monto_prev:,.2f}</td>
-                                <td class="monto-col">$0.00</td>
+                                <td class="monto-col" style="color: #2b8a3e;">{monto_prev:,.2f}</td>
+                                <td class="monto-col">0.00</td>
                                 <td style="text-align: center;"><span class="badge-bloqueado">0</span></td>
                             </tr>
-                            <!-- LÍNEA 2: HABER (Cuenta Bancaria de Salida) -->
                             <tr>
                                 <td><b>{n_comp_prev}</b></td>
                                 <td>{desc_prev}</td>
@@ -12212,16 +12180,16 @@ elif opcion_menu == "📝 Asientos Contables":
                                 <td><code>{info_banco_prev['codigo']}</code></td>
                                 <td>{info_banco_prev['nombre']}</td>
                                 <td>{ref_prev}</td>
-                                <td class="monto-col">$0.00</td>
-                                <td class="monto-col" style="color: #c92a2a;">${monto_prev:,.2f}</td>
+                                <td class="monto-col">0.00</td>
+                                <td class="monto-col" style="color: #c92a2a;">{monto_prev:,.2f}</td>
                                 <td style="text-align: center;"><span class="badge-bloqueado">0</span></td>
                             </tr>
                         </tbody>
                         <tfoot>
                             <tr style="background-color: #f8f9fa; font-weight: bold;">
                                 <td colspan="6" style="text-align: right;">TOTALES:</td>
-                                <td class="monto-col" style="color: #2b8a3e;">${monto_prev:,.2f}</td>
-                                <td class="monto-col" style="color: #c92a2a;">${monto_prev:,.2f}</td>
+                                <td class="monto-col" style="color: #2b8a3e;">{monto_prev:,.2f}</td>
+                                <td class="monto-col" style="color: #c92a2a;">{monto_prev:,.2f}</td>
                                 <td></td>
                             </tr>
                         </tfoot>
@@ -12229,7 +12197,6 @@ elif opcion_menu == "📝 Asientos Contables":
                     """
                     st.markdown(html_asiento, unsafe_allow_html=True)
 
-                    # Botón para guardar el Asiento en la tabla `asientos_contables` y actualizar orden a Conciliado
                     if st.button("💾 Guardar Asiento en Libro Diario y Conciliar", type="primary", key="btn_guardar_asiento_diario"):
                         if not referencia_bancaria:
                             st.warning("⚠️ Asegúrate de haber ingresado la referencia bancaria.")
@@ -12246,7 +12213,6 @@ elif opcion_menu == "📝 Asientos Contables":
                                 if conn_update:
                                     cursor_m = conn_update.cursor()
                                     
-                                    # 1. Registrar el Asiento Contable en `asientos_contables`
                                     query_asiento_pago = """
                                         INSERT INTO asientos_contables (
                                             n_comprobante, descripcion, fecha, plan_cuentas, 
@@ -12254,7 +12220,6 @@ elif opcion_menu == "📝 Asientos Contables":
                                         ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 0)
                                     """
                                     
-                                    # Línea 1: Proveedores Nacionales al DEBE
                                     cursor_m.execute(query_asiento_pago, (
                                         n_comp_asiento,
                                         f"Cancelación de Pago a {prov_nombre_val} - Factura {n_fact_val}",
@@ -12266,7 +12231,6 @@ elif opcion_menu == "📝 Asientos Contables":
                                         0.00
                                     ))
 
-                                    # Línea 2: Banco seleccionado al HABER
                                     cursor_m.execute(query_asiento_pago, (
                                         n_comp_asiento,
                                         f"Cancelación de Pago a {prov_nombre_val} - Factura {n_fact_val}",
@@ -12278,7 +12242,6 @@ elif opcion_menu == "📝 Asientos Contables":
                                         monto_a_pagar
                                     ))
 
-                                    # 2. Actualizar la orden de pago a Conciliado
                                     query_update_match = """
                                         UPDATE ordenes_pago 
                                         SET referencia_banco = %s, fecha_pago = %s, estado = 'Conciliado'
@@ -12293,7 +12256,6 @@ elif opcion_menu == "📝 Asientos Contables":
                                 st.toast("✅ ¡Asiento registrado en el libro diario y orden conciliada!", icon="🎉")
                                 st.success(f"✅ ¡Proceso completado! Asiento `{n_comp_asiento}` guardado en `asientos_contables` y orden #{fila_op_sel['id']} marcada como Conciliada.")
                                 
-                                # --- RENDERIZAR COMPROBANTE DE PAGO OFICIAL INMEDIATO ---
                                 st.divider()
                                 st.markdown("---")
                                 st.markdown("## 📄 COMPROBANTE DE EGRESO Y PAGO CONCILIADO")
@@ -12387,7 +12349,6 @@ elif opcion_menu == "📝 Asientos Contables":
                         with col_ed1:
                             nuevo_ref_banco = st.text_input("Nueva Referencia Bancaria", value=str(row_sel['referencia_banco']), key=f"edit_ref_{row_sel['id']}")
                         with col_ed2:
-                            import pandas as pd
                             fecha_actual_pago = pd.to_datetime(row_sel['fecha_pago']).date() if pd.notnull(row_sel['fecha_pago']) else None
                             nueva_fecha_pago = st.date_input("Nueva Fecha de Pago", value=fecha_actual_pago, key=f"edit_fecha_{row_sel['id']}")
                         
