@@ -12594,10 +12594,10 @@ elif opcion_menu == "📝 Asientos Contables":
                 
                 col_bm1, col_bm2 = st.columns(2)
                 with col_bm1:
-                    fec_desde_bm = st.date_input("Desde la fecha (Movimiento)", value=datetime.date(2026, 1, 1), key="edit_bm_fecha_desde")
+                    fec_desde_bm = st.date_input("Desde la fecha (Movimiento)", value=date(2026, 1, 1), key="edit_bm_fecha_desde")
                 with col_bm2:
-                    fec_hasta_bm = st.date_input("Hasta la fecha (Movimiento)", value=datetime.date(2026, 1, 31), key="edit_bm_fecha_hasta")
-
+                    fec_hasta_bm = st.date_input("Hasta la fecha (Movimiento)", value=date(2026, 1, 31), key="edit_bm_fecha_hasta")
+                    
                 try:
                     conn_bm_ed = conectar_db(db_actual)
                     if conn_bm_ed:
