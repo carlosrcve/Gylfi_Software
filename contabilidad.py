@@ -12643,6 +12643,7 @@ elif opcion_menu == "📝 Asientos Contables":
                             fila_bm = dict_bm_sel[sel_bm_label]
                             id_bm_sel = fila_bm['id']
 
+                            # --- ELIMINACIÓN INSTANTÁNEA (Fuera de formularios pesados) ---
                             with col_btn_fast:
                                 st.markdown("<br>", unsafe_allow_html=True)
                                 if st.button("🗑️ Eliminar Rápido", type="secondary", key=f"btn_del_fast_{id_bm_sel}", use_container_width=True):
@@ -12662,50 +12663,47 @@ elif opcion_menu == "📝 Asientos Contables":
                                         st.rerun()
 
                             st.divider()
-
-                            with st.form("form_editar_banco_movimiento"):
-                                st.markdown(f"**Modificando Movimiento ID:** `{id_bm_sel}` (Fecha: {fila_bm['fecha_movimiento']})")
+                            st.markdown(f"**Modificando Movimiento ID:** `{id_bm_sel}` (Fecha: {fila_bm['fecha_movimiento']})")
+                            
+                            # Edición directa sin st.form para evitar cuellos de botella lentos
+                            col_be1, col_be2 = st.columns(2)
+                            with col_be1:
+                                nuevo_banco_nom = st.text_input("Banco Nombre", value=fila_bm['banco_nombre'] or "", key=f"nb_{id_bm_sel}").strip()
+                                nuevo_nro_cta_bm = st.text_input("Cuenta Número", value=fila_bm['cuenta_numero'] or "", key=f"nc_{id_bm_sel}").strip()
+                                nueva_ref_bm = st.text_input("Referencia Bancaria", value=fila_bm['referencia'] or "", key=f"nr_{id_bm_sel}").strip()
+                            with col_be2:
+                                nuevo_monto_bm = st.number_input("Monto", value=float(fila_bm['monto']), step=100.00, format="%.2f", key=f"nm_{id_bm_sel}")
                                 
-                                col_be1, col_be2 = st.columns(2)
-                                with col_be1:
-                                    nuevo_banco_nom = st.text_input("Banco Nombre", value=fila_bm['banco_nombre'] or "").strip()
-                                    nuevo_nro_cta_bm = st.text_input("Cuenta Número", value=fila_bm['cuenta_numero'] or "").strip()
-                                    nueva_ref_bm = st.text_input("Referencia Bancaria", value=fila_bm['referencia'] or "").strip()
-                                with col_be2:
-                                    nuevo_monto_bm = st.number_input("Monto", value=float(fila_bm['monto']), step=100.00, format="%.2f")
-                                    
-                                    estados_posibles = ["Conciliado", "Pendiente Asiento", "No Conciliado"]
-                                    idx_est = 0
-                                    if fila_bm['estado_conciliacion'] in estados_posibles:
-                                        idx_est = estados_posibles.index(fila_bm['estado_conciliacion'])
-                                    nuevo_estado_conc = st.selectbox("Estado Conciliación", estados_posibles, index=idx_est)
-                                    
-                                    nuevo_asiento_id = st.text_input("Asiento ID asociado", value=fila_bm['asiento_id'] or "").strip()
+                                estados_posibles = ["Conciliado", "Pendiente Asiento", "No Conciliado"]
+                                idx_est = 0
+                                if fila_bm['estado_conciliacion'] in estados_posibles:
+                                    idx_est = estados_posibles.index(fila_bm['estado_conciliacion'])
+                                nuevo_estado_conc = st.selectbox("Estado Conciliación", estados_posibles, index=idx_est, key=f"ne_{id_bm_sel}")
                                 
-                                nueva_desc_bm = st.text_area("Descripción del Movimiento", value=fila_bm['descripcion'] or "").strip()
-                                
-                                btn_act_bm = st.form_submit_button("💾 Actualizar Movimiento", type="primary", use_container_width=True)
-                                
-                                if btn_act_bm:
-                                    try:
-                                        conn_ubm = conectar_db(db_actual)
-                                        if conn_ubm:
-                                            cur_ubm = conn_ubm.cursor()
-                                            query_up_bm = """
-                                                UPDATE banco_movimientos 
-                                                SET banco_nombre = %s, cuenta_numero = %s, referencia = %s, monto = %s, estado_conciliacion = %s, asiento_id = %s, descripcion = %s
-                                                WHERE id = %s
-                                            """
-                                            cur_ubm.execute(query_up_bm, (nuevo_banco_nom, nuevo_nro_cta_bm, nueva_ref_bm, nuevo_monto_bm, nuevo_estado_conc, nuevo_asiento_id, nueva_desc_bm, id_bm_sel))
-                                            conn_ubm.commit()
-                                            cur_ubm.close()
-                                            conn_ubm.close()
-                                            
-                                            st.session_state.msg_alerta_bm = ("success", f"✅ ¡El movimiento bancario ID #{id_bm_sel} fue actualizado exitosamente!")
-                                            st.rerun()
-                                    except Exception as ex_ubm:
-                                        st.session_state.msg_alerta_bm = ("error", f"❌ Error al actualizar el movimiento: {ex_ubm}")
+                                nuevo_asiento_id = st.text_input("Asiento ID asociado", value=fila_bm['asiento_id'] or "", key=f"na_{id_bm_sel}").strip()
+                            
+                            nueva_desc_bm = st.text_area("Descripción del Movimiento", value=fila_bm['descripcion'] or "", key=f"nd_{id_bm_sel}").strip()
+                            
+                            if st.button("💾 Actualizar Movimiento", type="primary", key=f"btn_act_bm_{id_bm_sel}", use_container_width=True):
+                                try:
+                                    conn_ubm = conectar_db(db_actual)
+                                    if conn_ubm:
+                                        cur_ubm = conn_ubm.cursor()
+                                        query_up_bm = """
+                                            UPDATE banco_movimientos 
+                                            SET banco_nombre = %s, cuenta_numero = %s, referencia = %s, monto = %s, estado_conciliacion = %s, asiento_id = %s, descripcion = %s
+                                            WHERE id = %s
+                                        """
+                                        cur_ubm.execute(query_up_bm, (nuevo_banco_nom, nuevo_nro_cta_bm, nueva_ref_bm, nuevo_monto_bm, nuevo_estado_conc, nuevo_asiento_id, nueva_desc_bm, id_bm_sel))
+                                        conn_ubm.commit()
+                                        cur_ubm.close()
+                                        conn_ubm.close()
+                                        
+                                        st.session_state.msg_alerta_bm = ("success", f"✅ ¡El movimiento bancario ID #{id_bm_sel} fue actualizado exitosamente!")
                                         st.rerun()
+                                except Exception as ex_ubm:
+                                    st.session_state.msg_alerta_bm = ("error", f"❌ Error al actualizar el movimiento: {ex_ubm}")
+                                    st.rerun()
                         else:
                             st.info("ℹ️ No hay movimientos bancarios registrados para el rango de fechas seleccionado.")
                 except Exception as e:
