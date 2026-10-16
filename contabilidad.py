@@ -11946,7 +11946,7 @@ elif opcion_menu == "📝 Asientos Contables":
                                 'nombre': str(r_cta['nombre']).strip()
                             }
 
-                # 1. Consultar órdenes de pago disponibles
+                # 1. Consultar órdenes de pago disponibles (excluyendo las ya conciliadas o procesadas)
                 conn_pend = conectar_db(db_actual)
                 df_pendientes = None
                 if conn_pend:
@@ -11955,7 +11955,7 @@ elif opcion_menu == "📝 Asientos Contables":
                                op.nro_factura, op.monto_bruto, op.retencion_islr, op.retencion_iva, op.monto_neto, op.fecha_emision, op.observaciones, op.estado
                         FROM ordenes_pago op
                         JOIN proveedores_carga p ON op.proveedor_id = p.id
-                        WHERE op.empresa_db = %s AND (op.estado != 'Conciliado' OR op.estado IS NULL)
+                        WHERE op.empresa_db = %s AND (op.estado NOT IN ('Conciliado', 'Procesado') OR op.estado IS NULL)
                         ORDER BY op.fecha_emision DESC
                     """
                     df_pendientes = ejecutar_consulta(query_pendientes, conn_pend, params=(str(db_actual),))
@@ -12016,6 +12016,8 @@ elif opcion_menu == "📝 Asientos Contables":
                                 conn_bm = conectar_db(db_actual)
                                 if conn_bm:
                                     cur_bm = conn_bm.cursor()
+                                    
+                                    # 1. Insertar en banco_movimientos
                                     query_banco_mov = """
                                         INSERT INTO banco_movimientos (
                                             banco_nombre, cuenta_numero, fecha_movimiento, referencia, 
@@ -12028,16 +12030,22 @@ elif opcion_menu == "📝 Asientos Contables":
                                         str(fecha_pago_real),
                                         referencia_bancaria,
                                         f"Pago Factura #{n_fact_val} - {prov_nombre_val}",
-                                        -monto_a_pagar,  # Salida de dinero
+                                        -monto_a_pagar,
                                         'Pendiente Asiento',
                                         n_comp_asiento,
                                         fecha_actual_hoy
                                     ))
+                                    
+                                    # 2. Actualizar estado temporal de la orden para que se refleje en el dataframe superior
+                                    query_up_est = "UPDATE ordenes_pago SET estado = 'Procesado' WHERE id = %s AND empresa_db = %s"
+                                    cur_up_est.execute(query_up_est, (int(fila_op_sel['id']), str(db_actual))) if 'cur_up_est' in locals() else cur_bm.execute(query_up_est, (int(fila_op_sel['id']), str(db_actual)))
+
                                     conn_bm.commit()
                                     cur_bm.close()
                                     conn_bm.close()
 
-                                    st.success(f"✅ ¡Movimiento bancario registrado exitosamente en `banco_movimientos` con referencia `{referencia_bancaria}`!")
+                                    st.success(f"✅ ¡Movimiento registrado y dataframe actualizado!")
+                                    st.rerun() # Esto obliga a Streamlit a recargar la página y actualizar el frame superior
                             except Exception as err_bm:
                                 st.error(f"❌ Error al guardar en banco_movimientos: {err_bm}")
 
