@@ -11970,7 +11970,7 @@ elif opcion_menu == "📝 Asientos Contables":
                     st.divider()
                     st.markdown("#### ⚡ Paso 1: Datos Bancarios y Registro en Banco")
                     
-                    # Selector de orden a conciliar (Sin signo de dólar en el monto)
+                    # Selector de orden a conciliar (Sin frame previo y SIN signo $)
                     dict_ops_pend = {}
                     for _, row in df_pendientes.iterrows():
                         label_op = f"ID: {row['id']} | Prov: {row['proveedor']} | Factura: {row['nro_factura']} | Neto: {row['monto_neto']:,.2f} | Estado: {row['estado']}"
