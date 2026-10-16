@@ -11962,18 +11962,28 @@ elif opcion_menu == "📝 Asientos Contables":
                     conn_pend.close()
 
                 if df_pendientes is not None and not df_pendientes.empty:
+                    # Nos aseguramos de limpiar o castear a numérico por si venía como texto o nulo
+                    import pandas as pd
+                    df_pendientes['monto_neto'] = pd.to_numeric(df_pendientes['monto_neto'], errors='coerce').fillna(0.0)
+
                     st.markdown(f"📋 Tienes **{len(df_pendientes)}** orden(es) de pago disponibles para conciliación.")
                     
+                    # Renderizamos el dataframe con configuración limpia
                     st.dataframe(
                         df_pendientes[['id', 'proveedor', 'nro_factura', 'monto_neto', 'fecha_emision', 'estado']], 
                         use_container_width=True, 
                         hide_index=True,
                         column_config={
+                            "id": "ID",
+                            "proveedor": "Proveedor",
+                            "nro_factura": "Nro Factura",
                             "monto_neto": st.column_config.NumberColumn(
-                                "Monto Neto",
-                                format="%,.2f",
+                                "Monto Neto ($)",
+                                format="$%,.2f",
                                 help="Monto neto a pagar"
-                            )
+                            ),
+                            "fecha_emision": "Fecha Emisión",
+                            "estado": "Estado"
                         }
                     )
                     
