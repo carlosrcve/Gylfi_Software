@@ -12601,19 +12601,19 @@ elif opcion_menu == "📝 Asientos Contables":
                 try:
                     conn_bm_ed = conectar_db(db_actual)
                     if conn_bm_ed:
-                        # Consulta optimizada agregando un límite de seguridad para evitar congelamientos por exceso de filas
+                        # Limitamos a 100 registros para evitar sobrecarga de renderizado en Streamlit
                         query_bm_edit = """
                             SELECT id, banco_nombre, cuenta_numero, fecha_movimiento, referencia, descripcion, monto, estado_conciliacion, asiento_id 
                             FROM banco_movimientos 
                             WHERE fecha_movimiento BETWEEN %s AND %s
                             ORDER BY fecha_movimiento DESC
-                            LIMIT 200
+                            LIMIT 100
                         """
                         df_bm_edit = ejecutar_consulta(query_bm_edit, conn_bm_ed, params=(str(fec_desde_bm), str(fec_hasta_bm)))
                         conn_bm_ed.close()
                         
                         if df_bm_edit is not None and not df_bm_edit.empty:
-                            st.markdown(f"📊 Se encontraron **{len(df_bm_edit)}** movimiento(s) bancario(s) recientes en el rango:")
+                            st.markdown(f"📊 Se encontraron **{len(df_bm_edit)}** movimiento(s) bancario(s):")
                             
                             st.dataframe(
                                 df_bm_edit[['id', 'fecha_movimiento', 'banco_nombre', 'referencia', 'monto', 'estado_conciliacion', 'asiento_id']], 
@@ -12636,16 +12636,16 @@ elif opcion_menu == "📝 Asientos Contables":
                                     st.error(texto_msg)
                                 del st.session_state.msg_alerta_bm
                             
-                            dict_bm_sel = {f"ID: {r['id']} | Fecha: {r['fecha_movimiento']} | Ref: {r['referencia']} | Monto: ${r['monto']:,.2f} | Banco: {r['banco_nombre']}": r for _, r in df_bm_edit.iterrows()}
+                            dict_bm_sel = {f"ID: {r['id']} | Fecha: {r['fecha_movimiento']} | Ref: {r['referencia']} | Monto: ${r['monto']:,.2f}": r for _, r in df_bm_edit.iterrows()}
                             
                             col_sel_fast, col_btn_fast = st.columns([3, 1])
                             with col_sel_fast:
-                                sel_bm_label = st.selectbox("Selecciona el Movimiento Bancario a gestionar:", list(dict_bm_sel.keys()), key="sel_bm_edit_full")
+                                sel_bm_label = st.selectbox("Selecciona el Movimiento Bancario:", list(dict_bm_sel.keys()), key="sel_bm_edit_full")
                             
                             fila_bm = dict_bm_sel[sel_bm_label]
                             id_bm_sel = fila_bm['id']
 
-                            # --- ELIMINACIÓN DIRECTA E INSTANTÁNEA ---
+                            # --- ELIMINACIÓN SÚPER RÁPIDA FUERA DE FORMULARIOS ---
                             with col_btn_fast:
                                 st.markdown("<br>", unsafe_allow_html=True)
                                 if st.button("🗑️ Eliminar Rápido", type="secondary", key=f"btn_del_fast_{id_bm_sel}", use_container_width=True):
@@ -12658,14 +12658,14 @@ elif opcion_menu == "📝 Asientos Contables":
                                             cur_dbm.close()
                                             conn_dbm.close()
                                             
-                                            st.session_state.msg_alerta_bm = ("warning", f"🗑️ El movimiento ID #{id_bm_sel} fue eliminado al instante.")
+                                            st.session_state.msg_alerta_bm = ("warning", f"🗑️ Movimiento ID #{id_bm_sel} eliminado al instante.")
                                             st.rerun()
                                     except Exception as ex_dbm:
-                                        st.session_state.msg_alerta_bm = ("error", f"❌ Error al eliminar el movimiento: {ex_dbm}")
+                                        st.session_state.msg_alerta_bm = ("error", f"❌ Error al eliminar: {ex_dbm}")
                                         st.rerun()
 
                             st.divider()
-                            st.markdown(f"**Modificando Movimiento ID:** `{id_bm_sel}` (Fecha: {fila_bm['fecha_movimiento']})")
+                            st.markdown(f"**Modificando Movimiento ID:** `{id_bm_sel}`")
                             
                             col_be1, col_be2 = st.columns(2)
                             with col_be1:
@@ -12700,10 +12700,10 @@ elif opcion_menu == "📝 Asientos Contables":
                                         cur_ubm.close()
                                         conn_ubm.close()
                                         
-                                        st.session_state.msg_alerta_bm = ("success", f"✅ ¡El movimiento ID #{id_bm_sel} fue actualizado con éxito!")
+                                        st.session_state.msg_alerta_bm = ("success", f"✅ ¡Movimiento ID #{id_bm_sel} actualizado con éxito!")
                                         st.rerun()
                                 except Exception as ex_ubm:
-                                    st.session_state.msg_alerta_bm = ("error", f"❌ Error al actualizar el movimiento: {ex_ubm}")
+                                    st.session_state.msg_alerta_bm = ("error", f"❌ Error al actualizar: {ex_ubm}")
                                     st.rerun()
                         else:
                             st.info("ℹ️ No hay movimientos bancarios registrados para el rango de fechas seleccionado.")
