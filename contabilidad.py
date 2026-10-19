@@ -10279,11 +10279,11 @@ elif opcion_menu == "📝 Asientos Contables":
         # 1. Validación de Seguridad: ¿Hay base de datos?
         if 'DB_ACTUAL' in st.session_state and st.session_state['DB_ACTUAL']:
             db_nombre = st.session_state['DB_ACTUAL']
-            tab1, tab2, tab3 = st.tabs([
+            tab1, tab2, tab3,tab4 = st.tabs([
                 "📖 Ver Libro Diario", 
                 "📤 Importar Excel", 
-                "📈 Asientos Ingresos Automatizados", 
-                "🗑️ Vaciar Asiento de Diarios"
+                "🗑️ Vaciar Asiento de Diarios",
+                "📈 Asientos Ingresos Automatizados"
             ])
 
             def exportar_a_excel(df):
