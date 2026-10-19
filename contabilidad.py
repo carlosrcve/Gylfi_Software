@@ -12921,105 +12921,127 @@ elif opcion_menu == "📝 Asientos Contables":
                     </table>
                     """
                     st.markdown(html_asiento, unsafe_allow_html=True)
+                    # -------------------------------------------------------------------------
+                    # 🔘 BOTONES EN COLUMNAS (Paso 1 y Paso 2)
+                    # -------------------------------------------------------------------------
+                    col_btn_p1, col_btn_p2 = st.columns(2)
 
-                    if st.button("💾 Guardar Asiento en Libro Diario y Conciliar", type="primary", key="btn_guardar_asiento_diario"):
-                        if not referencia_bancaria:
-                            st.warning("⚠️ Asegúrate de haber ingresado la referencia bancaria.")
-                        elif not lista_bancos_detalle or "No hay cuentas" in cta_banco_salida:
-                            st.error("⚠️ Debes seleccionar una cuenta bancaria válida.")
-                        else:
-                            try:
-                                monto_a_pagar = float(fila_op_sel['monto_neto'])
-                                n_fact_val = str(fila_op_sel['nro_factura'])
-                                prov_nombre_val = str(fila_op_sel['proveedor'])
-                                n_comp_asiento = f"PAGO-{n_fact_val}"
+                    # --- COLUMNA 1: BOTÓN PASO 1 (GUARDAR MOVIMIENTO EN BANCO) ---
+                    with col_btn_p1:
+                        if st.button("📥 Registrar Movimiento en Banco", type="secondary", key="btn_guardar_banco_mov", use_container_width=True):
+                            if not referencia_bancaria:
+                                st.warning("⚠️ Debes introducir obligatoriamente la referencia bancaria del estado de cuenta.")
+                            else:
+                                try:
+                                    monto_a_pagar = float(fila_op_sel['monto_neto'])
+                                    n_fact_val = str(fila_op_sel['nro_factura'])
+                                    prov_nombre_val = str(fila_op_sel['proveedor'])
+                                    n_comp_asiento = f"PAGO-{n_fact_val}"
 
-                                conn_update = conectar_db(db_actual)
-                                if conn_update:
-                                    cursor_m = conn_update.cursor()
+                                    import datetime
+                                    fecha_actual_hoy = datetime.date.today().strftime('%Y-%m-%d')
+
+                                    conn_bm = conectar_db(db_actual)
+                                    if conn_bm:
+                                        cur_bm = conn_bm.cursor()
+                                        
+                                        query_banco_mov = """
+                                            INSERT INTO banco_movimientos (
+                                                banco_nombre, cuenta_numero, fecha_movimiento, referencia, 
+                                                descripcion, monto, estado_conciliacion, asiento_id, fecha_importacion
+                                            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                        """
+                                        cur_bm.execute(query_banco_mov, (
+                                            str(fila_op_sel['banco_prov']) if fila_op_sel['banco_prov'] else "Banco Emisor",
+                                            str(fila_op_sel['cuenta_prov']) if fila_op_sel['cuenta_prov'] else "N/A",
+                                            str(fecha_pago_real),
+                                            referencia_bancaria,
+                                            f"Pago Factura #{n_fact_val} - {prov_nombre_val}",
+                                            -monto_a_pagar,
+                                            'Pendiente Asiento',
+                                            n_comp_asiento,
+                                            fecha_actual_hoy
+                                        ))
+                                        
+                                        query_up_est = "UPDATE ordenes_pago SET estado = 'Procesado' WHERE id = %s AND empresa_db = %s"
+                                        cur_bm.execute(query_up_est, (int(fila_op_sel['id']), str(db_actual)))
+
+                                        conn_bm.commit()
+                                        cur_bm.close()
+                                        conn_bm.close()
+
+                                        st.success("✅ ¡Movimiento bancario registrado con éxito!")
+                                        st.rerun()
+                                except Exception as err_bm:
+                                    st.error(f"❌ Error al guardar en banco_movimientos: {err_bm}")
+
+                    # --- COLUMNA 2: BOTÓN PASO 2 (GUARDAR ASIENTO Y CONCILIAR) ---
+                    with col_btn_p2:
+                        if st.button("💾 Guardar Asiento en Libro Diario y Conciliar", type="primary", key="btn_guardar_asiento_diario", use_container_width=True):
+                            if not referencia_bancaria:
+                                st.warning("⚠️ Asegúrate de haber ingresado la referencia bancaria.")
+                            elif not lista_bancos_detalle or "No hay cuentas" in cta_banco_salida:
+                                st.error("⚠️ Debes seleccionar una cuenta bancaria válida.")
+                            else:
+                                try:
+                                    monto_a_pagar = float(fila_op_sel['monto_neto'])
+                                    n_fact_val = str(fila_op_sel['nro_factura'])
+                                    prov_nombre_val = str(fila_op_sel['proveedor'])
+                                    n_comp_asiento = f"PAGO-{n_fact_val}"
+
+                                    conn_update = conectar_db(db_actual)
+                                    if conn_update:
+                                        cursor_m = conn_update.cursor()
+                                        
+                                        query_asiento_pago = """
+                                            INSERT INTO asientos_contables (
+                                                n_comprobante, descripcion, fecha, plan_cuentas, 
+                                                cuenta_contable, referencia, debe, haber, bloqueado
+                                            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 0)
+                                        """
+                                        
+                                        # Asiento Debe
+                                        cursor_m.execute(query_asiento_pago, (
+                                            n_comp_asiento,
+                                            f"Cancelación de Pago a {prov_nombre_val} - Factura {n_fact_val}",
+                                            str(fecha_pago_real),
+                                            "2.1.1.01.001",
+                                            "Proveedores Nacionales",
+                                            referencia_bancaria,
+                                            monto_a_pagar,
+                                            0.00
+                                        ))
+
+                                        # Asiento Haber
+                                        cursor_m.execute(query_asiento_pago, (
+                                            n_comp_asiento,
+                                            f"Cancelación de Pago a {prov_nombre_val} - Factura {n_fact_val}",
+                                            str(fecha_pago_real),
+                                            info_banco_prev['codigo'],
+                                            info_banco_prev['nombre'],
+                                            referencia_bancaria,
+                                            0.00,
+                                            monto_a_pagar
+                                        ))
+
+                                        query_update_match = """
+                                            UPDATE ordenes_pago 
+                                            SET referencia_banco = %s, fecha_pago = %s, estado = 'Conciliado'
+                                            WHERE id = %s AND empresa_db = %s
+                                        """
+                                        cursor_m.execute(query_update_match, (referencia_bancaria, fecha_pago_real, int(fila_op_sel['id']), str(db_actual)))
+
+                                        conn_update.commit()
+                                        cursor_m.close()
+                                        conn_update.close()
                                     
-                                    query_asiento_pago = """
-                                        INSERT INTO asientos_contables (
-                                            n_comprobante, descripcion, fecha, plan_cuentas, 
-                                            cuenta_contable, referencia, debe, haber, bloqueado
-                                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 0)
-                                    """
-                                    
-                                    cursor_m.execute(query_asiento_pago, (
-                                        n_comp_asiento,
-                                        f"Cancelación de Pago a {prov_nombre_val} - Factura {n_fact_val}",
-                                        str(fecha_pago_real),
-                                        "2.1.1.01.001",
-                                        "Proveedores Nacionales",
-                                        referencia_bancaria,
-                                        monto_a_pagar,
-                                        0.00
-                                    ))
-
-                                    cursor_m.execute(query_asiento_pago, (
-                                        n_comp_asiento,
-                                        f"Cancelación de Pago a {prov_nombre_val} - Factura {n_fact_val}",
-                                        str(fecha_pago_real),
-                                        info_banco_prev['codigo'],
-                                        info_banco_prev['nombre'],
-                                        referencia_bancaria,
-                                        0.00,
-                                        monto_a_pagar
-                                    ))
-
-                                    query_update_match = """
-                                        UPDATE ordenes_pago 
-                                        SET referencia_banco = %s, fecha_pago = %s, estado = 'Conciliado'
-                                        WHERE id = %s AND empresa_db = %s
-                                    """
-                                    cursor_m.execute(query_update_match, (referencia_bancaria, fecha_pago_real, int(fila_op_sel['id']), str(db_actual)))
-
-                                    conn_update.commit()
-                                    cursor_m.close()
-                                    conn_update.close()
-                                
-                                st.toast("✅ ¡Asiento registrado en el libro diario y orden conciliada!", icon="🎉")
-                                st.success(f"✅ ¡Proceso completado! Asiento `{n_comp_asiento}` guardado en `asientos_contables` y orden #{fila_op_sel['id']} marcada como Conciliada.")
-                                
-                                st.divider()
-                                st.markdown("---")
-                                st.markdown("## 📄 COMPROBANTE DE EGRESO Y PAGO CONCILIADO")
-                                st.info("📌 Este comprobante certifica el cruce de la cuenta por pagar con el movimiento emitido por la entidad financiera y la afectación contable.")
-                                
-                                col_c1, col_c2 = st.columns(2)
-                                with col_c1:
-                                    st.markdown(f"**Empresa Emisora:** `{db_actual}`")
-                                    st.markdown(f"**Proveedor:** {fila_op_sel['proveedor']}")
-                                    st.markdown(f"**RIF Proveedor:** {fila_op_sel['rif']}")
-                                    st.markdown(f"**Factura Nro:** `{fila_op_sel['nro_factura']}`")
-                                with col_c2:
-                                    st.markdown(f"**Referencia Bancaria:** `{referencia_bancaria}`")
-                                    st.markdown(f"**Fecha del Pago:** `{fecha_pago_real}`")
-                                    st.markdown(f"**Banco Salida:** {info_banco_prev['codigo']} - {info_banco_prev['nombre']}")
-                                    st.markdown(f"**Banco Destino:** {fila_op_sel['banco_prov']} - `{fila_op_sel['cuenta_prov']}`")
-                                    
-                                st.markdown("### 📊 Desglose Financiero")
-                                data_desglose = {
-                                    "Concepto": ["Monto Bruto Factura", "Menos: Retención ISLR", "Menos: Retención IVA", "Monto Neto Transferido (Haber Banco / Debe Proveedor)"],
-                                    "Monto": [
-                                        f"{fila_op_sel['monto_bruto']:,.2f}",
-                                        f"-{fila_op_sel['retencion_islr']:,.2f}",
-                                        f"-{fila_op_sel['retencion_iva']:,.2f}",
-                                        f"{fila_op_sel['monto_neto']:,.2f}"
-                                    ]
-                                }
-                                st.table(data_desglose)
-                                
-                                if fila_op_sel['observaciones']:
-                                    st.markdown(f"**Concepto / Observaciones:** {fila_op_sel['observaciones']}")
-                                    
-                                st.markdown("---")
-                                
-                                if st.button("🔄 Continuar y Siguiente", type="primary", key="btn_continuar_siguiente"):
+                                    st.toast("✅ ¡Asiento registrado en el libro diario y orden conciliada!", icon="🎉")
+                                    st.success(f"✅ ¡Proceso completado! Asiento `{n_comp_asiento}` guardado en `asientos_contables` y orden #{fila_op_sel['id']} marcada como Conciliada.")
                                     st.rerun()
 
-                            except Exception as ex_m:
-                                st.error(f"❌ Error al registrar el asiento contable: {ex_m}")
+                                except Exception as ex_m:
+                                    st.error(f"❌ Error al registrar el asiento contable: {ex_m}")
+
                 else:
                     st.info("🎉 ¡Excelente! No hay órdenes de pago disponibles para conciliar.")
 
