@@ -11918,13 +11918,12 @@ elif opcion_menu == "📝 Asientos Contables":
         st.subheader("💳 Módulo de Tesorería y Cruce con Proveedores")
         
         # Pestañas organizadas para cubrir todo el ciclo y mantenimiento
-        tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+        tab1, tab2, tab3, tab4, tab5 = st.tabs([
             "📂 Directorio de Proveedores", 
             "🧾 Órdenes de Pago (CxP)", 
             "🔗 Conciliación Bancaria", 
             "✏️ Modificar / Eliminar", 
             "🗑️ Mantenimiento Masivo",
-            "🧾 Órdenes de Cobranzas"
         ])
         
         with tab1:
