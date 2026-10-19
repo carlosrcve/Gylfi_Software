@@ -12682,7 +12682,7 @@ elif opcion_menu == "📝 Asientos Contables":
                         FROM ordenes_pago op
                         JOIN proveedores_carga p ON op.proveedor_id = p.id
                         WHERE op.empresa_db = %s 
-                          AND (op.estado NOT IN ('Conciliado', 'Procesado', 'Pagado') OR op.estado IS NULL)
+                          AND (op.estado NOT IN ('Conciliado', 'Pagado') OR op.estado IS NULL)
                         ORDER BY op.fecha_emision DESC
                     """
                     df_pendientes = ejecutar_consulta(query_pendientes, conn_pend, params=(str(db_actual),))
