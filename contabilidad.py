@@ -12712,55 +12712,6 @@ elif opcion_menu == "📝 Asientos Contables":
                     with col_m2:
                         fecha_pago_real = st.date_input("Fecha real del movimiento en el Banco", key="input_fec_banco_b")
 
-                    # -------------------------------------------------------------------------
-                    # 📥 BOTÓN PASO 1: GUARDAR EN TABLA `banco_movimientos`
-                    # -------------------------------------------------------------------------
-                    if st.button("📥 Registrar Movimiento en Banco", type="secondary", key="btn_guardar_banco_mov"):
-                        if not referencia_bancaria:
-                            st.warning("⚠️ Debes introducir obligatoriamente la referencia bancaria del estado de cuenta.")
-                        else:
-                            try:
-                                monto_a_pagar = float(fila_op_sel['monto_neto'])
-                                n_fact_val = str(fila_op_sel['nro_factura'])
-                                prov_nombre_val = str(fila_op_sel['proveedor'])
-                                n_comp_asiento = f"PAGO-{n_fact_val}"
-
-                                import datetime
-                                fecha_actual_hoy = datetime.date.today().strftime('%Y-%m-%d')
-
-                                conn_bm = conectar_db(db_actual)
-                                if conn_bm:
-                                    cur_bm = conn_bm.cursor()
-                                    
-                                    query_banco_mov = """
-                                        INSERT INTO banco_movimientos (
-                                            banco_nombre, cuenta_numero, fecha_movimiento, referencia, 
-                                            descripcion, monto, estado_conciliacion, asiento_id, fecha_importacion
-                                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                                    """
-                                    cur_bm.execute(query_banco_mov, (
-                                        str(fila_op_sel['banco_prov']) if fila_op_sel['banco_prov'] else "Banco Emisor",
-                                        str(fila_op_sel['cuenta_prov']) if fila_op_sel['cuenta_prov'] else "N/A",
-                                        str(fecha_pago_real),
-                                        referencia_bancaria,
-                                        f"Pago Factura #{n_fact_val} - {prov_nombre_val}",
-                                        -monto_a_pagar,
-                                        'Pendiente Asiento',
-                                        n_comp_asiento,
-                                        fecha_actual_hoy
-                                    ))
-                                    
-                                    query_up_est = "UPDATE ordenes_pago SET estado = 'Procesado' WHERE id = %s AND empresa_db = %s"
-                                    cur_bm.execute(query_up_est, (int(fila_op_sel['id']), str(db_actual)))
-
-                                    conn_bm.commit()
-                                    cur_bm.close()
-                                    conn_bm.close()
-
-                                    st.success(f"✅ ¡Movimiento bancario registrado con éxito!")
-                                    st.rerun()
-                            except Exception as err_bm:
-                                st.error(f"❌ Error al guardar en banco_movimientos: {err_bm}")
 
                     # --- FRAME DE VISUALIZACIÓN DE LA TABLA `banco_movimientos` CON RANGO DE FECHA ---
                     st.divider()
