@@ -17662,18 +17662,24 @@ elif opcion_menu == "📚 Libros Fiscales":
             with tab4:
                 st.divider()
                 st.markdown("### 🖨️ Reimpresión de Comprobantes")
+                st.markdown("Selecciona el rango de fechas para consultar y reimprimir los comprobantes de retención.")
                 
-                # 1. Botón para cargar historial
-                # Bloque de carga corregido dentro de tab4
-                # 1. Botón para cargar historial
-                if st.button("📂 Cargar/Actualizar Historial", width='stretch'):
+                from datetime import date as d_tipo
+                
+                col_h1, col_h2 = st.columns(2)
+                with col_h1:
+                    f_hist_desde = st.date_input("Desde (Fecha Operación)", value=d_tipo.today().replace(day=1), key="hist_fec_desde")
+                with col_h2:
+                    f_hist_hasta = st.date_input("Hasta (Fecha Operación)", value=d_tipo.today(), key="hist_fec_hasta")
+                
+                # 1. Botón para cargar historial con filtro de fechas
+                if st.button("📂 Cargar Historial por Rango", width='stretch', key="btn_cargar_hist_rango"):
                     db_actual = st.session_state.get('DB_ACTUAL')
                     conn = conectar_db()
                     
                     if conn and db_actual:
                         try:
                             cursor = conn.cursor()
-                            # Aseguramos el contexto de la base de datos correcta
                             cursor.execute(f"USE {db_actual}")
                             
                             query_historial = """
@@ -17682,24 +17688,24 @@ elif opcion_menu == "📚 Libros Fiscales":
                                        COALESCE(p.direccion_fiscal, 'CARACAS, VENEZUELA') AS direccion_completa
                                 FROM retenciones_islr r
                                 LEFT JOIN proveedores p ON r.rif_retenido COLLATE utf8mb4_unicode_ci = p.rif COLLATE utf8mb4_unicode_ci
+                                WHERE r.fecha_operacion BETWEEN %s AND %s
                                 ORDER BY r.id DESC
                             """
-                            # Cargar datos al session_state
-                            st.session_state.df_historial_islr = ejecutar_consulta(query_historial, conn)
+                            # Cargar datos al session_state pasando los parámetros de fecha
+                            st.session_state.df_historial_islr = ejecutar_consulta(query_historial, conn, params=(str(f_hist_desde), str(f_hist_hasta)))
                             
                         except Exception as e:
                             st.error(f"Error al cargar historial: {e}")
                         finally:
                             conn.close()
-                            # Forzar recarga para que el if inferior detecte los datos
                             st.rerun()
                     elif not db_actual:
                         st.warning("⚠️ Por favor, selecciona una base de datos primero.")
 
-
                 # 2. Visualización y Selección
-                # 2. Visualización y Selección
-                if "df_historial_islr" in st.session_state and not st.session_state.df_historial_islr.empty:
+                if "df_historial_islr" in st.session_state and st.session_state.df_historial_islr is not None and not st.session_state.df_historial_islr.empty:
+                    st.success(f"📊 Se encontraron **{len(st.session_state.df_historial_islr)}** comprobantes en el rango seleccionado.")
+                    
                     sel_hist = st.dataframe(
                         st.session_state.df_historial_islr, 
                         key="tabla_historial",
@@ -17717,7 +17723,6 @@ elif opcion_menu == "📚 Libros Fiscales":
                         
                         # Procesamiento de datos...
                         with st.status("🛠️ Procesando datos...", expanded=False):
-                            # ... (tu lógica de limpieza de factura y control aquí) ...
                             factura_sucia = str(h['numero_factura']).split("/")[0]
                             solo_numeros_f = re.findall(r'\d+', factura_sucia)
                             factura_limpia = solo_numeros_f[0].zfill(5) if solo_numeros_f else "00001"
@@ -17749,14 +17754,12 @@ elif opcion_menu == "📚 Libros Fiscales":
                         conn = conectar_db() # Abrimos conexión para el log
                         if conn:
                             try:
-                                # PASAMOS EL SEGUNDO ARGUMENTO (conn)
                                 pdf_bytes_re = generar_comprobante_pdf(datos_reimp, conn)
                                 
                                 if pdf_bytes_re:
                                     st.download_button(
                                         label=f"📥 Descargar PDF: {h['nombre_completo'][:20]}...", 
                                         data=pdf_bytes_re, 
-                                        # Aquí hacemos el cambio para usar el número de comprobante directamente
                                         file_name=f"Retencion_{h['n_comprob_islr']}.pdf", 
                                         mime="application/pdf", 
                                         width='stretch',
@@ -17765,7 +17768,10 @@ elif opcion_menu == "📚 Libros Fiscales":
                             except Exception as e:
                                 st.error(f"Error al generar el archivo: {e}")
                             finally:
-                                conn.close() # Cerramos conexión para liberar recursos
+                                conn.close()
+                                
+                elif "df_historial_islr" in st.session_state and st.session_state.df_historial_islr is not None and st.session_state.df_historial_islr.empty:
+                    st.info("ℹ️ No se encontraron comprobantes de retención en el rango de fechas seleccionado.")
 
             # --- TAB 5: GESTIÓN DE FACTURAS ---
             with tab5:
