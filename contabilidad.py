@@ -7681,6 +7681,66 @@ def renderizar_tab_asientos_ventas(db_connection):
                     db_connection.rollback()
                 st.error(f"❌ Error crítico al guardar en MySQL: {str(db_err)}")
 
+from fpdf import FPDF
+
+def generar_pdf_resumen_seniat(records, empresa_nombre, periodo_str, tot_base, tot_sust, tot_neta):
+    pdf = FPDF(orientation='L', unit='mm', format='A4') # Orientación Horizontal
+    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.add_page()
+    
+    # Encabezado
+    pdf.set_font("Helvetica", "B", 14)
+    pdf.cell(0, 8, f"RESUMEN DE RETENCIONES DE ISLR PARA EL SENIAT", ln=True, align="C")
+    pdf.set_font("Helvetica", "", 10)
+    pdf.cell(0, 6, f"Empresa / Cliente: {empresa_nombre}  |  Periodo Fiscal: {periodo_str}", ln=True, align="C")
+    pdf.ln(5)
+    
+    # Encabezados de la Tabla (Ancho total A4 Landscape ~ 277mm)
+    pdf.set_font("Helvetica", "B", 8)
+    pdf.set_fill_color(240, 240, 240)
+    
+    ancho_cols = {
+        'Fila / Doc': 25, 'Fecha': 20, 'N° Doc': 20, 'N° Control': 22, 
+        'R.I.F.': 25, 'Nombre o Razón Social': 60, 'Cód. Concepto (XML)': 25, 
+        'Base Imponible (Bs.)': 28, 'Sustraendo (Bs.)': 25, 'Retención Neta (Bs.)': 27
+    }
+    
+    for col, width in ancho_cols.items():
+        pdf.cell(width, 7, col[:15], border=1, align="C", fill=True)
+    pdf.ln()
+    
+    # Contenido de Filas
+    pdf.set_font("Helvetica", "", 8)
+    for row in records:
+        pdf.cell(ancho_cols['Fila / Doc'], 6, str(row.get('Fila / Doc', ''))[:14], border=1)
+        pdf.cell(ancho_cols['Fecha'], 6, str(row.get('Fecha', '')), border=1, align="C")
+        pdf.cell(ancho_cols['N° Doc'], 6, str(row.get('N° Doc', '')), border=1, align="C")
+        pdf.cell(ancho_cols['N° Control'], 6, str(row.get('N° Control', '')), border=1, align="C")
+        pdf.cell(ancho_cols['R.I.F.'], 6, str(row.get('R.I.F.', '')), border=1, align="C")
+        pdf.cell(ancho_cols['Nombre o Razón Social'], 6, str(row.get('Nombre o Razón Social', ''))[:32], border=1)
+        pdf.cell(ancho_cols['Cód. Concepto (XML)'], 6, str(row.get('Cód. Concepto (XML)', '')), border=1, align="C")
+        
+        base_val = float(row.get('Base Imponible (Bs.)', 0) or 0)
+        sust_val = float(row.get('Sustraendo (Bs.)', 0) or 0)
+        neto_val = float(row.get('Retención Neta (Bs.)', 0) or 0)
+        
+        pdf.cell(ancho_cols['Base Imponible (Bs.)'], 6, f"{base_val:,.2f}", border=1, align="R")
+        pdf.cell(ancho_cols['Sustraendo (Bs.)'], 6, f"{sust_val:,.2f}", border=1, align="R")
+        pdf.cell(ancho_cols['Retención Neta (Bs.)'], 6, f"{neto_val:,.2f}", border=1, align="R")
+        pdf.ln()
+        
+    # Fila de Totales
+    pdf.set_font("Helvetica", "B", 8)
+    pdf.set_fill_color(230, 230, 230)
+    ancho_acumulado_texto = sum([ancho_cols['Fila / Doc'], ancho_cols['Fecha'], ancho_cols['N° Doc'], ancho_cols['N° Control'], ancho_cols['R.I.F.'], ancho_cols['Nombre o Razón Social'], ancho_cols['Cód. Concepto (XML)']])
+    
+    pdf.cell(ancho_acumulado_texto, 7, "TOTALES GENERALES A ENTERAR AL SENIAT:", border=1, align="R", fill=True)
+    pdf.cell(ancho_cols['Base Imponible (Bs.)'], 7, f"{tot_base:,.2f}", border=1, align="R", fill=True)
+    pdf.cell(ancho_cols['Sustraendo (Bs.)'], 7, f"{tot_sust:,.2f}", border=1, align="R", fill=True)
+    pdf.cell(ancho_cols['Retención Neta (Bs.)'], 7, f"{tot_neta:,.2f}", border=1, align="R", fill=True)
+    
+    return bytes(pdf.output())
+
 def gestionar_sidebar():
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
     user_id = st.session_state.get('user_id', st.session_state.get('cliente_id', 'N/A'))
@@ -17978,20 +18038,43 @@ elif opcion_menu == "📚 Libros Fiscales":
 
                         st.markdown("---")
                         
-                        # Botón de descarga con detección de clic e impresión de mensaje formateado en HTML/CSS
-                        btn_descarga = st.download_button(
-                            label="📥 Descargar Archivo XML para el Portal SENIAT",
-                            data=st.session_state['xml_data'],
-                            file_name=st.session_state['xml_filename'],
-                            mime="application/xml",
-                            width='content'
+                        # --- GENERACIÓN DEL ARCHIVO PDF RESUMEN ---
+                        db_actual_nom = st.session_state.get('DB_ACTUAL', 'Empresa')
+                        periodo_pdf_str = st.session_state.get('xml_filename', 'periodo').replace('RET_ISLR_', '').replace('.xml', '')
+                        
+                        pdf_bytes = generar_pdf_resumen_seniat(
+                            records=records,
+                            empresa_nombre=db_actual_nom,
+                            periodo_str=periodo_pdf_str,
+                            tot_base=tot_base,
+                            tot_sust=tot_sust,
+                            tot_neta=tot_neta
                         )
+
+                        # --- BOTONES DE DESCARGA LADO A LADO EN 2 COLUMNAS ---
+                        col_down1, col_down2 = st.columns(2)
+                        
+                        with col_down1:
+                            btn_descarga = st.download_button(
+                                label="📥 Descargar Archivo XML (Portal SENIAT)",
+                                data=st.session_state['xml_data'],
+                                file_name=st.session_state['xml_filename'],
+                                mime="application/xml",
+                                use_container_width=True
+                            )
+                            
+                        with col_down2:
+                            st.download_button(
+                                label="📄 Descargar Resumen en PDF (Para Imprimir)",
+                                data=pdf_bytes,
+                                file_name=f"Resumen_Retenciones_ISLR_{periodo_pdf_str}.pdf",
+                                mime="application/pdf",
+                                use_container_width=True
+                            )
                         
                         if btn_descarga:
-                            # Formateamos el total neto con el formato venezolano (puntos para miles, coma para decimales)
                             monto_neto_formateado = f"{tot_neta:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
                             
-                            # Renderizado con diseño CSS personalizado
                             st.markdown(f"""
                                 <style>
                                     .seniat-alert-box {{
