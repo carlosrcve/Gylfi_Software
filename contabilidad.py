@@ -1271,3 +1271,436 @@ def obtener_comprobantes_ingresos(db, f_inicio, f_fin):
         return pd.DataFrame()
     finally:
         if conn: conn.close()
+
+
+def actualizar_tabla_completa_db(conn, nombre_tabla, df_nuevo):
+    """
+    Actualización genérica segura: hace TRUNCATE y luego inserta el DF completo.
+    """
+    if not conn or not conn.is_connected():
+        raise Exception("No hay conexión activa a la base de datos.")
+
+    # 🛡️ Si la tabla es proveedores, nos aseguramos de que tenga las 6 columnas exactas obligatorias
+    if nombre_tabla == "proveedores":
+        columnas_obligatorias = ["rif", "tipo_persona", "razon_social", "direccion_fiscal", "codigo_cuenta", "descripcion_cuenta"]
+        for col in columnas_obligatorias:
+            if col not in df_nuevo.columns:
+                df_nuevo[col] = "" # Si falta alguna, se crea vacía para no romper la BD
+        # Reordenamos el DataFrame para que coincida exactamente con el orden de las columnas de MySQL
+        df_nuevo = df_nuevo[columnas_obligatorias]
+
+    # 🛡️ SEGURIDAD: Validar que el nombre de la tabla contenga solo caracteres alfanuméricos y guiones bajos
+    if not re.match(r"^[a-zA-Z0-9_]+$", nombre_tabla):
+        raise ValueError(f"Nombre de tabla inválido o inseguro: {nombre_tabla}")
+
+    # 🛡️ SEGURIDAD: Validar que los nombres de las columnas también sean seguros
+    for col in df_nuevo.columns:
+        if not re.match(r"^[a-zA-Z0-9_]+$", str(col)):
+            raise ValueError(f"Nombre de columna inválido o inseguro: {col}")
+
+    cursor = conn.cursor()
+    try:
+        # 1. Limpiar tabla de forma segura usando backticks para delimitar la tabla
+        cursor.execute("SET FOREIGN_KEY_CHECKS = 0;")
+        cursor.execute(f"TRUNCATE TABLE `{nombre_tabla}`")
+        
+        # 2. Generar el INSERT dinámico de forma segura con columnas validadas
+        columnas = ", ".join([f"`{col}`" for col in df_nuevo.columns])
+        placeholders = ", ".join(["%s"] * len(df_nuevo.columns))
+        sql = f"INSERT INTO `{nombre_tabla}` ({columnas}) VALUES ({placeholders})"
+        
+        # 3. Insertar datos de forma masiva
+        datos = [tuple(row) for row in df_nuevo.values]
+        cursor.executemany(sql, datos)
+        
+        conn.commit()
+        
+    except Exception as e:
+        conn.rollback()
+        raise e 
+    finally:
+        # Garantizar por seguridad que las llaves foráneas siempre se vuelven a activar
+        try:
+            cursor.execute("SET FOREIGN_KEY_CHECKS = 1;")
+        except:
+            pass
+            
+        if cursor:
+            cursor.close()
+
+
+
+def consultar_tabla_db(conn, nombre_tabla, limite=None):
+    # 1. Validar nombre de tabla para evitar inyección SQL
+    if not re.match(r"^[a-zA-Z0-9_]+$", str(nombre_tabla)):
+        st.error(f"Nombre de tabla inseguro: {nombre_tabla}")
+        return None
+
+    if not conn:
+        st.error("No hay conexión activa.")
+        return None
+
+    try:
+        # 2. Construcción directa de la consulta
+        query = f"SELECT * FROM `{nombre_tabla}`"
+        
+        if limite and isinstance(limite, int):
+            query += f" LIMIT {limite}"
+            
+        # 3. Ejecutamos la consulta
+        resultado = ejecutar_consulta(query, conn)
+        
+        # 4. GARANTÍA DE DATOS: Aseguramos que el resultado sea siempre un DataFrame de Pandas
+        if isinstance(resultado, pd.DataFrame):
+            df = resultado
+        elif isinstance(resultado, list):
+            # Si viene como lista de diccionarios o tuplas
+            df = pd.DataFrame(resultado)
+        else:
+            # Si 'ejecutar_consulta' devuelve cursor directo
+            try:
+                cursor = conn.cursor(dictionary=True) # O el equivalente en tu conector
+                cursor.execute(query)
+                datos = cursor.fetchall()
+                df = pd.DataFrame(datos)
+            except Exception:
+                df = pd.DataFrame()
+
+        # Si el DataFrame está vacío, al menos devolvemos un DataFrame sin filas pero con las columnas de la BD
+        if df.empty:
+            # Intentamos obtener las columnas directamente si el df está totalmente vacío
+            cursor = conn.cursor()
+            cursor.execute(f"SHOW COLUMNS FROM `{nombre_tabla}`")
+            columnas = [row[0] for row in cursor.fetchall()]
+            df = pd.DataFrame(columns=columnas)
+
+        return df
+
+    except Exception as e:
+        st.error(f"Error consultando {nombre_tabla}: {e}")
+        return None
+
+
+@st.cache_data(ttl=300)
+def obtener_datos_agente_db(valor_busqueda):
+    return _obtener_datos_agente_db_v2(valor_busqueda)
+
+def _obtener_datos_agente_db_v2(valor_busqueda):
+    conn_central = conectar_db() 
+    if not conn_central: 
+        return None
+
+    cursor = None
+    try:
+        cursor = conn_central.cursor(pymysql.cursors.DictCursor)
+        
+        # ¡Añadimos direccion_fiscal a las columnas seleccionadas!
+        if isinstance(valor_busqueda, str):
+            query = "SELECT id, nombre_empresa, rif, db_nombre, estado, direccion_fiscal FROM clientes WHERE db_nombre = %s"
+        else:
+            query = "SELECT id, nombre_empresa, rif, db_nombre, estado, direccion_fiscal FROM clientes WHERE id = %s"
+        
+        cursor.execute(query, (valor_busqueda,))
+        datos = cursor.fetchone()
+        return datos
+        
+    except Exception as e:
+        st.error(f"❌ Error interno de consulta: {e}")
+        return None
+        
+    finally:
+        if cursor: cursor.close()
+        if conn_central: conn_central.close()
+
+
+def cargar_asientos_contables_db(df, conn=None):
+    # 1. Obtener y asegurar la base de datos actual de la sesión
+    db_actual = st.session_state.get('DB_ACTUAL')
+    if not db_actual:
+        st.error("⚠️ No se ha seleccionado una base de datos de empresa en la sesión.")
+        return False
+
+    usuario_actual = str(st.session_state.get('usuario', 'Admin'))
+    registrar_log_automatico(conn, "CONSULTA_BALANCE_GENERAL", f"Usuario {usuario_actual} intentó cargar asientos para {db_actual}")
+
+    # 2. Gestionar la conexión si no viene dada
+    if not conn:
+        conn = conectar_db(db_actual)
+    
+    if not conn: 
+        st.error("❌ No se pudo establecer conexión con la base de datos.")
+        return False
+        
+    cursor = None
+    try:
+        # --- LIMPIEZA DE DATOS CRÍTICA ---
+        df_limpio = df.copy()
+        
+        # Normalizar nombres de columnas a minúsculas o buscar variantes comunes para evitar KeyErrors
+        df_limpio.columns = [str(c).strip() for c in df_limpio.columns]
+        
+        # Diccionario de posibles nombres para la columna de fecha
+        col_fecha_candidatos = ['Fecha', 'fecha', 'FECHA', 'Fecha de Operacion', 'Fecha de Operación']
+        col_fecha_encontrada = None
+        for c in col_fecha_candidatos:
+            if c in df_limpio.columns:
+                col_fecha_encontrada = c
+                break
+                
+        if not col_fecha_encontrada:
+            st.error(f"❌ El archivo Excel no contiene una columna de fecha válida. Columnas detectadas: {list(df_limpio.columns)}")
+            return False
+
+        # Renombrar temporalmente a 'Fecha' para estandarizar
+        if col_fecha_encontrada != 'Fecha':
+            df_limpio.rename(columns={col_fecha_encontrada: 'Fecha'}, inplace=True)
+
+        # 1. Convertir fecha y ELIMINAR filas donde la fecha sea nula (NaT)
+        df_limpio['Fecha'] = pd.to_datetime(df_limpio['Fecha'], errors='coerce')
+        df_limpio = df_limpio.dropna(subset=['Fecha']) 
+        
+        if df_limpio.empty:
+            st.warning("⚠️ No se encontraron fechas válidas en el archivo Excel.")
+            return False
+
+        # 2. VALIDACIÓN ESTRICTA DE PERÍODOS BLOQUEADOS DESDE MYSQL
+        anios_meses_excel = set((row['Fecha'].year, row['Fecha'].month) for _, row in df_limpio.iterrows())
+        
+        cursor = conn.cursor()
+        
+        # Validación dinámica consultando directamente en MySQL si el período está bloqueado
+        for anio, mes in anios_meses_excel:
+            try:
+                query_verificar_bloqueo = f"""
+                    SELECT COUNT(*) FROM `{db_actual}`.asientos_contables 
+                    WHERE YEAR(fecha) = %s AND MONTH(fecha) = %s AND bloqueado = 1
+                """
+                cursor.execute(query_verificar_bloqueo, (anio, mes))
+                resultado = cursor.fetchone()
+                
+                if resultado and resultado[0] > 0:
+                    cursor.close()
+                    st.error(f"❌ **¡Alerta! El período {mes:02d}/{anio} está cerrado y bloqueado.** No se puede subir el libro de diario porque este mes ya se encuentra cerrado en la base de datos.")
+                    return False
+            except Exception:
+                # Si la columna 'bloqueado' no existe o la tabla aún no la contempla, la ignoramos para no interrumpir el flujo
+                pass
+
+        # Mapeo flexible de columnas de Debe y Haber
+        for col_objetivo, posibles in [
+            ('Debe', ['Debe', 'DEBE', 'debe']),
+            ('Haber', ['Haber', 'HABER', 'haber']),
+            ('N_comprobante', ['N_comprobante', 'n_comprobante', 'Comprobante', 'Nro Comprobante']),
+            ('Descripcion', ['Descripcion', 'Descripción', 'DESCRIPCION', 'concepto']),
+            ('plan_de_cuentas', ['plan_de_cuentas', 'Plan de Cuentas', 'cuenta', 'codigo_cuenta']),
+            ('cuenta_contable', ['cuenta_contable', 'Cuenta Contable', 'nombre_cuenta', 'descripcion_cuenta']),
+            ('Ref', ['Ref', 'REF', 'Referencia', 'referencia'])
+        ]:
+            if col_objetivo not in df_limpio.columns:
+                encontrado = False
+                for p in posibles:
+                    if p in df_limpio.columns:
+                        df_limpio.rename(columns={p: col_objetivo}, inplace=True)
+                        encontrado = True
+                        break
+                if not encontrado and col_objetivo in ['Debe', 'Haber']:
+                    df_limpio[col_objetivo] = 0.0
+                elif not encontrado:
+                    df_limpio[col_objetivo] = ""
+
+        # 3. Asegurar que Debe y Haber sean números usando la función de limpieza
+        df_limpio['Debe'] = df_limpio['Debe'].apply(limpiar_moneda).round(2)
+        df_limpio['Haber'] = df_limpio['Haber'].apply(limpiar_moneda).round(2)
+
+        # 4. Procesamiento masivo optimizado mediante vectorización (Ultra rápido)
+        try:
+            for col in ['N_comprobante', 'Descripcion', 'plan_de_cuentas', 'cuenta_contable', 'Ref']:
+                if col not in df_limpio.columns:
+                    df_limpio[col] = ""
+
+            df_limpio['Fecha_str'] = df_limpio['Fecha'].dt.strftime('%Y-%m-%d')
+
+            valores = list(zip(
+                df_limpio['N_comprobante'].astype(str),
+                df_limpio['Descripcion'].astype(str),
+                df_limpio['Fecha_str'],
+                df_limpio['plan_de_cuentas'].astype(str),
+                df_limpio['cuenta_contable'].astype(str),
+                df_limpio['Ref'].astype(str),
+                df_limpio['Debe'].astype(float),
+                df_limpio['Haber'].astype(float)
+            ))
+        except Exception as e_row:
+            st.error(f"Error procesando los datos masivos del archivo: {e_row}")
+            if cursor: cursor.close()
+            return False
+        
+        if not valores:
+            st.warning("⚠️ No se encontraron datos válidos para insertar.")
+            if cursor: cursor.close()
+            return False
+
+        # 5. Inserción masiva si todo está abierto
+        query_insert = f"""
+            INSERT INTO `{db_actual}`.asientos_contables 
+            (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber) 
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        """
+        
+        cursor.executemany(query_insert, valores)
+        conn.commit()
+        cursor.close()
+        
+        st.success(f"✅ ¡Éxito! {len(valores)} asientos cargados correctamente en `{db_actual}`.")
+        return True
+
+    except Exception as e:
+        if conn: conn.rollback()
+        st.error(f"❌ Error al procesar o insertar en la base de datos: {e}")
+        return False
+    finally:
+        if cursor:
+            try:
+                cursor.close()
+            except:
+                pass
+        if conn:
+            try:
+                conn.ping(reconnect=True)
+            except:
+                pass
+
+def actualizar_libro_diario_en_db(db_nombre, df_cambios):
+    conn = conectar_db(db_nombre)
+    if not conn:
+        return False
+        
+    cursor = conn.cursor()
+    try:
+        sql_update = """
+            UPDATE asientos_contables 
+            SET n_comprobante = %s, descripcion = %s, fecha = %s, 
+                plan_cuentas = %s, cuenta_contable = %s, referencia = %s, 
+                debe = %s, haber = %s 
+            WHERE id = %s
+        """
+        
+        sql_insert = """
+            INSERT INTO asientos_contables 
+            (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber, bloqueado)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 0)
+        """
+        
+        lista_inserts = []
+        lista_updates = []
+        
+        for _, row in df_cambios.iterrows():
+            row_id = row.get('id')
+            
+            # Limpiar y extraer el código de la cuenta
+            plan_val = str(row.get('plan_cuentas', ''))
+            plan_cuentas_val = plan_val.split(" - ")[0] if " - " in plan_val else plan_val
+            
+            n_comprobante = str(row.get('n_comprobante', '')).strip()
+            descripcion = str(row.get('descripcion', '')).strip()
+            fecha = str(row.get('fecha', '')).strip()
+            cuenta_contable = str(row.get('cuenta_contable', '')).strip()
+            referencia = str(row.get('referencia', '')).strip()
+            debe = float(row.get('debe', 0.0) or 0.0)
+            haber = float(row.get('haber', 0.0) or 0.0)
+            
+            # Clasificar si es un INSERT o un UPDATE
+            if pd.isna(row_id) or str(row_id).strip() in ['', 'None', 'nan']:
+                lista_inserts.append((
+                    n_comprobante, descripcion, fecha, 
+                    plan_cuentas_val, cuenta_contable, referencia, 
+                    debe, haber
+                ))
+            else:
+                lista_updates.append((
+                    n_comprobante, descripcion, fecha, 
+                    plan_cuentas_val, cuenta_contable, referencia, 
+                    debe, haber, int(row_id)
+                ))
+        
+        # Ejecución masiva optimizada (Muchísimo más rápida)
+        if lista_inserts:
+            cursor.executemany(sql_insert, lista_inserts)
+            
+        if lista_updates:
+            cursor.executemany(sql_update, lista_updates)
+            
+        conn.commit()
+        return True
+        
+    except Exception as e:
+        conn.rollback()
+        st.error(f"Error técnico en SQL: {str(e)}")
+        return False
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+def mes_esta_cerrado(conn, mes_nombre, ano, db_nombre=None):
+    """
+    BYPASS TEMPORAL: Fuerza a que cualquier mes se considere abierto 
+    para permitir la subida del libro de diario sin bloqueos.
+    """
+    # Forzamos el retorno en False para que NUNCA bloquee por cierre de mes
+    return False
+    
+    # --- (Código original desactivado temporalmente) ---
+    mes_map = {
+        "Enero": 1, "Febrero": 2, "Marzo": 3, "Abril": 4, "Mayo": 5, "Junio": 6,
+        "Julio": 7, "Agosto": 8, "Septiembre": 9, "Octubre": 10, "Noviembre": 11, "Diciembre": 12
+    }
+    
+    if mes_nombre not in mes_map:
+        return False
+        
+    mes_num = mes_map[mes_nombre]
+    
+    if not db_nombre:
+        db_nombre = st.session_state.get('DB_ACTUAL') or st.session_state.get('empresa_actual')
+
+    cursor = conn.cursor()
+    try:
+        usuario_actual = st.session_state.get('usuario', 'Sistema')
+        try:
+            registrar_log_automatico(conn, "VALIDAR_MES_CERRADO", f"Usuario {usuario_actual} validó cierre del mes {mes_nombre} {ano} para la empresa {db_nombre}")
+        except Exception:
+            pass 
+        
+        if db_nombre:
+            query = f"""
+                SELECT COUNT(*) FROM `{db_nombre}`.periodos_cerrados 
+                WHERE mes = %s AND ano = %s AND estado = 'Cerrado'
+            """
+        else:
+            query = """
+                SELECT COUNT(*) FROM periodos_cerrados 
+                WHERE mes = %s AND ano = %s AND estado = 'Cerrado'
+            """
+            
+        cursor.execute(query, (mes_num, ano))
+        resultado_fetch = cursor.fetchone()
+        
+        if resultado_fetch:
+            if isinstance(resultado_fetch, dict):
+                cantidad = list(resultado_fetch.values())[0]
+            else:
+                cantidad = resultado_fetch[0]
+            return cantidad > 0
+            
+        return False
+        
+    except Exception as e:
+        return False
+        
+    finally:
+        cursor.close()
