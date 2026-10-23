@@ -778,3 +778,197 @@ def obtener_historico_utilidad(db, f_inicio=None, f_fin=None):
     finally:
         if cursor: cursor.close()
         if conn: conn.close()
+
+
+
+@st.cache_data(ttl=300)
+def obtener_salud_fiscal(db, f_inicio=None, f_fin=None):
+    if not isinstance(db, str):
+        db = str(db) if db else "control_central"
+
+    conn = conectar_db(db)
+    df_default = pd.DataFrame(columns=['anio', 'mes', 'mes_nombre', 'ingresos_exentos', 'ingresos_gravados', 'compras_exentas', 'compras_16'])
+    kpis_default = {
+        'ingresos_exentos': 0.0, 'ingresos_gravados': 0.0, 
+        'compras_exentas': 0.0, 'compras_16': 0.0,
+        'DPP1': 0.0, 'comisiones_bancarias1': 0.0, 'gastos_personales1': 0.0,
+        'otros_ingresos': 0.0, 'otros_egresos': 0.0,
+        'iva_debito_fiscal': 0.0, 'iva_por_pagar': 0.0,
+        'retencion_iva_compras': 0.0, 'pagos_anticipados_islr': 0.0,
+        'retencion_islr_proveedores': 0.0, 'islr_pagar': 0.0
+    }
+    
+    if not conn:
+        st.warning("⚠️ No se pudo conectar a la base de datos en obtener_salud_fiscal.")
+        return df_default, kpis_default
+    
+    import datetime
+    
+    if f_inicio is None: 
+        f_inicio = st.session_state.get("f_inicio_global", datetime.date(datetime.datetime.now().year, 1, 1))
+    if f_fin is None: 
+        f_fin = st.session_state.get("f_fin_global", datetime.date.today())
+
+    anio_base = f_inicio.year if hasattr(f_inicio, 'year') else datetime.datetime.now().year
+
+    meses_skeleton = pd.DataFrame({
+        'anio': [anio_base] * 12,
+        'mes': list(range(1, 13))
+    })
+
+    f_inicio_anual = datetime.date(anio_base, 1, 1)
+    f_fin_anual = datetime.date(anio_base, 12, 31)
+    db_segura = str(db).strip()
+
+    # Construcción dinámica de la query para DPP
+    if db == 'kingdriver_ca':
+        dpp_query = "SUM(CASE WHEN plan_cuentas LIKE '6.1.1.03.020%%' THEN haber ELSE 0 END) as DPP_haber, SUM(CASE WHEN plan_cuentas LIKE '6.1.1.03.020%%' THEN debe ELSE 0 END) as DPP_debe"
+    else:
+        dpp_query = """SUM(CASE WHEN plan_cuentas LIKE '6.1.1.03%%' AND plan_cuentas NOT LIKE '6.1.1.03.013%%' AND plan_cuentas NOT LIKE '6.1.1.03.021%%' AND plan_cuentas NOT LIKE '6.1.1.03.022%%' THEN haber ELSE 0 END) as DPP_haber,
+                    SUM(CASE WHEN plan_cuentas LIKE '6.1.1.03%%' AND plan_cuentas NOT LIKE '6.1.1.03.013%%' AND plan_cuentas NOT LIKE '6.1.1.03.021%%' AND plan_cuentas NOT LIKE '6.1.1.03.022%%' THEN debe ELSE 0 END) as DPP_debe"""
+
+    query = """
+        SELECT 
+            CAST(SUBSTRING(fecha, 1, 4) AS UNSIGNED) as anio,
+            CAST(SUBSTRING(fecha, 6, 2) AS UNSIGNED) as mes,
+            
+            SUM(CASE WHEN plan_cuentas LIKE '4.1.1.01.001%%' THEN haber - debe ELSE 0 END) as exentos_acum,
+            SUM(CASE WHEN plan_cuentas LIKE '4.1.1.01.002%%' THEN haber - debe ELSE 0 END) as gravados_acum,
+            SUM(CASE WHEN plan_cuentas LIKE '5.1.1.01.001%%' THEN debe ELSE 0 END) as compras_exentas_acum,
+            SUM(CASE WHEN plan_cuentas LIKE '5.1.1.01.002%%' THEN debe ELSE 0 END) as compras_16_acum,
+            
+            {dpp_query},
+            SUM(CASE WHEN plan_cuentas LIKE '6.1.1.03.013%%' THEN haber ELSE 0 END) as comisiones_bancarias_haber,
+            SUM(CASE WHEN plan_cuentas LIKE '6.1.1.03.013%%' THEN debe ELSE 0 END) as comisiones_bancarias_debe,
+            SUM(CASE WHEN plan_cuentas LIKE '6.1.1.03.021%%' THEN haber ELSE 0 END) as refrigerios_haber,
+            SUM(CASE WHEN plan_cuentas LIKE '6.1.1.03.021%%' THEN debe ELSE 0 END) as refrigerios_debe,
+            SUM(CASE WHEN plan_cuentas LIKE '6.1.1.03.022%%' THEN haber ELSE 0 END) as representacion_haber,
+            SUM(CASE WHEN plan_cuentas LIKE '6.1.1.03.022%%' THEN debe ELSE 0 END) as representacion_debe,
+            SUM(CASE WHEN plan_cuentas LIKE '7.1.1.01%%' THEN haber ELSE 0 END) as otros_ingresos_haber,
+            SUM(CASE WHEN plan_cuentas LIKE '7.1.1.07%%' THEN debe ELSE 0 END) as otros_ingresos_debe,
+            SUM(CASE WHEN plan_cuentas LIKE '8.1.1.01%%' THEN haber ELSE 0 END) as otros_egresos_haber,
+            SUM(CASE WHEN plan_cuentas LIKE '8.1.1.01%%' THEN debe ELSE 0 END) as otros_egresos_debe,
+            SUM(CASE WHEN plan_cuentas LIKE '2.1.2.01.001%%' THEN haber ELSE 0 END) as iva_debito_fiscal,
+            SUM(CASE WHEN plan_cuentas LIKE '2.1.2.01.002%%' THEN haber ELSE 0 END) as iva_por_pagar,
+            SUM(CASE WHEN plan_cuentas LIKE '2.1.2.01.003%%' THEN haber ELSE 0 END) as retencion_iva_compras,
+            SUM(CASE WHEN plan_cuentas LIKE '2.1.2.01.004%%' THEN haber ELSE 0 END) as pagos_anticipados_islr,
+            SUM(CASE WHEN plan_cuentas LIKE '2.1.2.01.005%%' THEN haber - debe ELSE 0 END) as retencion_islr_proveedores,
+            SUM(CASE WHEN plan_cuentas LIKE '2.1.2.01.006%%' THEN haber ELSE 0 END) as islr_pagar
+            
+        FROM `{db_segura}`.asientos_contables 
+        WHERE fecha >= %s AND fecha <= %s
+        GROUP BY SUBSTRING(fecha, 1, 4), SUBSTRING(fecha, 6, 2)
+        ORDER BY anio ASC, mes ASC
+    """.format(db_segura=db_segura, dpp_query=dpp_query)
+    
+    cursor = None
+    try:
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
+        cursor.execute(query, (str(f_inicio_anual), str(f_fin_anual)))
+        resultados = cursor.fetchall()
+        
+        df_sql = pd.DataFrame(resultados) if resultados else pd.DataFrame()
+
+        if not df_sql.empty and 'mes' in df_sql.columns:
+            df = pd.merge(meses_skeleton, df_sql, on=['anio', 'mes'], how='left')
+        else:
+            df = meses_skeleton.copy()
+
+        # BLINDAJE: Aseguramos que todas las columnas contables y acumuladas existan en el DataFrame
+        columnas_requeridas = [
+            'exentos_acum', 'gravados_acum', 'compras_exentas_acum', 'compras_16_acum',
+            'DPP_haber', 'DPP_debe', 'comisiones_bancarias_haber', 'comisiones_bancarias_debe',
+            'refrigerios_haber', 'refrigerios_debe', 'representacion_haber', 'representacion_debe',
+            'otros_ingresos_haber', 'otros_ingresos_debe', 'otros_egresos_haber', 'otros_egresos_debe',
+            'iva_debito_fiscal', 'iva_por_pagar', 'retencion_iva_compras', 'pagos_anticipados_islr',
+            'retencion_islr_proveedores', 'islr_pagar'
+        ]
+        for col in columnas_requeridas:
+            if col not in df.columns:
+                df[col] = 0.0
+
+        df = df.fillna(0)
+
+        # Des-acumulación mes a mes para los acumulados
+        df['ingresos_exentos'] = df['exentos_acum'].diff().fillna(df['exentos_acum'])
+        df['ingresos_gravados'] = df['gravados_acum'].diff().fillna(df['gravados_acum'])
+        df['compras_exentas'] = df['compras_exentas_acum'].diff().fillna(df['compras_exentas_acum'])
+        df['compras_16'] = df['compras_16_acum'].diff().fillna(df['compras_16_acum'])
+        
+        if len(df) > 0 and df.loc[0, 'mes'] == 1:
+            df.loc[0, 'ingresos_exentos'] = df.loc[0, 'exentos_acum']
+            df.loc[0, 'ingresos_gravados'] = df.loc[0, 'gravados_acum']
+            df.loc[0, 'compras_exentas'] = df.loc[0, 'compras_exentas_acum']
+            df.loc[0, 'compras_16'] = df.loc[0, 'compras_16_acum']
+
+        dic_meses_nombres = {
+            1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril", 
+            5: "Mayo", 6: "Junio", 7: "Julio", 8: "Agosto", 
+            9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre"
+        }
+        df['mes_nombre'] = df['mes'].map(dic_meses_nombres)
+
+        import calendar
+        df['primer_dia_mes'] = df.apply(lambda row: datetime.date(int(row['anio']), int(row['mes']), 1), axis=1)
+
+        df_filtrado = df[(df['primer_dia_mes'] >= datetime.date(f_inicio.year, f_inicio.month, 1)) & 
+                         (df['primer_dia_mes'] <= datetime.date(f_fin.year, f_fin.month, 1))].copy()
+
+        if df_filtrado.empty:
+            df_filtrado = df.copy()
+
+        # Sumatorias totales para el periodo filtrado
+        total_exentos = df_filtrado['ingresos_exentos'].sum()
+        total_gravados = df_filtrado['ingresos_gravados'].sum()
+        total_compras_exentas = df_filtrado['compras_exentas'].sum()
+        total_compras_16 = df_filtrado['compras_16'].sum()
+        
+        total_dpp = (df_filtrado['DPP_debe'] - df_filtrado['DPP_haber']).sum()
+        total_comisiones = (df_filtrado['comisiones_bancarias_debe'] - df_filtrado['comisiones_bancarias_haber']).sum()
+        total_gastos_pers = (df_filtrado['refrigerios_debe'] + df_filtrado['representacion_debe'] - df_filtrado['refrigerios_haber'] - df_filtrado['representacion_haber']).sum()
+        total_otros_ing = (df_filtrado['otros_ingresos_haber'] - df_filtrado['otros_ingresos_debe']).sum()
+        total_otros_egr = (df_filtrado['otros_egresos_debe'] - df_filtrado['otros_egresos_haber']).sum()
+        
+        total_iva_debito = df_filtrado['iva_debito_fiscal'].sum()
+        total_iva_pagar = df_filtrado['iva_por_pagar'].sum()
+        total_ret_iva = df_filtrado['retencion_iva_compras'].sum()
+        total_anticipo_islr = df_filtrado['pagos_anticipados_islr'].sum()
+        total_ret_islr = df_filtrado['retencion_islr_proveedores'].sum()
+        total_islr_pagar = df_filtrado['islr_pagar'].sum()
+
+        kpis_fiscales = {
+            'ingresos_exentos': total_exentos,
+            'ingresos_gravados': total_gravados,
+            'compras_exentas': total_compras_exentas,
+            'compras_16': total_compras_16,
+            'DPP1': total_dpp,
+            'comisiones_bancarias1': total_comisiones,
+            'gastos_personales1': total_gastos_pers,
+            'otros_ingresos': total_otros_ing,
+            'otros_egresos': total_otros_egr,
+            'iva_debito_fiscal': total_iva_debito,
+            'iva_por_pagar': total_iva_pagar,
+            'retencion_iva_compras': total_ret_iva,
+            'pagos_anticipados_islr': total_anticipo_islr,
+            'retencion_islr_proveedores': total_ret_islr,
+            'islr_pagar': total_islr_pagar
+        }
+        
+        cols_retorno = ['anio', 'mes', 'mes_nombre', 'ingresos_exentos', 'ingresos_gravados', 'compras_exentas', 'compras_16']
+        return df_filtrado[cols_retorno], kpis_fiscales
+        
+    except Exception as e:
+        st.error(f"❌ Error crítico en `obtener_salud_fiscal`: {e}")
+        return df_default, kpis_default
+        
+    finally:
+        if cursor:
+            try:
+                cursor.close()
+            except Exception:
+                pass
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
