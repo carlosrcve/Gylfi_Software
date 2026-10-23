@@ -17274,6 +17274,16 @@ elif "Clientes" in opcion_menu:
                 else:
                     st.warning("⚠️ Debes marcar la casilla de confirmación antes de ejecutar el borrado.")
 
+    except Exception as e:
+        st.error(f"❌ Error en el módulo de Clientes: {e}")
+    finally:
+        # Cierre de conexión global de la pestaña garantizado de forma independiente y segura
+        if 'conn_empresa' in locals() and conn_empresa:
+            try:
+                conn_empresa.close()
+            except Exception:
+                pass
+
 
 elif "Inventarios" in opcion_menu:
     # Invocamos el módulo exclusivo pasando la conexión a la base de datos
