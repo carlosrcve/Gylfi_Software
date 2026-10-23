@@ -668,14 +668,20 @@ def obtener_todas_las_empresas(user_rol, user_id):
             pass
 
 @st.cache_data(ttl=300)
-def obtener_saldos_acumulados(conexion, fecha_corte, nombre_db):
-    if not conexion: 
+def obtener_saldos_acumulados(fecha_corte, nombre_db):
+    if not nombre_db: 
         return {"activo": 0, "pasivo": 0, "patrimonio": 0}
     
     db_segura = str(nombre_db).strip()
-    cur = conexion.cursor(pymysql.cursors.DictCursor)
     
+    # 1. Abrimos la conexión de forma local dentro de la función cacheada
+    conexion = conectar_db(db_segura)
+    if not conexion:
+        return {"activo": 0, "pasivo": 0, "patrimonio": 0}
+    
+    cur = None
     try:
+        cur = conexion.cursor(pymysql.cursors.DictCursor)
         cur.execute(f"USE `{db_segura}`")
         
         # IMPORTANTE: Se usa LIKE '1%%' con doble porcentaje para que Python no lo confunda con formato
@@ -705,8 +711,17 @@ def obtener_saldos_acumulados(conexion, fecha_corte, nombre_db):
         st.error(f"🔥 ERROR REAL EN SQL: {e}")
         return {"activo": 0, "pasivo": 0, "patrimonio": 0}
     finally:
-        cur.close()
-
+        # 2. Cerramos cursor y conexión de manera segura
+        if cur:
+            try:
+                cur.close()
+            except:
+                pass
+        if conexion:
+            try:
+                conexion.close()
+            except:
+                pass
 
 @st.cache_data(ttl=300)
 def obtener_datos_pie(db, fecha_inicio, fecha_fin):
@@ -7136,7 +7151,7 @@ if opcion_menu == "🏠 Inicio":
 
     with st.spinner(f'Comunicando con MySQL para {db_objetivo}...'):
         if conn and conexion_valida:
-            kpis = obtener_saldos_acumulados(conn, f_fin_global, db_objetivo)
+            kpis = obtener_saldos_acumulados(f_fin_global, db_objetivo)
         else:
             kpis = None
 
