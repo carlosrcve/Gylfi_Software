@@ -972,3 +972,302 @@ def obtener_salud_fiscal(db, f_inicio=None, f_fin=None):
                 conn.close()
             except Exception:
                 pass
+
+@st.cache_data(ttl=300)
+def obtener_analisis_gastos_clase6(db, fecha_inicio, fecha_fin):
+    # Definimos la query de manera estática y limpia
+    db_segura = str(db).strip()
+    
+    query = (
+        "SELECT plan_cuentas, MAX(cuenta_contable) as cuenta_contable, "
+        "(SUM(debe) - SUM(haber)) as total_gasto "
+        f"FROM `{db_segura}`.asientos_contables "
+        "WHERE plan_cuentas LIKE '6%%' "
+        "AND fecha >= %s AND fecha <= %s "  # <--- AQUÍ SE CORRIGE EL ≥ y ≤
+        "GROUP BY plan_cuentas "
+        "HAVING total_gasto != 0 "
+        "ORDER BY total_gasto DESC"
+    )
+    
+    conn = conectar_db(db)
+    if not conn:
+        return pd.DataFrame()
+        
+    try:
+        # Ejecutamos pasando parámetros
+        df = ejecutar_consulta(query, conn, params=(fecha_inicio, fecha_fin))
+        return df if df is not None else pd.DataFrame()
+    except Exception as e:
+        print(f"Error en obtener_analisis_gastos_clase6: {e}")
+        return pd.DataFrame()
+    finally:
+        if conn:
+            conn.close()
+
+
+@st.cache_data(ttl=300)
+def obtener_analisis_gastos_clase5(db, f_i, f_f):
+    """
+    Obtiene costos de Clase 5 con validación de seguridad y parámetros seguros.
+    """
+    # 1. Validación de Seguridad (CRÍTICA)
+    if not db or not str(db).strip().replace("_", "").isalnum():
+        raise ValueError(f"Nombre de base de datos no seguro: {db}")
+
+    if 'conectar_db' not in globals() and 'conectar_db' not in locals():
+        print("❌ Error: La función 'conectar_db' no está definida.")
+        return pd.DataFrame()
+
+    conn = conectar_db(db)
+    if conn is None:
+        print("❌ Error: 'conectar_db' devolvió None (revisa tus credenciales o conexión a TiDB Cloud).")
+        return pd.DataFrame()
+    
+    # Asegurar rango de hora completo para evitar perder registros del último día
+    f_i_str = str(f_i).split()[0] + " 00:00:00"
+    f_f_str = str(f_f).split()[0] + " 23:59:59"
+
+    query = f"""
+        SELECT 
+            plan_cuentas, 
+            CASE 
+                WHEN plan_cuentas = '5.1.1.01.001' THEN 'Costos de Reparaciones de vehiculos'
+                WHEN plan_cuentas = '5.1.1.01.002' THEN 'Iva Credito Fiscal (Ingresos Exentos)'
+                ELSE 'Otros'
+            END as descripcion, 
+            (SUM(debe) - SUM(haber)) as total_gasto
+        FROM `{db}`.asientos_contables 
+        WHERE plan_cuentas IN ('5.1.1.01.001', '5.1.1.01.002')
+          AND fecha >= %s AND fecha <= %s
+        GROUP BY plan_cuentas
+        HAVING total_gasto != 0
+        ORDER BY total_gasto DESC
+    """
+    try:
+        # CORREGIDO: Usamos ejecutar_consulta en lugar de pd.read_sql para soportar PyMySQL y parámetros correctamente
+        df = ejecutar_consulta(query, conn, params=(f_i_str, f_f_str))
+    except Exception as e:
+        print(f"❌ Error en Clase 5: {e}")
+        df = pd.DataFrame()
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except:
+                pass
+        
+    return df
+
+
+
+@st.cache_data(ttl=300)
+def obtener_historico_utilidad_acumulada(db, año=2026, mes_limite=6):
+    df_default = pd.DataFrame({'mes': [], 'utilidad_mensual': []})
+    
+    if not db or not str(db).replace("_", "").isalnum():
+        raise ValueError(f"Nombre de base de datos inválido: {db}")
+
+    if 'conectar_db' not in globals() and 'conectar_db' not in locals():
+        return df_default
+        
+    conn = conectar_db(db)
+    if not conn:
+        return df_default
+        
+    try:
+        año = int(año)
+        mes_limite = int(mes_limite)
+    except (TypeError, ValueError):
+        año = 2026
+        mes_limite = 6
+
+    # Definimos el rango exacto para aprovechar los índices de MySQL
+    f_ini = f"{año}-01-01"
+    f_fin = f"{año}-{str(mes_limite).zfill(2)}-31" # Cubre hasta el último día del mes límite
+
+    # Consulta optimizada sin funciones destructoras de índices en el WHERE
+    query = f"""
+        SELECT 
+            CAST(SUBSTRING(fecha, 6, 2) AS UNSIGNED) as mes,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '4%' THEN haber ELSE 0 END) as ingresos_haber,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '4%' THEN debe ELSE 0 END) as ingresos_debe,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '5%' THEN haber ELSE 0 END) as costos_haber,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '5%' THEN debe ELSE 0 END) as costos_debe,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '6%' THEN haber ELSE 0 END) as gastos_haber,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '6%' THEN debe ELSE 0 END) as gastos_debe,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '7%' THEN haber ELSE 0 END) as otros_ingresos_haber,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '7%' THEN debe ELSE 0 END) as otros_ingresos_debe,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '8%' THEN haber ELSE 0 END) as otros_haber,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '8%' THEN debe ELSE 0 END) as oitros_debe
+        FROM `{db}`.asientos_contables 
+        WHERE fecha >= %s AND fecha <= %s 
+        GROUP BY CAST(SUBSTRING(fecha, 6, 2) AS UNSIGNED)
+        ORDER BY mes ASC
+    """
+    
+    try:
+        df = ejecutar_consulta(query, conn, params=(f_ini, f_fin))
+        if df.empty:
+            return df_default
+            
+        df = df.fillna(0)
+
+        df['utilidad_mensual'] = (
+            (df['ingresos_haber'] - df['ingresos_debe']) - 
+            (df['costos_debe'] - df['costos_haber']) - 
+            (df['gastos_debe'] - df['gastos_haber']) + 
+            (df['otros_ingresos_haber'] - df['otros_ingresos_debe']) - 
+            (df['oitros_debe'] - df['otros_haber'])
+        )
+        
+        return df[['mes', 'utilidad_mensual']]
+        
+    except Exception as e:
+        print(f"Error al calcular histórico acumulado: {e}")
+        return df_default
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except:
+                pass
+
+@st.cache_data(ttl=300)
+def obtener_asiento_por_comprobante(db, n_comprobante):
+    # 1. Validación de seguridad estricta para prevenir Inyección SQL en el esquema
+    if not db or not db.replace("_", "").isalnum():
+        raise ValueError(f"Nombre de base de datos inválido: {db}")
+
+    conn = conectar_db(db)
+    if not conn:
+        return pd.DataFrame()
+    
+    try:
+        # Trae TODAS las líneas que pertenecen a ese número de comprobante de forma segura
+        query = f"""
+            SELECT 
+                id, 
+                n_comprobante, 
+                descripcion, 
+                fecha, 
+                plan_cuentas, 
+                cuenta_contable, 
+                referencia, 
+                debe, 
+                haber
+            FROM `{db}`.asientos_contables 
+            WHERE n_comprobante = %s
+            ORDER BY id ASC
+        """
+        # Parámetro seguro para evitar inyección SQL
+        df = ejecutar_consulta(query, conn, params=(str(n_comprobante),))
+        
+        if not df.empty:
+            df['debe'] = pd.to_numeric(df['debe'], errors='coerce').fillna(0.0)
+            df['haber'] = pd.to_numeric(df['haber'], errors='coerce').fillna(0.0)
+            
+        return df
+    except Exception as e:
+        print(f"Error al obtener asiento completo en TiDB: {e}")
+        return pd.DataFrame()
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except:
+                pass
+
+
+
+@st.cache_data(ttl=300)
+def obtener_analisis_accionista_detallado(db, f_i, f_f):
+    if not db or not str(db).strip().replace("_", "").isalnum():
+        return pd.DataFrame()
+
+    db_clean = str(db).strip().lower()
+    conn = conectar_db(db)
+    
+    # Eliminamos el .is_connected() aquí
+    if not conn:
+        return pd.DataFrame()
+
+    s_fi = str(f_i).split()[0]
+    s_ff = str(f_f).split()[0]
+    
+    df = pd.DataFrame()
+    try:
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            SELECT COUNT(*) 
+            FROM information_schema.tables 
+            WHERE LOWER(table_schema) = %s AND table_name = 'asientos_contables'
+        """, (db_clean,))
+        existe_asientos = cursor.fetchone()[0]
+
+        cursor.execute("""
+            SELECT COUNT(*) 
+            FROM information_schema.tables 
+            WHERE LOWER(table_schema) = %s AND table_name = 'accionistas'
+        """, (db_clean,))
+        existe_accionistas = cursor.fetchone()[0]
+        cursor.close()
+
+        if existe_asientos > 0 and existe_accionistas > 0:
+            query = f"""
+                SELECT 
+                    a.plan_cuentas, 
+                    a.fecha, 
+                    a.descripcion, 
+                    a.debe, 
+                    a.haber, 
+                    (a.debe - a.haber) as neto,
+                    acc.nombre as nombre_accionista
+                FROM `{db}`.asientos_contables a
+                INNER JOIN `{db}`.accionistas acc ON TRIM(a.plan_cuentas) = TRIM(acc.codigo_cuenta_asociada)
+                WHERE DATE(a.fecha) BETWEEN %s AND %s
+                ORDER BY a.fecha DESC
+            """
+            df = ejecutar_consulta(query, conn, params=(s_fi, s_ff))
+        else:
+            st.warning(f"⚠️ Verificación fallida: tablas no encontradas en '{db}'.")
+            
+    except Exception as e:
+        st.error(f"Error en la consulta de accionistas: {e}")
+        df = pd.DataFrame()
+    finally:
+        # Eliminamos el .is_connected() aquí y cerramos directamente
+        if conn:
+            try:
+                conn.close()
+            except:
+                pass
+                
+    return df
+
+@st.cache_data(ttl=300)
+def obtener_comprobantes_ingresos(db, f_inicio, f_fin):
+    # Usamos f-strings solo para la base de datos (seguro) 
+    # y dejamos los %s para los valores de la query.
+    db_segura = str(db).strip()
+    query = (
+        f"SELECT DISTINCT n_comprobante, fecha "
+        f"FROM `{db_segura}`.asientos_contables "
+        "WHERE plan_cuentas LIKE '7.1.1.01.001%%' "
+        "AND fecha BETWEEN %s AND %s "
+        "ORDER BY fecha DESC, n_comprobante DESC"
+    )
+    
+    conn = conectar_db(db)
+    if not conn:
+        return pd.DataFrame()
+        
+    try:
+        # Pasa los parámetros en una tupla, NO formatees la string tú mismo
+        df = ejecutar_consulta(query, conn, params=(f_inicio, f_fin))
+        return df if df is not None else pd.DataFrame()
+    except Exception as e:
+        print(f"Error en obtener_comprobantes_ingresos: {e}")
+        return pd.DataFrame()
+    finally:
+        if conn: conn.close()
