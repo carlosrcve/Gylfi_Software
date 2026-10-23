@@ -16781,7 +16781,7 @@ elif "Proveedores" in opcion_menu:
                                         except Exception:
                                             pass
                 else:
-                    st.success("🎉 ¡Todos los proveedores en la cola ya han sido procesados y registrados!")
+                    st.success("🎉 ¡Todos los proveedores in la cola ya han sido procesados y registrados!")
             else:
                 st.info("No hay archivos en la cola de proveedores. Sube algunos PDFs arriba para comenzar.")
 
@@ -16860,6 +16860,4 @@ elif "Proveedores" in opcion_menu:
             try:
                 conn_empresa.close()
             except Exception:
-                pass:
-                   
-
+                pass
