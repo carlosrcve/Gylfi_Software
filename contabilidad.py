@@ -6646,16 +6646,8 @@ def generar_pdf_resumen_seniat(records, empresa_nombre, periodo_str, tot_base, t
     return bytes(pdf.output())
 
 
-import streamlit as st
-import pandas as pd
-
-# Función con caché de Streamlit para evitar consultas repetitivas a la base de datos central
 @st.cache_data(ttl=300)
 def _obtener_empresas_sidebar_cache(user_rol, user_limpio):
-    """
-    Consulta las empresas permitidas según el rol y el usuario.
-    Se almacena en caché durante 5 minutos (TTL=300).
-    """
     conn_sidebar = conectar_db()
     if conn_sidebar is None:
         return []
@@ -6715,10 +6707,18 @@ def _obtener_empresas_sidebar_cache(user_rol, user_limpio):
             'db_nombre': 'rishon_letzion_ca'
         }])
 
+    # --- RESPALDO OBLIGATORIO PARA ELENITA ---
+    elif df_sidebar.empty and user_limpio == 'elenita':
+        df_sidebar = pd.DataFrame([{
+            'id': 1,  # Ajusta el ID según corresponda
+            'nombre_empresa': 'King Driver, C.A.',  # Ajusta el nombre de la empresa
+            'rif': 'J-XXXXXXXX-X',
+            'db_nombre': 'kingdriver_ca'  # Ajusta el nombre de la base de datos real
+        }])
+
     if not df_sidebar.empty:
         df_sidebar = df_sidebar.fillna("")
 
-    # Convertimos a diccionario/registros para que sea serializable por @st.cache_data
     return df_sidebar.to_dict('records')
 
 
