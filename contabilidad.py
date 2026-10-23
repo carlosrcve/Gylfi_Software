@@ -1,6 +1,7 @@
 # contabilidad.py
 import os
-import streamlit as st, str_lit
+import streamlit as st
+import streamlit as str_lit
 import pymysql
 from pymysql import Error
 import requests
