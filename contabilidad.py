@@ -9227,13 +9227,50 @@ elif opcion_menu == "📝 Asientos Contables":
                 df.to_excel(writer, index=False, sheet_name='LibroDiario')
             return output.getvalue()
 
-        # CONEXIÓN ÚNICA REUTILIZABLE
+        def formato_venezolano(val):
+            try:
+                return f"{float(val):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+            except Exception:
+                return "0,00"
+
+        def parsear_monto_seguro(val):
+            if pd.isna(val) or val == '' or val is None:
+                return 0.0
+            if isinstance(val, (int, float)):
+                return float(val)
+            
+            val_str = str(val).strip().replace('$', '').replace(' ', '')
+            if val_str in ['', 'nan', 'None']:
+                return 0.0
+            
+            if '.' in val_str and ',' in val_str:
+                if val_str.rfind(',') > val_str.rfind('.'):
+                    val_str = val_str.replace('.', '').replace(',', '.')
+                else:
+                    val_str = val_str.replace(',', '')
+            elif ',' in val_str and '.' not in val_str:
+                val_str = val_str.replace(',', '.')
+            elif val_str.count('.') > 1:
+                partes = val_str.split(',')
+                enteros = partes[0].replace('.', '')
+                decimales = partes[1] if len(partes) > 1 else '00'
+                val_str = f"{enteros}.{decimales}"
+                
+            try:
+                return float(val_str)
+            except Exception:
+                return 0.0
+
+        # CONEXIÓN ÚNICA Y REUTILIZABLE
         conn_general = conectar_db(db_actual)
         if not conn_general:
             st.error("❌ No se pudo conectar a la base de datos.")
             st.stop()
 
         try:
+            # ==========================================
+            # TAB 1: CONSULTA, CREACIÓN Y ELIMINACIÓN
+            # ==========================================
             with tab1:
                 accion_diario = st.selectbox(
                     "Seleccione la operación a realizar:",
@@ -9243,9 +9280,6 @@ elif opcion_menu == "📝 Asientos Contables":
                 
                 st.divider()
 
-                # ==========================================
-                # OPCIÓN 1: CONSULTAR Y MODIFICAR ASIENTOS
-                # ==========================================
                 if accion_diario == "🔍 Consultar y Modificar Asientos":
                     st.subheader("Consulta y Modificación de Asientos Contables")
                     
@@ -9293,7 +9327,6 @@ elif opcion_menu == "📝 Asientos Contables":
                         df_diario.columns = [c.lower() for c in df_diario.columns]
                         st.info(f"Mostrando {len(df_diario)} registros para editar.")
 
-                        # CARGA RÁPIDA DE PLAN DE CUENTAS
                         try:
                             cursor_pc = conn_general.cursor()
                             cursor_pc.execute("SELECT codigo, nombre FROM plan_cuentas WHERE tipo = 'Detalle' ORDER BY codigo")
@@ -9303,7 +9336,6 @@ elif opcion_menu == "📝 Asientos Contables":
                             cuentas_db_mod = []
 
                         opciones_cuentas_mod = [f"{cod} - {nom}" for cod, nom in cuentas_db_mod]
-                        dict_nombres_mod = {cod: nom for cod, nom in cuentas_db_mod}
 
                         column_config_dict = {
                             "debe": st.column_config.NumberColumn("Debe", format="%,.2f", min_value=0.0),
@@ -9376,9 +9408,6 @@ elif opcion_menu == "📝 Asientos Contables":
                         else:
                             c3.error(f"❌ DESCUADRE: {formato_contable(t_debe - t_haber)}")
 
-                # ==========================================
-                # OPCIÓN 2: AGREGAR NUEVO ASIENTO (ULTRA FLUIDO)
-                # ==========================================
                 elif accion_diario == "➕ Agregar Nuevo Asiento":
                     st.subheader("Registro de Nuevo Comprobante Contable")
 
@@ -9387,7 +9416,7 @@ elif opcion_menu == "📝 Asientos Contables":
                         cursor_pc.execute("SELECT codigo, nombre FROM plan_cuentas WHERE tipo = 'Detalle' ORDER BY codigo")
                         cuentas_db = cursor_pc.fetchall()
                         cursor_pc.close()
-                    except Exception as e:
+                    except Exception:
                         cuentas_db = [("1.1.1.01.001", "Caja Chica"), ("1.1.1.02.001", "Banco Banesco")]
 
                     opciones_cuentas = [f"{cod} - {nom}" for cod, nom in cuentas_db]
@@ -9429,7 +9458,6 @@ elif opcion_menu == "📝 Asientos Contables":
                         }
                     )
 
-                    # Filtrar filas completamente vacías
                     df_editado_nuevo = df_editado_nuevo[df_editado_nuevo['plan_cuentas'].notna() & (df_editado_nuevo['plan_cuentas'].astype(str).str.strip() != "")]
 
                     total_debe = pd.to_numeric(df_editado_nuevo['debe'], errors='coerce').sum()
@@ -9505,9 +9533,6 @@ elif opcion_menu == "📝 Asientos Contables":
                             except Exception as e:
                                 st.error(f"Error al registrar en la base de datos: {str(e)}")
 
-                # ==========================================
-                # OPCIÓN 3: ELIMINAR COMPROBANTE
-                # ==========================================
                 elif accion_diario == "🗑️ Eliminar Comprobante Contable":
                     st.subheader("Eliminación de Comprobante")
                     st.warning("⚠️ Precaución: Esta acción eliminará permanentemente todas las líneas asociadas al número de comprobante indicado.")
@@ -9548,59 +9573,19 @@ elif opcion_menu == "📝 Asientos Contables":
                                     st.error(f"Error al eliminar el comprobante: {str(e)}")
                         else:
                             st.info(f"No se encontró ningún registro asociado al Comprobante N° '{comp_a_eliminar}'.")
-                    
+
+            # ==========================================
+            # TAB 2: IMPORTACIÓN EXCEL
+            # ==========================================
             with tab2:
-                # --- PESTAÑA 2: IMPORTACIÓN ---
                 st.markdown("### 📤 Cargar nuevos Asientos Contables")
                 archivo_excel = st.file_uploader("Seleccione el archivo .xlsx", type=["xlsx", "xls"], key="up_diario_tabs")
                 
-                # --- FUNCIÓN AUXILIAR PARA FORMATO VENEZOLANO ---
-                def formato_venezolano(val):
-                    try:
-                        return f"{float(val):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-                    except:
-                        return "0,00"
-
-                # --- FUNCIÓN ULTRA ROBUSTA PARA CONVERTIR CUALQUIER MONTO ---
-                def parsear_monto_seguro(val):
-                    if pd.isna(val) or val == '' or val is None:
-                        return 0.0
-                    if isinstance(val, (int, float)):
-                        return float(val)
-                    
-                    val_str = str(val).strip().replace('$', '').replace(' ', '')
-                    if val_str in ['', 'nan', 'None']:
-                        return 0.0
-                    
-                    # Si el string tiene tanto puntos como comas (ej: 9.997,20)
-                    if '.' in val_str and ',' in val_str:
-                        # Si la coma está después del último punto, el punto es miles y la coma es decimal
-                        if val_str.rfind(',') > val_str.rfind('.'):
-                            val_str = val_str.replace('.', '').replace(',', '.')
-                        else:
-                            val_str = val_str.replace(',', '')
-                    elif ',' in val_str and '.' not in val_str:
-                        # Solo tiene coma (asumimos que es decimal)
-                        val_str = val_str.replace(',', '.')
-                    elif val_str.count('.') > 1:
-                        # Tiene múltiples puntos (ej: 11.179.423.940,00 o similar, quitamos los de miles)
-                        partes = val_str.split(',')
-                        enteros = partes[0].replace('.', '')
-                        decimales = partes[1] if len(partes) > 1 else '00'
-                        val_str = f"{enteros}.{decimales}"
-                        
-                    try:
-                        return float(val_str)
-                    except:
-                        return 0.0
-
                 if archivo_excel:
                     try:
-                        # 1. Lectura inicial
                         df_subido = pd.read_excel(archivo_excel, dtype=object)
                         df_subido.columns = df_subido.columns.astype(str).str.strip().str.lower()
 
-                        # Normalizar nombres de columnas comunes
                         rename_dict = {}
                         for col in df_subido.columns:
                             if col in ['débito', 'debito', 'debe']:
@@ -9609,124 +9594,94 @@ elif opcion_menu == "📝 Asientos Contables":
                                 rename_dict[col] = 'haber'
                         df_subido = df_subido.rename(columns=rename_dict)
 
-                        # 2. Procesar fecha PRIMERO
                         if 'fecha' in df_subido.columns:
                             df_subido['fecha'] = pd.to_datetime(df_subido['fecha'], errors='coerce').dt.date
 
-                        # 3. Aplicar limpieza robusta a débito y crédito
                         for col in ['debe', 'haber']:
                             if col in df_subido.columns:
                                 df_subido[col] = df_subido[col].apply(parsear_monto_seguro)
                             else:
                                 df_subido[col] = 0.0
 
-                        # 4. Procesar y sanear la columna 'saldo' (o recalcularla si viene desproporcionada)
                         if 'saldo' in df_subido.columns:
                             df_subido['saldo'] = df_subido['saldo'].apply(parsear_monto_seguro)
-                            # Si los valores de saldo superan un límite incoherente o tienen errores de origen, 
-                            # podemos opcionalmente recalcularlos basados en el movimiento si el usuario lo prefiere, 
-                            # o simplemente asegurar que se muestren limpios:
                             max_val = df_subido['saldo'].abs().max()
-                            if max_val > 1e12: # Si hay un desborde gigante por error de lectura en Excel
-                                # Recálculo automático inteligente de saldo acumulado (Saldo Inicial + Créditos - Débitos o viceversa)
-                                saldo_inicial = df_subido['saldo'].iloc[0] if not pd.isna(df_subido['saldo'].iloc[0]) else 0.0
-                                # O si prefieres calcularlo limpio:
-                                df_subido['saldo'] = 0.0 # Omitir desborde
+                            if max_val > 1e12:
+                                df_subido['saldo'] = 0.0
                         else:
                             df_subido['saldo'] = 0.0
 
-                        # 5. Copia exclusiva para visualización con formato venezolano estético
                         df_para_mostrar = df_subido.copy()
                         for col in ['debe', 'haber', 'saldo']:
                             if col in df_para_mostrar.columns:
                                 df_para_mostrar[col] = df_para_mostrar[col].apply(formato_venezolano)
 
-                        # Renombrar temporalmente para la UI visual
                         df_para_mostrar = df_para_mostrar.rename(columns={'debe': 'débito', 'haber': 'crédito'})
 
-                        # 6. Convertir el resto de columnas a texto para evitar el crash de Arrow en la UI
                         for col in df_subido.columns:
                             if col != 'fecha': 
                                 df_subido[col] = df_subido[col].astype(str).replace(['nan', 'None', ''], '')
 
                         st.write("### ✅ Vista previa de la carga:")
-                        st.dataframe(df_para_mostrar, hide_index=True, width='stretch')
+                        st.dataframe(df_para_mostrar, hide_index=True, use_container_width=True)
 
-                        # 7. Importación segura
-                        if st.button("🚀 Confirmar e Importar al Diario", width='stretch'):
-                            conn = conectar_db(db_actual) 
-                            
-                            if conn:
-                                try:
-                                    with st.spinner(f"Subiendo datos a la base: {db_actual}..."):
-                                        if cargar_asientos_contables_db(df_subido, conn):
-                                            st.balloons()
-                                            st.success(f"✅ ¡Asientos procesados con éxito en {db_actual}!")
-                                except Exception as e:
-                                    st.error(f"Error crítico en la inserción: {e}")
-                                finally:
-                                    try:
-                                        conn.close()
-                                    except Exception:
-                                        pass
-                            else:
-                                st.error("❌ No se pudo establecer conexión con la base de datos.")
-                    
+                        if st.button("🚀 Confirmar e Importar al Diario", use_container_width=True):
+                            try:
+                                with st.spinner(f"Subiendo datos a la base: {db_actual}..."):
+                                    if cargar_asientos_contables_db(df_subido, conn_general):
+                                        st.balloons()
+                                        st.success(f"✅ ¡Asientos procesados con éxito en {db_actual}!")
+                            except Exception as e:
+                                st.error(f"Error crítico en la inserción: {e}")
+                                
                     except Exception as e:
                         st.error(f"Error al procesar el archivo: {e}")
 
+            # ==========================================
+            # TAB 3: LIMPIEZA POR RANGO DE FECHAS
+            # ==========================================
             with tab3:
-                # --- PESTAÑA 3: ADMINISTRACIÓN (LIMPIEZA SELECTIVA) ---
                 st.markdown("### ⚙️ Administración: Limpieza por Fechas")
                 with st.container(border=True):
                     st.warning("⚠️ **BORRADO SELECTIVO DE ASIENTOS**")
                     
-                    # 1. Selector de rango a eliminar
                     col_f1, col_f2 = st.columns(2)
                     f_eliminar_inicio = col_f1.date_input("Desde:", key="del_inicio")
                     f_eliminar_fin = col_f2.date_input("Hasta:", key="del_fin")
                     
                     st.write(f"Se eliminarán los asientos entre **{f_eliminar_inicio}** y **{f_eliminar_fin}**.")
                     
-                    # 2. Confirmación doble
                     check_borrar = st.checkbox("Estoy seguro de borrar este periodo.", key="check_borrar_rango")
                     
                     if check_borrar:
                         if st.button("🧨 BORRAR RANGO SELECCIONADO", type="primary"):
-                            conn = conectar_db(db_actual)
-                            
-                            if conn:
-                                try:
-                                    cursor = conn.cursor()
-                                    # USAMOS DELETE EN LUGAR DE TRUNCATE
-                                    query_delete = "DELETE FROM asientos_contables WHERE fecha BETWEEN %s AND %s"
-                                    cursor.execute(query_delete, (f_eliminar_inicio, f_eliminar_fin))
-                                    
-                                    filas_afectadas = cursor.rowcount
-                                    conn.commit()
-                                    cursor.close()
-                                    
-                                    st.success(f"✅ Éxito: Se eliminaron {filas_afectadas} asientos del periodo.")
-                                except Exception as e:
-                                    st.error(f"Error al ejecutar la limpieza: {e}")
-                                finally:
-                                    # Ya no cerramos la conexión aquí para mantenerla viva
-                                    pass
-                            else:
-                                st.error("❌ Error de conexión.")
+                            try:
+                                cursor = conn_general.cursor()
+                                query_delete = "DELETE FROM asientos_contables WHERE fecha BETWEEN %s AND %s"
+                                cursor.execute(query_delete, (f_eliminar_inicio, f_eliminar_fin))
+                                
+                                filas_afectadas = cursor.rowcount
+                                conn_general.commit()
+                                cursor.close()
+                                
+                                st.success(f"✅ Éxito: Se eliminaron {filas_afectadas} asientos del periodo.")
+                            except Exception as e:
+                                st.error(f"Error al ejecutar la limpieza: {e}")
 
+            # ==========================================
+            # TAB 4: ASIENTOS INTEGRADOS / VENTAS
+            # ==========================================
             with tab4:
-                # 1. Recuperamos de la sesión el nombre o ID de la base de datos de la empresa actual 
-                nombre_bd_cliente = st.session_state.get('empresa_actual') 
-                
-                # 2. Llamamos a la conexión inyectándole la base de datos del cliente
-                conexion_actual = conectar_db(nombre_bd_cliente) 
-                
-                # 3. Validamos y renderizamos
-                if conexion_actual:
-                    renderizar_tab_asientos_ventas(conexion_actual)
+                if conn_general:
+                    renderizar_tab_asientos_ventas(conn_general)
                 else:
                     st.error("No se pudo establecer la conexión con la base de datos de la empresa para los asientos automatizados.")
-        else:
-            st.warning("⚠️ Por favor, seleccione una empresa en el panel lateral para gestionar sus asientos.")
 
+        finally:
+            if conn_general:
+                try:
+                    conn_general.close()
+                except Exception:
+                    pass
+    else:
+        st.warning("⚠️ Por favor, seleccione una opción válida para gestionar sus asientos.")
