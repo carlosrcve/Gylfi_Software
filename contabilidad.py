@@ -15402,3 +15402,1473 @@ elif opcion_menu == "📚 Libros Fiscales":
                                         conn.close()
             else:
                 st.info("ℹ️ Utiliza el selector de fechas y haz clic en Consultar para ver las facturas del periodo.")
+
+    # 2. El sub-menú DINÁMICO
+    if sub_opcion == "Comprobante de Retención ISLR":
+        db_actual = st.session_state.get('DB_ACTUAL')
+        # IMPORTANTE: Todo lo que quieras que salga en la barra lateral DEBE llevar st.sidebar
+        st.sidebar.markdown("---") 
+        st.sidebar.markdown("### ⚙️ Tareas de ISLR")
+
+
+        # --- CONFIGURACIÓN TRIBUTARIA (UT 2026) ---
+        VALOR_UT = 43.00
+        FACTOR = 83.333333
+        
+        def calcular_sustraendo(porcentaje_retencion):
+            sustraendos = {
+                1.0: (FACTOR * 0.01) * VALOR_UT,
+                2.0: (FACTOR * 0.02) * VALOR_UT,
+                3.0: (FACTOR * 0.03) * VALOR_UT,
+                5.0: (FACTOR * 0.05) * VALOR_UT
+            }
+            
+            # Obtenemos el valor, si no existe devolvemos 0.00
+            resultado = sustraendos.get(float(porcentaje_retencion), 0.00)
+            
+            # Redondeamos a 2 decimales para el formato Bs. XX.XX
+            return round(resultado, 2)
+
+        import xml.etree.ElementTree as ET
+        from xml.dom import minidom
+        import pandas as pd
+
+        def generar_xml_seniat(df, rif_agente, periodo):
+            root = ET.Element("RelacionRetencionesISLR")
+            root.set("RifAgente", rif_agente)
+            root.set("Periodo", periodo)
+
+            for _, row in df.iterrows():
+                detalle = ET.SubElement(root, "DetalleRetencion")
+                
+                # 1. RIF Retenido
+                ET.SubElement(detalle, "RifRetenido").text = "".join(filter(str.isalnum, str(row['rif_retenido'])))
+                
+                # 2. Número Factura y Control
+                ET.SubElement(detalle, "NumeroFactura").text = "".join(filter(str.isalnum, str(row['numero_factura'])))
+                ET.SubElement(detalle, "NumeroControl").text = "".join(filter(str.isalnum, str(row['numero_control'])))
+                
+                # 3. Fecha Operación
+                fecha_obj = row['fecha_operacion']
+                if hasattr(fecha_obj, 'strftime'):
+                    fecha_str = fecha_obj.strftime("%d/%m/%Y")
+                else:
+                    fecha_str = str(fecha_obj)
+                ET.SubElement(detalle, "FechaOperacion").text = fecha_str
+                
+                # 4. Concepto, Monto Operación y Porcentaje
+                codigo_concepto = str(row['codigo_concepto']).zfill(3)
+                ET.SubElement(detalle, "CodigoConcepto").text = codigo_concepto
+                ET.SubElement(detalle, "MontoOperacion").text = f"{float(row['monto_operacion']):.2f}"
+                
+                porcentaje = float(row['porcentaje_retencion'])
+                ET.SubElement(detalle, "PorcentajeRetencion").text = f"{porcentaje:.2f}"
+
+            xml_str = ET.tostring(root, encoding='utf-8')
+            parsed = minidom.parseString(xml_str)
+            return parsed.toprettyxml(indent="  ")
+    
+        # --- 🔘 TABLA DE REFERENCIA ---
+        with st.expander("📊 Ver Tabla de Referencia de Sustraendos (Manual SENIAT)", expanded=False):
+            
+            # Calculamos el umbral legal para PNR (83.33 UT)
+            umbral_pnr = VALOR_UT * FACTOR 
+            
+            # 1. Definimos los datos con los valores técnicos reales
+            datos_sust = [
+                {"Cod": "001", "Actividad": "Sueldos y Salarios", "Tipo": "PNR", "Mayores a": "Variable", "% Ret.": None, "Sustraendo Bs.": "-"},
+                {"Cod": "003", "Actividad": "Honorarios Prof. No Mercantiles", "Tipo": "PNR", "Mayores a": f"{umbral_pnr:,.2f}", "% Ret.": 3.0, "Sustraendo Bs.": calcular_sustraendo(3)},
+                {"Cod": "004", "Actividad": "Honorarios Prof. No Mercantiles", "Tipo": "PJD", "Mayores a": "0,01", "% Ret.": 5.0, "Sustraendo Bs.": 0.00},
+                {"Cod": "019", "Actividad": "Comisiones Varias", "Tipo": "PNR", "Mayores a": f"{umbral_pnr:,.2f}", "% Ret.": 3.0, "Sustraendo Bs.": calcular_sustraendo(3)},
+                {"Cod": "020", "Actividad": "Comisiones Varias", "Tipo": "PJD", "Mayores a": "0,01", "% Ret.": 5.0, "Sustraendo Bs.": 0.00},
+                {"Cod": "053", "Actividad": "Empresas Contratistas / Servicios", "Tipo": "PNR", "Mayores a": f"{umbral_pnr:,.2f}", "% Ret.": 1.0, "Sustraendo Bs.": calcular_sustraendo(1)},
+                {"Cod": "055", "Actividad": "Empresas Contratistas / Servicios", "Tipo": "PJD", "Mayores a": "0,01", "% Ret.": 2.0, "Sustraendo Bs.": 0.00},
+                {"Cod": "071", "Actividad": "Gastos de Transporte (Fletes)", "Tipo": "PNR", "Mayores a": "0,01", "% Ret.": 1.0, "Sustraendo Bs.": calcular_sustraendo(1)},
+                {"Cod": "072", "Actividad": "Gastos de Transporte (Fletes)", "Tipo": "PJD", "Mayores a": "0,01", "% Ret.": 3.0, "Sustraendo Bs.": 0.00},
+            ]
+
+            df_referencia = pd.DataFrame(datos_sust)
+
+            st.info(f"📍 **Base Legal:** Unidad Tributaria: **Bs. {VALOR_UT:,.2f}** | Umbral PNR (83.33 UT): **Bs. {umbral_pnr:,.2f}**")
+
+            # 2. Configuración de la tabla profesional
+            st.dataframe(
+                df_referencia,
+                width='stretch',
+                hide_index=True,
+                column_config={
+                    "Cod": st.column_config.TextColumn("Código", width="small"),
+                    "Actividad": st.column_config.TextColumn("Actividad / Concepto Según Manual", width="large"),
+                    "Tipo": st.column_config.TextColumn("Persona"),
+                    "Mayores a": st.column_config.TextColumn("Mayores a... (Bs.)"),
+                    "% Ret.": st.column_config.NumberColumn("Alícuota", format="%.1f%%"),
+                    "Sustraendo Bs.": st.column_config.NumberColumn("Sustraendo", format="Bs. %.2f"),
+                }
+            )
+
+        DATOS_EMPRESA = {
+            "nombre": "KING DRIVER, C.A.",
+            "rif": "J507757188",
+            "direccion": "AV. JOSE ANTONIO PAEZ EDIF RESIDENCIAS 2000 RESIDENCIAS CECILIA PISO PH APT 43 URB EL PARAISO CARACAS DISTRITO CAPITAL"
+        }
+
+        # Inicializar el índice de la pestaña si no existe
+        if 'active_tab' not in st.session_state:
+            st.session_state.active_tab = 0
+
+        # Definir las pestañas y capturar el índice seleccionado
+        # 1. Definimos la lista de nombres
+        tab_names = ["➕ Generar Nueva", "🔍 Editor/Historial", "🖨️ Reimpresión", "⚙️ Gestión Facturas", "🚀 XML SENIAT"]
+        tab2, tab3, tab4, tab5, tab6 = st.tabs(tab_names)
+
+
+        with tab2:
+            st.markdown("### 🆕 Generar Nueva Retención de ISLR")
+
+            # --- BLINDAJE LOCAL DE FECHAS ---
+            from datetime import date as d_tipo, datetime as dt_tipo
+
+            col_fecha1, col_fecha2 = st.columns(2)
+            f_xml_desde_n = col_fecha1.date_input("Desde", value=d_tipo(2026, 10, 1), key="nueva_desde")
+            f_xml_hasta_n = col_fecha2.date_input("Hasta", value=d_tipo(2026, 10, 31), key="nueva_hasta")
+
+            # Inicializar listas de control en sesión si no existen
+            if "facturas_procesadas_ids" not in st.session_state:
+                st.session_state.facturas_procesadas_ids = []
+            if "historial_retenciones_sesion" not in st.session_state:
+                st.session_state.historial_retenciones_sesion = []
+
+            col_c1, col_c2 = st.columns(2)
+            with col_c1:
+                if st.button("🔍 Consultar Facturas y Proveedores", use_container_width=True):
+                    conn = conectar_db(db_actual)
+                    if conn:
+                        try:
+                            cursor = conn.cursor()
+                            # 1. Asegurar el contexto de la base de datos activa
+                            if db_actual:
+                                cursor.execute(f"USE {db_actual}")
+
+                            # 2. Cargar directorio de proveedores de forma segura
+                            st.session_state.df_prov_fiscal = ejecutar_consulta(
+                                "SELECT rif, razon_social, direccion_fiscal FROM proveedores", conn
+                            )
+
+                            # 3. Consulta robusta al libro de compras
+                            query = """
+                                SELECT 
+                                    lc.id AS id, 
+                                    lc.fecha_operacion AS fecha_operacion,
+                                    NULL AS id_sec, 
+                                    lc.rif AS rif_retenido, 
+                                    COALESCE(p.razon_social, 'PROVEEDOR NO ENCONTRADO') AS proveedor_nombre, 
+                                    COALESCE(p.direccion_fiscal, 'DIRECCIÓN NO REGISTRADA') AS proveedor_direccion,
+                                    lc.n_factura AS numero_factura, 
+                                    lc.n_control AS numero_control, 
+                                    NULL AS codigo_concepto, 
+                                    lc.base_imponible AS monto_operacion, 
+                                    0.00 AS porcentaje_retencion, 0.00 AS monto_retenido, 
+                                    NULL AS periodo_retenido, 
+                                    0.00 AS sustraendo, 
+                                    NULL AS n_comprob_islr 
+                                FROM libro_compras lc
+                                LEFT JOIN (
+                                    SELECT razon_social, direccion_fiscal, 
+                                           TRIM(REPLACE(REPLACE(rif, '-', ''), ' ', '')) AS rif_limpio
+                                    FROM proveedores
+                                ) p ON TRIM(REPLACE(REPLACE(lc.rif, '-', ''), ' ', '')) COLLATE utf8mb4_unicode_ci = p.rif_limpio COLLATE utf8mb4_unicode_ci
+                                WHERE lc.fecha_operacion BETWEEN %s AND %s
+                                ORDER BY lc.fecha_operacion ASC
+                            """
+
+                            df_temp = ejecutar_consulta(query, conn, params=(f_xml_desde_n, f_xml_hasta_n))
+                            
+                            # Limpiamos de una vez las que ya se hayan procesado en esta sesión
+                            if df_temp is not None and not df_temp.empty and st.session_state.facturas_procesadas_ids:
+                                df_temp = df_temp[~df_temp['id'].isin(st.session_state.facturas_procesadas_ids)]
+
+                            st.session_state.df_retencion = df_temp if df_temp is not None else pd.DataFrame()
+                            
+                            if not st.session_state.df_retencion.empty:
+                                st.success(f"✅ ¡Se encontraron {len(st.session_state.df_retencion)} facturas en el rango!")
+                            else:
+                                st.warning("⚠️ No se encontraron registros de facturas en el libro de compras para el rango de fechas seleccionado.")
+                                
+                        except Exception as e:
+                            st.error(f"❌ Error al consultar la base de datos: {e}")
+                        finally:
+                            conn.close()
+
+            with col_c2:
+                if st.button("🔄 Refrescar Directorio Manualmente", use_container_width=True):
+                    conn = conectar_db(db_actual)
+                    if conn:
+                        st.session_state.df_prov_fiscal = ejecutar_consulta("SELECT rif, razon_social, direccion_fiscal FROM proveedores", conn)
+                        conn.close()
+                        st.info("📂 Directorio actualizado manualmente.")
+
+            # Inicialización de estados de PDF
+            if "pdf_listo" not in st.session_state:
+                st.session_state.pdf_listo = False
+            if "datos_pdf" not in st.session_state:
+                st.session_state.datos_pdf = None
+
+            # --- MENSAJE INFORMATIVO DE RETENCIONES REALIZADAS EN LA SESIÓN ---
+            if st.session_state.historial_retenciones_sesion:
+                st.success("📌 **Facturas inhabilitadas / Retenciones aplicadas en esta sesión:**")
+                for item in st.session_state.historial_retenciones_sesion:
+                    st.markdown(f"- 📄 **Factura N°:** {item['factura']} | **Proveedor:** {item['proveedor']} | **Comprobante N°:** `{item['comprobante']}` | **Monto Retenido:** Bs. {item['monto']:,.2f}")
+                st.markdown("---")
+
+            # Filtrar el DataFrame en tiempo real por si quedan IDs procesados
+            if "df_retencion" in st.session_state and not st.session_state.df_retencion.empty:
+                if st.session_state.facturas_procesadas_ids:
+                    st.session_state.df_retencion = st.session_state.df_retencion[
+                        ~st.session_state.df_retencion['id'].isin(st.session_state.facturas_procesadas_ids)
+                    ]
+
+            if "df_retencion" in st.session_state and not st.session_state.df_retencion.empty:
+                columnas_a_mostrar = [
+                    "fecha_operacion", "rif_retenido", "proveedor_nombre", 
+                    "numero_factura", "numero_control", "monto_operacion"
+                ]
+                
+                # 1. Creamos una copia de trabajo para formatear visualmente sin dañar los datos originales de la sesión
+                df_temp = st.session_state.df_retencion[columnas_a_mostrar].copy()
+                
+                if 'monto_operacion' in df_temp.columns:
+                    df_temp['monto_operacion'] = pd.to_numeric(df_temp['monto_operacion'], errors='coerce').fillna(0.0)
+                    df_temp['monto_operacion'] = df_temp['monto_operacion'].apply(lambda x: f"{x:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+
+                # 2. Aplicamos estilo de Pandas para forzar la alineación a la derecha en la columna de monto
+                df_styled = df_temp.style.set_properties(
+                    subset=['monto_operacion'], 
+                    **{'text-align': 'right'}
+                ).set_table_styles([
+                    {'selector': 'th.col5', 'props': [('text-align', 'right')]} # Alinea la cabecera de la columna monto_operacion
+                ])
+                
+                sel_f = st.dataframe(
+                    df_styled, 
+                    on_select="rerun", 
+                    selection_mode="single-row", 
+                    hide_index=True, 
+                    use_container_width=True
+                )
+                
+                if sel_f.selection.rows:
+                    f_data = st.session_state.df_retencion.iloc[sel_f.selection.rows[0]]
+                    
+                    with st.form(key=f"form_final_islr_{f_data['id']}"): 
+
+                        st.markdown("#### 🛠️ Datos del Comprobante")
+                        c1, c2, c3 = st.columns([3, 4, 5])
+                        
+                        rif_r = c1.text_input("RIF", value=str(f_data['rif_retenido']))
+                        id_seguro = f_data.get('id') or 0
+                        val_sugerido = f_data['fecha_operacion'].strftime("%Y%m") + str(id_seguro).zfill(8)
+                        n_comprob_manual = c2.text_input("N° Comprobante (Manual)", value=val_sugerido)
+                        
+                        valor_razon = str(f_data.get('proveedor_nombre', ''))
+                        valor_dir = str(f_data.get('proveedor_direccion', ''))
+
+                        if valor_razon == 'PROVEEDOR NO ENCONTRADO':
+                            st.warning("⚠️ Proveedor no encontrado en el directorio. Por favor ingrese los datos manualmente:")
+                            valor_razon = ""
+                            valor_dir = ""
+
+                        if valor_dir in ["DIRECCIÓN NO REGISTRADA", "NONE", ""]:
+                            valor_dir = ""
+
+                        razon_r = st.text_input("Razón Social", value=valor_razon, key=f"razon_{id_seguro}")
+                        
+                        if valor_dir.strip() != "":
+                            dir_r = st.text_input("Dirección", value=valor_dir, key=f"dir_{id_seguro}")
+                        else:
+                            st.warning("⚠️ PROVEEDOR SIN DIRECCIÓN REGISTRADA")
+                            dir_r = st.text_input("Dirección", value="", placeholder="Escriba la dirección fiscal aquí...", key=f"dir_{id_seguro}")
+
+                        c7, c8, c9 = st.columns(3)
+                        base_r = c7.number_input("Base Imponible", value=float(f_data['monto_operacion']))
+                        porc_r = c8.number_input("% Retención", value=3.0)
+                        codigo_r = c9.text_input("Código Concepto", value="001", help="Ingresa el código del SENIAT (ej. 001, 002)")
+                        
+                        try:
+                            porc_actual = float(porc_r) if porc_r is not None else 0.0
+                        except ValueError:
+                            porc_actual = 0.0
+
+                        if rif_r.upper().startswith(('V', 'E')) and porc_actual > 0:
+                            val_sust = calcular_sustraendo(porc_actual)
+                        else:
+                            val_sust = 0.00 
+
+                        sust_r = c9.number_input(
+                            "Sustraendo", 
+                            value=float(val_sust), 
+                            format="%.2f", 
+                            key=f"sust_{id_seguro}"
+                        )
+                        
+                        btn_procesar = st.form_submit_button("🚀 Procesar y Guardar")
+                        
+                        if btn_procesar:
+                            m_final = round(float((float(base_r) * (float(porc_r) / 100)) - float(sust_r)), 2)
+                            
+                            if comprobar_existencia_comprobante(n_comprob_manual):
+                                st.error(f"⚠️ El comprobante **{n_comprob_manual}** ya existe.")
+                            else:
+                                exito, valor = registrar_retencion_islr_db(
+                                    int(id_seguro), rif_r, razon_r, dir_r, 
+                                    str(f_data['numero_factura']), str(f_data['numero_control']), 
+                                    f_data['fecha_operacion'], codigo_r, base_r, porc_r, 
+                                    sust_r, f_data['fecha_operacion'].strftime("%Y%m"), 
+                                    m_final, n_comprob_manual
+                                )
+                                
+                                if exito:
+                                    # 1. Guardamos el ID en la lista negra local de la sesión para que se bloquee y desaparezca
+                                    st.session_state.facturas_procesadas_ids.append(id_seguro)
+                                    
+                                    # 2. Agregamos al historial para el mensaje de resumen
+                                    st.session_state.historial_retenciones_sesion.append({
+                                        "factura": str(f_data['numero_factura']),
+                                        "proveedor": razon_r,
+                                        "comprobante": n_comprob_manual,
+                                        "monto": m_final
+                                    })
+
+                                    st.session_state.datos_pdf = {
+                                        "agente": DATOS_EMPRESA,
+                                        "sujeto": {"rif": rif_r, "nombre": razon_r, "direccion": dir_r},
+                                        "factura": str(f_data['numero_factura']),
+                                        "control": str(f_data['numero_control']),
+                                        "base": base_r,
+                                        "porcentaje": porc_r,
+                                        "sustraendo": sust_r,
+                                        "total_retenido": m_final,
+                                        "fecha_emision": f_data['fecha_operacion'].strftime("%d/%m/%Y"),
+                                        "fecha_operacion": f_data['fecha_operacion'],
+                                        "n_comprobante": n_comprob_manual
+                                    }
+                                    st.session_state.pdf_listo = True
+                                    st.success(f"✅ Comprobante N° {n_comprob_manual} registrado y factura inhabilitada de la lista.")
+                                    st.rerun()
+
+            # Bloque de descarga
+            if st.session_state.pdf_listo and st.session_state.datos_pdf:
+                st.write("---")
+                st.info("💡 El comprobante está listo para descargar.")
+                conn_pdf = conectar_db(st.session_state.get('DB_ACTUAL'))
+                pdf_bytes = generar_comprobante_pdf(st.session_state.datos_pdf, conn_pdf)
+                if conn_pdf:
+                    conn_pdf.close()
+                    
+                st.download_button(
+                    label="📥 DESCARGAR COMPROBANTE PDF AHORA",
+                    data=pdf_bytes,
+                    file_name=f"Retencion_{st.session_state.datos_pdf['n_comprobante']}.pdf",
+                    mime="application/pdf",
+                    use_container_width=True,
+                    key="btn_download_final"
+                )
+                
+                if st.button("➕ Registrar otra retención"):
+                    st.session_state.pdf_listo = False
+                    st.session_state.datos_pdf = None
+                    st.rerun()
+
+            with tab3:
+                # --- SECCIÓN: EDITOR DE HISTORIAL ---
+                st.divider()
+                st.markdown("### 🔎 Editor y Filtros de Historial")
+
+                with st.expander("📅 Filtros de Consulta para Editar", expanded=True):
+                    col_f1, col_f2 = st.columns(2)
+                    
+                    from datetime import date as d_tipo
+
+                    # Keys únicas y parámetros actualizados
+                    f_inicio_h = col_f1.date_input("Desde", d_tipo(2026, 8, 1), key="h_desde_editor")
+                    f_fin_h = col_f2.date_input("Hasta", d_tipo(2026, 8, 31), key="h_hasta_editor")
+                    st.write("") 
+                    btn_cargar = st.button("📂 Cargar Historial para Editar", use_container_width=True, type="primary", key="btn_cargar_historial_islr")
+
+                # --- FUNCIÓN CON CACHÉ PARA CARGAR EL HISTORIAL DE RETENCIONES ---
+                @st.cache_data(ttl=30, show_spinner=False)
+                def cargar_historial_islr_cached(empresa, f_inicio, f_fin):
+                    df_res = pd.DataFrame()
+                    conn = conectar_db()
+                    if conn and empresa:
+                        try:
+                            conn.ping(reconnect=True)
+                            cursor = conn.cursor()
+                            cursor.execute(f"USE {empresa}")
+                            query = """
+                                SELECT id, rif_retenido, numero_factura, numero_control, fecha_operacion, 
+                                       codigo_concepto, monto_operacion, porcentaje_retencion, 
+                                       monto_retenido, periodo_retenido, n_comprob_islr 
+                                FROM retenciones_islr 
+                                WHERE fecha_operacion BETWEEN %s AND %s 
+                                ORDER BY fecha_operacion DESC
+                            """
+                            df_res = ejecutar_consulta(query, conn, params=(f_inicio, f_fin))
+                        except Exception:
+                            pass
+                        finally:
+                            try:
+                                conn.close()
+                            except Exception:
+                                pass
+                    return df_res if df_res is not None else pd.DataFrame()
+
+                # --- 1. Lógica de carga ---
+                if btn_cargar:
+                    db_actual = st.session_state.get('DB_ACTUAL')
+                    if db_actual:
+                        try:
+                            df_cargado = cargar_historial_islr_cached(db_actual, f_inicio_h.strftime('%Y-%m-%d'), f_fin_h.strftime('%Y-%m-%d'))
+                            st.session_state.df_retenciones_editor = df_cargado
+                            if not df_cargado.empty:
+                                st.success(f"✅ Registros cargados: {len(df_cargado)}")
+                            else:
+                                st.warning("⚠️ No se encontraron retenciones en el rango seleccionado.")
+                        except Exception as e:
+                            st.error(f"Error en la base de datos: {e}")
+                    else:
+                        st.warning("⚠️ No se ha seleccionado una base de datos activa.")
+
+                # --- 2. Visualización y Edición ---
+                if "df_retenciones_editor" in st.session_state and not st.session_state.df_retenciones_editor.empty:
+                    st.info("📝 Puedes editar los montos o eliminar filas.")
+                    
+                    edit_ret_df = st.data_editor(
+                        st.session_state.df_retenciones_editor,
+                        key="editor_tabla_retenciones",
+                        hide_index=True,
+                        use_container_width=True,
+                        column_config={
+                            "id": st.column_config.NumberColumn("ID", disabled=True),
+                            "rif_retenido": "RIF",
+                            "numero_factura": "N° Factura",
+                            "monto_operacion": st.column_config.NumberColumn("Base", format="Bs %.2f"),
+                            "monto_retenido": st.column_config.NumberColumn("Monto Retenido", format="Bs %.2f"),
+                        }
+                    )
+
+                    # --- 3. Sincronización ---
+                    if st.button("💾 Sincronizar Historial con DB", type="primary", use_container_width=True, key="btn_sincronizar_historial_islr"):
+                        estado = st.session_state.get("editor_tabla_retenciones", None)
+                        db_actual = st.session_state.get('DB_ACTUAL')
+                        conn = conectar_db()
+                        
+                        if conn and db_actual:
+                            try:
+                                conn.ping(reconnect=True)
+                                cursor = conn.cursor()
+                                cursor.execute(f"USE {db_actual}")
+                                
+                                total_eliminados = 0
+                                total_editados = 0
+                                
+                                # PROCESAR ELIMINACIONES
+                                if estado and "deleted_rows" in estado:
+                                    for row_idx in estado["deleted_rows"]:
+                                        id_real = int(st.session_state.df_retenciones_editor.iloc[row_idx]["id"]) 
+                                        cursor.execute("DELETE FROM retenciones_islr WHERE id = %s", (id_real,))
+                                        total_eliminados += 1
+
+                                # PROCESAR EDICIONES
+                                if estado and "edited_rows" in estado and estado["edited_rows"]:
+                                    for row_idx, cambios in estado["edited_rows"].items():
+                                        fila = st.session_state.df_retenciones_editor.iloc[int(row_idx)]
+                                        id_real = int(fila["id"])
+                                        
+                                        for campo_display, valor in cambios.items():
+                                            mapa = {
+                                                "Monto Retenido": "monto_retenido",
+                                                "Base": "monto_operacion",
+                                                "N° Factura": "numero_factura",
+                                                "RIF": "rif_retenido"
+                                            }
+                                            columna_db = mapa.get(campo_display, campo_display)
+                                            valor_final = valor.item() if hasattr(valor, 'item') else valor
+                                            
+                                            query_upd = f"UPDATE retenciones_islr SET {columna_db} = %s WHERE id = %s"
+                                            cursor.execute(query_upd, (valor_final, id_real))
+                                            total_editados += 1
+
+                                conn.commit()
+                                
+                                if total_eliminados > 0 or total_editados > 0:
+                                    mensaje = f"✅ Cambios guardados: {total_eliminados} eliminados, {total_editados} editados."
+                                    st.success(mensaje)
+                                    st.toast(mensaje, icon="💾")
+                                    
+                                    # Limpiar caché global para reflejar los cambios en toda la app
+                                    st.cache_data.clear()
+                                    
+                                    import time
+                                    time.sleep(1.0)
+                                    
+                                    if "df_retenciones_editor" in st.session_state:
+                                        del st.session_state.df_retenciones_editor
+                                    st.rerun()
+                                else:
+                                    st.info("ℹ️ No se detectaron cambios para guardar.")
+                                    
+                            except Exception as e:
+                                conn.rollback()
+                                st.error(f"❌ Error al sincronizar: {e}")
+                            finally:
+                                try:
+                                    conn.close()
+                                except Exception:
+                                    pass
+                        elif not db_actual:
+                            st.warning("⚠️ No se ha seleccionado una base de datos activa.")
+
+            # --- TAB 4: REIMPRESIÓN ---
+            with tab4:
+                st.divider()
+                st.markdown("### 🖨️ Reimpresión de Comprobantes")
+                st.markdown("Selecciona el rango de fechas para consultar y reimprimir los comprobantes de retención.")
+                
+                from datetime import date as d_tipo
+                
+                col_h1, col_h2 = st.columns(2)
+                with col_h1:
+                    f_hist_desde = st.date_input("Desde (Fecha Operación)", value=d_tipo.today().replace(day=1), key="hist_fec_desde")
+                with col_h2:
+                    f_hist_hasta = st.date_input("Hasta (Fecha Operación)", value=d_tipo.today(), key="hist_fec_hasta")
+                
+                # --- FUNCIÓN CON CACHÉ PARA CARGAR EL HISTORIAL DE REIMPRESIÓN ---
+                @st.cache_data(ttl=30, show_spinner=False)
+                def cargar_historial_reimpresion_cached(empresa, f_desde, f_hasta):
+                    df_res = pd.DataFrame()
+                    conn = conectar_db()
+                    if conn and empresa:
+                        try:
+                            conn.ping(reconnect=True)
+                            cursor = conn.cursor()
+                            cursor.execute(f"USE {empresa}")
+                            
+                            query_historial = """
+                                SELECT r.*, 
+                                       COALESCE(p.razon_social, r.rif_retenido) AS nombre_completo, 
+                                       COALESCE(p.direccion_fiscal, 'CARACAS, VENEZUELA') AS direccion_completa
+                                FROM retenciones_islr r
+                                LEFT JOIN proveedores p ON r.rif_retenido COLLATE utf8mb4_unicode_ci = p.rif COLLATE utf8mb4_unicode_ci
+                                WHERE r.fecha_operacion BETWEEN %s AND %s
+                                ORDER BY r.id DESC
+                            """
+                            df_res = ejecutar_consulta(query_historial, conn, params=(f_desde, f_hasta))
+                        except Exception:
+                            pass
+                        finally:
+                            try:
+                                conn.close()
+                            except Exception:
+                                pass
+                    return df_res if df_res is not None else pd.DataFrame()
+
+                # 1. Botón para cargar historial con filtro de fechas optimizado
+                if st.button("📂 Cargar Historial por Rango", use_container_width=True, key="btn_cargar_hist_rango"):
+                    db_actual = st.session_state.get('DB_ACTUAL')
+                    if db_actual:
+                        try:
+                            df_cargado = cargar_historial_reimpresion_cached(
+                                db_actual, 
+                                str(f_hist_desde), 
+                                str(f_hist_hasta)
+                            )
+                            st.session_state.df_historial_islr = df_cargado
+                            st.success(f"📊 Se encontraron **{len(df_cargado)}** comprobantes en el rango seleccionado.")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Error al cargar historial: {e}")
+                    else:
+                        st.warning("⚠️ Por favor, selecciona una base de datos primero.")
+
+                # 2. Visualización y Selección
+                if "df_historial_islr" in st.session_state and st.session_state.df_historial_islr is not None and not st.session_state.df_historial_islr.empty:
+                    st.success(f"📊 Se encontraron **{len(st.session_state.df_historial_islr)}** comprobantes en el rango seleccionado.")
+                    
+                    sel_hist = st.dataframe(
+                        st.session_state.df_historial_islr, 
+                        key="tabla_historial",
+                        on_select="rerun", 
+                        selection_mode="single-row", 
+                        hide_index=True, 
+                        use_container_width=True
+                    )
+
+                    seleccion = st.session_state.tabla_historial.selection.rows
+                    
+                    if seleccion:
+                        idx = seleccion[0]
+                        h = st.session_state.df_historial_islr.iloc[idx]
+                        
+                        # Procesamiento de datos optimizado
+                        with st.status("🛠️ Procesando datos...", expanded=False):
+                            factura_sucia = str(h['numero_factura']).split("/")[0]
+                            solo_numeros_f = re.findall(r'\d+', factura_sucia)
+                            factura_limpia = solo_numeros_f[0].zfill(5) if solo_numeros_f else "00001"
+
+                            control_sucio = str(h['numero_control']).split("/")[-1]
+                            solo_numeros_c = re.findall(r'\d+', control_sucio)
+                            control_limpio = solo_numeros_c[0] if solo_numeros_c else "00001"
+
+                            datos_reimp = {
+                                "agente": DATOS_EMPRESA,
+                                "sujeto": {
+                                    "rif": h['rif_retenido'], 
+                                    "nombre": h['nombre_completo'], 
+                                    "direccion": h['direccion_completa']
+                                },
+                                "factura": factura_limpia, 
+                                "control": control_limpio, 
+                                "base": float(h['monto_operacion']), 
+                                "porcentaje": float(h['porcentaje_retencion']), 
+                                "sustraendo": float(h['sustraendo']), 
+                                "total_retenido": float(h['monto_retenido']),
+                                "fecha_operacion": h['fecha_operacion'],
+                                "n_comprobante": h.get('n_comprob_islr', "S/N") 
+                            }
+
+                        # 3. Botón de descarga con conexión abierta de forma segura
+                        st.write(f"✅ Factura seleccionada: **{factura_limpia}**")
+                        
+                        conn = conectar_db()
+                        if conn:
+                            try:
+                                conn.ping(reconnect=True)
+                                pdf_bytes_re = generar_comprobante_pdf(datos_reimp, conn)
+                                
+                                if pdf_bytes_re:
+                                    st.download_button(
+                                        label=f"📥 Descargar PDF: {h['nombre_completo'][:20]}...", 
+                                        data=pdf_bytes_re, 
+                                        file_name=f"Retencion_{h['n_comprob_islr']}.pdf", 
+                                        mime="application/pdf", 
+                                        use_container_width=True,
+                                        key=f"btn_reimp_{h['id']}"
+                                    )
+                            except Exception as e:
+                                st.error(f"Error al generar el archivo: {e}")
+                            finally:
+                                try:
+                                    conn.close()
+                                except Exception:
+                                    pass
+                                    
+                elif "df_historial_islr" in st.session_state and st.session_state.df_historial_islr is not None and st.session_state.df_historial_islr.empty:
+                    st.info("ℹ️ No se encontraron comprobantes de retención en el rango de fechas seleccionado.")
+
+            # --- TAB 5: GESTIÓN DE FACTURAS ---
+            with tab5:
+                st.divider()
+                st.subheader("⚙️ Gestión y Desbloqueo de Facturas")
+                st.info("Utiliza esta opción para buscar y habilitar nuevamente una factura que fue marcada como retenida por error.")
+
+                db_actual = st.session_state.get('DB_ACTUAL')
+
+                if db_actual:
+                    # --- 1. FILTRO POR RANGO DE FECHAS ---
+                    st.markdown("### 📅 Filtrar Facturas por Rango de Fecha")
+                    col_f1, col_f2 = st.columns(2)
+                    
+                    from datetime import date, timedelta
+                    fecha_desde = col_f1.date_input("Desde la fecha:", value=date.today() - timedelta(days=30), key="ges_fec_desde")
+                    fecha_hasta = col_f2.date_input("Hasta la fecha:", value=date.today(), key="ges_fec_hasta")
+
+                    # --- FUNCIÓN CON CACHÉ PARA CONSULTAR FACTURAS RETENIDAS ---
+                    @st.cache_data(ttl=30, show_spinner=False)
+                    def consultar_facturas_retenidas_cached(empresa, f_desde, f_hasta):
+                        lista_res = []
+                        conn_f = conectar_db(empresa)
+                        if conn_f:
+                            try:
+                                conn_f.ping(reconnect=True)
+                                query_listado = """
+                                    SELECT rif_retenido, numero_factura, proveedor_nombre, monto_retenido, fecha_operacion 
+                                    FROM retenciones_islr 
+                                    WHERE (monto_retenido > 0 OR porcentaje_retencion > 0)
+                                      AND fecha_operacion BETWEEN %s AND %s 
+                                    ORDER BY fecha_operacion DESC
+                                """
+                                cursor_f = conn_f.cursor() if hasattr(conn_f, 'cursor') else None
+                                if cursor_f:
+                                    cursor_f.execute(query_listado, (f_desde, f_hasta))
+                                    rows = cursor_f.fetchall()
+                                    for row in rows:
+                                        lista_res.append({
+                                            "rif_retenido": row[0],
+                                            "numero_factura": row[1],
+                                            "proveedor_nombre": row[2],
+                                            "monto_retenido": row[3],
+                                            "fecha_operacion": row[4]
+                                        })
+                                    cursor_f.close()
+                            except Exception:
+                                pass
+                            finally:
+                                try:
+                                    conn_f.close()
+                                except Exception:
+                                    pass
+                        return lista_res
+
+                    try:
+                        facturas_retenidas = consultar_facturas_retenidas_cached(
+                            db_actual, 
+                            fecha_desde.strftime('%Y-%m-%d'), 
+                            fecha_hasta.strftime('%Y-%m-%d')
+                        )
+
+                        # --- 3. MOSTRAR LISTADO EN EXPANDER ---
+                        with st.expander("🔍 Listado de Facturas Retenidas en el Rango Seleccionado", expanded=True):
+                            if facturas_retenidas:
+                                import pandas as pd
+                                df = pd.DataFrame(facturas_retenidas)
+                                
+                                df['monto_retenido'] = pd.to_numeric(df['monto_retenido'], errors='coerce').fillna(0.0)
+                                df['monto_retenido'] = df['monto_retenido'].apply(lambda x: f"{x:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+                                
+                                st.dataframe(
+                                    df, 
+                                    use_container_width=True,
+                                    column_config={
+                                        "rif_retenido": "RIF",
+                                        "numero_factura": "N° Factura",
+                                        "proveedor_nombre": "Proveedor",
+                                        "monto_retenido": "Monto Retenido",
+                                        "fecha_operacion": "Fecha Operación"
+                                    },
+                                    hide_index=True
+                                )
+                            else:
+                                st.info("No se encontraron facturas retenidas en el rango de fechas seleccionado.")
+
+                        # --- 4. FORMULARIO DE DESBLOQUEO CON LISTA DESPLEGABLE DINÁMICA ---
+                        st.markdown("### 🔓 Desbloquear Factura Específica")
+                        
+                        if facturas_retenidas:
+                            opciones_facturas = {
+                                f"RIF: {f['rif_retenido']} | Factura N°: {f['numero_factura']} ({f['proveedor_nombre']})": f['numero_factura']
+                                for f in facturas_retenidas
+                            }
+                            
+                            with st.form("form_desbloqueo"):
+                                seleccion_factura = st.selectbox(
+                                    "Selecciona la factura a habilitar (RIF y Número):",
+                                    options=list(opciones_facturas.keys())
+                                )
+                                
+                                btn_habilitar = st.form_submit_button("🔓 Habilitar Factura para Retención", type="primary")
+
+                                if btn_habilitar:
+                                    factura_a_desbloquear = opciones_facturas[seleccion_factura]
+                                    resultado = resetear_estado_retencion(factura_a_desbloquear, db_actual)
+                                    
+                                    if resultado is True:
+                                        if "facturas_procesadas_ids" in st.session_state:
+                                            st.session_state.facturas_procesadas_ids = []
+                                            
+                                        st.cache_data.clear()
+                                        st.success(f"✅ Factura N° {factura_a_desbloquear} habilitada correctamente. Ya puedes volver a procesarla.")
+                                        st.rerun()
+                                    else:
+                                        st.error("❌ No se pudo habilitar la factura. Inténtalo de nuevo.")
+                        else:
+                            st.warning("⚠️ No hay facturas disponibles para desbloquear en el rango de fechas seleccionado.")
+
+                    except Exception as e:
+                        st.error(f"Error procesando la gestión de facturas: {e}")
+                else:
+                    st.error("No se detectó una base de datos activa en la sesión.")
+
+            # --- TAB 6: XML SENIAT ---
+            with tab6:
+                # --- SECCIÓN C: GENERAR ARCHIVO XML SENIAT ---
+                st.divider()
+                st.markdown("### 📡 Generar Archivo XML y Vista de Control SENIAT")
+                
+                from datetime import date as d_tipo
+
+                with st.container(border=True):
+                    col_xml1, col_xml2 = st.columns(2)
+                    f_xml_desde = col_xml1.date_input("Desde", value=d_tipo(2026, 8, 1), key="xml_desde")
+                    f_xml_hasta = col_xml2.date_input("Hasta", value=d_tipo(2026, 8, 31), key="xml_hasta")
+                    
+                    # --- FUNCIÓN CON CACHÉ PARA CONSULTAR DATOS DEL XML SENIAT ---
+                    @st.cache_data(ttl=30, show_spinner=False)
+                    def consultar_datos_xml_cached(empresa, patron):
+                        df_res = pd.DataFrame()
+                        conn = conectar_db(empresa)
+                        if conn:
+                            try:
+                                conn.ping(reconnect=True)
+                                query_xml = """
+                                    SELECT * 
+                                    FROM retenciones_islr 
+                                    WHERE n_comprob_islr LIKE %s
+                                """
+                                df_res = ejecutar_consulta(query_xml, conn, params=(patron,))
+                            except Exception:
+                                pass
+                            finally:
+                                try:
+                                    conn.close()
+                                except Exception:
+                                    pass
+                        return df_res if df_res is not None else pd.DataFrame()
+
+                    # Botón de procesamiento optimizado
+                    if st.button("🚀 Procesar Datos XML", use_container_width=True, key="btn_procesar_datos_xml"):
+                        db_actual = st.session_state.get('DB_ACTUAL') 
+                        if db_actual:
+                            periodo_str = f_xml_hasta.strftime("%Y%m") # Ej: "202608"
+                            patron_comprobante = f"{periodo_str}%"
+                            
+                            df_xml_raw = consultar_datos_xml_cached(db_actual, patron_comprobante)
+                            
+                            if not df_xml_raw.empty:
+                                if 'sustraendo' not in df_xml_raw.columns:
+                                    df_xml_raw['sustraendo'] = 0.0
+                                
+                                df_xml_raw['sustraendo'] = pd.to_numeric(df_xml_raw['sustraendo'], errors='coerce').fillna(0.0)
+                                
+                                mask_001 = df_xml_raw['codigo_concepto'].astype(str).str.zfill(3) == '001'
+                                df_xml_raw.loc[mask_001 & (df_xml_raw['sustraendo'] == 0.0), 'sustraendo'] = 107.50
+
+                                st.session_state['xml_data'] = generar_xml_seniat(df_xml_raw, DATOS_EMPRESA['rif'], periodo_str)
+                                st.session_state['xml_filename'] = f"RET_ISLR_{periodo_str}.xml"
+
+                                df_view = df_xml_raw.copy()
+                                rename_map = {}
+                                
+                                for col in df_view.columns:
+                                    c_low = str(col).lower()
+                                    if 'comprob' in c_low: rename_map[col] = 'Fila / Doc'
+                                    elif 'fecha' in c_low: rename_map[col] = 'Fecha'
+                                    elif 'factura' in c_low: rename_map[col] = 'N° Doc'
+                                    elif 'control' in c_low: rename_map[col] = 'N° Control'
+                                    elif 'rif' in c_low and 'retenido' in c_low: rename_map[col] = 'R.I.F.'
+                                    elif any(k in c_low for k in ['razon', 'nombre', 'contribuyente', 'proveedor']): rename_map[col] = 'Nombre o Razón Social'
+                                    elif 'concepto' in c_low: rename_map[col] = 'Cód. Concepto (XML)'
+                                    elif 'monto_operacion' in c_low or 'base' in c_low: rename_map[col] = 'Base Imponible (Bs.)'
+                                    elif 'porcentaje' in c_low or 'alicuota' in c_low: rename_map[col] = 'Alicuota ISLR'
+                                    elif 'retenido' in c_low and 'monto' in c_low: rename_map[col] = 'Retención Neta (Bs.)'
+                                    elif 'sustraendo' in c_low: rename_map[col] = 'Sustraendo (Bs.)'
+
+                                df_view = df_view.rename(columns=rename_map)
+
+                                cols_num = ['Base Imponible (Bs.)', 'Alicuota ISLR', 'Sustraendo (Bs.)', 'Retención Neta (Bs.)']
+                                for col_num in cols_num:
+                                    if col_num in df_view.columns:
+                                        df_view[col_num] = pd.to_numeric(df_view[col_num], errors='coerce').fillna(0.0)
+                                    else:
+                                        df_view[col_num] = 0.0
+
+                                df_view['Retención Bruta (Bs.)'] = df_view['Retención Neta (Bs.)'] + df_view['Sustraendo (Bs.)']
+
+                                st.session_state['xml_records'] = df_view.to_dict(orient='records')
+                                st.session_state['xml_cols_originales'] = list(df_view.columns)
+                                st.success(f"✅ Datos procesados con éxito ({len(df_xml_raw)} retenciones).")
+                            else:
+                                st.warning(f"⚠️ No se encontraron retenciones para el periodo {periodo_str}.")
+                                st.session_state['xml_data'] = None
+                                st.session_state['xml_records'] = None
+                        else:
+                            st.warning("⚠️ No se ha seleccionado una base de datos activa.")
+
+                    # Si ya hay datos procesados, renderizamos directamente usando registros puros de Python
+                    if st.session_state.get('xml_records') is not None:
+                        records = st.session_state['xml_records']
+                        
+                        st.markdown("#### 📊 Resumen de Retenciones del Periodo")
+                        
+                        cols_a_mostrar = [
+                            'Fila / Doc', 'Fecha', 'N° Doc', 'N° Control', 'R.I.F.', 
+                            'Nombre o Razón Social', 'Cód. Concepto (XML)', 'Base Imponible (Bs.)', 
+                            'Retención Bruta (Bs.)', 'Sustraendo (Bs.)', 'Retención Neta (Bs.)'
+                        ]
+                        
+                        sample_keys = records[0].keys() if records else []
+                        cols_disponibles = [c for c in cols_a_mostrar if c in sample_keys]
+
+                        html_rows = ""
+                        for row in records:
+                            html_rows += "<tr>"
+                            for col in cols_disponibles:
+                                val = row.get(col, "")
+                                if val is None:
+                                    val_str = ""
+                                elif col in ['Base Imponible (Bs.)', 'Retención Bruta (Bs.)', 'Sustraendo (Bs.)', 'Retención Neta (Bs.)', 'Alicuota ISLR']:
+                                    try:
+                                        val_str = f"{float(val):,.2f}"
+                                    except:
+                                        val_str = "0.00"
+                                else:
+                                    val_str = str(val)
+                                html_rows += f"<td>{val_str}</td>"
+                            html_rows += "</tr>"
+
+                        html_headers = "".join([f"<th>{col}</th>" for col in cols_disponibles])
+
+                        st.markdown(f"""
+                            <style>
+                                .styled-table {{
+                                    width: 100%;
+                                    border-collapse: collapse;
+                                    margin: 25px 0;
+                                    font-size: 0.9em;
+                                    font-family: sans-serif;
+                                    box-shadow: 0 0 20px rgba(0, 0, 0, 0.15);
+                                }}
+                                .styled-table th, .styled-table td {{
+                                    padding: 12px 15px;
+                                    text-align: left;
+                                }}
+                                .styled-table tbody tr {{
+                                    border-bottom: 1px solid #dddddd;
+                                }}
+                                .styled-table th {{
+                                    background-color: #f8f9fa;
+                                }}
+                            </style>
+                            <div style="overflow-x:auto;">
+                                <table class="styled-table">
+                                    <thead><tr>{html_headers}</tr></thead>
+                                    <tbody>{html_rows}</tbody>
+                                </table>
+                            </div>
+                        """, unsafe_allow_html=True)
+                        
+                        tot_base = sum(float(r.get('Base Imponible (Bs.)', 0) or 0) for r in records)
+                        tot_sust = sum(float(r.get('Sustraendo (Bs.)', 0) or 0) for r in records)
+                        tot_neta = sum(float(r.get('Retención Neta (Bs.)', 0) or 0) for r in records)
+                        
+                        cols_tot = st.columns([4, 1.5, 1.5, 1.5])
+                        cols_tot[0].markdown("**TOTAL GENERAL A ENTERAR AL SENIAT:**")
+                        cols_tot[1].metric("Base Imb.", f"{tot_base:,.2f}")
+                        cols_tot[2].metric("Sustraendo", f"{tot_sust:,.2f}")
+                        cols_tot[3].metric("Retención Neta", f"{tot_neta:,.2f}")
+
+                        st.markdown("---")
+                        
+                        db_actual_nom = st.session_state.get('DB_ACTUAL', 'Empresa')
+                        periodo_pdf_str = st.session_state.get('xml_filename', 'periodo').replace('RET_ISLR_', '').replace('.xml', '')
+                        
+                        pdf_bytes = generar_pdf_resumen_seniat(
+                            records=records,
+                            empresa_nombre=db_actual_nom,
+                            periodo_str=periodo_pdf_str,
+                            tot_base=tot_base,
+                            tot_sust=tot_sust,
+                            tot_neta=tot_neta
+                        )
+
+                        col_down1, col_down2 = st.columns(2)
+                        
+                        with col_down1:
+                            btn_descarga = st.download_button(
+                                label="📥 Descargar Archivo XML (Portal SENIAT)",
+                                data=st.session_state['xml_data'],
+                                file_name=st.session_state['xml_filename'],
+                                mime="application/xml",
+                                use_container_width=True,
+                                key="btn_descargar_xml_seniat"
+                            )
+                            
+                        with col_down2:
+                            st.download_button(
+                                label="📄 Descargar Resumen en PDF (Para Imprimir)",
+                                data=pdf_bytes,
+                                file_name=f"Resumen_Retenciones_ISLR_{periodo_pdf_str}.pdf",
+                                mime="application/pdf",
+                                use_container_width=True,
+                                key="btn_descargar_pdf_seniat"
+                            )
+                        
+                        if btn_descarga:
+                            monto_neto_formateado = f"{tot_neta:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                            
+                            st.markdown(f"""
+                                <style>
+                                    .seniat-alert-box {{
+                                        background-color: #e8f5e9;
+                                        border-left: 6px solid #2e7d32;
+                                        border-radius: 4px;
+                                        padding: 16px 20px;
+                                        margin: 15px 0;
+                                        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+                                        font-family: sans-serif;
+                                    }}
+                                    .seniat-alert-title {{
+                                        color: #1b5e20;
+                                        font-size: 1.05em;
+                                        font-weight: bold;
+                                        margin-bottom: 6px;
+                                        display: flex;
+                                        align-items: center;
+                                        gap: 8px;
+                                    }}
+                                    .seniat-alert-text {{
+                                        color: #2c3e50;
+                                        font-size: 0.95em;
+                                        line-height: 1.5;
+                                        margin: 0;
+                                    }}
+                                    .seniat-monto {{
+                                        color: #d32f2f;
+                                        font-weight: bold;
+                                    }}
+                                </style>
+                                <div class="seniat-alert-box">
+                                    <div class="seniat-alert-title">
+                                        <span>✅</span> Descarga exitosa
+                                    </div>
+                                    <p class="seniat-alert-text">
+                                        Su archivo está listo para subir al SENIAT. Considere que las retenciones del mes a procesar ascienden a un monto de <span class="seniat-monto">{monto_neto_formateado} Bs.</span>
+                                    </p>
+                                </div>
+                            """, unsafe_allow_html=True)
+                        
+                        with st.expander("👁️ Ver Código XML Generado"):
+                            xml_code = st.session_state['xml_data']
+                            if isinstance(xml_code, bytes):
+                                xml_code = xml_code.decode('utf-8')
+                            st.code(xml_code, language="xml")
+
+
+    elif sub_opcion == "Comprobante de Retención IVA":
+        import datetime as dt 
+        
+        db_actual = st.session_state.get('DB_ACTUAL', 'railway')
+        
+        if db_actual:
+            # Carga directa y fluida delegando la gestión de conexión al módulo de la interfaz
+            try:
+                mostrar_interfaz_retencion_iva(
+                    EMPRESA, 
+                    st.session_state.get('f_inicio_global', dt.date.today()), 
+                    st.session_state.get('f_fin_global', dt.date.today())
+                )
+            except Exception as e:
+                st.error(f"❌ Error al cargar el módulo de Retención IVA: {e}")
+        else:
+            st.error("⚠️ No se detectó una base de datos activa en la sesión.")
+
+
+# --- USAMOS "IN" PARA QUE NO IMPORTE EL EMOJI QUE PONGAS EN EL SIDEBAR ---
+elif "Proveedores" in opcion_menu:
+    st.title("👤 Gestión de Directorio de Proveedores")
+    
+    # 0. ASEGURAR QUE db_actual ESTÉ DEFINIDA
+    db_actual = st.session_state.get('DB_ACTUAL')
+    
+    if not db_actual or db_actual == 'none':
+        st.warning("⚠️ Por favor, seleccione un Cliente/Empresa en el panel lateral.")
+        st.stop()
+
+    # 1. Obtenemos la conexión
+    conn_empresa = conectar_db(db_actual)
+    
+    try:
+        # DEFINICIÓN ESTRICTA DE TABS (4 PESTAÑAS)
+        tab1, tab2, tab3, tab4 = st.tabs([
+            "📥 Cargar desde Excel", 
+            "📋 Directorio Actual", 
+            "📥 Bandeja Proveedores PDF",
+            "🗑️ Gestión / Eliminar Tabla"
+        ])
+
+        # --- TAB 1 y TAB 2 / BANDEJAS DE PROVEEDORES OPTIMIZADAS ---
+
+        # --- FUNCIÓN CON CACHÉ PARA CONSULTAR PROVEEDORES ---
+        @st.cache_data(ttl=30, show_spinner=False)
+        def consultar_proveedores_cached(empresa):
+            df_res = pd.DataFrame()
+            conn = conectar_db(empresa)
+            if conn:
+                try:
+                    conn.ping(reconnect=True)
+                    df_res = consultar_tabla_db(conn, "proveedores")
+                except Exception:
+                    pass
+                finally:
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
+            return df_res if df_res is not None else pd.DataFrame()
+
+        # 3. Lógica de Pestaña 1 (Carga Masiva Excel)
+        with tab1:
+            st.markdown("### Subir Archivo Masivo")
+            file_p = st.file_uploader("Seleccione el archivo Excel", type=["xlsx"], key="file_prov_up")
+                
+            if file_p:
+                df_subida = pd.read_excel(file_p)
+                df_subida = df_subida.dropna(how='all')
+                
+                st.write(f"Vista previa (Total de filas detectadas en el archivo: {len(df_subida)}):")
+                st.dataframe(df_subida, use_container_width=True, height=450)
+                
+                if st.button("🚀 Procesar y Guardar", type="primary", key="btn_procesar_excel_prov"):
+                    try:
+                        procesar_excel_proveedores_db(df_subida)
+                        st.cache_data.clear()
+                        st.success("✅ ¡Actualizado y sincronizado!")
+                        st.balloons()
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"❌ Error al procesar el archivo: {e}")
+
+        # 4. Lógica de Pestaña 2 (Directorio Actual de Proveedores)
+        with tab2:
+            st.markdown("### 📋 Directorio Actual de Proveedores")
+            
+            db_actual = st.session_state.get('DB_ACTUAL')
+
+            if db_actual:
+                # Carga optimizada mediante función con caché
+                df_temp = consultar_proveedores_cached(db_actual)
+                
+                columnas_reales = ["rif", "tipo_persona", "razon_social", "direccion_fiscal", "codigo_cuenta", "descripcion_cuenta"]
+                
+                if df_temp.empty:
+                    df_para_mostrar = pd.DataFrame(columns=columnas_reales)
+                else:
+                    df_para_mostrar = df_temp.copy()
+                    for col in columnas_reales:
+                        if col not in df_para_mostrar.columns:
+                            df_para_mostrar[col] = ""
+
+                for col in df_para_mostrar.columns:
+                    df_para_mostrar[col] = df_para_mostrar[col].astype(str).replace(['None', 'nan', 'NAT'], '')
+
+                # --- ORDENAMIENTO ALFABÉTICO AUTOMÁTICO POR RAZÓN SOCIAL ---
+                if not df_para_mostrar.empty and "razon_social" in df_para_mostrar.columns:
+                    df_para_mostrar['orden_aux'] = df_para_mostrar['razon_social'].str.lower()
+                    df_para_mostrar = df_para_mostrar.sort_values(by='orden_aux', ascending=True).drop(columns=['orden_aux']).reset_index(drop=True)
+
+                # 4. Editor de datos interactivo
+                df_editado = st.data_editor(
+                    df_para_mostrar, 
+                    key="editor_proveedores_dinamico", 
+                    num_rows="dynamic",
+                    use_container_width=True,
+                    hide_index=True,
+                    height=450,
+                    column_config={
+                        "rif": st.column_config.TextColumn("RIF", required=True),
+                        "tipo_persona": st.column_config.SelectboxColumn("Tipo", options=["PN", "PJ"], required=True),
+                        "razon_social": st.column_config.TextColumn("Razón Social", required=True),
+                        "direccion_fiscal": st.column_config.TextColumn("Dirección Fiscal", required=True),
+                        "codigo_cuenta": st.column_config.TextColumn("Código Cuenta"),
+                        "descripcion_cuenta": st.column_config.TextColumn("Descripción Cuenta")
+                    }
+                )
+                
+                # Botones de acción
+                col_b1, col_b2 = st.columns(2)
+                with col_b1:
+                    if st.button("💾 Guardar Todo en BD", key="btn_guardar_proveedores", use_container_width=True, type="primary"):
+                        conn_save = conectar_db(db_actual)
+                        if conn_save:
+                            try:
+                                conn_save.ping(reconnect=True)
+                                actualizar_tabla_completa_db(conn_save, "proveedores", df_editado)
+                                st.cache_data.clear()
+                                st.success("¡Directorio actualizado con éxito!")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"❌ Error al guardar: {e}")
+                            finally:
+                                try:
+                                    conn_save.close()
+                                except Exception:
+                                    pass
+
+                with col_b2:
+                    if st.button("🔄 Recargar desde BD", key="btn_recargar_proveedores", use_container_width=True):
+                        st.cache_data.clear()
+                        st.rerun()
+
+                # 5. Zona de respaldo
+                st.markdown("---") 
+                if not df_para_mostrar.empty:
+                    import io
+                    output = io.BytesIO()
+                    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                        df_para_mostrar.to_excel(writer, index=False, sheet_name='Proveedores')
+                    st.download_button(
+                        "📥 Descargar Respaldo de Proveedores", 
+                        data=output.getvalue(), 
+                        file_name="Respaldo_Proveedores.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        use_container_width=True
+                    )
+            else:
+                st.warning("⚠️ No se ha seleccionado una base de datos activa.")
+
+        # ------------------------------------------
+        # TAB 3: Bandeja Proveedores PDF (Cola masiva)
+        # ------------------------------------------
+        with tab3:
+            st.subheader("📥 Bandeja de Entrada - Registro Masivo de Proveedores (PDF)")
+            st.info("Arrastra o selecciona múltiples facturas de proveedores en PDF. El sistema extraerá automáticamente el RIF, la Razón Social y la Dirección Fiscal.")
+
+            if "cola_proveedores_pdfs" not in st.session_state:
+                st.session_state.cola_proveedores_pdfs = []
+            if "prov_procesados_ids" not in st.session_state:
+                st.session_state.prov_procesados_ids = set()
+            if "datos_prov_extraidos" not in st.session_state:
+                st.session_state.datos_prov_extraidos = {}
+
+            archivos_prov_pdf = st.file_uploader(
+                "Sube tus facturas de proveedores en PDF", 
+                type=['pdf'], 
+                accept_multiple_files=True,
+                key="uploader_prov_pdf_cola"
+            )
+
+            if archivos_prov_pdf:
+                nombres_existentes_prov = [item['nombre'] for item in st.session_state.cola_proveedores_pdfs]
+                for archivo in archivos_prov_pdf:
+                    file_id = getattr(archivo, "file_id", archivo.name)
+                    if archivo.name not in nombres_existentes_prov and file_id not in st.session_state.prov_procesados_ids:
+                        st.session_state.cola_proveedores_pdfs.append({
+                            "id": file_id,
+                            "nombre": archivo.name,
+                            "objeto": archivo,
+                            "estado": "Pendiente"
+                        })
+
+            if st.session_state.cola_proveedores_pdfs:
+                st.markdown(f"### 📋 Cola de Proveedores ({len(st.session_state.cola_proveedores_pdfs)} en espera)")
+                
+                if st.button("🗑️ Vaciar Cola de Proveedores", key="btn_vaciar_cola_prov"):
+                    st.session_state.cola_proveedores_pdfs = []
+                    st.session_state.prov_procesados_ids = set()
+                    st.session_state.datos_prov_extraidos = {}
+                    st.rerun()
+
+                import pandas as pd
+                df_cola_prov = pd.DataFrame([{
+                    "Archivo": item["nombre"], 
+                    "Estado": item["estado"]
+                } for item in st.session_state.cola_proveedores_pdfs])
+                
+                st.dataframe(df_cola_prov, use_container_width=True, hide_index=True)
+                st.markdown("---")
+
+                st.markdown("### 📝 Auditoría, Extracción y Registro en la Tabla de Proveedores")
+                
+                docs_prov_pendientes = [item for item in st.session_state.cola_proveedores_pdfs if item["estado"] == "Pendiente"]
+                
+                if docs_prov_pendientes:
+                    nombres_prov_pendientes = [item["nombre"] for item in docs_prov_pendientes]
+                    doc_prov_seleccionado = st.selectbox(
+                        "Selecciona un proveedor pendiente para revisar y registrar:", 
+                        nombres_prov_pendientes,
+                        key="select_doc_prov_auditoria"
+                    )
+
+                    doc_prov_obj = next((item for item in docs_prov_pendientes if item["nombre"] == doc_prov_seleccionado), None)
+
+                    if doc_prov_obj:
+                        sufijo_prov = doc_prov_obj['nombre']
+
+                        keys_defaults_prov = {
+                            f"rif_{sufijo_prov}": "",
+                            f"razon_{sufijo_prov}": "",
+                            f"dir_{sufijo_prov}": "",
+                            f"tipo_{sufijo_prov}": "Jurídica",
+                            f"cc_{sufijo_prov}": "",
+                            f"dc_{sufijo_prov}": ""
+                        }
+                        for k, v in keys_defaults_prov.items():
+                            if k not in st.session_state:
+                                st.session_state[k] = v
+
+                        if st.button("⚡ Extraer Datos del Proveedor", key=f"btn_extraer_{sufijo_prov}"):
+                            with st.spinner("Leyendo RIF, Razón Social y Dirección del PDF..."):
+                                archivo_pdf = doc_prov_obj["objeto"]
+                                
+                                if hasattr(archivo_pdf, "seek"):
+                                    archivo_pdf.seek(0)
+                                    
+                                datos_proveedor = extraer_datos_proveedor_pdf(archivo_pdf)
+
+                                if datos_proveedor is None:
+                                    st.warning("⚠️ El documento no pudo ser leído correctamente. Por favor, completa los datos manualmente.")
+                                    st.session_state[f"rif_{sufijo_prov}"] = ""
+                                    st.session_state[f"razon_{sufijo_prov}"] = ""
+                                    st.session_state[f"dir_{sufijo_prov}"] = ""
+                                else:
+                                    st.session_state[f"rif_{sufijo_prov}"] = datos_proveedor.get("rif", "")
+                                    st.session_state[f"razon_{sufijo_prov}"] = datos_proveedor.get("proveedor", "")
+                                    st.session_state[f"dir_{sufijo_prov}"] = datos_proveedor.get("direccion_fiscal", "")
+                                    st.success(f"¡Datos extraídos con éxito para: {datos_proveedor['proveedor']}!")
+                                    st.rerun()
+
+                        st.info(f"Completando información para el archivo: **{sufijo_prov}**")
+                        
+                        col_i1, col_i2 = st.columns(2)
+                        
+                        with col_i1:
+                            rif = st.text_input("RIF", key=f"rif_{sufijo_prov}")
+                            tipo_persona = st.selectbox(
+                                "Tipo de Persona", 
+                                options=["PN", "PJ", "No Residente", "Gobierno"],
+                                index=1,
+                                key=f"tipo_{sufijo_prov}"
+                            )
+                            razon_social = st.text_input("Razón Social", key=f"razon_{sufijo_prov}")
+                        
+                        with col_i2:
+                            direccion_fiscal = st.text_area("Dirección Fiscal", key=f"dir_{sufijo_prov}")
+                            codigo_cuenta = st.text_input("Código de Cuenta Contable", key=f"cc_{sufijo_prov}")
+                            descripcion_cuenta = st.text_input("Descripción de Cuenta", key=f"dc_{sufijo_prov}")
+
+                        if st.button("💾 Guardar Proveedor en Base de Datos", type="primary", key=f"btn_guardar_prov_{sufijo_prov}", use_container_width=True):
+                            db_nombre = st.session_state.get('DB_ACTUAL')
+                            if not db_nombre:
+                                st.error("Error: No se ha seleccionado una base de datos activa.")
+                            else:
+                                conn = conectar_db(db_nombre)
+                                if conn is None:
+                                    st.error(f"❌ No se pudo conectar a la base de datos '{db_nombre}'.")
+                                else:
+                                    try:
+                                        conn.ping(reconnect=True)
+                                        with conn.cursor() as cursor:
+                                            query_prov = """
+                                                INSERT INTO proveedores (
+                                                    rif, tipo_persona, razon_social, 
+                                                    direccion_fiscal, codigo_cuenta, descripcion_cuenta
+                                                ) VALUES (%s, %s, %s, %s, %s, %s)
+                                                ON DUPLICATE KEY UPDATE
+                                                    tipo_persona = VALUES(tipo_persona),
+                                                    razon_social = VALUES(razon_social),
+                                                    direccion_fiscal = VALUES(direccion_fiscal),
+                                                    codigo_cuenta = VALUES(codigo_cuenta),
+                                                    descripcion_cuenta = VALUES(descripcion_cuenta)
+                                            """
+                                            
+                                            valores_prov = (
+                                                rif, tipo_persona, razon_social,
+                                                direccion_fiscal, codigo_cuenta, descripcion_cuenta
+                                            )
+                                            
+                                            cursor.execute(query_prov, valores_prov)
+                                            conn.commit()
+                                        
+                                        for item in st.session_state.cola_proveedores_pdfs:
+                                            if item["nombre"] == doc_prov_obj["nombre"]:
+                                                item["estado"] = "Registrado"
+                                                st.session_state.prov_procesados_ids.add(item["id"])
+                                                break
+                                                
+                                        st.cache_data.clear()
+                                        st.success(f"¡Proveedor '{razon_social}' (RIF: {rif}) guardado correctamente!")
+                                        st.rerun()
+                                        
+                                    except Exception as e:
+                                        conn.rollback()
+                                        st.error(f"Error al registrar el proveedor en la base de datos: {e}")
+                                    finally:
+                                        try:
+                                            conn.close()
+                                        except Exception:
+                                            pass
+                else:
+                    st.success("🎉 ¡Todos los proveedores en la cola ya han sido procesados y registrados!")
+            else:
+                st.info("No hay archivos en la cola de proveedores. Sube algunos PDFs arriba para comenzar.")
+        # 5. Lógica de Pestaña 4 (Gestión y borrado seguro conectado al control central)
+        with tab4:
+            st.subheader("⚠️ Zona de Peligro: Gestión de la Tabla Proveedores")
+            st.warning("Esta acción eliminará por completo los registros de la tabla de proveedores para la empresa seleccionada actualmente.")
+            
+            # Mostrar mensaje persistente si quedó guardado en la sesión anterior tras el rerun
+            if "mensaje_exito_proveedores" in st.session_state:
+                st.success(st.session_state.mensaje_exito_proveedores)
+                # Limpiarlo para que no se repita infinitamente en futuras interacciones
+                del st.session_state.mensaje_exito_proveedores
+
+            # Checkbox de confirmación fuera del botón para que no se pierda el estado al hacer clic
+            confirmacion_borrado = st.checkbox(
+                "Confirmo que deseo vaciar/eliminar la tabla de proveedores de esta empresa", 
+                key="check_confirm_drop_prov_seguro"
+            )
+            
+            if st.button("🗑️ Ejecutar Borrado de Proveedores", type="primary", use_container_width=True, key="btn_ejecutar_borrado_prov"):
+                if confirmacion_borrado:
+                    db_seleccionada = st.session_state.get('DB_ACTUAL')
+                    
+                    if not db_seleccionada or db_seleccionada == 'none':
+                        st.error("❌ No hay ninguna empresa/base de datos activa seleccionada en el panel lateral.")
+                    else:
+                        conn_gestion = None
+                        try:
+                            conn_gestion = conectar_db(db_seleccionada)
+                            
+                            if conn_gestion is None:
+                                st.error(f"❌ No se pudo establecer conexión con la base de datos: {db_seleccionada}")
+                            else:
+                                conn_gestion.ping(reconnect=True)
+                                with conn_gestion.cursor() as cursor:
+                                    # Ejecutar la eliminación y recreación de la tabla
+                                    cursor.execute("DROP TABLE IF EXISTS proveedores;")
+                                    cursor.execute("""
+                                        CREATE TABLE proveedores (
+                                            rif VARCHAR(50) NOT NULL PRIMARY KEY,
+                                            tipo_persona VARCHAR(50) NOT NULL,
+                                            razon_social VARCHAR(255) NOT NULL,
+                                            direccion_fiscal TEXT NOT NULL,
+                                            codigo_cuenta VARCHAR(100) DEFAULT '',
+                                            descripcion_cuenta VARCHAR(255) DEFAULT ''
+                                        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+                                    """)
+                                    conn_gestion.commit()
+                                
+                                # Limpiar caché global y local de proveedores para reflejar el cambio en toda la app
+                                st.cache_data.clear()
+                                if "df_proveedores_cache" in st.session_state:
+                                    del st.session_state.df_proveedores_cache
+                                    
+                                st.balloons()
+                                
+                                # Guardar el mensaje de éxito en el session_state
+                                st.session_state.mensaje_exito_proveedores = f"🎉 ¡La tabla de proveedores de la base de datos '{db_seleccionada}' ha sido ELIMINADA y recreada con éxito!"
+                                
+                                st.rerun()
+                                
+                        except Exception as e:
+                            if conn_gestion:
+                                try:
+                                    conn_gestion.rollback()
+                                except Exception:
+                                    pass
+                            st.error(f"❌ Error crítico al procesar la BD '{db_seleccionada}': {e}")
+                        finally:
+                            if conn_gestion and hasattr(conn_gestion, 'close'):
+                                try:
+                                    conn_gestion.close()
+                                except Exception:
+                                    pass
+                else:
+                    st.warning("⚠️ Debes marcar la casilla de confirmación antes de ejecutar el borrado.")
+            
+            # Cierre de conexión global de la pestaña garantizado de forma independiente
+            if 'conn_empresa' in locals() and conn_empresa:
+                try:
+                    conn_empresa.close()
+                except Exception:
+                    pass
+
