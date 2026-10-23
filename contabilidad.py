@@ -2497,3 +2497,294 @@ def consultar_libro_diario_db(db_a_usar=None, fecha_inicio=None, fecha_fin=None)
                 conn.close()
             except Exception:
                 pass
+
+
+
+@st.cache_data(ttl=300)
+def ejecutar_mayor_analitico(db_nombre, cuenta, fecha_desde, fecha_hasta):
+    """
+    Calcula el mayor analítico sanitizando la cuenta en Python y 
+    aprovechando los índices de MySQL (sin funciones en el WHERE).
+    """
+    # 1. SANITIZACIÓN EN PYTHON (Adiós a TRIM() y funciones lentas en SQL)
+    cuenta_limpia = str(cuenta).strip()
+    if " - " in cuenta_limpia:
+        cuenta_limpia = cuenta_limpia.split(" - ")[0].strip()
+    cuenta_solo_numeros = "".join(filter(str.isdigit, cuenta_limpia))
+
+    db_actual = db_nombre if db_nombre and db_nombre != 'none' else st.session_state.get('DB_ACTUAL')
+    if not db_actual or db_actual == 'none':
+        db_actual = st.session_state.get('empresa_actual')
+
+    conn = conectar_db(db_actual)
+    if not conn:
+        return pd.DataFrame(), pd.DataFrame(), 0.0
+
+    try:
+        f_inicio = pd.to_datetime(fecha_desde).normalize()
+        f_fin = pd.to_datetime(fecha_hasta).normalize() + pd.Timedelta(hours=23, minutes=59, seconds=59)
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT COUNT(*) FROM information_schema.tables 
+            WHERE table_schema = %s AND table_name = 'saldos_iniciales'
+        """, (db_actual,))
+        tiene_saldos_iniciales = cursor.fetchone()[0] > 0
+        
+        # 2. CONSULTAS SQL LIMPIAS (Comparación exacta, velocidad máxima)
+        if tiene_saldos_iniciales:
+            query_saldo = f"""
+                SELECT 
+                    (SELECT IFNULL(SUM(debe - haber), 0) FROM `{db_actual}`.saldos_iniciales WHERE cuenta_contable = %s OR cuenta_contable = %s) +
+                    (SELECT IFNULL(SUM(debe - haber), 0) FROM `{db_actual}`.asientos_contables 
+                     WHERE (plan_cuentas = %s OR plan_cuentas = %s OR cuenta_contable = %s OR cuenta_contable = %s) AND fecha < %s) 
+                AS saldo_previo
+            """
+            res_saldo = pd.read_sql(
+                query_saldo, conn, 
+                params=(cuenta_limpia, cuenta_solo_numeros, cuenta_limpia, cuenta_solo_numeros, cuenta_limpia, cuenta_solo_numeros, f_inicio.strftime('%Y-%m-%d %H:%M:%S'))
+            )
+        else:
+            query_saldo = f"""
+                SELECT IFNULL(SUM(debe - haber), 0) AS saldo_previo
+                FROM `{db_actual}`.asientos_contables 
+                WHERE (plan_cuentas = %s OR plan_cuentas = %s OR cuenta_contable = %s OR cuenta_contable = %s) AND fecha < %s
+            """
+            res_saldo = pd.read_sql(
+                query_saldo, conn, 
+                params=(cuenta_limpia, cuenta_solo_numeros, cuenta_limpia, cuenta_solo_numeros, f_inicio.strftime('%Y-%m-%d %H:%M:%S'))
+            )
+
+        saldo_inicial_periodo = float(res_saldo.iloc[0, 0]) if not res_saldo.empty else 0.0
+
+        query_movs = f"""
+            SELECT DATE_FORMAT(fecha, '%Y-%m-%d') AS fecha, n_comprobante, descripcion, referencia, debe, haber 
+            FROM `{db_actual}`.asientos_contables 
+            WHERE (
+                plan_cuentas = %s OR 
+                plan_cuentas = %s OR 
+                cuenta_contable = %s OR 
+                cuenta_contable = %s
+            ) 
+            AND fecha >= %s AND fecha <= %s 
+            ORDER BY fecha ASC, id ASC
+        """
+        df_movs = pd.read_sql(
+            query_movs, conn, 
+            params=(cuenta_limpia, cuenta_solo_numeros, cuenta_limpia, cuenta_solo_numeros, f_inicio.strftime('%Y-%m-%d %H:%M:%S'), f_fin.strftime('%Y-%m-%d %H:%M:%S'))
+        )
+        
+        if not df_movs.empty:
+            df_movs['debe'] = pd.to_numeric(df_movs['debe'], errors='coerce').fillna(0.0)
+            df_movs['haber'] = pd.to_numeric(df_movs['haber'], errors='coerce').fillna(0.0)
+            df_movs['Saldo'] = saldo_inicial_periodo + (df_movs['debe'] - df_movs['haber']).cumsum()
+            df_movs['fecha'] = df_movs['fecha'].astype(str)
+        else:
+            df_movs = pd.DataFrame(columns=['fecha', 'n_comprobante', 'descripcion', 'referencia', 'debe', 'haber', 'Saldo'])
+
+        fila_inicial = pd.DataFrame([{
+            'fecha': str(fecha_desde),
+            'n_comprobante': 'S/I',
+            'descripcion': f'SALDO INICIAL AL {fecha_desde}',
+            'referencia': 'INICIAL',
+            'debe': 0.00, 
+            'haber': 0.00,
+            'Saldo': saldo_inicial_periodo
+        }])
+
+        df_final = pd.concat([fila_inicial, df_movs], ignore_index=True)
+        
+        if not df_final.empty and 'fecha' in df_final.columns:
+            df_final['fecha'] = df_final['fecha'].astype(str).str.split().str[0].replace(['NaT', 'nan', 'NaT 00:00:00', 'None'], '')
+
+        saldo_final_real = float(df_final['Saldo'].iloc[-1]) if not df_final.empty else saldo_inicial_periodo
+        
+        return df_final, df_movs, saldo_final_real
+
+    except Exception as e:
+        return pd.DataFrame(), pd.DataFrame(), 0.0
+    finally:
+        if conn:
+            try: conn.close()
+            except: pass
+
+@st.cache_data(ttl=300)
+def generar_balance_comprobacion(db, f_i, f_f, sucursal):
+    """
+    Genera el balance de comprobación cacheado y con limpieza de códigos eficiente.
+    """
+    if not db:
+        return pd.DataFrame(columns=['Código', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final'])
+    
+    conn = conectar_db(db)
+    if not conn:
+        return pd.DataFrame(columns=['Código', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final'])
+    
+    try:
+        # 1. Traer los Saldos Iniciales fijos de la tabla 'saldos_iniciales'
+        sql_si = f"SELECT plan_cuentas, SUM(debe) - SUM(haber) as val FROM `{db}`.saldos_iniciales GROUP BY plan_cuentas"
+        
+        # 2. Movimientos del rango seleccionado en 'asientos_contables'
+        sql_mo_d = f"SELECT plan_cuentas, SUM(debe) as val FROM `{db}`.asientos_contables WHERE fecha BETWEEN %s AND %s GROUP BY plan_cuentas"
+        sql_mo_h = f"SELECT plan_cuentas, SUM(haber) as val FROM `{db}`.asientos_contables WHERE fecha BETWEEN %s AND %s GROUP BY plan_cuentas"
+
+        dfs = {
+            'si': ejecutar_consulta(sql_si, conn),
+            'debe': ejecutar_consulta(sql_mo_d, conn, params=(f_i, f_f)),
+            'haber': ejecutar_consulta(sql_mo_h, conn, params=(f_i, f_f))
+        }
+
+        lista_frames = []
+        for nombre, df in dfs.items():
+            if df is not None and not df.empty:
+                if 'plan_cuentas' in df.columns:
+                    df = df.rename(columns={'plan_cuentas': 'Código', 'val': nombre})
+                    df[nombre] = pd.to_numeric(df[nombre], errors='coerce').fillna(0.0)
+                    
+                    # Sanitización limpia en Python
+                    df['Código'] = df['Código'].astype(str).str.replace(r'[^0-9]', '', regex=True)
+                    df = df.set_index('Código')
+                    lista_frames.append(df)
+
+        if not lista_frames:
+            return pd.DataFrame(columns=['Código', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final'])
+
+        balance = pd.concat(lista_frames, axis=1).fillna(0.0)
+        balance.reset_index(inplace=True)
+        
+        for c in ['si', 'debe', 'haber']:
+            if c not in balance.columns: 
+                balance[c] = 0.0
+            balance[c] = balance[c].astype(float)
+            
+        balance['Tipo'] = balance['Código'].astype(str).str[0]
+        balance['Saldo Inicial'] = balance['si']
+        
+        es_activo_gasto = balance['Tipo'].isin(['1', '5'])
+        
+        balance['Saldo Final'] = 0.0
+        balance.loc[es_activo_gasto, 'Saldo Final'] = balance['Saldo Inicial'] + balance['debe'] - balance['haber']
+        balance.loc[~es_activo_gasto, 'Saldo Final'] = balance['Saldo Inicial'] - balance['debe'] + balance['haber']
+        
+        return balance[['Código', 'Saldo Inicial', 'debe', 'haber', 'Saldo Final']].rename(columns={
+            'debe': 'Debe', 'haber': 'Haber'
+        })
+
+    except Exception as e:
+        st.error(f"❌ Error crítico procesando el balance: {e}")
+        return pd.DataFrame()
+    finally:
+        if conn:
+            try: conn.close()
+            except: pass
+
+
+@st.cache_data(ttl=300)
+def formato_contable(valor):
+    """Formatea los números como montos contables de Venezuela (Bs. 1.234,56)"""
+    try:
+        return "{:,.2f}".format(valor).replace(",", "X").replace(".", ",").replace("X", ".")
+    except:
+        return "0,00"
+
+def estilo_balance(row):
+    """Aplica colores y negritas según el nivel de la cuenta"""
+    # Nivel 1: Títulos principales (Activo, Pasivo, etc.) - Azul Oscuro
+    if row['nivel'] == 1:
+        return ['background-color: #1a5276; color: white; font-weight: bold'] * len(row)
+    
+    # Nivel 2: Sub-títulos (Activo Corriente, etc.) - Azul Claro
+    elif row['nivel'] == 2:
+        return ['background-color: #d4e6f1; color: black; font-weight: bold'] * len(row)
+    
+    # Nivel 3 y 4: Grupos intermedios - Solo Negrita
+    elif row['nivel'] in [3, 4]:
+        return ['font-weight: bold'] * len(row)
+    
+    # Nivel 5: Cuentas de detalle (Caja, Bancos) - Normal
+    return [''] * len(row)
+
+
+
+def cargar_libro_ventas_db(df, conn):
+    cursor = conn.cursor()
+    
+    # 1. Definimos el mapeo de nombres de columna
+    cols = {name: i for i, name in enumerate(df.columns)}
+    
+    # Función de limpieza interna
+    def f_n(v):
+        try:
+            if v is None or v == "" or str(v).lower() == 'nan': return 0.0
+            s = str(v).strip()
+            s = re.sub(r'[^0-9,.-]', '', s)
+            if ',' in s and '.' in s:
+                if s.rfind(',') > s.rfind('.'): s = s.replace('.', '').replace(',', '.')
+                else: s = s.replace(',', '')
+            elif ',' in s: s = s.replace(',', '.')
+            val = float(s)
+            return round(min(max(val, -99999999.99), 99999999.99), 2)
+        except: return 0.0
+
+    def convertir_fecha(v):
+        try:
+            if str(v).replace('.','',1).isdigit() and float(v) > 30000:
+                return (pd.to_datetime('1899-12-30') + pd.to_timedelta(float(v), 'D')).strftime('%Y-%m-%d')
+            return pd.to_datetime(v).strftime('%Y-%m-%d')
+        except: return "2026-06-05"
+
+    sql = """INSERT INTO libro_ventas 
+        (fecha_factura, nombre_razon_social, rif, n_factura, n_control, 
+         total_ventas_con_iva, ventas_exentas, base_imponible, porcentaje_alicuota, debito_fiscal) 
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        ON DUPLICATE KEY UPDATE 
+        fecha_factura = VALUES(fecha_factura), 
+        nombre_razon_social = VALUES(nombre_razon_social),
+        n_control = VALUES(n_control),
+        total_ventas_con_iva = VALUES(total_ventas_con_iva),
+        ventas_exentas = VALUES(ventas_exentas),
+        base_imponible = VALUES(base_imponible),
+        debito_fiscal = VALUES(debito_fiscal)"""
+    
+    valores_a_insertar = []
+    data = df.astype(str).replace('nan', '').values
+    
+    # 2. Recolectamos todas las tuplas en memoria (Ultra rápido)
+    for fila in data:
+        if "FECHA" in str(fila[0]).upper() or str(fila[cols.get('rif', 2)]).strip() == "": 
+            continue
+
+        idx_total = cols.get('total_ventas_con_iva', 5)
+        idx_exentas = cols.get('ventas_exentas', 6)
+        idx_base = cols.get('base_imponible', 7)
+        idx_debito = cols.get('debito_fiscal', 9)
+
+        valores_a_insertar.append((
+            convertir_fecha(fila[0]), 
+            str(fila[1]).upper()[:255].strip(), 
+            str(fila[cols.get('rif', 2)]).replace('-', '').replace('.', '').strip(), 
+            str(fila[cols.get('n_factura', 3)]).replace('.0', '').strip().zfill(5), 
+            str(fila[cols.get('n_control', 4)]).replace('.0', '').strip().zfill(5),
+            f_n(fila[idx_total]), 
+            f_n(fila[idx_exentas]), 
+            f_n(fila[idx_base]), 
+            16.0, 
+            f_n(fila[idx_debito])
+        ))
+
+    if not valores_a_insertar:
+        cursor.close()
+        return 0
+
+    try:
+        # 3. Inserción masiva en lote de un solo golpe
+        cursor.executemany(sql, valores_a_insertar)
+        conn.commit()
+        exitos = cursor.rowcount if cursor.rowcount > 0 else len(valores_a_insertar)
+        return exitos
+    except Exception as e:
+        conn.rollback()
+        st.error(f"❌ Error al cargar libro de ventas: {e}")
+        return 0
+    finally:
+        cursor.close()
