@@ -149,7 +149,92 @@ def registrar_log_automatico(conn, accion, detalles):
         if cursor:
             cursor.close()
 
+def verificar_usuario(conn, user, password):
+    if conn is None:
+        try:
+            conn = conectar_db()
+        except:
+            return None 
 
+    user_data = None
+    cursor = None
+
+    for intento in range(2):
+        try:
+            # Validación de conexión abierta en PyMySQL
+            if not conn or not getattr(conn, 'open', False):
+                conn = conectar_db()
+                if not conn:
+                    return None
+                
+            # Cursor con diccionario nativo de PyMySQL
+            cursor = conn.cursor(pymysql.cursors.DictCursor)
+            cursor.execute("SELECT * FROM usuarios WHERE usuario = %s", (user,))
+            user_data = cursor.fetchone()
+            break 
+        except Exception as e:
+            if intento == 0:
+                try:
+                    conn.ping(reconnect=True)
+                    continue
+                except:
+                    return None
+            else:
+                return None
+
+    if not user_data:
+        try:
+            if cursor:
+                cursor.close()
+        except:
+            pass
+        return None 
+    
+    # Obtenemos la clave de la base de datos de forma segura
+    clave_en_bd = user_data.get('clave_hash') or user_data.get('password')
+    login_exitoso = False
+    
+    if clave_en_bd:
+        password_bytes = password.encode('utf-8')
+        clave_str = str(clave_en_bd)
+        
+        # Verificamos si es un hash de bcrypt (soportando variantes 2a, 2b, 2y)
+        if clave_str.startswith(('$2a$', '$2b$', '$2y$')):
+            try:
+                if bcrypt.checkpw(password_bytes, clave_str.encode('utf-8')):
+                    login_exitoso = True
+            except Exception as ex:
+                st.error(f"Error al validar hash: {ex}")
+        else:
+            # Si está en texto plano
+            if password == clave_str:
+                login_exitoso = True
+                # Intentamos actualizar a hash de forma silenciosa para mejorar seguridad
+                try:
+                    salt = bcrypt.gensalt()
+                    nuevo_hash = bcrypt.hashpw(password_bytes, salt).decode('utf-8')
+                    cursor.execute("UPDATE usuarios SET clave_hash = %s WHERE id = %s", (nuevo_hash, user_data['id']))
+                    conn.commit()
+                except:
+                    pass
+    
+    # Cierre seguro del cursor
+    try:
+        if cursor:
+            cursor.close()
+    except:
+        pass
+    
+    if login_exitoso:
+        # Aseguramos llaves por defecto para que la sesión no falle
+        if 'rol' not in user_data or not user_data['rol']:
+            user_data['rol'] = 'admin'
+        if 'cliente_id' not in user_data:
+            user_data['cliente_id'] = None
+        return user_data
+    else:
+        return None
+    
 def mostrar_plantilla_bienvenida():
     """Pantalla de bienvenida elegante y fluida tras iniciar sesión"""
     rol = str(st.session_state.get('rol', '')).upper()
