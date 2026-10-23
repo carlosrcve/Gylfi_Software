@@ -9001,7 +9001,7 @@ elif opcion_menu == "📂 Plan de Cuentas":
                         st.error("❌ El archivo Excel debe contener al menos las columnas 'codigo' y 'nombre'.")
 
         # ----------------------------------------------------
-        # CARGA ÚNICA DE DATOS EN MEMORIA (OPTIMIZACIÓN CLAVE)
+        # CARGA ÚNICA DE DATOS EN MEMORIA
         # ----------------------------------------------------
         df_actual = consultar_tabla_db(conn_empresa, "plan_cuentas")
         columnas_requeridas = ['id', 'codigo', 'nombre', 'nivel', 'tipo', 'padre']
@@ -9019,7 +9019,7 @@ elif opcion_menu == "📂 Plan de Cuentas":
             df_actual = df_actual.sort_values(by='codigo', ascending=True).reset_index(drop=True)
 
         # ----------------------------------------------------
-        # TAB 2: GESTIÓN Y MODIFICACIÓN
+        # TAB 2: GESTIÓN Y MODIFICACIÓN ULTRARRÁPIDA
         # ----------------------------------------------------
         with tab2:
             st.markdown("### 📋 Plan de Cuentas (Gestión y Modificación)")
@@ -9099,38 +9099,54 @@ elif opcion_menu == "📂 Plan de Cuentas":
                 }
             )
             
-            # Guardado masivo con executemany
+            # ----------------------------------------------------
+            # GUARDADO OPTIMIZADO: DETECTA ÚNICAMENTE CAMBIOS (O(1))
+            # ----------------------------------------------------
             if st.button("💾 Guardar Cambios en Cuentas Existentes", type="primary"):
                 try:
                     if df_editado is None or df_editado.empty:
                         st.error("⚠️ El editor está vacío.")
                         st.stop()
 
-                    cursor = conn_empresa.cursor()
                     datos_a_actualizar = []
                     
+                    # Comparamos celda por celda contra df_actual original
                     for index, row in df_editado.iterrows():
-                        cuenta_id = row['id']
-                        codigo = str(row['codigo']).strip() if pd.notnull(row['codigo']) and str(row['codigo']).strip() not in ['', 'nan', 'None'] else None
-                        nombre = str(row['nombre']).strip() if pd.notnull(row['nombre']) and str(row['nombre']).strip() not in ['', 'nan', 'None'] else None
-                        nivel = int(row['nivel']) if pd.notnull(row['nivel']) and str(row['nivel']).strip() not in ['', 'nan', 'None'] else 1
-                        tipo = str(row['tipo']).strip() if str(row['tipo']).strip() in ['Grupo', 'Detalle'] else 'Detalle'
-                        padre = str(row['padre']).strip() if pd.notnull(row['padre']) and str(row['padre']).strip() not in ['', 'nan', 'None'] else None
+                        row_orig = df_actual.iloc[index]
+                        
+                        # Si alguna celda cambió respecto a la base de datos original, la agregamos
+                        ha_cambiado = (
+                            str(row['codigo']).strip() != str(row_orig['codigo']).strip() or
+                            str(row['nombre']).strip() != str(row_orig['nombre']).strip() or
+                            int(row['nivel']) != int(row_orig['nivel']) or
+                            str(row['tipo']).strip() != str(row_orig['tipo']).strip() or
+                            str(row['padre']).strip() != str(row_orig['padre']).strip()
+                        )
+                        
+                        if ha_cambiado:
+                            cuenta_id = row['id']
+                            codigo = str(row['codigo']).strip()
+                            nombre = str(row['nombre']).strip()
+                            nivel = int(row['nivel'])
+                            tipo = str(row['tipo']).strip()
+                            padre = str(row['padre']).strip() if str(row['padre']).strip() not in ['', 'nan', 'None'] else None
 
-                        if codigo and nombre and pd.notnull(cuenta_id):
-                            datos_a_actualizar.append((codigo, nombre, nivel, tipo, padre, int(float(cuenta_id))))
+                            if codigo and nombre and pd.notnull(cuenta_id):
+                                datos_a_actualizar.append((codigo, nombre, nivel, tipo, padre, int(float(cuenta_id))))
 
                     if datos_a_actualizar:
+                        cursor = conn_empresa.cursor()
                         sql_update = "UPDATE plan_cuentas SET codigo = %s, nombre = %s, nivel = %s, tipo = %s, padre = %s WHERE id = %s"
                         cursor.executemany(sql_update, datos_a_actualizar)
                         conn_empresa.commit()
-                        st.success(f"✅ ¡Se actualizaron {len(datos_a_actualizar)} cuentas correctamente en un solo lote!")
+                        cursor.close()
+                        
+                        st.success(f"⚡ ¡Guardado instantáneo! Se modificaron únicamente {len(datos_a_actualizar)} registro(s).")
                         st.balloons()
                         st.rerun()
                     else:
-                        st.warning("⚠️ No se encontraron filas válidas para actualizar.")
+                        st.info("ℹ️ No realizaste ningún cambio en las cuentas.")
 
-                    cursor.close()
                 except Exception as ex_save:
                     if hasattr(conn_empresa, 'rollback'): conn_empresa.rollback()
                     st.error(f"❌ Error al guardar en la base de datos: {ex_save}")
