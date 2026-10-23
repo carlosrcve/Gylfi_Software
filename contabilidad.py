@@ -1704,3 +1704,278 @@ def mes_esta_cerrado(conn, mes_nombre, ano, db_nombre=None):
         
     finally:
         cursor.close()
+
+def mostrar_tablero_conciliacion(conn, mes_sel, ano_sel):
+    st.title("⚖️ Conciliación Bancaria")
+
+    # 1. RECUPERAR CONTEXTO GLOBAL
+    db = st.session_state.get('DB_ACTUAL')
+    cliente_id = st.session_state.get('cliente_id') or st.session_state.get('cliente_id_seleccionado')
+
+    if not db:
+        st.warning("⚠️ No se ha seleccionado una base de datos activa.")
+        return
+
+    # 2. CONEXIÓN CON CONTROL CENTRAL PARA DATOS DE LA EMPRESA
+    cursor = conn.cursor()
+    nombre_empresa_mostrada = db
+    rif_empresa = ""
+    
+    try:
+        if cliente_id:
+            cursor.execute("SELECT nombre_empresa, rif FROM control_central.clientes WHERE id = %s", (cliente_id,))
+            res_cliente = cursor.fetchone()
+            if res_cliente:
+                nombre_empresa_mostrada = res_cliente[0]
+                rif_empresa = res_cliente[1]
+    except Exception:
+        pass
+
+    st.markdown(f"### 🏢 Empresa: **{nombre_empresa_mostrada}** {f'(RIF: {rif_empresa})' if rif_empresa else ''}")
+    st.divider()
+
+    # 3. PREPARACIÓN DE FECHAS
+    meses_dict = {
+        "Enero": "01", "Febrero": "02", "Marzo": "03", "Abril": "04", 
+        "Mayo": "05", "Junio": "06", "Julio": "07", "Agosto": "08", 
+        "Septiembre": "09", "Octubre": "10", "Noviembre": "11", "Diciembre": "12"
+    }
+    mes_num = meses_dict[mes_sel]
+    fecha_inicio = f"{ano_sel}-{mes_num}-01"
+    ultimo_dia = calendar.monthrange(int(ano_sel), int(mes_num))[1]
+    fecha_fin = f"{ano_sel}-{mes_num}-{ultimo_dia:02d}"
+
+    # Cálculo dinámico del mes anterior
+    meses_lista = list(meses_dict.keys())
+    idx_mes_actual = meses_lista.index(mes_sel)
+    if idx_mes_actual == 0:
+        mes_anterior = "Diciembre"
+        ano_anterior = str(int(ano_sel) - 1)
+    else:
+        mes_anterior = meses_lista[idx_mes_actual - 1]
+        ano_anterior = str(ano_sel)
+
+    # Inicializar variables de depuración
+    debug_info = {}
+
+    # 4. CARGA DE BANCOS
+    try:
+        query_bancos = f"""
+            SELECT nombre, codigo FROM `{db}`.plan_cuentas 
+            WHERE UPPER(nombre) LIKE '%BANCO%'
+        """
+        cursor.execute(query_bancos)
+        bancos_dict = {b[0]: b[1] for b in cursor.fetchall()}
+        
+        if not bancos_dict:
+            query_alternativa = f"""
+                SELECT nombre, codigo FROM `{db}`.plan_cuentas 
+                WHERE codigo LIKE '1%' AND (tipo = 'Detalle' OR tipo IS NULL OR tipo = '')
+            """
+            cursor.execute(query_alternativa)
+            bancos_dict = {b[0]: b[1] for b in cursor.fetchall()}
+
+        if not bancos_dict:
+            st.warning(f"⚠️ No se encontraron cuentas bancarias o de activo en el plan de cuentas de la empresa ({db}).")
+            cursor.close()
+            return
+
+        nombre_banco_sel = st.selectbox("Seleccione Banco", list(bancos_dict.keys()), key="select_banco_tablero_seguro")
+        cuenta_codigo = bancos_dict[nombre_banco_sel]
+        
+        banco_db = obtener_alias_banco(nombre_banco_sel) if 'obtener_alias_banco' in globals() else nombre_banco_sel
+
+        # 5. CONSULTAS PRINCIPALES
+        sql_saldos = f"""SELECT saldo_inicial, saldo_final 
+                        FROM `{db}`.saldos_bancarios 
+                        WHERE (banco = %s OR banco LIKE %s) AND LOWER(mes) = LOWER(%s) AND CAST(ano AS CHAR) = %s"""
+        
+        cursor.execute(sql_saldos, (nombre_banco_sel, f"%{nombre_banco_sel}%", mes_sel, str(ano_sel)))
+        res_banco = cursor.fetchone()
+        
+        if res_banco:
+            saldo_inicial = float(res_banco[0]) if res_banco[0] is not None else 0.0
+            saldo_final_banco_tabla = float(res_banco[1]) if res_banco[1] is not None else 0.0
+        else:
+            saldo_inicial = 0.0
+            saldo_final_banco_tabla = 0.0
+
+        # B. Saldo Libros (Mes anterior)
+        query_saldo_anterior = f"""
+            SELECT saldo_final 
+            FROM `{db}`.saldos_bancarios 
+            WHERE (banco = %s OR banco LIKE %s) AND LOWER(mes) = LOWER(%s) AND CAST(ano AS CHAR) = %s
+        """
+        cursor.execute(query_saldo_anterior, (nombre_banco_sel, f"%{nombre_banco_sel}%", mes_anterior, str(ano_anterior)))
+        res_anterior = cursor.fetchone()
+        saldo_mes_anterior = float(res_anterior[0]) if res_anterior else 0.0
+
+        # C. Movimientos del mes en la tabla asientos_contables
+        query_movimientos_mes = f"""
+            SELECT IFNULL(SUM(debe), 0.0), IFNULL(SUM(haber), 0.0), COUNT(*) 
+            FROM `{db}`.asientos_contables 
+            WHERE (
+                TRIM(cuenta_contable) = TRIM(%s) OR 
+                TRIM(cuenta_contable) = TRIM(%s) OR 
+                TRIM(plan_cuentas) = TRIM(%s) OR
+                TRIM(plan_cuentas) = TRIM(%s) OR
+                cuenta_contable LIKE %s
+            ) 
+            AND fecha BETWEEN %s AND %s
+        """
+        patron_cuenta = f"{cuenta_codigo}%"
+        
+        cursor.execute(query_movimientos_mes, (cuenta_codigo, nombre_banco_sel, cuenta_codigo, nombre_banco_sel, patron_cuenta, fecha_inicio, fecha_fin))
+        res_mov = cursor.fetchone()
+        
+        debe_mes = float(res_mov[0]) if res_mov and res_mov[0] is not None else 0.0
+        haber_mes = float(res_mov[1]) if res_mov and res_mov[1] is not None else 0.0
+        cantidad_asientos = int(res_mov[2]) if res_mov and res_mov[2] is not None else 0
+
+        # LÓGICA HÍBRIDA CONTABLE:
+        # Si existen asientos contables detallados en el mes, aplicamos: Saldo Inicial + Debe - Haber.
+        # Si NO hay asientos en el mes (ej. meses previos a mayo), usamos directamente el saldo final guardado en la tabla saldos_bancarios.
+        if cantidad_asientos > 0:
+            saldo_final_libros = saldo_inicial + debe_mes - haber_mes
+        else:
+            saldo_final_libros = saldo_final_banco_tabla
+
+        # El saldo final de banco oficial para comparar en el tablero viene de la tabla saldos_bancarios
+        saldo_final_banco = saldo_final_banco_tabla
+
+        # D. Movimientos de Banco
+        query_mov_pendientes = f"SELECT * FROM `{db}`.banco_movimientos WHERE estado_conciliacion = 'Pendiente' AND fecha_movimiento BETWEEN %s AND %s"
+        df_banco = ejecutar_consulta(query_mov_pendientes, conn, params=(fecha_inicio, fecha_fin)) if 'ejecutar_consulta' in globals() else pd.DataFrame()
+
+        query_mov_conciliados = f"SELECT * FROM `{db}`.banco_movimientos WHERE estado_conciliacion = 'Conciliado' AND fecha_movimiento BETWEEN %s AND %s"
+        df_conciliado = ejecutar_consulta(query_mov_conciliados, conn, params=(fecha_inicio, fecha_fin)) if 'ejecutar_consulta' in globals() else pd.DataFrame()
+
+        # Guardar datos para depuración visual
+        debug_info = {
+            "Base de Datos": db,
+            "Banco Seleccionado": nombre_banco_sel,
+            "Código de Cuenta": cuenta_codigo,
+            "Alias Buscado en Saldos": banco_db,
+            "Periodo": f"{mes_sel} {ano_sel} ({fecha_inicio} al {fecha_fin})",
+            "Saldo Banco Encontrado": res_banco,
+            "Debe Mes Encontrado": debe_mes,
+            "Haber Mes Encontrado": haber_mes,
+            "Saldo Final Libros Calculado": saldo_final_libros
+        }
+
+    except Exception as e:
+        st.error(f"Error en la consulta para {db}: {e}")
+        df_banco = pd.DataFrame()
+        df_conciliado = pd.DataFrame()
+        saldo_final_libros = 0.0
+        saldo_inicial = 0.0
+        saldo_final_banco = 0.0
+    finally:
+        cursor.close()
+
+    # 🛠️ Formato venezolano
+    def formato_venezolano(val):
+        try:
+            return f"{float(val):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+        except:
+            return "0,00"
+
+    # 6. VISUALIZACIÓN
+    st.subheader("📊 Historial y Cuadre de Saldos")
+    
+    m1, m2, m3 = st.columns(3)
+    m1.metric("Saldo Inicial", f"{saldo_inicial:,.2f}")
+    m2.metric("Saldo Final Libros", f"{saldo_final_libros:,.2f}")
+    m3.metric("Saldo Final Banco", f"{saldo_final_banco:,.2f}")
+    
+    diferencia = round(saldo_final_libros - saldo_final_banco, 2)
+    if abs(diferencia) <= 0.01:
+        st.success(f"✅ ¡Conciliación Correcta! (Diferencia: {diferencia:,.2f})")
+    else:
+        st.error(f"⚠️ Diferencia detectada: {diferencia:,.2f}. Revisa los movimientos pendientes.")
+
+    st.subheader("📥 Pendientes por Conciliar")
+    col_p1, col_p2 = st.columns(2)
+    
+    if not df_banco.empty and 'monto' in df_banco.columns:
+        df_banco['monto'] = pd.to_numeric(df_banco['monto'], errors='coerce').fillna(0.0)
+        df_banco_ingresos = df_banco[df_banco['monto'] > 0].copy()
+        if not df_banco_ingresos.empty:
+            df_banco_ingresos['monto'] = df_banco_ingresos['monto'].apply(formato_venezolano)
+            
+        df_banco_egresos = df_banco[df_banco['monto'] < 0].copy()
+        if not df_banco_egresos.empty:
+            df_banco_egresos['monto'] = df_banco_egresos['monto'].apply(formato_venezolano)
+    else:
+        df_banco_ingresos = pd.DataFrame()
+        df_banco_egresos = pd.DataFrame()
+
+    col_p1.write("📥 Ingresos Pendientes")
+    col_p1.dataframe(df_banco_ingresos, use_container_width=True, hide_index=True)
+    col_p2.write("📤 Egresos Pendientes")
+    col_p2.dataframe(df_banco_egresos, use_container_width=True, hide_index=True)
+        
+    if 'saldo_final_libros' not in st.session_state:
+        st.session_state.saldo_final_libros = 0.0
+
+    if st.button("🚀 Ejecutar Conciliación", key="btn_ejecutar_conciliacion_tablero"):
+        resultado = conciliar_datos(conn, fecha_inicio, fecha_fin, db) if 'conciliar_datos' in globals() else 0.0
+        st.session_state.saldo_final_libros = resultado
+        st.success("Conciliación ejecutada con éxito.")
+        st.rerun()
+
+    # 7. LÓGICA DE PDF CENTRALIZADA
+    st.divider()
+    st.subheader("📄 Reporte de Conciliación")
+    
+    lista_ingresos = df_banco[df_banco['monto'] > 0].to_dict('records') if not df_banco.empty else []
+    lista_egresos = df_banco[df_banco['monto'] < 0].to_dict('records') if not df_banco.empty else []
+    
+    diferencia_pdf = round(saldo_final_banco - saldo_final_libros, 2)
+    if abs(diferencia_pdf) > 0.01:
+        partida_ajuste = {"fecha_movimiento": fecha_fin, "referencia": "AJUSTE", "descripcion": "Diferencia por redondeo", "monto": diferencia_pdf}
+        if diferencia_pdf > 0: 
+            lista_ingresos.append(partida_ajuste)
+        else: 
+            lista_egresos.append(partida_ajuste)
+
+    try:
+        pdf_data = crear_pdf_conciliacion(
+            conn, df_conciliado, saldo_inicial, saldo_final_banco, saldo_final_libros, lista_ingresos, lista_egresos, mes_sel=mes_sel, ano_sel=ano_sel
+        )
+        st.download_button(
+            label="📄 Descargar Conciliación PDF", 
+            data=pdf_data, 
+            file_name=f"conciliacion_{mes_sel}_{ano_sel}.pdf", 
+            mime="application/pdf"
+        )
+    except Exception as e:
+        st.error(f"Error generando el PDF: {e}")
+
+    # 8. MOVIMIENTOS CONCILIADOS
+    if not df_conciliado.empty and 'monto' in df_conciliado.columns:
+        st.subheader("✅ Movimientos Conciliados")
+        df_conciliado['monto'] = pd.to_numeric(df_conciliado['monto'], errors='coerce').fillna(0.0)
+        
+        df_conciliado_ingresos = df_conciliado[df_conciliado['monto'] > 0].copy()
+        if not df_conciliado_ingresos.empty:
+            df_conciliado_ingresos['monto'] = df_conciliado_ingresos['monto'].apply(formato_venezolano)
+            
+        df_conciliado_egresos = df_conciliado[df_conciliado['monto'] < 0].copy()
+        if not df_conciliado_egresos.empty:
+            df_conciliado_egresos['monto'] = df_conciliado_egresos['monto'].apply(formato_venezolano)
+
+        col_d, col_h = st.columns(2)
+        col_d.write("Ingresos")
+        col_d.dataframe(df_conciliado_ingresos, use_container_width=True, hide_index=True)
+        col_h.write("Egresos")
+        col_h.dataframe(df_conciliado_egresos, use_container_width=True, hide_index=True)
+    else:
+        st.info("ℹ️ No hay movimientos conciliados en este periodo.")
+
+# Definido a nivel global para evitar recrearlo en cada llamada
+_MAPEO_BANCOS = {
+    "Banco de Venezuela": "BDV",
+    "Banesco": "Banesco",
+    "Banco Mercantil": "Mercantil"
+}
