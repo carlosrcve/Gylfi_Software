@@ -6501,3 +6501,265 @@ def renderizar_tab_asientos_ventas(db_connection):
                 if hasattr(db_connection, 'rollback'):
                     db_connection.rollback()
                 st.error(f"❌ Error crítico al guardar en MySQL: {str(db_err)}")
+
+def generar_pdf_resumen_seniat(records, empresa_nombre, periodo_str, tot_base, tot_sust, tot_neta):
+    pdf = FPDF(orientation='L', unit='mm', format='A4') # Orientación Horizontal
+    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.add_page()
+    
+    # Encabezado
+    pdf.set_font("Helvetica", "B", 14)
+    pdf.cell(0, 8, f"RESUMEN DE RETENCIONES DE ISLR PARA EL SENIAT", ln=True, align="C")
+    pdf.set_font("Helvetica", "", 10)
+    pdf.cell(0, 6, f"Empresa / Cliente: {empresa_nombre}  |  Periodo Fiscal: {periodo_str}", ln=True, align="C")
+    pdf.ln(5)
+    
+    # Encabezados de la Tabla (Ancho total A4 Landscape ~ 277mm)
+    pdf.set_font("Helvetica", "B", 8)
+    pdf.set_fill_color(240, 240, 240)
+    
+    ancho_cols = {
+        'Fila / Doc': 25, 'Fecha': 20, 'N° Doc': 20, 'N° Control': 22, 
+        'R.I.F.': 25, 'Nombre o Razón Social': 60, 'Cód. Concepto (XML)': 25, 
+        'Base Imponible (Bs.)': 28, 'Sustraendo (Bs.)': 25, 'Retención Neta (Bs.)': 27
+    }
+    
+    for col, width in ancho_cols.items():
+        pdf.cell(width, 7, col[:15], border=1, align="C", fill=True)
+    pdf.ln()
+    
+    # Contenido de Filas
+    pdf.set_font("Helvetica", "", 8)
+    for row in records:
+        pdf.cell(ancho_cols['Fila / Doc'], 6, str(row.get('Fila / Doc', ''))[:14], border=1)
+        pdf.cell(ancho_cols['Fecha'], 6, str(row.get('Fecha', '')), border=1, align="C")
+        pdf.cell(ancho_cols['N° Doc'], 6, str(row.get('N° Doc', '')), border=1, align="C")
+        pdf.cell(ancho_cols['N° Control'], 6, str(row.get('N° Control', '')), border=1, align="C")
+        pdf.cell(ancho_cols['R.I.F.'], 6, str(row.get('R.I.F.', '')), border=1, align="C")
+        pdf.cell(ancho_cols['Nombre o Razón Social'], 6, str(row.get('Nombre o Razón Social', ''))[:32], border=1)
+        pdf.cell(ancho_cols['Cód. Concepto (XML)'], 6, str(row.get('Cód. Concepto (XML)', '')), border=1, align="C")
+        
+        base_val = float(row.get('Base Imponible (Bs.)', 0) or 0)
+        sust_val = float(row.get('Sustraendo (Bs.)', 0) or 0)
+        neto_val = float(row.get('Retención Neta (Bs.)', 0) or 0)
+        
+        pdf.cell(ancho_cols['Base Imponible (Bs.)'], 6, f"{base_val:,.2f}", border=1, align="R")
+        pdf.cell(ancho_cols['Sustraendo (Bs.)'], 6, f"{sust_val:,.2f}", border=1, align="R")
+        pdf.cell(ancho_cols['Retención Neta (Bs.)'], 6, f"{neto_val:,.2f}", border=1, align="R")
+        pdf.ln()
+        
+    # Fila de Totales
+    pdf.set_font("Helvetica", "B", 8)
+    pdf.set_fill_color(230, 230, 230)
+    ancho_acumulado_texto = sum([ancho_cols['Fila / Doc'], ancho_cols['Fecha'], ancho_cols['N° Doc'], ancho_cols['N° Control'], ancho_cols['R.I.F.'], ancho_cols['Nombre o Razón Social'], ancho_cols['Cód. Concepto (XML)']])
+    
+    pdf.cell(ancho_acumulado_texto, 7, "TOTALES GENERALES A ENTERAR AL SENIAT:", border=1, align="R", fill=True)
+    pdf.cell(ancho_cols['Base Imponible (Bs.)'], 7, f"{tot_base:,.2f}", border=1, align="R", fill=True)
+    pdf.cell(ancho_cols['Sustraendo (Bs.)'], 7, f"{tot_sust:,.2f}", border=1, align="R", fill=True)
+    pdf.cell(ancho_cols['Retención Neta (Bs.)'], 7, f"{tot_neta:,.2f}", border=1, align="R", fill=True)
+    
+    return bytes(pdf.output())
+
+
+import streamlit as st
+import pandas as pd
+
+# Función con caché de Streamlit para evitar consultas repetitivas a la base de datos central
+@st.cache_data(ttl=300)
+def _obtener_empresas_sidebar_cache(user_rol, user_limpio):
+    """
+    Consulta las empresas permitidas según el rol y el usuario.
+    Se almacena en caché durante 5 minutos (TTL=300).
+    """
+    conn_sidebar = conectar_db()
+    if conn_sidebar is None:
+        return []
+
+    df_sidebar = pd.DataFrame()
+    try:
+        if hasattr(conn_sidebar, 'ping') and callable(conn_sidebar.ping):
+            conn_sidebar.ping(reconnect=True)
+        
+        cursor_tmp = conn_sidebar.cursor()
+        try:
+            cursor_tmp.execute("USE control_central;")
+        except Exception:
+            pass 
+        cursor_tmp.close()
+
+        if user_rol == 'admin':
+            queries_a_probar = [
+                "SELECT * FROM control_central.clientes",
+                "SELECT * FROM clientes"
+            ]
+        else:
+            queries_a_probar = [
+                f"""
+                SELECT c.* FROM control_central.clientes c
+                JOIN control_central.usuarios u ON c.id = u.cliente_id
+                WHERE LOWER(TRIM(u.usuario)) = '{user_limpio}'
+                """,
+                f"""
+                SELECT * FROM control_central.clientes WHERE id = 3
+                """
+            ]
+    
+        for q in queries_a_probar:
+            try:
+                df_temp = ejecutar_consulta(q, conn_sidebar)
+                if not df_temp.empty:
+                    df_sidebar = df_temp
+                    break
+            except Exception:
+                continue
+    except Exception:
+        pass
+    finally:
+        try:
+            if conn_sidebar and hasattr(conn_sidebar, 'close'):
+                conn_sidebar.close()
+        except:
+            pass
+
+    # --- RESPALDO OBLIGATORIO PARA ALIX ---
+    if df_sidebar.empty and user_limpio == 'alix_maria':
+        df_sidebar = pd.DataFrame([{
+            'id': 3,
+            'nombre_empresa': 'Distribuidora Rishon Leztion, C.A.',
+            'rif': 'J-XXXXXXXX-X',
+            'db_nombre': 'rishon_letzion_ca'
+        }])
+
+    if not df_sidebar.empty:
+        df_sidebar = df_sidebar.fillna("")
+
+    # Convertimos a diccionario/registros para que sea serializable por @st.cache_data
+    return df_sidebar.to_dict('records')
+
+
+def gestionar_sidebar():
+    user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
+    user_id = st.session_state.get('user_id', st.session_state.get('cliente_id', 'N/A'))
+    nombre_usuario_actual = (
+        st.session_state.get('nombre_usuario') or 
+        st.session_state.get('username') or 
+        st.session_state.get('usuario') or 
+        'Usuario'
+    )
+    user_limpio = str(nombre_usuario_actual).strip().lower()
+
+    with st.sidebar:
+        # --- ESTILOS CSS PARA CORREGIR EL EFECTO BORROSO EN LOS SELECTBOX ---
+        st.markdown(
+            """
+            <style>
+                div[data-baseweb="popover"] div[role="option"] div,
+                div[data-baseweb="popover"] div[role="option"] span,
+                div[data-baseweb="menu"] div,
+                div[data-baseweb="menu"] span {
+                    opacity: 1 !important;
+                    color: #1e293b !important;
+                    font-weight: 600 !important;
+                }
+                div[data-baseweb="popover"] {
+                    background-color: #ffffff !important;
+                    border: 1px solid #cbd5e1 !important;
+                    border-radius: 8px !important;
+                    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1) !important;
+                }
+                div[data-baseweb="popover"] div[role="option"]:hover {
+                    background-color: #f1f5f9 !important;
+                }
+            </style>
+            """,
+            unsafe_allow_html=True
+        )
+
+        st.image("https://cdn-icons-png.flaticon.com/512/2645/2645328.png", width=100)
+        st.header("Panel de Auditoría")
+
+        # --- ETIQUETA / INSIGNIA DE USUARIO LOGUEADO ---
+        if user_rol == 'admin':
+            st.markdown(
+                """
+                <div style="background-color: #1e293b; padding: 10px; border-radius: 8px; text-align: center; margin-bottom: 15px; border: 1px solid #334155;">
+                    <span style="color: #38bdf8; font-weight: bold; font-size: 14px;">👑 Administrador Principal</span><br>
+                    <span style="color: #94a3b8; font-size: 11px;">Dueño del Software</span>
+                </div>
+                """, 
+                unsafe_allow_html=True
+            )
+        else:
+            st.markdown(
+                f"""
+                <div style="background-color: #1e293b; padding: 10px; border-radius: 8px; text-align: center; margin-bottom: 15px; border: 1px solid #334155;">
+                    <span style="color: #38bdf8; font-weight: bold; font-size: 13px;">👤 Usuario Propietario:</span><br>
+                    <span style="color: #ffffff; font-size: 13px; font-weight: 600;">{nombre_usuario_actual}</span>
+                </div>
+                """, 
+                unsafe_allow_html=True
+            )
+
+        st.markdown("---")
+        
+        # Botón de cerrar sesión
+        if st.button("🚪 Cerrar Sesión", key="btn_logout_unico_definitivo"):
+            for key in list(st.session_state.keys()):
+                del st.session_state[key]
+            st.rerun()
+
+        # --- Navegación ---
+        if user_rol == 'admin':
+            menu = st.radio("Navegación", ["📊 Auditoría Contable", "⚙️ Gestión de Usuarios","⚙️ Gestión de Empresas"], key="menu_nav")
+        else:
+            menu = "📊 Auditoría Contable"
+
+        st.divider()
+
+        # --- Selección de Empresa (Optimizada con caché y session_state) ---
+        if menu == "📊 Auditoría Contable":
+            # Llamada a la función con caché (evita latencia de red innecesaria)
+            registros_cache = _obtener_empresas_sidebar_cache(user_rol, user_limpio)
+            df_sidebar = pd.DataFrame(registros_cache)
+
+            if user_rol != 'admin' and df_sidebar.empty:
+                st.error(f"❌ El usuario '{nombre_usuario_actual}' no tiene una empresa asignada en la base de datos.")
+                st.stop()
+
+            if not df_sidebar.empty:
+                # 🔍 BÚSQUEDA DINÁMICA DE COLUMNAS PARA EVITAR KEYERRORS
+                cols_disponibles = [str(c).lower() for c in df_sidebar.columns]
+                
+                posibles_nombres = ['nombre_empresa', 'nombre', 'empresa', 'cliente', 'razon_social']
+                col_empresa = next((df_sidebar.columns[cols_disponibles.index(p)] for p in posibles_nombres if p in cols_disponibles), None)
+                if not col_empresa and len(df_sidebar.columns) > 0:
+                    col_empresa = df_sidebar.columns[0]
+
+                posibles_dbs = ['db_nombre', 'database', 'base_datos', 'db']
+                col_db = next((df_sidebar.columns[cols_disponibles.index(p)] for p in posibles_dbs if p in cols_disponibles), None)
+                if not col_db and len(df_sidebar.columns) > 1:
+                    col_db = df_sidebar.columns[1]
+
+                nombres_empresas = df_sidebar[col_empresa].tolist() if col_empresa else []
+                nombre_seleccionado = nombres_empresas[0] if nombres_empresas else "Empresa Desconocida"
+
+                st.markdown(f"**🏢 Empresa Asignada:**")
+                st.info(f"{str(nombre_seleccionado).upper()}")
+
+                st.session_state['cliente_seleccionado_previo'] = nombre_seleccionado
+
+                fila_seleccionada = df_sidebar[df_sidebar[col_empresa] == nombre_seleccionado] if col_empresa else pd.DataFrame()
+                if fila_seleccionada.empty:
+                    fila_seleccionada = df_sidebar.iloc[[0]]
+
+                datos_sel = fila_seleccionada.iloc[0]
+                db_seleccionada = str(datos_sel[col_db]).strip() if col_db else "rishon_letzion_ca"
+                
+                # --- ALMACENAMIENTO SEGURO EN SESSION_STATE ---
+                st.session_state['DB_ACTUAL'] = db_seleccionada
+                st.session_state['db_a_conectar'] = db_seleccionada
+                st.session_state['CLIENTE_NOMBRE'] = nombre_seleccionado
+                if 'id' in datos_sel:
+                    st.session_state['cliente_id_seleccionado'] = int(datos_sel['id'])
+
+    return menu
