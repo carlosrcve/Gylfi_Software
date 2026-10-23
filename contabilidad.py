@@ -12047,3 +12047,166 @@ elif opcion_menu == "📝 Asientos Contables":
                             st.error(f"❌ Error al ejecutar el mantenimiento: {ex_maint}")
                 else:
                     st.warning("⚠️ Debes marcar la casilla de confirmación de seguridad para proceder.")
+
+    elif sub_opcion == "Consultar Comprobante":
+        st.subheader("🔍 Buscador de Comprobantes")
+
+        # 1. SEGURIDAD Y CONTEXTO
+        db_actual = st.session_state.get('DB_ACTUAL')
+        cliente_id = st.session_state.get('cliente_id')
+        rol = st.session_state.get('rol')
+
+        if not db_actual:
+            st.error("No se ha seleccionado una base de datos de empresa.")
+            st.stop()
+
+        # --- FUNCIÓN CON CACHÉ PARA DATOS DE EMPRESA ---
+        @st.cache_data(ttl=300, show_spinner=False)
+        def obtener_datos_agente_cached(db_name):
+            return obtener_datos_agente_db(db_name)
+
+        empresa_data = obtener_datos_agente_cached(db_actual)
+
+        # 2. FILTRO DE ACCESO
+        if empresa_data and rol != 'admin':
+            if empresa_data.get('id') != cliente_id:
+                st.error("⚠️ Acceso denegado: No tienes permisos para esta empresa.")
+                st.stop()
+
+        if not empresa_data:
+            st.error("⚠️ No se pudieron cargar los datos de la empresa.")
+        else:
+            # --- FILTROS DE PERÍODO PROPIOS PARA LA BÚSQUEDA ---
+            st.markdown("### 📅 Seleccione el Período a Consultar")
+            col_m, col_a = st.columns(2)
+            
+            meses_nombres = [
+                "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", 
+                "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
+            ]
+            
+            with col_m:
+                mes_sel = st.selectbox(
+                    "Mes", 
+                    options=meses_nombres, 
+                    index=0, 
+                    key="busc_mes_sel"
+                )
+            with col_a:
+                ano_actual = pd.Timestamp.now().year
+                ano_sel = st.selectbox(
+                    "Año", 
+                    options=list(range(ano_actual, 2023, -1)), 
+                    index=0, 
+                    key="busc_ano_sel"
+                )
+
+            meses_dict = {
+                "Enero": "01", "Febrero": "02", "Marzo": "03", "Abril": "04", 
+                "Mayo": "05", "Junio": "06", "Julio": "07", "Agosto": "08", 
+                "Septiembre": "09", "Octubre": "10", "Noviembre": "11", "Diciembre": "12"
+            }
+            mes_num = meses_dict.get(mes_sel, "01")
+            fecha_inicio = f"{ano_sel}-{mes_num}-01"
+            ultimo_dia = calendar.monthrange(int(ano_sel), int(mes_num))[1]
+            fecha_fin = f"{ano_sel}-{mes_num}-{ultimo_dia:02d}"
+
+            # --- FUNCIÓN CON CACHÉ PARA EL LISTADO DE COMPROBANTES ---
+            @st.cache_data(ttl=60, show_spinner=False)
+            def cargar_listado_comprobantes(empresa, f_inicio, f_fin):
+                df = pd.DataFrame()
+                try:
+                    conn = conectar_db(empresa)
+                    if conn:
+                        query = f"""
+                            SELECT n_comprobante as 'Nº', MAX(fecha) as 'Fecha', MAX(descripcion) as 'Concepto' 
+                            FROM `{empresa}`.asientos_contables 
+                            WHERE fecha BETWEEN %s AND %s
+                            GROUP BY n_comprobante ORDER BY fecha DESC
+                        """
+                        df = pd.read_sql(query, conn, params=(f_inicio, f_fin))
+                        conn.close()
+                except Exception:
+                    pass
+                return df
+
+            df_listado = cargar_listado_comprobantes(db_actual, fecha_inicio, fecha_fin)
+
+            # --- PARTE 2: INTERFAZ DE SELECCIÓN (LISTA DESPLEGABLE Y TABLA) ---
+            n_comp_seleccionado = ""
+            opciones_comprobantes = [""]
+            mapa_comprobantes = {}
+
+            if not df_listado.empty:
+                for _, row in df_listado.iterrows():
+                    n_comp_val = str(row['Nº'])
+                    fecha_val = str(row['Fecha'])
+                    concepto_val = str(row['Concepto']) if pd.notna(row['Concepto']) else "Sin descripción"
+                    
+                    etiqueta_opcion = f"Comprobante Nº: {n_comp_val} ({fecha_val}) - {concepto_val[:60]}"
+                    opciones_comprobantes.append(etiqueta_opcion)
+                    mapa_comprobantes[etiqueta_opcion] = n_comp_val
+
+            with st.expander(f"📋 Listado de Comprobantes ({mes_sel} {ano_sel})", expanded=True):
+                if not df_listado.empty:
+                    comp_elegido_combo = st.selectbox(
+                        "📌 Seleccione un comprobante de la lista (por número, fecha o concepto):",
+                        options=opciones_comprobantes,
+                        key="combo_selector_comprobante"
+                    )
+                    
+                    if comp_elegido_combo and comp_elegido_combo in mapa_comprobantes:
+                        n_comp_seleccionado = mapa_comprobantes[comp_elegido_combo]
+
+                    st.markdown("---")
+                    st.write("O haz clic en una fila de la tabla:")
+                    
+                    event = st.dataframe(
+                        df_listado, use_container_width=True, hide_index=True,
+                        on_select="rerun", selection_mode="single-row"
+                    )
+                    if len(event.selection.rows) > 0:
+                        idx = event.selection.rows[0]
+                        n_comp_seleccionado = str(df_listado.iloc[idx]['Nº'])
+                else:
+                    st.warning(f"⚠️ No se encontraron asientos contables registrados para el período: **{mes_sel} {ano_sel}**. Prueba cambiando el mes o el año arriba.")
+
+            # Sincronizar con session_state para el input de texto
+            if "busc_comp" not in st.session_state:
+                st.session_state.busc_comp = ""
+
+            if n_comp_seleccionado and n_comp_seleccionado != st.session_state.busc_comp:
+                st.session_state.busc_comp = n_comp_seleccionado
+                st.rerun()
+
+            # --- PARTE 3: GENERAR REPORTE ---
+            with st.expander("🔍 Generar Reporte", expanded=True):
+                n_comp = st.text_input("Nº de Comprobante", key="busc_comp")
+                btn_comp = st.button("🔎 Generar Reporte", type="primary", use_container_width=False)
+
+            if btn_comp and n_comp:
+                # Reporte visual
+                disenar_reporte_asiento_contable(n_comp)
+                
+                # PDF con conexión optimizada
+                try:
+                    conn_pdf = conectar_db(db_actual)
+                    if conn_pdf:
+                        query_pdf = f"SELECT * FROM `{db_actual}`.asientos_contables WHERE n_comprobante = %s"
+                        df_asiento_pdf = pd.read_sql(query_pdf, conn_pdf, params=(n_comp,))
+                        conn_pdf.close()
+                        
+                        if not df_asiento_pdf.empty:
+                            st.divider()
+                            pdf_bytes = generar_pdf_comprobante(df_asiento_pdf, n_comp, None) # Pasamos None si ya cerró la conexión o según tu estructura interna
+                            st.download_button(
+                                label=f"📥 Descargar PDF {n_comp}",
+                                data=pdf_bytes,
+                                file_name=f"Comprobante_{n_comp}.pdf",
+                                mime="application/pdf",
+                                use_container_width=False
+                            )
+                        else:
+                            st.warning(f"No se encontraron registros para el comprobante {n_comp}.")
+                except Exception as e:
+                    st.error(f"Error al generar el PDF del comprobante: {e}")
