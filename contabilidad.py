@@ -2197,3 +2197,118 @@ def generar_pdf_comprobante(df, n_comp, conn):
                     conn.ping(reconnect=True)
             except Exception as ping_error:
                 print(f"Error al hacer ping a la conexión MySQL: {ping_error}")
+
+# 💡 Sugerencia: Cachear la obtención de cuentas a nivel global o de módulo
+@st.cache_data(ttl=300)
+def _obtener_cuentas_detalle(db_nombre):
+    conn = conectar_db(db_nombre)
+    if not conn:
+        return pd.DataFrame()
+    try:
+        query = """
+            SELECT codigo, nombre 
+            FROM plan_cuentas 
+            WHERE codigo IS NOT NULL 
+              AND TRIM(codigo) != '' 
+              AND LOWER(codigo) != 'nan'
+              AND LOWER(TRIM(tipo)) = 'detalle'
+            ORDER BY codigo
+        """
+        df = ejecutar_consulta(query, conn)
+        if df.empty:
+            query = """
+                SELECT codigo, nombre 
+                FROM plan_cuentas 
+                WHERE codigo IS NOT NULL 
+                  AND TRIM(codigo) != '' 
+                  AND LOWER(codigo) != 'nan'
+                ORDER BY codigo
+            """
+            df = ejecutar_consulta(query, conn)
+        return df if df is not None else pd.DataFrame()
+    finally:
+        if conn: conn.close()
+
+def mostrar_interfaz_mayor(f_ini_g, f_fin_g, db_nombre):
+    st.subheader("📖 Libro Mayor Analítico")
+
+    # 1. ESTADOS DE SESIÓN
+    if 'reporte_mayor' not in st.session_state: st.session_state.reporte_mayor = None
+    if 'movs_solos' not in st.session_state: st.session_state.movs_solos = None
+    if 'cuenta_actual' not in st.session_state: st.session_state.cuenta_actual = ""
+
+    # Registrar log de forma segura sin mantener la conexión abierta innecesariamente
+    conn_log = conectar_db(db_nombre)
+    if conn_log:
+        try:
+            registrar_log_automatico(conn_log, "CONSULTA_LIBRO_MAYOR", f"Usuario {st.session_state.get('usuario', 'Desconocido')} consultó mayor en {db_nombre}")
+        except:
+            pass
+        finally:
+            conn_log.close()
+
+    # 2. Carga optimizada de cuentas mediante caché
+    df_cuentas = _obtener_cuentas_detalle(db_nombre)
+    if df_cuentas.empty:
+        st.error(f"❌ No se encontraron cuentas en el plan de cuentas de: {db_nombre}")
+        return
+
+    # Construcción ultrarrápida de opciones sin iterrows()
+    df_cuentas['codigo_str'] = df_cuentas['codigo'].astype(str).str.strip()
+    df_cuentas['nombre_str'] = df_cuentas['nombre'].fillna("").astype(str).str.strip()
+    
+    opciones_mapa = {
+        (f"{row.codigo_str} - {row.nombre_str}" if row.nombre_str else row.codigo_str): row.codigo_str
+        for _, row in df_cuentas.iterrows()
+    }
+    lista_opciones = list(opciones_mapa.keys())
+
+    cuenta_sel_label = st.selectbox("Seleccione cuenta:", lista_opciones, key="select_cuenta_mayor")
+    cuenta_para_consulta = opciones_mapa.get(cuenta_sel_label, cuenta_sel_label.split(" - ")[0])
+    
+    import datetime
+    def_inicio = f_ini_g if f_ini_g else datetime.date(2026, 5, 1)
+    def_fin = f_fin_g if f_fin_g else datetime.date(2026, 5, 31)
+
+    col1, col2 = st.columns(2)
+    f_m_d = col1.date_input("Desde", value=def_inicio, key="m_d_mayo")
+    f_m_h = col2.date_input("Hasta", value=def_fin, key="m_h_mayo")
+
+    if st.button("🔍 Generar Movimientos", key="btn_generar_movs_mayor"):
+        st.info(f"⏳ Procesando mayor para la cuenta {cuenta_para_consulta} del {f_m_d} al {f_m_h}...")
+        
+        res_reporte, movs_solos, saldo_final_real = ejecutar_mayor_analitico(db_nombre, cuenta_para_consulta, f_m_d, f_m_h)
+        
+        if res_reporte is not None and not res_reporte.empty:
+            st.session_state.reporte_mayor = res_reporte
+            st.session_state.movs_solos = movs_solos if not movs_solos.empty else res_reporte
+            st.session_state.saldo_final_reporte = saldo_final_real
+            st.session_state.cuenta_actual = cuenta_sel_label
+            st.rerun()
+        else:
+            st.session_state.reporte_mayor = None
+            st.session_state.movs_solos = None
+            st.warning("⚠️ La función `ejecutar_mayor_analitico` no devolvió registros para los parámetros dados.")
+
+    st.divider()
+
+    if st.session_state.reporte_mayor is not None:
+        reporte = st.session_state.reporte_mayor
+        movs_solos = st.session_state.movs_solos
+        
+        if not reporte.empty and movs_solos is not None:
+            t_debe = movs_solos['debe'].sum() if 'debe' in movs_solos.columns else 0.0
+            t_haber = movs_solos['haber'].sum() if 'haber' in movs_solos.columns else 0.0
+            s_final = st.session_state.get('saldo_final_reporte', 0.0)
+
+            m1, m2, m3 = st.columns(3)
+            m1.metric("TOTAL DEBE", f"Bs. {t_debe:,.2f}")
+            m2.metric("TOTAL HABER", f"Bs. {t_haber:,.2f}")
+            m3.metric("SALDO FINAL", f"Bs. {s_final:,.2f}")
+
+            # Limpieza rápida de fecha en texto plano
+            reporte_vista = reporte.copy()
+            if 'fecha' in reporte_vista.columns:
+                reporte_vista['fecha'] = reporte_vista['fecha'].astype(str).str.split().str[0].str.replace('00:00:00', '').str.strip()
+
+            st.dataframe(reporte_vista, use_container_width=True, hide_index=True)
