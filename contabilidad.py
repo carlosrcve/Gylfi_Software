@@ -149,6 +149,22 @@ def registrar_log_automatico(conn, accion, detalles):
         if cursor:
             cursor.close()
 
+def ejecutar_consulta(query, conn, params=None):
+    cursor = None
+    try:
+        # Usamos DictCursor de PyMySQL
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
+        cursor.execute(query, params or ())
+        resultados = cursor.fetchall()
+        return pd.DataFrame(resultados) if resultados else pd.DataFrame()
+    except Exception as e:
+        # CONVERSIÓN SEGURA: Forzamos str(e) para evitar que Python falle formateando objetos internos
+        st.error(f"❌ Error crítico en ejecutar_consulta: {str(e)} | Query: {query}")
+        return pd.DataFrame()
+    finally:
+        if cursor:
+            cursor.close()
+
 def verificar_usuario(conn, user, password):
     if conn is None:
         try:
