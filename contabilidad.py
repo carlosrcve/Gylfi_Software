@@ -13023,3 +13023,192 @@ elif opcion_menu == "📝 Asientos Contables":
                                         st.rerun()
                                 except Exception as e:
                                     st.error(f"❌ Error al eliminar el comprobante: {e}")
+
+    elif sub_opcion == "Consultar Cierre Contable":
+        st.subheader("🔒 Gestión de Asientos de Cierre")
+        st.markdown("Genera y consulta los asientos de cierre contable **mensuales** (regularización de cuentas de resultados) y el **cierre anual** (determinación de la utilidad neta y traslado al patrimonio).")
+
+        # 1. SEGURIDAD Y CONTEXTO
+        db_actual = st.session_state.get('DB_ACTUAL')
+        cliente_id = st.session_state.get('cliente_id')
+        rol = st.session_state.get('rol')
+
+        if not db_actual:
+            st.error("No se ha seleccionado una base de datos de empresa.")
+            st.stop()
+
+        @st.cache_data(ttl=300, show_spinner=False)
+        def obtener_datos_agente_cached(db_name):
+            return obtener_datos_agente_db(db_name)
+
+        empresa_data = obtener_datos_agente_cached(db_actual)
+
+        if empresa_data and rol != 'admin':
+            if empresa_data.get('id') != cliente_id:
+                st.error("⚠️ Acceso denegado: No tienes permisos para esta empresa.")
+                st.stop()
+
+        if not empresa_data:
+            st.error("⚠️ No se pudieron cargar los datos de la empresa.")
+        else:
+            # 2. CONFIGURACIÓN DEL TIPO DE CIERRE
+            tipo_cierre = st.radio(
+                "📌 Seleccione el tipo de cierre contable:",
+                options=["Cierre Mensual", "Cierre Anual"],
+                horizontal=True,
+                key="radio_tipo_cierre"
+            )
+
+            col_per1, col_per2 = st.columns(2)
+            
+            meses_nombres = [
+                "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", 
+                "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
+            ]
+            
+            ano_actual = pd.Timestamp.now().year
+
+            with col_per1:
+                ano_sel = st.selectbox(
+                    "Año del Cierre", 
+                    options=list(range(ano_actual, 2023, -1)), 
+                    index=0, 
+                    key="cierre_ano_sel"
+                )
+
+            mes_sel = "Diciembre"
+            if tipo_cierre == "Cierre Mensual":
+                with col_per2:
+                    mes_sel = st.selectbox(
+                        "Mes a Cerrar", 
+                        options=meses_nombres, 
+                        index=pd.Timestamp.now().month - 1, 
+                        key="cierre_mes_sel"
+                    )
+            else:
+                with col_per2:
+                    st.info(f"ℹ️ El **Cierre Anual** procesa el ejercicio económico completo al 31/12 de {ano_sel} para transferir las cuentas de resultados.")
+
+            st.divider()
+
+            # 3. ACCIONES Y PROCESAMIENTO
+            st.markdown("---")
+            st.subheader("⚠️ Autorización y Cierre de Período")
+            
+            if tipo_cierre == "Cierre Mensual":
+                st.warning(
+                    f"**¡Atención!** Está a punto de realizar el **Cierre Mensual de {mes_sel} {ano_sel}**. "
+                    "Al autorizar y ejecutar este proceso, **se bloquearán todos los asientos contables** de este mes, "
+                    "lo que impedirá registrar, modificar o eliminar transacciones con fecha de dicho período."
+                )
+            else:
+                st.warning(
+                    f"**¡Atención!** Está a punto de realizar el **Cierre Anual del ejercicio {ano_sel}**. "
+                    "Esta acción bloqueará las transacciones correspondientes al período de cierre anual."
+                )
+
+            autorizar_cierre = st.checkbox(
+                f"Confirmo que deseo cerrar y bloquear contablemente el período seleccionado ({mes_sel if tipo_cierre == 'Cierre Mensual' else 'Anual'} {ano_sel})",
+                key="check_autorizar_cierre"
+            )
+
+            col_btn1, _ = st.columns(2)
+            
+            with col_btn1:
+                btn_calcular_cierre = st.button(
+                    f"⚙️ Calcular y Generar {tipo_cierre}", 
+                    type="primary", 
+                    use_container_width=True,
+                    disabled=not autorizar_cierre
+                )
+
+            if not autorizar_cierre:
+                st.info("ℹ️ Debe marcar la casilla de confirmación superior para habilitar el botón de procesamiento y cierre.")
+
+            if btn_calcular_cierre and autorizar_cierre:
+                conn_cierre = conectar_db(db_actual)
+                if conn_cierre:
+                    try:
+                        with conn_cierre.cursor() as cursor:
+                            meses_dict = {
+                                "Enero": "01", "Febrero": "02", "Marzo": "03", "Abril": "04", 
+                                "Mayo": "05", "Junio": "06", "Julio": "07", "Agosto": "08", 
+                                "Septiembre": "09", "Octubre": "10", "Noviembre": "11", "Diciembre": "12"
+                            }
+                            
+                            if tipo_cierre == "Cierre Mensual":
+                                m_num = meses_dict[mes_sel]
+                                ultimo_d = calendar.monthrange(int(ano_sel), int(m_num))[1]
+                                fecha_cierre = f"{ano_sel}-{m_num}-{ultimo_d:02d}"
+                                
+                                query_bloqueo = f"""
+                                    UPDATE `{db_actual}`.asientos_contables 
+                                    SET bloqueado = 1 
+                                    WHERE YEAR(fecha) = %s AND MONTH(fecha) = %s
+                                """
+                                cursor.execute(query_bloqueo, (int(ano_sel), int(m_num)))
+                            else:
+                                fecha_cierre = f"{ano_sel}-12-31"
+                                
+                                query_bloqueo = f"""
+                                    UPDATE `{db_actual}`.asientos_contables 
+                                    SET bloqueado = 1 
+                                    WHERE YEAR(fecha) = %s
+                                """
+                                cursor.execute(query_bloqueo, (int(ano_sel),))
+
+                            conn_cierre.commit()
+
+                        st.success(f"✅ Proceso de **{tipo_cierre}** completado con éxito. El período ha sido **bloqueado** en `{db_actual}` para la fecha límite `{fecha_cierre}`.")
+                        
+                        registrar_log_automatico(
+                            conn_cierre, 
+                            "GENERACION_CIERRE_CONTABLE", 
+                            f"Usuario {st.session_state.get('usuario', 'Admin')} generó y bloqueó {tipo_cierre} ({fecha_cierre}) para {db_actual}"
+                        )
+                        
+                        # Limpiamos caché para reflejar el bloqueo y los cierres de inmediato
+                        st.cache_data.clear()
+                        st.rerun()
+
+                    except Exception as e:
+                        if conn_cierre:
+                            conn_cierre.rollback()
+                        st.error(f"❌ Error al procesar el cierre contable y el bloqueo: {e}")
+                    finally:
+                        if conn_cierre:
+                            conn_cierre.close()
+                else:
+                    st.error("❌ No se pudo conectar a la base de datos para realizar el cierre.")
+
+            st.markdown("---")
+            st.subheader("📋 Historial de Asientos de Cierre Registrados")
+            
+            # --- FUNCIÓN CON CACHÉ PARA CONSULTAR CIERRES ---
+            @st.cache_data(ttl=60, show_spinner=False)
+            def cargar_historial_cierres_cached(empresa, ano):
+                df = pd.DataFrame()
+                try:
+                    conn = conectar_db(empresa)
+                    if conn:
+                        query_cierres = f"""
+                            SELECT n_comprobante as 'Nº Comprobante', fecha as 'Fecha', descripcion as 'Concepto', 
+                                   SUM(debe) as 'Total Debe', SUM(haber) as 'Total Haber'
+                            FROM `{empresa}`.asientos_contables 
+                            WHERE descripcion LIKE '%CIERRE%' AND YEAR(fecha) = %s
+                            GROUP BY n_comprobante, fecha, descripcion 
+                            ORDER BY fecha DESC
+                        """
+                        df = pd.read_sql(query_cierres, conn, params=(ano,))
+                        conn.close()
+                except Exception:
+                    pass
+                return df
+
+            df_cierres = cargar_historial_cierres_cached(db_actual, ano_sel)
+
+            if not df_cierres.empty:
+                st.dataframe(df_cierres, use_container_width=True, hide_index=True)
+                st.info("💡 Para visualizar el detalle completo o imprimir el comprobante de cierre en PDF, puedes copiar el número de comprobante y usar la opción **'Consultar Comprobante'**.")
+            else:
+                st.info(f"ℹ️ No se han encontrado asientos de cierre registrados para el año **{ano_sel}** en la empresa `{db_actual}`.")
