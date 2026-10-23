@@ -9685,3 +9685,931 @@ elif opcion_menu == "📝 Asientos Contables":
                     pass
     else:
         st.warning("⚠️ Por favor, seleccione una opción válida para gestionar sus asientos.")
+
+    if sub_opcion == "Conciliación Bancaria":
+        st.title("🏦 Conciliación Bancaria")
+        st.markdown("---")
+
+        # 1. Validación de Contexto Global
+        db_actual = st.session_state.get('DB_ACTUAL')
+        cliente_id = st.session_state.get('cliente_id')
+        rol = st.session_state.get('rol')
+
+        if not db_actual:
+            st.error("No se ha seleccionado una base de datos.")
+            st.stop()
+
+        empresa_data = obtener_datos_agente_db(db_actual)
+        if not empresa_data:
+            st.error("⚠️ No se pudieron cargar los datos de la empresa.")
+            st.stop()
+
+        # Filtro de acceso
+        if rol != 'admin' and empresa_data.get('id') != cliente_id:
+            st.error("⚠️ Acceso denegado: No tienes permisos para esta empresa.")
+            st.stop()
+
+        # 2. Conexión Maestra Reutilizable (Optimizada en Session State)
+        if 'conn_conciliacion' not in st.session_state or st.session_state.get('db_conexion_actual') != db_actual:
+            st.session_state['conn_conciliacion'] = conectar_db(db_actual)
+            st.session_state['db_conexion_actual'] = db_actual
+
+        conn = st.session_state['conn_conciliacion']
+
+        try:
+            if conn:
+                conn.ping(reconnect=True)
+            else:
+                conn = conectar_db(db_actual)
+                st.session_state['conn_conciliacion'] = conn
+        except Exception:
+            conn = conectar_db(db_actual)
+            st.session_state['conn_conciliacion'] = conn
+
+        if not conn:
+            st.error(f"❌ Error crítico: No se pudo conectar a la base de datos `{db_actual}`.")
+            st.stop()
+
+        # 3. Selectores Globales de Periodo
+        try:
+            col1, col2 = st.columns([1, 1])
+            with col1:
+                mes_sel = st.selectbox(
+                    "Mes", 
+                    ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", 
+                     "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"], 
+                    index=2, 
+                    key="mes_seleccionado_conciliacion"
+                )
+            with col2:
+                ano_sel = st.selectbox("Año", [2025, 2026, 2027], index=1, key="ano_seleccionado")
+        except Exception as e:
+            st.error(f"Error al inicializar los selectores globales: {e}")
+            st.stop()
+
+        # Pestañas del Módulo
+        tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+            "⚙️ Configuración Saldos", 
+            "📂 Importar Movimientos", 
+            "📜 Estado de Cuenta", 
+            "📊 Conciliación Bancaria", 
+            "🔒 Cierre de Mes",
+            "🗑️ Vaciar Estado de Cuenta"
+        ])
+
+        # ==========================================
+        # PESTAÑA 1: CONFIGURACIÓN DE SALDOS
+        # ==========================================
+        with tab1:
+            st.subheader("⚙️ Gestión de Saldos Bancarios")
+
+            try:
+                query_saldos = f"""
+                    SELECT id, banco, mes, ano, saldo_inicial, saldo_final 
+                    FROM `{db_actual}`.saldos_bancarios 
+                    ORDER BY ano DESC, id DESC
+                """
+                
+                df_saldos = ejecutar_consulta(query_saldos, conn)
+                
+                if df_saldos is not None and not df_saldos.empty:
+                    df_saldos['saldo_inicial'] = pd.to_numeric(df_saldos['saldo_inicial'], errors='coerce').fillna(0.0)
+                    df_saldos['saldo_final'] = pd.to_numeric(df_saldos['saldo_final'], errors='coerce').fillna(0.0)
+
+                    st.info("💡 **Consejo:** Puedes hacer doble clic directamente en las celdas de **saldo_inicial** o **saldo_final** de la tabla para modificarlos, y luego hacer clic en guardar.")
+                    
+                    df_editable = df_saldos.copy()
+                    
+                    def formato_venezolano(val):
+                        try:
+                            return f"{float(val):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                        except Exception:
+                            return "0,00"
+
+                    df_editable['saldo_inicial'] = df_editable['saldo_inicial'].apply(formato_venezolano)
+                    df_editable['saldo_final'] = df_editable['saldo_final'].apply(formato_venezolano)
+
+                    edited_df_preview = st.data_editor(
+                        df_editable,
+                        column_config={
+                            "id": st.column_config.NumberColumn("ID", disabled=True),
+                            "banco": st.column_config.TextColumn("Banco"),
+                            "mes": st.column_config.TextColumn("Mes"),
+                            "ano": st.column_config.NumberColumn("Año", disabled=True),
+                            "saldo_inicial": st.column_config.TextColumn("Saldo Inicial", help="Formato contable (ej. 15.539,00)"),
+                            "saldo_final": st.column_config.TextColumn("Saldo Final", help="Formato contable (ej. 15.539,00)"),
+                        },
+                        hide_index=True,
+                        use_container_width=True,
+                        key="editor_saldos_bancarios"
+                    )
+
+                    if st.button("💾 Guardar cambios de la tabla", key="btn_guardar_tabla_saldos", type="primary"):
+                        try:
+                            cursor_upd = conn.cursor()
+                            actualizaciones = 0
+                            
+                            for index, row in edited_df_preview.iterrows():
+                                row_id = row['id']
+                                orig_row = df_saldos.loc[df_saldos['id'] == row_id].iloc[0]
+                                
+                                try:
+                                    val_ini_limpio = float(str(row['saldo_inicial']).replace(".", "").replace(",", "."))
+                                except Exception:
+                                    val_ini_limpio = orig_row['saldo_inicial']
+
+                                try:
+                                    val_fin_limpio = float(str(row['saldo_final']).replace(".", "").replace(",", "."))
+                                except Exception:
+                                    val_fin_limpio = orig_row['saldo_final']
+
+                                if (val_ini_limpio != orig_row['saldo_inicial']) or (val_fin_limpio != orig_row['saldo_final']) or (row['banco'] != orig_row['banco']):
+                                    query_update = f"""
+                                        UPDATE `{db_actual}`.saldos_bancarios 
+                                        SET banco = %s, saldo_inicial = %s, saldo_final = %s 
+                                        WHERE id = %s
+                                    """
+                                    cursor_upd.execute(query_update, (row['banco'], val_ini_limpio, val_fin_limpio, row_id))
+                                    actualizaciones += 1
+                                    
+                            conn.commit()
+                            cursor_upd.close()
+                            
+                            if actualizaciones > 0:
+                                st.success(f"✅ ¡Se actualizaron {actualizaciones} registro(s) con éxito!")
+                                st.rerun()
+                            else:
+                                st.info("ℹ️ No se detectaron cambios nuevos para guardar.")
+                                
+                        except Exception as e:
+                            conn.rollback()
+                            st.error(f"❌ Error al guardar las modificaciones: {e}")
+
+                else:
+                    nombre_emp = empresa_data.get('nombre_empresa', 'la empresa')
+                    st.info(f"No hay saldos registrados para {nombre_emp}.")
+                    
+            except Exception as e:
+                st.error(f"Error al cargar la tabla de saldos: {e}")
+
+            # Formulario de registro nuevo
+            st.markdown("---")
+            st.subheader("➕ Agregar Nuevo Saldo Mensual")
+            
+            with st.form("form_saldos_main"):
+                banco_input = st.selectbox("Banco", ["Banco de Venezuela (BDV)", "Banesco", "Mercantil"])
+                
+                c1, c2 = st.columns(2)
+                m_input = c1.selectbox("Mes", ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", 
+                                               "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"])
+                a_input = c2.selectbox("Año", [2025, 2026, 2027])
+                
+                c4, c5 = st.columns(2)
+                val_ini = c4.number_input("Saldo Inicial", value=0.00, format="%.2f")
+                val_fin = c5.number_input("Saldo Final", value=0.00, format="%.2f")
+                
+                if st.form_submit_button("Registrar Nuevo Saldo"):
+                    if guardar_saldo_mensual(conn, banco_input, m_input, a_input, val_ini, val_fin, db_name=db_actual):
+                        st.success(f"✅ Saldo de **{banco_input}** para **{m_input} {a_input}** guardado con éxito.")
+                        st.rerun()
+
+            # Eliminación segura
+            with st.expander("🗑️ Eliminar un registro"):
+                id_eliminar = st.number_input("ID del registro a eliminar", min_value=1, step=1, key="input_id_eliminar_tab1")
+                if st.button("Confirmar Eliminación", key="btn_confirmar_eliminar_tab1", type="primary"):
+                    try:
+                        cursor = conn.cursor()
+                        cursor.execute(f"DELETE FROM `{db_actual}`.saldos_bancarios WHERE id = %s", (id_eliminar,))
+                        conn.commit()
+                        cursor.close()
+                        st.warning("Registro eliminado.")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Error al eliminar: {e}")
+        # --- TAB 2: GESTIÓN Y GENERACIÓN DE ÓRDENES DE PAGO Y CRUCE ---
+        with tab2:
+            st.markdown("### 🧾 Gestión y Generación de Órdenes de Pago y Cruce")
+
+            # --- CARGAR PROVEEDORES OPTIMIZADO CON CACHÉ GLOBAL ---
+            @st.cache_data(ttl=600, show_spinner=False)
+            def cargar_datos_maestros_flash(empresa):
+                p_lista, p_dict = [], {}
+                try:
+                    conn = conectar_db(empresa)
+                    if conn:
+                        df_cp = ejecutar_consulta(
+                            "SELECT id, nombre, rif, codigo_cuenta, descripcion_cuenta FROM proveedores_carga WHERE empresa_db = %s ORDER BY nombre ASC", 
+                            conn, params=(str(empresa),)
+                        )
+                        if df_cp is None or df_cp.empty:
+                            df_cp = ejecutar_consulta(
+                                "SELECT id, nombre, rif, codigo_cuenta, descripcion_cuenta FROM proveedores_carga ORDER BY nombre ASC", 
+                                conn
+                            )
+                        conn.close()
+                        
+                        if df_cp is not None and not df_cp.empty:
+                            for _, row in df_cp.iterrows():
+                                label = f"{row['nombre']} (RIF: {row['rif']})"
+                                p_lista.append(label)
+                                p_dict[label] = {
+                                    'id_interno': row['id'],
+                                    'rif': row['rif'],
+                                    'nombre': row['nombre'],
+                                    'codigo_cuenta': str(row.get('codigo_cuenta', 'N/A')),
+                                    'descripcion_cuenta': str(row.get('descripcion_cuenta', 'N/A'))
+                                }
+                except Exception:
+                    pass
+                return p_lista, p_dict
+
+            lista_provs, dict_provs = cargar_datos_maestros_flash(db_actual)
+
+            # --- GESTIÓN DE SESSION STATE ---
+            if "orden_guardada_exito" not in st.session_state:
+                st.session_state["orden_guardada_exito"] = False
+
+            # --- FASE 1: EMITIR NUEVA ORDEN DE PAGO CON ST.FORM ---
+            if not st.session_state.orden_guardada_exito:
+                st.markdown("### ✍️ Emitir Nueva Orden de Pago")
+                
+                with st.form("form_emision_op", clear_on_submit=True):
+                    col_f1_1, col_f1_2 = st.columns(2)
+                    with col_f1_1:
+                        prov_seleccionado_form = st.selectbox("Seleccionar Proveedor", options=lista_provs if lista_provs else ["No hay proveedores"])
+                        nro_factura_form = st.text_input("Número de Factura")
+                        nro_control_form = st.text_input("Número de Control")
+                    with col_f1_2:
+                        fecha_emision_form = st.date_input("Fecha de Emisión")
+                        
+                        st.markdown("""
+                            <div style="background-color: #ffe6e6; padding: 6px 12px; border-radius: 6px; border: 1px solid #ff9999; margin-bottom: 5px;">
+                                <span style="color: #c0392b; font-weight: bold; font-size: 13px;">🔴 Campos de ingreso manual</span>
+                            </div>
+                        """, unsafe_allow_html=True)
+                        
+                        base_imponible_form = st.number_input("Base Imponible", min_value=0.0, format="%.2f")
+                        monto_exento_form = st.number_input("Monto Exento", min_value=0.0, format="%.2f")
+
+                    col_f1_3, col_f1_4 = st.columns(2)
+                    with col_f1_3:
+                        alicuota_iva_form = st.selectbox("Alícuota IVA", options=[16.0, 8.0, 31.0, 0.0], format_func=lambda x: f"{x}%")
+                    with col_f1_4:
+                        monto_iva_calculado = base_imponible_form * (alicuota_iva_form / 100.0)
+                        st.text(f"Monto IVA (Calculado): {monto_iva_calculado:,.2f}")
+
+                    monto_bruto_calculado = base_imponible_form + monto_exento_form + monto_iva_calculado
+                    st.text(f"Monto Bruto / Total Factura: {monto_bruto_calculado:,.2f}")
+                    
+                    st.markdown("---")
+
+                    # --- 2DO FRAME: RETENCIÓN DE IVA ---
+                    st.markdown("#### 2️⃣ Frame: Retención de IVA")
+                    col_f2_1, col_f2_2 = st.columns(2)
+                    with col_f2_1:
+                        porcentaje_ret_iva = st.selectbox("Porcentaje Retención IVA", options=[75.0, 100.0, 25.0, 50.0, 0.00], format_func=lambda x: f"{x}%")
+                    with col_f2_2:
+                        retencion_iva_calculada = monto_iva_calculado * (porcentaje_ret_iva / 100.0)
+                        st.text(f"Monto Retención IVA: {retencion_iva_calculada:,.2f}")
+                    
+                    st.markdown("---")
+
+                    # --- 3ER FRAME: RETENCIÓN DE ISLR ---
+                    st.markdown("#### 3️⃣ Frame: Retención de ISLR")
+                    col_f3_1, col_f3_2, col_f3_3, col_f3_4 = st.columns(4)
+                    with col_f3_1:
+                        tipo_persona_form = st.selectbox("Tipo de Persona", options=["Jurídico Domiciliado", "Natural Residenciado", "Otro"])
+                    with col_f3_2:
+                        islr_porcentaje_form = st.number_input("% Retención ISLR", min_value=0.0, max_value=100.0, format="%.2f", value=1.0)
+                    with col_f3_3:
+                        islr_sustraendo_form = st.number_input("Sustraendo ISLR", min_value=0.0, format="%.2f", value=0.0)
+                    with col_f3_4:
+                        retencion_islr_calculada = max(0.0, (base_imponible_form * (islr_porcentaje_form / 100.0)) - islr_sustraendo_form)
+                        st.text(f"Retención ISLR: {retencion_islr_calculada:,.2f}")
+
+                    st.markdown("---")
+                    
+                    # --- 4TO FRAME: MONTO NETO Y OBSERVACIONES ---
+                    st.markdown("#### 4️⃣ Frame: Cálculo del Monto Neto a Pagar")
+                    monto_neto_calculado = monto_bruto_calculado - retencion_islr_calculada - retencion_iva_calculada
+                    
+                    col_f4_1, col_f4_2 = st.columns(2)
+                    with col_f4_1:
+                        st.text(f"💵 Monto Neto a Pagar: {monto_neto_calculado:,.2f}")
+                    with col_f4_2:
+                        observaciones_form = st.text_area("Observaciones / Concepto del Pago")
+
+                    st.markdown("---")
+                    
+                    btn_guardar_op = st.form_submit_button("💾 Guardar y Registrar Orden de Pago", use_container_width=True)
+
+                if btn_guardar_op:
+                    if not nro_factura_form:
+                        st.error("⚠️ El número de factura es obligatorio.")
+                    elif not lista_provs:
+                        st.error("⚠️ No hay proveedores cargados para asociar la orden.")
+                    else:
+                        try:
+                            info_prov_form = dict_provs[prov_seleccionado_form]
+                            conn_ins = conectar_db(db_actual)
+                            if conn_ins:
+                                cursor = conn_ins.cursor()
+                                query_insert = """
+                                    INSERT INTO ordenes_pago (
+                                        empresa_db, proveedor_id, nro_factura, nro_control, 
+                                        monto_bruto, monto_exento, base_imponible, iva_porcentaje, monto_iva, 
+                                        retencion_islr, retencion_iva, monto_neto, estado, fecha_emision, 
+                                        observaciones, islr_porcentaje, islr_sustraendo, tipo_persona
+                                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                """
+                                cursor.execute(query_insert, (
+                                    str(db_actual),
+                                    str(info_prov_form['id_interno']),
+                                    str(nro_factura_form),
+                                    str(nro_control_form),
+                                    float(monto_bruto_calculado),
+                                    float(monto_exento_form),
+                                    float(base_imponible_form),
+                                    float(alicuota_iva_form),
+                                    float(monto_iva_calculado),
+                                    float(retencion_islr_calculada),
+                                    float(retencion_iva_calculada),
+                                    float(monto_neto_calculado),
+                                    'Pendiente',
+                                    str(fecha_emision_form),
+                                    str(observaciones_form),
+                                    float(islr_porcentaje_form),
+                                    float(islr_sustraendo_form),
+                                    str(tipo_persona_form)
+                                ))
+                                conn_ins.commit()
+                                cursor.close()
+                                conn_ins.close()
+                                
+                                st.session_state.orden_guardada_exito = True
+                                st.success("🎉 ¡Orden de pago guardada con éxito!")
+                                st.rerun()
+                        except Exception as err_ins:
+                            st.error(f"❌ Error al guardar la orden de pago: {err_ins}")
+
+            else:
+                if st.button("➕ Emitir Nueva Orden de Pago", type="secondary", use_container_width=True):
+                    st.session_state.orden_guardada_exito = False
+                    st.rerun()
+
+            # --- FASE 2 Y 3: HISTORIAL Y MÓDULOS INDEPENDIENTES ---
+            if st.session_state.orden_guardada_exito:
+                st.markdown("---")
+                st.markdown("### 📊 Historial de Órdenes de Pago y Previsualización YAML")
+                
+                try:
+                    conn_historial = conectar_db(db_actual)
+                    df_ops = None
+                    
+                    if conn_historial:
+                        query_ops = f"SELECT * FROM ordenes_pago WHERE empresa_db = '{db_actual}' ORDER BY id DESC"
+                        df_ops = ejecutar_consulta(query_ops, conn_historial)
+                        
+                        if df_ops is None or df_ops.empty:
+                            df_ops = ejecutar_consulta("SELECT * FROM ordenes_pago ORDER BY id DESC", conn_historial)
+                        
+                        conn_historial.close()
+                        
+                    if df_ops is not None and not df_ops.empty:
+                        lista_ops_procesadas = []
+                        
+                        # Indexación rápida de proveedores para evitar bucles anidados lentos
+                        dict_provs_por_id = {str(v['id_interno']): v for v in dict_provs.values()}
+                        dict_provs_por_rif = {str(v['rif']): v for v in dict_provs.values()}
+                        fallback_prov = list(dict_provs.values())[0] if dict_provs else None
+                        
+                        for _, r_op in df_ops.iterrows():
+                            p_id = str(r_op['proveedor_id'])
+                            prov_encontrado = dict_provs_por_id.get(p_id) or dict_provs_por_rif.get(p_id) or fallback_prov
+                            
+                            lista_ops_procesadas.append({
+                                'id': r_op['id'],
+                                'proveedor_rif': prov_encontrado['rif'] if prov_encontrado else 'N/A',
+                                'proveedor': prov_encontrado['nombre'] if prov_encontrado else 'Desconocido',
+                                'cuenta_gasto_codigo': prov_encontrado.get('codigo_cuenta', 'N/A') if prov_encontrado else 'N/A',
+                                'cuenta_gasto_desc': prov_encontrado.get('descripcion_cuenta', 'N/A') if prov_encontrado else 'N/A',
+                                'nro_factura': r_op['nro_factura'],
+                                'nro_control': r_op['nro_control'],
+                                'monto_bruto': r_op['monto_bruto'],
+                                'monto_exento': r_op['monto_exento'],
+                                'base_imponible': r_op['base_imponible'],
+                                'iva_porcentaje': r_op['iva_porcentaje'],
+                                'monto_iva': r_op['monto_iva'],
+                                'retencion_islr': r_op['retencion_islr'],
+                                'retencion_iva': r_op['retencion_iva'],
+                                'monto_neto': r_op['monto_neto'],
+                                'estado': r_op['estado'],
+                                'fecha_emision': r_op['fecha_emision'],
+                                'observaciones': r_op['observaciones'],
+                                'islr_porcentaje': r_op['islr_porcentaje'],
+                                'islr_sustraendo': r_op['islr_sustraendo'],
+                                'tipo_persona': r_op['tipo_persona']
+                            })
+                        
+                        import pandas as pd
+                        df_ops_final = pd.DataFrame(lista_ops_procesadas)
+                        
+                        df_display = df_ops_final[['id', 'proveedor', 'nro_factura', 'monto_bruto', 'monto_neto', 'retencion_islr', 'estado', 'fecha_emision']]
+                        st.dataframe(df_display, use_container_width=True, hide_index=True)
+                        
+                        st.markdown("---")
+                        
+                        opciones_ordenes = {f"ID: {row['id']} | Factura: {row['nro_factura']} | Proveedor: {row['proveedor']} | Estado: {row['estado']}": row for _, row in df_ops_final.iterrows()}
+                        
+                        seleccion_op_key = st.selectbox(
+                            "🔍 Selecciona una Orden de Pago para configurar sus cuentas y previsualizar los asientos:", 
+                            options=list(opciones_ordenes.keys()),
+                            index=0,
+                            key="select_op_final_v2"
+                        )
+                        
+                        if seleccion_op_key:
+                            sel_data = opciones_ordenes[seleccion_op_key]
+                            
+                            st.markdown("---")
+                            st.markdown(f"### ⚙ Configuración de Cuentas para la Orden #{sel_data['id']}")
+                            
+                            col_c1, col_c2, col_c3 = st.columns(3)
+                            with col_c1:
+                                cta_gasto_sel = st.selectbox("Cuenta de Gasto / Costo", options=lista_cuentas_detalle if lista_cuentas_detalle else ["Sin cuentas"], key=f"cta_gasto_{sel_data['id']}")
+                                info_gasto = dict_cuentas_detalle.get(cta_gasto_sel, {'codigo': '6.1.1.01.001', 'nombre': 'Gastos Generales'})
+                            with col_c2:
+                                cta_iva_sel = st.selectbox("Cuenta Crédito Fiscal IVA", options=lista_cuentas_detalle if lista_cuentas_detalle else ["Sin cuentas"], key=f"cta_iva_{sel_data['id']}")
+                                info_iva = dict_cuentas_detalle.get(cta_iva_sel, {'codigo': '1.1.4.02.001', 'nombre': 'Crédito Fiscal IVA'})
+                            with col_c3:
+                                cta_banco_sel = st.selectbox("Cuenta Banco / Salida", options=lista_cuentas_detalle if lista_cuentas_detalle else ["Sin cuentas"], key=f"cta_banco_{sel_data['id']}")
+                                info_banco = dict_cuentas_detalle.get(cta_banco_sel, {'codigo': '1.1.1.01.001', 'nombre': 'Banco Principal'})
+                                info_banco['nombre'] = info_banco.get('nombre', 'Banco Principal')
+
+                            st.markdown("---")
+                            st.markdown("### 🔄 Proceso de Registro por Módulos (Paso a Paso)")
+
+                            key_paso = f"paso_actual_{sel_data['id']}"
+                            if key_paso not in st.session_state:
+                                st.session_state[key_paso] = 1
+
+                            paso = st.session_state[key_paso]
+
+                            # --- PASO 1: LIBRO DE COMPRAS ---
+                            if paso == 1:
+                                st.markdown("#### 📄 Paso 1: Registrar en `libro_compras`")
+                                st.code(f"""fecha_operacion: {sel_data['fecha_emision']}
+            tipo_documento: Factura
+            n_factura: {sel_data['nro_factura']}
+            n_control: {sel_data['nro_control']}
+            proveedor: {sel_data['proveedor']}
+            rif: {sel_data['proveedor_rif']}
+            total_compras: {sel_data['monto_bruto']:,.2f}
+            base_imponible: {sel_data['base_imponible']:,.2f}
+            iva_porcentaje: {sel_data['iva_porcentaje']}%
+            iva_monto: {sel_data['monto_iva']:,.2f}
+            retencion_iva: {sel_data['retencion_iva']:,.2f}""", language="yaml")
+                                
+                                if st.button("💾 Guardar Libro de Compras y Pasar al Asiento", key=f"btn_guardar_libro_{sel_data['id']}", use_container_width=True):
+                                    rif_val = str(sel_data.get('proveedor_rif', '')).strip()
+                                    fact_val = str(sel_data.get('nro_factura', '')).strip()
+                                    ctrl_val = str(sel_data.get('nro_control', '')).strip()
+                                    prov_val = str(sel_data.get('proveedor', '')).strip()
+                                    
+                                    if not fact_val or fact_val in ['None', 'N/A', '?', '']:
+                                        st.error("⚠️ Error: El número de factura está vacío o es inválido.")
+                                    elif not rif_val or rif_val in ['None', 'N/A', '?', '']:
+                                        st.error(f"⚠️ Error: El RIF del proveedor ('{rif_val}') está vacío.")
+                                    else:
+                                        with st.spinner("Guardando en Libro de Compras..."):
+                                            try:
+                                                conn_l = conectar_db(db_actual)
+                                                if conn_l:
+                                                    with conn_l.cursor() as cur_l:
+                                                        cur_l.execute("SELECT id FROM libro_compras WHERE n_factura = %s AND rif = %s", (fact_val, rif_val))
+                                                        existe = cur_l.fetchone()
+                                                        
+                                                        if existe:
+                                                            st.warning(f"⚠️ La factura **{fact_val}** ya se encuentra registrada. Avanzando...")
+                                                        else:
+                                                            query_libro = """
+                                                                INSERT INTO libro_compras (
+                                                                    fecha_operacion, tipo_documento, n_factura, n_control, 
+                                                                    n_factura_afectada, proveedor, rif, tipo_transaccion, 
+                                                                    total_compras, importe_exento, base_imponible, iva_porcentaje, 
+                                                                    iva_monto, retencion_realizada, retencion_iva_realizada, 
+                                                                    n_comprobante_retencion, monto_iva_retenido, fecha_comprobante, 
+                                                                    created_at, updated_at
+                                                                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
+                                                            """
+                                                            valores_libro = (
+                                                                str(sel_data['fecha_emision']),
+                                                                "Factura",
+                                                                fact_val,
+                                                                ctrl_val if ctrl_val and ctrl_val != 'None' else 'S/N',
+                                                                None,
+                                                                prov_val if prov_val and prov_val != 'None' else 'Proveedor Genérico',
+                                                                rif_val,
+                                                                "01",
+                                                                float(sel_data.get('monto_bruto', 0.0)),
+                                                                float(sel_data.get('monto_exento', 0.0)),
+                                                                float(sel_data.get('base_imponible', 0.0)),
+                                                                float(sel_data.get('iva_porcentaje', 16.0)),
+                                                                float(sel_data.get('monto_iva', 0.0)),
+                                                                1 if float(sel_data.get('retencion_iva', 0.0)) > 0 else 0,
+                                                                float(sel_data.get('retencion_iva', 0.0)),
+                                                                f"COMP-{fact_val}",
+                                                                float(sel_data.get('retencion_iva', 0.0)),
+                                                                str(sel_data['fecha_emision'])
+                                                            )
+                                                            cur_l.execute(query_libro, valores_libro)
+                                                            conn_l.commit()
+                                                            st.success("✅ ¡Libro de Compras guardado con éxito!")
+                                                    conn_l.close()
+                                                    st.session_state[key_paso] = 2
+                                                    st.rerun()
+                                            except Exception as err_l:
+                                                st.error(f"❌ Error al guardar libro de compras: {err_l}")
+
+                            # --- PASO 2: ASIENTO CONTABLE ---
+                            elif paso == 2:
+                                st.markdown("#### 📒 Paso 2: Registrar `asientos_contables`")
+                                st.code(f"""- n_comprobante: OP-{sel_data['nro_factura']}
+              fecha: {sel_data['fecha_emision']}
+              asientos:
+                - plan_cuentas: {info_gasto['codigo']}
+                  debe: {sel_data['base_imponible']:,.2f}
+                  haber: 0.00
+                - plan_cuentas: {info_iva['codigo']}
+                  debe: {sel_data['monto_iva']:,.2f}
+                  haber: 0.00
+                - plan_cuentas: 2.1.2.01.005
+                  debe: 0.00
+                  haber: {sel_data['retencion_islr']:,.2f}
+                - plan_cuentas: 2.1.2.01.003
+                  debe: 0.00
+                  haber: {sel_data['retencion_iva']:,.2f}
+                - plan_cuentas: {info_banco['codigo']}
+                  debe: 0.00
+                  haber: {sel_data['monto_neto']:,.2f}""", language="yaml")
+                                
+                                if st.button("💾 Guardar Asiento Contable y Pasar a Banco", key=f"btn_guardar_asiento_{sel_data['id']}", use_container_width=True):
+                                    with st.spinner("Registrando asiento contable..."):
+                                        try:
+                                            conn_a = conectar_db(db_actual)
+                                            if conn_a:
+                                                with conn_a.cursor() as cur_a:
+                                                    n_comp_val = f"OP-{sel_data['nro_factura']}"
+                                                    fecha_val = str(sel_data['fecha_emision'])
+                                                    lineas_asiento = [
+                                                        (info_gasto['codigo'], info_gasto['nombre'], float(sel_data['base_imponible']), 0.00),
+                                                        (info_iva['codigo'], info_iva['nombre'], float(sel_data['monto_iva']), 0.00),
+                                                        ("2.1.2.01.005", "Retención ISLR Por Pagar", 0.00, float(sel_data['retencion_islr'])),
+                                                        ("2.1.2.01.003", "Retención IVA Por Pagar", 0.00, float(sel_data['retencion_iva'])),
+                                                        (info_banco['codigo'], info_banco['nombre'], 0.00, float(sel_data['monto_neto']))
+                                                    ]
+                                                    query_asiento = """
+                                                        INSERT INTO asientos_contables (
+                                                            n_comprobante, descripcion, fecha, plan_cuentas, 
+                                                            cuenta_contable, referencia, debe, haber, bloqueado
+                                                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 0)
+                                                    """
+                                                    for c_cod, c_nom, debe_v, haber_v in lineas_asiento:
+                                                        if debe_v > 0 or haber_v > 0:
+                                                            cur_a.execute(query_asiento, (
+                                                                n_comp_val,
+                                                                f"Pago a Proveedor {sel_data['proveedor']} - Factura {sel_data['nro_factura']}",
+                                                                fecha_val,
+                                                                c_cod,
+                                                                c_nom,
+                                                                n_comp_val,
+                                                                debe_v,
+                                                                haber_v
+                                                            ))
+                                                    conn_a.commit()
+                                                conn_a.close()
+                                                st.success("✅ ¡Asiento Contable guardado con éxito!")
+                                                st.session_state[key_paso] = 3
+                                                st.rerun()
+                                        except Exception as err_a:
+                                            st.error(f"❌ Error al guardar asiento contable: {err_a}")
+
+                            # --- PASO 3: MOVIMIENTO BANCARIO ---
+                            elif paso == 3:
+                                st.markdown("#### 🏦 Paso 3: Registrar `banco_movimientos`")
+                                prov_nombre = str(sel_data.get('proveedor', '')).strip()
+                                prov_rif = str(sel_data.get('proveedor_rif', '')).strip()
+                                nro_fact = str(sel_data.get('nro_factura', '')).strip()
+                                desc_val = f"Pago Factura Nro {nro_fact} - {prov_nombre} (RIF: {prov_rif})"
+
+                                st.code(f"""banco_nombre: {info_banco['nombre']}
+            reference: OP-{nro_fact}
+            descripcion: {desc_val}
+            monto: {sel_data['monto_neto']:,.2f}
+            estado: {sel_data['estado']}""", language="yaml")
+                                
+                                if st.button("💾 Guardar Movimiento Bancario y Finalizar", key=f"btn_guardar_banco_{sel_data['id']}", use_container_width=True):
+                                    with st.spinner("Registrando movimiento bancario..."):
+                                        try:
+                                            conn_b = conectar_db(db_actual)
+                                            if conn_b:
+                                                with conn_b.cursor() as cur_b:
+                                                    fecha_val = str(sel_data['fecha_emision'])
+                                                    query_banco = """
+                                                        INSERT INTO banco_movimientos (
+                                                            banco_nombre, cuenta_numero, fecha_movimiento, 
+                                                            referencia, descripcion, monto, estado_conciliacion
+                                                        ) VALUES (%s, %s, %s, %s, %s, %s, %s)
+                                                    """
+                                                    cur_b.execute(query_banco, (
+                                                        info_banco['nombre'],
+                                                        info_banco['codigo'],
+                                                        fecha_val,
+                                                        f"OP-{nro_fact}",
+                                                        desc_val,
+                                                        float(sel_data['monto_neto']),
+                                                        "Pendiente"
+                                                    ))
+                                                    conn_b.commit()
+                                                conn_b.close()
+                                                st.success("🎉 ¡Proceso completo! Movimiento Bancario guardado con éxito.")
+                                                st.session_state[key_paso] = 1
+                                                st.rerun()
+                                        except Exception as err_b:
+                                            st.error(f"❌ Error al guardar movimiento bancario: {err_b}")
+                except Exception as ex_historial:
+                    st.warning(f"Aviso en historial: {ex_historial}")
+    
+        with tab3:
+            sst.subheader("📂 Estado de Cuenta Bancario")
+
+            db_actual = st.session_state.get('DB_ACTUAL')
+
+            if not db_actual:
+                st.error("No se ha seleccionado una base de datos de empresa.")
+                st.stop()
+
+            # Usamos la conexión reutilizada del módulo global
+            try:
+                if conn is None:
+                    conn = conectar_db(db_actual)
+                else:
+                    try:
+                        conn.ping(reconnect=True)
+                    except Exception:
+                        conn = conectar_db(db_actual)
+                        st.session_state['conn_conciliacion'] = conn
+                
+                if conn is None:
+                    st.error("No se pudo establecer conexión con la base de datos.")
+                    st.stop()
+
+                import calendar
+                mes_map = {
+                    "Enero": 1, "Febrero": 2, "Marzo": 3, "Abril": 4, "Mayo": 5, "Junio": 6,
+                    "Julio": 7, "Agosto": 8, "Septiembre": 9, "Octubre": 10, "Noviembre": 11, "Diciembre": 12
+                }
+                mes_num = mes_map.get(mes_sel, 1)
+                
+                fecha_inicio = f"{ano_sel}-{mes_num:02d}-01"
+                ultimo_dia = calendar.monthrange(int(ano_sel), int(mes_num))[1]
+                fecha_fin = f"{ano_sel}-{mes_num:02d}-{ultimo_dia}"
+
+                # Consulta optimizada directamente a la tabla
+                cursor = conn.cursor()
+                query = f"""
+                    SELECT id, banco_nombre, cuenta_numero, fecha_movimiento, referencia, 
+                           descripcion, monto, estado_conciliacion 
+                    FROM `{db_actual}`.banco_movimientos 
+                    WHERE fecha_movimiento >= %s AND fecha_movimiento <= %s
+                    ORDER BY fecha_movimiento DESC
+                """
+                cursor.execute(query, (fecha_inicio, fecha_fin))
+                rows = cursor.fetchall()
+                cursor.close()
+
+                if rows:
+                    df_cuenta = pd.DataFrame(rows, columns=[
+                        'id', 'banco_nombre', 'cuenta_numero', 'fecha_movimiento', 
+                        'referencia', 'descripcion', 'monto', 'estado_conciliacion'
+                    ])
+                    
+                    # Conversión numérica optimizada
+                    df_cuenta['monto'] = pd.to_numeric(df_cuenta['monto'], errors='coerce').fillna(0.0)
+
+                    # Renderizado rápido y nativo sin bucles lentos de formato string en Pandas
+                    st.dataframe(
+                        df_cuenta,
+                        column_config={
+                            "id": st.column_config.NumberColumn("ID", disabled=True),
+                            "banco_nombre": st.column_config.TextColumn("Banco"),
+                            "cuenta_numero": st.column_config.TextColumn("N° Cuenta"),
+                            "fecha_movimiento": st.column_config.DateColumn("Fecha"),
+                            "referencia": st.column_config.TextColumn("Referencia"),
+                            "descripcion": st.column_config.TextColumn("Descripción"),
+                            "monto": st.column_config.NumberColumn(
+                                "Monto",
+                                format="%,.2f",
+                                help="Monto del movimiento bancario"
+                            ),
+                            "estado_conciliacion": st.column_config.TextColumn("Estado")
+                        },
+                        hide_index=True,
+                        use_container_width=True, 
+                        height=450
+                    )
+                    st.write(f"**Total movimientos encontrados:** {len(df_cuenta)}")
+                else:
+                    st.info(f"No hay movimientos registrados para el periodo {mes_sel} {ano_sel}.")
+
+            except Exception as e:
+                err_code = e.args[0] if len(e.args) > 0 else "Desconocido"
+                err_msg = e.args[1] if len(e.args) > 1 else str(e)
+                st.error(f"❌ Error en la base de datos [Código {err_code}]: {err_msg}")
+
+            # Panel de administración condicional
+            if rol == 'admin':
+                with st.expander("⚠️ Zona de Administración"):
+                    if st.button("🗑️ Vaciar Todo (CUIDADO)", type="primary"):
+                        try:
+                            cursor_del = conn.cursor()
+                            cursor_del.execute(f"DELETE FROM `{db_actual}`.banco_movimientos WHERE empresa_id = %s", (cliente_id,))
+                            conn.commit()
+                            cursor_del.close()
+                            st.success("Registros de esta empresa eliminados correctamente.")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Error al vaciar registros: {e}")
+
+    
+        # ==========================================
+        # --- TAB 4: CONCILIACIÓN BANCARIA (TABLERO) ---
+        # ==========================================
+        with tab4:
+            st.subheader("📊 Resumen del Periodo")
+
+            db_actual = st.session_state.get('DB_ACTUAL')
+
+            if not db_actual:
+                st.error("No se ha seleccionado una base de datos de empresa.")
+                st.stop()
+
+            try:
+                # Reutilizamos la conexión global ya validada al inicio del módulo
+                if 'conn_conciliacion' in st.session_state and st.session_state['conn_conciliacion']:
+                    conn = st.session_state['conn_conciliacion']
+                    try:
+                        conn.ping(reconnect=True)
+                    except Exception:
+                        conn = conectar_db(db_actual)
+                        st.session_state['conn_conciliacion'] = conn
+                else:
+                    conn = conectar_db(db_actual)
+                    st.session_state['conn_conciliacion'] = conn
+
+                if conn:
+                    with st.spinner("Calculando tablero de conciliación..."):
+                        mostrar_tablero_conciliacion(conn, mes_sel, ano_sel)
+                else:
+                    st.error("❌ ERROR CRÍTICO: No se pudo establecer conexión con la base de datos.")
+                    
+            except Exception as e:
+                st.error(f"❌ Error al conectar con el tablero: {e}")
+
+        # ==========================================
+        # --- TAB 5: CIERRE Y BLOQUEO DE MES ---
+        # ==========================================
+        with tab5:
+            st.subheader("🔒 Cierre y Bloqueo de Mes")
+
+            db_actual = st.session_state.get('DB_ACTUAL')
+
+            if not db_actual:
+                st.error("No se ha seleccionado una base de datos de empresa.")
+                st.stop()
+
+            mes_map = {
+                "Enero": 1, "Febrero": 2, "Marzo": 3, "Abril": 4, "Mayo": 5, "Junio": 6,
+                "Julio": 7, "Agosto": 8, "Septiembre": 9, "Octubre": 10, "Noviembre": 11, "Diciembre": 12
+            }
+            mes_num = mes_map.get(mes_sel, 1)
+
+            try:
+                # Reutilización optimizada de la conexión maestra del módulo
+                if 'conn_conciliacion' in st.session_state and st.session_state['conn_conciliacion']:
+                    conn = st.session_state['conn_conciliacion']
+                    try:
+                        conn.ping(reconnect=True)
+                    except Exception:
+                        conn = conectar_db(db_actual)
+                        st.session_state['conn_conciliacion'] = conn
+                else:
+                    conn = conectar_db(db_actual)
+                    st.session_state['conn_conciliacion'] = conn
+
+                if not conn:
+                    st.error("No se pudo establecer conexión con la base de datos.")
+                    st.stop()
+
+                # Verificación rápida del estado del mes
+                cursor = conn.cursor()
+                query_check = f"SELECT COUNT(*) FROM `{db_actual}`.banco_movimientos WHERE MONTH(fecha_movimiento) = %s AND YEAR(fecha_movimiento) = %s AND estado_conciliacion = 'Cerrado'"
+                cursor.execute(query_check, (mes_num, ano_sel))
+                es_cerrado = cursor.fetchone()[0] > 0
+                cursor.close()
+
+                if es_cerrado:
+                    st.error(f"🔒 El mes de {mes_sel} {ano_sel} en `{db_actual}` está CERRADO.")
+                else:
+                    st.warning("⚠️ Acción irreversible: El cierre de mes bloquea ediciones.")
+                    if st.checkbox("✅ Entiendo las consecuencias, quiero cerrar el mes", key="chk_cierre"):
+                        if st.button("Confirmar Cierre de Mes", type="primary"):
+                            try:
+                                cursor_upd = conn.cursor()
+                                query_update = f"""
+                                    UPDATE `{db_actual}`.banco_movimientos 
+                                    SET estado_conciliacion = 'Cerrado' 
+                                    WHERE MONTH(fecha_movimiento) = %s AND YEAR(fecha_movimiento) = %s
+                                """
+                                cursor_upd.execute(query_update, (mes_num, ano_sel))
+                                conn.commit()
+                                cursor_upd.close()
+                                
+                                st.success("✅ Mes cerrado con éxito.")
+                                st.rerun()
+                            except Exception as e:
+                                conn.rollback()
+                                st.error(f"❌ Error al ejecutar el cierre de mes: {e}")
+
+            except Exception as e:
+                st.error(f"Error de conexión o consulta con la base de datos: {e}")
+
+        with tab6:
+            stst.subheader("🗑️ Vaciar Estado de Cuenta (Movimientos Bancarios) por Rango")
+
+            db_actual = st.session_state.get('DB_ACTUAL')
+
+            if not db_actual:
+                st.error("No se ha seleccionado una base de datos de empresa.")
+                st.stop()
+
+            st.warning("⚠️ **¡Atención!** Esta acción eliminará permanentemente los registros de la tabla `banco_movimientos` (estado de cuenta) de esta empresa dentro del rango seleccionado.")
+
+            col1, col2 = st.columns(2)
+            with col1:
+                fecha_desde = st.date_input("Fecha Inicio", key="f_inicio_vaciar")
+            with col2:
+                fecha_hasta = st.date_input("Fecha Fin", key="f_fin_vaciar")
+
+            confirmar_checkbox = st.checkbox(
+                f"Confirmo que deseo eliminar el estado de cuenta del {fecha_desde} al {fecha_hasta}", 
+                key="chk_vaciar_movimientos_rango"
+            )
+
+            if confirmar_checkbox:
+                if st.button("🚨 Ejecutar Eliminación en Movimientos Bancarios", type="primary"):
+                    try:
+                        # Reutilización optimizada de la conexión maestra del módulo
+                        if 'conn_conciliacion' in st.session_state and st.session_state['conn_conciliacion']:
+                            conn = st.session_state['conn_conciliacion']
+                            try:
+                                conn.ping(reconnect=True)
+                            except Exception:
+                                conn = conectar_db(db_actual)
+                                st.session_state['conn_conciliacion'] = conn
+                        else:
+                            conn = conectar_db(db_actual)
+                            st.session_state['conn_conciliacion'] = conn
+
+                        if not conn:
+                            st.error("❌ Error de conexión con la base de datos.")
+                            st.stop()
+
+                        # Ejecución directa y rápida del borrado por rango
+                        cursor = conn.cursor()
+                        query_delete = f"""
+                            DELETE FROM `{db_actual}`.banco_movimientos 
+                            WHERE fecha_movimiento >= %s 
+                            AND fecha_movimiento <= %s
+                        """
+                        cursor.execute(query_delete, (fecha_desde, fecha_hasta))
+                        total_borrados = cursor.rowcount
+                        conn.commit()
+                        cursor.close()
+
+                        if total_borrados > 0:
+                            st.balloons()
+                            st.success(f"🎉 ¡Listo! Se eliminaron **{total_borrados}** registros de `banco_movimientos` del {fecha_desde} al {fecha_hasta}. ¡Estado de cuenta limpio! 🚀")
+                            st.rerun()
+                        elif total_borrados == 0:
+                            st.warning(f"⚠️ La consulta se ejecutó con éxito, pero **no se encontraron movimientos** en el rango del {fecha_desde} al {fecha_hasta}.")
+                        else:
+                            st.error("❌ Ocurrió un error técnico al procesar la eliminación.")
+
+                    except Exception as e:
+                        if 'conn' in locals() and conn:
+                            try:
+                                conn.rollback()
+                            except Exception:
+                                pass
+                        st.error(f"❌ Error crítico al procesar la solicitud: {e}")
