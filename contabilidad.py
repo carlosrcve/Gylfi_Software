@@ -16861,5 +16861,5 @@ elif "Proveedores" in opcion_menu:
                 conn_empresa.close()
             except Exception:
                 pass:
-                    pass
+                   
 
