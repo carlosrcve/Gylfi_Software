@@ -1979,3 +1979,221 @@ _MAPEO_BANCOS = {
     "Banesco": "Banesco",
     "Banco Mercantil": "Mercantil"
 }
+
+
+def obtener_alias_banco(nombre_ui):
+    """
+    Garantiza que siempre busques el nombre correcto en la tabla 
+    mapeando el nombre de la interfaz al alias de la base de datos.
+    """
+    if not nombre_ui:
+        return nombre_ui
+        
+    # Limpiamos espacios en blanco accidentales al inicio o final
+    nombre_limpio = nombre_ui.strip()
+    
+    return _MAPEO_BANCOS.get(nombre_limpio, nombre_limpio)
+
+# ==========================================
+# 1. Función de datos (Pura y cacheada para acelerar TiDB Cloud)
+# ==========================================
+@st.cache_data(ttl=600)  # Guarda en caché por 10 minutos
+def _obtener_datos_asiento(db_nombre, numero_comprobante):
+    conn = conectar_db(db_nombre)
+    if not conn:
+        return None
+    try:
+        # CORREGIDO: Se antepone `{db_nombre}.` para apuntar correctamente a la base de datos activa
+        query = f"""
+            SELECT 
+                fecha, 
+                descripcion, 
+                n_comprobante,
+                cuenta_contable AS codigo, 
+                plan_cuentas AS nombre, 
+                debe, 
+                haber
+            FROM `{db_nombre}`.asientos_contables 
+            WHERE n_comprobante = %s
+        """
+        # Se pasa el parámetro de forma segura a ejecutar_consulta
+        return ejecutar_consulta(query, conn, params=(numero_comprobante,))
+    except Exception as e:
+        print(f"Error en consulta: {e}")
+        return None
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
+# ==========================================
+# 2. Función visual (Sin caché, encargada de renderizar la UI de Streamlit)
+# ==========================================
+def disenar_reporte_asiento_contable(numero_comprobante):
+    db_nombre = st.session_state.get('DB_ACTUAL', 'kingdirver_ca')
+    
+    # Llamamos a la función de datos cacheada pasando la base de datos activa
+    df_asiento = _obtener_datos_asiento(db_nombre, numero_comprobante)
+
+    if df_asiento is None or df_asiento.empty:
+        st.warning(f"⚠️ No se encontró data para el comprobante Nº: {numero_comprobante}")
+        return
+
+    # --- DISEÑO E INTERFAZ ---
+    st.markdown("---")
+    col_logo, col_info = st.columns([1, 3])
+    with col_logo:
+        st.image("https://cdn-icons-png.flaticon.com/512/2645/2645328.png", width=80)
+    with col_info:
+        # Nota: Asegúrate de que la variable EMPRESA esté definida o usa empresa_data si lo prefieres
+        empresa_nombre = st.session_state.get('nombre_empresa', 'Empresa')
+        st.markdown(f"## {empresa_nombre}")
+        st.markdown(f"**RIF:** J-50775718-8")
+        st.markdown(f"<p style='text-align: right; color: gray;'>Generado: {pd.Timestamp.now().strftime('%d/%m/%Y %H:%M')}</p>", unsafe_allow_html=True)
+
+    st.markdown("<h1 style='text-align: center; color: #1E3A8A;'>Asiento Contable</h1>", unsafe_allow_html=True)
+    st.markdown(f"<p style='text-align: center; font-weight: bold;'>Comprobante Nº: {numero_comprobante}</p>", unsafe_allow_html=True)
+    st.markdown("---")
+
+    c1, c2 = st.columns(2)
+    c1.info(f"**📅 Fecha:** {df_asiento['fecha'].iloc[0]}")
+    c2.info(f"**📝 Descripción:** {df_asiento['descripcion'].iloc[0]}")
+    
+    st.markdown("---")
+
+    df_mostrar = df_asiento[['codigo', 'nombre', 'debe', 'haber']].copy()
+    df_mostrar.columns = ['Código Cuenta', 'Plan de Cuentas', 'Debe (Bs.)', 'Haber (Bs.)']
+
+    st.dataframe(
+        df_mostrar.style.format({
+            'Debe (Bs.)': formato_contable,
+            'Haber (Bs.)': formato_contable
+        }), 
+        use_container_width=True, 
+        hide_index=True
+    )
+
+    # Verificación de columnas antes de operar para evitar errores de ejecución
+    if 'debe' in df_asiento.columns and 'haber' in df_asiento.columns:
+        t_debe = df_asiento['debe'].sum()
+        t_haber = df_asiento['haber'].sum()
+        dif = t_debe - t_haber
+
+        st.divider()
+
+        ct1, ct2 = st.columns(2)
+        ct1.metric("TOTAL DEBE", f"Bs. {formato_contable(t_debe)}")
+        ct2.metric("TOTAL HABER", f"Bs. {formato_contable(t_haber)}")
+
+        if abs(dif) < 0.01:
+            st.success("✅ Partida Doble Cuadrada")
+        else:
+            st.error(f"❌ Descuadre Detectado: Bs. {formato_contable(dif)}")
+    else:
+        st.error("❌ Los datos del comprobante están incompletos.")
+
+
+def generar_pdf_comprobante(df, n_comp, conn):
+    """
+    Genera el PDF del comprobante usando la base de datos actual de la sesión,
+    registra la actividad en el log y mantiene la conexión a MySQL viva.
+    """
+    # Obtener la base de datos actual de la sesión de Streamlit para control centralizado
+    db_actual = st.session_state.get('DB_ACTUAL')
+    
+    if not db_actual:
+        st.error("No se ha especificado una base de datos activa para el registro de logs o consultas.")
+        return None
+
+    # 1. Registrar la actividad de forma centralizada controlando la BD actual
+    try:
+        usuario_actual = st.session_state.get('usuario', 'Desconocido')
+        cliente_id_actual = st.session_state.get('cliente_id', 'N/A')
+        
+        registrar_log_automatico(
+            conn, 
+            "GENERACION_COMPROBANTE", 
+            f"Usuario {usuario_actual} generó PDF de comprobante {n_comp} para el cliente {cliente_id_actual} en la base de datos {db_actual}"
+        )
+    except Exception as log_error:
+        print(f"Advertencia al registrar log automático: {log_error}")
+
+    cursor = conn.cursor()
+    
+    try:
+        pdf = FPDF()
+        pdf.add_page()
+        pdf.set_font("Arial", 'B', 16)
+        
+        # Encabezado
+        pdf.cell(190, 10, "COMPROBANTE DE ASIENTO CONTABLE", 0, 1, 'C')
+        pdf.set_font("Arial", '', 10)
+        pdf.cell(190, 10, f"Comprobante Nro: {n_comp}", 0, 1, 'L')
+        pdf.cell(190, 5, f"Base de Datos: {db_actual}", 0, 1, 'L')
+        pdf.cell(190, 5, f"Fecha de Impresión: {pd.Timestamp.now().strftime('%d/%m/%Y')}", 0, 1, 'L')
+        pdf.ln(10)
+        
+        # Tabla - Encabezados
+        pdf.set_fill_color(200, 220, 255)
+        pdf.set_font("Arial", 'B', 9)
+        pdf.cell(30, 8, "Fecha", 1, 0, 'C', 1)
+        pdf.cell(100, 8, "Descripción / Cuenta", 1, 0, 'C', 1)
+        pdf.cell(30, 8, "Debe", 1, 0, 'C', 1)
+        pdf.cell(30, 8, "Haber", 1, 1, 'C', 1)
+        
+        # Tabla - Datos
+        pdf.set_font("Arial", '', 8)
+        t_debe = 0
+        t_haber = 0
+        
+        for _, row in df.iterrows():
+            pdf.cell(30, 7, str(row['fecha']), 1, 0, 'C')
+            descripcion_txt = f"{row['cuenta_contable']} - {row['descripcion']}"
+            if len(descripcion_txt) > 55:
+                descripcion_txt = descripcion_txt[:52] + "..."
+            pdf.cell(100, 7, descripcion_txt, 1, 0, 'L')
+            pdf.cell(30, 7, f"{row['debe']:,.2f}", 1, 0, 'R')
+            pdf.cell(30, 7, f"{row['haber']:,.2f}", 1, 1, 'R')
+            t_debe += row['debe']
+            t_haber += row['haber']
+            
+        # Totales
+        pdf.set_font("Arial", 'B', 9)
+        pdf.cell(130, 8, "TOTALES GENERALES (Bs.)", 1, 0, 'R', 1)
+        pdf.cell(30, 8, f"{t_debe:,.2f}", 1, 0, 'R', 1)
+        pdf.cell(30, 8, f"{t_haber:,.2f}", 1, 1, 'R', 1)
+        
+        # Firmas
+        pdf.ln(20)
+        pdf.cell(95, 10, "__________________________", 0, 0, 'C')
+        pdf.cell(95, 10, "__________________________", 0, 1, 'C')
+        pdf.cell(95, 5, "Preparado por", 0, 0, 'C')
+        pdf.cell(95, 5, "Revisado por", 0, 1, 'C')
+        
+        # Generar salida del PDF adaptada a tipo string, bytes o bytearray
+        pdf_output = pdf.output(dest='S')
+        if isinstance(pdf_output, str):
+            return pdf_output.encode('latin-1')
+        elif isinstance(pdf_output, bytearray):
+            return bytes(pdf_output)
+        else:
+            return pdf_output
+
+    finally:
+        # Cierre seguro del cursor
+        if cursor:
+            try:
+                cursor.close()
+            except Exception:
+                pass
+        
+        # Mantener conexión activa
+        if conn:
+            try:
+                if hasattr(conn, "ping"):
+                    conn.ping(reconnect=True)
+            except Exception as ping_error:
+                print(f"Error al hacer ping a la conexión MySQL: {ping_error}")
