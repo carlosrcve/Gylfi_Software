@@ -2312,3 +2312,116 @@ def mostrar_interfaz_mayor(f_ini_g, f_fin_g, db_nombre):
                 reporte_vista['fecha'] = reporte_vista['fecha'].astype(str).str.split().str[0].str.replace('00:00:00', '').str.strip()
 
             st.dataframe(reporte_vista, use_container_width=True, hide_index=True)
+
+
+@st.cache_data(ttl=300)
+def generar_balance_profesional(db, f_i, f_f, sucursal):
+    # Nota: Pasamos 'db' como argumento para que el sistema de caché de Streamlit 
+    # sepa cuándo invalidar el resultado si cambia la empresa o el rango de fechas.
+    conn = conectar_db(db)
+    if not conn:
+        st.error("Papi, no se pudo establecer conexión a la base de datos.")
+        return None
+
+    cursor = None
+    try:
+        cursor = conn.cursor()
+        cursor.execute(f"USE `{db}`")
+        
+        # 1. Consultar el plan de cuentas original
+        query_plan = f"SELECT codigo, nombre, nivel, tipo, padre FROM `{db}`.plan_cuentas ORDER BY codigo"
+        df_plan = ejecutar_consulta(query_plan, conn)
+        
+        if df_plan is None or df_plan.empty:
+            st.warning("⚠️ El plan de cuentas está vacío.")
+            return None
+
+        # 2. Obtener los saldos del balance de comprobación
+        df_saldos = generar_balance_comprobacion(conn, f_i, f_f, sucursal)
+        
+        cols_finales = ['codigo', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final']
+        
+        if df_saldos is None or df_saldos.empty:
+            df_saldos = pd.DataFrame(columns=cols_finales)
+        else:
+            renombres = {}
+            for col in df_saldos.columns:
+                c_low = str(col).lower()
+                if 'codigo' in c_low or 'código' in c_low or 'cuenta' in c_low: renombres[col] = 'codigo'
+                elif 'inicial' in c_low: renombres[col] = 'Saldo Inicial'
+                elif 'debe' in c_low: renombres[col] = 'Debe'
+                elif 'haber' in c_low: renombres[col] = 'Haber'
+                elif 'final' in c_low: renombres[col] = 'Saldo Final'
+            df_saldos = df_saldos.rename(columns=renombres)
+
+        for c in cols_finales:
+            if c not in df_saldos.columns: 
+                df_saldos[c] = 0.0
+
+        # --- LIMPIEZA Y NORMALIZACIÓN DE CÓDIGOS PARA EL MERGE ---
+        df_plan['llave_join'] = df_plan['codigo'].astype(str).str.replace(r'[^0-9]', '', regex=True)
+        df_plan['llave_padre'] = df_plan['padre'].astype(str).str.replace(r'[^0-9]', '', regex=True)
+        df_saldos['llave_join'] = df_saldos['codigo'].astype(str).str.replace(r'[^0-9]', '', regex=True)
+
+        # 3. Hacer el merge
+        df = pd.merge(
+            df_plan, 
+            df_saldos[['llave_join', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final']], 
+            on='llave_join', 
+            how='left'
+        )
+        
+        cols_num = ['Saldo Inicial', 'Debe', 'Haber', 'Saldo Final']
+        df[cols_num] = df[cols_num].fillna(0.0).astype(float)
+
+        # 4. Limpiar saldos en cuentas de tipo "Grupo"
+        if 'tipo' in df.columns:
+            is_grupo = df['tipo'].astype(str).str.lower() == 'grupo'
+            df.loc[is_grupo, cols_num] = 0.0
+
+        # 5. SUMATORIA JERÁRQUICA OPTIMIZADA
+        niveles_disponibles = sorted([n for n in df['nivel'].dropna().unique()], reverse=True)
+        
+        # Convertimos a diccionario indexado para acelerar la acumulación sin iterrows pesados
+        # (Agrupamos de abajo hacia arriba de forma más eficiente)
+        for n in niveles_disponibles:
+            filas_nivel = df[df['nivel'] == n]
+            for _, fila in filas_nivel.iterrows():
+                p_cod = fila['llave_padre']
+                if pd.notna(p_cod) and p_cod != '' and p_cod != 'none' and p_cod != 'nan':
+                    mask_padre = df['llave_join'] == str(p_cod)
+                    if mask_padre.any():
+                        df.loc[mask_padre, cols_num] = df.loc[mask_padre, cols_num].values + fila[cols_num].values
+
+        df['Saldo Final'] = df['Saldo Inicial'] + df['Debe'] - df['Haber']
+
+        # 6. Fila Total Global
+        df_nivel_1 = df[df['nivel'] == 1]
+        
+        total_debe = float(df_nivel_1['Debe'].sum())
+        total_haber = float(df_nivel_1['Haber'].sum())
+        total_saldo_inicial_neto = float(df_nivel_1['Saldo Inicial'].sum())
+        total_saldo_final_neto = float(df_nivel_1['Saldo Final'].sum())
+
+        fila_total = pd.DataFrame([{
+            'codigo': 'Σ', 
+            'nombre': 'TOTAL GENERAL', 
+            'nivel': 0, 
+            'tipo': 'Total', 
+            'padre': None,
+            'Saldo Inicial': round(total_saldo_inicial_neto, 2),
+            'Debe': total_debe,
+            'Haber': total_haber,
+            'Saldo Final': round(total_saldo_final_neto, 2)
+        }])
+        
+        cols_salida = ['codigo', 'nombre', 'nivel', 'tipo', 'padre', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final']
+        df_final = pd.concat([df[cols_salida], fila_total[cols_salida]], ignore_index=True)
+        return df_final
+
+    except Exception as e:
+        st.error(f"Error procesando balance profesional: {e}")
+        return None
+    finally:
+        if cursor: cursor.close()
+        if conn: conn.close()
