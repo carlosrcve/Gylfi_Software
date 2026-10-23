@@ -2425,3 +2425,75 @@ def generar_balance_profesional(db, f_i, f_f, sucursal):
     finally:
         if cursor: cursor.close()
         if conn: conn.close()
+
+
+@st.cache_data(ttl=300)
+def consultar_libro_diario_db(db_a_usar=None, fecha_inicio=None, fecha_fin=None):
+    """
+    Consulta el libro diario de forma optimizada y cacheada para evitar saturar la memoria.
+    """
+    if not db_a_usar:
+        db_a_usar = st.session_state.get('DB_ACTUAL') or st.session_state.get('empresa_actual')
+
+    if not db_a_usar or db_a_usar == 'none':
+        st.error("❌ No se ha seleccionado una base de datos de empresa válida.")
+        return pd.DataFrame()
+
+    # Si no se pasan fechas, acotamos por seguridad al año en curso para no descargar toda la BD
+    import datetime
+    if not fecha_inicio:
+        fecha_inicio = f"{datetime.datetime.now().year}-01-01"
+    if not fecha_fin:
+        fecha_fin = str(datetime.date.today())
+
+    conn = conectar_db(db_a_usar) if 'conectar_db' in globals() else None
+    if not conn:
+        st.error(f"❌ No se pudo establecer conexión con la base de datos `{db_a_usar}`.")
+        return pd.DataFrame()
+
+    try:
+        # Consulta acotada por rango de fechas (aprovecha los índices de la columna fecha)
+        query = """
+            SELECT id, n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber 
+            FROM asientos_contables 
+            WHERE fecha >= %s AND fecha <= %s 
+            ORDER BY fecha ASC, id ASC
+        """
+        params = (str(fecha_inicio), str(fecha_fin))
+        
+        df = pd.read_sql(query, conn, params=params)
+        
+        if not df.empty:
+            df.columns = [c.lower() for c in df.columns]
+            
+            mapeo = {
+                'plan_cuentas': 'plan_de_cuentas',
+                'cuenta': 'plan_de_cuentas',
+                'monto_debe': 'debe',
+                'monto_haber': 'haber',
+                'debito': 'debe',
+                'credito': 'haber'
+            }
+            df.rename(columns=mapeo, inplace=True)
+            
+            # Excluir columnas sensibles o innecesarias
+            df = df.drop(columns=['bloqueado'], errors='ignore')
+            
+            if not all(col in df.columns for col in ['debe', 'haber']):
+                st.error(f"⚠️ Estructura incompatible. Columnas: {df.columns.tolist()}")
+                return pd.DataFrame()
+                
+            return df
+        
+        return pd.DataFrame()
+        
+    except Exception as e:
+        st.error(f"❌ Error al consultar el libro diario en `{db_a_usar}`: {e}")
+        return pd.DataFrame()
+        
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
