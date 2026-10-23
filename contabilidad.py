@@ -13212,3 +13212,221 @@ elif opcion_menu == "📝 Asientos Contables":
                 st.info("💡 Para visualizar el detalle completo o imprimir el comprobante de cierre en PDF, puedes copiar el número de comprobante y usar la opción **'Consultar Comprobante'**.")
             else:
                 st.info(f"ℹ️ No se han encontrado asientos de cierre registrados para el año **{ano_sel}** en la empresa `{db_actual}`.")
+
+    elif sub_opcion == "Gestor Documental":
+        st.subheader("📁 Gestor Documental en la Nube")
+        st.markdown("Crea carpetas personalizadas y administra comprobantes, facturas o archivos organizados.")
+
+        db_actual = st.session_state.get('DB_ACTUAL')
+        if not db_actual or db_actual == 'none':
+            st.warning("⚠️ Por favor, selecciona un Cliente/Empresa primero.")
+            st.stop()
+
+        import os
+        from datetime import datetime
+
+        # --- BLINDAJE Y AUTO-CREACIÓN DE LA COLUMNA CARPETA ---
+        try:
+            conn_alt = conectar_db(db_actual)
+            if conn_alt:
+                with conn_alt.cursor() as cur_alt:
+                    cur_alt.execute("""
+                        SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS 
+                        WHERE TABLE_SCHEMA = DATABASE() 
+                        AND TABLE_NAME = 'documentos_cloud' 
+                        AND COLUMN_NAME = 'carpeta'
+                    """)
+                    resultado = cur_alt.fetchone()
+                    existe = resultado[0] if resultado else 0
+                    
+                    if existe == 0:
+                        cur_alt.execute("ALTER TABLE documentos_cloud ADD COLUMN carpeta VARCHAR(150) DEFAULT 'General' AFTER empresa_db")
+                        conn_alt.commit()
+                conn_alt.close()
+        except Exception as ex_alt:
+            st.warning(f"Aviso de migración de tabla: {ex_alt}")
+
+        # Directorio base persistente
+        DIRECTORIO_SUBIDAS = "documentos_clientes"
+        dir_empresa = os.path.join(DIRECTORIO_SUBIDAS, str(db_actual))
+        os.makedirs(dir_empresa, exist_ok=True)
+
+        # --- FUNCIONES CON CACHÉ PARA OPTIMIZAR EL RENDIMIENTO ---
+        @st.cache_data(ttl=60, show_spinner=False)
+        def obtener_carpetas_cached(empresa):
+            carpetas = ["General"]
+            try:
+                conn = conectar_db(empresa)
+                if conn:
+                    df = ejecutar_consulta("SELECT DISTINCT carpeta FROM documentos_cloud WHERE empresa_db = %s", conn, params=(str(empresa),))
+                    conn.close()
+                    if df is not None and not df.empty:
+                        carpetas = sorted(list(set(["General"] + df['carpeta'].dropna().tolist())))
+            except Exception:
+                pass
+            return carpetas
+
+        @st.cache_data(ttl=30, show_spinner=False)
+        def obtener_documentos_cached(empresa):
+            df_docs = pd.DataFrame()
+            try:
+                conn = conectar_db(empresa)
+                if conn:
+                    query_select = "SELECT id, carpeta, categoria, nombre_archivo, ruta_archivo, fecha_subida FROM documentos_cloud WHERE empresa_db = %s ORDER BY carpeta ASC, fecha_subida DESC"
+                    df_docs = ejecutar_consulta(query_select, conn, params=(str(empresa),))
+                    conn.close()
+            except Exception:
+                pass
+            return df_docs
+
+        carpetas_existentes = obtener_carpetas_cached(db_actual)
+
+        # --- FORMULARIO DE SUBIDA CON CREACIÓN DE CARPETAS ---
+        with st.expander("📤 Subir Archivos a una Carpeta", expanded=True):
+            col_c1, col_c2 = st.columns(2)
+            
+            with col_c1:
+                modo_carpeta = st.radio("Gestión de Carpeta", ["Seleccionar existente", "Crear nueva carpeta"], horizontal=True, key="radio_modo_carpeta")
+                
+                if modo_carpeta == "Crear nueva carpeta":
+                    nombre_nueva_carpeta = st.text_input("Nombre de la nueva carpeta (ej: Facturas_Agosto_2026)", key="input_nueva_carp").strip()
+                    carpeta_activa = nombre_nueva_carpeta if nombre_nueva_carpeta else "General"
+                else:
+                    carpeta_activa = st.selectbox("Selecciona la carpeta", carpetas_existentes, key="select_carp_existente")
+                    
+                categoria = st.selectbox(
+                    "Categoría del Documento", 
+                    ["Transferencia Bancaria", "Factura PDF", "Documento Legal", "Excel / Reporte", "Otro"],
+                    key="select_cat_doc"
+                )
+                
+            with col_c2:
+                archivos_subidos = st.file_uploader(
+                    "Selecciona los archivos (Puedes subir varios a la vez)", 
+                    type=["pdf", "docx", "xlsx", "xls", "png", "jpg", "jpeg", "txt"], 
+                    accept_multiple_files=True,
+                    key="uploader_docs_cloud"
+                )
+
+            if st.button("💾 Guardar en la Carpeta", type="primary", key="btn_guardar_docs_cloud"):
+                if archivos_subidos:
+                    carpeta_limpia = "".join([c for c in carpeta_activa if c.isalnum() or c in (' ', '_', '-')]).strip()
+                    if not carpeta_limpia:
+                        carpeta_limpia = "General"
+                    
+                    dir_carpeta_fisica = os.path.join(dir_empresa, carpeta_limpia)
+                    os.makedirs(dir_carpeta_fisica, exist_ok=True)
+
+                    try:
+                        conn_doc = conectar_db(db_actual)
+                        if conn_doc:
+                            with conn_doc.cursor() as cursor:
+                                for archivo in archivos_subidos:
+                                    timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+                                    nombre_limpio = f"{timestamp_str}_{archivo.name}"
+                                    ruta_completa = os.path.join(dir_carpeta_fisica, nombre_limpio)
+                                    
+                                    with open(ruta_completa, "wb") as f:
+                                        f.write(archivo.getbuffer())
+                                    
+                                    query_insert = """
+                                        INSERT INTO documentos_cloud (empresa_db, carpeta, categoria, nombre_archivo, ruta_archivo) 
+                                        VALUES (%s, %s, %s, %s, %s)
+                                    """
+                                    cursor.execute(query_insert, (str(db_actual), carpeta_limpia, categoria, archivo.name, ruta_completa))
+                                
+                                conn_doc.commit()
+                            conn_doc.close()
+                            st.cache_data.clear()
+                            st.success(f"✅ ¡{len(archivos_subidos)} archivo(s) guardados con éxito en la carpeta '{carpeta_limpia}'!")
+                            st.rerun()
+                    except Exception as e:
+                        st.error(f"❌ Error al guardar los documentos: {e}")
+                else:
+                    st.warning("⚠️ Debes seleccionar al menos un archivo antes de guardar.")
+
+        st.divider()
+
+        # --- LISTADO AGRUPADO POR CARPETAS ---
+        st.markdown("### 🗂️ Documentos y Carpetas Almacenadas")
+        
+        df_docs = obtener_documentos_cached(db_actual)
+        
+        if df_docs is not None and not df_docs.empty:
+            carpetas_unicas = df_docs['carpeta'].unique()
+            
+            for carp in carpetas_unicas:
+                num_archivos = len(df_docs[df_docs['carpeta'] == carp])
+                with st.expander(f"📁 Carpeta: {carp} ({num_archivos} archivos)", expanded=True):
+                    df_carp = df_docs[df_docs['carpeta'] == carp]
+                    
+                    for _, row in df_carp.iterrows():
+                        cols = st.columns([3, 2, 2, 1, 1])
+                        cols[0].text(f"📄 {row['nombre_archivo']}")
+                        cols[1].text(f"📂 {row['categoria']}")
+                        cols[2].text(str(row['fecha_subida'])[:10])
+                        
+                        if os.path.exists(row['ruta_archivo']):
+                            with open(row['ruta_archivo'], "rb") as file_to_download:
+                                cols[3].download_button(
+                                    label="⬇️",
+                                    data=file_to_download,
+                                    file_name=row['nombre_archivo'],
+                                    mime="application/octet-stream",
+                                    key=f"down_{row['id']}"
+                                )
+                        else:
+                            cols[3].text("⚠️ No hallado")
+                            
+                        if cols[4].button("🗑️", key=f"del_{row['id']}"):
+                            try:
+                                if os.path.exists(row['ruta_archivo']):
+                                    os.remove(row['ruta_archivo'])
+                                
+                                conn_del = conectar_db(db_actual)
+                                if conn_del:
+                                    with conn_del.cursor() as cursor_del:
+                                        cursor_del.execute("DELETE FROM documentos_cloud WHERE id = %s", (row['id'],))
+                                        conn_del.commit()
+                                    conn_del.close()
+                                    
+                                st.cache_data.clear()
+                                st.success("🗑️ Archivo eliminado con éxito.")
+                                st.rerun()
+                            except Exception as ex_del:
+                                st.error(f"❌ Error al eliminar: {ex_del}")
+        else:
+            st.info("ℹ️ No hay documentos subidos para esta empresa todavía. Crea una carpeta arriba y sube tus archivos.")
+
+elif opcion_menu == "📖 Mayor Analítico":
+    # 1. SEGURIDAD Y CONTEXTO
+    db_actual = st.session_state.get("DB_ACTUAL")
+    cliente_id = st.session_state.get("cliente_id")
+    rol = st.session_state.get("rol")
+
+    # Recuperamos las fechas ya calculadas arriba
+    f_inicio_global = st.session_state.get("f_inicio_global")
+    f_fin_global = st.session_state.get("f_fin_global")
+
+    if not db_actual:
+        st.error("No se ha seleccionado una base de datos de empresa.")
+        st.stop()
+
+    # --- FUNCIÓN CON CACHÉ PARA OPTIMIZAR LA CARGA DE LA EMPRESA ---
+    @st.cache_data(ttl=300, show_spinner=False)
+    def obtener_datos_agente_cached(db_name):
+        return obtener_datos_agente_db(db_name)
+
+    empresa_data = obtener_datos_agente_cached(db_actual)
+
+    # 2. FILTRO DE ACCESO
+    if empresa_data and rol != "admin":
+        if empresa_data.get("id") != cliente_id:
+            st.error(f"⚠️ Acceso denegado: empresa_data['id'] ({empresa_data.get('id')}) != cliente_id ({cliente_id})")
+            st.stop()
+
+    if not empresa_data:
+        st.error("⚠️ No se pudieron cargar los datos de la empresa (empresa_data es None o vacío).")
+    else:
+        # 3. EJECUCIÓN SEGURA (Ya las fechas existen garantizadas por el sidebar)
+        mostrar_interfaz_mayor(f_inicio_global, f_fin_global, db_actual)
