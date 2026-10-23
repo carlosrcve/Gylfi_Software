@@ -12400,626 +12400,626 @@ elif opcion_menu == "📝 Asientos Contables":
                         st.info("💡 Debe marcar la casilla de arriba para habilitar el botón de borrado.")
 
 
-        elif sub_opcion == "Activo Fijo":
-            # Asegúrate de que 'db_nombre' esté disponible en tu sesión
-            db_nombre = st.session_state.get('DB_ACTUAL')
+    elif sub_opcion == "Activo Fijo":
+        # Asegúrate de que 'db_nombre' esté disponible en tu sesión
+        db_nombre = st.session_state.get('DB_ACTUAL')
 
-            if not db_nombre:
-                st.warning("⚠️ Por favor, selecciona una empresa en el panel lateral para gestionar los Activos Fijos.")
-            else:
-                st.markdown(f"## 🏢 Módulo de Activos Fijos y Depreciación")
-                
-                # Pestañas de la 1 a la 5 con sus respectivos iconos
-                t_reg, t_dep, t_aux, t_lim, t_cont, t_mod = st.tabs([
-                    "📥 1. Registro de Activos", 
-                    "📊 2. Cálculo de Depreciación", 
-                    "📖 3. Auxiliar y Modificación", 
-                    "🗑️ 4. Limpieza Total",
-                    "🧾 5. Contabilización",
-                    "🗑️ 6. Editar/Modificar Asientos Depreciación"
+        if not db_nombre:
+            st.warning("⚠️ Por favor, selecciona una empresa en el panel lateral para gestionar los Activos Fijos.")
+        else:
+            st.markdown(f"## 🏢 Módulo de Activos Fijos y Depreciación")
+            
+            # Pestañas de la 1 a la 5 con sus respectivos iconos
+            t_reg, t_dep, t_aux, t_lim, t_cont, t_mod = st.tabs([
+                "📥 1. Registro de Activos", 
+                "📊 2. Cálculo de Depreciación", 
+                "📖 3. Auxiliar y Modificación", 
+                "🗑️ 4. Limpieza Total",
+                "🧾 5. Contabilización",
+                "🗑️ 6. Editar/Modificar Asientos Depreciación"
 
-                ])
+            ])
+            
+            # --- PESTAÑA 1: REGISTRO DE ACTIVOS FIJOS ---
+            with t_reg:
+                st.markdown("### 📝 Registrar Nuevo Activo Fijo")
+                with st.form("form_crear_activo", clear_on_submit=True):
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        codigo_placa = st.text_input("Código de Placa / Inventario", placeholder="Ej: ACT-001")
+                        nombre_activo = st.text_input("Nombre del Activo Fijo*", placeholder="Ej: Escritorio Ejecutivo")
+                        rubro = st.selectbox("Rubro del Activo Fijo", [
+                            "Muebles y Enseres", 
+                            "Equipos de Computación", 
+                            "Maquinaria y Equipo", 
+                            "Vehículos", 
+                            "Edificaciones",
+                            "Herramientas"
+                        ])
+                        fecha_adquisicion = st.date_input("Fecha de Adquisición", value=datetime.today())
+                        
+                    with col2:
+                        costo_activo = st.number_input("Costo del Activo", min_value=0.0, step=100.0, format="%.2f")
+                        valor_residual = st.number_input("Valor Residual / Salvamento", min_value=0.0, step=10.0, format="%.2f", value=0.0)
+                        vida_util_meses = st.number_input("Vida Útil (en meses)", min_value=1, step=12, value=60)
+                        metodo_depreciacion = st.selectbox("Método de Depreciación", ["Línea Recta"])
+                    
+                    btn_guardar = st.form_submit_button("💾 Guardar Activo Fijo", use_container_width=True)
+                    
+                    if btn_guardar:
+                        if not nombre_activo.strip():
+                            st.error("❌ El nombre del activo es obligatorio.")
+                        else:
+                            try:
+                                conn = conectar_db(db_nombre)
+                                if conn:
+                                    with conn.cursor() as cursor:
+                                        query = """
+                                            INSERT INTO activo_fijo 
+                                            (codigo_placa, nombre_activo, rubro, fecha_adquisicion, costo_activo, valor_residual, vida_util_meses, metodo_depreciacion)
+                                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                                        """
+                                        cursor.execute(query, (
+                                            codigo_placa.strip(), nombre_activo.strip(), rubro, fecha_adquisicion, 
+                                            costo_activo, valor_residual, vida_util_meses, metodo_depreciacion
+                                        ))
+                                        conn.commit()
+                                    conn.close()
+                                    
+                                    # Limpiamos la caché global para que el auxiliar y depreciación reflejen el nuevo activo de inmediato
+                                    st.cache_data.clear()
+                                    st.success(f"✅ ¡Activo '{nombre_activo.strip()}' registrado con éxito!")
+                            except Exception as e:
+                                st.error(f"Error al guardar en la base de datos: {e}")
+
+            # --- FUNCIÓN CON CACHÉ PARA CARGAR ACTIVOS FIJOS ---
+            @st.cache_data(ttl=60, show_spinner=False)
+            def cargar_activos_fijos_cached(empresa):
+                df = pd.DataFrame()
+                try:
+                    conn = conectar_db(empresa)
+                    if conn:
+                        df = pd.read_sql("SELECT * FROM activo_fijo", conn)
+                        conn.close()
+                except Exception:
+                    pass
+                return df
+
+            # --- PESTAÑA 2: CÁLCULO DE DEPRECIACIÓN ---
+            with t_dep:
+                st.markdown("### 📈 Cálculo de Depreciación (Mensual y Acumulada)")
                 
-                # --- PESTAÑA 1: REGISTRO DE ACTIVOS FIJOS ---
-                with t_reg:
-                    st.markdown("### 📝 Registrar Nuevo Activo Fijo")
-                    with st.form("form_crear_activo", clear_on_submit=True):
-                        col1, col2 = st.columns(2)
-                        with col1:
-                            codigo_placa = st.text_input("Código de Placa / Inventario", placeholder="Ej: ACT-001")
-                            nombre_activo = st.text_input("Nombre del Activo Fijo*", placeholder="Ej: Escritorio Ejecutivo")
-                            rubro = st.selectbox("Rubro del Activo Fijo", [
-                                "Muebles y Enseres", 
-                                "Equipos de Computación", 
-                                "Maquinaria y Equipo", 
-                                "Vehículos", 
-                                "Edificaciones",
-                                "Herramientas"
-                            ])
-                            fecha_adquisicion = st.date_input("Fecha de Adquisición", value=datetime.today())
+                col_f1, _ = st.columns([2, 2])
+                with col_f1:
+                    fecha_cierre = st.date_input("Fecha de Cierre para el Cálculo", value=datetime.today(), key="f_cierre_activo")
+                    
+                df_activos = cargar_activos_fijos_cached(db_nombre)
+                    
+                if not df_activos.empty:
+                    resultados = []
+                    for _, row in df_activos.iterrows():
+                        f_adq = pd.to_datetime(row['fecha_adquisicion'])
+                        f_cier = pd.to_datetime(fecha_cierre)
+                        
+                        if f_cier >= f_adq:
+                            meses_antiguedad = (f_cier.year - f_adq.year) * 12 + (f_cier.month - f_adq.month)
+                            if f_cier.day >= f_adq.day:
+                                meses_antiguedad += 1
+                            meses_antiguedad = max(0, meses_antiguedad)
+                        else:
+                            meses_antiguedad = 0
+                        
+                        costo = float(row['costo_activo'])
+                        residual = float(row['valor_residual'])
+                        vida_util = int(row['vida_util_meses'])
+                        
+                        dep_mensual = (costo - residual) / vida_util if vida_util > 0 else 0.0
+                        dep_acumulada = min(dep_mensual * meses_antiguedad, costo - residual)
+                        dep_acumulada = max(0.0, dep_acumulada)
+                        costo_neto = costo - dep_acumulada
+                        
+                        resultados.append({
+                            "ID": row['id'],
+                            "Placa": row['codigo_placa'],
+                            "Activo": row['nombre_activo'],
+                            "Rubro": row['rubro'],
+                            "Adquisición": row['fecha_adquisicion'],
+                            "Costo": costo,
+                            "Residual": residual,
+                            "Vida Útil (Meses)": vida_util,
+                            "Meses Transcl.": meses_antiguedad,
+                            "Dep. Mensual": dep_mensual,
+                            "Dep. Acumulada": dep_acumulada,
+                            "Costo Neto": costo_neto
+                        })
+                        
+                    df_reporte = pd.DataFrame(resultados)
+                    
+                    total_costo = df_reporte['Costo'].sum()
+                    total_dep_mensual = df_reporte['Dep. Mensual'].sum()
+                    total_dep_acum = df_reporte['Dep. Acumulada'].sum()
+                    total_neto = df_reporte['Costo Neto'].sum()
+                    
+                    df_totales = pd.DataFrame([{
+                        "ID": "TOTALES", "Placa": "", "Activo": "", "Rubro": "", "Adquisición": "",
+                        "Costo": total_costo, "Residual": df_reporte['Residual'].sum(),
+                        "Vida Útil (Meses)": "", "Meses Transcl.": "",
+                        "Dep. Mensual": total_dep_mensual, "Dep. Acumulada": total_dep_acum, "Costo Neto": total_neto
+                    }])
+                    
+                    df_final_mostrar = pd.concat([df_reporte, df_totales], ignore_index=True)
+                    
+                    format_dict = {
+                        "Costo": "{:,.2f}", "Residual": "{:,.2f}",
+                        "Dep. Mensual": "{:,.2f}", "Dep. Acumulada": "{:,.2f}", "Costo Neto": "{:,.2f}"
+                    }
+                    
+                    st.dataframe(df_final_mostrar.style.format(format_dict, na_rep=""), use_container_width=True, hide_index=True)
+                    
+                    # --- DESCARGA EN EXCEL ---
+                    import io
+                    output = io.BytesIO()
+                    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                        df_final_mostrar.to_excel(writer, index=False, sheet_name='Activos Fijos')
+                    excel_data = output.getvalue()
+                    
+                    st.download_button(
+                        label="📥 Descargar Auxiliar en Excel",
+                        data=excel_data,
+                        file_name=f"auxiliar_activos_fijos_{datetime.today().strftime('%Y-%m-%d')}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        use_container_width=True
+                    )
+                    
+                    st.divider()
+                    m1, m2, m3, m4 = st.columns(4)
+                    m1.metric("Total Costo Histórico", f"{total_costo:,.2f}")
+                    m2.metric("Total Dep. Mensual", f"{total_dep_mensual:,.2f}")
+                    m3.metric("Total Dep. Acumulada", f"{total_dep_acum:,.2f}")
+                    m4.metric("Total Valor en Libros", f"{total_neto:,.2f}")
+                else:
+                    st.info("No hay activos fijos registrados para calcular la depreciación.")
+
+            # --- PESTAÑA 3: AUXILIAR, MODIFICAR Y ELIMINAR ---
+            with t_aux:
+                st.markdown("### 📖 Auxiliar de Activos Fijos (Editar o Eliminar por Fila)")
+                
+                df_aux = cargar_activos_fijos_cached(db_nombre)
+                    
+                if not df_aux.empty:
+                    opciones_dict = {f"ID {row['id']} - {row['nombre_activo']} ({row['codigo_placa']})": row['id'] for _, row in df_aux.iterrows()}
+                    
+                    seleccion_editar = st.selectbox("Seleccione un activo para modificar o eliminar:", list(opciones_dict.keys()), key="sel_activo_auxiliar")
+                    id_seleccionado = opciones_dict[seleccion_editar]
+                    
+                    activo_actual = df_aux[df_aux['id'] == id_seleccionado].iloc[0]
+                    
+                    with st.form("form_editar_activo"):
+                        st.write(f"Editando Activo ID: {id_seleccionado}")
+                        e_placa = st.text_input("Código de Placa", value=str(activo_actual['codigo_placa']))
+                        e_nombre = st.text_input("Nombre del Activo", value=str(activo_actual['nombre_activo']))
+                        e_rubro = st.text_input("Rubro", value=str(activo_actual['rubro']))
+                        
+                        fecha_bd = pd.to_datetime(activo_actual['fecha_adquisicion']).date()
+                        e_fecha_adq = st.date_input("Fecha de Adquisición", value=fecha_bd)
+                        
+                        e_costo = st.number_input("Costo del Activo", value=float(activo_actual['costo_activo']))
+                        e_residual = st.number_input("Valor Residual", value=float(activo_actual['valor_residual']))
+                        e_vida = st.number_input("Vida Útil (Meses)", value=int(activo_actual['vida_util_meses']))
+                        
+                        col_btn1, col_btn2 = st.columns(2)
+                        actualizar = col_btn1.form_submit_button("🔄 Actualizar Cambios", use_container_width=True)
+                        eliminar_uno = col_btn2.form_submit_button("🗑️ Eliminar este Activo", use_container_width=True)
+                        
+                        if actualizar:
+                            try:
+                                conn = conectar_db(db_nombre)
+                                if conn:
+                                    with conn.cursor() as cursor:
+                                        q_upd = """
+                                            UPDATE activo_fijo 
+                                            SET codigo_placa=%s, nombre_activo=%s, rubro=%s, fecha_adquisicion=%s, costo_activo=%s, valor_residual=%s, vida_util_meses=%s 
+                                            WHERE id=%s
+                                        """
+                                        cursor.execute(q_upd, (e_placa, e_nombre, e_rubro, e_fecha_adq, e_costo, e_residual, e_vida, id_seleccionado))
+                                        conn.commit()
+                                    conn.close()
+                                    st.cache_data.clear()
+                                    st.success("✅ ¡Activo actualizado correctamente!")
+                                    st.rerun()
+                            except Exception as e:
+                                st.error(f"Error al actualizar: {e}")
                             
-                        with col2:
-                            costo_activo = st.number_input("Costo del Activo", min_value=0.0, step=100.0, format="%.2f")
-                            valor_residual = st.number_input("Valor Residual / Salvamento", min_value=0.0, step=10.0, format="%.2f", value=0.0)
-                            vida_util_meses = st.number_input("Vida Útil (en meses)", min_value=1, step=12, value=60)
-                            metodo_depreciacion = st.selectbox("Método de Depreciación", ["Línea Recta"])
+                        if eliminar_uno:
+                            try:
+                                conn = conectar_db(db_nombre)
+                                if conn:
+                                    with conn.cursor() as cursor:
+                                        cursor.execute("DELETE FROM activo_fijo WHERE id = %s", (id_seleccionado,))
+                                        conn.commit()
+                                    conn.close()
+                                    st.cache_data.clear()
+                                    st.warning("🗑️ Activo eliminado del auxiliar.")
+                                    st.rerun()
+                            except Exception as e:
+                                st.error(f"Error al eliminar: {e}")
+                else:
+                    st.info("El auxiliar de activos fijos está vacío.")
+
+            # --- PESTAÑA 4: LIMPIEZA TOTAL ---
+            with t_lim:
+                st.markdown("### ⚙️ Gestión de Limpieza Total del Auxiliar")
+                with st.container(border=True):
+                    st.error("⚠️ **ZONA DE PELIGRO**: Esta acción eliminará por completo **todos** los registros de activos fijos de esta empresa.")
+                    
+                    confirmar_limpieza = st.checkbox("Estoy seguro de vaciar todo el auxiliar de activo fijo.", key="chk_limpiar_aux")
+                    
+                    if confirmar_limpieza:
+                        if st.button("🧨 ELIMINAR TODO EL AUXILIAR DE ACTIVOS", type="primary"):
+                            try:
+                                conn = conectar_db(db_nombre)
+                                if conn:
+                                    with conn.cursor() as cursor:
+                                        cursor.execute("DELETE FROM activo_fijo")
+                                        conn.commit()
+                                    conn.close()
+                                    st.cache_data.clear()
+                                    st.success("✅ Se han eliminado todos los activos fijos de la base de datos.")
+                                    st.rerun()
+                            except Exception as e:
+                                st.error(f"Error al vaciar la tabla: {e}")
+
+            # --- FUNCIONES CON CACHÉ PARA OPTIMIZAR EL RENDIMIENTO ---
+            @st.cache_data(ttl=60, show_spinner=False)
+            def cargar_datos_contabilizacion_cached(empresa):
+                df_c = pd.DataFrame()
+                df_a = pd.DataFrame()
+                try:
+                    conn = conectar_db(empresa)
+                    if conn:
+                        df_c = pd.read_sql("SELECT * FROM plan_cuentas", conn)
+                        df_a = pd.read_sql("SELECT * FROM activo_fijo", conn)
+                        conn.close()
+                except Exception:
+                    pass
+                return df_c, df_a
+
+            @st.cache_data(ttl=30, show_spinner=False)
+            def cargar_lista_comprobantes_cached(empresa):
+                lista = []
+                try:
+                    conn = conectar_db(empresa)
+                    if conn:
+                        df_comps = pd.read_sql("SELECT DISTINCT n_comprobante, fecha FROM asientos_contables ORDER BY fecha DESC", conn)
+                        if not df_comps.empty:
+                            lista = df_comps['n_comprobante'].tolist()
+                        conn.close()
+                except Exception:
+                    pass
+                return lista
+
+            @st.cache_data(ttl=30, show_spinner=False)
+            def cargar_lineas_comprobante_cached(empresa, n_comp):
+                df = pd.DataFrame()
+                try:
+                    conn = conectar_db(empresa)
+                    if conn:
+                        df = pd.read_sql("SELECT * FROM asientos_contables WHERE n_comprobante = %s", conn, params=(n_comp,))
+                        conn.close()
+                except Exception:
+                    pass
+                return df
+
+
+            # --- PESTAÑA 5: CONTABILIZACIÓN DE DEPRECIACIÓN ---
+            with t_cont:
+                st.markdown("### 🧾 Generación de Asientos de Depreciación por Activo Individual")
+                st.markdown("Seleccione cada activo, asigne sus cuentas correspondientes y agréguelo al lote antes de registrar el comprobante final.")
+                
+                if 'lote_depreciacion_temp' not in st.session_state:
+                    st.session_state['lote_depreciacion_temp'] = []
+                
+                df_cuentas, df_activos_cont = cargar_datos_contabilizacion_cached(db_nombre)
+                
+                if df_cuentas.empty:
+                    st.warning("⚠️ No se encontraron registros en la tabla `plan_cuentas`. Configure su plan de cuentas primero.")
+                elif df_activos_cont.empty:
+                    st.info("ℹ️ No hay activos fijos registrados.")
+                else:
+                    cols_cuentas = df_cuentas.columns.tolist()
+                    col_codigo = next((c for c in cols_cuentas if 'codigo' in c.lower() or 'cuenta' in c.lower()), cols_cuentas[0])
+                    col_nombre = next((c for c in cols_cuentas if 'nombre' in c.lower() or 'descripcion' in c.lower() or 'desc' in c.lower()), cols_cuentas[1] if len(cols_cuentas) > 1 else cols_cuentas[0])
+                    
+                    opciones_cuentas = {f"{row[col_codigo]} - {row[col_nombre]}": row[col_codigo] for _, row in df_cuentas.iterrows()}
+                    opciones_activos = {f"{row.get('codigo_placa', row.get('id'))} - {row.get('nombre_activo', 'Sin Nombre')}": row for _, row in df_activos_cont.iterrows()}
+                    
+                    col_g1, col_g2, col_g3 = st.columns(3)
+                    with col_g1:
+                        n_comprobante = st.text_input("Número de Comprobante", value=f"DEP-{datetime.today().strftime('%Y%m')}")
+                    with col_g2:
+                        fecha_asiento = st.date_input("Fecha del Asiento", value=datetime.today())
+                    with col_g3:
+                        descripcion_general = st.text_input("Glosa / Descripción General", value="Depreciación mensual de activos fijos")
+
+                    st.divider()
+                    
+                    with st.form("form_agregar_activo_lote"):
+                        st.markdown("#### ➕ Agregar Activo al Lote")
                         
-                        btn_guardar = st.form_submit_button("💾 Guardar Activo Fijo", use_container_width=True)
+                        activo_sel_label = st.selectbox("Seleccione el Activo Fijo", list(opciones_activos.keys()), key="sel_activo_lote")
+                        activo_data = opciones_activos[activo_sel_label]
                         
-                        if btn_guardar:
-                            if not nombre_activo.strip():
-                                st.error("❌ El nombre del activo es obligatorio.")
-                            else:
+                        costo = float(activo_data.get('costo_activo', 0.0))
+                        residual = float(activo_data.get('valor_residual', 0.0))
+                        vida_util = int(activo_data.get('vida_util_meses', 1))
+                        dep_mensual = (costo - residual) / vida_util if vida_util > 0 else 0.0
+                        
+                        st.info(f"📊 **Cálculo automático:** Costo: `{costo:,.2f}` | Residual: `{residual:,.2f}` | Vida Útil: `{vida_util} meses` | **Depreciación Mensual: `{dep_mensual:,.2f}`**")
+                        
+                        col_f1, col_f2 = st.columns(2)
+                        with col_f1:
+                            cta_gasto_sel = st.selectbox("Cuenta de Gasto (DEBE)", list(opciones_cuentas.keys()), key="sel_cta_gasto")
+                        with col_f2:
+                            cta_acum_sel = st.selectbox("Cuenta de Depreciación Acumulada (HABER)", list(opciones_cuentas.keys()), key="sel_cta_acum")
+                        
+                        btn_agregar = st.form_submit_button("📥 Agregar este Activo al Frame del Lote", use_container_width=True)
+                        
+                        if btn_agregar:
+                            cod_gasto = opciones_cuentas[cta_gasto_sel]
+                            cod_acum = opciones_cuentas[cta_acum_sel]
+                            ref_placa = str(activo_data.get('codigo_placa', f"ID-{activo_data.get('id')}"))
+                            nombre_act = activo_data.get('nombre_activo', 'Activo')
+                            
+                            item_debe = {
+                                "n_comprobante": n_comprobante,
+                                "fecha": str(fecha_asiento),
+                                "descripcion": f"{descripcion_general} - {nombre_act} (Placa: {ref_placa})",
+                                "cuenta_contable": cod_gasto,
+                                "referencia": ref_placa,
+                                "debe": dep_mensual,
+                                "haber": 0.00
+                            }
+                            item_haber = {
+                                "n_comprobante": n_comprobante,
+                                "fecha": str(fecha_asiento),
+                                "descripcion": f"{descripcion_general} - {nombre_act} (Placa: {ref_placa})",
+                                "cuenta_contable": cod_acum,
+                                "referencia": ref_placa,
+                                "debe": 0.00,
+                                "haber": dep_mensual
+                            }
+                            
+                            st.session_state['lote_depreciacion_temp'].append(item_debe)
+                            st.session_state['lote_depreciacion_temp'].append(item_haber)
+                            st.success(f"✅ ¡{nombre_act} agregado al lote correctamente!")
+                            st.rerun()
+
+                    if st.session_state['lote_depreciacion_temp']:
+                        st.divider()
+                        st.markdown("### 📋 Vista Previa del Lote Acumulado (Frame)")
+                        
+                        df_lote = pd.DataFrame(st.session_state['lote_depreciacion_temp'])
+                        
+                        format_lote = {
+                            "debe": "{:,.2f}",
+                            "haber": "{:,.2f}"
+                        }
+                        st.dataframe(df_lote.style.format(format_lote, na_rep=""), use_container_width=True, hide_index=True)
+                        
+                        t_debe_lote = df_lote['debe'].sum()
+                        t_haber_lote = df_lote['haber'].sum()
+                        
+                        col_m1, col_m2, col_m3 = st.columns(3)
+                        col_m1.metric("Total Debe Lote", f"{t_debe_lote:,.2f}")
+                        col_m2.metric("Total Haber Lote", f"{t_haber_lote:,.2f}")
+                        
+                        if abs(t_debe_lote - t_haber_lote) < 0.01:
+                            col_m3.success("⚖️ Partida Doble Cuadrada")
+                        else:
+                            col_m3.error("⚠️ Descuadre en Partida Doble")
+                        
+                        col_b1, col_b2 = st.columns(2)
+                        
+                        with col_b1:
+                            if st.button("🗑️ Limpiar / Vaciar Lote", use_container_width=True):
+                                st.session_state['lote_depreciacion_temp'] = []
+                                st.rerun()
+                        
+                        with col_b2:
+                            if st.button("🚀 Registrar Todo el Lote en Base de Datos", type="primary", use_container_width=True):
                                 try:
                                     conn = conectar_db(db_nombre)
                                     if conn:
                                         with conn.cursor() as cursor:
-                                            query = """
-                                                INSERT INTO activo_fijo 
-                                                (codigo_placa, nombre_activo, rubro, fecha_adquisicion, costo_activo, valor_residual, vida_util_meses, metodo_depreciacion)
-                                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                                            query_insert = """
+                                                INSERT INTO asientos_contables 
+                                                (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber, bloqueado)
+                                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                                             """
-                                            cursor.execute(query, (
-                                                codigo_placa.strip(), nombre_activo.strip(), rubro, fecha_adquisicion, 
-                                                costo_activo, valor_residual, vida_util_meses, metodo_depreciacion
-                                            ))
+                                            for fila in st.session_state['lote_depreciacion_temp']:
+                                                cursor.execute(query_insert, (
+                                                    fila['n_comprobante'],
+                                                    fila['descripcion'],
+                                                    fila['fecha'],
+                                                    fila['cuenta_contable'],
+                                                    fila['cuenta_contable'],
+                                                    fila['referencia'],
+                                                    fila['debe'],
+                                                    fila['haber'],
+                                                    0
+                                                ))
                                             conn.commit()
                                         conn.close()
-                                        
-                                        # Limpiamos la caché global para que el auxiliar y depreciación reflejen el nuevo activo de inmediato
                                         st.cache_data.clear()
-                                        st.success(f"✅ ¡Activo '{nombre_activo.strip()}' registrado con éxito!")
+                                        st.success(f"🎉 ¡Comprobante `{n_comprobante}` registrado exitosamente con todas sus cuentas individuales!")
+                                        st.session_state['lote_depreciacion_temp'] = []
+                                        st.rerun()
                                 except Exception as e:
-                                    st.error(f"Error al guardar en la base de datos: {e}")
+                                    st.error(f"❌ Error al guardar en base de datos: {e}")
 
-                # --- FUNCIÓN CON CACHÉ PARA CARGAR ACTIVOS FIJOS ---
-                @st.cache_data(ttl=60, show_spinner=False)
-                def cargar_activos_fijos_cached(empresa):
-                    df = pd.DataFrame()
+            # --- PESTAÑA 6: MODIFICAR, EDITAR O ELIMINAR ASIENTOS CONTABLES ---
+            with t_mod:
+                st.markdown("### 🛠️ Gestión y Corrección de Asientos Contables")
+                st.markdown("Busque un comprobante registrado para editar sus líneas o eliminar registros erróneos.")
+                
+                def formato_moneda_latam(valor):
                     try:
-                        conn = conectar_db(empresa)
-                        if conn:
-                            df = pd.read_sql("SELECT * FROM activo_fijo", conn)
-                            conn.close()
-                    except Exception:
-                        pass
-                    return df
+                        if pd.isna(valor):
+                            return "0,00"
+                        s = f"{float(valor):,.2f}"
+                        return s.replace(",", "X").replace(".", ",").replace("X", ".")
+                    except:
+                        return "0,00"
 
-                # --- PESTAÑA 2: CÁLCULO DE DEPRECIACIÓN ---
-                with t_dep:
-                    st.markdown("### 📈 Cálculo de Depreciación (Mensual y Acumulada)")
+                def parsear_moneda_latam(valor_str):
+                    if pd.isna(valor_str):
+                        return 0.0
+                    if isinstance(valor_str, (int, float)):
+                        return float(valor_str)
+                    try:
+                        limpio = str(valor_str).replace(".", "").replace(",", ".")
+                        return float(limpio)
+                    except:
+                        return 0.0
+
+                lista_comprobantes = cargar_lista_comprobantes_cached(db_nombre)
+                
+                if not lista_comprobantes:
+                    st.info("ℹ️ No se encontraron comprobantes registrados en la base de datos.")
+                else:
+                    comp_a_editar = st.selectbox("Seleccione el Número de Comprobante a Revisar / Modificar", lista_comprobantes, key="select_comp_editar")
                     
-                    col_f1, _ = st.columns([2, 2])
-                    with col_f1:
-                        fecha_cierre = st.date_input("Fecha de Cierre para el Cálculo", value=datetime.today(), key="f_cierre_activo")
+                    df_lineas_comp = cargar_lineas_comprobante_cached(db_nombre, comp_a_editar)
+                    
+                    if not df_lineas_comp.empty:
+                        st.markdown(f"#### 📄 Editando Comprobante: `{comp_a_editar}`")
+                        st.info("💡 Puede editar los valores numéricos usando el formato latino (ej: `7.530,13`) directamente en la tabla.")
                         
-                    df_activos = cargar_activos_fijos_cached(db_nombre)
+                        df_lineas_comp['debe'] = pd.to_numeric(df_lineas_comp['debe'], errors='coerce').fillna(0.0)
+                        df_lineas_comp['haber'] = pd.to_numeric(df_lineas_comp['haber'], errors='coerce').fillna(0.0)
                         
-                    if not df_activos.empty:
-                        resultados = []
-                        for _, row in df_activos.iterrows():
-                            f_adq = pd.to_datetime(row['fecha_adquisicion'])
-                            f_cier = pd.to_datetime(fecha_cierre)
-                            
-                            if f_cier >= f_adq:
-                                meses_antiguedad = (f_cier.year - f_adq.year) * 12 + (f_cier.month - f_adq.month)
-                                if f_cier.day >= f_adq.day:
-                                    meses_antiguedad += 1
-                                meses_antiguedad = max(0, meses_antiguedad)
-                            else:
-                                meses_antiguedad = 0
-                            
-                            costo = float(row['costo_activo'])
-                            residual = float(row['valor_residual'])
-                            vida_util = int(row['vida_util_meses'])
-                            
-                            dep_mensual = (costo - residual) / vida_util if vida_util > 0 else 0.0
-                            dep_acumulada = min(dep_mensual * meses_antiguedad, costo - residual)
-                            dep_acumulada = max(0.0, dep_acumulada)
-                            costo_neto = costo - dep_acumulada
-                            
-                            resultados.append({
-                                "ID": row['id'],
-                                "Placa": row['codigo_placa'],
-                                "Activo": row['nombre_activo'],
-                                "Rubro": row['rubro'],
-                                "Adquisición": row['fecha_adquisicion'],
-                                "Costo": costo,
-                                "Residual": residual,
-                                "Vida Útil (Meses)": vida_util,
-                                "Meses Transcl.": meses_antiguedad,
-                                "Dep. Mensual": dep_mensual,
-                                "Dep. Acumulada": dep_acumulada,
-                                "Costo Neto": costo_neto
-                            })
-                            
-                        df_reporte = pd.DataFrame(resultados)
-                        
-                        total_costo = df_reporte['Costo'].sum()
-                        total_dep_mensual = df_reporte['Dep. Mensual'].sum()
-                        total_dep_acum = df_reporte['Dep. Acumulada'].sum()
-                        total_neto = df_reporte['Costo Neto'].sum()
-                        
-                        df_totales = pd.DataFrame([{
-                            "ID": "TOTALES", "Placa": "", "Activo": "", "Rubro": "", "Adquisición": "",
-                            "Costo": total_costo, "Residual": df_reporte['Residual'].sum(),
-                            "Vida Útil (Meses)": "", "Meses Transcl.": "",
-                            "Dep. Mensual": total_dep_mensual, "Dep. Acumulada": total_dep_acum, "Costo Neto": total_neto
-                        }])
-                        
-                        df_final_mostrar = pd.concat([df_reporte, df_totales], ignore_index=True)
-                        
-                        format_dict = {
-                            "Costo": "{:,.2f}", "Residual": "{:,.2f}",
-                            "Dep. Mensual": "{:,.2f}", "Dep. Acumulada": "{:,.2f}", "Costo Neto": "{:,.2f}"
-                        }
-                        
-                        st.dataframe(df_final_mostrar.style.format(format_dict, na_rep=""), use_container_width=True, hide_index=True)
-                        
-                        # --- DESCARGA EN EXCEL ---
-                        import io
-                        output = io.BytesIO()
-                        with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                            df_final_mostrar.to_excel(writer, index=False, sheet_name='Activos Fijos')
-                        excel_data = output.getvalue()
-                        
-                        st.download_button(
-                            label="📥 Descargar Auxiliar en Excel",
-                            data=excel_data,
-                            file_name=f"auxiliar_activos_fijos_{datetime.today().strftime('%Y-%m-%d')}.xlsx",
-                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                            use_container_width=True
+                        df_editor_view = df_lineas_comp.copy()
+                        df_editor_view['debe'] = df_editor_view['debe'].apply(formato_moneda_latam)
+                        df_editor_view['haber'] = df_editor_view['haber'].apply(formato_moneda_latam)
+
+                        df_editado_raw = st.data_editor(
+                            df_editor_view,
+                            num_rows="dynamic",
+                            use_container_width=True,
+                            hide_index=True,
+                            key=f"editor_asientos_{comp_a_editar}",
+                            column_config={
+                                "id": st.column_config.Column("ID", disabled=True),
+                                "n_comprobante": st.column_config.TextColumn("N° Comprobante"),
+                                "fecha": st.column_config.DateColumn("Fecha"),
+                                "descripcion": st.column_config.TextColumn("Descripción"),
+                                "cuenta_contable": st.column_config.TextColumn("Cuenta Contable"),
+                                "debe": st.column_config.TextColumn("debe"),
+                                "haber": st.column_config.TextColumn("haber"),
+                                "bloqueado": st.column_config.CheckboxColumn("Bloqueado")
+                            }
                         )
                         
-                        st.divider()
-                        m1, m2, m3, m4 = st.columns(4)
-                        m1.metric("Total Costo Histórico", f"{total_costo:,.2f}")
-                        m2.metric("Total Dep. Mensual", f"{total_dep_mensual:,.2f}")
-                        m3.metric("Total Dep. Acumulada", f"{total_dep_acum:,.2f}")
-                        m4.metric("Total Valor en Libros", f"{total_neto:,.2f}")
-                    else:
-                        st.info("No hay activos fijos registrados para calcular la depreciación.")
-
-                # --- PESTAÑA 3: AUXILIAR, MODIFICAR Y ELIMINAR ---
-                with t_aux:
-                    st.markdown("### 📖 Auxiliar de Activos Fijos (Editar o Eliminar por Fila)")
-                    
-                    df_aux = cargar_activos_fijos_cached(db_nombre)
+                        df_editado = df_editado_raw.copy()
+                        df_editado['debe'] = df_editado['debe'].apply(parsear_moneda_latam)
+                        df_editado['haber'] = df_editado['haber'].apply(parsear_moneda_latam)
                         
-                    if not df_aux.empty:
-                        opciones_dict = {f"ID {row['id']} - {row['nombre_activo']} ({row['codigo_placa']})": row['id'] for _, row in df_aux.iterrows()}
+                        t_debe_ed = df_editado['debe'].sum()
+                        t_haber_ed = df_editado['haber'].sum()
                         
-                        seleccion_editar = st.selectbox("Seleccione un activo para modificar o eliminar:", list(opciones_dict.keys()), key="sel_activo_auxiliar")
-                        id_seleccionado = opciones_dict[seleccion_editar]
+                        col_e1, col_e2, col_e3 = st.columns(3)
+                        col_e1.metric("Total Debe Actualizado", formato_moneda_latam(t_debe_ed))
+                        col_e2.metric("Total Haber Actualizado", formato_moneda_latam(t_haber_ed))
                         
-                        activo_actual = df_aux[df_aux['id'] == id_seleccionado].iloc[0]
+                        if abs(t_debe_ed - t_haber_ed) < 0.01:
+                            col_e3.success("⚖️ Cuadrado")
+                        else:
+                            col_e3.error("⚠️ Descuadrado")
                         
-                        with st.form("form_editar_activo"):
-                            st.write(f"Editando Activo ID: {id_seleccionado}")
-                            e_placa = st.text_input("Código de Placa", value=str(activo_actual['codigo_placa']))
-                            e_nombre = st.text_input("Nombre del Activo", value=str(activo_actual['nombre_activo']))
-                            e_rubro = st.text_input("Rubro", value=str(activo_actual['rubro']))
-                            
-                            fecha_bd = pd.to_datetime(activo_actual['fecha_adquisicion']).date()
-                            e_fecha_adq = st.date_input("Fecha de Adquisición", value=fecha_bd)
-                            
-                            e_costo = st.number_input("Costo del Activo", value=float(activo_actual['costo_activo']))
-                            e_residual = st.number_input("Valor Residual", value=float(activo_actual['valor_residual']))
-                            e_vida = st.number_input("Vida Útil (Meses)", value=int(activo_actual['vida_util_meses']))
-                            
-                            col_btn1, col_btn2 = st.columns(2)
-                            actualizar = col_btn1.form_submit_button("🔄 Actualizar Cambios", use_container_width=True)
-                            eliminar_uno = col_btn2.form_submit_button("🗑️ Eliminar este Activo", use_container_width=True)
-                            
-                            if actualizar:
-                                try:
-                                    conn = conectar_db(db_nombre)
-                                    if conn:
-                                        with conn.cursor() as cursor:
-                                            q_upd = """
-                                                UPDATE activo_fijo 
-                                                SET codigo_placa=%s, nombre_activo=%s, rubro=%s, fecha_adquisicion=%s, costo_activo=%s, valor_residual=%s, vida_util_meses=%s 
-                                                WHERE id=%s
-                                            """
-                                            cursor.execute(q_upd, (e_placa, e_nombre, e_rubro, e_fecha_adq, e_costo, e_residual, e_vida, id_seleccionado))
-                                            conn.commit()
-                                        conn.close()
-                                        st.cache_data.clear()
-                                        st.success("✅ ¡Activo actualizado correctamente!")
-                                        st.rerun()
-                                except Exception as e:
-                                    st.error(f"Error al actualizar: {e}")
-                                
-                            if eliminar_uno:
-                                try:
-                                    conn = conectar_db(db_nombre)
-                                    if conn:
-                                        with conn.cursor() as cursor:
-                                            cursor.execute("DELETE FROM activo_fijo WHERE id = %s", (id_seleccionado,))
-                                            conn.commit()
-                                        conn.close()
-                                        st.cache_data.clear()
-                                        st.warning("🗑️ Activo eliminado del auxiliar.")
-                                        st.rerun()
-                                except Exception as e:
-                                    st.error(f"Error al eliminar: {e}")
-                    else:
-                        st.info("El auxiliar de activos fijos está vacío.")
-
-                # --- PESTAÑA 4: LIMPIEZA TOTAL ---
-                with t_lim:
-                    st.markdown("### ⚙️ Gestión de Limpieza Total del Auxiliar")
-                    with st.container(border=True):
-                        st.error("⚠️ **ZONA DE PELIGRO**: Esta acción eliminará por completo **todos** los registros de activos fijos de esta empresa.")
-                        
-                        confirmar_limpieza = st.checkbox("Estoy seguro de vaciar todo el auxiliar de activo fijo.", key="chk_limpiar_aux")
-                        
-                        if confirmar_limpieza:
-                            if st.button("🧨 ELIMINAR TODO EL AUXILIAR DE ACTIVOS", type="primary"):
-                                try:
-                                    conn = conectar_db(db_nombre)
-                                    if conn:
-                                        with conn.cursor() as cursor:
-                                            cursor.execute("DELETE FROM activo_fijo")
-                                            conn.commit()
-                                        conn.close()
-                                        st.cache_data.clear()
-                                        st.success("✅ Se han eliminado todos los activos fijos de la base de datos.")
-                                        st.rerun()
-                                except Exception as e:
-                                    st.error(f"Error al vaciar la tabla: {e}")
-
-                # --- FUNCIONES CON CACHÉ PARA OPTIMIZAR EL RENDIMIENTO ---
-                @st.cache_data(ttl=60, show_spinner=False)
-                def cargar_datos_contabilizacion_cached(empresa):
-                    df_c = pd.DataFrame()
-                    df_a = pd.DataFrame()
-                    try:
-                        conn = conectar_db(empresa)
-                        if conn:
-                            df_c = pd.read_sql("SELECT * FROM plan_cuentas", conn)
-                            df_a = pd.read_sql("SELECT * FROM activo_fijo", conn)
-                            conn.close()
-                    except Exception:
-                        pass
-                    return df_c, df_a
-
-                @st.cache_data(ttl=30, show_spinner=False)
-                def cargar_lista_comprobantes_cached(empresa):
-                    lista = []
-                    try:
-                        conn = conectar_db(empresa)
-                        if conn:
-                            df_comps = pd.read_sql("SELECT DISTINCT n_comprobante, fecha FROM asientos_contables ORDER BY fecha DESC", conn)
-                            if not df_comps.empty:
-                                lista = df_comps['n_comprobante'].tolist()
-                            conn.close()
-                    except Exception:
-                        pass
-                    return lista
-
-                @st.cache_data(ttl=30, show_spinner=False)
-                def cargar_lineas_comprobante_cached(empresa, n_comp):
-                    df = pd.DataFrame()
-                    try:
-                        conn = conectar_db(empresa)
-                        if conn:
-                            df = pd.read_sql("SELECT * FROM asientos_contables WHERE n_comprobante = %s", conn, params=(n_comp,))
-                            conn.close()
-                    except Exception:
-                        pass
-                    return df
-
-
-                # --- PESTAÑA 5: CONTABILIZACIÓN DE DEPRECIACIÓN ---
-                with t_cont:
-                    st.markdown("### 🧾 Generación de Asientos de Depreciación por Activo Individual")
-                    st.markdown("Seleccione cada activo, asigne sus cuentas correspondientes y agréguelo al lote antes de registrar el comprobante final.")
-                    
-                    if 'lote_depreciacion_temp' not in st.session_state:
-                        st.session_state['lote_depreciacion_temp'] = []
-                    
-                    df_cuentas, df_activos_cont = cargar_datos_contabilizacion_cached(db_nombre)
-                    
-                    if df_cuentas.empty:
-                        st.warning("⚠️ No se encontraron registros en la tabla `plan_cuentas`. Configure su plan de cuentas primero.")
-                    elif df_activos_cont.empty:
-                        st.info("ℹ️ No hay activos fijos registrados.")
-                    else:
-                        cols_cuentas = df_cuentas.columns.tolist()
-                        col_codigo = next((c for c in cols_cuentas if 'codigo' in c.lower() or 'cuenta' in c.lower()), cols_cuentas[0])
-                        col_nombre = next((c for c in cols_cuentas if 'nombre' in c.lower() or 'descripcion' in c.lower() or 'desc' in c.lower()), cols_cuentas[1] if len(cols_cuentas) > 1 else cols_cuentas[0])
-                        
-                        opciones_cuentas = {f"{row[col_codigo]} - {row[col_nombre]}": row[col_codigo] for _, row in df_cuentas.iterrows()}
-                        opciones_activos = {f"{row.get('codigo_placa', row.get('id'))} - {row.get('nombre_activo', 'Sin Nombre')}": row for _, row in df_activos_cont.iterrows()}
-                        
-                        col_g1, col_g2, col_g3 = st.columns(3)
-                        with col_g1:
-                            n_comprobante = st.text_input("Número de Comprobante", value=f"DEP-{datetime.today().strftime('%Y%m')}")
-                        with col_g2:
-                            fecha_asiento = st.date_input("Fecha del Asiento", value=datetime.today())
-                        with col_g3:
-                            descripcion_general = st.text_input("Glosa / Descripción General", value="Depreciación mensual de activos fijos")
-
                         st.divider()
                         
-                        with st.form("form_agregar_activo_lote"):
-                            st.markdown("#### ➕ Agregar Activo al Lote")
-                            
-                            activo_sel_label = st.selectbox("Seleccione el Activo Fijo", list(opciones_activos.keys()), key="sel_activo_lote")
-                            activo_data = opciones_activos[activo_sel_label]
-                            
-                            costo = float(activo_data.get('costo_activo', 0.0))
-                            residual = float(activo_data.get('valor_residual', 0.0))
-                            vida_util = int(activo_data.get('vida_util_meses', 1))
-                            dep_mensual = (costo - residual) / vida_util if vida_util > 0 else 0.0
-                            
-                            st.info(f"📊 **Cálculo automático:** Costo: `{costo:,.2f}` | Residual: `{residual:,.2f}` | Vida Útil: `{vida_util} meses` | **Depreciación Mensual: `{dep_mensual:,.2f}`**")
-                            
-                            col_f1, col_f2 = st.columns(2)
-                            with col_f1:
-                                cta_gasto_sel = st.selectbox("Cuenta de Gasto (DEBE)", list(opciones_cuentas.keys()), key="sel_cta_gasto")
-                            with col_f2:
-                                cta_acum_sel = st.selectbox("Cuenta de Depreciación Acumulada (HABER)", list(opciones_cuentas.keys()), key="sel_cta_acum")
-                            
-                            btn_agregar = st.form_submit_button("📥 Agregar este Activo al Frame del Lote", use_container_width=True)
-                            
-                            if btn_agregar:
-                                cod_gasto = opciones_cuentas[cta_gasto_sel]
-                                cod_acum = opciones_cuentas[cta_acum_sel]
-                                ref_placa = str(activo_data.get('codigo_placa', f"ID-{activo_data.get('id')}"))
-                                nombre_act = activo_data.get('nombre_activo', 'Activo')
-                                
-                                item_debe = {
-                                    "n_comprobante": n_comprobante,
-                                    "fecha": str(fecha_asiento),
-                                    "descripcion": f"{descripcion_general} - {nombre_act} (Placa: {ref_placa})",
-                                    "cuenta_contable": cod_gasto,
-                                    "referencia": ref_placa,
-                                    "debe": dep_mensual,
-                                    "haber": 0.00
-                                }
-                                item_haber = {
-                                    "n_comprobante": n_comprobante,
-                                    "fecha": str(fecha_asiento),
-                                    "descripcion": f"{descripcion_general} - {nombre_act} (Placa: {ref_placa})",
-                                    "cuenta_contable": cod_acum,
-                                    "referencia": ref_placa,
-                                    "debe": 0.00,
-                                    "haber": dep_mensual
-                                }
-                                
-                                st.session_state['lote_depreciacion_temp'].append(item_debe)
-                                st.session_state['lote_depreciacion_temp'].append(item_haber)
-                                st.success(f"✅ ¡{nombre_act} agregado al lote correctamente!")
-                                st.rerun()
-
-                        if st.session_state['lote_depreciacion_temp']:
-                            st.divider()
-                            st.markdown("### 📋 Vista Previa del Lote Acumulado (Frame)")
-                            
-                            df_lote = pd.DataFrame(st.session_state['lote_depreciacion_temp'])
-                            
-                            format_lote = {
-                                "debe": "{:,.2f}",
-                                "haber": "{:,.2f}"
-                            }
-                            st.dataframe(df_lote.style.format(format_lote, na_rep=""), use_container_width=True, hide_index=True)
-                            
-                            t_debe_lote = df_lote['debe'].sum()
-                            t_haber_lote = df_lote['haber'].sum()
-                            
-                            col_m1, col_m2, col_m3 = st.columns(3)
-                            col_m1.metric("Total Debe Lote", f"{t_debe_lote:,.2f}")
-                            col_m2.metric("Total Haber Lote", f"{t_haber_lote:,.2f}")
-                            
-                            if abs(t_debe_lote - t_haber_lote) < 0.01:
-                                col_m3.success("⚖️ Partida Doble Cuadrada")
-                            else:
-                                col_m3.error("⚠️ Descuadre en Partida Doble")
-                            
-                            col_b1, col_b2 = st.columns(2)
-                            
-                            with col_b1:
-                                if st.button("🗑️ Limpiar / Vaciar Lote", use_container_width=True):
-                                    st.session_state['lote_depreciacion_temp'] = []
-                                    st.rerun()
-                            
-                            with col_b2:
-                                if st.button("🚀 Registrar Todo el Lote en Base de Datos", type="primary", use_container_width=True):
-                                    try:
-                                        conn = conectar_db(db_nombre)
-                                        if conn:
-                                            with conn.cursor() as cursor:
-                                                query_insert = """
-                                                    INSERT INTO asientos_contables 
-                                                    (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber, bloqueado)
-                                                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                                                """
-                                                for fila in st.session_state['lote_depreciacion_temp']:
-                                                    cursor.execute(query_insert, (
-                                                        fila['n_comprobante'],
-                                                        fila['descripcion'],
-                                                        fila['fecha'],
-                                                        fila['cuenta_contable'],
-                                                        fila['cuenta_contable'],
-                                                        fila['referencia'],
-                                                        fila['debe'],
-                                                        fila['haber'],
-                                                        0
+                        col_bt1, col_bt2 = st.columns(2)
+                        
+                        with col_bt1:
+                            if st.button("💾 Guardar Cambios en la Base de Datos", type="primary", use_container_width=True):
+                                try:
+                                    conn = conectar_db(db_nombre)
+                                    if conn:
+                                        with conn.cursor() as cursor:
+                                            ids_actuales_en_bd = df_lineas_comp['id'].tolist()
+                                            ids_en_editor = df_editado['id'].dropna().tolist()
+                                            
+                                            ids_a_eliminar = [i for i in ids_actuales_en_bd if i not in ids_en_editor]
+                                            for id_del in ids_a_eliminar:
+                                                cursor.execute("DELETE FROM asientos_contables WHERE id = %s", (int(id_del),))
+                                            
+                                            for _, row in df_editado.iterrows():
+                                                val_debe = float(row.get('debe', 0.0))
+                                                val_haber = float(row.get('haber', 0.0))
+                                                
+                                                if pd.isna(row.get('id')) or row['id'] == '':
+                                                    query_ins = """
+                                                        INSERT INTO asientos_contables 
+                                                        (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber, bloqueado)
+                                                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                                    """
+                                                    cursor.execute(query_ins, (
+                                                        row.get('n_comprobante', comp_a_editar),
+                                                        row.get('descripcion', ''),
+                                                        str(row.get('fecha', datetime.today())),
+                                                        row.get('plan_cuentas', ''),
+                                                        row.get('cuenta_contable', ''),
+                                                        row.get('referencia', ''),
+                                                        val_debe,
+                                                        val_haber,
+                                                        int(row.get('bloqueado', 0))
                                                     ))
-                                                conn.commit()
-                                            conn.close()
-                                            st.cache_data.clear()
-                                            st.success(f"🎉 ¡Comprobante `{n_comprobante}` registrado exitosamente con todas sus cuentas individuales!")
-                                            st.session_state['lote_depreciacion_temp'] = []
-                                            st.rerun()
-                                    except Exception as e:
-                                        st.error(f"❌ Error al guardar en base de datos: {e}")
-
-                # --- PESTAÑA 6: MODIFICAR, EDITAR O ELIMINAR ASIENTOS CONTABLES ---
-                with t_mod:
-                    st.markdown("### 🛠️ Gestión y Corrección de Asientos Contables")
-                    st.markdown("Busque un comprobante registrado para editar sus líneas o eliminar registros erróneos.")
-                    
-                    def formato_moneda_latam(valor):
-                        try:
-                            if pd.isna(valor):
-                                return "0,00"
-                            s = f"{float(valor):,.2f}"
-                            return s.replace(",", "X").replace(".", ",").replace("X", ".")
-                        except:
-                            return "0,00"
-
-                    def parsear_moneda_latam(valor_str):
-                        if pd.isna(valor_str):
-                            return 0.0
-                        if isinstance(valor_str, (int, float)):
-                            return float(valor_str)
-                        try:
-                            limpio = str(valor_str).replace(".", "").replace(",", ".")
-                            return float(limpio)
-                        except:
-                            return 0.0
-
-                    lista_comprobantes = cargar_lista_comprobantes_cached(db_nombre)
-                    
-                    if not lista_comprobantes:
-                        st.info("ℹ️ No se encontraron comprobantes registrados en la base de datos.")
-                    else:
-                        comp_a_editar = st.selectbox("Seleccione el Número de Comprobante a Revisar / Modificar", lista_comprobantes, key="select_comp_editar")
-                        
-                        df_lineas_comp = cargar_lineas_comprobante_cached(db_nombre, comp_a_editar)
-                        
-                        if not df_lineas_comp.empty:
-                            st.markdown(f"#### 📄 Editando Comprobante: `{comp_a_editar}`")
-                            st.info("💡 Puede editar los valores numéricos usando el formato latino (ej: `7.530,13`) directamente en la tabla.")
-                            
-                            df_lineas_comp['debe'] = pd.to_numeric(df_lineas_comp['debe'], errors='coerce').fillna(0.0)
-                            df_lineas_comp['haber'] = pd.to_numeric(df_lineas_comp['haber'], errors='coerce').fillna(0.0)
-                            
-                            df_editor_view = df_lineas_comp.copy()
-                            df_editor_view['debe'] = df_editor_view['debe'].apply(formato_moneda_latam)
-                            df_editor_view['haber'] = df_editor_view['haber'].apply(formato_moneda_latam)
-
-                            df_editado_raw = st.data_editor(
-                                df_editor_view,
-                                num_rows="dynamic",
-                                use_container_width=True,
-                                hide_index=True,
-                                key=f"editor_asientos_{comp_a_editar}",
-                                column_config={
-                                    "id": st.column_config.Column("ID", disabled=True),
-                                    "n_comprobante": st.column_config.TextColumn("N° Comprobante"),
-                                    "fecha": st.column_config.DateColumn("Fecha"),
-                                    "descripcion": st.column_config.TextColumn("Descripción"),
-                                    "cuenta_contable": st.column_config.TextColumn("Cuenta Contable"),
-                                    "debe": st.column_config.TextColumn("debe"),
-                                    "haber": st.column_config.TextColumn("haber"),
-                                    "bloqueado": st.column_config.CheckboxColumn("Bloqueado")
-                                }
-                            )
-                            
-                            df_editado = df_editado_raw.copy()
-                            df_editado['debe'] = df_editado['debe'].apply(parsear_moneda_latam)
-                            df_editado['haber'] = df_editado['haber'].apply(parsear_moneda_latam)
-                            
-                            t_debe_ed = df_editado['debe'].sum()
-                            t_haber_ed = df_editado['haber'].sum()
-                            
-                            col_e1, col_e2, col_e3 = st.columns(3)
-                            col_e1.metric("Total Debe Actualizado", formato_moneda_latam(t_debe_ed))
-                            col_e2.metric("Total Haber Actualizado", formato_moneda_latam(t_haber_ed))
-                            
-                            if abs(t_debe_ed - t_haber_ed) < 0.01:
-                                col_e3.success("⚖️ Cuadrado")
-                            else:
-                                col_e3.error("⚠️ Descuadrado")
-                            
-                            st.divider()
-                            
-                            col_bt1, col_bt2 = st.columns(2)
-                            
-                            with col_bt1:
-                                if st.button("💾 Guardar Cambios en la Base de Datos", type="primary", use_container_width=True):
-                                    try:
-                                        conn = conectar_db(db_nombre)
-                                        if conn:
-                                            with conn.cursor() as cursor:
-                                                ids_actuales_en_bd = df_lineas_comp['id'].tolist()
-                                                ids_en_editor = df_editado['id'].dropna().tolist()
-                                                
-                                                ids_a_eliminar = [i for i in ids_actuales_en_bd if i not in ids_en_editor]
-                                                for id_del in ids_a_eliminar:
-                                                    cursor.execute("DELETE FROM asientos_contables WHERE id = %s", (int(id_del),))
-                                                
-                                                for _, row in df_editado.iterrows():
-                                                    val_debe = float(row.get('debe', 0.0))
-                                                    val_haber = float(row.get('haber', 0.0))
+                                                else:
+                                                    query_upd = """
+                                                        UPDATE asientos_contables SET 
+                                                            n_comprobante = %s,
+                                                            descripcion = %s,
+                                                            fecha = %s,
+                                                            plan_cuentas = %s,
+                                                            cuenta_contable = %s,
+                                                            referencia = %s,
+                                                            debe = %s,
+                                                            haber = %s,
+                                                            bloqueado = %s
+                                                        WHERE id = %s
+                                                    """
+                                                    cursor.execute(query_upd, (
+                                                        row['n_comprobante'],
+                                                        row['descripcion'],
+                                                        str(row['fecha']),
+                                                        row['plan_cuentas'],
+                                                        row['cuenta_contable'],
+                                                        row['referencia'],
+                                                        val_debe,
+                                                        val_haber,
+                                                        int(row.get('bloqueado', 0)),
+                                                        int(row['id'])
+                                                    ))
                                                     
-                                                    if pd.isna(row.get('id')) or row['id'] == '':
-                                                        query_ins = """
-                                                            INSERT INTO asientos_contables 
-                                                            (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber, bloqueado)
-                                                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                                                        """
-                                                        cursor.execute(query_ins, (
-                                                            row.get('n_comprobante', comp_a_editar),
-                                                            row.get('descripcion', ''),
-                                                            str(row.get('fecha', datetime.today())),
-                                                            row.get('plan_cuentas', ''),
-                                                            row.get('cuenta_contable', ''),
-                                                            row.get('referencia', ''),
-                                                            val_debe,
-                                                            val_haber,
-                                                            int(row.get('bloqueado', 0))
-                                                        ))
-                                                    else:
-                                                        query_upd = """
-                                                            UPDATE asientos_contables SET 
-                                                                n_comprobante = %s,
-                                                                descripcion = %s,
-                                                                fecha = %s,
-                                                                plan_cuentas = %s,
-                                                                cuenta_contable = %s,
-                                                                referencia = %s,
-                                                                debe = %s,
-                                                                haber = %s,
-                                                                bloqueado = %s
-                                                            WHERE id = %s
-                                                        """
-                                                        cursor.execute(query_upd, (
-                                                            row['n_comprobante'],
-                                                            row['descripcion'],
-                                                            str(row['fecha']),
-                                                            row['plan_cuentas'],
-                                                            row['cuenta_contable'],
-                                                            row['referencia'],
-                                                            val_debe,
-                                                            val_haber,
-                                                            int(row.get('bloqueado', 0)),
-                                                            int(row['id'])
-                                                        ))
-                                                        
-                                                conn.commit()
-                                            conn.close()
-                                            st.cache_data.clear()
-                                            st.success(f"✅ ¡Los cambios en el comprobante `{comp_a_editar}` se han guardado correctamente!")
-                                            st.rerun()
-                                    except Exception as e:
-                                        st.error(f"❌ Error al actualizar los registros: {e}")
-                                        
-                            with col_bt2:
-                                if st.button("🗑️ Eliminar Todo este Comprobante", type="secondary", use_container_width=True):
-                                    try:
-                                        conn = conectar_db(db_nombre)
-                                        if conn:
-                                            with conn.cursor() as cursor:
-                                                cursor.execute("DELETE FROM asientos_contables WHERE n_comprobante = %s", (comp_a_editar,))
-                                                conn.commit()
-                                            conn.close()
-                                            st.cache_data.clear()
-                                            st.warning(f"⚠️ El comprobante `{comp_a_editar}` ha sido eliminado por completo de la base de datos.")
-                                            st.rerun()
-                                    except Exception as e:
-                                        st.error(f"❌ Error al eliminar el comprobante: {e}")
+                                            conn.commit()
+                                        conn.close()
+                                        st.cache_data.clear()
+                                        st.success(f"✅ ¡Los cambios en el comprobante `{comp_a_editar}` se han guardado correctamente!")
+                                        st.rerun()
+                                except Exception as e:
+                                    st.error(f"❌ Error al actualizar los registros: {e}")
+                                    
+                        with col_bt2:
+                            if st.button("🗑️ Eliminar Todo este Comprobante", type="secondary", use_container_width=True):
+                                try:
+                                    conn = conectar_db(db_nombre)
+                                    if conn:
+                                        with conn.cursor() as cursor:
+                                            cursor.execute("DELETE FROM asientos_contables WHERE n_comprobante = %s", (comp_a_editar,))
+                                            conn.commit()
+                                        conn.close()
+                                        st.cache_data.clear()
+                                        st.warning(f"⚠️ El comprobante `{comp_a_editar}` ha sido eliminado por completo de la base de datos.")
+                                        st.rerun()
+                                except Exception as e:
+                                    st.error(f"❌ Error al eliminar el comprobante: {e}")
