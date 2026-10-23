@@ -16485,8 +16485,6 @@ elif "Proveedores" in opcion_menu:
             "🗑️ Gestión / Eliminar Tabla"
         ])
 
-        # --- TAB 1 y TAB 2 / BANDEJAS DE PROVEEDORES OPTIMIZADAS ---
-
         # --- FUNCIÓN CON CACHÉ PARA CONSULTAR PROVEEDORES ---
         @st.cache_data(ttl=30, show_spinner=False)
         def consultar_proveedores_cached(empresa):
@@ -16534,7 +16532,6 @@ elif "Proveedores" in opcion_menu:
             db_actual = st.session_state.get('DB_ACTUAL')
 
             if db_actual:
-                # Carga optimizada mediante función con caché
                 df_temp = consultar_proveedores_cached(db_actual)
                 
                 columnas_reales = ["rif", "tipo_persona", "razon_social", "direccion_fiscal", "codigo_cuenta", "descripcion_cuenta"]
@@ -16555,7 +16552,6 @@ elif "Proveedores" in opcion_menu:
                     df_para_mostrar['orden_aux'] = df_para_mostrar['razon_social'].str.lower()
                     df_para_mostrar = df_para_mostrar.sort_values(by='orden_aux', ascending=True).drop(columns=['orden_aux']).reset_index(drop=True)
 
-                # 4. Editor de datos interactivo
                 df_editado = st.data_editor(
                     df_para_mostrar, 
                     key="editor_proveedores_dinamico", 
@@ -16573,7 +16569,6 @@ elif "Proveedores" in opcion_menu:
                     }
                 )
                 
-                # Botones de acción
                 col_b1, col_b2 = st.columns(2)
                 with col_b1:
                     if st.button("💾 Guardar Todo en BD", key="btn_guardar_proveedores", use_container_width=True, type="primary"):
@@ -16598,7 +16593,6 @@ elif "Proveedores" in opcion_menu:
                         st.cache_data.clear()
                         st.rerun()
 
-                # 5. Zona de respaldo
                 st.markdown("---") 
                 if not df_para_mostrar.empty:
                     import io
@@ -16790,18 +16784,16 @@ elif "Proveedores" in opcion_menu:
                     st.success("🎉 ¡Todos los proveedores en la cola ya han sido procesados y registrados!")
             else:
                 st.info("No hay archivos en la cola de proveedores. Sube algunos PDFs arriba para comenzar.")
+
         # 5. Lógica de Pestaña 4 (Gestión y borrado seguro conectado al control central)
         with tab4:
             st.subheader("⚠️ Zona de Peligro: Gestión de la Tabla Proveedores")
             st.warning("Esta acción eliminará por completo los registros de la tabla de proveedores para la empresa seleccionada actualmente.")
             
-            # Mostrar mensaje persistente si quedó guardado en la sesión anterior tras el rerun
             if "mensaje_exito_proveedores" in st.session_state:
                 st.success(st.session_state.mensaje_exito_proveedores)
-                # Limpiarlo para que no se repita infinitamente en futuras interacciones
                 del st.session_state.mensaje_exito_proveedores
 
-            # Checkbox de confirmación fuera del botón para que no se pierda el estado al hacer clic
             confirmacion_borrado = st.checkbox(
                 "Confirmo que deseo vaciar/eliminar la tabla de proveedores de esta empresa", 
                 key="check_confirm_drop_prov_seguro"
@@ -16823,7 +16815,6 @@ elif "Proveedores" in opcion_menu:
                             else:
                                 conn_gestion.ping(reconnect=True)
                                 with conn_gestion.cursor() as cursor:
-                                    # Ejecutar la eliminación y recreación de la tabla
                                     cursor.execute("DROP TABLE IF EXISTS proveedores;")
                                     cursor.execute("""
                                         CREATE TABLE proveedores (
@@ -16837,16 +16828,12 @@ elif "Proveedores" in opcion_menu:
                                     """)
                                     conn_gestion.commit()
                                 
-                                # Limpiar caché global y local de proveedores para reflejar el cambio en toda la app
                                 st.cache_data.clear()
                                 if "df_proveedores_cache" in st.session_state:
                                     del st.session_state.df_proveedores_cache
                                     
                                 st.balloons()
-                                
-                                # Guardar el mensaje de éxito en el session_state
                                 st.session_state.mensaje_exito_proveedores = f"🎉 ¡La tabla de proveedores de la base de datos '{db_seleccionada}' ha sido ELIMINADA y recreada con éxito!"
-                                
                                 st.rerun()
                                 
                         except Exception as e:
@@ -16864,11 +16851,15 @@ elif "Proveedores" in opcion_menu:
                                     pass
                 else:
                     st.warning("⚠️ Debes marcar la casilla de confirmación antes de ejecutar el borrado.")
-            
-            # Cierre de conexión global de la pestaña garantizado de forma independiente
-            if 'conn_empresa' in locals() and conn_empresa:
-                try:
-                    conn_empresa.close()
-                except Exception:
+
+    except Exception as e:
+        st.error(f"❌ Error en el módulo de Proveedores: {e}")
+    finally:
+        # Cierre de conexión global de la pestaña garantizado de forma independiente y segura
+        if 'conn_empresa' in locals() and conn_empresa:
+            try:
+                conn_empresa.close()
+            except Exception:
+                pass:
                     pass
 
