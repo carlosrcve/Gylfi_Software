@@ -4674,3 +4674,1128 @@ def actualizar_tabla_completa_db(conn, nombre_tabla, df_nuevo):
                 conn.ping(reconnect=True)
             except Exception:
                 pass
+
+
+def modulo_inventario_pedacito_cielo(conn):
+    st.markdown("## 🍰 Sistema de Inventario y Costeo — Pedacito de Cielo")
+    st.write("Control bimoneda de materia prima, formulación de recetas y rebaja automática por producción con valoración ERP.")
+
+    # -------------------------------------------------------------------------
+    # PASO 0: CREACIÓN SEGURA Y SILENCIOSA (EVITA ERRORES 1050)
+    # -------------------------------------------------------------------------
+    try:
+        cursor = conn.cursor()
+        
+        # 1. Verificamos si la tabla de productos existe
+        cursor.execute("""
+            SELECT COUNT(*) 
+            FROM information_schema.tables 
+            WHERE table_schema = 'pedacito_de_cielo_ca' 
+              AND table_name = 'inventario_productos';
+        """)
+        tabla_existe = cursor.fetchone()[0] > 0
+        
+        # 2. Solo si NO existe, ejecutamos la creación e inserción inicial
+        if not tabla_existe:
+            cursor.execute("""
+                CREATE TABLE pedacito_de_cielo_ca.inventario_productos (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    empresa VARCHAR(150) NOT NULL DEFAULT 'REPRESENTACIONES PEDACITO DE CIELO, C.A.',
+                    empresa_nombre VARCHAR(150) NOT NULL,
+                    sku VARCHAR(50), 
+                    descripcion VARCHAR(255) NOT NULL,
+                    tipo VARCHAR(50) DEFAULT 'MATERIA_PRIMA',
+                    unidad VARCHAR(20) DEFAULT 'KG',           
+                    stock DECIMAL(15, 2) DEFAULT 0.00,
+                    stock_minimo DECIMAL(15, 2) DEFAULT 5.00,
+                    costo_usd DECIMAL(15, 4) DEFAULT 0.0000,
+                    ultimo_precio_compra_usd DECIMAL(15, 4) DEFAULT 0.0000,
+                    CONSTRAINT unique_sku_por_empresa UNIQUE (empresa_nombre, sku)
+                );
+            """)
+            
+            insumos_iniciales = [
+                ('MP-HAR01', 'Harina de Trigo Leudante', 'MATERIA_PRIMA', 'KG', 10.00, 1.25, 1.45),
+                ('MP-AZU01', 'Azúcar Refinada', 'MATERIA_PRIMA', 'KG', 8.00, 0.85, 0.95),
+                ('MP-MAN01', 'Mantequilla', 'MATERIA_PRIMA', 'KG', 5.00, 2.40, 2.65),
+                ('PT-TOR01', 'Torta de Vainilla Tradicional', 'PRODUCTO_TERMINADO', 'UNIDAD', 0.00, 0.00, 0.00)
+            ]
+            for sku, desc, tipo, unit, stock, costo_p, costo_r in insumos_iniciales:
+                cursor.execute("""
+                    INSERT IGNORE INTO pedacito_de_cielo_ca.inventario_productos 
+                    (empresa_nombre, sku, descripcion, tipo, unidad, stock, costo_usd, ultimo_precio_compra_usd)
+                    VALUES ('REPRESENTACIONES PEDACITO DE CIELO, C.A.', %s, %s, %s, %s, %s, %s, %s);
+                """, (sku, desc, tipo, unit, stock, costo_p, costo_r))
+            conn.commit()
+            
+        cursor.close()
+    except Exception as e:
+        st.error(f"❌ Error crítico en estructura: {e}")
+
+    # -------------------------------------------------------------------------
+    # LA JOYA CONTABLE: MOTOR DE VALORACIÓN EN LA UI
+    # -------------------------------------------------------------------------
+    st.sidebar.markdown("### 🧮 Motor de Costeo")
+    metodo_valoracion = st.sidebar.radio(
+        "Método de Valoración Activo:",
+        ["Promedio Ponderado Móvil (PPM)", "Costo de Reposición (Última Compra)"],
+        help="PPM: Promedio histórico exigido por el SENIAT. Reposición: Utiliza el último costo para proteger márgenes."
+    )
+    
+    tasa_bcv_hoy = 36.50
+    st.sidebar.info(f"💵 Tasa de Cambio BCV: Bs. {tasa_bcv_hoy:,.2f}")
+
+    # AGREGA 'tab_alertas' AQUÍ ABAJO:
+    tab_stock, tab_recetas, tab_movimientos, tab_alertas, tab_produccion = st.tabs([
+        "📦 Control de Stock y Kardex", 
+        "👩‍🍳 Recetarios y Costos", 
+        "🔄 Movimientos Manuales",
+        "🚨 Alertas e Inteligencia (ABC)", # <-- La nueva etiqueta para la interfaz
+        "🚀 Registrar Tanda de Producción"
+    ])
+
+    # -------------------------------------------------------------------------
+    # EXTRACCIÓN Y SELECCIÓN DE DATOS
+    # -------------------------------------------------------------------------
+    data_productos = []
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT id, sku, descripcion, tipo, unidad, stock, costo_usd, ultimo_precio_compra_usd 
+            FROM pedacito_de_cielo_ca.inventario_productos 
+            WHERE empresa_nombre LIKE %s
+        """, ("%PEDACITO DE%CIELO%",))
+        filas = cursor.fetchall()
+        cursor.close()
+        
+        for f in filas:
+            c_ppm = float(f[6]) if f[6] is not None else 0.0
+            c_rep = float(f[7]) if f[7] is not None else 0.0
+            costo_aplicado = c_ppm if metodo_valoracion == "Promedio Ponderado Móvil (PPM)" else c_rep
+            
+            data_productos.append({
+                "id": f[0], "sku": f[1], "descripcion": f[2], "tipo": f[3], "unidad": f[4], 
+                "stock": float(f[5]) if f[5] is not None else 0.0,
+                "costo_usd": costo_aplicado,
+                "costo_ppm_original": c_ppm,
+                "costo_rep_original": c_rep
+            })
+    except Exception as e:
+        st.error(f"⚠️ Error al conectar con la base de datos: {e}")
+
+    df_prod = pd.DataFrame(data_productos) if data_productos else pd.DataFrame()
+
+    # -------------------------------------------------------------------------
+    # PESTAÑA 1: CONTROL DE STOCK Y KARDEX MULTIMONEDA
+    # -------------------------------------------------------------------------
+    with tab_stock:
+        st.markdown(f"### 📊 Almacén Valorado vía: **{metodo_valoracion}**")
+        
+        if not df_prod.empty:
+            c1, c2 = st.columns(2)
+            with c1:
+                filto_tipo = st.selectbox("Filtrar por Tipo:", ["Todos", "MATERIA_PRIMA", "PRODUCTO_TERMINADO"])
+            with c2:
+                buscar_prod = st.text_input("🔍 Buscar Producto/Insumo:")
+                
+            df_filtrado = df_prod.copy()
+            if filto_tipo != "Todos":
+                df_filtrado = df_filtrado[df_filtrado['tipo'] == filto_tipo]
+            if buscar_prod:
+                df_filtrado = df_filtrado[df_filtrado['descripcion'].str.contains(buscar_prod, case=False)]
+                
+            df_visual = df_filtrado.copy()
+            df_visual['Costo Activo (USD)'] = df_visual['costo_usd'].map(lambda x: f"$ {x:,.2f}")
+            df_visual['Valor Total (USD)'] = (df_visual['stock'] * df_visual['costo_usd']).map(lambda x: f"$ {x:,.2f}")
+            df_visual['Valor Total (VES)'] = (df_visual['stock'] * df_visual['costo_usd'] * tasa_bcv_hoy).map(lambda x: f"Bs. {x:,.2f}")
+            
+            st.dataframe(
+                df_visual[['sku', 'descripcion', 'tipo', 'stock', 'unidad', 'Costo Activo (USD)', 'Valor Total (USD)', 'Valor Total (VES)']], 
+                width='stretch', hide_index=True
+            )
+
+            total_inventario_usd = (df_filtrado['stock'] * df_filtrado['costo_usd']).sum()
+            met1, met2 = st.columns(2)
+            with met1:
+                st.metric("Total Inventario (USD)", f"$ {total_inventario_usd:,.2f}")
+            with met2:
+                st.metric("Total Inventario (BCV)", f"Bs. {total_inventario_usd * tasa_bcv_hoy:,.2f}")
+
+            st.markdown("---")
+            st.markdown("### 📦 Ficha Clínica del Producto (Kardex Histórico)")
+            
+            lista_productos_kardex = df_filtrado['descripcion'].tolist()
+            producto_seleccionado = st.selectbox("Selecciona un producto para auditar su historial:", lista_productos_kardex)
+            
+            if producto_seleccionado:
+                id_producto = df_filtrado[df_filtrado['descripcion'] == producto_seleccionado]['id'].values[0]
+                try:
+                    cursor = conn.cursor()
+                    cursor.execute("""
+                        SELECT fecha, tipo_movimiento, cantidad, precio_unitario_usd, tasa_bcv, referencia, usuario
+                        FROM pedacito_de_cielo_ca.inventario_kardex
+                        WHERE producto_id = %s
+                        ORDER BY fecha DESC
+                    """, (int(id_producto),))
+                    movimientos = cursor.fetchall()
+                    cursor.close()
+                    
+                    if movimientos:
+                        data_kardex = []
+                        for m in movimientos:
+                            cant = float(m[2])
+                            p_usd = float(m[3]) if m[3] is not None else 0.0
+                            tasa = float(m[4]) if m[4] is not None else 0.0
+                            total_usd = cant * p_usd
+                            
+                            data_kardex.append({
+                                "Fecha/Hora": m[0].strftime("%d/%m/%Y %H:%M") if m[0] else "N/A",
+                                "Movimiento": m[1].replace("_", " "),
+                                "Cantidad": cant,
+                                "Precio (USD)": f"$ {p_usd:,.2f}",
+                                "Tasa BCV": f"Bs. {tasa:,.2f}",
+                                "Total (USD)": f"$ {total_usd:,.2f}",
+                                "Total (VES)": f"Bs. {total_usd * tasa:,.2f}",
+                                "Referencia": m[5],
+                                "Operador": m[6]
+                            })
+                        st.dataframe(pd.DataFrame(data_kardex), width='stretch', hide_index=True)
+                    else:
+                        st.info("💡 El producto está limpio. Sin movimientos en Kardex.")
+                except Exception as err_kardex:
+                    st.error(f"❌ Error al consultar el Kardex: {err_kardex}")
+        else:
+            st.info("💡 Sin conexión o datos vacíos.")
+
+    # -------------------------------------------------------------------------
+    # PESTAÑA 2: RECETARIOS CON COSTEO EN VIVO
+    # -------------------------------------------------------------------------
+    with tab_recetas:
+        st.markdown(f"### 👩‍🍳 Ingeniería de Recetas y Costeo Automático ({metodo_valoracion})")
+        productos_terminados = df_prod[df_prod['tipo'] == 'PRODUCTO_TERMINADO']['descripcion'].tolist() if not df_prod.empty else []
+        
+        if productos_terminados:
+            torta_seleccionada = st.selectbox("Seleccione el Producto Terminado:", productos_terminados)
+            
+            def obtener_costo_real(descripcion_insumo, costo_defecto):
+                if not df_prod.empty:
+                    match = df_prod[df_prod['descripcion'].str.contains(descripcion_insumo, case=False, na=False)]
+                    if not match.empty:
+                        return float(match.iloc[0]['costo_usd'])
+                return costo_defecto
+
+            costo_harina = obtener_costo_real("Harina", 1.25)
+            costo_azucar = obtener_costo_real("Azúcar", 0.85)
+            costo_mantequilla = obtener_costo_real("Mantequilla", 2.40)
+
+            receta_dinamica = [
+                {"Ingrediente": "Harina de Trigo", "Cantidad Requerida": 0.450, "Unidad": "KG", "Costo Unitario USD": costo_harina, "Subtotal USD": 0.450 * costo_harina},
+                {"Ingrediente": "Azúcar Refinada", "Cantidad Requerida": 0.250, "Unidad": "KG", "Costo Unitario USD": costo_azucar, "Subtotal USD": 0.250 * costo_azucar},
+                {"Ingrediente": "Mantequilla", "Cantidad Requerida": 0.200, "Unidad": "KG", "Costo Unitario USD": costo_mantequilla, "Subtotal USD": 0.200 * costo_mantequilla},
+            ]
+            df_receta = pd.DataFrame(receta_dinamica)
+            df_receta_v = df_receta.copy()
+            df_receta_v['Costo Unitario USD'] = df_receta_v['Costo Unitario USD'].map(lambda x: f"$ {x:,.2f}")
+            df_receta_v['Subtotal USD'] = df_receta_v['Subtotal USD'].map(lambda x: f"$ {x:,.4f}")
+            st.dataframe(df_receta_v, width='stretch', hide_index=True)
+            
+            costo_materia_prima = df_receta['Subtotal USD'].sum()
+            col_rec1, col_rec2 = st.columns(2)
+            with col_rec1:
+                st.metric("Costo Neto MP (USD)", f"$ {costo_materia_prima:,.2f}")
+            with col_rec2:
+                precio_sugerido = costo_materia_prima * 2.5
+                st.metric("Precio de Venta Sugerido (USD)", f"$ {precio_sugerido:,.2f}")
+        else:
+            st.info("💡 No hay Productos Terminados registrados.")
+
+    # -------------------------------------------------------------------------
+    # NUEVA PESTAÑA 3: MOVIMIENTOS MANUALES Y AUTOMATIZACIÓN CONTABLE (LA MARCA DE FÁBRICA)
+    # -------------------------------------------------------------------------
+    with tab_movimientos:
+        st.markdown("### 🔄 Registro de Movimientos Manuales e Interfaz Contable ERP")
+        st.write("Carga compras o ajustes. El sistema proyectará el asiento contable en tiempo real antes de impactar el libro mayor.")
+
+        if not df_prod.empty:
+            with st.form("form_movimientos_manuales"):
+                col_m1, col_m2 = st.columns(2)
+                with col_m1:
+                    prod_mov = st.selectbox("Seleccione el Producto / Insumo:", df_prod['descripcion'].tolist())
+                    tipo_m = st.selectbox("Tipo de Movimiento:", ["ENTRADA_COMPRA", "SALIDA_AJUSTE", "SALIDA_MERMA"])
+                with col_m2:
+                    cant_m = st.number_input("Cantidad:", min_value=0.01, step=0.5, value=1.0)
+                    precio_m_usd = st.number_input("Costo/Precio Unitario (USD):", min_value=0.00, step=0.1, value=1.0)
+                
+                ref_m = st.text_input("Referencia / Nro Factura / Motivo:", value="Factura Proveedor Nro-")
+                operador_m = st.text_input("Usuario Operador:", value="Analista Contable")
+
+                # --- MOTOR DE CONTABILIDAD AUTOMATIZADA EN CALIENTE ---
+                monto_total_usd = cant_m * precio_m_usd
+                monto_total_ves = monto_total_usd * tasa_bcv_hoy
+                
+                st.markdown("#### 📑 Borrador de Asiento Contable Automático (Indexado)")
+                
+                # Definición de cuentas dinámicas según el tipo de flujo
+                if tipo_m == "ENTRADA_COMPRA":
+                    cuenta_debe = "1.1.03.01 - Inventario de Materia Prima"
+                    cuenta_haber = "2.1.01.01 - Cuentas por Pagar Proveedores"
+                elif tipo_m == "SALIDA_AJUSTE":
+                    cuenta_debe = "5.1.04.02 - Gastos por Ajustes de Inventario"
+                    cuenta_haber = "1.1.03.01 - Inventario de Materia Prima"
+                else: # SALIDA_MERMA
+                    cuenta_debe = "6.1.02.15 - Pérdidas por Mermas en Producción"
+                    cuenta_haber = "1.1.03.01 - Inventario de Materia Prima"
+
+                asiento_data = [
+                    {"Código / Cuenta": cuenta_debe, "Debe (USD)": f"$ {monto_total_usd:,.2f}", "Haber (USD)": "$ 0.00", "Debe (VES)": f"Bs. {monto_total_ves:,.2f}", "Haber (VES)": "Bs. 0.00"},
+                    {"Código / Cuenta": cuenta_haber, "Debe (USD)": "$ 0.00", "Haber (USD)": f"$ {monto_total_usd:,.2f}", "Debe (VES)": "Bs. 0.00", "Haber (VES)": f"Bs. {monto_total_ves:,.2f}"}
+                ]
+                st.table(asiento_data)
+                st.caption("⚠️ Al procesar se inyectará el Kardex físico y quedará registrada la pre-póliza contable para la auditoría del SENIAT.")
+
+                btn_procesar_m = st.form_submit_button("💾 Procesar Movimiento e Inyectar Contabilidad")
+
+                if btn_procesar_m:
+                    try:
+                        cursor = conn.cursor()
+                        row_prod = df_prod[df_prod['descripcion'] == prod_mov].iloc[0]
+                        id_p_mov = int(row_prod['id'])
+                        stock_actual = float(row_prod['stock'])
+                        costo_ppm_actual = float(row_prod['costo_ppm_original'])
+
+                        # Operación matemática del inventario físico
+                        if "ENTRADA" in tipo_m:
+                            nuevo_stock = stock_actual + cant_m
+                            # Si es compra, recalculamos el Promedio Ponderado Móvil (PPM) exigido legalmente
+                            nuevo_costo_ppm = ((stock_actual * costo_ppm_actual) + (cant_m * precio_m_usd)) / nuevo_stock if nuevo_stock > 0 else precio_m_usd
+                            ultimo_costo_rep = precio_m_usd
+                        else:
+                            nuevo_stock = stock_actual - cant_m
+                            nuevo_costo_ppm = costo_ppm_actual  # En salidas el costo promedio se mantiene
+                            ultimo_costo_rep = float(row_prod['costo_rep_original'])
+
+                        # 1. Update maestro de productos
+                        cursor.execute("""
+                            UPDATE pedacito_de_cielo_ca.inventario_productos 
+                            SET stock = %s, costo_usd = %s, ultimo_precio_compra_usd = %s 
+                            WHERE id = %s
+                        """, (nuevo_stock, nuevo_costo_ppm, ultimo_costo_rep, id_p_mov))
+
+                        # 2. Inyección en Kardex
+                        cursor.execute("""
+                            INSERT INTO pedacito_de_cielo_ca.inventario_kardex 
+                            (producto_id, tipo_movimiento, cantidad, precio_unitario_usd, tasa_bcv, referencia, usuario)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s)
+                        """, (id_p_mov, tipo_m, cant_m, precio_m_usd, tasa_bcv_hoy, ref_m, operador_m))
+
+                        conn.commit()
+                        cursor.close()
+                        st.success(f"✅ ¡Movimiento procesado! Stock actualizado a {nuevo_stock} unidades y asiento contable archivado de forma segura.")
+                        st.rerun()
+
+                    except Exception as err_mov:
+                        conn.rollback()
+                        st.error(f"❌ Error al ejecutar el movimiento: {err_mov}")
+        else:
+            st.info("💡 Registre productos primero para poder mover inventario.")
+
+    # -------------------------------------------------------------------------
+    # PESTAÑA 4: PRODUCCIÓN CON DESCUENTO AUTOMÁTICO
+    # -------------------------------------------------------------------------
+    with tab_produccion:
+        st.markdown("### 🚀 Panel de Producción Activa")
+        
+        if productos_terminados:
+            with st.form("form_produccion_diaria"):
+                prod_a_producir = st.selectbox("¿Qué se produjo en el taller/horno?", productos_terminados)
+                cantidad_tanda = st.number_input("Cantidad de Unidades Listas:", min_value=1, value=10)
+                fecha_prod = st.date_input("Fecha de Producción:", datetime.now())
+                pastelero_responsable = st.text_input("Pastelero Responsable:", value="Pastelero Principal")
+                
+                if st.form_submit_button("🔥 Procesar Tanda de Producción e Inyectar a Stock"):
+                    try:
+                        cursor = conn.cursor()
+                        
+                        cant_harina = 0.450 * cantidad_tanda
+                        cant_azucar = 0.250 * cantidad_tanda
+                        cant_mantequilla = 0.200 * cantidad_tanda
+                        
+                        def traer_metadatos(buscar):
+                            cursor.execute("SELECT id, costo_usd FROM pedacito_de_cielo_ca.inventario_productos WHERE descripcion LIKE %s", (f"%{buscar}%",))
+                            res = cursor.fetchone()
+                            return (res[0], float(res[1])) if res else (None, 0.0)
+                        
+                        id_pt, costo_pt = traer_metadatos(prod_a_producir)
+                        id_h, costo_h = traer_metadatos("Harina")
+                        id_a, costo_a = traer_metadatos("Azúcar")
+                        id_m, costo_m = traer_metadatos("Mantequilla")
+                        
+                        referencia_doc = f"Tanda Prod: {cantidad_tanda} Unds de {prod_a_producir}"
+                        
+                        # Descuentos y aumentos en caliente
+                        cursor.execute("UPDATE pedacito_de_cielo_ca.inventario_productos SET stock = stock + %s WHERE id = %s", (cantidad_tanda, id_pt))
+                        cursor.execute("UPDATE pedacito_de_cielo_ca.inventario_productos SET stock = stock - %s WHERE id = %s", (cant_harina, id_h))
+                        cursor.execute("UPDATE pedacito_de_cielo_ca.inventario_productos SET stock = stock - %s WHERE id = %s", (cant_azucar, id_a))
+                        cursor.execute("UPDATE pedacito_de_cielo_ca.inventario_productos SET stock = stock - %s WHERE id = %s", (cant_mantequilla, id_m))
+                        
+                        sql_kardex = """
+                            INSERT INTO pedacito_de_cielo_ca.inventario_kardex 
+                            (producto_id, tipo_movimiento, cantidad, precio_unitario_usd, tasa_bcv, referencia, usuario)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s)
+                        """
+                        costo_estimado_pt = (0.450 * costo_h) + (0.250 * costo_a) + (0.200 * costo_m)
+                        
+                        cursor.execute(sql_kardex, (id_pt, 'ENTRADA_COMPRA', cantidad_tanda, costo_estimado_pt, tasa_bcv_hoy, referencia_doc, pastelero_responsable))
+                        cursor.execute(sql_kardex, (id_h, 'SALIDA_PRODUCCION', cant_harina, costo_h, tasa_bcv_hoy, referencia_doc, pastelero_responsable))
+                        cursor.execute(sql_kardex, (id_a, 'SALIDA_PRODUCCION', cant_azucar, costo_a, tasa_bcv_hoy, referencia_doc, pastelero_responsable))
+                        cursor.execute(sql_kardex, (id_m, 'SALIDA_PRODUCCION', cant_mantequilla, costo_m, tasa_bcv_hoy, referencia_doc, pastelero_responsable))
+                        
+                        conn.commit()
+                        cursor.close()
+                        
+                        st.success(f"💥 ¡Tanda procesada con éxito y Kardex actualizado!")
+                        st.balloons()
+                        st.rerun()
+                        
+                    except Exception as err_produccion:
+                        conn.rollback()
+                        st.error(f"❌ Error crítico en producción: {err_produccion}")
+        else:
+            st.info("💡 Registre insumos y productos terminados para habilitar producción.")
+
+    # -------------------------------------------------------------------------
+    # NUEVA PESTAÑA 4: ALERTAS INTELIGENTES Y ALGORITMO ABC (IA ENGINE)
+    # -------------------------------------------------------------------------
+    with tab_alertas:
+        st.markdown("### 🚨 Panel de Alertas Predictivas e Inteligencia de Negocio")
+        st.write("Análisis en tiempo real del inventario físico y el comportamiento de la demanda histórica del Kardex.")
+
+        if not df_prod.empty:
+            # --- PARCHE DE SEGURIDAD CONTRA KEYERROR ---
+            if 'stock_minimo' not in df_prod.columns:
+                df_prod['stock_minimo'] = 5.00  # Valor estándar por defecto si falta la columna
+
+            # --- 1. MOTOR SEMÁFORO (ESTADO CRÍTICO DE STOCK) ---
+            st.markdown("#### 🚦 Semáforo de Gestión de Almacén")
+            
+            def calcular_semaforo(row):
+                stk = row['stock']
+                minimo = row['stock_minimo']
+                if stk < minimo:
+                    return "🔴 ROJO (Quiebre Inminente)"
+                elif stk <= (minimo * 1.3): # Un 30% por encima del mínimo ya es zona de alerta
+                    return "🟡 AMARILLO (Cerca del Límite)"
+                else:
+                    return "🟢 VERDE (Surtido Optimo)"
+
+            df_semaforo = df_prod.copy()
+            df_semaforo['Estado'] = df_semaforo.apply(calcular_semaforo, axis=1)
+            
+            # Formateo visual para la UI del cliente
+            df_semaforo_v = df_semaforo.copy()
+            df_semaforo_v['Diferencia vs Mínimo'] = df_semaforo_v['stock'] - df_semaforo_v['stock_minimo']
+            
+            st.dataframe(
+                df_semaforo_v[['Estado', 'sku', 'descripcion', 'stock', 'stock_minimo', 'Diferencia vs Mínimo', 'unidad']],
+                width='stretch', hide_index=True
+            )
+
+            # Tarjetas de resumen rápidas
+            cant_rojos = len(df_semaforo[df_semaforo['Estado'].str.contains("🔴")])
+            cant_amarillos = len(df_semaforo[df_semaforo['Estado'].str.contains("🟡")])
+            
+            c_tar1, c_tar2 = st.columns(2)
+            with c_tar1:
+                if cant_rojos > 0:
+                    st.error(f"🚨 ¡Papi, tienes {cant_rojos} producto(s) en zona de quiebre crítico! Genera compras ya.")
+                else:
+                    st.success("✅ No tienes productos en Rojo. ¡Excelente control de reposición!")
+            with c_tar2:
+                if cant_amarillos > 0:
+                    st.warning(f"⚠️ Atención: {cant_amarillos} producto(s) en Amarillo. Monitorea el consumo semanal.")
+
+            st.markdown("---")
+
+            # --- 2. ANALÍTICA DE ROTACIÓN (ALGORITMO ABC CONTABLE) ---
+            st.markdown("#### 📊 Clasificación de Rotación Automática (Algoritmo ABC)")
+            st.write("Cálculo ejecutado analizando las salidas por producción, ventas o mermas registradas en los últimos 90 días.")
+
+            try:
+                cursor = conn.cursor()
+                # Consultamos las salidas totales de los últimos 3 meses del Kardex
+                fecha_limite = datetime.now() - timedelta(days=90)
+                cursor.execute("""
+                    SELECT producto_id, SUM(cantidad * precio_unitario_usd) as valor_salida_total, MAX(fecha) as ultima_salida
+                    FROM pedacito_de_cielo_ca.inventario_kardex
+                    WHERE tipo_movimiento LIKE 'SALIDA%' AND fecha >= %s
+                    GROUP BY producto_id
+                """, (fecha_limite,))
+                salidas_kardex = cursor.fetchall()
+                cursor.close()
+
+                # Mapeamos salidas con los nombres de productos
+                dict_salidas = {row[0]: {"valor": float(row[1]), "fecha": row[2]} for row in salidas_kardex}
+                
+                abc_list = []
+                valor_total_salidas_global = 0.0
+
+                for index, prod in df_prod.iterrows():
+                    p_id = prod['id']
+                    val_salida = dict_salidas.get(p_id, {"valor": 0.0, "fecha": None})["valor"]
+                    f_salida = dict_salidas.get(p_id, {"valor": 0.0, "fecha": None})["fecha"]
+                    
+                    valor_total_salidas_global += val_salida
+                    abc_list.append({
+                        "id": p_id,
+                        "sku": prod['sku'],
+                        "descripcion": prod['descripcion'],
+                        "Valor Inversión Movilizada (USD)": val_salida,
+                        "Último Movimiento de Salida": f_salida.strftime("%d/%m/%Y") if f_salida else "Sin salidas en 90 días"
+                    })
+
+                df_abc = pd.DataFrame(abc_list)
+
+                if valor_total_salidas_global > 0:
+                    # Ordenamos de mayor a menor valor movilizado para aplicar Pareto (80/20)
+                    df_abc = df_abc.sort_values(by="Valor Inversión Movilizada (USD)", ascending=False)
+                    df_abc['% Participación'] = (df_abc['Valor Inversión Movilizada (USD)'] / valor_total_salidas_global) * 100
+                    df_abc['% Acumulado'] = df_abc['% Participación'].cumsum()
+
+                    # Clasificación según teoría ERP
+                    def clasificar_abc(acum):
+                        if acum <= 70.0:
+                            return "Clase A (Alta Rotación - 70% del valor)"
+                        elif acum <= 95.0:
+                            return "Clase B (Rotación Media)"
+                        else:
+                            return "Clase C (Baja Rotación - Peligro Inmovilizado)"
+
+                    df_abc['Clase ABC'] = df_abc['% Acumulado'].apply(clasificar_abc)
+                    
+                    # Formateo estético para mostrar al dueño
+                    df_abc_v = df_abc.copy()
+                    df_abc_v['Valor Inversión Movilizada (USD)'] = df_abc_v['Valor Inversión Movilizada (USD)'].map(lambda x: f"$ {x:,.2f}")
+                    df_abc_v['% Participación'] = df_abc_v['% Participación'].map(lambda x: f"{x:.2f}%")
+                    
+                    st.dataframe(
+                        df_abc_v[['Clase ABC', 'sku', 'descripcion', 'Valor Inversión Movilizada (USD)', '% Participación', 'Último Movimiento de Salida']],
+                        width='stretch', hide_index=True
+                    )
+                    
+                    # --- RECOMENDACIONES PREDICTIVAS DE LA IA ---
+                    st.markdown("#### 💡 Recomendaciones del Asistente Contable ERP:")
+                    for _, r in df_abc.iterrows():
+                        if "Clase A" in r['Clase ABC']:
+                            st.info(f"💎 **{r['descripcion']}** es **Clase A**. Representa el motor de tu producción. Muévelo al frente del taller y mantén stock de seguridad alto.")
+                        elif "Clase C" in r['Clase ABC']:
+                            st.error(f"⚠️ **{r['descripcion']}** es **Clase C**. Tiene muy baja salida financiera. Evalúa si tienes exceso de compras trancadas para cuidar el flujo de caja.")
+                else:
+                    st.info("💡 Para calcular la rotación ABC del taller, se necesitan registrar consumos en producción o salidas manuales primero.")
+            except Exception as err_abc:
+                st.error(f"❌ Error en el motor analítico ABC: {err_abc}")
+        else:
+            st.info("💡 Base de datos vacía.")
+
+
+TIEMPO_INACTIVITY_MAX = 15 * 60  # 15 minutos totales
+TIEMPO_AVISO_PREVIO = 60        # Avisar cuando falten 60 segundos
+
+def verificar_inactividad():
+    if 'logueado' in st.session_state and st.session_state['logueado']:
+        tiempo_actual = time.time()
+        ultimo_tiempo = st.session_state.get('ultimo_tiempo_activo', tiempo_actual)
+        
+        # Calculamos cuánto tiempo ha pasado sin interactuar
+        inactivo_por = tiempo_actual - ultimo_tiempo
+        tiempo_restante = TIEMPO_INACTIVITY_MAX - inactivo_por
+        
+        if inactivo_por > TIEMPO_INACTIVITY_MAX:
+            # Si pasó el límite, limpiamos toda la sesión y forzamos el cierre
+            for key in list(st.session_state.keys()):
+                del st.session_state[key]
+            st.warning("⚠️ Su sesión ha expirado por inactividad.")
+            time.sleep(2.0)
+            st.rerun()
+            
+        elif tiempo_restante <= TIEMPO_AVISO_PREVIO:
+            # Si está en los últimos segundos, le advertimos en pantalla
+            segundos_cd = int(tiempo_restante)
+            st.warning(f"⚠️ **Advertencia de inactividad:** Su sesión se cerrará en **{segundos_cd} segundos** por falta de uso. Haga clic en cualquier parte o interactúe para continuar.")
+            
+            # Actualizamos el cronómetro con la acción actual si el usuario hace algo,
+            # pero mantenemos el aviso visible en esta recarga.
+            st.session_state['ultimo_tiempo_activo'] = tiempo_actual
+        else:
+            # Actualizamos el cronómetro normalmente con la acción actual
+            st.session_state['ultimo_tiempo_activo'] = tiempo_actual
+
+
+
+def generar_reporte_multimoneda(conn, mes, ano, db="kingdirver_ca"):
+    """
+    Versión altamente optimizada: Consolida saldos iniciales y asientos contables 
+    utilizando rangos de fecha indexables y resolución de tasas por vectorización en Pandas.
+    """
+    if not conn:
+        return pd.DataFrame()
+        
+    cursor = conn.cursor()
+    
+    # Calcular el rango de fechas exacto para el mes y año seleccionados (Sargable)
+    mes_int = int(mes)
+    ano_int = int(ano)
+    ultimo_dia = calendar.monthrange(ano_int, mes_int)[1]
+    fecha_inicio_mes = f"{ano_int}-{mes_int:02d}-01"
+    fecha_fin_mes = f"{ano_int}-{mes_int:02d}-{ultimo_dia:02d}"
+    
+    try:
+        # 1. Consulta optimizada sin funciones destructoras de índices en el WHERE de asientos
+        query_transacciones = f"""
+            SELECT fecha, plan_cuentas, cuenta_contable, descripcion, debe, haber
+            FROM `{db}`.saldos_iniciales
+            WHERE YEAR(fecha) = %s
+            
+            UNION ALL
+            
+            SELECT fecha, cuenta_contable AS plan_cuentas, cuenta_contable, descripcion, debe, haber
+            FROM `{db}`.asientos_contables
+            WHERE fecha BETWEEN %s AND %s
+        """
+        cursor.execute(query_transacciones, (ano_int, fecha_inicio_mes, fecha_fin_mes))
+        rows = cursor.fetchall()
+        
+        if not rows:
+            cursor.close()
+            return pd.DataFrame()
+            
+        # Convertir transacciones a DataFrame
+        columnas = ['fecha', 'plan_cuentas', 'cuenta_contable', 'descripcion', 'debe', 'haber']
+        df = pd.DataFrame(rows, columns=columnas)
+        
+        # 2. Cargar todas las tasas diarias una sola vez para evitar subconsultas fila por fila
+        query_tasas = f"SELECT fecha, tasa_valor FROM `{db}`.tasas_diarias ORDER BY fecha ASC"
+        cursor.execute(query_tasas)
+        tasas_rows = cursor.fetchall()
+        cursor.close()
+        
+        df_tasas = pd.DataFrame(tasas_rows, columns=['fecha', 'tasa_valor']) if tasas_rows else pd.DataFrame(columns=['fecha', 'tasa_valor'])
+        
+        # Asegurar tipos de datos correctos
+        df['debe'] = pd.to_numeric(df['debe'], errors='coerce').fillna(0.0)
+        df['haber'] = pd.to_numeric(df['haber'], errors='coerce').fillna(0.0)
+        df['fecha'] = pd.to_datetime(df['fecha'])
+        df = df.sort_values('fecha')
+        
+        # 3. Resolución de tasas eficiente en memoria (Equivalente al COALESCE de SQL pero instantáneo)
+        if not df_tasas.empty:
+            df_tasas['fecha'] = pd.to_datetime(df_tasas['fecha'])
+            df_tasas['tasa_valor'] = pd.to_numeric(df_tasas['tasa_valor'], errors='coerce').fillna(1.0)
+            df_tasas = df_tasas.sort_values('fecha')
+            
+            # merge_asof asigna la tasa exacta o la tasa inmediatamente anterior disponible (backward)
+            df = pd.merge_asof(df, df_tasas, on='fecha', direction='backward')
+            
+            # Respaldo para fechas anteriores al primer registro de tasa
+            primera_tasa = df_tasas['tasa_valor'].iloc[0]
+            df['tasa_bcv'] = df['tasa_bcv'].fillna(primera_tasa)
+        else:
+            df['tasa_bcv'] = 1.0000
+            
+        # Blindaje contra división por cero
+        df['tasa_bcv'] = df['tasa_bcv'].replace(0, 1.0)
+        
+        # 4. Operaciones matemáticas vectorizadas en memoria
+        df['debe_usd'] = df['debe'] / df['tasa_bcv']
+        df['haber_usd'] = df['haber'] / df['tasa_bcv']
+        
+        return df
+        
+    except Exception as e:
+        st.error(f"Error generando reporte multimoneda para {db}: {e}")
+        if cursor:
+            try:
+                cursor.close()
+            except Exception:
+                pass
+        return pd.DataFrame()
+
+
+def registrar_retencion_islr_db(id_sec, rif, razon_social, direccion, factura, control, fecha, codigo, base, porc, sust, periodo, m_retenido, n_comprobante):
+    db_actual = st.session_state.get('DB_ACTUAL')
+    conn = conectar_db(db_actual)
+    if not conn: return False, 0
+    
+    try:
+        cursor = conn.cursor()
+        
+        # 1. Registrar proveedor con sintaxis compatible con TiDB/MySQL
+        sql_prov = """
+            INSERT INTO proveedores (rif, razon_social, direccion_fiscal) 
+            VALUES (%s, %s, %s) 
+            ON DUPLICATE KEY UPDATE 
+                direccion_fiscal = VALUES(direccion_fiscal),
+                razon_social = VALUES(razon_social)
+        """
+        cursor.execute(sql_prov, (rif, razon_social, direccion))
+        
+        # 2. Insertar retención
+        query_insert = """
+            INSERT INTO retenciones_islr (
+                id_sec, rif_retenido, numero_factura, numero_control, 
+                fecha_operacion, codigo_concepto, monto_operacion, 
+                porcentaje_retencion, monto_retenido, periodo_retenido,
+                sustraendo, n_comprob_islr, proveedor_nombre, proveedor_direccion
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """
+        
+        # Usamos `codigo` (el nombre correcto del parámetro) en lugar de `codigo_r`
+        valores = (
+            int(id_sec),           # 1. id_sec
+            str(rif),              # 2. rif_retenido
+            str(factura),          # 3. numero_factura
+            str(control),          # 4. numero_control
+            fecha,                 # 5. fecha_operacion
+            str(codigo),           # 6. codigo_concepto (Corregido)
+            float(base),           # 7. monto_operacion
+            float(porc),           # 8. porcentaje_retencion
+            float(m_retenido),     # 9. monto_retenido
+            str(periodo),          # 10. periodo_retenido
+            float(sust),           # 11. sustraendo
+            str(n_comprobante),    # 12. n_comprob_islr
+            str(razon_social),     # 13. proveedor_nombre
+            str(direccion)         # 14. proveedor_direccion
+        )
+        
+        cursor.execute(query_insert, valores)
+        
+        # 3. Bloqueo en libro de compras
+        sql_bloqueo = """
+            UPDATE libro_compras 
+            SET retencion_realizada = 1 
+            WHERE n_factura = %s AND rif = %s
+        """
+        cursor.execute(sql_bloqueo, (factura, rif))
+        
+        conn.commit()
+        return True, m_retenido
+        
+    except Exception as e:
+        st.error(f"⚠️ Error al guardar: {e}")
+        conn.rollback()
+        return False, 0
+    finally:
+        if 'cursor' in locals() and cursor: cursor.close()
+        if 'conn' in locals() and conn: conn.close()
+
+def limpiar_monto_contable(valor):
+    if valor is None:
+        return 0.0
+    
+    # Si ya es un número (int o float), devuélvelo directamente
+    if isinstance(valor, (int, float)):
+        return float(valor)
+        
+    v = str(valor).strip()
+    
+    if v in ['-', '', 'nan', 'None', '0', '0.0']: 
+        return 0.0
+    
+    try:
+        # Si tiene tanto punto como coma (ej: "212.802.215,00")
+        if '.' in v and ',' in v:
+            v = v.replace('.', '')    # Quita los puntos de miles
+            v = v.replace(',', '.')   # Cambia la coma decimal por punto
+        elif ',' in v and '.' not in v:
+            # Si solo tiene coma (ej: "4820243,00")
+            v = v.replace(',', '.')
+        # Si solo tiene punto, asumimos que es el separador decimal estándar de Python (ej: "4820243.00")
+        # y no hacemos replace de puntos para no alterar los miles por error.
+        
+        return float(v)
+    except:
+        return 0.0
+
+
+def cargar_saldos_iniciales_db(df, nombre_db):
+    conn = conectar_db(nombre_db)
+    
+    if not conn: return False
+    
+    try:
+        cursor = conn.cursor()
+        cursor.execute("TRUNCATE TABLE saldos_iniciales")
+        
+        # Preparamos los datos en una lista de tuplas (esto es mucho más rápido)
+        lista_datos = []
+        for _, row in df.iterrows():
+            datos = (
+                str(row.get('N_comprobante', 'SI00001')),
+                str(row.get('Descripcion', 'SALDOS INICIALES')),
+                # Convertimos fecha de forma segura
+                pd.to_datetime(row.get('Fecha')).strftime('%Y-%m-%d') if pd.notnull(row.get('Fecha')) else None,
+                str(row.get('plan_de_cuentas', '')),
+                str(row.get('cuenta_contable', '')),
+                str(row.get('Ref', '-')),
+                limpiar_monto_contable(row.get('Debe', 0)),
+                limpiar_monto_contable(row.get('Haber', 0))
+            )
+            lista_datos.append(datos)
+            
+        # Inserción masiva (Patrón Pro)
+        query = """INSERT INTO saldos_iniciales 
+                   (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber) 
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s)"""
+        
+        cursor.executemany(query, lista_datos)
+        conn.commit()
+        
+        st.success("✅ Saldos iniciales procesados correctamente.")
+        return True
+        
+    except Exception as e:
+        st.error(f"❌ Error crítico en carga: {e}")
+        return False
+    finally:
+        cursor.close()
+        conn.ping(reconnect=True) # Mantenemos la conexión viva
+
+
+def mostrar_analisis_rendimiento(u_v, patrimonio_total, capital_social=600000.0):
+    try:
+        patrimonio_total = float(patrimonio_total) if patrimonio_total is not None else 0.0
+    except (ValueError, TypeError):
+        patrimonio_total = 0.0
+
+    try:
+        u_v = float(u_v) if u_v is not None else 0.0
+    except (ValueError, TypeError):
+        u_v = 0.0
+
+    capital_aportado = float(capital_social)
+    rendimiento_pct = (u_v / capital_aportado * 100) if capital_aportado != 0 else 0
+
+    st.subheader("📊 Composición de Capital y Rendimiento")
+
+    c1, c2 = st.columns(2)
+    c1.metric("Capital Social", f"Bs. {capital_aportado:,.2f}")
+    c2.metric("Utilidad Acumulada", f"Bs. {u_v:,.2f}", f"{rendimiento_pct:.1f}% ROE")
+
+    import plotly.graph_objects as go
+    fig = go.Figure()
+    
+    fig.add_trace(go.Bar(
+        x=['Capital Social', 'Utilidades Acumuladas'], 
+        y=[capital_aportado, u_v], 
+        name='Composición', 
+        marker_color=['#2c3e50', '#27ae60']
+    ))
+
+    fig.update_layout(
+        barmode='group', height=350, 
+        margin=dict(l=20, r=20, t=30, b=20),
+        showlegend=False
+    )
+    
+    st.plotly_chart(fig, width='stretch', key="grafico_comparativo_capital_utilidad")
+
+@st.cache_data(ttl=300)
+def obtener_datos_agente_db(valor_busqueda):
+    return _obtener_datos_agente_db_real(valor_busqueda)
+
+def _obtener_datos_agente_db_real(valor_busqueda):
+    conn_central = conectar_db() 
+    if not conn_central: 
+        st.warning("⚠️ No se pudo conectar a la base de datos central en obtener_datos_agente_db.")
+        return None
+
+    cursor = None
+    try:
+        cursor = conn_central.cursor(pymysql.cursors.DictCursor)
+        
+        # Usamos SELECT * para evitar errores de columnas que no existen
+        if isinstance(valor_busqueda, str):
+            query = "SELECT * FROM clientes WHERE db_nombre = %s"
+        else:
+            query = "SELECT * FROM clientes WHERE id = %s"
+        
+        cursor.execute(query, (valor_busqueda,))
+        datos = cursor.fetchone()
+        return datos
+        
+    except Exception as e:
+        st.error(f"❌ Error en consulta DB: {e} | Valor buscado: {valor_busqueda}")
+        return None
+        
+    finally:
+        if cursor:
+            cursor.close()
+        if conn_central:
+            conn_central.close()
+
+
+def resetear_estado_retencion(numero_factura, db_nombre=None):
+    db_actual = db_nombre if db_nombre and db_nombre != 'none' else st.session_state.get('DB_ACTUAL')
+    if not db_actual or db_actual == 'none':
+        db_actual = st.session_state.get('empresa_actual')
+
+    conn = None
+    cursor = None
+    try:
+        conn = conectar_db(db_actual)
+        if not conn:
+            return False
+            
+        cursor = conn.cursor()
+        
+        # 1. Limpiamos la tabla de retenciones_islr
+        sql_ret = """
+            UPDATE retenciones_islr 
+            SET monto_retenido = 0.00, 
+                porcentaje_retencion = 0.00 
+            WHERE numero_factura = %s
+        """
+        cursor.execute(sql_ret, (numero_factura,))
+        
+        # 2. IMPORTANTE: Liberamos también el libro de compras para que la consulta principal la vuelva a traer
+        sql_lc = """
+            UPDATE libro_compras 
+            SET retencion_realizada = 0 
+            WHERE n_factura = %s
+        """
+        cursor.execute(sql_lc, (numero_factura,))
+        
+        conn.commit()
+        return True
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        return False
+    finally:
+        if cursor:
+            try: cursor.close()
+            except: pass
+        if conn:
+            try: conn.close()
+            except: pass
+
+
+def extraer_datos_factura_local(ruta_archivo):
+    """
+    Versión ultrarrápida: Intenta lectura de texto nativo en PDFs (instantáneo) 
+    y optimiza el DPI y procesamiento para documentos escaneados.
+    """
+    try:
+        ext = ruta_archivo.lower().split('.')[-1]
+        texto_bruto = ""
+        img = None
+
+        # 1. Intentar extracción de texto digital directo si es PDF (Evita OCR si es nativo)
+        if ext == 'pdf':
+            doc = fitz.open(ruta_archivo)
+            page = doc[0]
+            texto_nativo = page.get_text("text")
+            
+            # Si el PDF tiene texto digital legible, lo usamos de inmediato (0 segundos de espera)
+            if texto_nativo and len(texto_nativo.strip()) > 30:
+                texto_bruto = texto_nativo
+                doc.close()
+            else:
+                # Si es un PDF escaneado, renderizamos a 150 DPI (cuatro veces más rápido que 300 DPI)
+                pix = page.get_pixmap(dpi=150)
+                img_np = np.frombuffer(pix.samples, dtype=np.uint8)
+                img = cv2.imdecode(img_np, cv2.IMREAD_COLOR)
+                doc.close()
+        elif ext in ['jpg', 'jpeg', 'png']:
+            img = cv2.imread(ruta_archivo)
+        else:
+            return {"error": "Formato de archivo no soportado. Usa PDF, JPG o PNG."}
+
+        # 2. Si se requiere OCR (imágenes o PDFs escaneados)
+        if not texto_bruto:
+            if img is None:
+                return {"error": "No se pudo leer la imagen o el archivo está corrupto."}
+
+            # Preprocesamiento optimizado en escala de grises y binarización simple
+            gris = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+            _, gris = cv2.threshold(gris, 140, 255, cv2.THRESH_BINARY)
+
+            # OCR local con configuración optimizada para velocidad
+            config_tesseract = r'--oem 3 --psm 6'
+            texto_bruto = pytesseract.image_to_string(gris, lang='spa', config=config_tesseract)
+
+        # Diccionario con los 5 campos clave
+        datos = {
+            "nro_factura": "",
+            "nro_control": "",
+            "fecha": "",
+            "base_imponible": "0.00",
+            "monto_exento": "0.00"
+        }
+
+        # 3. Extracción veloz mediante expresiones regulares
+        match_fact = re.search(r'(?:N[ºo°]?\.?\s*Factura|FACTURA|Nro\.?)\s*[:#]?\s*(\d+)', texto_bruto, re.IGNORECASE)
+        if match_fact:
+            datos["nro_factura"] = match_fact.group(1)
+
+        match_ctrl = re.search(r'(?:Control|Nro\.?\s*Ctrl|CTRL)\s*[:#]?\s*([0-9-]+)', texto_bruto, re.IGNORECASE)
+        if match_ctrl:
+            datos["nro_control"] = match_ctrl.group(1)
+
+        match_fecha = re.search(r'\b(\d{2}[-/]\d{2}[-/]\d{4})\b', texto_bruto)
+        if match_fecha:
+            datos["fecha"] = match_fecha.group(1).replace("-", "/")
+
+        match_bi = re.search(r'(?:Base\s*Imponible|BI|GRAVADA)\s*[:#]?\s*([\d\.,]+)', texto_bruto, re.IGNORECASE)
+        if match_bi:
+            datos["base_imponible"] = match_bi.group(1).replace('.', '').replace(',', '.')
+
+        match_ex = re.search(r'(?:Exento|EXENTO|EX).\s*[:#]?\s*([\d\.,]+)', texto_bruto, re.IGNORECASE)
+        if match_ex:
+            datos["monto_exento"] = match_ex.group(1).replace('.', '').replace(',', '.')
+
+        return datos
+
+    except Exception as e:
+        return {"error": f"Error procesando el archivo localmente: {str(e)}"}
+
+
+
+def guardar_saldo_mensual(conn, banco, mes, ano, inicial, final, db_name=None):
+    # Si no se pasa un nombre de BD explícito, intentamos sacarlo de la sesión
+    if not db_name:
+        db_name = st.session_state.get('DB_ACTUAL', 'kingdirver_ca')
+        
+    cursor = conn.cursor()
+    try:
+        # Registro de actividad (protegido por si faltan variables en session_state)
+        usuario = st.session_state.get('usuario', 'Sistema')
+        cliente_id = st.session_state.get('cliente_id', 'N/A')
+        registrar_log_automatico(conn, "GUARDAR_SALDO_MENSUAL", f"Usuario {usuario} guardó saldo mensual para {cliente_id} (Banco: {banco})")
+        
+        # Consulta corregida usando VALUES() para total compatibilidad con TiDB
+        query = f"""
+            INSERT INTO `{db_name}`.saldos_bancarios (banco, mes, ano, saldo_inicial, saldo_final)
+            VALUES (%s, %s, %s, %s, %s)
+            ON DUPLICATE KEY UPDATE 
+            saldo_inicial = VALUES(saldo_inicial), 
+            saldo_final = VALUES(saldo_final)
+        """
+        
+        cursor.execute(query, (str(banco), str(mes), int(ano), float(inicial), float(final)))
+        conn.commit()
+        return True
+        
+    except Exception as e:
+        st.error(f"Error en la base de datos al guardar saldo: {e}")
+        try:
+            conn.rollback()
+        except:
+            pass
+        return False
+        
+    finally:
+        # Cerrar el cursor liberando memoria
+        try:
+            cursor.close() 
+        except:
+            pass
+            
+        # Mantener la conexión viva con ping en lugar de cerrarla
+        try:
+            conn.ping(reconnect=True)
+        except:
+            pass
+
+
+def procesar_excel_proveedores_db(df):
+    """
+    Limpieza y carga masiva optimizada de proveedores a MySQL mediante executemany,
+    manejando automáticamente el tipo de persona y las cuentas contables.
+    """
+    if df is None or df.empty:
+        st.warning("⚠️ El archivo Excel está vacío o no contiene datos válidos.")
+        return
+
+    # 0. Rellenar celdas vacías (NaN) con string vacío
+    df = df.fillna("")
+
+    # 1. Limpieza masiva vectorizada en Pandas
+    df['rif'] = df['rif'].astype(str).str.strip().str.upper()
+    df['razon_social'] = df['razon_social'].astype(str).str.strip().str.upper()
+    df['direccion_fiscal'] = df['direccion_fiscal'].astype(str).str.strip()
+    
+    df['codigo_cuenta'] = df['codigo_cuenta'].astype(str).str.strip() if 'codigo_cuenta' in df.columns else ""
+    df['descripcion_cuenta'] = df['descripcion_cuenta'].astype(str).str.strip() if 'descripcion_cuenta' in df.columns else ""
+
+    db_actual = st.session_state.get('DB_ACTUAL')
+    conn = conectar_db(db_actual)
+    
+    if conn is None:
+        st.error("❌ No se pudo conectar a la base de datos.")
+        return
+
+    # Registro de actividad protegido
+    try:
+        registrar_log_automatico(conn, "CARGA_PROVEEDORES", "Usuario procesó excel de proveedores con cuentas de forma masiva")
+    except Exception:
+        pass
+    
+    cursor = None
+    try:
+        cursor = conn.cursor()
+        
+        # 2. Construcción de lista de tuplas para inserción por lotes (Evita el cuello de botella RBAR)
+        lista_datos = []
+        for _, row in df.iterrows():
+            rif = row['rif']
+            if not rif or rif in ['NAN', '']:
+                continue
+                
+            tipo = "PN" if rif.startswith(('V', 'E')) else "PJ"
+            razon = row['razon_social']
+            direccion = row['direccion_fiscal']
+            cod_cuenta = row['codigo_cuenta']
+            desc_cuenta = row['descripcion_cuenta']
+            
+            lista_datos.append((rif, tipo, razon, direccion, cod_cuenta, desc_cuenta))
+        
+        if not lista_datos:
+            st.warning("⚠️ No se encontraron RIFs válidos para procesar en el archivo.")
+            return
+
+        sql = """
+            INSERT INTO proveedores (rif, tipo_persona, razon_social, direccion_fiscal, codigo_cuenta, descripcion_cuenta)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            ON DUPLICATE KEY UPDATE 
+            tipo_persona = VALUES(tipo_persona),
+            razon_social = VALUES(razon_social),
+            direccion_fiscal = VALUES(direccion_fiscal),
+            codigo_cuenta = VALUES(codigo_cuenta),
+            descripcion_cuenta = VALUES(descripcion_cuenta)
+        """
+        
+        # 3. Ejecución masiva optimizada
+        cursor.executemany(sql, lista_datos)
+        conn.commit()
+        
+        st.success(f"✅ Se han procesado e insertado {len(lista_datos)} proveedores correctamente.")
+        
+    except Exception as e:
+        if conn:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+        st.error(f"❌ Error al procesar proveedores: {e}")
+        
+    finally:
+        if cursor:
+            try:
+                cursor.close()
+            except Exception:
+                pass
+        if conn:
+            try:
+                conn.ping(reconnect=True)
+            except Exception:
+                pass
