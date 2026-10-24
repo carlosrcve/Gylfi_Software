@@ -9146,7 +9146,7 @@ elif opcion_menu == "📂 Plan de Cuentas":
             )
 
             # --- GUARDADO EN LOTE INSTANTÁNEO ---
-            if st.button("💾 Guardar Cambios en Cuentas Existentes", type="primary", use_container_width=True):
+            if st.button("💾 Guardar Cambios en Cuentas Existentes", type="primary", use_container_width=False):
                 if df_editado is None or df_editado.empty:
                     st.error("⚠️ El editor está vacío.")
                     st.stop()
