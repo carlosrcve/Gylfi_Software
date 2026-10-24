@@ -9152,7 +9152,7 @@ elif opcion_menu == "📂 Plan de Cuentas":
                     st.stop()
 
                 try:
-                    # Reutilizamos la conexión ya abierta para evitar retrasos de red con la nube
+                    # 1. Reutilizamos la conexión activa para cero latencia de red
                     conn_empresa.ping(reconnect=True)
                     cursor = conn_empresa.cursor()
                     
@@ -9185,16 +9185,17 @@ elif opcion_menu == "📂 Plan de Cuentas":
                             SET codigo = %s, nombre = %s, nivel = %s, tipo = %s, padre = %s 
                             WHERE id = %s
                         """
+                        # 2. Ejecución masiva instantánea en la nube
                         cursor.executemany(sql_update, datos_a_actualizar)
                         conn_empresa.commit()
 
                     cursor.close()
                     
-                    # Actualizamos la memoria local de forma directa para evitar consultas pesadas
+                    # 3. Actualizamos la memoria RAM local al instante sin perder el foco
                     st.session_state.df_plan_cuentas_memoria = df_editado.copy()
                     
-                    st.success(f"✅ ¡Guardado instantáneo ({len(datos_a_actualizar)} cuentas sincronizadas)!")
-                    st.rerun()
+                    # 4. Mensaje flotante rápido (NO bloquea la UI ni recarga el script)
+                    st.toast(f"✅ ¡{len(datos_a_actualizar)} cuentas guardadas al instante!", icon="💾")
                     
                 except Exception as ex_save:
                     if hasattr(conn_empresa, 'rollback'):
