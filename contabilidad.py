@@ -9147,51 +9147,81 @@ elif opcion_menu == "📂 Plan de Cuentas":
 
             # --- GUARDADO EN LOTE INSTANTÁNEO ---
             if st.button("💾 Guardar Cambios en Cuentas Existentes", type="primary", use_container_width=True):
-                try:
-                    if df_editado is None or df_editado.empty:
-                        st.error("⚠️ El editor está vacío.")
-                        st.stop()
+                if df_editado is None or df_editado.empty:
+                    st.error("⚠️ El editor está vacío. No se guardará nada.")
+                    st.stop()
 
-                    conn_empresa.ping(reconnect=True)
-                    cursor = conn_empresa.cursor()
-                    
-                    datos_a_actualizar = []
-                    for _, row in df_editado.iterrows():
-                        cuenta_id = row['id']
-                        codigo = str(row['codigo']).strip() if pd.notnull(row['codigo']) and str(row['codigo']).strip() not in ['', 'nan', 'None', '<NA>'] else None
-                        nombre = str(row['nombre']).strip() if pd.notnull(row['nombre']) and str(row['nombre']).strip() not in ['', 'nan', 'None', '<NA>'] else None
-                        nivel = int(row['nivel']) if pd.notnull(row['nivel']) and str(row['nivel']).strip() not in ['', 'nan', 'None', '<NA>'] else 1
-                        tipo = str(row['tipo']).strip() if str(row['tipo']).strip() in ['Grupo', 'Detalle'] else 'Detalle'
-                        padre = str(row['padre']).strip() if pd.notnull(row['padre']) and str(row['padre']).strip() not in ['', 'nan', 'None', '<NA>'] else None
+                # Spinner visual para que el usuario sepa que está procesando al instante
+                with st.spinner("💾 Guardando cambios en la base de datos..."):
+                    conn_save = None
+                    try:
+                        # Conexión independiente y directa para la escritura
+                        conn_save = conectar_db(db_actual)
+                        if not conn_save:
+                            st.error("❌ No se pudo establecer conexión con la base de datos.")
+                            st.stop()
 
-                        if not codigo or not nombre:
-                            continue
+                        conn_save.ping(reconnect=True)
+                        cursor = conn_save.cursor()
+                        
+                        datos_a_actualizar = []
+                        for _, row in df_editado.iterrows():
+                            cuenta_id = row.get('id')
+                            codigo = str(row.get('codigo', '')).strip()
+                            nombre = str(row.get('nombre', '')).strip()
+                            
+                            # Conversión segura y rápida de tipos
+                            try:
+                                nivel = int(row.get('nivel', 1)) if pd.notnull(row.get('nivel')) else 1
+                            except Exception:
+                                nivel = 1
+                            
+                            tipo_val = str(row.get('tipo', 'Detalle')).strip()
+                            tipo = tipo_val if tipo_val in ['Grupo', 'Detalle'] else 'Detalle'
+                            
+                            padre = str(row.get('padre', '')).strip()
+                            padre = padre if padre not in ['', 'nan', 'None', '<NA>'] else None
 
-                        if pd.notnull(cuenta_id) and str(cuenta_id).strip() not in ['', 'nan', 'None', '<NA>', '0.0', '0']:
-                            datos_a_actualizar.append((codigo, nombre, nivel, tipo, padre, int(float(cuenta_id))))
+                            if not codigo or not nombre:
+                                continue
 
-                    if datos_a_actualizar:
-                        sql_update = """
-                            UPDATE plan_cuentas 
-                            SET codigo = %s, nombre = %s, nivel = %s, tipo = %s, padre = %s 
-                            WHERE id = %s
-                        """
-                        cursor.executemany(sql_update, datos_a_actualizar)
-                        conn_empresa.commit()
+                            if pd.notnull(cuenta_id) and str(cuenta_id).strip() not in ['', 'nan', 'None', '<NA>', '0.0', '0']:
+                                datos_a_actualizar.append((codigo, nombre, nivel, tipo, padre, int(float(cuenta_id))))
 
-                    cursor.close()
-                    cargar_plan_cuentas_memoria(db_actual)
-                    st.success(f"✅ ¡Se actualizaron {len(datos_a_actualizar)} cuentas instantáneamente!")
-                    st.balloons()
-                    st.rerun()
-                    
-                except Exception as ex_save:
-                    if hasattr(conn_empresa, 'rollback'):
-                        try:
-                            conn_empresa.rollback()
-                        except Exception:
-                            pass
-                    st.error(f"❌ Error al guardar: {ex_save}")
+                        if datos_a_actualizar:
+                            sql_update = """
+                                UPDATE plan_cuentas 
+                                SET codigo = %s, nombre = %s, nivel = %s, tipo = %s, padre = %s 
+                                WHERE id = %s
+                            """
+                            # Ejecución masiva en un solo viaje de red
+                            cursor.executemany(sql_update, datos_a_actualizar)
+                            conn_save.commit()
+
+                        cursor.close()
+                        
+                        # Limpiamos la memoria local y la caché para forzar datos frescos
+                        if "df_plan_cuentas_memoria" in st.session_state:
+                            del st.session_state.df_plan_cuentas_memoria
+                        st.cache_data.clear()
+                        
+                        st.success(f"✅ ¡Se actualizaron {len(datos_a_actualizar)} cuentas correctamente!")
+                        st.balloons()
+                        st.rerun()
+                        
+                    except Exception as ex_save:
+                        if conn_save and hasattr(conn_save, 'rollback'):
+                            try:
+                                conn_save.rollback()
+                            except Exception:
+                                pass
+                        st.error(f"❌ Error al guardar en la base de datos: {ex_save}")
+                    finally:
+                        if conn_save and hasattr(conn_save, 'close'):
+                            try:
+                                conn_save.close()
+                            except Exception:
+                                pass
 
         # --- TAB 3: DESCARGAR EXCEL ---
         with tab3:
