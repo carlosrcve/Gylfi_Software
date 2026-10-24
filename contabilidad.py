@@ -8938,14 +8938,13 @@ elif opcion_menu == "📂 Plan de Cuentas":
     
     db_actual = st.session_state.get('DB_ACTUAL')
     if not db_actual:
-        st.error("No se ha seleccionado una base de datos.")
+        st.error("⚠️ Por favor, seleccione un Cliente/Empresa en el panel lateral.")
         st.stop()
 
-    # --- FUNCIÓN CON CACHÉ DE 60 SEGUNDOS PARA EVITAR LLAMADAS A LA NUBE ---
-    @st.cache_data(ttl=60, show_spinner=False)
-    def consultar_plan_cuentas_cached(empresa):
-        df_res = pd.DataFrame()
+    # --- FUNCIÓN DE CARGA RÁPIDA A MEMORIA LOCAL (SESSION STATE) ---
+    def cargar_plan_cuentas_memoria(empresa):
         conn = conectar_db(empresa)
+        df_res = pd.DataFrame()
         if conn:
             try:
                 conn.ping(reconnect=True)
@@ -8958,28 +8957,34 @@ elif opcion_menu == "📂 Plan de Cuentas":
                 except Exception:
                     pass
         
-        if df_res is None or df_res.empty:
-            return pd.DataFrame(columns=['id', 'codigo', 'nombre', 'nivel', 'tipo', 'padre'])
-        
         columnas_requeridas = ['id', 'codigo', 'nombre', 'nivel', 'tipo', 'padre']
-        for col in columnas_requeridas:
-            if col not in df_res.columns:
-                df_res[col] = ""
+        if df_res is None or df_res.empty:
+            df_res = pd.DataFrame(columns=columnas_requeridas)
+        else:
+            for col in columnas_requeridas:
+                if col not in df_res.columns:
+                    df_res[col] = ""
 
-        for col in ['codigo', 'nombre', 'tipo', 'padre']:
-            if col in df_res.columns:
-                df_res[col] = df_res[col].fillna("").astype(str).replace(['nan', 'None', '<NA>'], '')
-        
-        if 'id' in df_res.columns:
-            df_res['id'] = pd.to_numeric(df_res['id'], errors='coerce')
-        if 'nivel' in df_res.columns:
-            df_res['nivel'] = pd.to_numeric(df_res['nivel'], errors='coerce').fillna(1).astype(int)
-
-        if 'codigo' in df_res.columns:
-            df_res = df_res.sort_values(by='codigo', ascending=True).reset_index(drop=True)
+            for col in ['codigo', 'nombre', 'tipo', 'padre']:
+                if col in df_res.columns:
+                    df_res[col] = df_res[col].fillna("").astype(str).replace(['nan', 'None', '<NA>'], '')
             
-        return df_res
+            if 'id' in df_res.columns:
+                df_res['id'] = pd.to_numeric(df_res['id'], errors='coerce')
+            if 'nivel' in df_res.columns:
+                df_res['nivel'] = pd.to_numeric(df_res['nivel'], errors='coerce').fillna(1).astype(int)
 
+            if 'codigo' in df_res.columns:
+                df_res = df_res.sort_values(by='codigo', ascending=True).reset_index(drop=True)
+                
+        st.session_state.df_plan_cuentas_memoria = df_res
+        st.session_state.db_plan_cuentas_cargada = empresa
+
+    # Verificamos si los datos no están cargados en memoria o si cambió la BD activa
+    if "df_plan_cuentas_memoria" not in st.session_state or st.session_state.get("db_plan_cuentas_cargada") != db_actual:
+        cargar_plan_cuentas_memoria(db_actual)
+
+    # Obtenemos la conexión rápida para operaciones de escritura
     conn_empresa = conectar_db(db_actual)
     
     try:
@@ -9031,7 +9036,7 @@ elif opcion_menu == "📂 Plan de Cuentas":
                             df_final = df_final.astype(object).where(df_final.notnull(), None)
                             
                             actualizar_tabla_completa_db(conn_empresa, 'plan_cuentas', df_final)
-                            st.cache_data.clear()
+                            cargar_plan_cuentas_memoria(db_actual)
                             st.success("✅ ¡Plan de cuentas sincronizado correctamente!")
                             st.balloons()
                             st.rerun()
@@ -9044,149 +9049,159 @@ elif opcion_menu == "📂 Plan de Cuentas":
         with tab2:
             st.markdown("### 📋 Plan de Cuentas (Gestión y Modificación)")
             
-            if not conn_empresa:
-                st.error("❌ Error de conexión a la base de datos.")
-            else:
-                df_actual = consultar_plan_cuentas_cached(db_actual)
+            # Botón para forzar refresco desde BD si lo deseas
+            col_r1, col_r2 = st.columns([4, 1])
+            with col_r2:
+                if st.button("🔄 Recargar BD", key="btn_refrescar_plan_state", use_container_width=True):
+                    cargar_plan_cuentas_memoria(db_actual)
+                    st.rerun()
 
-                with st.expander("➕ Agregar Nueva Cuenta Contable", expanded=False):
-                    with st.form("form_nueva_cuenta"):
-                        col_f1, col_f2 = st.columns(2)
-                        with col_f1:
-                            nuevo_codigo = st.text_input("Código Contable (ej. 1.1.1.01.003)")
-                            nuevo_nombre = st.text_input("Nombre de la Cuenta (ej. Caja en Moneda Extranjera)")
-                            nuevo_nivel = st.number_input("Nivel", min_value=1, max_value=5, value=5)
-                        with col_f2:
-                            nuevo_tipo = st.selectbox("Tipo", options=["Detalle", "Grupo"])
-                            nuevo_padre = st.text_input("Cuenta Padre (ej. 1.1.1.01)")
-                        
-                        if st.form_submit_button("💾 Guardar Nueva Cuenta"):
-                            if not nuevo_codigo or not nuevo_nombre:
-                                st.warning("⚠️ El código y el nombre son obligatorios.")
-                            else:
-                                try:
-                                    cursor_ins = conn_empresa.cursor()
-                                    cursor_ins.execute("SELECT MAX(id) FROM plan_cuentas")
-                                    res_max = cursor_ins.fetchone()
-                                    siguiente_id = (res_max[0] or 0) + 1 if res_max else 1
+            df_actual = st.session_state.df_plan_cuentas_memoria
 
-                                    sql_ins = "INSERT INTO plan_cuentas (id, codigo, nombre, nivel, tipo, padre) VALUES (%s, %s, %s, %s, %s, %s)"
-                                    cursor_ins.execute(sql_ins, (
-                                        siguiente_id, nuevo_codigo.strip(), nuevo_nombre.strip(), 
-                                        int(nuevo_nivel), nuevo_tipo, nuevo_padre.strip() if nuevo_padre else None
-                                    ))
-                                    conn_empresa.commit()
-                                    cursor_ins.close()
-                                    st.cache_data.clear()
-                                    st.success(f"✅ Cuenta '{nuevo_codigo}' agregada con éxito.")
-                                    st.rerun()
-                                except Exception as ex_ins:
-                                    st.error(f"❌ Error al insertar: {ex_ins}")
-
-                with st.expander("🗑️ Eliminar Cuenta Contable (Por Error)", expanded=False):
-                    with st.form("form_eliminar_cuenta"):
-                        st.warning("⚠️ Precaución: Eliminar una cuenta la borrará permanentemente.")
-                        
-                        lista_cuentas_del = []
-                        if not df_actual.empty and 'codigo' in df_actual.columns and 'nombre' in df_actual.columns:
-                            lista_cuentas_del = [f"{row['codigo']} - {row['nombre']}" for _, row in df_actual.iterrows()]
-
-                        cuenta_a_borrar = st.selectbox("Seleccione la cuenta a eliminar", options=lista_cuentas_del if lista_cuentas_del else ["No hay cuentas disponibles"])
-                        confirmar_borrado = st.checkbox("Confirmo que deseo eliminar permanentemente esta cuenta")
-                        
-                        if st.form_submit_button("🗑️ Eliminar Cuenta Seleccionada", type="primary"):
-                            if not lista_cuentas_del or cuenta_a_borrar == "No hay cuentas disponibles":
-                                st.warning("⚠️ No hay cuentas para eliminar.")
-                            elif not confirmar_borrado:
-                                st.warning("⚠️ Debe marcar la casilla de confirmación.")
-                            else:
-                                try:
-                                    codigo_extraido = cuenta_a_borrar.split(" - ")[0].strip()
-                                    cursor_del = conn_empresa.cursor()
-                                    cursor_del.execute("DELETE FROM plan_cuentas WHERE codigo = %s", (codigo_extraido,))
-                                    conn_empresa.commit()
-                                    cursor_del.close()
-                                    st.cache_data.clear()
-                                    st.success(f"✅ Cuenta '{codigo_extraido}' eliminada.")
-                                    st.rerun()
-                                except Exception as ex_del:
-                                    if hasattr(conn_empresa, 'rollback'):
-                                        conn_empresa.rollback()
-                                    st.error(f"❌ Error al eliminar: {ex_del}")
-
-                st.markdown("---")
-                st.markdown("#### ✏️ Modificar Cuentas Existentes")
-
-                df_editado = st.data_editor(
-                    df_actual, 
-                    key="editor_plan_cuentas_ordenado_con_borrado", 
-                    num_rows="fixed", 
-                    use_container_width=True,
-                    column_config={
-                        "id": st.column_config.NumberColumn("ID", disabled=True), 
-                        "codigo": st.column_config.TextColumn("Código Contable", required=True),
-                        "nombre": st.column_config.TextColumn("Nombre Cuenta", required=True),
-                        "nivel": st.column_config.NumberColumn("Nivel", min_value=1, max_value=5),
-                        "tipo": st.column_config.SelectboxColumn("Tipo", options=["Grupo", "Detalle"], required=True),
-                        "padre": st.column_config.TextColumn("Cuenta Padre")
-                    }
-                )
-
-                if st.button("💾 Guardar Cambios en Cuentas Existentes", type="primary", use_container_width=False):
-                    try:
-                        if df_editado is None or df_editado.empty:
-                            st.error("⚠️ El editor está vacío.")
-                            st.stop()
-
-                        conn_empresa.ping(reconnect=True)
-                        cursor = conn_empresa.cursor()
-                        
-                        datos_a_actualizar = []
-                        for _, row in df_editado.iterrows():
-                            cuenta_id = row['id']
-                            codigo = str(row['codigo']).strip() if pd.notnull(row['codigo']) and str(row['codigo']).strip() not in ['', 'nan', 'None', '<NA>'] else None
-                            nombre = str(row['nombre']).strip() if pd.notnull(row['nombre']) and str(row['nombre']).strip() not in ['', 'nan', 'None', '<NA>'] else None
-                            nivel = int(row['nivel']) if pd.notnull(row['nivel']) and str(row['nivel']).strip() not in ['', 'nan', 'None', '<NA>'] else 1
-                            tipo = str(row['tipo']).strip() if str(row['tipo']).strip() in ['Grupo', 'Detalle'] else 'Detalle'
-                            padre = str(row['padre']).strip() if pd.notnull(row['padre']) and str(row['padre']).strip() not in ['', 'nan', 'None', '<NA>'] else None
-
-                            if not codigo or not nombre:
-                                continue
-
-                            if pd.notnull(cuenta_id) and str(cuenta_id).strip() not in ['', 'nan', 'None', '<NA>', '0.0', '0']:
-                                datos_a_actualizar.append((codigo, nombre, nivel, tipo, padre, int(float(cuenta_id))))
-
-                        if datos_a_actualizar:
-                            sql_update = """
-                                UPDATE plan_cuentas 
-                                SET codigo = %s, nombre = %s, nivel = %s, tipo = %s, padre = %s 
-                                WHERE id = %s
-                            """
-                            cursor.executemany(sql_update, datos_a_actualizar)
-                            conn_empresa.commit()
-
-                        cursor.close()
-                        st.cache_data.clear()
-                        st.success(f"✅ ¡Se actualizaron {len(datos_a_actualizar)} cuentas de forma instantánea!")
-                        st.balloons()
-                        
-                    except Exception as ex_save:
-                        if hasattr(conn_empresa, 'rollback'):
+            # Sección 1: Agregar Nueva Cuenta
+            with st.expander("➕ Agregar Nueva Cuenta Contable", expanded=False):
+                with st.form("form_nueva_cuenta"):
+                    col_f1, col_f2 = st.columns(2)
+                    with col_f1:
+                        nuevo_codigo = st.text_input("Código Contable (ej. 1.1.1.01.003)")
+                        nuevo_nombre = st.text_input("Nombre de la Cuenta (ej. Caja en Moneda Extranjera)")
+                        nuevo_nivel = st.number_input("Nivel", min_value=1, max_value=5, value=5)
+                    with col_f2:
+                        nuevo_tipo = st.selectbox("Tipo", options=["Detalle", "Grupo"])
+                        nuevo_padre = st.text_input("Cuenta Padre (ej. 1.1.1.01)")
+                    
+                    if st.form_submit_button("💾 Guardar Nueva Cuenta"):
+                        if not nuevo_codigo or not nuevo_nombre:
+                            st.warning("⚠️ El código y el nombre son obligatorios.")
+                        else:
                             try:
-                                conn_empresa.rollback()
-                            except Exception:
-                                pass
-                        st.error(f"❌ Error al guardar: {ex_save}")
+                                conn_empresa.ping(reconnect=True)
+                                cursor_ins = conn_empresa.cursor()
+                                cursor_ins.execute("SELECT MAX(id) FROM plan_cuentas")
+                                res_max = cursor_ins.fetchone()
+                                siguiente_id = (res_max[0] or 0) + 1 if res_max else 1
+
+                                sql_ins = "INSERT INTO plan_cuentas (id, codigo, nombre, nivel, tipo, padre) VALUES (%s, %s, %s, %s, %s, %s)"
+                                cursor_ins.execute(sql_ins, (
+                                    siguiente_id, nuevo_codigo.strip(), nuevo_nombre.strip(), 
+                                    int(nuevo_nivel), nuevo_tipo, nuevo_padre.strip() if nuevo_padre else None
+                                ))
+                                conn_empresa.commit()
+                                cursor_ins.close()
+                                cargar_plan_cuentas_memoria(db_actual)
+                                st.success(f"✅ Cuenta '{nuevo_codigo}' agregada con éxito.")
+                                st.rerun()
+                            except Exception as ex_ins:
+                                st.error(f"❌ Error al insertar: {ex_ins}")
+
+            # Sección 2: Eliminar Cuenta
+            with st.expander("🗑️ Eliminar Cuenta Contable (Por Error)", expanded=False):
+                with st.form("form_eliminar_cuenta"):
+                    st.warning("⚠️ Precaución: Eliminar una cuenta la borrará permanentemente.")
+                    
+                    lista_cuentas_del = []
+                    if not df_actual.empty and 'codigo' in df_actual.columns and 'nombre' in df_actual.columns:
+                        lista_cuentas_del = [f"{row['codigo']} - {row['nombre']}" for _, row in df_actual.iterrows()]
+
+                    cuenta_a_borrar = st.selectbox("Seleccione la cuenta a eliminar", options=lista_cuentas_del if lista_cuentas_del else ["No hay cuentas disponibles"])
+                    confirmar_borrado = st.checkbox("Confirmo que deseo eliminar permanentemente esta cuenta")
+                    
+                    if st.form_submit_button("🗑️ Eliminar Cuenta Seleccionada", type="primary"):
+                        if not lista_cuentas_del or cuenta_a_borrar == "No hay cuentas disponibles":
+                            st.warning("⚠️ No hay cuentas para eliminar.")
+                        elif not confirmar_borrado:
+                            st.warning("⚠️ Debe marcar la casilla de confirmación.")
+                        else:
+                            try:
+                                codigo_extraido = cuenta_a_borrar.split(" - ")[0].strip()
+                                conn_empresa.ping(reconnect=True)
+                                cursor_del = conn_empresa.cursor()
+                                cursor_del.execute("DELETE FROM plan_cuentas WHERE codigo = %s", (codigo_extraido,))
+                                conn_empresa.commit()
+                                cursor_del.close()
+                                cargar_plan_cuentas_memoria(db_actual)
+                                st.success(f"✅ Cuenta '{codigo_extraido}' eliminada.")
+                                st.rerun()
+                            except Exception as ex_del:
+                                if hasattr(conn_empresa, 'rollback'):
+                                    conn_empresa.rollback()
+                                st.error(f"❌ Error al eliminar: {ex_del}")
+
+            st.markdown("---")
+            st.markdown("#### ✏️ Modificar Cuentas Existentes")
+
+            df_editado = st.data_editor(
+                df_actual, 
+                key="editor_plan_cuentas_ordenado_con_borrado", 
+                num_rows="fixed", 
+                use_container_width=True,
+                column_config={
+                    "id": st.column_config.NumberColumn("ID", disabled=True), 
+                    "codigo": st.column_config.TextColumn("Código Contable", required=True),
+                    "nombre": st.column_config.TextColumn("Nombre Cuenta", required=True),
+                    "nivel": st.column_config.NumberColumn("Nivel", min_value=1, max_value=5),
+                    "tipo": st.column_config.SelectboxColumn("Tipo", options=["Grupo", "Detalle"], required=True),
+                    "padre": st.column_config.TextColumn("Cuenta Padre")
+                }
+            )
+
+            # --- GUARDADO EN LOTE INSTANTÁNEO ---
+            if st.button("💾 Guardar Cambios en Cuentas Existentes", type="primary", use_container_width=True):
+                try:
+                    if df_editado is None or df_editado.empty:
+                        st.error("⚠️ El editor está vacío.")
+                        st.stop()
+
+                    conn_empresa.ping(reconnect=True)
+                    cursor = conn_empresa.cursor()
+                    
+                    datos_a_actualizar = []
+                    for _, row in df_editado.iterrows():
+                        cuenta_id = row['id']
+                        codigo = str(row['codigo']).strip() if pd.notnull(row['codigo']) and str(row['codigo']).strip() not in ['', 'nan', 'None', '<NA>'] else None
+                        nombre = str(row['nombre']).strip() if pd.notnull(row['nombre']) and str(row['nombre']).strip() not in ['', 'nan', 'None', '<NA>'] else None
+                        nivel = int(row['nivel']) if pd.notnull(row['nivel']) and str(row['nivel']).strip() not in ['', 'nan', 'None', '<NA>'] else 1
+                        tipo = str(row['tipo']).strip() if str(row['tipo']).strip() in ['Grupo', 'Detalle'] else 'Detalle'
+                        padre = str(row['padre']).strip() if pd.notnull(row['padre']) and str(row['padre']).strip() not in ['', 'nan', 'None', '<NA>'] else None
+
+                        if not codigo or not nombre:
+                            continue
+
+                        if pd.notnull(cuenta_id) and str(cuenta_id).strip() not in ['', 'nan', 'None', '<NA>', '0.0', '0']:
+                            datos_a_actualizar.append((codigo, nombre, nivel, tipo, padre, int(float(cuenta_id))))
+
+                    if datos_a_actualizar:
+                        sql_update = """
+                            UPDATE plan_cuentas 
+                            SET codigo = %s, nombre = %s, nivel = %s, tipo = %s, padre = %s 
+                            WHERE id = %s
+                        """
+                        cursor.executemany(sql_update, datos_a_actualizar)
+                        conn_empresa.commit()
+
+                    cursor.close()
+                    cargar_plan_cuentas_memoria(db_actual)
+                    st.success(f"✅ ¡Se actualizaron {len(datos_a_actualizar)} cuentas instantáneamente!")
+                    st.balloons()
+                    st.rerun()
+                    
+                except Exception as ex_save:
+                    if hasattr(conn_empresa, 'rollback'):
+                        try:
+                            conn_empresa.rollback()
+                        except Exception:
+                            pass
+                    st.error(f"❌ Error al guardar: {ex_save}")
 
         # --- TAB 3: DESCARGAR EXCEL ---
         with tab3:
             st.markdown("### 📥 Descargar Respaldo")
-            df_actual = consultar_plan_cuentas_cached(db_actual)
-            if df_actual is not None and not df_actual.empty:
+            df_export = st.session_state.df_plan_cuentas_memoria
+            if df_export is not None and not df_export.empty:
                 import io
                 output = io.BytesIO()
                 with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                    df_actual.to_excel(writer, index=False, sheet_name='PlanCuentas')
+                    df_export.to_excel(writer, index=False, sheet_name='PlanCuentas')
                 st.download_button(
                     label="📥 Descargar Excel",
                     data=output.getvalue(),
@@ -9203,11 +9218,12 @@ elif opcion_menu == "📂 Plan de Cuentas":
             st.warning("Esta acción borrará TODA la información del plan de cuentas.")
             if st.checkbox("Estoy seguro de querer borrar todo", key="chk_vaciar_plan_seguro"):
                 if st.button("🗑️ ELIMINAR TODOS LOS DATOS", type="primary", use_container_width=True):
+                    conn_empresa.ping(reconnect=True)
                     cursor = conn_empresa.cursor()
                     cursor.execute("TRUNCATE TABLE plan_cuentas")
                     conn_empresa.commit()
                     cursor.close()
-                    st.cache_data.clear()
+                    cargar_plan_cuentas_memoria(db_actual)
                     st.success("✅ ¡Tabla vaciada exitosamente!")
                     st.balloons()
                     st.rerun()
