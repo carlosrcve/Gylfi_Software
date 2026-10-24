@@ -9132,7 +9132,7 @@ elif opcion_menu == "📂 Plan de Cuentas":
                     }
                 )
 
-                if st.button("💾 Guardar Cambios en Cuentas Existentes", type="primary", use_container_width=True):
+                if st.button("💾 Guardar Cambios en Cuentas Existentes", type="primary", use_container_width=False):
                     try:
                         if df_editado is None or df_editado.empty:
                             st.error("⚠️ El editor está vacío.")
@@ -9169,7 +9169,6 @@ elif opcion_menu == "📂 Plan de Cuentas":
                         st.cache_data.clear()
                         st.success(f"✅ ¡Se actualizaron {len(datos_a_actualizar)} cuentas de forma instantánea!")
                         st.balloons()
-                        st.rerun()
                         
                     except Exception as ex_save:
                         if hasattr(conn_empresa, 'rollback'):
