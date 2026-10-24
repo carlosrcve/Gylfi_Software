@@ -9107,25 +9107,31 @@ elif opcion_menu == "📂 Plan de Cuentas":
                     confirmar_borrado = st.checkbox("Confirmo que deseo eliminar permanentemente esta cuenta")
                     
                     if st.form_submit_button("🗑️ Eliminar Cuenta Seleccionada", type="primary"):
-                        if not lista_cuentas_del or cuenta_a_borrar == "No hay cuentas disponibles":
-                            st.warning("⚠️ No hay cuentas para eliminar.")
-                        elif not confirmar_borrado:
-                            st.warning("⚠️ Debe marcar la casilla de confirmación.")
-                        else:
-                            try:
-                                codigo_extraido = cuenta_a_borrar.split(" - ")[0].strip()
-                                conn_empresa.ping(reconnect=True)
-                                cursor_del = conn_empresa.cursor()
-                                cursor_del.execute("DELETE FROM plan_cuentas WHERE codigo = %s", (codigo_extraido,))
-                                conn_empresa.commit()
-                                cursor_del.close()
-                                cargar_plan_cuentas_memoria(db_actual)
-                                st.success(f"✅ Cuenta '{codigo_extraido}' eliminada.")
-                                st.rerun()
-                            except Exception as ex_del:
-                                if hasattr(conn_empresa, 'rollback'):
-                                    conn_empresa.rollback()
-                                st.error(f"❌ Error al eliminar: {ex_del}")
+                            if not lista_cuentas_del or cuenta_a_borrar == "No hay cuentas disponibles":
+                                st.warning("⚠️ No hay cuentas para eliminar.")
+                            elif not confirmar_borrado:
+                                st.warning("⚠️ Debe marcar la casilla de confirmación.")
+                            else:
+                                try:
+                                    codigo_extraido = cuenta_a_borrar.split(" - ")[0].strip()
+                                    conn_empresa.ping(reconnect=True)
+                                    cursor_del = conn_empresa.cursor()
+                                    cursor_del.execute("DELETE FROM plan_cuentas WHERE codigo = %s", (codigo_extraido,))
+                                    conn_empresa.commit()
+                                    cursor_del.close()
+                                    cargar_plan_cuentas_memoria(db_actual)
+                                    
+                                    st.markdown(f"""
+                                        <div style="padding: 12px 15px; background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; border-radius: 6px; font-weight: 600; margin-bottom: 15px;">
+                                            🗑️ Cuenta eliminada: <span style="font-family: monospace; background-color: #f5c6cb; padding: 2px 6px; border-radius: 4px;">{codigo_extraido}</span>
+                                        </div>
+                                    """, unsafe_allow_html=True)
+                                    
+                                    st.rerun()
+                                except Exception as ex_del:
+                                    if hasattr(conn_empresa, 'rollback'):
+                                        conn_empresa.rollback()
+                                    st.error(f"❌ Error al eliminar: {ex_del}")
 
             st.markdown("---")
             st.markdown("#### ✏️ Modificar Cuentas Existentes")
