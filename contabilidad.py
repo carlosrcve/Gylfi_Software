@@ -8961,7 +8961,6 @@ elif opcion_menu == "📂 Plan de Cuentas":
         if df_res is None or df_res.empty:
             return pd.DataFrame(columns=['id', 'codigo', 'nombre', 'nivel', 'tipo', 'padre'])
         
-        # Limpieza inicial única
         columnas_requeridas = ['id', 'codigo', 'nombre', 'nivel', 'tipo', 'padre']
         for col in columnas_requeridas:
             if col not in df_res.columns:
@@ -9048,10 +9047,8 @@ elif opcion_menu == "📂 Plan de Cuentas":
             if not conn_empresa:
                 st.error("❌ Error de conexión a la base de datos.")
             else:
-                # Cargamos los datos una sola vez con caché para toda la pestaña
                 df_actual = consultar_plan_cuentas_cached(db_actual)
 
-                # Sección 1: Agregar Nueva Cuenta
                 with st.expander("➕ Agregar Nueva Cuenta Contable", expanded=False):
                     with st.form("form_nueva_cuenta"):
                         col_f1, col_f2 = st.columns(2)
@@ -9086,7 +9083,6 @@ elif opcion_menu == "📂 Plan de Cuentas":
                                 except Exception as ex_ins:
                                     st.error(f"❌ Error al insertar: {ex_ins}")
 
-                # Sección 2: Eliminar Cuenta (Usa datos en caché, sin consultas extra)
                 with st.expander("🗑️ Eliminar Cuenta Contable (Por Error)", expanded=False):
                     with st.form("form_eliminar_cuenta"):
                         st.warning("⚠️ Precaución: Eliminar una cuenta la borrará permanentemente.")
@@ -9136,7 +9132,6 @@ elif opcion_menu == "📂 Plan de Cuentas":
                     }
                 )
 
-                # --- GUARDADO EN LOTE ULTRARRÁPIDO ---
                 if st.button("💾 Guardar Cambios en Cuentas Existentes", type="primary", use_container_width=True):
                     try:
                         if df_editado is None or df_editado.empty:
@@ -9213,48 +9208,6 @@ elif opcion_menu == "📂 Plan de Cuentas":
                     cursor.execute("TRUNCATE TABLE plan_cuentas")
                     conn_empresa.commit()
                     cursor.close()
-                    st.cache_data.clear()
-                    st.success("✅ ¡Tabla vaciada exitosamente!")
-                    st.balloons()
-                    st.rerun()
-
-    except Exception as e:
-        st.error(f"❌ Error crítico: {e}")
-    finally:
-        if conn_empresa:
-            try:
-                conn_empresa.close()
-            except Exception:
-                pass
-
-        # --- TAB 3: DESCARGAR EXCEL ---
-        with tab3:
-            st.markdown("### 📥 Descargar Respaldo")
-            df_actual = consultar_plan_cuentas_cached(db_actual)
-            if df_actual is not None and not df_actual.empty:
-                import io
-                output = io.BytesIO()
-                with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                    df_actual.to_excel(writer, index=False, sheet_name='PlanCuentas')
-                st.download_button(
-                    label="📥 Descargar Excel",
-                    data=output.getvalue(),
-                    file_name="Plan_de_Cuentas_Respaldo.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    use_container_width=True
-                )
-            else:
-                st.info("No hay datos para descargar.")
-
-        # --- TAB 4: VACIAR TABLA ---
-        with tab4:
-            st.markdown("### ⚠️ Vaciar Plan de Cuentas")
-            st.warning("Esta acción borrará TODA la información del plan de cuentas de esta empresa.")
-            if st.checkbox("Estoy seguro de querer borrar todo"):
-                if st.button("🗑️ ELIMINAR TODOS LOS DATOS", type="primary", use_container_width=True):
-                    cursor = conn_empresa.cursor()
-                    cursor.execute("TRUNCATE TABLE plan_cuentas")
-                    conn_empresa.commit()
                     st.cache_data.clear()
                     st.success("✅ ¡Tabla vaciada exitosamente!")
                     st.balloons()
