@@ -9094,19 +9094,24 @@ elif opcion_menu == "📂 Plan de Cuentas":
                             except Exception as ex_ins:
                                 st.error(f"❌ Error al insertar: {ex_ins}")
 
-            # Sección 2: Eliminar Cuenta
-            with st.expander("🗑️ Eliminar Cuenta Contable (Por Error)", expanded=False):
-                with st.form("form_eliminar_cuenta"):
-                    st.warning("⚠️ Precaución: Eliminar una cuenta la borrará permanentemente.")
-                    
-                    lista_cuentas_del = []
-                    if not df_actual.empty and 'codigo' in df_actual.columns and 'nombre' in df_actual.columns:
-                        lista_cuentas_del = [f"{row['codigo']} - {row['nombre']}" for _, row in df_actual.iterrows()]
+                # --- AQUí VA EL CAPTURADOR DEL MENSAJE (Colócalo antes del expander o al inicio del tab2) ---
+                if "mensaje_html_eliminacion" in st.session_state:
+                    st.markdown(st.session_state.mensaje_html_eliminacion, unsafe_allow_html=True)
+                    del st.session_state.mensaje_html_eliminacion
 
-                    cuenta_a_borrar = st.selectbox("Seleccione la cuenta a eliminar", options=lista_cuentas_del if lista_cuentas_del else ["No hay cuentas disponibles"])
-                    confirmar_borrado = st.checkbox("Confirmo que deseo eliminar permanentemente esta cuenta")
-                    
-                    if st.form_submit_button("🗑️ Eliminar Cuenta Seleccionada", type="primary"):
+                # Sección 2: Eliminar Cuenta
+                with st.expander("🗑️ Eliminar Cuenta Contable (Por Error)", expanded=False):
+                    with st.form("form_eliminar_cuenta"):
+                        st.warning("⚠️ Precaución: Eliminar una cuenta la borrará permanentemente.")
+                        
+                        lista_cuentas_del = []
+                        if not df_actual.empty and 'codigo' in df_actual.columns and 'nombre' in df_actual.columns:
+                            lista_cuentas_del = [f"{row['codigo']} - {row['nombre']}" for _, row in df_actual.iterrows()]
+
+                        cuenta_a_borrar = st.selectbox("Seleccione la cuenta a eliminar", options=lista_cuentas_del if lista_cuentas_del else ["No hay cuentas disponibles"])
+                        confirmar_borrado = st.checkbox("Confirmo que deseo eliminar permanentemente esta cuenta")
+                        
+                        if st.form_submit_button("🗑️ Eliminar Cuenta Seleccionada", type="primary"):
                             if not lista_cuentas_del or cuenta_a_borrar == "No hay cuentas disponibles":
                                 st.warning("⚠️ No hay cuentas para eliminar.")
                             elif not confirmar_borrado:
@@ -9121,11 +9126,12 @@ elif opcion_menu == "📂 Plan de Cuentas":
                                     cursor_del.close()
                                     cargar_plan_cuentas_memoria(db_actual)
                                     
-                                    st.markdown(f"""
+                                    # Guardamos el mensaje HTML en la sesión para que sobreviva al rerun
+                                    st.session_state.mensaje_html_eliminacion = f"""
                                         <div style="padding: 12px 15px; background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; border-radius: 6px; font-weight: 600; margin-bottom: 15px;">
                                             🗑️ Cuenta eliminada: <span style="font-family: monospace; background-color: #f5c6cb; padding: 2px 6px; border-radius: 4px;">{codigo_extraido}</span>
                                         </div>
-                                    """, unsafe_allow_html=True)
+                                    """
                                     
                                     st.rerun()
                                 except Exception as ex_del:
