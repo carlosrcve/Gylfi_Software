@@ -9206,7 +9206,6 @@ elif opcion_menu == "📂 Plan de Cuentas":
                         st.cache_data.clear()
                         st.success(f"✅ ¡Se procesaron y actualizaron {len(datos_a_actualizar)} cuentas en un solo lote!")
                         st.balloons()
-                        st.rerun()
                         
                     except Exception as ex_save:
                         if hasattr(conn_empresa, 'rollback'):
