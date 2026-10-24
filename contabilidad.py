@@ -8936,14 +8936,13 @@ if opcion_menu == "🏠 Inicio":
 elif opcion_menu == "📂 Plan de Cuentas":
     st.subheader("Gestión de Plan de Cuentas")
     
-    # 1. Recuperamos datos del estado
     db_actual = st.session_state.get('DB_ACTUAL')
     if not db_actual:
         st.error("No se ha seleccionado una base de datos.")
         st.stop()
 
-    # --- FUNCIÓN CON CACHÉ PARA LECTURAS ULTRARRÁPIDAS ---
-    @st.cache_data(ttl=30, show_spinner=False)
+    # --- FUNCIÓN CON CACHÉ DE 60 SEGUNDOS PARA EVITAR LLAMADAS A LA NUBE ---
+    @st.cache_data(ttl=60, show_spinner=False)
     def consultar_plan_cuentas_cached(empresa):
         df_res = pd.DataFrame()
         conn = conectar_db(empresa)
@@ -8958,41 +8957,45 @@ elif opcion_menu == "📂 Plan de Cuentas":
                     conn.close()
                 except Exception:
                     pass
-        return df_res if df_res is not None else pd.DataFrame()
+        
+        if df_res is None or df_res.empty:
+            return pd.DataFrame(columns=['id', 'codigo', 'nombre', 'nivel', 'tipo', 'padre'])
+        
+        # Limpieza inicial única
+        columnas_requeridas = ['id', 'codigo', 'nombre', 'nivel', 'tipo', 'padre']
+        for col in columnas_requeridas:
+            if col not in df_res.columns:
+                df_res[col] = ""
 
-    # 2. Conexión centralizada
+        for col in ['codigo', 'nombre', 'tipo', 'padre']:
+            if col in df_res.columns:
+                df_res[col] = df_res[col].fillna("").astype(str).replace(['nan', 'None', '<NA>'], '')
+        
+        if 'id' in df_res.columns:
+            df_res['id'] = pd.to_numeric(df_res['id'], errors='coerce')
+        if 'nivel' in df_res.columns:
+            df_res['nivel'] = pd.to_numeric(df_res['nivel'], errors='coerce').fillna(1).astype(int)
+
+        if 'codigo' in df_res.columns:
+            df_res = df_res.sort_values(by='codigo', ascending=True).reset_index(drop=True)
+            
+        return df_res
+
     conn_empresa = conectar_db(db_actual)
     
     try:
-        # --- DISEÑO CSS PERSONALIZADO PARA LAS PESTAÑAS ---
         st.markdown("""
             <style>
-                .stTabs [data-baseweb="tab-list"] {
-                    gap: 10px;
-                    background-color: transparent;
-                    padding: 10px 0px;
-                }
+                .stTabs [data-baseweb="tab-list"] { gap: 10px; background-color: transparent; padding: 10px 0px; }
                 .stTabs [data-baseweb="tab"] {
-                    height: 45px;
-                    background-color: #f8f9fa;
-                    border-radius: 8px;
-                    padding: 0px 20px;
-                    font-weight: 600;
-                    color: #495057;
-                    border: 1px solid #e9ecef;
-                    box-shadow: 0 2px 4px rgba(0,0,0,0.02);
-                    transition: all 0.3s ease;
+                    height: 45px; background-color: #f8f9fa; border-radius: 8px; padding: 0px 20px;
+                    font-weight: 600; color: #495057; border: 1px solid #e9ecef;
+                    box-shadow: 0 2px 4px rgba(0,0,0,0.02); transition: all 0.3s ease;
                 }
-                .stTabs [data-baseweb="tab"]:hover {
-                    background-color: #e2e6ea;
-                    color: #1d3557;
-                    border-color: #ced4da;
-                }
+                .stTabs [data-baseweb="tab"]:hover { background-color: #e2e6ea; color: #1d3557; border-color: #ced4da; }
                 .stTabs [aria-selected="true"] {
-                    background-color: #1d3557 !important;
-                    color: #ffffff !important;
-                    border-color: #1d3557 !important;
-                    box-shadow: 0 4px 8px rgba(29, 53, 87, 0.2);
+                    background-color: #1d3557 !important; color: #ffffff !important;
+                    border-color: #1d3557 !important; box-shadow: 0 4px 8px rgba(29, 53, 87, 0.2);
                 }
             </style>
         """, unsafe_allow_html=True)
@@ -9045,6 +9048,9 @@ elif opcion_menu == "📂 Plan de Cuentas":
             if not conn_empresa:
                 st.error("❌ Error de conexión a la base de datos.")
             else:
+                # Cargamos los datos una sola vez con caché para toda la pestaña
+                df_actual = consultar_plan_cuentas_cached(db_actual)
+
                 # Sección 1: Agregar Nueva Cuenta
                 with st.expander("➕ Agregar Nueva Cuenta Contable", expanded=False):
                     with st.form("form_nueva_cuenta"):
@@ -9057,8 +9063,7 @@ elif opcion_menu == "📂 Plan de Cuentas":
                             nuevo_tipo = st.selectbox("Tipo", options=["Detalle", "Grupo"])
                             nuevo_padre = st.text_input("Cuenta Padre (ej. 1.1.1.01)")
                         
-                        btn_crear = st.form_submit_button("💾 Guardar Nueva Cuenta")
-                        if btn_crear:
+                        if st.form_submit_button("💾 Guardar Nueva Cuenta"):
                             if not nuevo_codigo or not nuevo_nombre:
                                 st.warning("⚠️ El código y el nombre son obligatorios.")
                             else:
@@ -9068,88 +9073,53 @@ elif opcion_menu == "📂 Plan de Cuentas":
                                     res_max = cursor_ins.fetchone()
                                     siguiente_id = (res_max[0] or 0) + 1 if res_max else 1
 
-                                    sql_ins = """
-                                        INSERT INTO plan_cuentas (id, codigo, nombre, nivel, tipo, padre) 
-                                        VALUES (%s, %s, %s, %s, %s, %s)
-                                    """
+                                    sql_ins = "INSERT INTO plan_cuentas (id, codigo, nombre, nivel, tipo, padre) VALUES (%s, %s, %s, %s, %s, %s)"
                                     cursor_ins.execute(sql_ins, (
-                                        siguiente_id, 
-                                        nuevo_codigo.strip(), 
-                                        nuevo_nombre.strip(), 
-                                        int(nuevo_nivel), 
-                                        nuevo_tipo, 
-                                        nuevo_padre.strip() if nuevo_padre else None
+                                        siguiente_id, nuevo_codigo.strip(), nuevo_nombre.strip(), 
+                                        int(nuevo_nivel), nuevo_tipo, nuevo_padre.strip() if nuevo_padre else None
                                     ))
                                     conn_empresa.commit()
                                     cursor_ins.close()
                                     st.cache_data.clear()
-                                    st.success(f"✅ Cuenta '{nuevo_codigo} - {nuevo_nombre}' agregada con éxito.")
+                                    st.success(f"✅ Cuenta '{nuevo_codigo}' agregada con éxito.")
                                     st.rerun()
                                 except Exception as ex_ins:
-                                    st.error(f"❌ Error al insertar la cuenta: {ex_ins}")
+                                    st.error(f"❌ Error al insertar: {ex_ins}")
 
-                # Sección 2: Eliminar Cuenta
+                # Sección 2: Eliminar Cuenta (Usa datos en caché, sin consultas extra)
                 with st.expander("🗑️ Eliminar Cuenta Contable (Por Error)", expanded=False):
                     with st.form("form_eliminar_cuenta"):
-                        st.warning("⚠️ Precaución: Eliminar una cuenta la borrará permanentemente de la base de datos.")
+                        st.warning("⚠️ Precaución: Eliminar una cuenta la borrará permanentemente.")
                         
-                        df_del_opt = consultar_plan_cuentas_cached(db_actual)
                         lista_cuentas_del = []
-                        if df_del_opt is not None and not df_del_opt.empty:
-                            if 'codigo' in df_del_opt.columns and 'nombre' in df_del_opt.columns:
-                                df_del_opt = df_del_opt.sort_values(by='codigo')
-                                lista_cuentas_del = [f"{row['codigo']} - {row['nombre']}" for _, row in df_del_opt.iterrows()]
+                        if not df_actual.empty and 'codigo' in df_actual.columns and 'nombre' in df_actual.columns:
+                            lista_cuentas_del = [f"{row['codigo']} - {row['nombre']}" for _, row in df_actual.iterrows()]
 
                         cuenta_a_borrar = st.selectbox("Seleccione la cuenta a eliminar", options=lista_cuentas_del if lista_cuentas_del else ["No hay cuentas disponibles"])
                         confirmar_borrado = st.checkbox("Confirmo que deseo eliminar permanentemente esta cuenta")
                         
-                        btn_eliminar = st.form_submit_button("🗑️ Eliminar Cuenta Seleccionada", type="primary")
-                        if btn_eliminar:
+                        if st.form_submit_button("🗑️ Eliminar Cuenta Seleccionada", type="primary"):
                             if not lista_cuentas_del or cuenta_a_borrar == "No hay cuentas disponibles":
                                 st.warning("⚠️ No hay cuentas para eliminar.")
                             elif not confirmar_borrado:
-                                st.warning("⚠️ Debe marcar la casilla de confirmación para proceder.")
+                                st.warning("⚠️ Debe marcar la casilla de confirmación.")
                             else:
                                 try:
                                     codigo_extraido = cuenta_a_borrar.split(" - ")[0].strip()
                                     cursor_del = conn_empresa.cursor()
-                                    sql_del = "DELETE FROM plan_cuentas WHERE codigo = %s"
-                                    cursor_del.execute(sql_del, (codigo_extraido,))
+                                    cursor_del.execute("DELETE FROM plan_cuentas WHERE codigo = %s", (codigo_extraido,))
                                     conn_empresa.commit()
                                     cursor_del.close()
                                     st.cache_data.clear()
-                                    st.success(f"✅ Cuenta '{codigo_extraido}' eliminada correctamente.")
+                                    st.success(f"✅ Cuenta '{codigo_extraido}' eliminada.")
                                     st.rerun()
                                 except Exception as ex_del:
                                     if hasattr(conn_empresa, 'rollback'):
                                         conn_empresa.rollback()
-                                    st.error(f"❌ Error al eliminar la cuenta: {ex_del}")
+                                    st.error(f"❌ Error al eliminar: {ex_del}")
 
                 st.markdown("---")
                 st.markdown("#### ✏️ Modificar Cuentas Existentes")
-
-                df_actual = consultar_plan_cuentas_cached(db_actual)
-                columnas_requeridas = ['id', 'codigo', 'nombre', 'nivel', 'tipo', 'padre']
-
-                if df_actual is None or df_actual.empty:
-                    st.warning("⚠️ La tabla 'plan_cuentas' está vacía en la base de datos.")
-                    df_actual = pd.DataFrame(columns=columnas_requeridas)
-                else:
-                    for col in columnas_requeridas:
-                        if col not in df_actual.columns:
-                            df_actual[col] = ""
-
-                    for col in ['codigo', 'nombre', 'tipo', 'padre']:
-                        if col in df_actual.columns:
-                            df_actual[col] = df_actual[col].fillna("").astype(str).replace(['nan', 'None', '<NA>'], '')
-                    
-                    if 'id' in df_actual.columns:
-                        df_actual['id'] = pd.to_numeric(df_actual['id'], errors='coerce')
-                    if 'nivel' in df_actual.columns:
-                        df_actual['nivel'] = pd.to_numeric(df_actual['nivel'], errors='coerce').fillna(1).astype(int)
-
-                    if 'codigo' in df_actual.columns:
-                        df_actual = df_actual.sort_values(by='codigo', ascending=True).reset_index(drop=True)
 
                 df_editado = st.data_editor(
                     df_actual, 
@@ -9166,25 +9136,23 @@ elif opcion_menu == "📂 Plan de Cuentas":
                     }
                 )
 
-                # --- GUARDADO EN LOTE (BULK UPDATE) INSTANTÁNEO ---
+                # --- GUARDADO EN LOTE ULTRARRÁPIDO ---
                 if st.button("💾 Guardar Cambios en Cuentas Existentes", type="primary", use_container_width=True):
                     try:
                         if df_editado is None or df_editado.empty:
-                            st.error("⚠️ El editor está vacío. No se guardará nada para proteger los datos.")
+                            st.error("⚠️ El editor está vacío.")
                             st.stop()
 
                         conn_empresa.ping(reconnect=True)
                         cursor = conn_empresa.cursor()
                         
                         datos_a_actualizar = []
-                        for index, row in df_editado.iterrows():
+                        for _, row in df_editado.iterrows():
                             cuenta_id = row['id']
                             codigo = str(row['codigo']).strip() if pd.notnull(row['codigo']) and str(row['codigo']).strip() not in ['', 'nan', 'None', '<NA>'] else None
                             nombre = str(row['nombre']).strip() if pd.notnull(row['nombre']) and str(row['nombre']).strip() not in ['', 'nan', 'None', '<NA>'] else None
                             nivel = int(row['nivel']) if pd.notnull(row['nivel']) and str(row['nivel']).strip() not in ['', 'nan', 'None', '<NA>'] else 1
-                            
-                            tipo_val = str(row['tipo']).strip()
-                            tipo = tipo_val if tipo_val in ['Grupo', 'Detalle'] else 'Detalle'
+                            tipo = str(row['tipo']).strip() if str(row['tipo']).strip() in ['Grupo', 'Detalle'] else 'Detalle'
                             padre = str(row['padre']).strip() if pd.notnull(row['padre']) and str(row['padre']).strip() not in ['', 'nan', 'None', '<NA>'] else None
 
                             if not codigo or not nombre:
@@ -9204,8 +9172,9 @@ elif opcion_menu == "📂 Plan de Cuentas":
 
                         cursor.close()
                         st.cache_data.clear()
-                        st.success(f"✅ ¡Se procesaron y actualizaron {len(datos_a_actualizar)} cuentas en un solo lote!")
+                        st.success(f"✅ ¡Se actualizaron {len(datos_a_actualizar)} cuentas de forma instantánea!")
                         st.balloons()
+                        st.rerun()
                         
                     except Exception as ex_save:
                         if hasattr(conn_empresa, 'rollback'):
@@ -9213,7 +9182,50 @@ elif opcion_menu == "📂 Plan de Cuentas":
                                 conn_empresa.rollback()
                             except Exception:
                                 pass
-                        st.error(f"❌ Error al guardar en la base de datos: {ex_save}")
+                        st.error(f"❌ Error al guardar: {ex_save}")
+
+        # --- TAB 3: DESCARGAR EXCEL ---
+        with tab3:
+            st.markdown("### 📥 Descargar Respaldo")
+            df_actual = consultar_plan_cuentas_cached(db_actual)
+            if df_actual is not None and not df_actual.empty:
+                import io
+                output = io.BytesIO()
+                with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                    df_actual.to_excel(writer, index=False, sheet_name='PlanCuentas')
+                st.download_button(
+                    label="📥 Descargar Excel",
+                    data=output.getvalue(),
+                    file_name="Plan_de_Cuentas_Respaldo.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True
+                )
+            else:
+                st.info("No hay datos para descargar.")
+
+        # --- TAB 4: VACIAR TABLA ---
+        with tab4:
+            st.markdown("### ⚠️ Vaciar Plan de Cuentas")
+            st.warning("Esta acción borrará TODA la información del plan de cuentas.")
+            if st.checkbox("Estoy seguro de querer borrar todo", key="chk_vaciar_plan_seguro"):
+                if st.button("🗑️ ELIMINAR TODOS LOS DATOS", type="primary", use_container_width=True):
+                    cursor = conn_empresa.cursor()
+                    cursor.execute("TRUNCATE TABLE plan_cuentas")
+                    conn_empresa.commit()
+                    cursor.close()
+                    st.cache_data.clear()
+                    st.success("✅ ¡Tabla vaciada exitosamente!")
+                    st.balloons()
+                    st.rerun()
+
+    except Exception as e:
+        st.error(f"❌ Error crítico: {e}")
+    finally:
+        if conn_empresa:
+            try:
+                conn_empresa.close()
+            except Exception:
+                pass
 
         # --- TAB 3: DESCARGAR EXCEL ---
         with tab3:
