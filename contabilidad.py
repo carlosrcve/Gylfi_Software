@@ -35,6 +35,9 @@ import tempfile
 import pytesseract
 import cv2
 import fitz  # PyMuPDF para manejar PDFs escaneados
+from reportlab.lib.pagesizes import letter
+from reportlab.pdfgen import canvas
+from reportlab.lib.units import mm
 
 
 st.set_page_config(
@@ -6810,6 +6813,123 @@ def _obtener_empresas_sidebar_cache(user_rol, user_limpio):
 
     return df_sidebar.to_dict('records')
 
+
+
+
+def generar_pdf_preimpreso(conn, datos_factura, items_factura):
+    """
+    Genera un PDF transparente con los datos posicionados milimétricamente
+    según la configuración guardada en MySQL, auto-inicializando los valores por defecto.
+    """
+    cursor = conn.cursor(dictionary=True)
+    
+    # 0. Auto-insertar valores por defecto en MySQL si la tabla está vacía o faltan campos
+    defaults = [
+        ('nro_factura', 160.00, 25.00, 11),
+        ('nro_control', 160.00, 31.00, 11),
+        ('fecha_emision', 155.00, 42.00, 10),
+        ('razon_social', 35.00, 55.00, 10),
+        ('rif_cliente', 35.00, 61.00, 10),
+        ('direccion_cliente', 35.00, 67.00, 9),
+        ('telefono_cliente', 135.00, 67.00, 9),
+        ('tabla_items_y_inicial', 25.00, 90.00, 9),
+        ('salto_linea_item', 6.00, 0.00, 9),
+        ('exento', 165.00, 205.00, 10),
+        ('base_imponible', 165.00, 213.00, 10),
+        ('alicuota_iva', 130.00, 221.00, 10),
+        ('iva', 165.00, 221.00, 10),
+        ('monto_total', 165.00, 232.00, 11)
+    ]
+    
+    for campo, px, py, ft in defaults:
+        cursor.execute("""
+            INSERT INTO config_factura_preimpresa (campo, pos_x, pos_y, fuente_tamanio) 
+            VALUES (%s, %s, %s, %s)
+            ON DUPLICATE KEY UPDATE pos_x = pos_x
+        """, (campo, px, py, ft))
+    conn.commit()
+
+    # 1. Consultar coordenadas reales desde la base de datos
+    cursor.execute("SELECT campo, pos_x, pos_y, fuente_tamanio FROM config_factura_preimpresa")
+    configs = {row['campo']: row for row in cursor.fetchall()}
+    cursor.close()
+
+    buffer = io.BytesIO()
+    c = canvas.Canvas(buffer, pagesize=letter)
+    
+    def get_pos(campo_nombre):
+        if campo_nombre in configs:
+            x = float(configs[campo_nombre]['pos_x']) * mm
+            # Conversión de milímetros desde arriba hacia el sistema de coordenadas de ReportLab (desde abajo)
+            y = (279.4 - float(configs[campo_nombre]['pos_y'])) * mm
+            return x, y
+        return 0, 0
+
+    # --- Cabecera / Documento ---
+    if 'nro_factura' in configs:
+        x, y = get_pos('nro_factura')
+        c.setFont("Helvetica-Bold", int(configs['nro_factura']['fuente_tamanio']))
+        c.drawString(x, y, str(datos_factura.get('nro_factura', '')))
+
+    if 'nro_control' in configs:
+        x, y = get_pos('nro_control')
+        c.setFont("Helvetica-Bold", int(configs['nro_control']['fuente_tamanio']))
+        c.drawString(x, y, str(datos_factura.get('nro_control', '')))
+
+    if 'fecha_emision' in configs:
+        x, y = get_pos('fecha_emision')
+        c.setFont("Helvetica", int(configs['fecha_emision']['fuente_tamanio']))
+        c.drawString(x, y, str(datos_factura.get('fecha_emision', '')))
+
+    # --- Datos del Cliente ---
+    if 'razon_social' in configs:
+        x, y = get_pos('razon_social')
+        c.setFont("Helvetica", int(configs['razon_social']['fuente_tamanio']))
+        c.drawString(x, y, str(datos_factura.get('razon_social', '')))
+
+    if 'rif_cliente' in configs:
+        x, y = get_pos('rif_cliente')
+        c.setFont("Helvetica", int(configs['rif_cliente']['fuente_tamanio']))
+        c.drawString(x, y, str(datos_factura.get('rif_cliente', '')))
+
+    if 'direccion_cliente' in configs:
+        x, y = get_pos('direccion_cliente')
+        c.setFont("Helvetica", int(configs['direccion_cliente']['fuente_tamanio']))
+        c.drawString(x, y, str(datos_factura.get('direccion_cliente', ''))[:60])
+
+    if 'telefono_cliente' in configs:
+        x, y = get_pos('telefono_cliente')
+        c.setFont("Helvetica", int(configs['telefono_cliente']['fuente_tamanio']))
+        c.drawString(x, y, str(datos_factura.get('telefono_cliente', '')))
+
+    # --- Renglones / Ítems de la Factura ---
+    if 'tabla_items_y_inicial' in configs:
+        x_base, y_actual = get_pos('tabla_items_y_inicial')
+        salto_y = float(configs.get('salto_linea_item', {'pos_x': 6.0})['pos_x']) * mm 
+        
+        for idx, item in enumerate(items_factura):
+            y_renglon = y_actual - (idx * salto_y)
+            
+            c.setFont("Helvetica", 9)
+            c.drawString(x_base, y_renglon, str(item.get('codigo', '')))
+            c.drawString(x_base + 20*mm, y_renglon, str(item.get('descripcion', ''))[:35])
+            c.drawString(x_base + 105*mm, y_renglon, str(item.get('cantidad', '0')))
+            c.drawString(x_base + 120*mm, y_renglon, str(item.get('precio_unitario', '0.00')))
+            c.drawString(x_base + 145*mm, y_renglon, str(item.get('total_linea', '0.00')))
+
+    # --- Totales y Datos Fiscales al Pie ---
+    campos_totales = ['exento', 'base_imponible', 'alicuota_iva', 'iva', 'monto_total']
+    for campo in campos_totales:
+        if campo in configs:
+            x, y = get_pos(campo)
+            tam = int(configs[campo]['fuente_tamanio'])
+            font = "Helvetica-Bold" if campo == 'monto_total' else "Helvetica"
+            c.setFont(font, tam)
+            c.drawString(x, y, str(datos_factura.get(campo, '0.00')))
+
+    c.save()
+    buffer.seek(0)
+    return buffer.getvalue()
 
 def gestionar_sidebar():
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
