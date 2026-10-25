@@ -17714,38 +17714,44 @@ elif opcion_menu == "📄 Factura Preimpresa":
             razon_soc_sel = st.text_input("Razón Social del Cliente", key="razon_manual")
             
     with col_c2:
-        # El RIF se obtiene al instante según el cliente seleccionado en el selectbox de al lado
         if nombres_clientes:
             rif_cli = dict_clientes.get(razon_soc_sel, "")
             st.markdown("**RIF del Cliente (Automático):**")
-            # Mostramos el RIF usando st.info o st.code para que se actualice de inmediato en tiempo real
             st.info(rif_cli if rif_cli else "Sin RIF registrado")
         else:
             rif_cli = st.text_input("RIF del Cliente", key="rif_manual")
 
     st.markdown("---")
 
-    # --- DENTRO DEL FORMULARIO los datos de la factura y el botón de generar ---
+    # --- DENTRO DEL FORMULARIO: Datos de la factura y montos fiscales ---
     with st.form("form_factura_preimpresa"):
         col1, col2 = st.columns(2)
         with col1:
             nro_fact = st.text_input("Número de Factura")
             nro_ctrl = st.text_input("Número de Control")
             fec_emi = st.text_input("Fecha de Emisión (YYYY-MM-DD)")
+            base_imp = st.number_input("Base Imponible", value=0.00, format="%.2f")
+            monto_ex = st.number_input("Monto Exento", value=0.00, format="%.2f")
             
         with col2:
-            monto_tot = st.number_input("Monto Total", value=0.00)
+            porc_iva = st.number_input("Porcentaje Alícuota IVA (%)", value=16.00, format="%.2f")
+            monto_iva = st.number_input("Monto IVA", value=0.00, format="%.2f")
+            monto_tot = st.number_input("Monto Bruto / Total", value=0.00, format="%.2f")
             
         submitted = st.form_submit_button("Generar PDF Preimpreso")
         
         if submitted:
-            # Estructuramos el diccionario combinando los datos seleccionados arriba
+            # Estructuramos el diccionario incorporando todos los campos fiscales de tu tabla
             datos_factura = {
                 'nro_factura': nro_fact,
                 'nro_control': nro_ctrl,
                 'fecha_emision': fec_emi,
                 'razon_social': razon_soc_sel,
                 'rif_cliente': rif_cli,
+                'base_imponible': str(base_imp),
+                'monto_exento': str(monto_ex),
+                'porcentaje_alicuota': str(porc_iva),
+                'monto_iva': str(monto_iva),
                 'monto_total': str(monto_tot),
                 'empresa_nombre': empresa_actual['nombre'],
                 'empresa_rif': empresa_actual['rif'],
@@ -17754,7 +17760,7 @@ elif opcion_menu == "📄 Factura Preimpresa":
             
             items_factura = []
             
-            # Invocamos la función con los tres argumentos requeridos
+            # Invocamos la función con los argumentos requeridos
             pdf_bytes = generar_pdf_preimpreso(conn, datos_factura, items_factura)
             
             st.download_button(
