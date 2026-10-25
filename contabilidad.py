@@ -17703,7 +17703,7 @@ elif opcion_menu == "📄 Factura Preimpresa":
     dict_clientes = {row[0]: row[1] for row in lista_clientes} if lista_clientes else {}
     nombres_clientes = list(dict_clientes.keys())
 
-    # --- FUERA DEL FORMULARIO para que reaccione al instante ---
+    # --- FUERA DEL FORMULARIO Y FUERA DE COLUMNAS: Selección de Cliente ---
     st.markdown("### 👤 Selección de Cliente")
     col_c1, col_c2 = st.columns(2)
     
@@ -17723,8 +17723,7 @@ elif opcion_menu == "📄 Factura Preimpresa":
 
     st.markdown("---")
 
-    # --- DENTRO DEL FORMULARIO: Datos de la factura y montos fiscales ---
-    # --- DENTRO DEL FORMULARIO: Datos de la factura y montos fiscales ---
+    # --- DENTRO DEL FORMULARIO (Nivel principal de la página) ---
     with st.form("form_factura_preimpresa"):
         col1, col2 = st.columns(2)
         with col1:
@@ -17734,60 +17733,50 @@ elif opcion_menu == "📄 Factura Preimpresa":
             base_imp = st.number_input("Base Imponible", value=0.00, format="%.2f")
             monto_ex = st.number_input("Monto Exento", value=0.00, format="%.2f")
             
-        # --- DENTRO DEL FORMULARIO: Datos de la factura y montos fiscales ---
-        with st.form("form_factura_preimpresa"):
-            col1, col2 = st.columns(2)
-            with col1:
-                nro_fact = st.text_input("Número de Factura")
-                nro_ctrl = st.text_input("Número de Control")
-                fec_emi = st.text_input("Fecha de Emisión (YYYY-MM-DD)")
-                base_imp = st.number_input("Base Imponible", value=0.00, format="%.2f")
-                monto_ex = st.number_input("Monto Exento", value=0.00, format="%.2f")
-                
-            with col2:
-                porc_iva = st.number_input("Porcentaje Alícuota IVA (%)", value=16.00, format="%.2f")
-                
-                # Cálculo automático del Monto IVA
-                monto_iva_calc = base_imp * (porc_iva / 100.0)
-                st.metric(label="📊 Monto IVA (Automático)", value=f"{monto_iva_calc:,.2f}")
-                
-                # Cálculo automático y visual del Monto Bruto / Total (Base + Exento + IVA)
-                monto_tot_calc = base_imp + monto_ex + monto_iva_calc
-                st.metric(label="💰 Monto Bruto / Total (Automático)", value=f"{monto_tot_calc:,.2f}")
-                
-            submitted = st.form_submit_button("Generar PDF Preimpreso")
+        with col2:
+            porc_iva = st.number_input("Porcentaje Alícuota IVA (%)", value=16.00, format="%.2f")
             
-            if submitted:
-                # Estructuramos el diccionario usando los valores calculados automáticamente
-                datos_factura = {
-                    'nro_factura': nro_fact,
-                    'nro_control': nro_ctrl,
-                    'fecha_emision': fec_emi,
-                    'razon_social': razon_soc_sel,
-                    'rif_cliente': rif_cli,
-                    'base_imponible': str(base_imp),
-                    'monto_exento': str(monto_ex),
-                    'porcentaje_alicuota': str(porc_iva),
-                    'monto_iva': str(monto_iva_calc),
-                    'monto_total': str(monto_tot_calc),
-                    'empresa_nombre': empresa_actual['nombre'],
-                    'empresa_rif': empresa_actual['rif'],
-                    'empresa_direccion': empresa_actual['direccion']
-                }
-                
-                items_factura = []
-                
-                # Guardamos el PDF en session_state para mostrarlo fuera del formulario
-                st.session_state['pdf_bytes_preimpresa'] = generar_pdf_preimpreso(conn, datos_factura, items_factura)
-                st.session_state['nro_fact_preimpresa'] = nro_fact
-                st.success("¡PDF generado correctamente! Ya puedes descargarlo abajo.")
+            # Cálculo automático del Monto IVA
+            monto_iva_calc = base_imp * (porc_iva / 100.0)
+            st.metric(label="📊 Monto IVA (Automático)", value=f"{monto_iva_calc:,.2f}")
+            
+            # Cálculo automático y visual del Monto Bruto / Total
+            monto_tot_calc = base_imp + monto_ex + monto_iva_calc
+            st.metric(label="💰 Monto Bruto / Total (Automático)", value=f"{monto_tot_calc:,.2f}")
+            
+        submitted = st.form_submit_button("Generar PDF Preimpreso")
+        
+        if submitted:
+            # Estructuramos el diccionario usando los valores calculados automáticamente
+            datos_factura = {
+                'nro_factura': nro_fact,
+                'nro_control': nro_ctrl,
+                'fecha_emision': fec_emi,
+                'razon_social': razon_soc_sel,
+                'rif_cliente': rif_cli,
+                'base_imponible': str(base_imp),
+                'monto_exento': str(monto_ex),
+                'porcentaje_alicuota': str(porc_iva),
+                'monto_iva': str(monto_iva_calc),
+                'monto_total': str(monto_tot_calc),
+                'empresa_nombre': empresa_actual['nombre'],
+                'empresa_rif': empresa_actual['rif'],
+                'empresa_direccion': empresa_actual['direccion']
+            }
+            
+            items_factura = []
+            
+            # Guardamos el PDF en session_state para mostrar el botón de descarga afuera
+            st.session_state['pdf_bytes_preimpresa'] = generar_pdf_preimpreso(conn, datos_factura, items_factura)
+            st.session_state['nro_fact_preimpresa'] = nro_fact
+            st.success("¡PDF generado correctamente! Ya puedes descargarlo abajo.")
 
-        # --- FUERA DEL FORMULARIO: Botón de descarga seguro ---
-        if 'pdf_bytes_preimpresa' in st.session_state and st.session_state['pdf_bytes_preimpresa']:
-            st.markdown("---")
-            st.download_button(
-                label="📥 Descargar PDF Listo para Imprimir",
-                data=st.session_state['pdf_bytes_preimpresa'],
-                file_name=f"factura_{st.session_state.get('nro_fact_preimpresa', 'preimpresa')}.pdf",
-                mime="application/pdf"
-            )
+    # --- FUERA DEL FORMULARIO: Botón de descarga seguro ---
+    if 'pdf_bytes_preimpresa' in st.session_state and st.session_state['pdf_bytes_preimpresa']:
+        st.markdown("---")
+        st.download_button(
+            label="📥 Descargar PDF Listo para Imprimir",
+            data=st.session_state['pdf_bytes_preimpresa'],
+            file_name=f"factura_{st.session_state.get('nro_fact_preimpresa', 'preimpresa')}.pdf",
+            mime="application/pdf"
+        )
