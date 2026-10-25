@@ -17568,15 +17568,27 @@ elif opcion_menu == "📄 Factura Preimpresa":
         empresa_actual = obtener_datos_empresa_activa()
         st.info(f"Empresa Emisora: **{empresa_actual['nombre']}** | RIF: **{empresa_actual['rif']}**")
 
-        # 1. Consultar los clientes directamente desde la tabla clientes_comerciales
+        # 1. Consultar los clientes directamente desde la tabla clientes_comerciales con reconexión automática
         lista_clientes = []
         try:
+            # Aseguramos que la conexión esté activa ante cortes o timeouts de TiDB Cloud
+            conn.ping(reconnect=True)
             with conn.cursor() as cursor_cli:
                 cursor_cli.execute("SELECT razon_social, rif FROM clientes_comerciales ORDER BY razon_social ASC")
                 lista_clientes = cursor_cli.fetchall()
                 st.info(f"DEBUG: Se encontraron {len(lista_clientes)} clientes en la tabla.")
         except Exception as ex:
-            st.error(f"Error al consultar clientes_comerciales: {ex}")
+            # Si falla, forzamos una reconexión limpia a la base de datos
+            try:
+                st.session_state.conn = None
+                conn = conectar_db("gomas_puente_hierro")
+                conn.ping(reconnect=True)
+                with conn.cursor() as cursor_cli:
+                    cursor_cli.execute("SELECT razon_social, rif FROM clientes_comerciales ORDER BY razon_social ASC")
+                    lista_clientes = cursor_cli.fetchall()
+                    st.info(f"DEBUG (Reconexión exitosa): Se encontraron {len(lista_clientes)} clientes.")
+            except Exception as ex_reconnect:
+                st.error(f"Error al consultar clientes_comerciales: {ex_reconnect}")
 
         dict_clientes = {row[0]: row[1] for row in lista_clientes} if lista_clientes else {}
         nombres_clientes = list(dict_clientes.keys())
