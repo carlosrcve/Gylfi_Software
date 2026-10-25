@@ -17714,14 +17714,14 @@ elif opcion_menu == "📄 Factura Preimpresa":
             razon_soc_sel = st.text_input("Razón Social del Cliente", key="razon_manual")
             
     with col_c2:
-        # El RIF se calcula al instante según el cliente seleccionado en el selectbox de al lado
+        # El RIF se obtiene al instante según el cliente seleccionado en el selectbox de al lado
         if nombres_clientes:
             rif_cli = dict_clientes.get(razon_soc_sel, "")
+            st.markdown("**RIF del Cliente (Automático):**")
+            # Mostramos el RIF usando st.info o st.code para que se actualice de inmediato en tiempo real
+            st.info(rif_cli if rif_cli else "Sin RIF registrado")
         else:
             rif_cli = st.text_input("RIF del Cliente", key="rif_manual")
-            
-        # Mostramos el RIF de forma visual y actualizada en tiempo real
-        st.text_input("RIF del Cliente (Automático)", value=rif_cli, disabled=True, key="rif_display_autocompletado")
 
     st.markdown("---")
 
