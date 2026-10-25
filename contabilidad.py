@@ -17605,7 +17605,7 @@ elif opcion_menu == "📄 Factura Preimpresa":
                 if nombres_clientes:
                     razon_soc_sel = st.selectbox("Seleccionar Cliente de la Base de Datos", nombres_clientes)
                     rif_auto = dict_clientes.get(razon_soc_sel, "")
-                    rif_cli = st.text_input("RIF del Cliente", value=rif_auto)
+                    rif_cli = st.text_input("RIF del Cliente", value=rif_auto, disabled=True)
                 else:
                     razon_soc_sel = st.text_input("Razón Social del Cliente")
                     rif_cli = st.text_input("RIF del Cliente")
