@@ -6980,6 +6980,11 @@ if menu_lateral == "📊 Auditoría Contable":
             if "🧁 Inventarios" not in modulos_disponibles:
                 modulos_disponibles.append("🧁 Inventarios")
 
+        # Condición exclusiva para Gomas Puente Hierro (ajusta el texto según cómo aparezca en tu variable nombre_sel)
+        if "GOMAS" in str(nombre_sel).upper() and "PUENTE" in str(nombre_sel).upper():
+            if "📄 Factura Preimpresa" not in modulos_disponibles:
+                modulos_disponibles.append("📄 Factura Preimpresa")
+
         # Buscamos si ya hay una opción guardada, de lo contrario fijamos 0 (Inicio)
         indice_actual = 0
         if 'opcion_menu_auditoria' in st.session_state and st.session_state['opcion_menu_auditoria'] in modulos_disponibles:
@@ -6995,6 +7000,8 @@ if menu_lateral == "📊 Auditoría Contable":
             sub_opcion = st.radio("Reportes Financieros:", ["Balance de Comprobación", "Balance General", "Estado de Resultados"], key="sub_estados")
         elif opcion_menu == "📚 Libros Fiscales":
             sub_opcion = st.radio("Reportes Fiscales:", ["Libro de Ventas", "Libro de Compras", "Comprobante de Retención ISLR", "Comprobante de Retención IVA"], key="sub_libros")
+        elif opcion_menu == "📄 Factura Preimpresa":
+            sub_opcion = st.radio("Configuración y Emisión:", ["Generar PDF Preimpreso", "Calibrar Coordenadas (X,Y)"], key="sub_factura_preimpresa")
         else:
             sub_opcion = None
 
@@ -17488,3 +17495,55 @@ elif opcion_menu == "📦 Respaldos y Exportación":
 elif "Inventarios" in opcion_menu:
     # Invocamos el módulo exclusivo pasando la conexión a la base de datos
     modulo_inventario_pedacito_cielo(conn)  
+
+
+elif opcion_menu == "📄 Factura Preimpresa":
+    st.subheader("🖨️ Emisión de Factura Preimpresa")
+    
+    # Obtenemos los datos fiscales de la empresa activa automáticamente
+    empresa_actual = obtener_datos_empresa_activa()
+    
+    st.info(f"Empresa Emisora: **{empresa_actual['nombre']}** | RIF: **{empresa_actual['rif']}**")
+
+    with st.form("form_factura_preimpresa"):
+        col1, col2 = st.columns(2)
+        with col1:
+            nro_fact = st.text_input("Número de Factura")
+            nro_ctrl = st.text_input("Número de Control")
+            fec_emi = st.text_input("Fecha de Emisión (YYYY-MM-DD)")
+        with col2:
+            razon_soc = st.text_input("Razón Social del Cliente")
+            rif_cli = st.text_input("RIF del Cliente")
+            monto_tot = st.number_input("Monto Total", value=0.00)
+            
+        submitted = st.form_submit_button("Generar PDF Preimpreso")
+        
+        if submitted:
+            # Estructuramos el diccionario combinando los datos del cliente y los de la empresa emisora si tu PDF los requiere
+            datos_factura = {
+                'nro_factura': nro_fact,
+                'nro_control': nro_ctrl,
+                'fecha_emision': fec_emi,
+                'razon_social': razon_soc,
+                'rif_cliente': rif_cli,
+                'monto_total': str(monto_tot),
+                # Datos de la empresa sacados de control_central por si los usas en el membrete:
+                'empresa_nombre': empresa_actual['nombre'],
+                'empresa_rif': empresa_actual['rif'],
+                'empresa_direccion': empresa_actual['direccion']
+            }
+            
+            # Lista de ítems de ejemplo o vacía para mapear los renglones
+            items_factura = [
+                # {'codigo': '001', 'descripcion': 'Repuesto', 'cantidad': 1, 'precio_unitario': 100.00, 'total_linea': 100.00}
+            ]
+            
+            # Invocamos la función con los tres argumentos requeridos
+            pdf_bytes = generar_pdf_preimpreso(conn, datos_factura, items_factura)
+            
+            st.download_button(
+                label="📥 Descargar PDF Listo para Imprimir",
+                data=pdf_bytes,
+                file_name=f"factura_{nro_fact}.pdf",
+                mime="application/pdf"
+            )
