@@ -17600,17 +17600,21 @@ elif opcion_menu == "📄 Factura Preimpresa":
                 nro_ctrl = st.text_input("Número de Control")
                 fec_emi = st.text_input("Fecha de Emisión (YYYY-MM-DD)")
                 
-            with col2:
-                # Selector inteligente de clientes desde la base de datos
-                if nombres_clientes:
-                    razon_soc_sel = st.selectbox("Seleccionar Cliente de la Base de Datos", nombres_clientes)
-                    rif_auto = dict_clientes.get(razon_soc_sel, "")
-                    rif_cli = st.text_input("RIF del Cliente", value=rif_auto, disabled=True)
-                else:
-                    razon_soc_sel = st.text_input("Razón Social del Cliente")
-                    rif_cli = st.text_input("RIF del Cliente")
-                    
-                monto_tot = st.number_input("Monto Total", value=0.00)
+           with col2:
+            # Selector inteligente de clientes desde la base de datos
+            if nombres_clientes:
+                razon_soc_sel = st.selectbox("Seleccionar Cliente de la Base de Datos", nombres_clientes, key="select_cliente_preimpresa")
+                
+                # Obtenemos el RIF automáticamente del diccionario según el cliente seleccionado
+                rif_cli = dict_clientes.get(razon_soc_sel, "")
+                
+                # Mostramos el RIF de forma visual y clara (se actualiza al instante al cambiar de cliente)
+                st.markdown(f"**📄 RIF del Cliente:** `{rif_cli}`")
+            else:
+                razon_soc_sel = st.text_input("Razón Social del Cliente")
+                rif_cli = st.text_input("RIF del Cliente")
+                
+            monto_tot = st.number_input("Monto Total", value=0.00)
                 
             submitted = st.form_submit_button("Generar PDF Preimpreso")
             
