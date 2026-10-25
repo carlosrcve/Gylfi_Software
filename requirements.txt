@@ -18,3 +18,4 @@ PyMuPDF
 google-generativeai
 pdfplumber
 opencv-python-headless
+reportlab
