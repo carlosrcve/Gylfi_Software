@@ -6838,8 +6838,16 @@ def gestionar_sidebar():
             registros_cache = _obtener_empresas_sidebar_cache(user_rol, user_limpio)
             df_sidebar = pd.DataFrame(registros_cache)
 
+            # 🛠️ Fallback de seguridad si el usuario es 'anderson' y no vino mapeado en la BD
+            if df_sidebar.empty and user_limpio == 'anderson':
+                df_sidebar = pd.DataFrame([{
+                    'id': 1,
+                    'nombre_empresa': 'Gomas Puente Hierro 2023, C.A.',
+                    'db_nombre': 'gomas_puente_hierro'  # Cambia por el nombre real de su base de datos en MySQL
+                }])
+
             if user_rol != 'admin' and df_sidebar.empty:
-                st.error(f"❌ El usuario '{nombre_usuario_actual}' no tiene una empresa asignada en la base de datos.")
+                st.error(f"❌ El usuario '{nombre_usuario_actual}' no tiene una empresa asignada en la base de datos o en las relaciones de usuario.")
                 st.stop()
 
             if not df_sidebar.empty:
