@@ -17558,69 +17558,72 @@ elif "Inventarios" in opcion_menu:
 elif opcion_menu == "📄 Factura Preimpresa":
     st.subheader("🖨️ Emisión de Factura Preimpresa")
     
-    # Obtenemos los datos fiscales de la empresa emisora activa
-    empresa_actual = obtener_datos_empresa_activa()
-    st.info(f"Empresa Emisora: **{empresa_actual['nombre']}** | RIF: **{empresa_actual['rif']}**")
+    # Establecemos la conexión explícita con la base de datos de Gomas Puente Hierro
+    conn = conectar_db("gomas_puente_hierro")
+    
+    if conn is None:
+        st.error("❌ No se pudo establecer conexión con la base de datos de Gomas Puente Hierro.")
+    else:
+        # Obtenemos los datos fiscales de la empresa emisora activa
+        empresa_actual = obtener_datos_empresa_activa()
+        st.info(f"Empresa Emisora: **{empresa_actual['nombre']}** | RIF: **{empresa_actual['rif']}**")
 
-    # 1. Consultar los clientes directamente desde la tabla clientes_comerciales
-    lista_clientes = []
-    try:
-        with conn.cursor() as cursor_cli:
-            cursor_cli.execute("SELECT razon_social, rif FROM clientes_comerciales ORDER BY razon_social ASC")
-            lista_clientes = cursor_cli.fetchall()
-    except Exception as ex:
-        st.warning(f"No se pudieron cargar los clientes: {ex}")
+        # 1. Consultar los clientes directamente desde la tabla clientes_comerciales
+        lista_clientes = []
+        try:
+            with conn.cursor() as cursor_cli:
+                cursor_cli.execute("SELECT razon_social, rif FROM clientes_comerciales ORDER BY razon_social ASC")
+                lista_clientes = cursor_cli.fetchall()
+                st.info(f"DEBUG: Se encontraron {len(lista_clientes)} clientes en la tabla.")
+        except Exception as ex:
+            st.error(f"Error al consultar clientes_comerciales: {ex}")
 
-    # Convertimos los resultados en diccionarios o listas fáciles de manejar
-    # Si usas cursor de diccionarios, la estructura es diferente; 
-    # asumiendo tu cursor normal (tuplas): razon_social = row[0], rif = row[1]
-    dict_clientes = {row[0]: row[1] for row in lista_clientes} if lista_clientes else {}
-    nombres_clientes = list(dict_clientes.keys())
+        dict_clientes = {row[0]: row[1] for row in lista_clientes} if lista_clientes else {}
+        nombres_clientes = list(dict_clientes.keys())
 
-    with st.form("form_factura_preimpresa"):
-        col1, col2 = st.columns(2)
-        with col1:
-            nro_fact = st.text_input("Número de Factura")
-            nro_ctrl = st.text_input("Número de Control")
-            fec_emi = st.text_input("Fecha de Emisión (YYYY-MM-DD)")
-            
-        with col2:
-            # Selector inteligente de clientes desde la base de datos
-            if nombres_clientes:
-                razon_soc_sel = st.selectbox("Seleccionar Cliente de la Base de Datos", nombres_clientes)
-                rif_auto = dict_clientes.get(razon_soc_sel, "")
-                rif_cli = st.text_input("RIF del Cliente", value=rif_auto)
-            else:
-                razon_soc_sel = st.text_input("Razón Social del Cliente")
-                rif_cli = st.text_input("RIF del Cliente")
+        with st.form("form_factura_preimpresa"):
+            col1, col2 = st.columns(2)
+            with col1:
+                nro_fact = st.text_input("Número de Factura")
+                nro_ctrl = st.text_input("Número de Control")
+                fec_emi = st.text_input("Fecha de Emisión (YYYY-MM-DD)")
                 
-            monto_tot = st.number_input("Monto Total", value=0.00)
+            with col2:
+                # Selector inteligente de clientes desde la base de datos
+                if nombres_clientes:
+                    razon_soc_sel = st.selectbox("Seleccionar Cliente de la Base de Datos", nombres_clientes)
+                    rif_auto = dict_clientes.get(razon_soc_sel, "")
+                    rif_cli = st.text_input("RIF del Cliente", value=rif_auto)
+                else:
+                    razon_soc_sel = st.text_input("Razón Social del Cliente")
+                    rif_cli = st.text_input("RIF del Cliente")
+                    
+                monto_tot = st.number_input("Monto Total", value=0.00)
+                
+            submitted = st.form_submit_button("Generar PDF Preimpreso")
             
-        submitted = st.form_submit_button("Generar PDF Preimpreso")
-        
-        if submitted:
-            # Estructuramos el diccionario combinando los datos
-            datos_factura = {
-                'nro_factura': nro_fact,
-                'nro_control': nro_ctrl,
-                'fecha_emision': fec_emi,
-                'razon_social': razon_soc_sel,
-                'rif_cliente': rif_cli,
-                'monto_total': str(monto_tot),
-                'empresa_nombre': empresa_actual['nombre'],
-                'empresa_rif': empresa_actual['rif'],
-                'empresa_direccion': empresa_actual['direccion']
-            }
-            
-            # Lista de ítems (puedes adaptarla para cargar el detalle de ventas si lo tienes)
-            items_factura = []
-            
-            # Invocamos la función con los tres argumentos requeridos
-            pdf_bytes = generar_pdf_preimpreso(conn, datos_factura, items_factura)
-            
-            st.download_button(
-                label="📥 Descargar PDF Listo para Imprimir",
-                data=pdf_bytes,
-                file_name=f"factura_{nro_fact}.pdf",
-                mime="application/pdf"
-            )
+            if submitted:
+                # Estructuramos el diccionario combinando los datos
+                datos_factura = {
+                    'nro_factura': nro_fact,
+                    'nro_control': nro_ctrl,
+                    'fecha_emision': fec_emi,
+                    'razon_social': razon_soc_sel,
+                    'rif_cliente': rif_cli,
+                    'monto_total': str(monto_tot),
+                    'empresa_nombre': empresa_actual['nombre'],
+                    'empresa_rif': empresa_actual['rif'],
+                    'empresa_direccion': empresa_actual['direccion']
+                }
+                
+                items_factura = []
+                
+                # Invocamos la función con la conexión ya disponible
+                pdf_bytes = generar_pdf_preimpreso(conn, datos_factura, items_factura)
+                
+                st.download_button(
+                    label="📥 Descargar PDF Listo para Imprimir",
+                    data=pdf_bytes,
+                    file_name=f"factura_{nro_fact}.pdf",
+                    mime="application/pdf"
+                )
