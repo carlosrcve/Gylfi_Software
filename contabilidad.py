@@ -124,7 +124,65 @@ def conectar_db(nombre_db=None):
         st.session_state.conn = None
         return None
 
+def obtener_datos_empresa_activa():
+    """
+    Consulta directamente la base de datos control_central.clientes 
+    utilizando el cliente_id de la sesión actual y devuelve un diccionario 
+    con el nombre, RIF y dirección fiscal de la empresa.
+    """
+    datos_agente = {
+        "nombre": "EMPRESA NO IDENTIFICADA",
+        "rif": "J-00000000-0",
+        "direccion": "DIRECCIÓN NO REGISTRADA"
+    }
 
+    id_sesion = st.session_state.get('cliente_id')
+
+    try:
+        # Usamos tu función conectar_db existente
+        conn_central = conectar_db("control_central")
+        if conn_central:
+            # Usamos context manager para cerrar el cursor automáticamente
+            with conn_central.cursor() as cursor_c:
+                res_agente = None
+
+                # 1. Búsqueda principal por el ID del cliente en la sesión
+                if id_sesion is not None:
+                    cursor_c.execute(
+                        "SELECT nombre_empresa, rif, direccion_fiscal FROM clientes WHERE id = %s", 
+                        (id_sesion,)
+                    )
+                    row = cursor_c.fetchone()
+                    if row:
+                        res_agente = {
+                            "nombre_empresa": row[0],
+                            "rif": row[1],
+                            "direccion_fiscal": row[2]
+                        }
+
+                # 2. Respaldo absoluto: si no encuentra por ID, tomamos el primer registro de la tabla
+                if not res_agente:
+                    cursor_c.execute(
+                        "SELECT nombre_empresa, rif, direccion_fiscal FROM clientes LIMIT 1"
+                    )
+                    row = cursor_c.fetchone()
+                    if row:
+                        res_agente = {
+                            "nombre_empresa": row[0],
+                            "rif": row[1],
+                            "direccion_fiscal": row[2]
+                        }
+
+                if res_agente:
+                    datos_agente = {
+                        "nombre": res_agente.get("nombre_empresa", "EMPRESA NO IDENTIFICADA"),
+                        "rif": res_agente.get("rif", "J-00000000-0"),
+                        "direccion": res_agente.get("direccion_fiscal", "DIRECCIÓN NO REGISTRADA")
+                    }
+    except Exception as e:
+        print(f"Error obteniendo datos del agente desde control_central: {e}")
+
+    return datos_agente
 def registrar_log_automatico(conn, accion, detalles):
     """Registra automáticamente las interacciones del usuario en la tabla logs_auditoria
     ubicada en la base de datos central de control.
