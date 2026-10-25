@@ -17763,13 +17763,3 @@ elif opcion_menu == "📄 Factura Preimpresa":
                 file_name=f"factura_{nro_fact}.pdf",
                 mime="application/pdf"
             )
-                
-                # Invocamos la función con la conexión ya disponible
-                pdf_bytes = generar_pdf_preimpreso(conn, datos_factura, items_factura)
-                
-                st.download_button(
-                    label="📥 Descargar PDF Listo para Imprimir",
-                    data=pdf_bytes,
-                    file_name=f"factura_{nro_fact}.pdf",
-                    mime="application/pdf"
-                )
