@@ -17768,8 +17768,8 @@ elif opcion_menu == "📄 Factura Preimpresa":
                     'base_imponible': str(base_imp),
                     'monto_exento': str(monto_ex),
                     'porcentaje_alicuota': str(porc_iva),
-                    'monto_iva': str(monto_iva_calc),          # <-- Calculado automáticamente
-                    'monto_total': str(monto_tot_calc),        # <-- Calculado automáticamente
+                    'monto_iva': str(monto_iva_calc),
+                    'monto_total': str(monto_tot_calc),
                     'empresa_nombre': empresa_actual['nombre'],
                     'empresa_rif': empresa_actual['rif'],
                     'empresa_direccion': empresa_actual['direccion']
@@ -17777,12 +17777,17 @@ elif opcion_menu == "📄 Factura Preimpresa":
                 
                 items_factura = []
                 
-                # Invocamos la función con los argumentos requeridos
-                pdf_bytes = generar_pdf_preimpreso(conn, datos_factura, items_factura)
-                
-                st.download_button(
-                    label="📥 Descargar PDF Listo para Imprimir",
-                    data=pdf_bytes,
-                    file_name=f"factura_{nro_fact}.pdf",
-                    mime="application/pdf"
-                )
+                # Guardamos el PDF en session_state para mostrarlo fuera del formulario
+                st.session_state['pdf_bytes_preimpresa'] = generar_pdf_preimpreso(conn, datos_factura, items_factura)
+                st.session_state['nro_fact_preimpresa'] = nro_fact
+                st.success("¡PDF generado correctamente! Ya puedes descargarlo abajo.")
+
+        # --- FUERA DEL FORMULARIO: Botón de descarga seguro ---
+        if 'pdf_bytes_preimpresa' in st.session_state and st.session_state['pdf_bytes_preimpresa']:
+            st.markdown("---")
+            st.download_button(
+                label="📥 Descargar PDF Listo para Imprimir",
+                data=st.session_state['pdf_bytes_preimpresa'],
+                file_name=f"factura_{st.session_state.get('nro_fact_preimpresa', 'preimpresa')}.pdf",
+                mime="application/pdf"
+            )
