@@ -17724,6 +17724,7 @@ elif opcion_menu == "📄 Factura Preimpresa":
     st.markdown("---")
 
     # --- DENTRO DEL FORMULARIO: Datos de la factura y montos fiscales ---
+    # --- DENTRO DEL FORMULARIO: Datos de la factura y montos fiscales ---
     with st.form("form_factura_preimpresa"):
         col1, col2 = st.columns(2)
         with col1:
@@ -17733,39 +17734,55 @@ elif opcion_menu == "📄 Factura Preimpresa":
             base_imp = st.number_input("Base Imponible", value=0.00, format="%.2f")
             monto_ex = st.number_input("Monto Exento", value=0.00, format="%.2f")
             
-        with col2:
-            porc_iva = st.number_input("Porcentaje Alícuota IVA (%)", value=16.00, format="%.2f")
-            monto_iva = st.number_input("Monto IVA", value=0.00, format="%.2f")
-            monto_tot = st.number_input("Monto Bruto / Total", value=0.00, format="%.2f")
+        # --- DENTRO DEL FORMULARIO: Datos de la factura y montos fiscales ---
+        with st.form("form_factura_preimpresa"):
+            col1, col2 = st.columns(2)
+            with col1:
+                nro_fact = st.text_input("Número de Factura")
+                nro_ctrl = st.text_input("Número de Control")
+                fec_emi = st.text_input("Fecha de Emisión (YYYY-MM-DD)")
+                base_imp = st.number_input("Base Imponible", value=0.00, format="%.2f")
+                monto_ex = st.number_input("Monto Exento", value=0.00, format="%.2f")
+                
+            with col2:
+                porc_iva = st.number_input("Porcentaje Alícuota IVA (%)", value=16.00, format="%.2f")
+                
+                # Cálculo automático del Monto IVA
+                monto_iva_calc = base_imp * (porc_iva / 100.0)
+                st.metric(label="📊 Monto IVA (Automático)", value=f"{monto_iva_calc:,.2f}")
+                
+                # Cálculo automático y visual del Monto Bruto / Total (Base + Exento + IVA)
+                monto_tot_calc = base_imp + monto_ex + monto_iva_calc
+                st.metric(label="💰 Monto Bruto / Total (Automático)", value=f"{monto_tot_calc:,.2f}")
+                
+            submitted = st.form_submit_button("Generar PDF Preimpreso")
             
-        submitted = st.form_submit_button("Generar PDF Preimpreso")
-        
-        if submitted:
-            # Estructuramos el diccionario incorporando todos los campos fiscales de tu tabla
-            datos_factura = {
-                'nro_factura': nro_fact,
-                'nro_control': nro_ctrl,
-                'fecha_emision': fec_emi,
-                'razon_social': razon_soc_sel,
-                'rif_cliente': rif_cli,
-                'base_imponible': str(base_imp),
-                'monto_exento': str(monto_ex),
-                'porcentaje_alicuota': str(porc_iva),
-                'monto_iva': str(monto_iva),
-                'monto_total': str(monto_tot),
-                'empresa_nombre': empresa_actual['nombre'],
-                'empresa_rif': empresa_actual['rif'],
-                'empresa_direccion': empresa_actual['direccion']
-            }
-            
-            items_factura = []
-            
-            # Invocamos la función con los argumentos requeridos
-            pdf_bytes = generar_pdf_preimpreso(conn, datos_factura, items_factura)
-            
-            st.download_button(
-                label="📥 Descargar PDF Listo para Imprimir",
-                data=pdf_bytes,
-                file_name=f"factura_{nro_fact}.pdf",
-                mime="application/pdf"
-            )
+            if submitted:
+                # Estructuramos el diccionario usando los valores calculados automáticamente
+                datos_factura = {
+                    'nro_factura': nro_fact,
+                    'nro_control': nro_ctrl,
+                    'fecha_emision': fec_emi,
+                    'razon_social': razon_soc_sel,
+                    'rif_cliente': rif_cli,
+                    'base_imponible': str(base_imp),
+                    'monto_exento': str(monto_ex),
+                    'porcentaje_alicuota': str(porc_iva),
+                    'monto_iva': str(monto_iva_calc),          # <-- Calculado automáticamente
+                    'monto_total': str(monto_tot_calc),        # <-- Calculado automáticamente
+                    'empresa_nombre': empresa_actual['nombre'],
+                    'empresa_rif': empresa_actual['rif'],
+                    'empresa_direccion': empresa_actual['direccion']
+                }
+                
+                items_factura = []
+                
+                # Invocamos la función con los argumentos requeridos
+                pdf_bytes = generar_pdf_preimpreso(conn, datos_factura, items_factura)
+                
+                st.download_button(
+                    label="📥 Descargar PDF Listo para Imprimir",
+                    data=pdf_bytes,
+                    file_name=f"factura_{nro_fact}.pdf",
+                    mime="application/pdf"
+                )
