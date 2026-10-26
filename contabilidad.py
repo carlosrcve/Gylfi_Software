@@ -17611,6 +17611,7 @@ elif "Inventarios" in opcion_menu:
 
 
 
+
 elif opcion_menu == "📄 Factura Preimpresa":
     # Obtenemos los datos de la empresa de forma segura
     try:
