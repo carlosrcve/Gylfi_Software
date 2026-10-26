@@ -6819,113 +6819,48 @@ def _obtener_empresas_sidebar_cache(user_rol, user_limpio):
 def generar_pdf_preimpreso(conn, datos_factura, items_factura):
     """
     Genera un PDF transparente con los datos posicionados milimétricamente
-    según la configuración guardada en MySQL, auto-inicializando los valores por defecto.
+    según las columnas de coordenadas de la tabla config_factura_preimpresa en MySQL.
     """
     cursor = conn.cursor(dictionary=True)
     
-    # 0. Auto-insertar valores por defecto en MySQL si la tabla está vacía o faltan campos
-    defaults = [
-        ('nro_factura', 160.00, 25.00, 11),
-        ('nro_control', 160.00, 31.00, 11),
-        ('fecha_emision', 155.00, 42.00, 10),
-        ('razon_social', 35.00, 55.00, 10),
-        ('rif_cliente', 35.00, 61.00, 10),
-        ('direccion_cliente', 35.00, 67.00, 9),
-        ('telefono_cliente', 135.00, 67.00, 9),
-        ('tabla_items_y_inicial', 25.00, 90.00, 9),
-        ('salto_linea_item', 6.00, 0.00, 9),
-        ('exento', 165.00, 205.00, 10),
-        ('base_imponible', 165.00, 213.00, 10),
-        ('alicuota_iva', 130.00, 221.00, 10),
-        ('iva', 165.00, 221.00, 10),
-        ('monto_total', 165.00, 232.00, 11)
-    ]
-    
-    for campo, px, py, ft in defaults:
-        cursor.execute("""
-            INSERT INTO config_factura_preimpresa (campo, pos_x, pos_y, fuente_tamanio) 
-            VALUES (%s, %s, %s, %s)
-            ON DUPLICATE KEY UPDATE pos_x = pos_x
-        """, (campo, px, py, ft))
-    conn.commit()
-
-    # 1. Consultar coordenadas reales desde la base de datos
-    cursor.execute("SELECT campo, pos_x, pos_y, fuente_tamanio FROM config_factura_preimpresa")
-    configs = {row['campo']: row for row in cursor.fetchall()}
+    # Consultamos la fila de configuración de la tabla
+    cursor.execute("SELECT * FROM config_factura_preimpresa LIMIT 1")
+    config = cursor.fetchone() or {}
     cursor.close()
 
     buffer = io.BytesIO()
     c = canvas.Canvas(buffer, pagesize=letter)
     
-    def get_pos(campo_nombre):
-        if campo_nombre in configs:
-            x = float(configs[campo_nombre]['pos_x']) * mm
+    fuente_base = int(config.get('fuente_tamanio', 10) or 10)
+
+    def dibujar(x_col, y_col, texto, bold=False, tam=None):
+        if config.get(x_col) is not None and config.get(y_col) is not None:
+            x = float(config[x_col]) * mm
             # Conversión de milímetros desde arriba hacia el sistema de coordenadas de ReportLab (desde abajo)
-            y = (279.4 - float(configs[campo_nombre]['pos_y'])) * mm
-            return x, y
-        return 0, 0
+            y = (279.4 - float(config[y_col])) * mm
+            tamanio = tam if tam else fuente_base
+            font = "Helvetica-Bold" if bold else "Helvetica"
+            c.setFont(font, tamanio)
+            c.drawString(x, y, str(texto or ''))
 
     # --- Cabecera / Documento ---
-    if 'nro_factura' in configs:
-        x, y = get_pos('nro_factura')
-        c.setFont("Helvetica-Bold", int(configs['nro_factura']['fuente_tamanio']))
-        c.drawString(x, y, str(datos_factura.get('nro_factura', '')))
-
-    if 'nro_control' in configs:
-        x, y = get_pos('nro_control')
-        c.setFont("Helvetica-Bold", int(configs['nro_control']['fuente_tamanio']))
-        c.drawString(x, y, str(datos_factura.get('nro_control', '')))
-
-    if 'fecha_emision' in configs:
-        x, y = get_pos('fecha_emision')
-        c.setFont("Helvetica", int(configs['fecha_emision']['fuente_tamanio']))
-        c.drawString(x, y, str(datos_factura.get('fecha_emision', '')))
+    dibujar('nro_factura_x', 'nro_factura_y', datos_factura.get('nro_factura', ''), bold=True, tam=11)
+    dibujar('nro_control_x', 'nro_control_y', datos_factura.get('nro_control', ''), bold=True, tam=11)
+    dibujar('fecha_x', 'fecha_y', datos_factura.get('fecha_emision', ''))
 
     # --- Datos del Cliente ---
-    if 'razon_social' in configs:
-        x, y = get_pos('razon_social')
-        c.setFont("Helvetica", int(configs['razon_social']['fuente_tamanio']))
-        c.drawString(x, y, str(datos_factura.get('razon_social', '')))
+    dibujar('cliente_nombre_x', 'cliente_nombre_y', datos_factura.get('razon_social', ''))
+    dibujar('cliente_rif_x', 'cliente_rif_y', datos_factura.get('rif_cliente', ''))
+    
+    # Dirección fiscal del cliente mapeada con cliente_direccion_x / cliente_direccion_y
+    dir_cliente = datos_factura.get('direccion_fiscal', datos_factura.get('direccion_cliente', ''))
+    dibujar('cliente_direccion_x', 'cliente_direccion_y', dir_cliente[:70])
 
-    if 'rif_cliente' in configs:
-        x, y = get_pos('rif_cliente')
-        c.setFont("Helvetica", int(configs['rif_cliente']['fuente_tamanio']))
-        c.drawString(x, y, str(datos_factura.get('rif_cliente', '')))
-
-    if 'direccion_cliente' in configs:
-        x, y = get_pos('direccion_cliente')
-        c.setFont("Helvetica", int(configs['direccion_cliente']['fuente_tamanio']))
-        c.drawString(x, y, str(datos_factura.get('direccion_cliente', ''))[:60])
-
-    if 'telefono_cliente' in configs:
-        x, y = get_pos('telefono_cliente')
-        c.setFont("Helvetica", int(configs['telefono_cliente']['fuente_tamanio']))
-        c.drawString(x, y, str(datos_factura.get('telefono_cliente', '')))
-
-    # --- Renglones / Ítems de la Factura ---
-    if 'tabla_items_y_inicial' in configs:
-        x_base, y_actual = get_pos('tabla_items_y_inicial')
-        salto_y = float(configs.get('salto_linea_item', {'pos_x': 6.0})['pos_x']) * mm 
-        
-        for idx, item in enumerate(items_factura):
-            y_renglon = y_actual - (idx * salto_y)
-            
-            c.setFont("Helvetica", 9)
-            c.drawString(x_base, y_renglon, str(item.get('codigo', '')))
-            c.drawString(x_base + 20*mm, y_renglon, str(item.get('descripcion', ''))[:35])
-            c.drawString(x_base + 105*mm, y_renglon, str(item.get('cantidad', '0')))
-            c.drawString(x_base + 120*mm, y_renglon, str(item.get('precio_unitario', '0.00')))
-            c.drawString(x_base + 145*mm, y_renglon, str(item.get('total_linea', '0.00')))
-
-    # --- Totales y Datos Fiscales al Pie ---
-    campos_totales = ['exento', 'base_imponible', 'alicuota_iva', 'iva', 'monto_total']
-    for campo in campos_totales:
-        if campo in configs:
-            x, y = get_pos(campo)
-            tam = int(configs[campo]['fuente_tamanio'])
-            font = "Helvetica-Bold" if campo == 'monto_total' else "Helvetica"
-            c.setFont(font, tam)
-            c.drawString(x, y, str(datos_factura.get(campo, '0.00')))
+    # --- Totales y Montos Fiscales al Pie ---
+    dibujar('exento_x', 'exento_y', datos_factura.get('monto_exento', '0.00'))
+    dibujar('base_imponible_x', 'base_imponible_y', datos_factura.get('base_imponible', '0.00'))
+    dibujar('iva_x', 'iva_y', datos_factura.get('monto_iva', '0.00'))
+    dibujar('monto_total_x', 'monto_total_y', datos_factura.get('monto_total', '0.00'), bold=True, tam=11)
 
     c.save()
     buffer.seek(0)
@@ -17682,12 +17617,12 @@ elif opcion_menu == "📄 Factura Preimpresa":
     empresa_actual = obtener_datos_empresa_activa()
     st.info(f"Empresa Emisora: **{empresa_actual['nombre']}** | RIF: **{empresa_actual['rif']}**")
 
-    # 1. Consultar los clientes directamente desde la tabla clientes_comerciales con reconexión automática
+    # 1. Consultar los clientes (razón social, rif y dirección fiscal) con reconexión automática
     lista_clientes = []
     try:
         conn.ping(reconnect=True)
         with conn.cursor() as cursor_cli:
-            cursor_cli.execute("SELECT razon_social, rif FROM clientes_comerciales ORDER BY razon_social ASC")
+            cursor_cli.execute("SELECT razon_social, rif, direccion_fiscal FROM clientes_comerciales ORDER BY razon_social ASC")
             lista_clientes = cursor_cli.fetchall()
     except Exception as ex:
         try:
@@ -17695,12 +17630,13 @@ elif opcion_menu == "📄 Factura Preimpresa":
             conn = conectar_db("gomas_puente_hierro")
             conn.ping(reconnect=True)
             with conn.cursor() as cursor_cli:
-                cursor_cli.execute("SELECT razon_social, rif FROM clientes_comerciales ORDER BY razon_social ASC")
+                cursor_cli.execute("SELECT razon_social, rif, direccion_fiscal FROM clientes_comerciales ORDER BY razon_social ASC")
                 lista_clientes = cursor_cli.fetchall()
         except Exception as ex_reconnect:
             st.error(f"Error al consultar clientes_comerciales: {ex_reconnect}")
 
-    dict_clientes = {row[0]: row[1] for row in lista_clientes} if lista_clientes else {}
+    # Diccionario para almacenar RIF y Dirección Fiscal por Razón Social
+    dict_clientes = {row[0]: {'rif': row[1], 'direccion': row[2]} for row in lista_clientes} if lista_clientes else {}
     nombres_clientes = list(dict_clientes.keys())
 
     # --- FUERA DEL FORMULARIO Y FUERA DE COLUMNAS: Selección de Cliente ---
@@ -17715,11 +17651,18 @@ elif opcion_menu == "📄 Factura Preimpresa":
             
     with col_c2:
         if nombres_clientes:
-            rif_cli = dict_clientes.get(razon_soc_sel, "")
+            info_cliente = dict_clientes.get(razon_soc_sel, {'rif': '', 'direccion': ''})
+            rif_cli = info_cliente['rif']
+            dir_cli = info_cliente['direccion']
+            
             st.markdown("**RIF del Cliente (Automático):**")
             st.info(rif_cli if rif_cli else "Sin RIF registrado")
+            
+            st.markdown("**Dirección Fiscal (Automática):**")
+            st.info(dir_cli if dir_cli else "Sin dirección registrada")
         else:
             rif_cli = st.text_input("RIF del Cliente", key="rif_manual")
+            dir_cli = st.text_input("Dirección Fiscal del Cliente", key="dir_manual")
 
     st.markdown("---")
 
@@ -17747,18 +17690,19 @@ elif opcion_menu == "📄 Factura Preimpresa":
         submitted = st.form_submit_button("Generar PDF Preimpreso")
         
         if submitted:
-            # Estructuramos el diccionario usando los valores calculados automáticamente
+            # Diccionario alineado con las columnas de config_factura_preimpresa y factura
             datos_factura = {
                 'nro_factura': nro_fact,
                 'nro_control': nro_ctrl,
                 'fecha_emision': fec_emi,
                 'razon_social': razon_soc_sel,
                 'rif_cliente': rif_cli,
-                'base_imponible': str(base_imp),
-                'monto_exento': str(monto_ex),
+                'direccion_fiscal': dir_cli,              # Mapea con cliente_direccion_x/y
+                'base_imponible': str(base_imp),          # Mapea con base_imponible_x/y
+                'monto_exento': str(monto_ex),            # Mapea con exento_x/y
                 'porcentaje_alicuota': str(porc_iva),
-                'monto_iva': str(monto_iva_calc),
-                'monto_total': str(monto_tot_calc),
+                'monto_iva': str(monto_iva_calc),         # Mapea con iva_x/y
+                'monto_total': str(monto_tot_calc),       # Mapea con monto_total_x/y
                 'empresa_nombre': empresa_actual['nombre'],
                 'empresa_rif': empresa_actual['rif'],
                 'empresa_direccion': empresa_actual['direccion']
