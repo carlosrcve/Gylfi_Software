@@ -17611,11 +17611,58 @@ elif "Inventarios" in opcion_menu:
 
 
 elif opcion_menu == "📄 Factura Preimpresa":
-    st.subheader("🖨️ Emisión de Factura Preimpresa")
-    
-    # Obtenemos los datos fiscales de la empresa emisora activa
-    empresa_actual = obtener_datos_empresa_activa()
-    st.info(f"Empresa Emisora: **{empresa_actual['nombre']}** | RIF: **{empresa_actual['rif']}**")
+    # Inyección de Estilos CSS tipo POS / Terminal Moderna
+    st.markdown("""
+        <style>
+            .pos-container {
+                background: #f8f9fa;
+                border: 2px solid #e9ecef;
+                border-radius: 12px;
+                padding: 20px;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+                margin-bottom: 20px;
+            }
+            .pos-header {
+                font-size: 22px;
+                font-weight: 700;
+                color: #1e293b;
+                margin-bottom: 5px;
+            }
+            .pos-subheader {
+                font-size: 14px;
+                color: #64748b;
+                margin-bottom: 15px;
+            }
+            .info-card {
+                background: #ffffff;
+                border-left: 5px solid #0284c7;
+                padding: 12px 15px;
+                border-radius: 6px;
+                margin-bottom: 10px;
+                box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+            }
+            .info-card-title {
+                font-size: 11px;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+                color: #64748b;
+                font-weight: 600;
+            }
+            .info-card-value {
+                font-size: 14px;
+                color: #0f172a;
+                font-weight: 700;
+            }
+        </style>
+    """, unsafe_allow_html=True)
+
+    # Cabecera Visual Estilizada
+    st.markdown(f"""
+        <div class="pos-container">
+            <div class="pos-header">🖨️ Terminal de Facturación Preimpresa</div>
+            <div class="pos-subheader">Empresa Emisora: <b>{empresa_actual['nombre']}</b> | RIF: <b>{empresa_actual['rif']}</b></div>
+        </div>
+    """, unsafe_allow_html=True)
 
     # 1. Consultar los clientes (razón social, rif y dirección fiscal) con reconexión automática
     lista_clientes = []
@@ -17639,13 +17686,13 @@ elif opcion_menu == "📄 Factura Preimpresa":
     dict_clientes = {row[0]: {'rif': row[1], 'direccion': row[2]} for row in lista_clientes} if lista_clientes else {}
     nombres_clientes = list(dict_clientes.keys())
 
-    # --- FUERA DEL FORMULARIO Y FUERA DE COLUMNAS: Selección de Cliente ---
-    st.markdown("### 👤 Selección de Cliente")
+    # --- SECCIÓN DE CLIENTE ESTILIZADA ---
+    st.markdown("### 👤 Datos del Cliente")
     col_c1, col_c2 = st.columns(2)
     
     with col_c1:
         if nombres_clientes:
-            razon_soc_sel = st.selectbox("Seleccionar Cliente de la Base de Datos", nombres_clientes, key="select_cliente_preimpresa")
+            razon_soc_sel = st.selectbox("Seleccionar Cliente", nombres_clientes, key="select_cliente_preimpresa")
         else:
             razon_soc_sel = st.text_input("Razón Social del Cliente", key="razon_manual")
             
@@ -17655,11 +17702,16 @@ elif opcion_menu == "📄 Factura Preimpresa":
             rif_cli = info_cliente['rif']
             dir_cli = info_cliente['direccion']
             
-            st.markdown("**RIF del Cliente (Automático):**")
-            st.info(rif_cli if rif_cli else "Sin RIF registrado")
-            
-            st.markdown("**Dirección Fiscal (Automática):**")
-            st.info(dir_cli if dir_cli else "Sin dirección registrada")
+            st.markdown(f"""
+                <div class="info-card">
+                    <div class="info-card-title">RIF del Cliente</div>
+                    <div class="info-card-value">{rif_cli if rif_cli else "Sin RIF registrado"}</div>
+                </div>
+                <div class="info-card" style="border-left-color: #0d9488;">
+                    <div class="info-card-title">Dirección Fiscal</div>
+                    <div class="info-card-value">{dir_cli if dir_cli else "Sin dirección registrada"}</div>
+                </div>
+            """, unsafe_allow_html=True)
         else:
             rif_cli = st.text_input("RIF del Cliente", key="rif_manual")
             dir_cli = st.text_input("Dirección Fiscal del Cliente", key="dir_manual")
@@ -17668,6 +17720,7 @@ elif opcion_menu == "📄 Factura Preimpresa":
 
     # --- DENTRO DEL FORMULARIO (Nivel principal de la página) ---
     with st.form("form_factura_preimpresa"):
+        st.markdown("### 📊 Parámetros y Montos Fiscales")
         col1, col2 = st.columns(2)
         with col1:
             nro_fact = st.text_input("Número de Factura")
@@ -17687,7 +17740,7 @@ elif opcion_menu == "📄 Factura Preimpresa":
             monto_tot_calc = base_imp + monto_ex + monto_iva_calc
             st.metric(label="💰 Monto Bruto / Total (Automático)", value=f"{monto_tot_calc:,.2f}")
             
-        submitted = st.form_submit_button("Generar PDF Preimpreso")
+        submitted = st.form_submit_button("⚡ Generar y Registrar Factura")
         
         if submitted:
             # Diccionario alineado con las columnas de config_factura_preimpresa y factura
@@ -17697,12 +17750,12 @@ elif opcion_menu == "📄 Factura Preimpresa":
                 'fecha_emision': fec_emi,
                 'razon_social': razon_soc_sel,
                 'rif_cliente': rif_cli,
-                'direccion_fiscal': dir_cli,              # Mapea con cliente_direccion_x/y
-                'base_imponible': str(base_imp),          # Mapea con base_imponible_x/y
-                'monto_exento': str(monto_ex),            # Mapea con exento_x/y
+                'direccion_fiscal': dir_cli,
+                'base_imponible': str(base_imp),
+                'monto_exento': str(monto_ex),
                 'porcentaje_alicuota': str(porc_iva),
-                'monto_iva': str(monto_iva_calc),         # Mapea con iva_x/y
-                'monto_total': str(monto_tot_calc),       # Mapea con monto_total_x/y
+                'monto_iva': str(monto_iva_calc),
+                'monto_total': str(monto_tot_calc),
                 'empresa_nombre': empresa_actual['nombre'],
                 'empresa_rif': empresa_actual['rif'],
                 'empresa_direccion': empresa_actual['direccion']
@@ -17713,13 +17766,13 @@ elif opcion_menu == "📄 Factura Preimpresa":
             # Guardamos el PDF en session_state para mostrar el botón de descarga afuera
             st.session_state['pdf_bytes_preimpresa'] = generar_pdf_preimpreso(conn, datos_factura, items_factura)
             st.session_state['nro_fact_preimpresa'] = nro_fact
-            st.success("¡PDF generado correctamente! Ya puedes descargarlo abajo.")
+            st.success("¡Factura procesada con éxito! Ya puedes descargar el documento listo para imprimir.")
 
     # --- FUERA DEL FORMULARIO: Botón de descarga seguro ---
     if 'pdf_bytes_preimpresa' in st.session_state and st.session_state['pdf_bytes_preimpresa']:
         st.markdown("---")
         st.download_button(
-            label="📥 Descargar PDF Listo para Imprimir",
+            label="📥 Descargar PDF de Factura Preimpresa",
             data=st.session_state['pdf_bytes_preimpresa'],
             file_name=f"factura_{st.session_state.get('nro_fact_preimpresa', 'preimpresa')}.pdf",
             mime="application/pdf"
