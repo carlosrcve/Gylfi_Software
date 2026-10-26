@@ -17613,6 +17613,8 @@ elif "Inventarios" in opcion_menu:
 
 from datetime import date
 
+from datetime import date
+
 if opcion_menu == "📄 Factura Preimpresa":
     # Obtenemos los datos de la empresa de forma segura
     try:
@@ -17697,6 +17699,7 @@ if opcion_menu == "📄 Factura Preimpresa":
             <div class="pos-main-card">
                 <div class="pos-header-title">⚡ Terminal POS - Facturación Rápida</div>
                 <div class="pos-header-subtitle">Empresa Emisora: <b>{empresa_actual.get('nombre', 'Gomas Puente Hierro')}</b> | RIF: <b>{empresa_actual.get('rif', '')}</b></div>
+            </div>
         """, unsafe_allow_html=True)
 
         # 1. Consultar los clientes con reconexión automática
@@ -17843,8 +17846,6 @@ if opcion_menu == "📄 Factura Preimpresa":
                     st.session_state['pdf_bytes_preimpresa'] = generar_pdf_preimpreso(conn, datos_factura, items_factura)
                     st.session_state['nro_fact_preimpresa'] = nro_fact
                     st.success("¡Factura procesada con éxito! Ya puedes descargar el documento abajo.")
-
-        st.markdown("</div>", unsafe_allow_html=True)
 
         if 'pdf_bytes_preimpresa' in st.session_state and st.session_state['pdf_bytes_preimpresa']:
             st.markdown("---")
