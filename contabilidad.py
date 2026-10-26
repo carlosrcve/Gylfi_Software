@@ -17609,7 +17609,7 @@ elif "Inventarios" in opcion_menu:
     # Invocamos el módulo exclusivo pasando la conexión a la base de datos
     modulo_inventario_pedacito_cielo(conn)  
 
-
+from datetime import date
 
 
 elif opcion_menu == "📄 Factura Preimpresa":
