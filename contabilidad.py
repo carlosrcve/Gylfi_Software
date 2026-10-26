@@ -17610,7 +17610,6 @@ elif "Inventarios" in opcion_menu:
     modulo_inventario_pedacito_cielo(conn)  
 
 
-import datetime
 
 elif opcion_menu == "📄 Factura Preimpresa":
     # Obtenemos los datos de la empresa de forma segura
