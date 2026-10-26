@@ -17749,13 +17749,21 @@ elif opcion_menu == "📄 Factura Preimpresa":
     st.markdown("<hr style='margin: 20px 0; border: none; border-top: 1px solid #e2e8f0;'>", unsafe_allow_html=True)
 
     # --- DENTRO DEL FORMULARIO ---
+    # Asegúrate de tener importado datetime arriba en tu archivo (import datetime)
+    import datetime
+
+    # --- DENTRO DEL FORMULARIO ---
     with st.form("form_factura_preimpresa"):
         st.markdown("#### 📊 Parámetros y Montos Fiscales")
         col1, col2 = st.columns(2)
         with col1:
             nro_fact = st.text_input("Número de Factura")
             nro_ctrl = st.text_input("Número de Control")
-            fec_emi = st.text_input("Fecha de Emisión (YYYY-MM-DD)")
+            
+            # Calendario interactivo con la fecha de hoy por defecto
+            fec_emi_obj = st.date_input("Fecha de Emisión", value=datetime.date.today())
+            fec_emi = fec_emi_obj.strftime("%Y-%m-%d") # Se convierte automáticamente a formato YYYY-MM-DD
+            
             base_imp = st.number_input("Base Imponible", value=0.00, format="%.2f")
             monto_ex = st.number_input("Monto Exento", value=0.00, format="%.2f")
             
@@ -17801,7 +17809,7 @@ elif opcion_menu == "📄 Factura Preimpresa":
                             rif_cli,
                             nro_fact,
                             nro_ctrl,
-                            fec_emi if fec_emi else None,
+                            fec_emi, # Ya va en formato 'YYYY-MM-DD'
                             base_imp,
                             monto_ex,
                             porc_iva,
