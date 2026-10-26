@@ -17611,6 +17611,16 @@ elif "Inventarios" in opcion_menu:
 
 
 elif opcion_menu == "📄 Factura Preimpresa":
+    # Obtenemos los datos de la empresa de forma segura (con respaldo por si la función no existe)
+    try:
+        empresa_actual = obtener_datos_empresa_activa()
+    except Exception:
+        empresa_actual = {
+            'nombre': 'Gomas Puente Hierro 2023, C.A.', 
+            'rif': 'J-40123456-7', 
+            'direccion': 'Caracas, Venezuela'
+        }
+
     # Inyección de Estilos CSS tipo POS / Terminal Moderna
     st.markdown("""
         <style>
@@ -17660,7 +17670,7 @@ elif opcion_menu == "📄 Factura Preimpresa":
     st.markdown(f"""
         <div class="pos-container">
             <div class="pos-header">🖨️ Terminal de Facturación Preimpresa</div>
-            <div class="pos-subheader">Empresa Emisora: <b>{empresa_actual['nombre']}</b> | RIF: <b>{empresa_actual['rif']}</b></div>
+            <div class="pos-subheader">Empresa Emisora: <b>{empresa_actual.get('nombre', 'Gomas Puente Hierro')}</b> | RIF: <b>{empresa_actual.get('rif', 'J-00000000-0')}</b></div>
         </div>
     """, unsafe_allow_html=True)
 
@@ -17756,9 +17766,9 @@ elif opcion_menu == "📄 Factura Preimpresa":
                 'porcentaje_alicuota': str(porc_iva),
                 'monto_iva': str(monto_iva_calc),
                 'monto_total': str(monto_tot_calc),
-                'empresa_nombre': empresa_actual['nombre'],
-                'empresa_rif': empresa_actual['rif'],
-                'empresa_direccion': empresa_actual['direccion']
+                'empresa_nombre': empresa_actual.get('nombre', ''),
+                'empresa_rif': empresa_actual.get('rif', ''),
+                'empresa_direccion': empresa_actual.get('direccion', '')
             }
             
             items_factura = []
