@@ -17611,7 +17611,7 @@ elif "Inventarios" in opcion_menu:
 
 
 elif opcion_menu == "📄 Factura Preimpresa":
-    # Obtenemos los datos de la empresa de forma segura (con respaldo por si la función no existe)
+    # Obtenemos los datos de la empresa de forma segura
     try:
         empresa_actual = obtener_datos_empresa_activa()
     except Exception:
@@ -17621,60 +17621,79 @@ elif opcion_menu == "📄 Factura Preimpresa":
             'direccion': 'Caracas, Venezuela'
         }
 
-    # Inyección de Estilos CSS tipo POS / Terminal Moderna
+    # Inyección de Estilos CSS avanzados tipo Terminal POS (Alta Gama / Estética Operativa)
     st.markdown("""
         <style>
-            .pos-container {
-                background: #f8f9fa;
-                border: 2px solid #e9ecef;
-                border-radius: 12px;
-                padding: 20px;
-                box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+            .pos-main-card {
+                background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+                border: 1px solid #e2e8f0;
+                border-radius: 16px;
+                padding: 24px;
+                box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.05);
+                margin-top: 10px;
                 margin-bottom: 20px;
             }
-            .pos-header {
+            .pos-header-title {
                 font-size: 22px;
-                font-weight: 700;
-                color: #1e293b;
-                margin-bottom: 5px;
+                font-weight: 800;
+                color: #0f172a;
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                margin-bottom: 4px;
             }
-            .pos-subheader {
-                font-size: 14px;
+            .pos-header-subtitle {
+                font-size: 13px;
                 color: #64748b;
-                margin-bottom: 15px;
+                margin-bottom: 20px;
+                font-weight: 500;
             }
-            .info-card {
-                background: #ffffff;
-                border-left: 5px solid #0284c7;
-                padding: 12px 15px;
-                border-radius: 6px;
-                margin-bottom: 10px;
-                box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+            .metric-box-pos {
+                background: #0f172a;
+                color: #ffffff;
+                padding: 14px 18px;
+                border-radius: 10px;
+                margin-top: 8px;
+                margin-bottom: 12px;
+                box-shadow: 0 4px 6px -1px rgba(15, 23, 42, 0.1);
             }
-            .info-card-title {
+            .metric-box-pos label {
                 font-size: 11px;
+                color: #94a3b8;
                 text-transform: uppercase;
                 letter-spacing: 0.5px;
-                color: #64748b;
-                font-weight: 600;
-            }
-            .info-card-value {
-                font-size: 14px;
-                color: #0f172a;
                 font-weight: 700;
+            }
+            .metric-box-pos .value {
+                font-size: 22px;
+                font-weight: 800;
+                color: #38bdf8;
+            }
+            .metric-box-total {
+                background: #047857;
+                color: #ffffff;
+                padding: 14px 18px;
+                border-radius: 10px;
+                margin-top: 8px;
+                margin-bottom: 12px;
+                box-shadow: 0 4px 6px -1px rgba(4, 120, 87, 0.1);
+            }
+            .metric-box-total .value {
+                font-size: 24px;
+                font-weight: 800;
+                color: #ffffff;
             }
         </style>
     """, unsafe_allow_html=True)
 
-    # Cabecera Visual Estilizada
+    # Contenedor Visual Principal POS
     st.markdown(f"""
-        <div class="pos-container">
-            <div class="pos-header">🖨️ Terminal de Facturación Preimpresa</div>
-            <div class="pos-subheader">Empresa Emisora: <b>{empresa_actual.get('nombre', 'Gomas Puente Hierro')}</b> | RIF: <b>{empresa_actual.get('rif', 'J-00000000-0')}</b></div>
-        </div>
+        <div class="pos-main-card">
+            <div class="pos-header-title">⚡ Terminal POS - Facturación Rápida</div>
+            <div class="pos-header-subtitle">Empresa Emisora: <b>{empresa_actual.get('nombre', 'Gomas Puente Hierro')}</b> | RIF: <b>{empresa_actual.get('rif', '')}</b></div>
     """, unsafe_allow_html=True)
 
-    # 1. Consultar los clientes (razón social, rif y dirección fiscal) con reconexión automática
+    # 1. Consultar los clientes con reconexión automática
     lista_clientes = []
     try:
         conn.ping(reconnect=True)
@@ -17692,17 +17711,16 @@ elif opcion_menu == "📄 Factura Preimpresa":
         except Exception as ex_reconnect:
             st.error(f"Error al consultar clientes_comerciales: {ex_reconnect}")
 
-    # Diccionario para almacenar RIF y Dirección Fiscal por Razón Social
     dict_clientes = {row[0]: {'rif': row[1], 'direccion': row[2]} for row in lista_clientes} if lista_clientes else {}
     nombres_clientes = list(dict_clientes.keys())
 
     # --- SECCIÓN DE CLIENTE ESTILIZADA ---
-    st.markdown("### 👤 Datos del Cliente")
+    st.markdown("#### 👤 Selección de Cliente")
     col_c1, col_c2 = st.columns(2)
     
     with col_c1:
         if nombres_clientes:
-            razon_soc_sel = st.selectbox("Seleccionar Cliente", nombres_clientes, key="select_cliente_preimpresa")
+            razon_soc_sel = st.selectbox("Cliente Registrado", nombres_clientes, key="select_cliente_preimpresa")
         else:
             razon_soc_sel = st.text_input("Razón Social del Cliente", key="razon_manual")
             
@@ -17713,24 +17731,26 @@ elif opcion_menu == "📄 Factura Preimpresa":
             dir_cli = info_cliente['direccion']
             
             st.markdown(f"""
-                <div class="info-card">
-                    <div class="info-card-title">RIF del Cliente</div>
-                    <div class="info-card-value">{rif_cli if rif_cli else "Sin RIF registrado"}</div>
-                </div>
-                <div class="info-card" style="border-left-color: #0d9488;">
-                    <div class="info-card-title">Dirección Fiscal</div>
-                    <div class="info-card-value">{dir_cli if dir_cli else "Sin dirección registrada"}</div>
+                <div style="display: flex; gap: 10px; margin-top: 28px;">
+                    <div style="flex: 1; background: #f1f5f9; padding: 8px 12px; border-radius: 8px; border: 1px solid #cbd5e1;">
+                        <span style="font-size: 10px; color: #64748b; font-weight: 700; text-transform: uppercase;">RIF:</span>
+                        <div style="font-size: 13px; font-weight: 800; color: #0f172a;">{rif_cli if rif_cli else "S/R"}</div>
+                    </div>
+                    <div style="flex: 2; background: #f1f5f9; padding: 8px 12px; border-radius: 8px; border: 1px solid #cbd5e1;">
+                        <span style="font-size: 10px; color: #64748b; font-weight: 700; text-transform: uppercase;">Dirección Fiscal:</span>
+                        <div style="font-size: 12px; font-weight: 700; color: #0f172a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{dir_cli if dir_cli else "S/D"}</div>
+                    </div>
                 </div>
             """, unsafe_allow_html=True)
         else:
             rif_cli = st.text_input("RIF del Cliente", key="rif_manual")
             dir_cli = st.text_input("Dirección Fiscal del Cliente", key="dir_manual")
 
-    st.markdown("---")
+    st.markdown("<hr style='margin: 20px 0; border: none; border-top: 1px solid #e2e8f0;'>", unsafe_allow_html=True)
 
-    # --- DENTRO DEL FORMULARIO (Nivel principal de la página) ---
+    # --- DENTRO DEL FORMULARIO ---
     with st.form("form_factura_preimpresa"):
-        st.markdown("### 📊 Parámetros y Montos Fiscales")
+        st.markdown("#### 📊 Parámetros y Montos Fiscales")
         col1, col2 = st.columns(2)
         with col1:
             nro_fact = st.text_input("Número de Factura")
@@ -17742,47 +17762,88 @@ elif opcion_menu == "📄 Factura Preimpresa":
         with col2:
             porc_iva = st.number_input("Porcentaje Alícuota IVA (%)", value=16.00, format="%.2f")
             
-            # Cálculo automático del Monto IVA
+            # Cálculo automático del Monto IVA con diseño POS estilizado
             monto_iva_calc = base_imp * (porc_iva / 100.0)
-            st.metric(label="📊 Monto IVA (Automático)", value=f"{monto_iva_calc:,.2f}")
+            st.markdown(f"""
+                <div class="metric-box-pos">
+                    <label>📊 Monto IVA (Automático)</label>
+                    <div class="value">{monto_iva_calc:,.2f}</div>
+                </div>
+            """, unsafe_allow_html=True)
             
-            # Cálculo automático y visual del Monto Bruto / Total
+            # Cálculo automático y visual del Monto Bruto / Total destacado
             monto_tot_calc = base_imp + monto_ex + monto_iva_calc
-            st.metric(label="💰 Monto Bruto / Total (Automático)", value=f"{monto_tot_calc:,.2f}")
+            st.markdown(f"""
+                <div class="metric-box-total">
+                    <label style="color: #d1fae5;">💰 Monto Bruto / Total (Automático)</label>
+                    <div class="value">{monto_tot_calc:,.2f}</div>
+                </div>
+            """, unsafe_allow_html=True)
             
         submitted = st.form_submit_button("⚡ Generar y Registrar Factura")
         
         if submitted:
-            # Diccionario alineado con las columnas de config_factura_preimpresa y factura
-            datos_factura = {
-                'nro_factura': nro_fact,
-                'nro_control': nro_ctrl,
-                'fecha_emision': fec_emi,
-                'razon_social': razon_soc_sel,
-                'rif_cliente': rif_cli,
-                'direccion_fiscal': dir_cli,
-                'base_imponible': str(base_imp),
-                'monto_exento': str(monto_ex),
-                'porcentaje_alicuota': str(porc_iva),
-                'monto_iva': str(monto_iva_calc),
-                'monto_total': str(monto_tot_calc),
-                'empresa_nombre': empresa_actual.get('nombre', ''),
-                'empresa_rif': empresa_actual.get('rif', ''),
-                'empresa_direccion': empresa_actual.get('direccion', '')
-            }
-            
-            items_factura = []
-            
-            # Guardamos el PDF en session_state para mostrar el botón de descarga afuera
-            st.session_state['pdf_bytes_preimpresa'] = generar_pdf_preimpreso(conn, datos_factura, items_factura)
-            st.session_state['nro_fact_preimpresa'] = nro_fact
-            st.success("¡Factura procesada con éxito! Ya puedes descargar el documento listo para imprimir.")
+            if not nro_fact or not nro_ctrl:
+                st.warning("⚠️ Por favor ingresa el Número de Factura y el Número de Control.")
+            else:
+                try:
+                    conn.ping(reconnect=True)
+                    with conn.cursor() as cursor_ins:
+                        sql_insert = """
+                            INSERT INTO factura (
+                                empresa_db, rif_cliente, n_factura, n_control, fecha_emision,
+                                base_imponible, monto_exento, porcentaje_alicuota, monto_iva,
+                                monto_bruto, direccion_fiscal, estado_factura
+                            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        """
+                        valores = (
+                            "gomas_puente_hierro",
+                            rif_cli,
+                            nro_fact,
+                            nro_ctrl,
+                            fec_emi if fec_emi else None,
+                            base_imp,
+                            monto_ex,
+                            porc_iva,
+                            monto_iva_calc,
+                            monto_tot_calc,
+                            dir_cli,
+                            "EMITIDA"
+                        )
+                        cursor_ins.execute(sql_insert, valores)
+                        conn.commit()
+                except Exception as err_db:
+                    st.error(f"Error al guardar la factura en MySQL: {err_db}")
+
+                datos_factura = {
+                    'nro_factura': nro_fact,
+                    'nro_control': nro_ctrl,
+                    'fecha_emision': fec_emi,
+                    'razon_social': razon_soc_sel,
+                    'rif_cliente': rif_cli,
+                    'direccion_fiscal': dir_cli,
+                    'base_imponible': str(base_imp),
+                    'monto_exento': str(monto_ex),
+                    'porcentaje_alicuota': str(porc_iva),
+                    'monto_iva': str(monto_iva_calc),
+                    'monto_total': str(monto_tot_calc),
+                    'empresa_nombre': empresa_actual.get('nombre', ''),
+                    'empresa_rif': empresa_actual.get('rif', ''),
+                    'empresa_direccion': empresa_actual.get('direccion', '')
+                }
+                
+                items_factura = []
+                st.session_state['pdf_bytes_preimpresa'] = generar_pdf_preimpreso(conn, datos_factura, items_factura)
+                st.session_state['nro_fact_preimpresa'] = nro_fact
+                st.success("¡Factura procesada con éxito! Ya puedes descargar el documento abajo.")
+
+    st.markdown("</div>", unsafe_allow_html=True) # Cierre de pos-main-card
 
     # --- FUERA DEL FORMULARIO: Botón de descarga seguro ---
     if 'pdf_bytes_preimpresa' in st.session_state and st.session_state['pdf_bytes_preimpresa']:
         st.markdown("---")
         st.download_button(
-            label="📥 Descargar PDF de Factura Preimpresa",
+            label="📥 Descargar PDF Listo para Imprimir",
             data=st.session_state['pdf_bytes_preimpresa'],
             file_name=f"factura_{st.session_state.get('nro_fact_preimpresa', 'preimpresa')}.pdf",
             mime="application/pdf"
