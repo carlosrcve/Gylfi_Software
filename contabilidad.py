@@ -17610,6 +17610,8 @@ elif "Inventarios" in opcion_menu:
     modulo_inventario_pedacito_cielo(conn)  
 
 
+import datetime
+
 elif opcion_menu == "📄 Factura Preimpresa":
     # Obtenemos los datos de la empresa de forma segura
     try:
@@ -17621,7 +17623,7 @@ elif opcion_menu == "📄 Factura Preimpresa":
             'direccion': 'Caracas, Venezuela'
         }
 
-    # Inyección de Estilos CSS avanzados tipo Terminal POS (Alta Gama / Estética Operativa)
+    # Inyección de Estilos CSS avanzados tipo Terminal POS
     st.markdown("""
         <style>
             .pos-main-card {
@@ -17686,173 +17688,229 @@ elif opcion_menu == "📄 Factura Preimpresa":
         </style>
     """, unsafe_allow_html=True)
 
-    # Contenedor Visual Principal POS
-    st.markdown(f"""
-        <div class="pos-main-card">
-            <div class="pos-header-title">⚡ Terminal POS - Facturación Rápida</div>
-            <div class="pos-header-subtitle">Empresa Emisora: <b>{empresa_actual.get('nombre', 'Gomas Puente Hierro')}</b> | RIF: <b>{empresa_actual.get('rif', '')}</b></div>
-    """, unsafe_allow_html=True)
+    # Pestañas operativas para separar Facturación Rápida y Registro de Clientes
+    tab_factura, tab_clientes = st.tabs(["⚡ Emitir Factura Preimpresa", "👥 Registrar / Gestionar Clientes"])
 
-    # 1. Consultar los clientes con reconexión automática
-    lista_clientes = []
-    try:
-        conn.ping(reconnect=True)
-        with conn.cursor() as cursor_cli:
-            cursor_cli.execute("SELECT razon_social, rif, direccion_fiscal FROM clientes_comerciales ORDER BY razon_social ASC")
-            lista_clientes = cursor_cli.fetchall()
-    except Exception as ex:
+    with tab_factura:
+        # Contenedor Visual Principal POS
+        st.markdown(f"""
+            <div class="pos-main-card">
+                <div class="pos-header-title">⚡ Terminal POS - Facturación Rápida</div>
+                <div class="pos-header-subtitle">Empresa Emisora: <b>{empresa_actual.get('nombre', 'Gomas Puente Hierro')}</b> | RIF: <b>{empresa_actual.get('rif', '')}</b></div>
+        """, unsafe_allow_html=True)
+
+        # 1. Consultar los clientes con reconexión automática
+        lista_clientes = []
         try:
-            st.session_state.conn = None
-            conn = conectar_db("gomas_puente_hierro")
             conn.ping(reconnect=True)
             with conn.cursor() as cursor_cli:
                 cursor_cli.execute("SELECT razon_social, rif, direccion_fiscal FROM clientes_comerciales ORDER BY razon_social ASC")
                 lista_clientes = cursor_cli.fetchall()
-        except Exception as ex_reconnect:
-            st.error(f"Error al consultar clientes_comerciales: {ex_reconnect}")
+        except Exception as ex:
+            try:
+                st.session_state.conn = None
+                conn = conectar_db("gomas_puente_hierro")
+                conn.ping(reconnect=True)
+                with conn.cursor() as cursor_cli:
+                    cursor_cli.execute("SELECT razon_social, rif, direccion_fiscal FROM clientes_comerciales ORDER BY razon_social ASC")
+                    lista_clientes = cursor_cli.fetchall()
+            except Exception as ex_reconnect:
+                st.error(f"Error al consultar clientes_comerciales: {ex_reconnect}")
 
-    dict_clientes = {row[0]: {'rif': row[1], 'direccion': row[2]} for row in lista_clientes} if lista_clientes else {}
-    nombres_clientes = list(dict_clientes.keys())
+        dict_clientes = {row[0]: {'rif': row[1], 'direccion': row[2]} for row in lista_clientes} if lista_clientes else {}
+        nombres_clientes = list(dict_clientes.keys())
 
-    # --- SECCIÓN DE CLIENTE ESTILIZADA ---
-    st.markdown("#### 👤 Selección de Cliente")
-    col_c1, col_c2 = st.columns(2)
-    
-    with col_c1:
-        if nombres_clientes:
-            razon_soc_sel = st.selectbox("Cliente Registrado", nombres_clientes, key="select_cliente_preimpresa")
-        else:
-            razon_soc_sel = st.text_input("Razón Social del Cliente", key="razon_manual")
-            
-    with col_c2:
-        if nombres_clientes:
-            info_cliente = dict_clientes.get(razon_soc_sel, {'rif': '', 'direccion': ''})
-            rif_cli = info_cliente['rif']
-            dir_cli = info_cliente['direccion']
-            
-            st.markdown(f"""
-                <div style="display: flex; gap: 10px; margin-top: 28px;">
-                    <div style="flex: 1; background: #f1f5f9; padding: 8px 12px; border-radius: 8px; border: 1px solid #cbd5e1;">
-                        <span style="font-size: 10px; color: #64748b; font-weight: 700; text-transform: uppercase;">RIF:</span>
-                        <div style="font-size: 13px; font-weight: 800; color: #0f172a;">{rif_cli if rif_cli else "S/R"}</div>
-                    </div>
-                    <div style="flex: 2; background: #f1f5f9; padding: 8px 12px; border-radius: 8px; border: 1px solid #cbd5e1;">
-                        <span style="font-size: 10px; color: #64748b; font-weight: 700; text-transform: uppercase;">Dirección Fiscal:</span>
-                        <div style="font-size: 12px; font-weight: 700; color: #0f172a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{dir_cli if dir_cli else "S/D"}</div>
-                    </div>
-                </div>
-            """, unsafe_allow_html=True)
-        else:
-            rif_cli = st.text_input("RIF del Cliente", key="rif_manual")
-            dir_cli = st.text_input("Dirección Fiscal del Cliente", key="dir_manual")
-
-    st.markdown("<hr style='margin: 20px 0; border: none; border-top: 1px solid #e2e8f0;'>", unsafe_allow_html=True)
-
-    # --- DENTRO DEL FORMULARIO ---
-    # Asegúrate de tener importado datetime arriba en tu archivo (import datetime)
-    import datetime
-
-    # --- DENTRO DEL FORMULARIO ---
-    with st.form("form_factura_preimpresa"):
-        st.markdown("#### 📊 Parámetros y Montos Fiscales")
-        col1, col2 = st.columns(2)
-        with col1:
-            nro_fact = st.text_input("Número de Factura")
-            nro_ctrl = st.text_input("Número de Control")
-            
-            # Calendario interactivo con la fecha de hoy por defecto
-            fec_emi_obj = st.date_input("Fecha de Emisión", value=datetime.date.today())
-            fec_emi = fec_emi_obj.strftime("%Y-%m-%d") # Se convierte automáticamente a formato YYYY-MM-DD
-            
-            base_imp = st.number_input("Base Imponible", value=0.00, format="%.2f")
-            monto_ex = st.number_input("Monto Exento", value=0.00, format="%.2f")
-            
-        with col2:
-            porc_iva = st.number_input("Porcentaje Alícuota IVA (%)", value=16.00, format="%.2f")
-            
-            # Cálculo automático del Monto IVA con diseño POS estilizado
-            monto_iva_calc = base_imp * (porc_iva / 100.0)
-            st.markdown(f"""
-                <div class="metric-box-pos">
-                    <label>📊 Monto IVA (Automático)</label>
-                    <div class="value">{monto_iva_calc:,.2f}</div>
-                </div>
-            """, unsafe_allow_html=True)
-            
-            # Cálculo automático y visual del Monto Bruto / Total destacado
-            monto_tot_calc = base_imp + monto_ex + monto_iva_calc
-            st.markdown(f"""
-                <div class="metric-box-total">
-                    <label style="color: #d1fae5;">💰 Monto Bruto / Total (Automático)</label>
-                    <div class="value">{monto_tot_calc:,.2f}</div>
-                </div>
-            """, unsafe_allow_html=True)
-            
-        submitted = st.form_submit_button("⚡ Generar y Registrar Factura")
+        # --- SECCIÓN DE CLIENTE ESTILIZADA ---
+        st.markdown("#### 👤 Selección de Cliente")
+        col_c1, col_c2 = st.columns(2)
         
-        if submitted:
-            if not nro_fact or not nro_ctrl:
-                st.warning("⚠️ Por favor ingresa el Número de Factura y el Número de Control.")
+        with col_c1:
+            if nombres_clientes:
+                razon_soc_sel = st.selectbox("Cliente Registrado", nombres_clientes, key="select_cliente_preimpresa")
             else:
-                try:
-                    conn.ping(reconnect=True)
-                    with conn.cursor() as cursor_ins:
-                        sql_insert = """
-                            INSERT INTO factura (
-                                empresa_db, rif_cliente, n_factura, n_control, fecha_emision,
-                                base_imponible, monto_exento, porcentaje_alicuota, monto_iva,
-                                monto_bruto, direccion_fiscal, estado_factura
-                            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                        """
-                        valores = (
-                            "gomas_puente_hierro",
-                            rif_cli,
-                            nro_fact,
-                            nro_ctrl,
-                            fec_emi, # Ya va en formato 'YYYY-MM-DD'
-                            base_imp,
-                            monto_ex,
-                            porc_iva,
-                            monto_iva_calc,
-                            monto_tot_calc,
-                            dir_cli,
-                            "EMITIDA"
-                        )
-                        cursor_ins.execute(sql_insert, valores)
-                        conn.commit()
-                except Exception as err_db:
-                    st.error(f"Error al guardar la factura en MySQL: {err_db}")
-
-                datos_factura = {
-                    'nro_factura': nro_fact,
-                    'nro_control': nro_ctrl,
-                    'fecha_emision': fec_emi,
-                    'razon_social': razon_soc_sel,
-                    'rif_cliente': rif_cli,
-                    'direccion_fiscal': dir_cli,
-                    'base_imponible': str(base_imp),
-                    'monto_exento': str(monto_ex),
-                    'porcentaje_alicuota': str(porc_iva),
-                    'monto_iva': str(monto_iva_calc),
-                    'monto_total': str(monto_tot_calc),
-                    'empresa_nombre': empresa_actual.get('nombre', ''),
-                    'empresa_rif': empresa_actual.get('rif', ''),
-                    'empresa_direccion': empresa_actual.get('direccion', '')
-                }
+                razon_soc_sel = st.text_input("Razón Social del Cliente", key="razon_manual")
                 
-                items_factura = []
-                st.session_state['pdf_bytes_preimpresa'] = generar_pdf_preimpreso(conn, datos_factura, items_factura)
-                st.session_state['nro_fact_preimpresa'] = nro_fact
-                st.success("¡Factura procesada con éxito! Ya puedes descargar el documento abajo.")
+        with col_c2:
+            if nombres_clientes:
+                info_cliente = dict_clientes.get(razon_soc_sel, {'rif': '', 'direccion': ''})
+                rif_cli = info_cliente['rif']
+                dir_cli = info_cliente['direccion']
+                
+                st.markdown(f"""
+                    <div style="display: flex; gap: 10px; margin-top: 28px;">
+                        <div style="flex: 1; background: #f1f5f9; padding: 8px 12px; border-radius: 8px; border: 1px solid #cbd5e1;">
+                            <span style="font-size: 10px; color: #64748b; font-weight: 700; text-transform: uppercase;">RIF:</span>
+                            <div style="font-size: 13px; font-weight: 800; color: #0f172a;">{rif_cli if rif_cli else "S/R"}</div>
+                        </div>
+                        <div style="flex: 2; background: #f1f5f9; padding: 8px 12px; border-radius: 8px; border: 1px solid #cbd5e1;">
+                            <span style="font-size: 10px; color: #64748b; font-weight: 700; text-transform: uppercase;">Dirección Fiscal:</span>
+                            <div style="font-size: 12px; font-weight: 700; color: #0f172a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{dir_cli if dir_cli else "S/D"}</div>
+                        </div>
+                    </div>
+                """, unsafe_allow_html=True)
+            else:
+                rif_cli = st.text_input("RIF del Cliente", key="rif_manual")
+                dir_cli = st.text_input("Dirección Fiscal del Cliente", key="dir_manual")
 
-    st.markdown("</div>", unsafe_allow_html=True) # Cierre de pos-main-card
+        st.markdown("<hr style='margin: 20px 0; border: none; border-top: 1px solid #e2e8f0;'>", unsafe_allow_html=True)
 
-    # --- FUERA DEL FORMULARIO: Botón de descarga seguro ---
-    if 'pdf_bytes_preimpresa' in st.session_state and st.session_state['pdf_bytes_preimpresa']:
-        st.markdown("---")
-        st.download_button(
-            label="📥 Descargar PDF Listo para Imprimir",
-            data=st.session_state['pdf_bytes_preimpresa'],
-            file_name=f"factura_{st.session_state.get('nro_fact_preimpresa', 'preimpresa')}.pdf",
-            mime="application/pdf"
-        )
+        # --- DENTRO DEL FORMULARIO DE FACTURA ---
+        with st.form("form_factura_preimpresa"):
+            st.markdown("#### 📊 Parámetros y Montos Fiscales")
+            col1, col2 = st.columns(2)
+            with col1:
+                nro_fact = st.text_input("Número de Factura")
+                nro_ctrl = st.text_input("Número de Control")
+                
+                # Calendario interactivo con la fecha de hoy por defecto (permite manipulación manual)
+                fec_emi_obj = st.date_input("Fecha de Emisión", value=datetime.date.today())
+                fec_emi = fec_emi_obj.strftime("%Y-%m-%d")
+                
+                base_imp = st.number_input("Base Imponible", value=0.00, format="%.2f")
+                monto_ex = st.number_input("Monto Exento", value=0.00, format="%.2f")
+                
+            with col2:
+                porc_iva = st.number_input("Porcentaje Alícuota IVA (%)", value=16.00, format="%.2f")
+                
+                # Cálculo automático del Monto IVA con diseño POS estilizado
+                monto_iva_calc = base_imp * (porc_iva / 100.0)
+                st.markdown(f"""
+                    <div class="metric-box-pos">
+                        <label>📊 Monto IVA (Automático)</label>
+                        <div class="value">{monto_iva_calc:,.2f}</div>
+                    </div>
+                """, unsafe_allow_html=True)
+                
+                # Cálculo automático y visual del Monto Bruto / Total destacado
+                monto_tot_calc = base_imp + monto_ex + monto_iva_calc
+                st.markdown(f"""
+                    <div class="metric-box-total">
+                        <label style="color: #d1fae5;">💰 Monto Bruto / Total (Automático)</label>
+                        <div class="value">{monto_tot_calc:,.2f}</div>
+                    </div>
+                """, unsafe_allow_html=True)
+                
+            submitted = st.form_submit_button("⚡ Generar y Registrar Factura")
+            
+            if submitted:
+                if not nro_fact or not nro_ctrl:
+                    st.warning("⚠️ Por favor ingresa el Número de Factura y el Número de Control.")
+                else:
+                    try:
+                        conn.ping(reconnect=True)
+                        with conn.cursor() as cursor_ins:
+                            sql_insert = """
+                                INSERT INTO factura (
+                                    empresa_db, rif_cliente, n_factura, n_control, fecha_emision,
+                                    base_imponible, monto_exento, porcentaje_alicuota, monto_iva,
+                                    monto_bruto, direccion_fiscal, estado_factura
+                                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                            """
+                            valores = (
+                                "gomas_puente_hierro",
+                                rif_cli,
+                                nro_fact,
+                                nro_ctrl,
+                                fec_emi,
+                                base_imp,
+                                monto_ex,
+                                porc_iva,
+                                monto_iva_calc,
+                                monto_tot_calc,
+                                dir_cli,
+                                "EMITIDA"
+                            )
+                            cursor_ins.execute(sql_insert, valores)
+                            conn.commit()
+                    except Exception as err_db:
+                        st.error(f"Error al guardar la factura en MySQL: {err_db}")
+
+                    datos_factura = {
+                        'nro_factura': nro_fact,
+                        'nro_control': nro_ctrl,
+                        'fecha_emision': fec_emi,
+                        'razon_social': razon_soc_sel,
+                        'rif_cliente': rif_cli,
+                        'direccion_fiscal': dir_cli,
+                        'base_imponible': str(base_imp),
+                        'monto_exento': str(monto_ex),
+                        'porcentaje_alicuota': str(porc_iva),
+                        'monto_iva': str(monto_iva_calc),
+                        'monto_total': str(monto_tot_calc),
+                        'empresa_nombre': empresa_actual.get('nombre', ''),
+                        'empresa_rif': empresa_actual.get('rif', ''),
+                        'empresa_direccion': empresa_actual.get('direccion', '')
+                    }
+                    
+                    items_factura = []
+                    st.session_state['pdf_bytes_preimpresa'] = generar_pdf_preimpreso(conn, datos_factura, items_factura)
+                    st.session_state['nro_fact_preimpresa'] = nro_fact
+                    st.success("¡Factura procesada con éxito! Ya puedes descargar el documento abajo.")
+
+        st.markdown("</div>", unsafe_allow_html=True) # Cierre de pos-main-card
+
+        # --- FUERA DEL FORMULARIO: Botón de descarga seguro ---
+        if 'pdf_bytes_preimpresa' in st.session_state and st.session_state['pdf_bytes_preimpresa']:
+            st.markdown("---")
+            st.download_button(
+                label="📥 Descargar PDF Listo para Imprimir",
+                data=st.session_state['pdf_bytes_preimpresa'],
+                file_name=f"factura_{st.session_state.get('nro_fact_preimpresa', 'preimpresa')}.pdf",
+                mime="application/pdf"
+            )
+
+    with tab_clientes:
+        st.markdown("""
+            <div class="pos-main-card">
+                <div class="pos-header-title">👥 Directorio y Registro de Clientes Comerciales</div>
+                <div class="pos-header-subtitle">Administra la base de datos de clientes para la facturación fiscal.</div>
+            </div>
+        """, unsafe_allow_html=True)
+
+        with st.form("form_nuevo_cliente"):
+            st.markdown("#### ➕ Agregar Nuevo Cliente")
+            col_nc1, col_nc2 = st.columns(2)
+            
+            with col_nc1:
+                nuevo_rif = st.text_input("RIF (Ej. J-12345678-9)")
+                tipo_per = st.selectbox("Tipo de Persona", ["PJ", "PN"], format_func=lambda x: "Persona Jurídica (PJ)" if x == "PJ" else "Persona Natural (PN)")
+                razon_social_new = st.text_input("Razón Social / Nombre Completo")
+                
+            with col_nc2:
+                dir_fiscal_new = st.text_area("Dirección Fiscal")
+                cod_cta = st.text_input("Código de Cuenta Contable", value="1.1.2.01")
+                desc_cta = st.text_input("Descripción de Cuenta", value="Cuentas por Cobrar Comerciales")
+                
+            btn_guardar_cliente = st.form_submit_button("💾 Guardar Cliente en Base de Datos")
+            
+            if btn_guardar_cliente:
+                if not nuevo_rif or not razon_social_new:
+                    st.warning("⚠️ El RIF y la Razón Social son campos obligatorios.")
+                else:
+                    try:
+                        conn.ping(reconnect=True)
+                        with conn.cursor() as cursor_cli_ins:
+                            sql_cli_insert = """
+                                INSERT INTO clientes_comerciales (
+                                    rif, tipo_persona, razon_social, direccion_fiscal, codigo_cuenta, descripcion_cuenta
+                                ) VALUES (%s, %s, %s, %s, %s, %s)
+                                ON DUPLICATE KEY UPDATE 
+                                    tipo_persona = VALUES(tipo_persona),
+                                    razon_social = VALUES(razon_social),
+                                    direccion_fiscal = VALUES(direccion_fiscal),
+                                    codigo_cuenta = VALUES(codigo_cuenta),
+                                    descripcion_cuenta = VALUES(descripcion_cuenta)
+                            """
+                            valores_cli = (
+                                nuevo_rif.strip(),
+                                tipo_per,
+                                razon_social_new.strip(),
+                                dir_fiscal_new.strip(),
+                                cod_cta.strip(),
+                                desc_cta.strip()
+                            )
+                            cursor_cli_ins.execute(sql_cli_insert, valores_cli)
+                            conn.commit()
+                            st.success(f"¡Cliente **{razon_social_new}** registrado/actualizado con éxito en `clientes_comerciales`!")
+                    except Exception as err_c_db:
+                        st.error(f"Error al guardar el cliente en MySQL: {err_c_db}")
