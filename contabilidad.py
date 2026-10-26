@@ -17755,22 +17755,24 @@ if opcion_menu == "📄 Factura Preimpresa":
         st.markdown("<hr style='margin: 20px 0; border: none; border-top: 1px solid #e2e8f0;'>", unsafe_allow_html=True)
 
         # --- DENTRO DEL FORMULARIO DE FACTURA ---
+        from datetime import date  # Importación local blindada para evitar conflictos
+
         with st.form("form_factura_preimpresa"):
             st.markdown("#### 📊 Parámetros y Montos Fiscales")
             col1, col2 = st.columns(2)
             with col1:
-                nro_fact = st.text_input("Número de Factura")
-                nro_ctrl = st.text_input("Número de Control")
+                nro_fact = st.text_input("Número de Factura", key="input_nro_fact_pre")
+                nro_ctrl = st.text_input("Número de Control", key="input_nro_ctrl_pre")
                 
                 # Calendario interactivo con la fecha de hoy por defecto
-                fec_emi_obj = st.date_input("Fecha de Emisión", value=date.today())
+                fec_emi_obj = st.date_input("Fecha de Emisión", value=date.today(), key="input_fec_emi_pre")
                 fec_emi = fec_emi_obj.strftime("%Y-%m-%d")
                 
-                base_imp = st.number_input("Base Imponible", value=0.00, format="%.2f")
-                monto_ex = st.number_input("Monto Exento", value=0.00, format="%.2f")
+                base_imp = st.number_input("Base Imponible", value=0.00, format="%.2f", key="input_base_imp_pre")
+                monto_ex = st.number_input("Monto Exento", value=0.00, format="%.2f", key="input_monto_ex_pre")
                 
             with col2:
-                porc_iva = st.number_input("Porcentaje Alícuota IVA (%)", value=16.00, format="%.2f")
+                porc_iva = st.number_input("Porcentaje Alícuota IVA (%)", value=16.00, format="%.2f", key="input_porc_iva_pre")
                 
                 # Cálculo automático del Monto IVA con diseño POS estilizado
                 monto_iva_calc = base_imp * (porc_iva / 100.0)
@@ -17846,7 +17848,7 @@ if opcion_menu == "📄 Factura Preimpresa":
                     st.session_state['pdf_bytes_preimpresa'] = generar_pdf_preimpreso(conn, datos_factura, items_factura)
                     st.session_state['nro_fact_preimpresa'] = nro_fact
                     st.success("¡Factura procesada con éxito! Ya puedes descargar el documento abajo.")
-
+                    
         st.markdown("</div>", unsafe_allow_html=True) # Cierre de pos-main-card
 
         # --- FUERA DEL FORMULARIO: Botón de descarga seguro ---
