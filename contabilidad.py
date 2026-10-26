@@ -17755,6 +17755,9 @@ elif opcion_menu == "📄 Factura Preimpresa":
         st.markdown("<hr style='margin: 20px 0; border: none; border-top: 1px solid #e2e8f0;'>", unsafe_allow_html=True)
 
         # --- DENTRO DEL FORMULARIO DE FACTURA ---
+        # --- DENTRO DEL FORMULARIO DE FACTURA ---
+        from datetime import date  # Importación local blindada para evitar conflictos
+
         with st.form("form_factura_preimpresa"):
             st.markdown("#### 📊 Parámetros y Montos Fiscales")
             col1, col2 = st.columns(2)
@@ -17762,8 +17765,8 @@ elif opcion_menu == "📄 Factura Preimpresa":
                 nro_fact = st.text_input("Número de Factura")
                 nro_ctrl = st.text_input("Número de Control")
                 
-                # Calendario interactivo con la fecha de hoy por defecto (permite manipulación manual)
-                fec_emi_obj = st.date_input("Fecha de Emisión", value=datetime.date.today())
+                # Calendario interactivo con la fecha de hoy por defecto
+                fec_emi_obj = st.date_input("Fecha de Emisión", value=date.today())
                 fec_emi = fec_emi_obj.strftime("%Y-%m-%d")
                 
                 base_imp = st.number_input("Base Imponible", value=0.00, format="%.2f")
