@@ -11354,11 +11354,13 @@ elif opcion_menu == "📝 Asientos Contables":
                     df_ops = None
                     
                     if conn_list_op:
-                        query_ops = f"SELECT * FROM ordenes_pago WHERE empresa_db = '{db_actual}' ORDER BY id DESC"
+                        # Filtramos directamente en SQL para que solo traiga las que están pendientes
+                        query_ops = f"SELECT * FROM ordenes_pago WHERE empresa_db = '{db_actual}' AND LOWER(estado) = 'pendiente' ORDER BY id DESC"
                         df_ops = ejecutar_consulta(query_ops, conn_list_op)
                         
                         if df_ops is None or df_ops.empty:
-                            df_ops = ejecutar_consulta("SELECT * FROM ordenes_pago ORDER BY id DESC", conn_list_op)
+                            query_fallback = "SELECT * FROM ordenes_pago WHERE LOWER(estado) = 'pendiente' ORDER BY id DESC"
+                            df_ops = ejecutar_consulta(query_fallback, conn_list_op)
                             
                         conn_list_op.close()
                         
@@ -11401,12 +11403,6 @@ elif opcion_menu == "📝 Asientos Contables":
                         import pandas as pd
                         df_ops_final = pd.DataFrame(lista_ops_procesadas)
                         
-                        IDs_ya_procesados = [1, 2, 3]
-                        df_ops_final = df_ops_final[
-                            (df_ops_final['estado'].str.lower() == 'pendiente') & 
-                            (~df_ops_final['id'].isin(IDs_ya_procesados))
-                        ]
-                        
                         if df_ops_final.empty:
                             st.info("🎉 ¡Excelente! No hay órdenes de pago pendientes por contabilizar en este momento.")
                         else:
@@ -11446,10 +11442,10 @@ elif opcion_menu == "📝 Asientos Contables":
                                     info_banco['nombre'] = info_banco.get('nombre', 'Banco Principal')
 
                                 st.markdown("---")
-                                st.markdown("### 🔄 Proceso de Registro por Módulos (Paso a Paso)")
+                                st.markdown(f"### 🔄 Proceso de Registro por Módulos (Paso a Paso)")
 
                                 key_paso = f"paso_actual_{sel_data['id']}"
-                                if key_paso not in st.session_state:
+                                if key_paso not in st.session_system if key_paso not in st.session_state:
                                     st.session_state[key_paso] = 1
 
                                 paso = st.session_state[key_paso]
@@ -11578,7 +11574,6 @@ elif opcion_menu == "📝 Asientos Contables":
                                                     conn_a.close()
                                                     st.success("✅ ¡Asiento Contable guardado con éxito!")
                                                     st.session_state[key_paso] = 3
-                                                    st.rerun()
                                             except Exception as err_a:
                                                 st.error(f"❌ Error al guardar asiento contable: {err_a}")
                     
