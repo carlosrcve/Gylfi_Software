@@ -3698,18 +3698,15 @@ def comprobar_existencia_comprobante(n_comprobante):
     return existe
 
 def obtener_facturas_pendientes(conn, f_desde, f_hasta):
-    """
-    Consulta las facturas pendientes de retención de IVA acotando las columnas 
-    necesarias para aligerar la transferencia de datos desde la base de datos.
-    """
     try:
         query = """
             SELECT id, fecha_operacion, tipo_documento, n_factura, n_control, 
                    proveedor, rif, total_compras, base_imponible, iva_monto, 
                    importe_exento, retencion_iva_realizada
             FROM libro_compras 
-            WHERE (retencion_iva_realizada = 0 OR retencion_iva_realizada IS NULL OR retencion_iva_realizada = '' OR retencion_iva_realizada = FALSE)
+            WHERE (retencion_iva_realizada = 0 OR retencion_iva_realizada IS NULL OR retencion_iva_realizada = FALSE)
             AND fecha_operacion BETWEEN %s AND %s
+            ORDER BY fecha_operacion ASC
         """
         df = ejecutar_consulta(query, conn, params=(f_desde, f_hasta))
         
@@ -4141,7 +4138,6 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                 empresa_nombre = empresa_data_env.get('nombre_empresa') or empresa_data_env.get('razon_social') or "EMPRESA"
                 empresa_rif = empresa_data_env.get('rif') or "000000000"
                 
-                # 🔍 AQUÍ ESTÁ LA MAGIA: Leemos la dirección fiscal nueva, respaldada con las anteriores
                 domicilio_fiscal = (
                     empresa_data_env.get('direccion_fiscal') or 
                     empresa_data_env.get('direccion') or 
@@ -4153,21 +4149,17 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                     cursor = conn_env.cursor()
         
                     for _, fila in facturas_seleccionadas.iterrows():
-                        # 1. Detectar si es Nota de Crédito
                         tipo_doc_str = str(fila.get('tipo_documento', '')).strip().lower()
                         monto_total_fila = float(fila.get('total_compras', 0) or 0)
                         es_nc = 'credito' in tipo_doc_str or 'nota de credito' in tipo_doc_str or monto_total_fila < 0
                         
-                        # Factor de signo: -1 si es nota de crédito, 1 si es factura normal
                         signo = -1 if es_nc else 1
 
-                        # Extraemos los valores base respetando su signo natural o forzando el signo correcto
                         total_fila = abs(float(fila.get('total_compras', 0) or 0)) * signo
                         base = abs(float(fila.get('base_imponible', 0) or 0)) * signo
                         impuesto = abs(float(fila.get('iva_monto', 0) or fila.get('impuesto_iva', 0) or 0)) * signo
                         exento = abs(float(fila.get('importe_exento', 0) or 0)) * signo
 
-                        # Si la base o el IVA vienen en 0 pero hay un total, los recalculamos
                         if abs(base) == 0 and abs(impuesto) == 0 and abs(total_fila) > 0:
                             if abs(exento) > 0:
                                 base = (abs(total_fila) - abs(exento)) * signo
@@ -4178,7 +4170,6 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                         ratio = round(abs(impuesto) / abs(base), 2) if abs(base) > 0 else 0
                         es_8 = ratio <= 0.08
                         
-                        # Cálculo exacto del IVA retenido (75% del IVA, aplicando el signo correspondiente)
                         iva_retenido_fila = round((abs(impuesto) * porcentaje_ret) / 100, 2) * signo
                         
                         b16, i16, r16 = (base, impuesto, iva_retenido_fila) if not es_8 else (0.0, 0.0, 0.0)
@@ -4196,7 +4187,7 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                         num_factura_val = n_factura_cruda
                         num_control_val = n_control_cruda
                         n_nota_credito_val = None
-                        n_nota_debito_val = None  # 🛠️ Corregido con minúscula al inicio
+                        n_nota_debito_val = None
                         
                         n_factura_afectada_val = (
                             str(fila.get('factura_afectada', '')).strip() or 
@@ -4260,11 +4251,11 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                             mes_f,
                             nro_comp, 
                             fecha_corta, 
-                            num_factura_val,       # Número de factura (vacío si es nota)
-                            num_control_val,       # Número de control
-                            n_nota_debito_val,     # N_Nota_Debito
-                            n_nota_credito_val,    # N_Nota_Credito (aquí cae perfecto si es nota de crédito)
-                            n_factura_afectada_val,# NFactura_Afectada (registrada obligatoriamente para notas)
+                            num_factura_val,       
+                            num_control_val,       
+                            n_nota_debito_val,     
+                            n_nota_credito_val,    
+                            n_factura_afectada_val,
                             str(round(float(fila.get('total_compras', 0)), 2)),
                             str(round(float(fila.get('importe_exento', 0)), 2)),
                             str(round(b16, 2)), 
@@ -4279,12 +4270,13 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                         
                         cursor.execute(query_ins_iva, params_iva)
 
+                        # Actualización exclusiva de IVA sin tocar el ISLR
                         query_update = """
                             UPDATE libro_compras 
                             SET retencion_iva_realizada = 1 
                             WHERE id = %s
                         """
-                        cursor.execute(query_update, (fila['id'],))
+                        cursor.execute(query_update, (int(fila['id']),))
 
                     conn_env.commit()
                     st.session_state['last_iva'] = {'nro_comp': nro_comp}
@@ -5875,7 +5867,7 @@ def registrar_retencion_islr_db(id_sec, rif, razon_social, direccion, factura, c
     finally:
         if 'cursor' in locals() and cursor: cursor.close()
         if 'conn' in locals() and conn: conn.close()
-        
+
 def limpiar_monto_contable(valor):
     if valor is None:
         return 0.0
