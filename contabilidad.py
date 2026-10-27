@@ -11445,7 +11445,8 @@ elif opcion_menu == "📝 Asientos Contables":
                                 st.markdown(f"### 🔄 Proceso de Registro por Módulos (Paso a Paso)")
 
                                 key_paso = f"paso_actual_{sel_data['id']}"
-                                if key_paso not in st.session_system if key_paso not in st.session_state:
+                                # CORREGIDO: Validación limpia contra st.session_state
+                                if key_paso not in st.session_state:
                                     st.session_state[key_paso] = 1
 
                                 paso = st.session_state[key_paso]
