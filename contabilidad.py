@@ -10129,39 +10129,38 @@ elif opcion_menu == "📝 Asientos Contables":
         with tab2:
             st.markdown("### 🧾 Gestión y Generación de Órdenes de Pago y Cruce")
 
-            # --- CARGAR PROVEEDORES OPTIMIZADO CON CACHÉ GLOBAL ---
-            @st.cache_data(ttl=600, show_spinner=False)
+            # --- CARGAR PROVEEDORES ROBUSTO Y SIN BLOQUEOS ---
             def cargar_datos_maestros_flash(empresa):
                 p_lista, p_dict = [], {}
                 try:
                     conn = conectar_db(empresa)
                     if conn:
+                        # Consulta amplia para asegurar que traiga todos los proveedores registrados
                         df_cp = ejecutar_consulta(
-                            "SELECT id, nombre, rif, codigo_cuenta, descripcion_cuenta FROM proveedores_carga WHERE empresa_db = %s ORDER BY nombre ASC", 
-                            conn, params=(str(empresa),)
+                            "SELECT id, nombre, rif, codigo_cuenta, descripcion_cuenta FROM proveedores_carga ORDER BY nombre ASC", 
+                            conn
                         )
-                        if df_cp is None or df_cp.empty:
-                            df_cp = ejecutar_consulta(
-                                "SELECT id, nombre, rif, codigo_cuenta, descripcion_cuenta FROM proveedores_carga ORDER BY nombre ASC", 
-                                conn
-                            )
                         conn.close()
                         
                         if df_cp is not None and not df_cp.empty:
                             for _, row in df_cp.iterrows():
-                                label = f"{row['nombre']} (RIF: {row['rif']})"
+                                nombre_prov = str(row.get('nombre', 'Sin Nombre'))
+                                rif_prov = str(row.get('rif', 'S/N'))
+                                label = f"{nombre_prov} (RIF: {rif_prov})"
+                                
                                 p_lista.append(label)
                                 p_dict[label] = {
                                     'id_interno': row['id'],
-                                    'rif': row['rif'],
-                                    'nombre': row['nombre'],
+                                    'rif': rif_prov,
+                                    'nombre': nombre_prov,
                                     'codigo_cuenta': str(row.get('codigo_cuenta', 'N/A')),
                                     'descripcion_cuenta': str(row.get('descripcion_cuenta', 'N/A'))
                                 }
-                except Exception:
-                    pass
+                except Exception as e:
+                    st.error(f"Error cargando proveedores: {e}")
                 return p_lista, p_dict
 
+            # Cargamos los proveedores sin caché rígida para garantizar que el recién agregado aparezca al instante
             lista_provs, dict_provs = cargar_datos_maestros_flash(db_actual)
 
             # --- GESTIÓN DE SESSION STATE ---
@@ -10245,7 +10244,7 @@ elif opcion_menu == "📝 Asientos Contables":
                 if btn_guardar_op:
                     if not nro_factura_form:
                         st.error("⚠️ El número de factura es obligatorio.")
-                    elif not lista_provs:
+                    elif not lista_provs or prov_seleccionado_form == "No hay proveedores":
                         st.error("⚠️ No hay proveedores cargados para asociar la orden.")
                     else:
                         try:
