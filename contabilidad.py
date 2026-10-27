@@ -9632,7 +9632,6 @@ elif opcion_menu == "📝 Asientos Contables":
 
                     if "df_asiento_actual" not in st.session_state:
                         val_inicial = opciones_cuentas[0] if opciones_cuentas else ""
-                        # Extraemos el código limpio por si viene con formato "Código - Nombre"
                         cod_inicial = val_inicial.split(" - ")[0].strip() if val_inicial else ""
                         desc_inicial = dict_nombres_cuentas.get(cod_inicial, "") if opciones_cuentas else ""
                         
@@ -9646,16 +9645,7 @@ elif opcion_menu == "📝 Asientos Contables":
                             }
                         ])
 
-                    # --- ACTUALIZACIÓN AUTOMÁTICA DE LA DESCRIPCIÓN EN TIEMPO REAL ---
-                    # Recorremos el DataFrame actual en session_state y sincronizamos la descripción según la cuenta elegida
-                    for idx, row in st.session_state["df_asiento_actual"].iterrows():
-                        val_celda = str(row.get("plan_cuentas", ""))
-                        if val_celda and val_celda != "nan":
-                            # Extraemos el código (ej. "1.1.1.01" de "1.1.1.01 - Caja")
-                            codigo_limpio = val_celda.split(" - ")[0].strip()
-                            # Buscamos su nombre en el diccionario y lo actualizamos automáticamente al lado
-                            st.session_state["df_asiento_actual"].at[idx, "cuenta_contable"] = dict_nombres_cuentas.get(codigo_limpio, "")
-
+                    # 1. Pintamos el editor interactivo con los datos actuales
                     df_editado_nuevo = st.data_editor(
                         st.session_state["df_asiento_actual"],
                         num_rows="dynamic",
@@ -9664,7 +9654,6 @@ elif opcion_menu == "📝 Asientos Contables":
                         key="editor_asiento_interactivo",
                         column_config={
                             "plan_cuentas": st.column_config.SelectboxColumn("Plan Cuentas", options=opciones_cuentas, required=True),
-                            # La hacemos de solo lectura visualmente para que el usuario entienda que se llena sola, o déjala editable si prefieres
                             "cuenta_contable": st.column_config.TextColumn("Descripción Cuenta", help="Se actualiza automáticamente al elegir la cuenta"),
                             "referencia": st.column_config.TextColumn("Referencia / Factura"),
                             "debe": st.column_config.NumberColumn("Debe", format="%,.2f", min_value=0.0),
@@ -9672,13 +9661,31 @@ elif opcion_menu == "📝 Asientos Contables":
                         }
                     )
 
-                    # Guardamos los cambios interactivos del usuario de vuelta en session_state para mantener la persistencia
+                    # 2. Sincronizamos las descripciones inmediatamente según lo que el usuario acaba de seleccionar
+                    hubo_cambios = False
+                    for idx, row in df_editado_nuevo.iterrows():
+                        val_celda = str(row.get("plan_cuentas", ""))
+                        if val_celda and val_celda != "nan":
+                            codigo_limpio = val_celda.split(" - ")[0].strip()
+                            nueva_desc = dict_nombres_cuentas.get(codigo_limpio, "")
+                            
+                            # Si la descripción actual no coincide con la del diccionario, la actualizamos
+                            if df_editado_nuevo.at[idx, "cuenta_contable"] != nueva_desc:
+                                df_editado_nuevo.at[idx, "cuenta_contable"] = nueva_desc
+                                hubo_cambios = True
+
+                    # 3. Guardamos en el session_state
                     st.session_state["df_asiento_actual"] = df_editado_nuevo
 
-                    df_editado_nuevo = df_editado_nuevo[df_editado_nuevo['plan_cuentas'].notna() & (df_editado_nuevo['plan_cuentas'].astype(str).str.strip() != "")]
+                    # Si hubo cambios en las cuentas, recargamos la app al instante para que la interfaz muestre el texto actualizado
+                    if hubo_cambios:
+                        st.rerun()
 
-                    total_debe = pd.to_numeric(df_editado_nuevo['debe'], errors='coerce').sum()
-                    total_haber = pd.to_numeric(df_editado_nuevo['haber'], errors='coerce').sum()
+                    # 4. Filtrado y cálculos para los métricos
+                    df_filtrado = df_editado_nuevo[df_editado_nuevo['plan_cuentas'].notna() & (df_editado_nuevo['plan_cuentas'].astype(str).str.strip() != "")]
+
+                    total_debe = pd.to_numeric(df_filtrado['debe'], errors='coerce').sum()
+                    total_haber = pd.to_numeric(df_filtrado['haber'], errors='coerce').sum()
                     diferencia = total_debe - total_haber
 
                     st.markdown("---")
