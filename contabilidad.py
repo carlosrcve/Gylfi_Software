@@ -9631,15 +9631,30 @@ elif opcion_menu == "📝 Asientos Contables":
                     st.markdown("### Líneas del Comprobante")
 
                     if "df_asiento_actual" not in st.session_state:
+                        val_inicial = opciones_cuentas[0] if opciones_cuentas else ""
+                        # Extraemos el código limpio por si viene con formato "Código - Nombre"
+                        cod_inicial = val_inicial.split(" - ")[0].strip() if val_inicial else ""
+                        desc_inicial = dict_nombres_cuentas.get(cod_inicial, "") if opciones_cuentas else ""
+                        
                         st.session_state["df_asiento_actual"] = pd.DataFrame([
                             {
-                                "plan_cuentas": opciones_cuentas[0] if opciones_cuentas else "", 
-                                "cuenta_contable": dict_nombres_cuentas.get(opciones_cuentas[0].split(" - ")[0], "") if opciones_cuentas else "", 
+                                "plan_cuentas": val_inicial, 
+                                "cuenta_contable": desc_inicial, 
                                 "referencia": "", 
                                 "debe": 0.0, 
                                 "haber": 0.0
                             }
                         ])
+
+                    # --- ACTUALIZACIÓN AUTOMÁTICA DE LA DESCRIPCIÓN EN TIEMPO REAL ---
+                    # Recorremos el DataFrame actual en session_state y sincronizamos la descripción según la cuenta elegida
+                    for idx, row in st.session_state["df_asiento_actual"].iterrows():
+                        val_celda = str(row.get("plan_cuentas", ""))
+                        if val_celda and val_celda != "nan":
+                            # Extraemos el código (ej. "1.1.1.01" de "1.1.1.01 - Caja")
+                            codigo_limpio = val_celda.split(" - ")[0].strip()
+                            # Buscamos su nombre en el diccionario y lo actualizamos automáticamente al lado
+                            st.session_state["df_asiento_actual"].at[idx, "cuenta_contable"] = dict_nombres_cuentas.get(codigo_limpio, "")
 
                     df_editado_nuevo = st.data_editor(
                         st.session_state["df_asiento_actual"],
@@ -9649,12 +9664,16 @@ elif opcion_menu == "📝 Asientos Contables":
                         key="editor_asiento_interactivo",
                         column_config={
                             "plan_cuentas": st.column_config.SelectboxColumn("Plan Cuentas", options=opciones_cuentas, required=True),
-                            "cuenta_contable": st.column_config.TextColumn("Descripción Cuenta", help="Se asigna al guardar"),
+                            # La hacemos de solo lectura visualmente para que el usuario entienda que se llena sola, o déjala editable si prefieres
+                            "cuenta_contable": st.column_config.TextColumn("Descripción Cuenta", help="Se actualiza automáticamente al elegir la cuenta"),
                             "referencia": st.column_config.TextColumn("Referencia / Factura"),
                             "debe": st.column_config.NumberColumn("Debe", format="%,.2f", min_value=0.0),
                             "haber": st.column_config.NumberColumn("Haber", format="%,.2f", min_value=0.0)
                         }
                     )
+
+                    # Guardamos los cambios interactivos del usuario de vuelta en session_state para mantener la persistencia
+                    st.session_state["df_asiento_actual"] = df_editado_nuevo
 
                     df_editado_nuevo = df_editado_nuevo[df_editado_nuevo['plan_cuentas'].notna() & (df_editado_nuevo['plan_cuentas'].astype(str).str.strip() != "")]
 
@@ -9674,7 +9693,6 @@ elif opcion_menu == "📝 Asientos Contables":
                     )
 
                     st.markdown("---")
-
                     if st.button("💾 Guardar Nuevo Comprobante", type="primary"):
                         if not nuevo_n_comp:
                             st.error("Debe indicar un Número de Comprobante.")
