@@ -4076,11 +4076,14 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
 
         facturas_seleccionadas = st.session_state.get('facturas_seleccionadas')
         
-        if facturas_seleccionadas is not None and not facturas_seleccionadas.empty:
-            total_base_agrupado = facturas_seleccionadas['base_imponible'].sum()
-            total_iva_agrupado = facturas_seleccionadas['iva_monto'].sum()
-            total_facturas_agrupado = facturas_seleccionadas['total_compras'].sum()
-            total_exento_agrupado = facturas_seleccionadas['importe_exento'].sum()
+       if facturas_seleccionadas is not None and not facturas_seleccionadas.empty:
+            # Obtención segura de columnas manejando posibles nombres alternativos o nulos
+            col_exento = 'importe_exento' if 'importe_exento' in facturas_seleccionadas.columns else ('monto_exento' if 'monto_exento' in facturas_seleccionadas.columns else None)
+            
+            total_base_agrupado = float(facturas_seleccionadas['base_imponible'].sum() if 'base_imponible' in facturas_seleccionadas.columns else 0)
+            total_iva_agrupado = float(facturas_seleccionadas['iva_monto'].sum() if 'iva_monto' in facturas_seleccionadas.columns else facturas_seleccionadas.get('impuesto_iva', 0).sum())
+            total_facturas_agrupado = float(facturas_seleccionadas['total_compras'].sum() if 'total_compras' in facturas_seleccionadas.columns else 0)
+            total_exento_agrupado = float(facturas_seleccionadas[col_exento].sum() if col_exento else 0)
             
             factura_principal = facturas_seleccionadas.iloc[0]
             val_sugerido = str(factura_principal['fecha_operacion']).replace("-", "")[:6] + str(factura_principal['id']).zfill(8)
