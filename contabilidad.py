@@ -3444,6 +3444,217 @@ def extraer_datos_factura(archivo):
         st.error(f"Error procesando con el modelo de IA: {e}")
         return None
 
+
+def generar_comprobante_pdf(datos, conn):
+    """
+    Crea el PDF del comprobante ISLR con diseño profesional simétrico,
+    limpieza de etiquetas, RIF con guiones, número de comprobante legal 
+    y centrado de celdas.
+    """
+    usuario_actual = st.session_state.get('usuario', 'Sistema')
+    cliente_actual = st.session_state.get('cliente_id', 'General')
+    
+    # Blindaje de log
+    if conn is not None:
+        try:
+            registrar_log_automatico(conn, "GENERACION_PDF_RETENCION", f"Usuario {usuario_actual} generó PDF de retención para {cliente_actual}")
+        except Exception:
+            pass
+
+    id_sesion = st.session_state.get('cliente_id')
+
+    datos_agente_dinamicos = {
+        "nombre": "EMPRESA NO IDENTIFICADA",
+        "rif": "J-00000000-0",
+        "direccion": "DIRECCIÓN NO REGISTRADA"
+    }
+
+    try:
+        conn_central = conectar_db("control_central")
+        if conn_central:
+            # Creamos el cursor de forma estándar (sin dictionary=True para evitar el error del driver)
+            cursor_c = conn_central.cursor() if hasattr(conn_central, 'cursor') else None
+            
+            if cursor_c:
+                res_agente = None
+
+                if id_sesion is not None:
+                    cursor_c.execute(
+                        "SELECT nombre_empresa, rif, direccion_fiscal FROM clientes WHERE id = %s", 
+                        (id_sesion,)
+                    )
+                    row = cursor_c.fetchone()
+                    if row:
+                        res_agente = {
+                            "nombre_empresa": row[0],
+                            "rif": row[1],
+                            "direccion_fiscal": row[2]
+                        }
+
+                # Respaldo absoluto: si no encuentra por ID, tomamos el primer registro
+                if not res_agente:
+                    cursor_c.execute(
+                        "SELECT nombre_empresa, rif, direccion_fiscal FROM clientes LIMIT 1"
+                    )
+                    row = cursor_c.fetchone()
+                    if row:
+                        res_agente = {
+                            "nombre_empresa": row[0],
+                            "rif": row[1],
+                            "direccion_fiscal": row[2]
+                        }
+
+                if res_agente:
+                    datos_agente_dinamicos = {
+                        "nombre": res_agente.get("nombre_empresa", "EMPRESA NO IDENTIFICADA"),
+                        "rif": res_agente.get("rif", "J-00000000-0"),
+                        "direccion": res_agente.get("direccion_fiscal", "DIRECCIÓN NO REGISTRADA")
+                    }
+                
+                cursor_c.close()
+            conn_central.close()
+    except Exception as e:
+        st.error(f"❌ Error crítico en consulta: {e}")
+
+    # Asignamos los datos reales al diccionario del PDF
+    datos['agente'] = datos_agente_dinamicos
+
+    pdf = FPDF(orientation='P', unit='mm', format='A4')
+    pdf.add_page()
+    
+    # --- 0. PREPARACIÓN DE DATOS (LIMPIEZA) ---
+    import re
+    from datetime import datetime
+
+    def limpiar_num(texto):
+        nums = re.findall(r'\d+', str(texto))
+        return nums[0] if nums else str(texto)
+
+    def formatear_rif(rif_raw):
+        rif = str(rif_raw).upper().replace('-', '').replace(' ', '')
+        if len(rif) >= 9:
+            return f"{rif[0]}-{rif[1:-1]}-{rif[-1]}"
+        return rif
+
+    factura_limpia = limpiar_num(datos.get('factura', '00000')).zfill(5)
+    
+    # --- 1. ENCABEZADO CORPORATIVO ---
+    pdf.set_font("helvetica", "B", 10)
+    pdf.cell(100, 5, datos['agente']['nombre'].upper(), 0, 0, 'L')
+    
+    pdf.set_font("helvetica", "B", 11) 
+    num_comprobante = datos.get('n_comprobante', "SIN NÚMERO")
+    pdf.cell(90, 5, f"COMPROBANTE N°: {num_comprobante}", 0, 1, 'R') 
+    
+    pdf.set_font("helvetica", "", 8)
+    pdf.cell(100, 4, "Comprobante de Retención del Impuesto Sobre la Renta ISLR", 0, 0, 'L')
+    fecha_emision = datos.get('fecha_emision', datetime.now().strftime('%d/%m/%Y'))
+    pdf.cell(90, 4, f"Fecha Emisión: {fecha_emision}", 0, 1, 'R')
+    pdf.ln(5)
+
+    # --- 2. TÍTULO Y DECRETO ---
+    pdf.set_font("helvetica", "B", 8)
+    pdf.rect(10, pdf.get_y(), 70, 16) 
+    pdf.set_xy(11, pdf.get_y() + 2)
+    pdf.multi_cell(68, 4, "Comprobante de Retención de I.S.L.R.\nGaceta Oficial N° 36.206 del 12/05/1997\nDecreto N° 1808 del 23/04/1997", 0, 'L')
+    
+    # --- 3. BLOQUE COMPARATIVO (SIMETRÍA DE CUADROS) ---
+    pdf.set_xy(10, 45)
+    y_inicial = pdf.get_y()
+    
+    nombre_s = datos['sujeto'].get('nombre', "PROVEEDOR DESCONOCIDO")
+    dir_s = datos['sujeto'].get('direccion', "CARACAS, VENEZUELA")
+    rif_s_formateado = formatear_rif(datos['sujeto'].get('rif', ''))
+    rif_a_formateado = formatear_rif(datos['agente'].get('rif', ''))
+
+    # --- LADO IZQUIERDO: SUJETO ---
+    pdf.set_font("helvetica", "B", 8)
+    pdf.set_fill_color(240, 240, 240)
+    pdf.cell(95, 6, "Sujeto Retenido (Proveedor / Beneficiario)", 1, 1, 'C', fill=True)
+    pdf.set_font("helvetica", "", 8)
+    pdf.cell(2, 6, "", "L", 0); pdf.cell(18, 6, "Proveedor:", 0, 0); pdf.cell(75, 6, str(nombre_s)[:40].upper(), "R", 1)
+    pdf.cell(2, 6, "", "L", 0); pdf.cell(18, 6, "RIF:", 0, 0); pdf.cell(75, 6, rif_s_formateado, "R", 1)
+    pdf.set_font("helvetica", "I", 7)
+    pdf.set_x(10)
+    pdf.multi_cell(95, 5, f" Dirección: {str(dir_s).upper()}", "LR", 'L')
+    y_final_sujeto = pdf.get_y()
+
+    # --- LADO DERECHO: AGENTE ---
+    pdf.set_xy(105, y_inicial)
+    pdf.set_font("helvetica", "B", 8)
+    pdf.cell(95, 6, "Agente de Retención (Empresa)", 1, 1, 'C', fill=True)
+    pdf.set_font("helvetica", "", 8)
+    pdf.set_x(105)
+    pdf.cell(2, 6, "", "L", 0); pdf.cell(18, 6, "Empresa:", 0, 0); pdf.cell(75, 6, str(datos['agente']['nombre']).upper(), "R", 1)
+    pdf.set_x(105)
+    pdf.cell(2, 6, "", "L", 0); pdf.cell(18, 6, "RIF:", 0, 0); pdf.cell(75, 6, rif_a_formateado, "R", 1)
+    pdf.set_x(105)
+    pdf.set_font("helvetica", "I", 7)
+    pdf.multi_cell(95, 5, f" Dirección: {str(datos['agente']['direccion']).upper()}", "LR", 'L')
+    y_final_agente = pdf.get_y()
+
+    # Cierre de cuadros
+    y_max = max(y_final_sujeto, y_final_agente)
+    pdf.line(10, y_max, 105, y_max)
+    pdf.line(105, y_max, 200, y_max)
+    
+    pdf.set_y(y_max + 8)
+
+    # --- 4. TABLA TÉCNICA ---
+    pdf.set_font("helvetica", "B", 7)
+    headers = ["Fecha", "Nº Factura", "Base Imponible", "Sustraendo", "% Ret.", "Imp. Determinado.", "Monto Ret."]
+    widths = [20, 35, 30, 25, 20, 30, 30]
+    
+    for i, h in enumerate(headers):
+        pdf.cell(widths[i], 7, h, 1, 0, 'C', fill=True)
+    pdf.ln()
+
+    pdf.set_font("helvetica", "", 7)
+    base = float(datos['base'])
+    sust = float(datos['sustraendo'])
+    porc = float(datos['porcentaje'])
+    impuesto_bruto = base * (porc / 100)
+    neto = float(datos['total_retenido'])
+    
+    pdf.cell(widths[0], 7, str(datos.get('fecha_operacion', 'S/F')), 1, 0, 'C')
+    pdf.cell(widths[1], 7, f"{factura_limpia}", 1, 0, 'C') 
+    pdf.cell(widths[2], 7, f"{base:,.2f}", 1, 0, 'R')
+    pdf.cell(widths[3], 7, f"{sust:,.2f}", 1, 0, 'R')
+    pdf.cell(widths[4], 7, f"{porc}%", 1, 0, 'R')
+    pdf.cell(widths[5], 7, f"{impuesto_bruto:,.2f}", 1, 0, 'R')
+    pdf.cell(widths[6], 7, f"{neto:,.2f}", 1, 1, 'R')
+
+    # Totales
+    pdf.set_font("helvetica", "B", 8)
+    pdf.cell(sum(widths[:6]), 7, "TOTAL RETENCIÓN ISLR A ENTERAR (Bs.):", 1, 0, 'R')
+    pdf.cell(widths[6], 7, f"{neto:,.2f}", 1, 1, 'R')
+    pdf.ln(25)
+
+    # --- 5. FIRMAS ---
+    y_firmas = pdf.get_y()
+    pdf.line(20, y_firmas, 80, y_firmas)
+    pdf.line(130, y_firmas, 190, y_firmas)
+    
+    pdf.set_font("helvetica", "B", 8)
+    pdf.set_xy(10, y_firmas + 2)
+    pdf.cell(85, 5, "Firma y Sello Agente de Retención", 0, 0, 'C')
+    pdf.cell(110, 5, "Firma y Sello del Proveedor", 0, 1, 'C')
+
+    try:
+        pdf_output = pdf.output()
+        if isinstance(pdf_output, str):
+            return pdf_output.encode('latin-1', errors='ignore')
+        elif isinstance(pdf_output, bytearray):
+            return bytes(pdf_output)
+        return pdf_output
+    finally:
+        try:
+            if conn:
+                conn.ping(reconnect=True)
+        except Exception:
+            pass
+
+
 def comprobar_existencia_comprobante(n_comprobante):
     """Verifica si el número de comprobante ya existe en la DB"""
     db_actual = st.session_state.get('DB_ACTUAL')
