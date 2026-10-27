@@ -9627,6 +9627,7 @@ elif opcion_menu == "📝 Asientos Contables":
                         nuevo_fecha = st.date_input("Fecha del Asiento", key="input_fecha")
 
                     nuevo_desc = st.text_input("Descripción general del Asiento", key="input_desc_gral")
+
                     st.markdown("### Líneas del Comprobante")
 
                     if "df_asiento_actual" not in st.session_state:
@@ -9644,16 +9645,7 @@ elif opcion_menu == "📝 Asientos Contables":
                             }
                         ])
 
-                    # 1. Sincronizamos las descripciones en el session_state ANTES de pintar el editor,
-                    # para que el componente nativo reciba los valores limpios y no interfiera con lo que escribes.
-                    for idx, row in st.session_state["df_asiento_actual"].iterrows():
-                        val_celda = str(row.get("plan_cuentas", ""))
-                        if val_celda and val_celda != "nan":
-                            codigo_limpio = val_celda.split(" - ")[0].strip()
-                            nueva_desc = dict_nombres_cuentas.get(codigo_limpio, "")
-                            st.session_state["df_asiento_actual"].at[idx, "cuenta_contable"] = nueva_desc
-
-                    # 2. Pintamos el editor interactivo conectándolo de forma segura
+                    # 1. Pintamos el editor interactivo tomando los datos directamente de la sesión
                     df_editado_nuevo = st.data_editor(
                         st.session_state["df_asiento_actual"],
                         num_rows="dynamic",
@@ -9669,14 +9661,23 @@ elif opcion_menu == "📝 Asientos Contables":
                         }
                     )
 
-                    # 3. Guardamos el resultado del editor directamente en la sesión para respetar los números que vas digitando
+                    # 2. Sincronizamos las descripciones y guardamos el estado ACTUALIZADO 
+                    # SIN hacer st.rerun(), para proteger los números y textos que el usuario va escribiendo.
+                    for idx, row in df_editado_nuevo.iterrows():
+                        val_celda = str(row.get("plan_cuentas", ""))
+                        if val_celda and val_celda != "nan":
+                            codigo_limpio = val_celda.split(" - ")[0].strip()
+                            nueva_desc = dict_nombres_cuentas.get(codigo_limpio, "")
+                            
+                            # Actualizamos la descripción si cambió respecto a la cuenta seleccionada
+                            if df_editado_nuevo.at[idx, "cuenta_contable"] != nueva_desc:
+                                df_editado_nuevo.at[idx, "cuenta_contable"] = nueva_desc
+
+                    # Guardamos permanentemente en el session_state sin interrumpir al usuario
                     st.session_state["df_asiento_actual"] = df_editado_nuevo
 
-                    # 4. Filtrado y cálculos para los métricos en tiempo real
-                    df_filtrado = df_editado_nuevo[
-                        df_editado_nuevo['plan_cuentas'].notna() & 
-                        (df_editado_nuevo['plan_cuentas'].astype(str).str.strip() != "")
-                    ]
+                    # 3. Filtrado y cálculos para los métricos en tiempo real
+                    df_filtrado = df_editado_nuevo[df_editado_nuevo['plan_cuentas'].notna() & (df_editado_nuevo['plan_cuentas'].astype(str).str.strip() != "")]
 
                     total_debe = pd.to_numeric(df_filtrado['debe'], errors='coerce').sum()
                     total_haber = pd.to_numeric(df_filtrado['haber'], errors='coerce').sum()
@@ -9749,46 +9750,47 @@ elif opcion_menu == "📝 Asientos Contables":
                                 
                             except Exception as e:
                                 st.error(f"Error al registrar en la base de datos: {str(e)}")
-                                    elif accion_diario == "🗑️ Eliminar Comprobante Contable":
-                                        st.subheader("Eliminación de Comprobante")
-                                        st.warning("⚠️ Precaución: Esta acción eliminará permanentemente todas las líneas asociadas al número de comprobante indicado.")
-                                        
-                                        comp_a_eliminar = st.text_input("Ingrese el Número de Comprobante que desea eliminar:")
-                                        
-                                        if comp_a_eliminar:
-                                            try:
-                                                df_prev = pd.read_sql(f"SELECT n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber FROM asientos_contables WHERE n_comprobante = '{comp_a_eliminar}'", conn_general)
-                                            except Exception:
-                                                df_prev = pd.DataFrame()
-                                            
-                                            if not df_prev.empty:
-                                                st.markdown(f"**Se encontraron {len(df_prev)} líneas para el Comprobante N° {comp_a_eliminar}:**")
-                                                
-                                                st.data_editor(
-                                                    df_prev, 
-                                                    hide_index=True,
-                                                    disabled=True,
-                                                    column_config={
-                                                        "debe": st.column_config.NumberColumn("Debe", format="%,.2f"),
-                                                        "haber": st.column_config.NumberColumn("Haber", format="%,.2f")
-                                                    }
-                                                )
-                                                
-                                                if st.button("🔥 Confirmar Eliminación Definitiva", type="primary"):
-                                                    try:
-                                                        cursor_del = conn_general.cursor()
-                                                        cursor_del.execute("DELETE FROM asientos_contables WHERE n_comprobante = %s", (comp_a_eliminar,))
-                                                        conn_general.commit()
-                                                        cursor_del.close()
-                                                        
-                                                        st.success(f"¡Comprobante N° {comp_a_eliminar} eliminado correctamente!")
-                                                        st.balloons()
-                                                        time.sleep(1)
-                                                        st.rerun()
-                                                    except Exception as e:
-                                                        st.error(f"Error al eliminar el comprobante: {str(e)}")
-                                            else:
-                                                st.info(f"No se encontró ningún registro asociado al Comprobante N° '{comp_a_eliminar}'.")
+
+                elif accion_diario == "🗑️ Eliminar Comprobante Contable":
+                    st.subheader("Eliminación de Comprobante")
+                    st.warning("⚠️ Precaución: Esta acción eliminará permanentemente todas las líneas asociadas al número de comprobante indicado.")
+                    
+                    comp_a_eliminar = st.text_input("Ingrese el Número de Comprobante que desea eliminar:")
+                    
+                    if comp_a_eliminar:
+                        try:
+                            df_prev = pd.read_sql(f"SELECT n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber FROM asientos_contables WHERE n_comprobante = '{comp_a_eliminar}'", conn_general)
+                        except Exception:
+                            df_prev = pd.DataFrame()
+                        
+                        if not df_prev.empty:
+                            st.markdown(f"**Se encontraron {len(df_prev)} líneas para el Comprobante N° {comp_a_eliminar}:**")
+                            
+                            st.data_editor(
+                                df_prev, 
+                                hide_index=True,
+                                disabled=True,
+                                column_config={
+                                    "debe": st.column_config.NumberColumn("Debe", format="%,.2f"),
+                                    "haber": st.column_config.NumberColumn("Haber", format="%,.2f")
+                                }
+                            )
+                            
+                            if st.button("🔥 Confirmar Eliminación Definitiva", type="primary"):
+                                try:
+                                    cursor_del = conn_general.cursor()
+                                    cursor_del.execute("DELETE FROM asientos_contables WHERE n_comprobante = %s", (comp_a_eliminar,))
+                                    conn_general.commit()
+                                    cursor_del.close()
+                                    
+                                    st.success(f"¡Comprobante N° {comp_a_eliminar} eliminado correctamente!")
+                                    st.balloons()
+                                    time.sleep(1)
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"Error al eliminar el comprobante: {str(e)}")
+                        else:
+                            st.info(f"No se encontró ningún registro asociado al Comprobante N° '{comp_a_eliminar}'.")
 
             # ==========================================
             # TAB 2: IMPORTACIÓN EXCEL
