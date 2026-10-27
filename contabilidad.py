@@ -11341,7 +11341,6 @@ elif opcion_menu == "📝 Asientos Contables":
                                         cargar_datos_maestros_optimizados.clear()
                                         
                                         st.success("🎉 ¡Orden de pago guardada con éxito!")
-                                        st.rerun()
                                 except Exception as err_ins:
                                     st.error(f"❌ Error al guardar la orden de pago: {err_ins}")
 
