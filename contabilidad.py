@@ -4076,7 +4076,7 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
 
         facturas_seleccionadas = st.session_state.get('facturas_seleccionadas')
         
-       if facturas_seleccionadas is not None and not facturas_seleccionadas.empty:
+        if facturas_seleccionadas is not None and not facturas_seleccionadas.empty:
             # Obtención segura de columnas manejando posibles nombres alternativos o nulos
             col_exento = 'importe_exento' if 'importe_exento' in facturas_seleccionadas.columns else ('monto_exento' if 'monto_exento' in facturas_seleccionadas.columns else None)
             
