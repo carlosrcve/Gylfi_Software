@@ -10129,39 +10129,44 @@ elif opcion_menu == "📝 Asientos Contables":
         with tab2:
             st.markdown("### 🧾 Gestión y Generación de Órdenes de Pago y Cruce")
 
-            # --- CARGAR PROVEEDORES ROBUSTO Y SIN BLOQUEOS ---
-            def cargar_datos_maestros_flash(empresa):
+           # --- CARGAR PROVEEDORES ROBUSTO Y DIRECTO ---
+            def cargar_proveedores_seguro(empresa):
                 p_lista, p_dict = [], {}
                 try:
                     conn = conectar_db(empresa)
                     if conn:
-                        # Consulta amplia para asegurar que traiga todos los proveedores registrados
-                        df_cp = ejecutar_consulta(
-                            "SELECT id, nombre, rif, codigo_cuenta, descripcion_cuenta FROM proveedores_carga ORDER BY nombre ASC", 
-                            conn
-                        )
+                        cursor = conn.cursor()
+                        # Consultamos directamente con el cursor para evitar cruces con wrappers de ejecución
+                        cursor.execute("SELECT id, nombre, rif, codigo_cuenta, descripcion_cuenta FROM proveedores_carga ORDER BY nombre ASC")
+                        filas = cursor.fetchall()
+                        cursor.close()
                         conn.close()
                         
-                        if df_cp is not None and not df_cp.empty:
-                            for _, row in df_cp.iterrows():
-                                nombre_prov = str(row.get('nombre', 'Sin Nombre'))
-                                rif_prov = str(row.get('rif', 'S/N'))
-                                label = f"{nombre_prov} (RIF: {rif_prov})"
+                        if filas:
+                            for row in filas:
+                                # row puede ser tupla según el conector (MySQLdb / PyMySQL)
+                                # Orden: id(0), nombre(1), rif(2), codigo_cuenta(3), descripcion_cuenta(4)
+                                p_id = row[0]
+                                nombre_prov = str(row[1] if row[1] else 'Sin Nombre')
+                                rif_prov = str(row[2] if row[2] else 'S/N')
+                                cod_cta = str(row[3] if row[3] else 'N/A')
+                                desc_cta = str(row[4] if row[4] else 'N/A')
                                 
+                                label = f"{nombre_prov} (RIF: {rif_prov})"
                                 p_lista.append(label)
                                 p_dict[label] = {
-                                    'id_interno': row['id'],
+                                    'id_interno': p_id,
                                     'rif': rif_prov,
                                     'nombre': nombre_prov,
-                                    'codigo_cuenta': str(row.get('codigo_cuenta', 'N/A')),
-                                    'descripcion_cuenta': str(row.get('descripcion_cuenta', 'N/A'))
+                                    'codigo_cuenta': cod_cta,
+                                    'descripcion_cuenta': desc_cta
                                 }
-                except Exception as e:
-                    st.error(f"Error cargando proveedores: {e}")
+                except Exception as ex_prov:
+                    st.error(f"⚠️ Error crítico al cargar proveedores: {ex_prov}")
                 return p_lista, p_dict
 
-            # Cargamos los proveedores sin caché rígida para garantizar que el recién agregado aparezca al instante
-            lista_provs, dict_provs = cargar_datos_maestros_flash(db_actual)
+            # Cargamos los proveedores actualizados al instante
+            lista_provs, dict_provs = cargar_proveedores_seguro(db_actual)
 
             # --- GESTIÓN DE SESSION STATE ---
             if "orden_guardada_exito" not in st.session_state:
@@ -10289,7 +10294,6 @@ elif opcion_menu == "📝 Asientos Contables":
                                 st.rerun()
                         except Exception as err_ins:
                             st.error(f"❌ Error al guardar la orden de pago: {err_ins}")
-
             else:
                 if st.button("➕ Emitir Nueva Orden de Pago", type="secondary", use_container_width=True):
                     st.session_state.orden_guardada_exito = False
