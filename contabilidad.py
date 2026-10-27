@@ -5857,7 +5857,7 @@ def registrar_retencion_islr_db(id_sec, rif, razon_social, direccion, factura, c
         
         cursor.execute(query_insert, valores)
         
-        # 3. Bloqueo independiente en libro de compras usando la nueva columna de ISLR y el ID exacto
+        # 3. Bloqueo exclusivo para ISLR (Actualiza únicamente la columna de ISLR y no toca el IVA)
         sql_bloqueo = """
             UPDATE libro_compras 
             SET retencion_islr_realizada = 1 
@@ -5875,7 +5875,7 @@ def registrar_retencion_islr_db(id_sec, rif, razon_social, direccion, factura, c
     finally:
         if 'cursor' in locals() and cursor: cursor.close()
         if 'conn' in locals() and conn: conn.close()
-
+        
 def limpiar_monto_contable(valor):
     if valor is None:
         return 0.0
