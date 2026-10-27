@@ -9410,8 +9410,8 @@ elif opcion_menu == "📝 Asientos Contables":
         tab1, tab2, tab3, tab4 = st.tabs([
             "📖 Ver Libro Diario", 
             "📤 Importar Excel", 
+            "📈 Asientos Ingresos Automatizados",
             "🗑️ Vaciar Asiento de Diarios",
-            "📈 Asientos Ingresos Automatizados"
         ])
 
         def exportar_a_excel(df):
@@ -9831,9 +9831,18 @@ elif opcion_menu == "📝 Asientos Contables":
                         st.error(f"Error al procesar el archivo: {e}")
 
             # ==========================================
-            # TAB 3: LIMPIEZA POR RANGO DE FECHAS
+            # TAB 4: ASIENTOS INTEGRADOS / VENTAS
             # ==========================================
             with tab3:
+                if conn_general:
+                    renderizar_tab_asientos_ventas(conn_general)
+                else:
+                    st.error("No se pudo establecer la conexión con la base de datos de la empresa para los asientos automatizados.")
+
+            # ==========================================
+            # TAB 3: LIMPIEZA POR RANGO DE FECHAS
+            # ==========================================
+            with tab4:
                 st.markdown("### ⚙️ Administración: Limpieza por Fechas")
                 with st.container(border=True):
                     st.warning("⚠️ **BORRADO SELECTIVO DE ASIENTOS**")
@@ -9860,15 +9869,6 @@ elif opcion_menu == "📝 Asientos Contables":
                                 st.success(f"✅ Éxito: Se eliminaron {filas_afectadas} asientos del periodo.")
                             except Exception as e:
                                 st.error(f"Error al ejecutar la limpieza: {e}")
-
-            # ==========================================
-            # TAB 4: ASIENTOS INTEGRADOS / VENTAS
-            # ==========================================
-            with tab4:
-                if conn_general:
-                    renderizar_tab_asientos_ventas(conn_general)
-                else:
-                    st.error("No se pudo establecer la conexión con la base de datos de la empresa para los asientos automatizados.")
 
         finally:
             if conn_general:
