@@ -9630,7 +9630,7 @@ elif opcion_menu == "📝 Asientos Contables":
 
                     st.markdown("### Líneas del Comprobante")
 
-                    # Inicialización del DataFrame en session_state si no existe
+                    # Inicialización limpia en session_state
                     if "df_asiento_actual" not in st.session_state:
                         val_inicial = opciones_cuentas[0] if opciones_cuentas else ""
                         cod_inicial = val_inicial.split(" - ")[0].strip() if val_inicial else ""
@@ -9646,35 +9646,13 @@ elif opcion_menu == "📝 Asientos Contables":
                             }
                         ])
 
-                    # Función de callback que se ejecuta al interactuar con el data_editor sin perder datos
-                    def actualizar_asiento():
-                        editor_data = st.session_state.get("editor_asiento_interactivo", None)
-                        if editor_data is not None:
-                            # Si el editor devuelve un diccionario (cambios por celdas) o DataFrame
-                            if isinstance(editor_data, dict):
-                                df_temp = st.session_state["df_asiento_actual"].copy()
-                                # Actualizamos celdas editadas
-                                for index, rows in editor_data.get("edited_rows", {}).items():
-                                    for col_name, val in rows.items():
-                                        df_temp.at[int(index), col_name] = val
-                                
-                                # Sincronizamos las descripciones contables de manera automática
-                                for idx, row in df_temp.iterrows():
-                                    val_celda = str(row.get("plan_cuentas", ""))
-                                    if val_celda and val_celda != "nan":
-                                        codigo_limpio = val_celda.split(" - ")[0].strip()
-                                        df_temp.at[idx, "cuenta_contable"] = dict_nombres_cuentas.get(codigo_limpio, "")
-                                
-                                st.session_state["df_asiento_actual"] = df_temp
-
-                    # Pintamos el editor interactivo conectando el session_state directamente
+                    # Pintamos el editor interactivo tomando el estado actual
                     df_editado_nuevo = st.data_editor(
                         st.session_state["df_asiento_actual"],
                         num_rows="dynamic",
                         use_container_width=True,
                         hide_index=True,
                         key="editor_asiento_interactivo",
-                        on_change=actualizar_asiento,
                         column_config={
                             "plan_cuentas": st.column_config.SelectboxColumn("Plan Cuentas", options=opciones_cuentas, required=True),
                             "cuenta_contable": st.column_config.TextColumn("Descripción Cuenta", help="Se actualiza automáticamente al elegir la cuenta"),
@@ -9684,7 +9662,15 @@ elif opcion_menu == "📝 Asientos Contables":
                         }
                     )
 
-                    # Actualizamos la referencia del dataframe actual con lo que entrega el editor
+                    # Sincronizamos las descripciones contables de manera directa sobre el DataFrame editado
+                    for idx, row in df_editado_nuevo.iterrows():
+                        val_celda = str(row.get("plan_cuentas", ""))
+                        if val_celda and val_celda != "nan":
+                            codigo_limpio = val_celda.split(" - ")[0].strip()
+                            nueva_desc = dict_nombres_cuentas.get(codigo_limpio, "")
+                            df_editado_nuevo.at[idx, "cuenta_contable"] = nueva_desc
+
+                    # Guardamos de inmediato el resultado en el session_state para mantener la fluidez
                     st.session_state["df_asiento_actual"] = df_editado_nuevo
 
                     # Filtrado y cálculos para los métricos en tiempo real
@@ -9764,7 +9750,6 @@ elif opcion_menu == "📝 Asientos Contables":
                                 
                             except Exception as e:
                                 st.error(f"Error al registrar en la base de datos: {str(e)}")
-
                 elif accion_diario == "🗑️ Eliminar Comprobante Contable":
                     st.subheader("Eliminación de Comprobante")
                     st.warning("⚠️ Precaución: Esta acción eliminará permanentemente todas las líneas asociadas al número de comprobante indicado.")
