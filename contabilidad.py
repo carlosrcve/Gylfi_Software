@@ -10576,6 +10576,8 @@ elif opcion_menu == "📝 Asientos Contables":
                                             except Exception as err_b:
                                                 st.error(f"❌ Error al guardar movimiento bancario: {err_b}")
                 except Exception as ex_historial:
+                    st.warning(f"⚠️ Error al cargar el historial de órdenes de pago: {ex_historial}")
+                except Exception as ex_historial:
                     st.warning(f"Aviso en historial: {ex_historial}")
         with tab3:
             sst.subheader("📂 Estado de Cuenta Bancario")
