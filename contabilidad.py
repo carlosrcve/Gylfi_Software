@@ -11064,7 +11064,6 @@ elif opcion_menu == "📝 Asientos Contables":
                             cargar_datos_proveedores_tab1.clear()
 
                             st.success(f"✅ ¡Proveedor '{nombre_prov}' guardado con éxito!")
-                            st.rerun()
                     except Exception as e:
                         st.error(f"❌ Error al guardar en `proveedores_carga`: {e}")
                 else:
