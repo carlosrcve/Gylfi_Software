@@ -3699,27 +3699,27 @@ def comprobar_existencia_comprobante(n_comprobante):
 
 def obtener_facturas_pendientes(conn, f_desde, f_hasta):
     """
-    Consulta las facturas pendientes de retención acotando las columnas 
+    Consulta las facturas pendientes de retención de IVA acotando las columnas 
     necesarias para aligerar la transferencia de datos desde la base de datos.
     """
     try:
         query = """
             SELECT id, fecha_operacion, tipo_documento, n_factura, n_control, 
-                   proveedor, rif, total_compras, base_imponible, iva_monto, retencion_realizada 
+                   proveedor, rif, total_compras, base_imponible, iva_monto, 
+                   importe_exento, retencion_iva_realizada
             FROM libro_compras 
-            WHERE (retencion_realizada = 0 OR retencion_realizada IS NULL OR retencion_realizada = '' OR retencion_realizada = FALSE)
+            WHERE (retencion_iva_realizada = 0 OR retencion_iva_realizada IS NULL OR retencion_iva_realizada = '' OR retencion_iva_realizada = FALSE)
             AND fecha_operacion BETWEEN %s AND %s
         """
         df = ejecutar_consulta(query, conn, params=(f_desde, f_hasta))
         
         if df.empty:
-            st.info(f"ℹ️ No hay facturas pendientes de retención entre {f_desde} y {f_hasta}.")
+            st.info(f"ℹ️ No hay facturas pendientes de retención de IVA entre {f_desde} y {f_hasta}.")
             
         return df
     except Exception as e:
-        st.error(f"Error al cargar facturas pendientes: {e}")
+        st.error(f"Error al cargar facturas pendientes de IVA: {e}")
         return pd.DataFrame()
-
 
 def cargar_datos_reimpresion(f_desde, f_hasta):
     db_actual = st.session_state.get('DB_ACTUAL')
@@ -4278,10 +4278,10 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                         )
                         
                         cursor.execute(query_ins_iva, params_iva)
-                        
+
                         query_update = """
                             UPDATE libro_compras 
-                            SET retencion_realizada = 1 
+                            SET retencion_iva_realizada = 1 
                             WHERE id = %s
                         """
                         cursor.execute(query_update, (fila['id'],))
@@ -5838,14 +5838,13 @@ def registrar_retencion_islr_db(id_sec, rif, razon_social, direccion, factura, c
             ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """
         
-        # Usamos `codigo` (el nombre correcto del parámetro) en lugar de `codigo_r`
         valores = (
             int(id_sec),           # 1. id_sec
             str(rif),              # 2. rif_retenido
             str(factura),          # 3. numero_factura
             str(control),          # 4. numero_control
             fecha,                 # 5. fecha_operacion
-            str(codigo),           # 6. codigo_concepto (Corregido)
+            str(codigo),           # 6. codigo_concepto
             float(base),           # 7. monto_operacion
             float(porc),           # 8. porcentaje_retencion
             float(m_retenido),     # 9. monto_retenido
@@ -5858,13 +5857,13 @@ def registrar_retencion_islr_db(id_sec, rif, razon_social, direccion, factura, c
         
         cursor.execute(query_insert, valores)
         
-        # 3. Bloqueo en libro de compras
+        # 3. Bloqueo independiente en libro de compras usando la nueva columna de ISLR y el ID exacto
         sql_bloqueo = """
             UPDATE libro_compras 
-            SET retencion_realizada = 1 
-            WHERE n_factura = %s AND rif = %s
+            SET retencion_islr_realizada = 1 
+            WHERE id = %s
         """
-        cursor.execute(sql_bloqueo, (factura, rif))
+        cursor.execute(sql_bloqueo, (int(id_sec),))
         
         conn.commit()
         return True, m_retenido
@@ -16139,7 +16138,8 @@ elif opcion_menu == "📚 Libros Fiscales":
                                            TRIM(REPLACE(REPLACE(rif, '-', ''), ' ', '')) AS rif_limpio
                                     FROM proveedores
                                 ) p ON TRIM(REPLACE(REPLACE(lc.rif, '-', ''), ' ', '')) COLLATE utf8mb4_unicode_ci = p.rif_limpio COLLATE utf8mb4_unicode_ci
-                                WHERE lc.fecha_operacion BETWEEN %s AND %s
+                                WHERE (lc.retencion_islr_realizada = 0 OR lc.retencion_islr_realizada IS NULL OR lc.retencion_islr_realizada = FALSE)
+                                AND lc.fecha_operacion BETWEEN %s AND %s
                                 ORDER BY lc.fecha_operacion ASC
                             """
 
