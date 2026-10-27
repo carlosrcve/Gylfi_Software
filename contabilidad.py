@@ -10388,14 +10388,18 @@ elif opcion_menu == "📝 Asientos Contables":
                                 info_banco = dict_cuentas_detalle.get(cta_banco_sel, {'codigo': '1.1.1.01.001', 'nombre': 'Banco Principal'})
                                 info_banco['nombre'] = info_banco.get('nombre', 'Banco Principal')
 
+                            # --- PROCESO DE REGISTRO POR MÓDULOS (PASO A PASO) ---
                             st.markdown("---")
-                            st.markdown("### 🔄 Proceso de Registro por Módulos (Paso a Paso)")
+                            st.markdown(f"### 🔄 Proceso de Registro por Módulos (Paso a Paso)")
 
                             key_paso = f"paso_actual_{sel_data['id']}"
                             if key_paso not in st.session_state:
                                 st.session_state[key_paso] = 1
 
                             paso = st.session_state[key_paso]
+
+                            # Barra de progreso visual opcional para guiarte
+                            st.progress(paso / 3, text=f"Paso {paso} de 3: {'Libro de Compras' if paso == 1 else 'Asiento Contable' if paso == 2 else 'Movimiento Bancario'}")
 
                             # --- PASO 1: LIBRO DE COMPRAS ---
                             if paso == 1:
@@ -10468,6 +10472,8 @@ elif opcion_menu == "📝 Asientos Contables":
                                                             conn_l.commit()
                                                             st.success("✅ ¡Libro de Compras guardado con éxito!")
                                                     conn_l.close()
+                                                    
+                                                    # FORZAMOS EL AVANCE DE PASO DE MANERA EXPLÍCITA
                                                     st.session_state[key_paso] = 2
                                                     st.rerun()
                                             except Exception as err_l:
@@ -10477,23 +10483,23 @@ elif opcion_menu == "📝 Asientos Contables":
                             elif paso == 2:
                                 st.markdown("#### 📒 Paso 2: Registrar `asientos_contables`")
                                 st.code(f"""- n_comprobante: OP-{sel_data['nro_factura']}
-              fecha: {sel_data['fecha_emision']}
-              asientos:
-                - plan_cuentas: {info_gasto['codigo']}
-                  debe: {sel_data['base_imponible']:,.2f}
-                  haber: 0.00
-                - plan_cuentas: {info_iva['codigo']}
-                  debe: {sel_data['monto_iva']:,.2f}
-                  haber: 0.00
-                - plan_cuentas: 2.1.2.01.005
-                  debe: 0.00
-                  haber: {sel_data['retencion_islr']:,.2f}
-                - plan_cuentas: 2.1.2.01.003
-                  debe: 0.00
-                  haber: {sel_data['retencion_iva']:,.2f}
-                - plan_cuentas: {info_banco['codigo']}
-                  debe: 0.00
-                  haber: {sel_data['monto_neto']:,.2f}""", language="yaml")
+            fecha: {sel_data['fecha_emision']}
+            asientos:
+              - plan_cuentas: {info_gasto['codigo']}
+                debe: {sel_data['base_imponible']:,.2f}
+                haber: 0.00
+              - plan_cuentas: {info_iva['codigo']}
+                debe: {sel_data['monto_iva']:,.2f}
+                haber: 0.00
+              - plan_cuentas: 2.1.2.01.005
+                debe: 0.00
+                haber: {sel_data['retencion_islr']:,.2f}
+              - plan_cuentas: 2.1.2.01.003
+                debe: 0.00
+                haber: {sel_data['retencion_iva']:,.2f}
+              - plan_cuentas: {info_banco['codigo']}
+                debe: 0.00
+                haber: {sel_data['monto_neto']:,.2f}""", language="yaml")
                                 
                                 if st.button("💾 Guardar Asiento Contable y Pasar a Banco", key=f"btn_guardar_asiento_{sel_data['id']}", use_container_width=True):
                                     with st.spinner("Registrando asiento contable..."):
@@ -10531,6 +10537,8 @@ elif opcion_menu == "📝 Asientos Contables":
                                                     conn_a.commit()
                                                 conn_a.close()
                                                 st.success("✅ ¡Asiento Contable guardado con éxito!")
+                                                
+                                                # FORZAMOS EL AVANCE AL PASO 3
                                                 st.session_state[key_paso] = 3
                                                 st.rerun()
                                         except Exception as err_a:
@@ -10551,7 +10559,7 @@ elif opcion_menu == "📝 Asientos Contables":
             estado: {sel_data['estado']}""", language="yaml")
                                 
                                 if st.button("💾 Guardar Movimiento Bancario y Finalizar", key=f"btn_guardar_banco_{sel_data['id']}", use_container_width=True):
-                                    with st.spinner("Registrando movimiento bancario..."):
+                                    with st.spinner("Registrando movimiento bancario y cerrando orden..."):
                                         try:
                                             conn_b = conectar_db(db_actual)
                                             if conn_b:
@@ -10572,16 +10580,23 @@ elif opcion_menu == "📝 Asientos Contables":
                                                         float(sel_data['monto_neto']),
                                                         "Pendiente"
                                                     ))
+                                                    
+                                                    # ACTUALIZAMOS EL ESTADO DE LA ORDEN A 'procesada' PARA QUE DESAPAREZCA DE LA LISTA
+                                                    cur_b.execute("UPDATE ordenes_pago SET estado = 'procesada' WHERE id = %s", (sel_data['id'],))
                                                     conn_b.commit()
                                                 conn_b.close()
-                                                st.success("🎉 ¡Proceso completo! Movimiento Bancario guardado con éxito.")
-                                                st.session_state[key_paso] = 1
+                                                
+                                                # Limpiamos el paso de la sesión para esta orden y reiniciamos
+                                                if key_paso in st.session_state:
+                                                    del st.session_state[key_paso]
+
+                                                st.success("🎉 ¡Proceso completo! Orden procesada con éxito.")
+                                                st.balloons()
+                                                import time
+                                                time.sleep(1)
                                                 st.rerun()
                                         except Exception as err_b:
                                             st.error(f"❌ Error al guardar movimiento bancario: {err_b}")
-                except Exception as ex_historial:
-                    st.warning(f"Aviso en historial: {ex_historial}")
-    
         with tab3:
             sst.subheader("📂 Estado de Cuenta Bancario")
 
