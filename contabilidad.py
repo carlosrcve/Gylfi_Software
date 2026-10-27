@@ -11512,6 +11512,10 @@ elif opcion_menu == "📝 Asientos Contables":
                                                                 cur_l.execute(query_libro, valores_libro)
                                                                 conn_l.commit()
                                                                 st.success("✅ ¡Libro de Compras guardado con éxito!")
+                                                                st.balloons()
+                                                                import time
+                                                                time.sleep(4)
+                                                                st.rerun()
                                                         conn_l.close()
                                                         st.session_state[key_paso] = 2
                                                         st.rerun()
