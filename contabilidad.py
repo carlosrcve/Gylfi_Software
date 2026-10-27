@@ -9191,74 +9191,48 @@ elif opcion_menu == "📂 Plan de Cuentas":
 
             df_actual = st.session_state.df_plan_cuentas_memoria
 
-            # Inyección de estilos CSS exclusivos para la tarjeta de cuentas contables (puedes ponerlo al inicio de tu vista)
-            st.markdown("""
-                <style>
-                    .cuenta-card-container {
-                        background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
-                        border: 1px solid #e2e8f0;
-                        border-radius: 14px;
-                        padding: 20px;
-                        box-shadow: 0 4px 15px -3px rgba(0, 0, 0, 0.04);
-                        margin-bottom: 15px;
-                    }
-                    .cuenta-card-title {
-                        font-size: 16px;
-                        font-weight: 700;
-                        color: #0f172a;
-                        display: flex;
-                        align-items: center;
-                        gap: 8px;
-                        margin-bottom: 15px;
-                    }
-                </style>
-            """, unsafe_allow_html=True)
-
-            # Contenedor principal con diseño estilizado
             with st.expander("➕ Agregar Nueva Cuenta Contable", expanded=False):
-                st.markdown("""
-                    <div class="cuenta-card-container">
-                        <div class="cuenta-card-title">📖 Registro en el Plan de Cuentas Financiero</div>
-                """, unsafe_allow_html=True)
-                
-                with st.form("form_nueva_cuenta"):
-                    col_f1, col_f2 = st.columns(2)
-                    with col_f1:
-                        nuevo_codigo = st.text_input("Código Contable (ej. 1.1.1.01.003)", key="input_nuevo_codigo")
-                        nuevo_nombre = st.text_input("Nombre de la Cuenta (ej. Caja en Moneda Extranjera)", key="input_nuevo_nombre")
-                        nuevo_nivel = st.number_input("Nivel", min_value=1, max_value=5, value=5, key="input_nuevo_nivel")
-                    with col_f2:
-                        nuevo_tipo = st.selectbox("Tipo", options=["Detalle", "Grupo"], key="input_nuevo_tipo")
-                        nuevo_padre = st.text_input("Cuenta Padre (ej. 1.1.1.01)", key="input_nuevo_padre")
+                # Contenedor nativo con borde corporativo (crea la tarjeta automáticamente)
+                with st.container(border=True):
+                    st.markdown("#### 📖 Registro en el Plan de Cuentas Financiero")
                     
-                    st.markdown("<div style='margin-top: 10px;'></div>", unsafe_allow_html=True)
-                    btn_guardar_cta = st.form_submit_button("💾 Guardar Nueva Cuenta")
-                    
-                    if btn_guardar_cta:
-                        if not nuevo_codigo or not nuevo_nombre:
-                            st.warning("⚠️ El código y el nombre son obligatorios.")
-                        else:
-                            try:
-                                conn_empresa.ping(reconnect=True)
-                                cursor_ins = conn_empresa.cursor()
-                                cursor_ins.execute("SELECT MAX(id) FROM plan_cuentas")
-                                res_max = cursor_ins.fetchone()
-                                siguiente_id = (res_max[0] or 0) + 1 if res_max else 1
+                    with st.form("form_nueva_cuenta"):
+                        col_f1, col_f2 = st.columns(2)
+                        with col_f1:
+                            nuevo_codigo = st.text_input("Código Contable (ej. 1.1.1.01.003)", key="input_nuevo_codigo")
+                            nuevo_nombre = st.text_input("Nombre de la Cuenta (ej. Caja en Moneda Extranjera)", key="input_nuevo_nombre")
+                            nuevo_nivel = st.number_input("Nivel", min_value=1, max_value=5, value=5, key="input_nuevo_nivel")
+                        with col_f2:
+                            nuevo_tipo = st.selectbox("Tipo", options=["Detalle", "Grupo"], key="input_nuevo_tipo")
+                            nuevo_padre = st.text_input("Cuenta Padre (ej. 1.1.1.01)", key="input_nuevo_padre")
+                        
+                        st.markdown("<div style='margin-top: 10px;'></div>", unsafe_allow_html=True)
+                        btn_guardar_cta = st.form_submit_button("💾 Guardar Nueva Cuenta")
+                        
+                        if btn_guardar_cta:
+                            if not nuevo_codigo or not nuevo_nombre:
+                                st.warning("⚠️ El código y el nombre son obligatorios.")
+                            else:
+                                try:
+                                    conn_empresa.ping(reconnect=True)
+                                    cursor_ins = conn_empresa.cursor()
+                                    cursor_ins.execute("SELECT MAX(id) FROM plan_cuentas")
+                                    res_max = cursor_ins.fetchone()
+                                    siguiente_id = (res_max[0] or 0) + 1 if res_max else 1
 
-                                sql_ins = "INSERT INTO plan_cuentas (id, codigo, nombre, nivel, tipo, padre) VALUES (%s, %s, %s, %s, %s, %s)"
-                                cursor_ins.execute(sql_ins, (
-                                    siguiente_id, nuevo_codigo.strip(), nuevo_nombre.strip(), 
-                                    int(nuevo_nivel), nuevo_tipo, nuevo_padre.strip() if nuevo_padre else None
-                                ))
-                                conn_empresa.commit()
-                                cursor_ins.close()
-                                cargar_plan_cuentas_memoria(db_actual)
-                                st.success(f"✅ Cuenta '{nuevo_codigo}' agregada con éxito.")
-                                st.rerun()
-                            except Exception as ex_ins:
-                                st.error(f"❌ Error al insertar: {ex_ins}")
+                                    sql_ins = "INSERT INTO plan_cuentas (id, codigo, nombre, nivel, tipo, padre) VALUES (%s, %s, %s, %s, %s, %s)"
+                                    cursor_ins.execute(sql_ins, (
+                                        siguiente_id, nuevo_codigo.strip(), nuevo_nombre.strip(), 
+                                        int(nuevo_nivel), nuevo_tipo, nuevo_padre.strip() if nuevo_padre else None
+                                    ))
+                                    conn_empresa.commit()
+                                    cursor_ins.close()
+                                    cargar_plan_cuentas_memoria(db_actual)
+                                    st.success(f"✅ Cuenta '{nuevo_codigo}' agregada con éxito.")
+                                    st.rerun()
+                                except Exception as ex_ins:
+                                    st.error(f"❌ Error al insertar: {ex_ins}")
 
-                st.markdown("</div>", unsafe_allow_html=True)  # Cierre del div .cuenta-card-container
             # Sección 2: Eliminar Cuenta
             with st.expander("🗑️ Eliminar Cuenta Contable (Por Error)", expanded=False):
                 with st.form("form_eliminar_cuenta"):
