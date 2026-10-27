@@ -9645,7 +9645,7 @@ elif opcion_menu == "📝 Asientos Contables":
                             }
                         ])
 
-                    # 1. Pintamos el editor interactivo con los datos actuales
+                    # 1. Pintamos el editor interactivo tomando los datos directamente de la sesión
                     df_editado_nuevo = st.data_editor(
                         st.session_state["df_asiento_actual"],
                         num_rows="dynamic",
@@ -9661,27 +9661,22 @@ elif opcion_menu == "📝 Asientos Contables":
                         }
                     )
 
-                    # 2. Sincronizamos las descripciones inmediatamente según lo que el usuario acaba de seleccionar
-                    hubo_cambios = False
+                    # 2. Sincronizamos las descripciones y guardamos el estado ACTUALIZADO 
+                    # SIN hacer st.rerun(), para proteger los números y textos que el usuario va escribiendo.
                     for idx, row in df_editado_nuevo.iterrows():
                         val_celda = str(row.get("plan_cuentas", ""))
                         if val_celda and val_celda != "nan":
                             codigo_limpio = val_celda.split(" - ")[0].strip()
                             nueva_desc = dict_nombres_cuentas.get(codigo_limpio, "")
                             
-                            # Si la descripción actual no coincide con la del diccionario, la actualizamos
+                            # Actualizamos la descripción si cambió respecto a la cuenta seleccionada
                             if df_editado_nuevo.at[idx, "cuenta_contable"] != nueva_desc:
                                 df_editado_nuevo.at[idx, "cuenta_contable"] = nueva_desc
-                                hubo_cambios = True
 
-                    # 3. Guardamos en el session_state
+                    # Guardamos permanentemente en el session_state sin interrumpir al usuario
                     st.session_state["df_asiento_actual"] = df_editado_nuevo
 
-                    # Si hubo cambios en las cuentas, recargamos la app al instante para que la interfaz muestre el texto actualizado
-                    if hubo_cambios:
-                        st.rerun()
-
-                    # 4. Filtrado y cálculos para los métricos
+                    # 3. Filtrado y cálculos para los métricos en tiempo real
                     df_filtrado = df_editado_nuevo[df_editado_nuevo['plan_cuentas'].notna() & (df_editado_nuevo['plan_cuentas'].astype(str).str.strip() != "")]
 
                     total_debe = pd.to_numeric(df_filtrado['debe'], errors='coerce').sum()
