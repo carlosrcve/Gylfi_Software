@@ -9630,6 +9630,7 @@ elif opcion_menu == "📝 Asientos Contables":
 
                     st.markdown("### Líneas del Comprobante")
 
+                    # Inicialización del DataFrame en session_state si no existe
                     if "df_asiento_actual" not in st.session_state:
                         val_inicial = opciones_cuentas[0] if opciones_cuentas else ""
                         cod_inicial = val_inicial.split(" - ")[0].strip() if val_inicial else ""
@@ -9645,22 +9646,35 @@ elif opcion_menu == "📝 Asientos Contables":
                             }
                         ])
 
-                    # 1. Sincronizamos las descripciones en el session_state ANTES de pintar el editor,
-                    # para que el componente nativo reciba los valores limpios y no interfiera con lo que escribes.
-                    for idx, row in st.session_state["df_asiento_actual"].iterrows():
-                        val_celda = str(row.get("plan_cuentas", ""))
-                        if val_celda and val_celda != "nan":
-                            codigo_limpio = val_celda.split(" - ")[0].strip()
-                            nueva_desc = dict_nombres_cuentas.get(codigo_limpio, "")
-                            st.session_state["df_asiento_actual"].at[idx, "cuenta_contable"] = nueva_desc
+                    # Función de callback que se ejecuta al interactuar con el data_editor sin perder datos
+                    def actualizar_asiento():
+                        editor_data = st.session_state.get("editor_asiento_interactivo", None)
+                        if editor_data is not None:
+                            # Si el editor devuelve un diccionario (cambios por celdas) o DataFrame
+                            if isinstance(editor_data, dict):
+                                df_temp = st.session_state["df_asiento_actual"].copy()
+                                # Actualizamos celdas editadas
+                                for index, rows in editor_data.get("edited_rows", {}).items():
+                                    for col_name, val in rows.items():
+                                        df_temp.at[int(index), col_name] = val
+                                
+                                # Sincronizamos las descripciones contables de manera automática
+                                for idx, row in df_temp.iterrows():
+                                    val_celda = str(row.get("plan_cuentas", ""))
+                                    if val_celda and val_celda != "nan":
+                                        codigo_limpio = val_celda.split(" - ")[0].strip()
+                                        df_temp.at[idx, "cuenta_contable"] = dict_nombres_cuentas.get(codigo_limpio, "")
+                                
+                                st.session_state["df_asiento_actual"] = df_temp
 
-                    # 2. Pintamos el editor interactivo conectándolo de forma segura
+                    # Pintamos el editor interactivo conectando el session_state directamente
                     df_editado_nuevo = st.data_editor(
                         st.session_state["df_asiento_actual"],
                         num_rows="dynamic",
                         use_container_width=True,
                         hide_index=True,
                         key="editor_asiento_interactivo",
+                        on_change=actualizar_asiento,
                         column_config={
                             "plan_cuentas": st.column_config.SelectboxColumn("Plan Cuentas", options=opciones_cuentas, required=True),
                             "cuenta_contable": st.column_config.TextColumn("Descripción Cuenta", help="Se actualiza automáticamente al elegir la cuenta"),
@@ -9670,10 +9684,10 @@ elif opcion_menu == "📝 Asientos Contables":
                         }
                     )
 
-                    # 3. Guardamos el resultado del editor directamente en la sesión para respetar los números que vas digitando
+                    # Actualizamos la referencia del dataframe actual con lo que entrega el editor
                     st.session_state["df_asiento_actual"] = df_editado_nuevo
 
-                    # 4. Filtrado y cálculos para los métricos en tiempo real
+                    # Filtrado y cálculos para los métricos en tiempo real
                     df_filtrado = df_editado_nuevo[
                         df_editado_nuevo['plan_cuentas'].notna() & 
                         (df_editado_nuevo['plan_cuentas'].astype(str).str.strip() != "")
