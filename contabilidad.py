@@ -3444,6 +3444,48 @@ def extraer_datos_factura(archivo):
         st.error(f"Error procesando con el modelo de IA: {e}")
         return None
 
+def comprobar_existencia_comprobante(n_comprobante):
+    """Verifica si el número de comprobante ya existe en la DB"""
+    db_actual = st.session_state.get('DB_ACTUAL')
+    conn = conectar_db(db_actual)
+    
+    existe = False
+    cursor = None
+    
+    if conn:
+        try:
+            cursor = conn.cursor()
+            
+            # Asegurar la base de datos activa si existe
+            if db_actual:
+                cursor.execute(f"USE {db_actual}")
+                
+            # Log personalizado seguro (solo se ejecuta si la conexión está viva)
+            try:
+                usuario_s = st.session_state.get('usuario', 'Sistema')
+                cliente_s = st.session_state.get('cliente_id', 0)
+                registrar_log_automatico(conn, "COMPOBAR_EXISTENCIA", f"Usuario {usuario_s} comprobó existencia del comprobante {n_comprobante} para {cliente_s}")
+            except Exception:
+                pass
+            
+            query = "SELECT COUNT(*) FROM retenciones_islr WHERE n_comprob_islr = %s"
+            cursor.execute(query, (n_comprobante,))
+            existe = cursor.fetchone()[0] > 0
+            
+        except Exception as e:
+            st.error(f"Error al verificar comprobante: {e}")
+        finally:
+            if cursor:
+                cursor.close()
+            
+            # Cierre seguro de la conexión abierta para esta función
+            try:
+                conn.close()
+            except Exception:
+                pass
+                
+    return existe
+
 def obtener_facturas_pendientes(conn, f_desde, f_hasta):
     """
     Consulta las facturas pendientes de retención acotando las columnas 
