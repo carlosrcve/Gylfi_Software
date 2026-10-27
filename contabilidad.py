@@ -10389,6 +10389,7 @@ elif opcion_menu == "📝 Asientos Contables":
                                 info_banco['nombre'] = info_banco.get('nombre', 'Banco Principal')
 
                             # --- PROCESO DE REGISTRO POR MÓDULOS (PASO A PASO) ---
+                            # --- PROCESO DE REGISTRO POR MÓDULOS (PASO A PASO) ---
                             st.markdown("---")
                             st.markdown(f"### 🔄 Proceso de Registro por Módulos (Paso a Paso)")
 
@@ -10398,7 +10399,7 @@ elif opcion_menu == "📝 Asientos Contables":
 
                             paso = st.session_state[key_paso]
 
-                            # Barra de progreso visual opcional para guiarte
+                            # Barra de progreso visual
                             st.progress(paso / 3, text=f"Paso {paso} de 3: {'Libro de Compras' if paso == 1 else 'Asiento Contable' if paso == 2 else 'Movimiento Bancario'}")
 
                             # --- PASO 1: LIBRO DE COMPRAS ---
@@ -10473,7 +10474,7 @@ elif opcion_menu == "📝 Asientos Contables":
                                                             st.success("✅ ¡Libro de Compras guardado con éxito!")
                                                     conn_l.close()
                                                     
-                                                    # FORZAMOS EL AVANCE DE PASO DE MANERA EXPLÍCITA
+                                                    # Avanzamos al Paso 2 de forma limpia
                                                     st.session_state[key_paso] = 2
                                                     st.rerun()
                                             except Exception as err_l:
@@ -10538,7 +10539,7 @@ elif opcion_menu == "📝 Asientos Contables":
                                                 conn_a.close()
                                                 st.success("✅ ¡Asiento Contable guardado con éxito!")
                                                 
-                                                # FORZAMOS EL AVANCE AL PASO 3
+                                                # Avanzamos al Paso 3
                                                 st.session_state[key_paso] = 3
                                                 st.rerun()
                                         except Exception as err_a:
@@ -10581,12 +10582,11 @@ elif opcion_menu == "📝 Asientos Contables":
                                                         "Pendiente"
                                                     ))
                                                     
-                                                    # ACTUALIZAMOS EL ESTADO DE LA ORDEN A 'procesada' PARA QUE DESAPAREZCA DE LA LISTA
+                                                    # Marcamos como procesada para que se oculte de la lista
                                                     cur_b.execute("UPDATE ordenes_pago SET estado = 'procesada' WHERE id = %s", (sel_data['id'],))
                                                     conn_b.commit()
                                                 conn_b.close()
                                                 
-                                                # Limpiamos el paso de la sesión para esta orden y reiniciamos
                                                 if key_paso in st.session_state:
                                                     del st.session_state[key_paso]
 
