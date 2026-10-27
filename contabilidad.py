@@ -6325,6 +6325,11 @@ def renderizar_tab_asientos_ventas(db_connection):
                     col_total = encontrar_columna(["Total Ventas Incluyendo el IVA", "Total Ventas"])
 
                     # ----------------------------------------------------
+                    # INICIALIZACIÓN SEGURA DE VARIABLES CLAVE
+                    # ----------------------------------------------------
+                    default_opcion = opciones_desplegable[0] if 'opciones_desplegable' in locals() and opciones_desplegable else ""
+
+                    # ----------------------------------------------------
                     # BUCLE DE PROCESAMIENTO ULTRARRÁPIDO
                     # ----------------------------------------------------
                     for idx, row in df_ventas.iterrows():
