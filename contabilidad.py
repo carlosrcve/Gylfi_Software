@@ -7070,6 +7070,7 @@ def cobranzas_facutras(conn):
         @st.cache_data(ttl=300, show_spinner=False)
         def cargar_datos_cobranza_opt(empresa):
             b_lista, b_dict, df_cob_pend = [], {}, None
+            conn_c = None
             try:
                 conn_c = conectar_db(empresa)
                 if conn_c:
@@ -7102,7 +7103,7 @@ def cobranzas_facutras(conn):
                 pass
             finally:
                 try:
-                    if 'conn_c' in locals() and conn_c:
+                    if conn_c and hasattr(conn_c, 'close'):
                         conn_c.close()
                 except Exception:
                     pass
@@ -7143,6 +7144,7 @@ def cobranzas_facutras(conn):
             with col_fec_bm2:
                 fec_hasta_bm = st.date_input("Hasta la fecha (Movimiento)", key="cob_bm_fec_hasta")
 
+            conn_v_bm = None
             try:
                 conn_v_bm = conectar_db(db_actual)
                 if conn_v_bm:
@@ -7178,7 +7180,7 @@ def cobranzas_facutras(conn):
                 st.error(f"❌ Error al cargar los movimientos bancarios: {err_v_bm}")
             finally:
                 try:
-                    if 'conn_v_bm' in locals() and conn_v_bm:
+                    if conn_v_bm and hasattr(conn_v_bm, 'close'):
                         conn_v_bm.close()
                 except Exception:
                     pass
@@ -7241,6 +7243,7 @@ def cobranzas_facutras(conn):
                     if not referencia_bancaria:
                         st.warning("⚠️ Debes introducir obligatoriamente la referencia bancaria del estado de cuenta.")
                     else:
+                        conn_bm = None
                         try:
                             conn_bm = conectar_db(db_actual)
                             if conn_bm:
@@ -7263,7 +7266,7 @@ def cobranzas_facutras(conn):
                                         monto_cobro, 'Pendiente Asiento', n_comp_asiento, fecha_actual_hoy
                                     ))
 
-                                    cur_bm.execute("UPDATE ordenes_cobranza SET estado_cobro = 'Procesado' WHERE id = %s", (int(fila_cob_sel['id']),))
+                                    cur_bm.execute("UPDATE ordenes_cobranza SET estado_cobro = 'Procesado', referencia_banco = %s, banco_receptor = %s WHERE id = %s", (referencia_bancaria, info_banco_prev['nombre'], int(fila_cob_sel['id'])))
                                     conn_bm.commit()
 
                                 cargar_datos_cobranza_opt.clear()
@@ -7273,7 +7276,7 @@ def cobranzas_facutras(conn):
                             st.error(f"❌ Error al guardar en banco_movimientos: {err_bm}")
                         finally:
                             try:
-                                if 'conn_bm' in locals() and conn_bm:
+                                if conn_bm and hasattr(conn_bm, 'close'):
                                     conn_bm.close()
                             except Exception:
                                 pass
@@ -7286,6 +7289,7 @@ def cobranzas_facutras(conn):
                     elif not lista_bancos_detalle or "No hay cuentas" in cta_banco_entrada:
                         st.error("⚠️ Debes seleccionar una cuenta bancaria válida.")
                     else:
+                        conn_update = None
                         try:
                             conn_update = conectar_db(db_actual)
                             if conn_update:
@@ -7301,17 +7305,15 @@ def cobranzas_facutras(conn):
                                             cuenta_contable, referencia, debe, haber, bloqueado
                                         ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 0)
                                     """
-                                    # Debe: Entrada a Banco
                                     cursor_m.execute(query_asiento_cobro, (n_comp_asiento, f"Cobro Factura N° {n_fact_val} - RIF: {rif_val}", str(fecha_cobro_real), info_banco_prev['codigo'], info_banco_prev['nombre'], referencia_bancaria, monto_cobro, 0.00))
-                                    # Haber: Salida de Cuentas por Cobrar
                                     cursor_m.execute(query_asiento_cobro, (n_comp_asiento, f"Cobro Factura N° {n_fact_val} - RIF: {rif_val}", str(fecha_cobro_real), "1.1.3.01.001", "Cuentas por Cobrar Comerciales", referencia_bancaria, 0.00, monto_cobro))
                                     
-                                    # Actualizar Orden de Cobranza
+                                    # Actualizamos usando los campos reales de la tabla ordenes_cobranza
                                     cursor_m.execute("""
                                         UPDATE ordenes_cobranza 
-                                        SET referencia_banco = %s, fecha_cobranza = %s, estado_cobro = 'Conciliado' 
+                                        SET referencia_banco = %s, banco_receptor = %s, estado_cobro = 'Conciliado' 
                                         WHERE id = %s
-                                    """, (referencia_bancaria, fecha_cobro_real, int(fila_cob_sel['id'])))
+                                    """, (referencia_bancaria, info_banco_prev['nombre'], int(fila_cob_sel['id'])))
                                     
                                     conn_update.commit()
 
@@ -7322,7 +7324,7 @@ def cobranzas_facutras(conn):
                             st.error(f"❌ Error al registrar el asiento contable: {ex_m}")
                         finally:
                             try:
-                                if 'conn_update' in locals() and conn_update:
+                                if conn_update and hasattr(conn_update, 'close'):
                                     conn_update.close()
                             except Exception:
                                 pass
@@ -7334,31 +7336,33 @@ def cobranzas_facutras(conn):
         # ==========================================
         st.divider()
         st.markdown("### 📜 Historial de Cobros Conciliados y Estado de Cuenta Interno")
-        st.markdown("Consulta, filtra por rango de fechas, edita referencias o revierte las cobranzas conciliadas según tu control interno.")
+        st.markdown("Consulta, filtra por rango de fechas de emisión, edita referencias o revierte las cobranzas conciliadas según tu control interno.")
 
         col_fec1, col_fec2 = st.columns(2)
         with col_fec1:
-            fecha_desde = st.date_input("Historial Desde", key="hist_cob_fecha_desde")
+            fecha_desde = st.date_input("Historial Desde (Emisión)", key="hist_cob_fecha_desde")
         with col_fec2:
-            fecha_hasta = st.date_input("Historial Hasta", key="hist_cob_fecha_hasta")
+            fecha_hasta = st.date_input("Historial Hasta (Emisión)", key="hist_cob_fecha_hasta")
 
-        conn_conc = conectar_db(db_actual)
+        conn_conc = None
         df_conciliados = None
         try:
+            conn_conc = conectar_db(db_actual)
             if conn_conc:
+                # Modificado para usar fecha_emision o fecha_registro según lo disponible en tu tabla real
                 query_conciliados = """
-                    SELECT id, rif_cliente, n_factura, monto_bruto, referencia_banco, fecha_cobranza, estado_cobro
+                    SELECT id, rif_cliente, n_factura, monto_bruto, referencia_banco, banco_receptor, estado_cobro, fecha_emision
                     FROM ordenes_cobranza
-                    WHERE estado_cobro IN ('Conciliado', 'PAGADO', 'Pagado') 
-                      AND fecha_cobranza BETWEEN %s AND %s
-                    ORDER BY fecha_cobranza DESC
+                    WHERE estado_cobro IN ('Conciliado', 'PAGADO', 'Pagado', 'Procesado') 
+                      AND fecha_emision BETWEEN %s AND %s
+                    ORDER BY fecha_emision DESC
                 """
                 df_conciliados = ejecutar_consulta(query_conciliados, conn_conc, params=(str(fecha_desde), str(fecha_hasta)))
         except Exception as err_hist:
             st.error(f"❌ Error al cargar historial: {err_hist}")
         finally:
             try:
-                if 'conn_conc' in locals() and conn_conc:
+                if conn_conc and hasattr(conn_conc, 'close'):
                     conn_conc.close()
             except Exception:
                 pass
@@ -7382,21 +7386,19 @@ def cobranzas_facutras(conn):
             if selected_hist_label:
                 row_sel = dict_historial[selected_hist_label]
                 
-                col_ed1, col_ed2 = st.columns(2)
+                col_ed1, col_ed2 = st.columns(1)
                 with col_ed1:
                     nuevo_ref_banco = st.text_input("Nueva Referencia Bancaria", value=str(row_sel['referencia_banco']), key=f"edit_cob_ref_{row_sel['id']}")
-                with col_ed2:
-                    fecha_actual_pago = pd.to_datetime(row_sel['fecha_cobranza']).date() if pd.notnull(row_sel['fecha_cobranza']) else None
-                    nueva_fecha_pago = st.date_input("Nueva Fecha de Cobro", value=fecha_actual_pago, key=f"edit_cob_fecha_{row_sel['id']}")
                 
                 col_btn_ed1, col_btn_ed2 = st.columns(2)
                 with col_btn_ed1:
                     if st.button("💾 Guardar Cambios del Cobro", type="primary", key=f"btn_save_cob_edit_{row_sel['id']}", use_container_width=True):
+                        conn_edit = None
                         try:
                             conn_edit = conectar_db(db_actual)
                             if conn_edit:
                                 with conn_edit.cursor() as cur_e:
-                                    cur_e.execute("UPDATE ordenes_cobranza SET referencia_banco = %s, fecha_cobranza = %s WHERE id = %s", (nuevo_ref_banco.strip(), nueva_fecha_pago, int(row_sel['id'])))
+                                    cur_e.execute("UPDATE ordenes_cobranza SET referencia_banco = %s WHERE id = %s", (nuevo_ref_banco.strip(), int(row_sel['id'])))
                                     conn_edit.commit()
                                 st.success(f"✅ ¡Cobro ID #{row_sel['id']} actualizado correctamente!")
                                 st.rerun()
@@ -7404,18 +7406,19 @@ def cobranzas_facutras(conn):
                             st.error(f"❌ Error al modificar el registro: {err_ed}")
                         finally:
                             try:
-                                if 'conn_edit' in locals() and conn_edit:
+                                if conn_edit and hasattr(conn_edit, 'close'):
                                     conn_edit.close()
                             except Exception:
                                 pass
                             
                 with col_btn_ed2:
                     if st.button("🔄 Revertir a Estado 'PENDIENTE'", type="secondary", key=f"btn_revert_cob_{row_sel['id']}", use_container_width=True):
+                        conn_rev = None
                         try:
                             conn_rev = conectar_db(db_actual)
                             if conn_rev:
                                 with conn_rev.cursor() as cur_r:
-                                    cur_r.execute("UPDATE ordenes_cobranza SET estado_cobro = 'PENDIENTE', referencia_banco = NULL, fecha_cobranza = NULL WHERE id = %s", (int(row_sel['id']),))
+                                    cur_r.execute("UPDATE ordenes_cobranza SET estado_cobro = 'PENDIENTE', referencia_banco = NULL, banco_receptor = NULL WHERE id = %s", (int(row_sel['id']),))
                                     conn_rev.commit()
                                 cargar_datos_cobranza_opt.clear()
                                 st.warning(f"⚠️ El cobro ID #{row_sel['id']} ha sido devuelto a estado **PENDIENTE**.")
@@ -7424,7 +7427,7 @@ def cobranzas_facutras(conn):
                             st.error(f"❌ Error al revertir el registro: {err_rev}")
                         finally:
                             try:
-                                if 'conn_rev' in locals() and conn_rev:
+                                if conn_rev and hasattr(conn_rev, 'close'):
                                     conn_rev.close()
                             except Exception:
                                 pass
