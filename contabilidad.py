@@ -7056,6 +7056,10 @@ def renderizar_tab_asientos_ventas(db_connection):
                 st.error(f"❌ Error crítico al guardar en MySQL: {str(db_err)}")
 
 
+import streamlit as st
+import pandas as pd
+import datetime
+
 def cobranzas_facutras(conn):
     st.markdown("### 💳 Conciliación, Cruce Bancario y Cobranza de Facturas")
     st.markdown("Cruza las órdenes de cobranza pendientes, registra el ingreso en el banco, selecciona la cuenta contable de entrada, previsualiza el asiento y guárdalo en la base de datos.")
@@ -7308,7 +7312,6 @@ def cobranzas_facutras(conn):
                                     cursor_m.execute(query_asiento_cobro, (n_comp_asiento, f"Cobro Factura N° {n_fact_val} - RIF: {rif_val}", str(fecha_cobro_real), info_banco_prev['codigo'], info_banco_prev['nombre'], referencia_bancaria, monto_cobro, 0.00))
                                     cursor_m.execute(query_asiento_cobro, (n_comp_asiento, f"Cobro Factura N° {n_fact_val} - RIF: {rif_val}", str(fecha_cobro_real), "1.1.3.01.001", "Cuentas por Cobrar Comerciales", referencia_bancaria, 0.00, monto_cobro))
                                     
-                                    # Actualizamos usando los campos reales de la tabla ordenes_cobranza
                                     cursor_m.execute("""
                                         UPDATE ordenes_cobranza 
                                         SET referencia_banco = %s, banco_receptor = %s, estado_cobro = 'Conciliado' 
@@ -7349,7 +7352,6 @@ def cobranzas_facutras(conn):
         try:
             conn_conc = conectar_db(db_actual)
             if conn_conc:
-                # Modificado para usar fecha_emision o fecha_registro según lo disponible en tu tabla real
                 query_conciliados = """
                     SELECT id, rif_cliente, n_factura, monto_bruto, referencia_banco, banco_receptor, estado_cobro, fecha_emision
                     FROM ordenes_cobranza
@@ -7386,7 +7388,8 @@ def cobranzas_facutras(conn):
             if selected_hist_label:
                 row_sel = dict_historial[selected_hist_label]
                 
-                col_ed1, col_ed2 = st.columns(1)
+                # CORREGIDO: Se usa una sola columna ya que es un único campo de texto
+                col_ed1 = st.columns(1)[0]
                 with col_ed1:
                     nuevo_ref_banco = st.text_input("Nueva Referencia Bancaria", value=str(row_sel['referencia_banco']), key=f"edit_cob_ref_{row_sel['id']}")
                 
