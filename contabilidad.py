@@ -7056,9 +7056,6 @@ def renderizar_tab_asientos_ventas(db_connection):
                 st.error(f"❌ Error crítico al guardar en MySQL: {str(db_err)}")
 
 
-import streamlit as st
-import pandas as pd
-import datetime
 
 def cobranzas_facutras(conn):
     st.markdown("### 💳 Conciliación, Cruce Bancario y Cobranza de Facturas")
@@ -7207,7 +7204,7 @@ def cobranzas_facutras(conn):
                                 n_comp_asiento = f"COB-{n_fact_val}"
                                 fecha_str = str(fecha_cobro_real)
 
-                                # 1. Insertar Asiento Contable (Debe: Banco, Haber: CxC)
+                                # 1. Insertar Asiento Contable
                                 query_asiento_cobro = """
                                     INSERT INTO asientos_contables (
                                         n_comprobante, descripcion, fecha, plan_cuentas, 
@@ -7220,7 +7217,6 @@ def cobranzas_facutras(conn):
                                 cursor_tx.execute(query_asiento_cobro, (n_comp_asiento, desc_prev, fecha_str, "1.1.3.01.001", "Cuentas por Cobrar Comerciales", referencia_bancaria, 0.00, monto_cobro))
 
                                 # 2. Guardar registro en la tabla banco_movimientos
-                                fecha_actual_hoy = datetime.date.today().strftime('%Y-%m-%d')
                                 cursor_tx.execute("""
                                     INSERT INTO banco_movimientos (
                                         banco_nombre, cuenta_numero, fecha_movimiento, referencia, 
@@ -7323,6 +7319,48 @@ def cobranzas_facutras(conn):
                     fecha_actual_cobro = pd.to_datetime(row_sel['fecha_cobranza']).date() if pd.notnull(row_sel['fecha_cobranza']) else datetime.date.today()
                     nueva_fecha_cobro = st.date_input("Nueva Fecha de Cobro (Estado de Cuenta)", value=fecha_actual_cobro, key=f"edit_cob_fec_{row_sel['id']}")
                 
+                # --- PREVISUALIZACIÓN EN VIVO DEL ASIENTO CONTABLE PARA EL REGISTRO SELECCIONADO ---
+                n_fact_hist = str(row_sel['n_factura'])
+                rif_hist = str(row_sel['rif_cliente'])
+                monto_hist = float(row_sel['monto_bruto'])
+                banco_hist_rec = str(row_sel['banco_receptor']) if pd.notnull(row_sel['banco_receptor']) else "Banco Principal"
+                n_comp_hist = f"COB-{n_fact_hist}"
+                desc_hist = f"Cobro Factura N° {n_fact_hist} - Cliente RIF: {rif_hist}"
+                ref_hist_val = nuevo_ref_banco if nuevo_ref_banco else "(Sin Ref)"
+                fecha_hist_str = str(nueva_fecha_cobro)
+
+                st.markdown("##### 📄 Previsualización del Asiento Contable Asociado")
+                html_asiento_hist = f"""
+                <style>
+                    .tabla-asiento {{ width: 100%; border-collapse: collapse; font-family: sans-serif; font-size: 13px; margin: 10px 0; background-color: #ffffff; box-shadow: 0 2px 5px rgba(0,0,0,0.1); border-radius: 6px; overflow: hidden; }}
+                    .tabla-asiento th {{ background-color: #f8f9fa; color: #333; padding: 10px; text-align: left; border-bottom: 2px solid #dee2e6; font-weight: bold; }}
+                    .tabla-asiento td {{ padding: 9px 10px; border-bottom: 1px solid #e9ecef; color: #212529; }}
+                    .monto-col {{ text-align: right; font-family: monospace; font-weight: bold; }}
+                    .badge-bloqueado {{ background-color: #e2e3e5; color: #383d41; padding: 2px 6px; border-radius: 4px; font-size: 11px; }}
+                </style>
+                <table class="tabla-asiento">
+                    <thead>
+                        <tr>
+                            <th>N° Comprobante</th><th>Descripción</th><th>Fecha</th><th>Plan Cuentas</th><th>Cuenta Contable</th><th>Referencia</th><th style="text-align: right;">Debe</th><th style="text-align: right;">Haber</th><th style="text-align: center;">Bloq</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><b>{n_comp_hist}</b></td><td>{desc_hist}</td><td>{fecha_hist_str}</td><td><code>1.1.2.01.001</code></td><td>{banco_hist_rec}</td><td>{ref_hist_val}</td><td class="monto-col" style="color: #2b8a3e;">{monto_hist:,.2f}</td><td class="monto-col">0.00</td><td style="text-align: center;"><span class="badge-bloqueado">0</span></td>
+                        </tr>
+                        <tr>
+                            <td><b>{n_comp_hist}</b></td><td>{desc_hist}</td><td>{fecha_hist_str}</td><td><code>1.1.3.01.001</code></td><td>Cuentas por Cobrar Comerciales</td><td>{ref_hist_val}</td><td class="monto-col">0.00</td><td class="monto-col" style="color: #c92a2a;">{monto_hist:,.2f}</td><td style="text-align: center;"><span class="badge-bloqueado">0</span></td>
+                        </tr>
+                    </tbody>
+                    <tfoot>
+                        <tr style="background-color: #f8f9fa; font-weight: bold;">
+                            <td colspan="6" style="text-align: right;">TOTALES:</td><td class="monto-col" style="color: #2b8a3e;">{monto_hist:,.2f}</td><td class="monto-col" style="color: #c92a2a;">{monto_hist:,.2f}</td><td></td>
+                        </tr>
+                    </tfoot>
+                </table>
+                """
+                st.markdown(html_asiento_hist, unsafe_allow_html=True)
+
                 col_btn_ed1, col_btn_ed2 = st.columns(2)
                 with col_btn_ed1:
                     if st.button("💾 Guardar Cambios del Cobro", type="primary", key=f"btn_save_cob_edit_{row_sel['id']}", use_container_width=True):
