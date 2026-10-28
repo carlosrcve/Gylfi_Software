@@ -6940,6 +6940,7 @@ def renderizar_tab_asientos_ventas(db_connection):
                     st.error(mensaje_bloqueo)
                 else:
                     with db_connection.cursor() as cursor:
+                        # 1. Crear tabla de asientos contables si no existe
                         cursor.execute(f"""
                             CREATE TABLE IF NOT EXISTS `{db_segura}`.asientos_contables (
                                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -6955,14 +6956,38 @@ def renderizar_tab_asientos_ventas(db_connection):
                             );
                         """)
                         
-                        # 6. OPTIMIZACIÓN CLAVE: Inserción Masiva por Lotes (executemany)
-                        datos_a_insertar = []
+                        # 2. Crear tabla de órdenes de cobranza si no existe (con la estructura solicitada)
+                        cursor.execute(f"""
+                            CREATE TABLE IF NOT EXISTS `{db_segura}`.ordenes_cobranza (
+                                id INT AUTO_INCREMENT PRIMARY KEY,
+                                empresa_db VARCHAR(50),
+                                rif_cliente VARCHAR(20),
+                                n_factura VARCHAR(50),
+                                n_control VARCHAR(50),
+                                fecha_emision DATE,
+                                base_imponible DECIMAL(18,2),
+                                monto_exento DECIMAL(18,2),
+                                porcentaje_alicuota DECIMAL(5,2),
+                                monto_iva DECIMAL(18,2),
+                                monto_bruto DECIMAL(18,2),
+                                estado_cobro VARCHAR(50) DEFAULT 'PENDIENTE',
+                                referencia_banco VARCHAR(100),
+                                banco_receptor VARCHAR(100),
+                                fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                            );
+                        """)
+                        
+                        # 3. Preparar listas para inserción masiva
+                        datos_asientos = []
+                        datos_cobranzas = []
+                        
                         for _, row in df_editado.iterrows():
                             codigo_limpio = extraer_solo_codigo(row["plan_cuentas"])
                             fecha_str = str(row["fecha"]).split(" ")[0] if pd.notnull(row["fecha"]) else None
                             ref_val = str(row["referencia"]) if pd.notnull(row["referencia"]) else ""
                             
-                            datos_a_insertar.append((
+                            # Datos para Asientos Contables
+                            datos_asientos.append((
                                 str(row["n_comprobante"]),
                                 str(row["descripcion"]),
                                 fecha_str,
@@ -6972,17 +6997,56 @@ def renderizar_tab_asientos_ventas(db_connection):
                                 float(row["debe"]),
                                 float(row["haber"])
                             ))
+                            
+                            # Datos para Órdenes de Cobranza (Validando que las columnas existan en tu DataFrame de ventas)
+                            # Ajusta los nombres de las columnas del DataFrame de ventas si se llaman ligeramente diferente (ej. 'rif', 'base_imponible', etc.)
+                            rif_cli = str(row.get("rif", row.get("rif_cliente", "")))
+                            n_fact = str(row.get("n_factura", row.get("numero_factura", "")))
+                            n_ctrl = str(row.get("n_control", row.get("numero_control", "")))
+                            base_imp = float(row.get("base_imponible", 0.0))
+                            m_exento = float(row.get("monto_exento", row.get("importe_exento", 0.0)))
+                            p_alic = float(row.get("porcentaje_alicuota", 16.0)) # Alicuota por defecto 16% o la que venga
+                            m_iva = float(row.get("monto_iva", row.get("iva_monto", 0.0)))
+                            m_bruto = float(row.get("monto_bruto", row.get("total_compras", row.get("total", 0.0))))
+                            
+                            datos_cobranzas.append((
+                                str(db_segura),
+                                rif_cli,
+                                n_fact,
+                                n_ctrl,
+                                fecha_str,
+                                base_imp,
+                                m_exento,
+                                p_alic,
+                                m_iva,
+                                m_bruto,
+                                'PENDIENTE' # Estado inicial por cobrar
+                            ))
                         
-                        sql_insert = f"""
+                        # 4. Inserción de Asientos Contables
+                        sql_insert_asientos = f"""
                             INSERT INTO `{db_segura}`.asientos_contables 
                             (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber, bloqueado)
                             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 0)
                         """
-                        cursor.executemany(sql_insert, datos_a_insertar)
+                        cursor.executemany(sql_insert_asientos, datos_asientos)
+                        
+                        # 5. Inserción de Órdenes de Cobranza (Evitando duplicados exactos por factura y cliente si ya existían)
+                        sql_insert_cobranza = f"""
+                            INSERT INTO `{db_segura}`.ordenes_cobranza 
+                            (empresa_db, rif_cliente, n_factura, n_control, fecha_emision, base_imponible, monto_exento, porcentaje_alicuota, monto_iva, monto_bruto, estado_cobro)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                            ON DUPLICATE KEY UPDATE 
+                                base_imponible = VALUES(base_imponible),
+                                monto_iva = VALUES(monto_iva),
+                                monto_bruto = VALUES(monto_bruto)
+                        """
+                        cursor.executemany(sql_insert_cobranza, datos_cobranzas)
+                        
                         db_connection.commit()
                         
-                        st.success(f"✅ ¡{len(datos_a_insertar)} asientos de ventas guardados correctamente en `{db_segura}`!")
-                        
+                        st.success(f"✅ ¡{len(datos_asientos)} asientos de ventas y sus órdenes de cobranza fueron guardados correctamente en `{db_segura}`!")
+
             except Exception as db_err:
                 if hasattr(db_connection, 'rollback'):
                     db_connection.rollback()
