@@ -7057,10 +7057,6 @@ def renderizar_tab_asientos_ventas(db_connection):
 
 
 
-import streamlit as st
-import pandas as pd
-from datetime import date
-
 def cobranzas_facutras(conn):
     st.markdown("### 💳 Conciliación, Cruce Bancario y Cobranza de Facturas")
     st.markdown("Cruza las órdenes de cobranza pendientes, regístralas en el banco, genera su asiento contable y mantén tu contabilidad al día.")
@@ -7074,12 +7070,14 @@ def cobranzas_facutras(conn):
         # --- FUNCIÓN CON CACHÉ PARA PLAN DE CUENTAS Y ÓRDENES PENDIENTES ---
         @st.cache_data(ttl=300, show_spinner=False)
         def cargar_datos_cobranza_opt(empresa):
-            b_lista, b_dict, df_cob_pend = [], {}, None
+            b_lista, b_dict = [], {}
+            cxc_lista, cxc_dict = [], {}
+            df_cob_pend = None
             conn_c = None
             try:
                 conn_c = conectar_db(empresa)
                 if conn_c:
-                    # 1. Plan de cuentas bancarias/caja (Entrada de dinero)
+                    # 1. Plan de cuentas bancarias/caja (Entrada de dinero - Debe)
                     df_ctas = ejecutar_consulta(
                         "SELECT codigo, nombre FROM plan_cuentas WHERE tipo = 'Detalle' AND (codigo LIKE '1.1.1%%' OR codigo LIKE '1.1.2%%' OR LOWER(nombre) LIKE '%%banco%%' OR LOWER(nombre) LIKE '%%caja%%') ORDER BY codigo", 
                         conn_c
@@ -7096,7 +7094,24 @@ def cobranzas_facutras(conn):
                                 'nombre': str(r_cta['nombre']).strip()
                             }
 
-                    # 2. Órdenes de cobranza pendientes
+                    # 2. Plan de cuentas de Cuentas por Cobrar / Clientes (Haber)
+                    df_cxc = ejecutar_consulta(
+                        "SELECT codigo, nombre FROM plan_cuentas WHERE tipo = 'Detalle' AND (codigo LIKE '1.1.3%%' OR LOWER(nombre) LIKE '%%cobrar%%' OR LOWER(nombre) LIKE '%%cliente%%') ORDER BY codigo", 
+                        conn_c
+                    )
+                    if df_cxc is None or df_cxc.empty:
+                        df_cxc = ejecutar_consulta("SELECT codigo, nombre FROM plan_cuentas WHERE tipo = 'Detalle' ORDER BY codigo", conn_c)
+
+                    if df_cxc is not None and not df_cxc.empty:
+                        for _, r_cxc in df_cxc.iterrows():
+                            lbl_cxc = f"{str(r_cxc['codigo']).strip()} - {str(r_cxc['nombre']).strip()}"
+                            cxc_lista.append(lbl_cxc)
+                            cxc_dict[lbl_cxc] = {
+                                'codigo': str(r_cxc['codigo']).strip(),
+                                'nombre': str(r_cxc['nombre']).strip()
+                            }
+
+                    # 3. Órdenes de cobranza pendientes
                     query_pendientes = """
                         SELECT id, rif_cliente, n_factura, n_control, fecha_emision, base_imponible, monto_iva, monto_bruto, estado_cobro
                         FROM ordenes_cobranza
@@ -7112,9 +7127,9 @@ def cobranzas_facutras(conn):
                         conn_c.close()
                 except Exception:
                     pass
-            return b_lista, b_dict, df_cob_pend
+            return b_lista, b_dict, cxc_lista, cxc_dict, df_cob_pend
 
-        lista_bancos_detalle, dict_bancos_detalle, df_pendientes = cargar_datos_cobranza_opt(db_actual)
+        lista_bancos_detalle, dict_bancos_detalle, lista_cxc_detalle, dict_cxc_detalle, df_pendientes = cargar_datos_cobranza_opt(db_actual)
 
         # ==========================================
         # ⚡ PASO 1 Y 2: CONCILIACIÓN DE COBRANZAS
@@ -7139,14 +7154,24 @@ def cobranzas_facutras(conn):
             with col_m2:
                 fecha_cobro_real = st.date_input("Fecha real del depósito/cobro en el Banco", value=date.today(), key="input_fec_banco_cob")
 
-            # --- SELECCIÓN DE CUENTA BANCARIA CONTABLE ---
-            cta_banco_entrada = st.selectbox(
-                "🏦 Selecciona la Cuenta Bancaria / Entrada de Dinero (Debe)", 
-                options=lista_bancos_detalle if lista_bancos_detalle else ["No hay cuentas de detalle disponibles"],
-                key="select_banco_entrada_cobro"
-            )
+            # --- SELECCIÓN DE CUENTAS CONTABLES (DEBE Y HABER) ---
+            col_cta1, col_cta2 = st.columns(2)
+            with col_cta1:
+                cta_banco_entrada = st.selectbox(
+                    "🏦 Cuenta Bancaria / Entrada de Dinero (Debe)", 
+                    options=lista_bancos_detalle if lista_bancos_detalle else ["No hay cuentas de detalle disponibles"],
+                    key="select_banco_entrada_cobro"
+                )
+            with col_cta2:
+                cta_cxc_salida = st.selectbox(
+                    "📋 Cuenta por Cobrar / Cliente (Haber)", 
+                    options=lista_cxc_detalle if lista_cxc_detalle else ["No hay cuentas de detalle disponibles"],
+                    key="select_cxc_salida_cobro"
+                )
 
             info_banco_prev = dict_bancos_detalle.get(cta_banco_entrada, {'codigo': '1.1.2.01.001', 'nombre': 'Banco Principal'})
+            info_cxc_prev = dict_cxc_detalle.get(cta_cxc_salida, {'codigo': '1.1.3.01.001', 'nombre': 'Cuentas por Cobrar Comerciales'})
+
             monto_prev = float(fila_cob_sel['monto_bruto'])
             n_fact_prev = str(fila_cob_sel['n_factura'])
             rif_prev = str(fila_cob_sel['rif_cliente'])
@@ -7178,7 +7203,7 @@ def cobranzas_facutras(conn):
                         <td><b>{n_comp_prev}</b></td><td>{desc_prev}</td><td>{fecha_prev}</td><td><code>{info_banco_prev['codigo']}</code></td><td>{info_banco_prev['nombre']}</td><td>{ref_prev}</td><td class="monto-col" style="color: #2b8a3e;">{monto_prev:,.2f}</td><td class="monto-col">0.00</td><td style="text-align: center;"><span class="badge-bloqueado">0</span></td>
                     </tr>
                     <tr>
-                        <td><b>{n_comp_prev}</b></td><td>{desc_prev}</td><td>{fecha_prev}</td><td><code>1.1.3.01.001</code></td><td>Cuentas por Cobrar Comerciales</td><td>{ref_prev}</td><td class="monto-col">0.00</td><td class="monto-col" style="color: #c92a2a;">{monto_prev:,.2f}</td><td style="text-align: center;"><span class="badge-bloqueado">0</span></td>
+                        <td><b>{n_comp_prev}</b></td><td>{desc_prev}</td><td>{fecha_prev}</td><td><code>{info_cxc_prev['codigo']}</code></td><td>{info_cxc_prev['nombre']}</td><td>{ref_prev}</td><td class="monto-col">0.00</td><td class="monto-col" style="color: #c92a2a;">{monto_prev:,.2f}</td><td style="text-align: center;"><span class="badge-bloqueado">0</span></td>
                     </tr>
                 </tbody>
                 <tfoot>
@@ -7208,7 +7233,7 @@ def cobranzas_facutras(conn):
                                 n_comp_asiento = f"COB-{n_fact_val}"
                                 fecha_str = str(fecha_cobro_real)
 
-                                # 1. Insertar Asiento Contable
+                                # 1. Insertar Asiento Contable (Debe: Banco, Haber: CxC)
                                 query_asiento_cobro = """
                                     INSERT INTO asientos_contables (
                                         n_comprobante, descripcion, fecha, plan_cuentas, 
@@ -7218,7 +7243,7 @@ def cobranzas_facutras(conn):
                                 cursor_tx.execute(query_asiento_cobro, (n_comp_asiento, desc_prev, fecha_str, info_banco_prev['codigo'], info_banco_prev['nombre'], referencia_bancaria, monto_cobro, 0.00))
                                 asiento_id_generado = cursor_tx.lastrowid
 
-                                cursor_tx.execute(query_asiento_cobro, (n_comp_asiento, desc_prev, fecha_str, "1.1.3.01.001", "Cuentas por Cobrar Comerciales", referencia_bancaria, 0.00, monto_cobro))
+                                cursor_tx.execute(query_asiento_cobro, (n_comp_asiento, desc_prev, fecha_str, info_cxc_prev['codigo'], info_cxc_prev['nombre'], referencia_bancaria, 0.00, monto_cobro))
 
                                 # 2. Guardar registro en la tabla banco_movimientos
                                 cursor_tx.execute("""
@@ -7266,7 +7291,7 @@ def cobranzas_facutras(conn):
         # ==========================================
         st.divider()
         st.markdown("### 📜 Historial de Cobros Conciliados y Estado de Cuenta Interno")
-        st.markdown("Consulta, filtra por rango de fechas de emisión, edita referencias o revierte las cobranzas conciliadas según tu control interno.")
+        st.markdown("Consulta, filtra por rango de fechas de emisión, edita referencias, ajusta cuentas contables o revierte las cobranzas conciliadas según tu control interno.")
 
         col_fec1, col_fec2 = st.columns(2)
         with col_fec1:
@@ -7323,11 +7348,29 @@ def cobranzas_facutras(conn):
                     fecha_actual_cobro = pd.to_datetime(row_sel['fecha_cobranza']).date() if pd.notnull(row_sel['fecha_cobranza']) else date.today()
                     nueva_fecha_cobro = st.date_input("Nueva Fecha de Cobro (Estado de Cuenta)", value=fecha_actual_cobro, key=f"edit_cob_fec_{row_sel['id']}")
                 
+                # --- SELECTORES DE CUENTAS CONTABLES PARA EL REGISTRO EN HISTORIAL ---
+                st.markdown("##### 🏦 Selección de Cuentas Contables para el Asiento Asociado")
+                col_hcta1, col_hcta2 = st.columns(2)
+                with col_hcta1:
+                    hist_cta_banco = st.selectbox(
+                        "Cuenta Bancaria / Entrada (Debe)", 
+                        options=lista_bancos_detalle if lista_bancos_detalle else ["No hay cuentas disponibles"],
+                        key=f"edit_hist_banco_{row_sel['id']}"
+                    )
+                with col_hcta2:
+                    hist_cta_cxc = st.selectbox(
+                        "Cuenta por Cobrar / Cliente (Haber)", 
+                        options=lista_cxc_detalle if lista_cxc_detalle else ["No hay cuentas disponibles"],
+                        key=f"edit_hist_cxc_{row_sel['id']}"
+                    )
+
+                info_banco_hist_sel = dict_bancos_detalle.get(hist_cta_banco, {'codigo': '1.1.2.01.001', 'nombre': str(row_sel['banco_receptor']) if pd.notnull(row_sel['banco_receptor']) else 'Banco Principal'})
+                info_cxc_hist_sel = dict_cxc_detalle.get(hist_cta_cxc, {'codigo': '1.1.3.01.001', 'nombre': 'Cuentas por Cobrar Comerciales'})
+
                 # --- PREVISUALIZACIÓN EN VIVO DEL ASIENTO CONTABLE PARA EL REGISTRO SELECCIONADO ---
                 n_fact_hist = str(row_sel['n_factura'])
                 rif_hist = str(row_sel['rif_cliente'])
                 monto_hist = float(row_sel['monto_bruto'])
-                banco_hist_rec = str(row_sel['banco_receptor']) if pd.notnull(row_sel['banco_receptor']) else "Banco Principal"
                 n_comp_hist = f"COB-{n_fact_hist}"
                 desc_hist = f"Cobro Factura N° {n_fact_hist} - Cliente RIF: {rif_hist}"
                 ref_hist_val = nuevo_ref_banco if nuevo_ref_banco else "(Sin Ref)"
@@ -7350,10 +7393,10 @@ def cobranzas_facutras(conn):
                     </thead>
                     <tbody>
                         <tr>
-                            <td><b>{n_comp_hist}</b></td><td>{desc_hist}</td><td>{fecha_hist_str}</td><td><code>1.1.2.01.001</code></td><td>{banco_hist_rec}</td><td>{ref_hist_val}</td><td class="monto-col" style="color: #2b8a3e;">{monto_hist:,.2f}</td><td class="monto-col">0.00</td><td style="text-align: center;"><span class="badge-bloqueado">0</span></td>
+                            <td><b>{n_comp_hist}</b></td><td>{desc_hist}</td><td>{fecha_hist_str}</td><td><code>{info_banco_hist_sel['codigo']}</code></td><td>{info_banco_hist_sel['nombre']}</td><td>{ref_hist_val}</td><td class="monto-col" style="color: #2b8a3e;">{monto_hist:,.2f}</td><td class="monto-col">0.00</td><td style="text-align: center;"><span class="badge-bloqueado">0</span></td>
                         </tr>
                         <tr>
-                            <td><b>{n_comp_hist}</b></td><td>{desc_hist}</td><td>{fecha_hist_str}</td><td><code>1.1.3.01.001</code></td><td>Cuentas por Cobrar Comerciales</td><td>{ref_hist_val}</td><td class="monto-col">0.00</td><td class="monto-col" style="color: #c92a2a;">{monto_hist:,.2f}</td><td style="text-align: center;"><span class="badge-bloqueado">0</span></td>
+                            <td><b>{n_comp_hist}</b></td><td>{desc_hist}</td><td>{fecha_hist_str}</td><td><code>{info_cxc_hist_sel['codigo']}</code></td><td>{info_cxc_hist_sel['nombre']}</td><td>{ref_hist_val}</td><td class="monto-col">0.00</td><td class="monto-col" style="color: #c92a2a;">{monto_hist:,.2f}</td><td style="text-align: center;"><span class="badge-bloqueado">0</span></td>
                         </tr>
                     </tbody>
                     <tfoot>
@@ -7374,11 +7417,11 @@ def cobranzas_facutras(conn):
                             if conn_edit:
                                 with conn_edit.cursor() as cur_e:
                                     cur_e.execute(
-                                        "UPDATE ordenes_cobranza SET referencia_banco = %s, fecha_cobranza = %s WHERE id = %s", 
-                                        (nuevo_ref_banco.strip(), nueva_fecha_cobro, int(row_sel['id']))
+                                        "UPDATE ordenes_cobranza SET referencia_banco = %s, fecha_cobranza = %s, banco_receptor = %s WHERE id = %s", 
+                                        (nuevo_ref_banco.strip(), nueva_fecha_cobro, info_banco_hist_sel['nombre'], int(row_sel['id']))
                                     )
                                     conn_edit.commit()
-                                st.success(f"✅ ¡Cobro ID #{row_sel['id']} actualizado correctamente con su nueva referencia y fecha!")
+                                st.success(f"✅ ¡Cobro ID #{row_sel['id']} actualizado correctamente con sus cuentas y datos asignados!")
                                 st.rerun()
                         except Exception as err_ed:
                             st.error(f"❌ Error al modificar el registro: {err_ed}")
@@ -11639,7 +11682,7 @@ elif opcion_menu == "📝 Asientos Contables":
         tab1, tab2, tab3, tab4, tab5 = st.tabs([
             "📂 Directorio de Proveedores", 
             "🧾 Órdenes de Pago (CxP)", 
-            "🔗 Conciliación Bancaria", 
+            "🔗 Payment", 
             "✏️ Modificar / Eliminar", 
             "🗑️ Mantenimiento Masivo",
         ])
