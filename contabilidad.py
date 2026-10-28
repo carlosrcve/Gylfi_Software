@@ -7057,6 +7057,10 @@ def renderizar_tab_asientos_ventas(db_connection):
 
 
 
+import streamlit as st
+import pandas as pd
+from datetime import date
+
 def cobranzas_facutras(conn):
     st.markdown("### 💳 Conciliación, Cruce Bancario y Cobranza de Facturas")
     st.markdown("Cruza las órdenes de cobranza pendientes, regístralas en el banco, genera su asiento contable y mantén tu contabilidad al día.")
@@ -7133,7 +7137,7 @@ def cobranzas_facutras(conn):
             with col_m1:
                 referencia_bancaria = st.text_input("Número de Referencia Bancaria (según Estado de Cuenta)", key="input_ref_banco_cob").strip()
             with col_m2:
-                fecha_cobro_real = st.date_input("Fecha real del depósito/cobro en el Banco", value=datetime.date.today(), key="input_fec_banco_cob")
+                fecha_cobro_real = st.date_input("Fecha real del depósito/cobro en el Banco", value=date.today(), key="input_fec_banco_cob")
 
             # --- SELECCIÓN DE CUENTA BANCARIA CONTABLE ---
             cta_banco_entrada = st.selectbox(
@@ -7266,9 +7270,9 @@ def cobranzas_facutras(conn):
 
         col_fec1, col_fec2 = st.columns(2)
         with col_fec1:
-            fecha_desde = st.date_input("Historial Desde (Emisión)", value=datetime.date.today().replace(day=1), key="hist_cob_fecha_desde")
+            fecha_desde = st.date_input("Historial Desde (Emisión)", value=date.today().replace(day=1), key="hist_cob_fecha_desde")
         with col_fec2:
-            fecha_hasta = st.date_input("Historial Hasta (Emisión)", value=datetime.date.today(), key="hist_cob_fecha_hasta")
+            fecha_hasta = st.date_input("Historial Hasta (Emisión)", value=date.today(), key="hist_cob_fecha_hasta")
 
         conn_conc = None
         df_conciliados = None
@@ -7316,7 +7320,7 @@ def cobranzas_facutras(conn):
                 with col_ed1:
                     nuevo_ref_banco = st.text_input("Nueva Referencia Bancaria", value=str(row_sel['referencia_banco']) if pd.notnull(row_sel['referencia_banco']) else "", key=f"edit_cob_ref_{row_sel['id']}")
                 with col_ed2:
-                    fecha_actual_cobro = pd.to_datetime(row_sel['fecha_cobranza']).date() if pd.notnull(row_sel['fecha_cobranza']) else datetime.date.today()
+                    fecha_actual_cobro = pd.to_datetime(row_sel['fecha_cobranza']).date() if pd.notnull(row_sel['fecha_cobranza']) else date.today()
                     nueva_fecha_cobro = st.date_input("Nueva Fecha de Cobro (Estado de Cuenta)", value=fecha_actual_cobro, key=f"edit_cob_fec_{row_sel['id']}")
                 
                 # --- PREVISUALIZACIÓN EN VIVO DEL ASIENTO CONTABLE PARA EL REGISTRO SELECCIONADO ---
