@@ -7055,9 +7055,6 @@ def renderizar_tab_asientos_ventas(db_connection):
                     db_connection.rollback()
                 st.error(f"❌ Error crítico al guardar en MySQL: {str(db_err)}")
 
-import streamlit as st
-import pandas as pd
-import datetime
 
 def cobranzas_facutras(conn):
     st.markdown("### 💳 Conciliación, Cruce Bancario y Cobranza de Facturas")
@@ -7101,9 +7098,14 @@ def cobranzas_facutras(conn):
                         ORDER BY fecha_emision DESC
                     """
                     df_cob_pend = ejecutar_consulta(query_pendientes, conn_c)
-                    conn_c.close()
             except Exception:
                 pass
+            finally:
+                try:
+                    if 'conn_c' in locals() and conn_c:
+                        conn_c.close()
+                except Exception:
+                    pass
             return b_lista, b_dict, df_cob_pend
 
         lista_bancos_detalle, dict_bancos_detalle, df_pendientes = cargar_datos_cobranza_opt(db_actual)
@@ -7151,7 +7153,6 @@ def cobranzas_facutras(conn):
                         ORDER BY fecha_movimiento DESC, id DESC
                     """
                     df_ver_bm = ejecutar_consulta(query_ver_bm, conn_v_bm, params=(str(fec_desde_bm), str(fec_hasta_bm)))
-                    conn_v_bm.close()
 
                     if df_ver_bm is not None and not df_ver_bm.empty:
                         df_ver_bm['monto'] = pd.to_numeric(df_ver_bm['monto'], errors='coerce').fillna(0.0)
@@ -7175,6 +7176,12 @@ def cobranzas_facutras(conn):
                         st.info("ℹ️ No hay movimientos registrados en el rango de fechas seleccionado.")
             except Exception as err_v_bm:
                 st.error(f"❌ Error al cargar los movimientos bancarios: {err_v_bm}")
+            finally:
+                try:
+                    if 'conn_v_bm' in locals() and conn_v_bm:
+                        conn_v_bm.close()
+                except Exception:
+                    pass
 
             st.divider()
             st.markdown("#### ⚡ Paso 2: Selección de Cuenta Contable, Previsualización y Registro en Asientos")
@@ -7259,12 +7266,17 @@ def cobranzas_facutras(conn):
                                     cur_bm.execute("UPDATE ordenes_cobranza SET estado_cobro = 'Procesado' WHERE id = %s", (int(fila_cob_sel['id']),))
                                     conn_bm.commit()
 
-                                conn_bm.close()
                                 cargar_datos_cobranza_opt.clear()
                                 st.success("✅ ¡Ingreso bancario registrado con éxito!")
                                 st.rerun()
                         except Exception as err_bm:
                             st.error(f"❌ Error al guardar en banco_movimientos: {err_bm}")
+                        finally:
+                            try:
+                                if 'conn_bm' in locals() and conn_bm:
+                                    conn_bm.close()
+                            except Exception:
+                                pass
 
             # Opción 2: Registrar en Libro Diario y Conciliar
             with col_btn_p2:
@@ -7303,12 +7315,17 @@ def cobranzas_facutras(conn):
                                     
                                     conn_update.commit()
 
-                                conn_update.close()
                                 cargar_datos_cobranza_opt.clear()
                                 st.success(f"✅ ¡Proceso completado! Asiento `{n_comp_asiento}` guardado y orden de cobranza #{fila_cob_sel['id']} marcada como Conciliada.")
                                 st.rerun()
                         except Exception as ex_m:
                             st.error(f"❌ Error al registrar el asiento contable: {ex_m}")
+                        finally:
+                            try:
+                                if 'conn_update' in locals() and conn_update:
+                                    conn_update.close()
+                            except Exception:
+                                pass
         else:
             st.info("🎉 ¡Excelente! No hay órdenes de cobranza disponibles para conciliar.")
 
@@ -7327,16 +7344,24 @@ def cobranzas_facutras(conn):
 
         conn_conc = conectar_db(db_actual)
         df_conciliados = None
-        if conn_conc:
-            query_conciliados = """
-                SELECT id, rif_cliente, n_factura, monto_bruto, referencia_banco, fecha_cobranza, estado_cobro
-                FROM ordenes_cobranza
-                WHERE estado_cobro IN ('Conciliado', 'PAGADO', 'Pagado') 
-                  AND fecha_cobranza BETWEEN %s AND %s
-                ORDER BY fecha_cobranza DESC
-            """
-            df_conciliados = ejecutar_consulta(query_conciliados, conn_conc, params=(str(fecha_desde), str(fecha_hasta)))
-            conn_conc.close()
+        try:
+            if conn_conc:
+                query_conciliados = """
+                    SELECT id, rif_cliente, n_factura, monto_bruto, referencia_banco, fecha_cobranza, estado_cobro
+                    FROM ordenes_cobranza
+                    WHERE estado_cobro IN ('Conciliado', 'PAGADO', 'Pagado') 
+                      AND fecha_cobranza BETWEEN %s AND %s
+                    ORDER BY fecha_cobranza DESC
+                """
+                df_conciliados = ejecutar_consulta(query_conciliados, conn_conc, params=(str(fecha_desde), str(fecha_hasta)))
+        except Exception as err_hist:
+            st.error(f"❌ Error al cargar historial: {err_hist}")
+        finally:
+            try:
+                if 'conn_conc' in locals() and conn_conc:
+                    conn_conc.close()
+            except Exception:
+                pass
 
         if df_conciliados is not None and not df_conciliados.empty:
             st.markdown(f"📊 Se encontraron **{len(df_conciliados)}** cobro(s) conciliado(s) en el rango seleccionado.")
@@ -7373,11 +7398,16 @@ def cobranzas_facutras(conn):
                                 with conn_edit.cursor() as cur_e:
                                     cur_e.execute("UPDATE ordenes_cobranza SET referencia_banco = %s, fecha_cobranza = %s WHERE id = %s", (nuevo_ref_banco.strip(), nueva_fecha_pago, int(row_sel['id'])))
                                     conn_edit.commit()
-                                conn_edit.close()
                                 st.success(f"✅ ¡Cobro ID #{row_sel['id']} actualizado correctamente!")
                                 st.rerun()
                         except Exception as err_ed:
                             st.error(f"❌ Error al modificar el registro: {err_ed}")
+                        finally:
+                            try:
+                                if 'conn_edit' in locals() and conn_edit:
+                                    conn_edit.close()
+                            except Exception:
+                                pass
                             
                 with col_btn_ed2:
                     if st.button("🔄 Revertir a Estado 'PENDIENTE'", type="secondary", key=f"btn_revert_cob_{row_sel['id']}", use_container_width=True):
@@ -7387,12 +7417,17 @@ def cobranzas_facutras(conn):
                                 with conn_rev.cursor() as cur_r:
                                     cur_r.execute("UPDATE ordenes_cobranza SET estado_cobro = 'PENDIENTE', referencia_banco = NULL, fecha_cobranza = NULL WHERE id = %s", (int(row_sel['id']),))
                                     conn_rev.commit()
-                                conn_rev.close()
                                 cargar_datos_cobranza_opt.clear()
                                 st.warning(f"⚠️ El cobro ID #{row_sel['id']} ha sido devuelto a estado **PENDIENTE**.")
                                 st.rerun()
                         except Exception as err_rev:
                             st.error(f"❌ Error al revertir el registro: {err_rev}")
+                        finally:
+                            try:
+                                if 'conn_rev' in locals() and conn_rev:
+                                    conn_rev.close()
+                            except Exception:
+                                pass
 
             st.markdown("---")
             
@@ -7416,7 +7451,13 @@ def cobranzas_facutras(conn):
 
     except Exception as e:
         st.error(f"Error en el módulo de conciliación de cobranzas: {e}")
-        
+    finally:
+        try:
+            if 'conn' in locals() and conn:
+                conn.close()
+        except Exception:
+            pass
+
 def generar_pdf_resumen_seniat(records, empresa_nombre, periodo_str, tot_base, tot_sust, tot_neta):
     pdf = FPDF(orientation='L', unit='mm', format='A4') # Orientación Horizontal
     pdf.set_auto_page_break(auto=True, margin=15)
