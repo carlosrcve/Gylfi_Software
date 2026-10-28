@@ -7056,13 +7056,9 @@ def renderizar_tab_asientos_ventas(db_connection):
                 st.error(f"❌ Error crítico al guardar en MySQL: {str(db_err)}")
 
 
-import streamlit as st
-import pandas as pd
-import datetime
-
 def cobranzas_facutras(conn):
     st.markdown("### 💳 Conciliación, Cruce Bancario y Cobranza de Facturas")
-    st.markdown("Cruza las órdenes de cobranza pendientes, registra el ingreso en el banco, selecciona la cuenta contable de entrada, previsualiza el asiento y guárdalo en la base de datos.")
+    st.markdown("Cruza las órdenes de cobranza pendientes, regístralas en el banco, genera su asiento contable y mantén tu contabilidad al día.")
 
     db_actual = st.session_state.get('DB_ACTUAL')
     if not db_actual:
@@ -7095,11 +7091,11 @@ def cobranzas_facutras(conn):
                                 'nombre': str(r_cta['nombre']).strip()
                             }
 
-                    # 2. Órdenes de cobranza pendientes
+                    # 2. Órdenes de cobranza pendientes (Al cambiar de estado, se eliminan del select box)
                     query_pendientes = """
                         SELECT id, rif_cliente, n_factura, n_control, fecha_emision, base_imponible, monto_iva, monto_bruto, estado_cobro
                         FROM ordenes_cobranza
-                        WHERE (estado_cobro NOT IN ('Conciliado', 'PAGADO', 'Pagado') OR estado_cobro IS NULL OR estado_cobro = 'PENDIENTE')
+                        WHERE (estado_cobro NOT IN ('Conciliado', 'PAGADO', 'Pagado', 'Procesado') OR estado_cobro IS NULL OR estado_cobro = 'PENDIENTE')
                         ORDER BY fecha_emision DESC
                     """
                     df_cob_pend = ejecutar_consulta(query_pendientes, conn_c)
@@ -7122,7 +7118,7 @@ def cobranzas_facutras(conn):
             df_pendientes['monto_bruto'] = pd.to_numeric(df_pendientes['monto_bruto'], errors='coerce').fillna(0.0)
             
             st.divider()
-            st.markdown("#### ⚡ Paso 1: Datos Bancarios y Registro de Ingreso")
+            st.markdown("#### ⚡ Paso 1: Datos Bancarios y Registro de Cobro")
             
             dict_cobs_pend = {
                 f"ID: {row['id']} | RIF: {row['rif_cliente']} | Factura: {row['n_factura']} | Total: {row['monto_bruto']:,.2f} | Estado: {row['estado_cobro']}": row['id']
@@ -7138,60 +7134,7 @@ def cobranzas_facutras(conn):
             with col_m2:
                 fecha_cobro_real = st.date_input("Fecha real del depósito/cobro en el Banco", key="input_fec_banco_cob")
 
-            # --- TABLA BANCO MOVIMIENTOS (INGRESOS) ---
-            st.divider()
-            st.markdown("#### 📊 Movimientos Bancarios Registrados por Rango de Fecha")
-            
-            col_fec_bm1, col_fec_bm2 = st.columns(2)
-            with col_fec_bm1:
-                fec_desde_bm = st.date_input("Desde la fecha (Movimiento)", key="cob_bm_fec_desde")
-            with col_fec_bm2:
-                fec_hasta_bm = st.date_input("Hasta la fecha (Movimiento)", key="cob_bm_fec_hasta")
-
-            conn_v_bm = None
-            try:
-                conn_v_bm = conectar_db(db_actual)
-                if conn_v_bm:
-                    query_ver_bm = """
-                        SELECT id, banco_nombre, cuenta_numero, fecha_movimiento, referencia, descripcion, monto, estado_conciliacion, asiento_id 
-                        FROM banco_movimientos 
-                        WHERE fecha_movimiento BETWEEN %s AND %s
-                        ORDER BY fecha_movimiento DESC, id DESC
-                    """
-                    df_ver_bm = ejecutar_consulta(query_ver_bm, conn_v_bm, params=(str(fec_desde_bm), str(fec_hasta_bm)))
-
-                    if df_ver_bm is not None and not df_ver_bm.empty:
-                        df_ver_bm['monto'] = pd.to_numeric(df_ver_bm['monto'], errors='coerce').fillna(0.0)
-
-                        st.dataframe(
-                            df_ver_bm[['id', 'fecha_movimiento', 'banco_nombre', 'referencia', 'descripcion', 'monto', 'estado_conciliacion', 'asiento_id']],
-                            use_container_width=True,
-                            hide_index=True,
-                            column_config={
-                                "id": "ID",
-                                "fecha_movimiento": "Fecha Mov.",
-                                "banco_nombre": "Banco",
-                                "referencia": "Referencia",
-                                "descripcion": "Descripción",
-                                "monto": st.column_config.NumberColumn("Monto", format="%,.2f", help="Monto del movimiento bancario"),
-                                "estado_conciliacion": "Estado",
-                                "asiento_id": "Comprobante"
-                            }
-                        )
-                    else:
-                        st.info("ℹ️ No hay movimientos registrados en el rango de fechas seleccionado.")
-            except Exception as err_v_bm:
-                st.error(f"❌ Error al cargar los movimientos bancarios: {err_v_bm}")
-            finally:
-                try:
-                    if conn_v_bm and hasattr(conn_v_bm, 'close'):
-                        conn_v_bm.close()
-                except Exception:
-                    pass
-
-            st.divider()
-            st.markdown("#### ⚡ Paso 2: Selección de Cuenta Contable, Previsualización y Registro en Asientos")
-
+            # --- SELECCIÓN DE CUENTA BANCARIA CONTABLE ---
             cta_banco_entrada = st.selectbox(
                 "🏦 Selecciona la Cuenta Bancaria / Entrada de Dinero (Debe)", 
                 options=lista_bancos_detalle if lista_bancos_detalle else ["No hay cuentas de detalle disponibles"],
@@ -7207,7 +7150,10 @@ def cobranzas_facutras(conn):
             ref_prev = referencia_bancaria if referencia_bancaria else "(Pendiente de Ref)"
             fecha_prev = str(fecha_cobro_real)
 
-            # HTML Previsualización del Asiento Contable
+            # --- PREVISUALIZACIÓN DEL ASIENTO CONTABLE (FRAME) ---
+            st.divider()
+            st.markdown("#### 📊 Previsualización del Asiento Contable y Movimiento Bancario")
+
             html_asiento = f"""
             <style>
                 .tabla-asiento {{ width: 100%; border-collapse: collapse; font-family: sans-serif; font-size: 13px; margin: 10px 0; background-color: #ffffff; box-shadow: 0 2px 5px rgba(0,0,0,0.1); border-radius: 6px; overflow: hidden; }}
@@ -7239,100 +7185,79 @@ def cobranzas_facutras(conn):
             """
             st.markdown(html_asiento, unsafe_allow_html=True)
 
-            col_btn_p1, col_btn_p2 = st.columns(2)
+            # --- BOTÓN PARA GUARDAR Y APLICAR ---
+            if st.button("💾 Guardar Cobro, Registrar en Banco y Generar Asiento", type="primary", key="btn_guardar_cobro_completo", use_container_width=True):
+                if not referencia_bancaria:
+                    st.warning("⚠️ Debes introducir obligatoriamente la referencia bancaria del estado de cuenta.")
+                elif not lista_bancos_detalle or "No hay cuentas" in cta_banco_entrada:
+                    st.error("⚠️ Debes seleccionar una cuenta bancaria válida.")
+                else:
+                    conn_tx = None
+                    try:
+                        conn_tx = conectar_db(db_actual)
+                        if conn_tx:
+                            with conn_tx.cursor() as cursor_tx:
+                                monto_cobro = float(fila_cob_sel['monto_bruto'])
+                                n_fact_val = str(fila_cob_sel['n_factura'])
+                                rif_val = str(fila_cob_sel['rif_cliente'])
+                                n_comp_asiento = f"COB-{n_fact_val}"
+                                fecha_str = str(fecha_cobro_real)
 
-            # Opción 1: Registrar en Movimientos Bancarios
-            with col_btn_p1:
-                if st.button("📥 Registrar Movimiento en Banco", type="secondary", key="btn_guardar_banco_mov_cob", use_container_width=True):
-                    if not referencia_bancaria:
-                        st.warning("⚠️ Debes introducir obligatoriamente la referencia bancaria del estado de cuenta.")
-                    else:
-                        conn_bm = None
+                                # 1. Insertar Asiento Contable (Debe: Banco, Haber: CxC)
+                                query_asiento_cobro = """
+                                    INSERT INTO asientos_contables (
+                                        n_comprobante, descripcion, fecha, plan_cuentas, 
+                                        cuenta_contable, referencia, debe, haber, bloqueado
+                                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 0)
+                                """
+                                # Línea 1: Debe Banco
+                                cursor_tx.execute(query_asiento_cobro, (n_comp_asiento, desc_prev, fecha_str, info_banco_prev['codigo'], info_banco_prev['nombre'], referencia_bancaria, monto_cobro, 0.00))
+                                asiento_id_generado = cursor_tx.lastrowid # Capturamos el ID del asiento insertado para banco_movimientos
+
+                                # Línea 2: Haber CxC
+                                cursor_tx.execute(query_asiento_cobro, (n_comp_asiento, desc_prev, fecha_str, "1.1.3.01.001", "Cuentas por Cobrar Comerciales", referencia_bancaria, 0.00, monto_cobro))
+
+                                # 2. Guardar registro en la tabla banco_movimientos con los campos exactos solicitados
+                                fecha_actual_hoy = datetime.date.today().strftime('%Y-%m-%d')
+                                cursor_tx.execute("""
+                                    INSERT INTO banco_movimientos (
+                                        banco_nombre, cuenta_numero, fecha_movimiento, referencia, 
+                                        descripcion, monto, banco_receptor, estado_conciliacion, asiento_id
+                                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                """, (
+                                    info_banco_prev['nombre'],
+                                    info_banco_prev['codigo'],
+                                    fecha_str,
+                                    referencia_bancaria,
+                                    desc_prev,
+                                    monto_cobro, # Ingreso positivo
+                                    info_banco_prev['nombre'],
+                                    'Conciliado',
+                                    asiento_id_generado
+                                ))
+
+                                # 3. Actualizar Orden de Cobranza (Al pasar a 'Conciliado', se elimina automáticamente del select box de pendientes)
+                                cursor_tx.execute("""
+                                    UPDATE ordenes_cobranza 
+                                    SET referencia_banco = %s, banco_receptor = %s, fecha_cobranza = %s, estado_cobro = 'Conciliado' 
+                                    WHERE id = %s
+                                """, (referencia_bancaria, info_banco_prev['nombre'], fecha_cobro_real, int(fila_cob_sel['id'])))
+
+                                conn_tx.commit()
+
+                            cargar_datos_cobranza_opt.clear()
+                            st.success(f"✅ ¡Cobro de la factura **{n_fact_val}** registrado con éxito! Asiento `{n_comp_asiento}` guardado, movimiento registrado en banco y factura conciliada.")
+                            st.rerun()
+                    except Exception as ex_m:
+                        st.error(f"❌ Error al procesar el cobro completo: {ex_m}")
+                    finally:
                         try:
-                            conn_bm = conectar_db(db_actual)
-                            if conn_bm:
-                                with conn_bm.cursor() as cur_bm:
-                                    fecha_actual_hoy = datetime.date.today().strftime('%Y-%m-%d')
-                                    monto_cobro = float(fila_cob_sel['monto_bruto'])
-                                    n_fact_val = str(fila_cob_sel['n_factura'])
-                                    rif_val = str(fila_cob_sel['rif_cliente'])
-                                    n_comp_asiento = f"COB-{n_fact_val}"
-
-                                    cur_bm.execute("""
-                                        INSERT INTO banco_movimientos (
-                                            banco_nombre, cuenta_numero, fecha_movimiento, referencia, 
-                                            descripcion, monto, estado_conciliacion, asiento_id, fecha_importacion
-                                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                                    """, (
-                                        info_banco_prev['nombre'],
-                                        info_banco_prev['codigo'],
-                                        str(fecha_cobro_real), referencia_bancaria, f"Cobro Factura #{n_fact_val} - RIF: {rif_val}",
-                                        monto_cobro, 'Pendiente Asiento', n_comp_asiento, fecha_actual_hoy
-                                    ))
-
-                                    cur_bm.execute("UPDATE ordenes_cobranza SET estado_cobro = 'Procesado', referencia_banco = %s, banco_receptor = %s WHERE id = %s", (referencia_bancaria, info_banco_prev['nombre'], int(fila_cob_sel['id'])))
-                                    conn_bm.commit()
-
-                                cargar_datos_cobranza_opt.clear()
-                                st.success("✅ ¡Ingreso bancario registrado con éxito!")
-                                st.rerun()
-                        except Exception as err_bm:
-                            st.error(f"❌ Error al guardar en banco_movimientos: {err_bm}")
-                        finally:
-                            try:
-                                if conn_bm and hasattr(conn_bm, 'close'):
-                                    conn_bm.close()
-                            except Exception:
-                                pass
-
-            # Opción 2: Registrar en Libro Diario y Conciliar
-            with col_btn_p2:
-                if st.button("💾 Guardar Asiento en Libro Diario y Conciliar", type="primary", key="btn_guardar_asiento_cob_diario", use_container_width=True):
-                    if not referencia_bancaria:
-                        st.warning("⚠️ Asegúrate de haber ingresado la referencia bancaria.")
-                    elif not lista_bancos_detalle or "No hay cuentas" in cta_banco_entrada:
-                        st.error("⚠️ Debes seleccionar una cuenta bancaria válida.")
-                    else:
-                        conn_update = None
-                        try:
-                            conn_update = conectar_db(db_actual)
-                            if conn_update:
-                                with conn_update.cursor() as cursor_m:
-                                    monto_cobro = float(fila_cob_sel['monto_bruto'])
-                                    n_fact_val = str(fila_cob_sel['n_factura'])
-                                    rif_val = str(fila_cob_sel['rif_cliente'])
-                                    n_comp_asiento = f"COB-{n_fact_val}"
-
-                                    query_asiento_cobro = """
-                                        INSERT INTO asientos_contables (
-                                            n_comprobante, descripcion, fecha, plan_cuentas, 
-                                            cuenta_contable, referencia, debe, haber, bloqueado
-                                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 0)
-                                    """
-                                    cursor_m.execute(query_asiento_cobro, (n_comp_asiento, f"Cobro Factura N° {n_fact_val} - RIF: {rif_val}", str(fecha_cobro_real), info_banco_prev['codigo'], info_banco_prev['nombre'], referencia_bancaria, monto_cobro, 0.00))
-                                    cursor_m.execute(query_asiento_cobro, (n_comp_asiento, f"Cobro Factura N° {n_fact_val} - RIF: {rif_val}", str(fecha_cobro_real), "1.1.3.01.001", "Cuentas por Cobrar Comerciales", referencia_bancaria, 0.00, monto_cobro))
-                                    
-                                    cursor_m.execute("""
-                                        UPDATE ordenes_cobranza 
-                                        SET referencia_banco = %s, banco_receptor = %s, estado_cobro = 'Conciliado' 
-                                        WHERE id = %s
-                                    """, (referencia_bancaria, info_banco_prev['nombre'], int(fila_cob_sel['id'])))
-                                    
-                                    conn_update.commit()
-
-                                cargar_datos_cobranza_opt.clear()
-                                st.success(f"✅ ¡Proceso completado! Asiento `{n_comp_asiento}` guardado y orden de cobranza #{fila_cob_sel['id']} marcada como Conciliada.")
-                                st.rerun()
-                        except Exception as ex_m:
-                            st.error(f"❌ Error al registrar el asiento contable: {ex_m}")
-                        finally:
-                            try:
-                                if conn_update and hasattr(conn_update, 'close'):
-                                    conn_update.close()
-                            except Exception:
-                                pass
+                            if conn_tx and hasattr(conn_tx, 'close'):
+                                conn_tx.close()
+                        except Exception:
+                            pass
         else:
-            st.info("🎉 ¡Excelente! No hay órdenes de cobranza disponibles para conciliar.")
+            st.info("🎉 ¡Excelente! No hay órdenes de cobranza pendientes por cobrar en este momento.")
 
         # ==========================================
         # 📜 HISTORIAL DE COBRANZAS CONCILIADAS
@@ -7353,7 +7278,7 @@ def cobranzas_facutras(conn):
             conn_conc = conectar_db(db_actual)
             if conn_conc:
                 query_conciliados = """
-                    SELECT id, rif_cliente, n_factura, monto_bruto, referencia_banco, banco_receptor, estado_cobro, fecha_emision
+                    SELECT id, rif_cliente, n_factura, monto_bruto, referencia_banco, banco_receptor, estado_cobro, fecha_emision, fecha_cobranza
                     FROM ordenes_cobranza
                     WHERE estado_cobro IN ('Conciliado', 'PAGADO', 'Pagado', 'Procesado') 
                       AND fecha_emision BETWEEN %s AND %s
@@ -7376,7 +7301,8 @@ def cobranzas_facutras(conn):
                 use_container_width=True, 
                 hide_index=True,
                 column_config={
-                    "monto_bruto": st.column_config.NumberColumn("Monto Bruto Cobrado", format="%,.2f", help="Monto cobrado")
+                    "monto_bruto": st.column_config.NumberColumn("Monto Bruto Cobrado", format="%,.2f", help="Monto cobrado"),
+                    "fecha_cobranza": "Fecha Cobro (Banco)"
                 }
             )
             
@@ -7388,10 +7314,12 @@ def cobranzas_facutras(conn):
             if selected_hist_label:
                 row_sel = dict_historial[selected_hist_label]
                 
-                # CORREGIDO: Se usa una sola columna ya que es un único campo de texto
-                col_ed1 = st.columns(1)[0]
+                col_ed1, col_ed2 = st.columns(2)
                 with col_ed1:
-                    nuevo_ref_banco = st.text_input("Nueva Referencia Bancaria", value=str(row_sel['referencia_banco']), key=f"edit_cob_ref_{row_sel['id']}")
+                    nuevo_ref_banco = st.text_input("Nueva Referencia Bancaria", value=str(row_sel['referencia_banco']) if pd.notnull(row_sel['referencia_banco']) else "", key=f"edit_cob_ref_{row_sel['id']}")
+                with col_ed2:
+                    fecha_actual_cobro = pd.to_datetime(row_sel['fecha_cobranza']).date() if pd.notnull(row_sel['fecha_cobranza']) else datetime.date.today()
+                    nueva_fecha_cobro = st.date_input("Nueva Fecha de Cobro (Estado de Cuenta)", value=fecha_actual_cobro, key=f"edit_cob_fec_{row_sel['id']}")
                 
                 col_btn_ed1, col_btn_ed2 = st.columns(2)
                 with col_btn_ed1:
@@ -7401,9 +7329,12 @@ def cobranzas_facutras(conn):
                             conn_edit = conectar_db(db_actual)
                             if conn_edit:
                                 with conn_edit.cursor() as cur_e:
-                                    cur_e.execute("UPDATE ordenes_cobranza SET referencia_banco = %s WHERE id = %s", (nuevo_ref_banco.strip(), int(row_sel['id'])))
+                                    cur_e.execute(
+                                        "UPDATE ordenes_cobranza SET referencia_banco = %s, fecha_cobranza = %s WHERE id = %s", 
+                                        (nuevo_ref_banco.strip(), nueva_fecha_cobro, int(row_sel['id']))
+                                    )
                                     conn_edit.commit()
-                                st.success(f"✅ ¡Cobro ID #{row_sel['id']} actualizado correctamente!")
+                                st.success(f"✅ ¡Cobro ID #{row_sel['id']} actualizado correctamente con su nueva referencia y fecha!")
                                 st.rerun()
                         except Exception as err_ed:
                             st.error(f"❌ Error al modificar el registro: {err_ed}")
@@ -7421,7 +7352,7 @@ def cobranzas_facutras(conn):
                             conn_rev = conectar_db(db_actual)
                             if conn_rev:
                                 with conn_rev.cursor() as cur_r:
-                                    cur_r.execute("UPDATE ordenes_cobranza SET estado_cobro = 'PENDIENTE', referencia_banco = NULL, banco_receptor = NULL WHERE id = %s", (int(row_sel['id']),))
+                                    cur_r.execute("UPDATE ordenes_cobranza SET estado_cobro = 'PENDIENTE', referencia_banco = NULL, banco_receptor = NULL, fecha_cobranza = NULL WHERE id = %s", (int(row_sel['id']),))
                                     conn_rev.commit()
                                 cargar_datos_cobranza_opt.clear()
                                 st.warning(f"⚠️ El cobro ID #{row_sel['id']} ha sido devuelto a estado **PENDIENTE**.")
