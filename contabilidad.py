@@ -7056,6 +7056,10 @@ def renderizar_tab_asientos_ventas(db_connection):
                 st.error(f"❌ Error crítico al guardar en MySQL: {str(db_err)}")
 
 
+import streamlit as st
+import pandas as pd
+import datetime
+
 def cobranzas_facutras(conn):
     st.markdown("### 💳 Conciliación, Cruce Bancario y Cobranza de Facturas")
     st.markdown("Cruza las órdenes de cobranza pendientes, regístralas en el banco, genera su asiento contable y mantén tu contabilidad al día.")
@@ -7091,7 +7095,7 @@ def cobranzas_facutras(conn):
                                 'nombre': str(r_cta['nombre']).strip()
                             }
 
-                    # 2. Órdenes de cobranza pendientes (Al cambiar de estado, se eliminan del select box)
+                    # 2. Órdenes de cobranza pendientes
                     query_pendientes = """
                         SELECT id, rif_cliente, n_factura, n_control, fecha_emision, base_imponible, monto_iva, monto_bruto, estado_cobro
                         FROM ordenes_cobranza
@@ -7132,7 +7136,7 @@ def cobranzas_facutras(conn):
             with col_m1:
                 referencia_bancaria = st.text_input("Número de Referencia Bancaria (según Estado de Cuenta)", key="input_ref_banco_cob").strip()
             with col_m2:
-                fecha_cobro_real = st.date_input("Fecha real del depósito/cobro en el Banco", key="input_fec_banco_cob")
+                fecha_cobro_real = st.date_input("Fecha real del depósito/cobro en el Banco", value=datetime.date.today(), key="input_fec_banco_cob")
 
             # --- SELECCIÓN DE CUENTA BANCARIA CONTABLE ---
             cta_banco_entrada = st.selectbox(
@@ -7210,14 +7214,12 @@ def cobranzas_facutras(conn):
                                         cuenta_contable, referencia, debe, haber, bloqueado
                                     ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 0)
                                 """
-                                # Línea 1: Debe Banco
                                 cursor_tx.execute(query_asiento_cobro, (n_comp_asiento, desc_prev, fecha_str, info_banco_prev['codigo'], info_banco_prev['nombre'], referencia_bancaria, monto_cobro, 0.00))
-                                asiento_id_generado = cursor_tx.lastrowid # Capturamos el ID del asiento insertado para banco_movimientos
+                                asiento_id_generado = cursor_tx.lastrowid
 
-                                # Línea 2: Haber CxC
                                 cursor_tx.execute(query_asiento_cobro, (n_comp_asiento, desc_prev, fecha_str, "1.1.3.01.001", "Cuentas por Cobrar Comerciales", referencia_bancaria, 0.00, monto_cobro))
 
-                                # 2. Guardar registro en la tabla banco_movimientos con los campos exactos solicitados
+                                # 2. Guardar registro en la tabla banco_movimientos
                                 fecha_actual_hoy = datetime.date.today().strftime('%Y-%m-%d')
                                 cursor_tx.execute("""
                                     INSERT INTO banco_movimientos (
@@ -7230,13 +7232,13 @@ def cobranzas_facutras(conn):
                                     fecha_str,
                                     referencia_bancaria,
                                     desc_prev,
-                                    monto_cobro, # Ingreso positivo
+                                    monto_cobro,
                                     info_banco_prev['nombre'],
                                     'Conciliado',
                                     asiento_id_generado
                                 ))
 
-                                # 3. Actualizar Orden de Cobranza (Al pasar a 'Conciliado', se elimina automáticamente del select box de pendientes)
+                                # 3. Actualizar Orden de Cobranza
                                 cursor_tx.execute("""
                                     UPDATE ordenes_cobranza 
                                     SET referencia_banco = %s, banco_receptor = %s, fecha_cobranza = %s, estado_cobro = 'Conciliado' 
@@ -7268,9 +7270,9 @@ def cobranzas_facutras(conn):
 
         col_fec1, col_fec2 = st.columns(2)
         with col_fec1:
-            fecha_desde = st.date_input("Historial Desde (Emisión)", key="hist_cob_fecha_desde")
+            fecha_desde = st.date_input("Historial Desde (Emisión)", value=datetime.date.today().replace(day=1), key="hist_cob_fecha_desde")
         with col_fec2:
-            fecha_hasta = st.date_input("Historial Hasta (Emisión)", key="hist_cob_fecha_hasta")
+            fecha_hasta = st.date_input("Historial Hasta (Emisión)", value=datetime.date.today(), key="hist_cob_fecha_hasta")
 
         conn_conc = None
         df_conciliados = None
