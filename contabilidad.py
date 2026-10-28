@@ -10668,12 +10668,21 @@ elif opcion_menu == "📝 Asientos Contables":
             with tab4:
                 db_general = st.session_state.get('DB_ACTUAL')
                 if db_general:
-                    conn_general = conectar_db(db_general)
-                    if conn_general:
-                        cobranzas_facutras(conn_general)
-                        conn_general.close()
-                    else:
-                        st.error("❌ No se pudo establecer la conexión con la base de datos para el módulo de cobranzas.")
+                    conn_general = None
+                    try:
+                        conn_general = conectar_db(db_general)
+                        if conn_general:
+                            cobranzas_facutras(conn_general)
+                        else:
+                            st.error("❌ No se pudo establecer la conexión con la base de datos para el módulo de cobranzas.")
+                    except Exception as e:
+                        st.error(f"❌ Error en el módulo de cobranzas: {e}")
+                    finally:
+                        try:
+                            if conn_general and hasattr(conn_general, 'close'):
+                                conn_general.close()
+                        except Exception:
+                            pass
                 else:
                     st.error("⚠️ Debes seleccionar una empresa primero.")
 
