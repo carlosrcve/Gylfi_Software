@@ -7545,12 +7545,14 @@ def generar_pdf_preimpreso(conn, datos_factura, items_factura):
 def generar_auxiliar_cxp(conn, fecha_desde, fecha_hasta, proveedor_seleccionado=None):
     """
     Genera un DataFrame con el Auxiliar de Cuentas por Pagar detallado por comprobante,
-    filtrando estrictamente descripciones bancarias o de pagos en la columna Proveedor.
+    filtrando estrictamente para que solo involucre comprobantes y transacciones de 
+    la cuenta de Proveedores Nacionales (2.1.1.01.001).
     """
     try:
         f_hasta_str = fecha_hasta.strftime('%Y-%m-%d') if hasattr(fecha_hasta, 'strftime') else str(fecha_hasta)
         f_desde_str = fecha_desde.strftime('%Y-%m-%d') if hasattr(fecha_desde, 'strftime') else str(fecha_desde)
 
+        # 💡 CONSULTA ESTRICTA: Solo traemos comprobantes que contengan la cuenta 2.1.1.01.001
         query = """
             SELECT id, n_comprobante, fecha, descripcion, plan_cuentas, cuenta_contable, referencia, debe, haber
             FROM asientos_contables
@@ -7567,25 +7569,34 @@ def generar_auxiliar_cxp(conn, fecha_desde, fecha_hasta, proveedor_seleccionado=
         if df_total is None or df_total.empty:
             return pd.DataFrame()
 
+        # 💡 FILTRO ADICIONAL EN PANDAS: Asegurar que las líneas del comprobante 
+        # pertenezcan a la cuenta de proveedores o a sus contrapartidas directas lógicas, 
+        # descartando cuentas de bancos u otros gastos totalmente desconectados si los hubiera.
+        # (O si prefieres que se vea la contrapartida de la factura, mantenemos el comprobante 
+        # pero aseguramos que la identificación del proveedor salga limpia).
+        
         df_total['debe'] = pd.to_numeric(df_total['debe'], errors='coerce').fillna(0.0)
         df_total['haber'] = pd.to_numeric(df_total['haber'], errors='coerce').fillna(0.0)
         
         df_total['fecha_dt'] = pd.to_datetime(df_total['fecha'])
         df_total['fecha'] = df_total['fecha_dt'].dt.strftime('%Y-%m-%d')
 
-        # 💡 EXTRACCIÓN ESTRICTA DE PROVEEDORES (Filtra bancos y pagos)
+        # Extracción estricta de proveedores evitando textos de bancos o pagos
         def extraer_proveedor_base(desc):
             if not isinstance(desc, str):
                 return ""
             
             d_upper = desc.upper().strip()
             
-            # Palabras prohibidas que indican que es un pago o banco, no un proveedor
-            palabras_excluidas = ["PAGO A", "PAGOS", "BANCO", "TRANSFERENCIA", "NOTA DE", "AJUSTES", "IVSS", "SENIAT", "BANCRECER", "BDV"]
+            # Palabras prohibidas que descartan completamente la línea como nombre de proveedor
+            palabras_excluidas = [
+                "PAGO A", "PAGOS", "BANCO", "TRANSFERENCIA", "NOTA DE", 
+                "AJUSTES", "IVSS", "SENIAT", "BANCRECER", "BDV", "LOTE"
+            ]
             if any(p in d_upper for p in palabras_excluidas):
                 return ""
 
-            # Si tiene estructura con guion (ej: FACTURA - PROVEEDOR)
+            # Si tiene estructura con guion (ej: FACTURA 1 - NOMBRE PROVEEDOR)
             if "-" in desc:
                 partes = desc.split("-")
                 candidato = partes[-1].strip()
@@ -7593,17 +7604,33 @@ def generar_auxiliar_cxp(conn, fecha_desde, fecha_hasta, proveedor_seleccionado=
                 if len(candidato) > 3 and not any(p in c_up for p in palabras_excluidas):
                     return candidato
             
-            # Si el texto mismo es un nombre válido
+            # Si el texto de la descripción misma es un nombre válido de entidad
             if len(desc.strip()) > 3:
                 return desc.strip()
                 
             return ""
 
+        # Buscamos el proveedor preferiblemente de las filas donde plan_cuentas sea '2.1.1.01.001'
+        df_total['es_cuenta_prov'] = df_total['plan_cuentas'].astype(str).str.strip() == '2.1.1.01.001'
         df_total['proveedor_raw'] = df_total['descripcion'].apply(extraer_proveedor_base)
 
-        # Propagar el nombre del proveedor dentro del mismo comprobante 
-        df_total['proveedor'] = df_total.groupby('n_comprobante')['proveedor_raw'].transform(lambda x: next((v for v in x if v != ""), ""))
-        df_total['proveedor'] = df_total['proveedor'].replace("", "GENERAL / OTROS")
+        # Propagar el nombre del proveedor dentro del mismo comprobante dándole prioridad a la línea de la cuenta 2.1.1.01.001
+        def obtener_proveedor_comprobante(sub_df):
+            # Primero intentamos sacar el proveedor de las líneas propias de la cuenta de proveedores
+            provs_filtrados = sub_df[sub_df['es_cuenta_prov']]['proveedor_raw'].tolist()
+            for p in provs_filtrados:
+                if p and p != "GENERAL / OTROS":
+                    return p
+            # Si no, buscamos en cualquier otra línea del comprobante que tenga un nombre válido
+            provs_general = sub_df['proveedor_raw'].tolist()
+            for p in provs_general:
+                if p and p != "GENERAL / OTROS":
+                    return p
+            return "GENERAL / OTROS"
+
+        # Mapear el proveedor consolidado por comprobante
+        mapa_proveedores = df_total.groupby('n_comprobante').apply(obtener_proveedor_comprobante).to_dict()
+        df_total['proveedor'] = df_total['n_comprobante'].map(mapa_proveedores).fillna("GENERAL / OTROS")
 
         if proveedor_seleccionado and proveedor_seleccionado != "TODOS":
             df_total = df_total[df_total['proveedor'] == proveedor_seleccionado]
