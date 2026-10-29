@@ -7504,7 +7504,7 @@ def generar_auxiliar_cxp(conn, fecha_desde, fecha_hasta, proveedor_seleccionado=
     """
     Genera un DataFrame con el Auxiliar de Cuentas por Pagar filtrado 
     ESTRICTAMENTE para la cuenta 2.1.1.01.001 (Proveedores Nacionales), 
-    excluyendo cuentas de accionistas u otras cuentas de pasivo.
+    agrupando correctamente los ajustes administrativos bajo el proveedor del comprobante.
     """
     try:
         # Consulta estricta: Solo buscamos el código exacto de Proveedores Nacionales
@@ -7513,7 +7513,7 @@ def generar_auxiliar_cxp(conn, fecha_desde, fecha_hasta, proveedor_seleccionado=
             FROM asientos_contables
             WHERE plan_cuentas = '2.1.1.01.001'
               AND fecha <= %s
-            ORDER BY fecha ASC, id ASC
+            ORDER BY fecha ASC, n_comprobante ASC, id ASC
         """
         df_total = ejecutar_consulta(query, conn, params=(str(fecha_hasta),))
         
@@ -7531,18 +7531,29 @@ def generar_auxiliar_cxp(conn, fecha_desde, fecha_hasta, proveedor_seleccionado=
         df_total['haber'] = pd.to_numeric(df_total['haber'], errors='coerce').fillna(0.0)
         df_total['fecha'] = pd.to_datetime(df_total['fecha'])
 
-        # Extracción del nombre del Proveedor desde la descripción
-        def extraer_proveedor(desc):
+        # 1. Extracción inteligente del proveedor base desde la descripción
+        def extraer_proveedor_base(desc):
             if not isinstance(desc, str):
-                return "GENERAL / OTROS"
+                return ""
+            # Si tiene estructura con guion (ej: COMP PAGADO - PROVEEDOR)
             if "-" in desc:
                 partes = desc.split("-")
                 candidato = partes[-1].strip()
-                if len(candidato) > 3:
+                if len(candidato) > 3 and "AJUSTES" not in candidato.upper():
                     return candidato
-            return desc.strip()
+            # Si el texto mismo es un nombre de proveedor válido
+            if "AJUSTES" not in desc.upper() and "PAGADO" not in desc.upper() and len(desc.strip()) > 3:
+                return desc.strip()
+            return ""
 
-        df_total['proveedor'] = df_total['descripcion'].apply(extraer_proveedor)
+        df_total['proveedor_raw'] = df_total['descripcion'].apply(extraer_proveedor_base)
+
+        # 2. Propagar el nombre del proveedor dentro del mismo comprobante 
+        # (Esto asegura que filas como "AJUSTES ADMINISTRATIVOS" cojan el proveedor de su mismo comprobante)
+        df_total['proveedor'] = df_total.groupby('n_comprobante')['proveedor_raw'].transform(lambda x: next((v for v in x if v != ""), "GENERAL / OTROS"))
+        
+        # Si aun así quedó vacio en algún comprobante sin nombre explícito
+        df_total['proveedor'] = df_total['proveedor'].replace("", "GENERAL / OTROS")
 
         # Separar Saldo Inicial y Movimientos del Periodo
         mask_inicial = df_total['fecha'] < pd.to_datetime(fecha_desde)
