@@ -18975,8 +18975,11 @@ if opcion_menu == "📄 Auxiliar Cta por Pagar":
                 conn_aux.close()
 
         if df_auxiliar is not None and not df_auxiliar.empty:
-            # Selector adicional para filtrar por un proveedor específico extraído
-            lista_proveedores = ["TODOS"] + sorted(df_auxiliar['Proveedor'].unique().tolist())
+            # 💡 Extracción limpia y estricta de nombres de proveedores únicos
+            proveedores_unicos = df_auxiliar['Proveedor'].dropna().astype(str).str.strip()
+            proveedores_unicos = proveedores_unicos[proveedores_unicos != ""]
+            lista_proveedores = ["TODOS"] + sorted(proveedores_unicos.unique().tolist())
+            
             prov_seleccionado = st.selectbox("Filtrar por Proveedor Específico:", lista_proveedores, key="select_filtro_proveedor")
 
             if prov_seleccionado != "TODOS":
