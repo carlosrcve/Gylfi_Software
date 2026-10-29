@@ -10593,6 +10593,7 @@ elif opcion_menu == "📝 Asientos Contables":
                         else:
                             st.info(f"No se encontró ningún registro asociado al Comprobante N° '{comp_a_eliminar}'.")
 
+
             # ==========================================
             # TAB 2: IMPORTACIÓN EXCEL
             # ==========================================
@@ -10605,23 +10606,23 @@ elif opcion_menu == "📝 Asientos Contables":
                         # 1. Leer el Excel manteniendo todo como texto inicialmente
                         df_subido = pd.read_excel(archivo_excel, dtype=object)
                         
-                        # 2. Asegurar estrictamente que las cabeceras sean una lista de strings antes de aplicar .str
+                        # 2. Asegurar estrictamente que las cabeceras sean strings limpias
                         df_subido.columns = [str(c).strip().lower() for c in df_subido.columns]
 
-                        # 3. Mapeo flexible de columnas por coincidencia parcial
+                        # 3. Mapeo ultra flexible adaptado a los nombres exactos de tu Excel
                         rename_dict = {}
                         for col in df_subido.columns:
                             col_clean = str(col).strip().lower()
                             
-                            if any(x in col_clean for x in ['comprobante', 'comp']):
+                            if any(x in col_clean for x in ['comprobante', 'comp', 'n_comprobar']):
                                 rename_dict[col] = 'n_comprobante'
                             elif any(x in col_clean for x in ['descripcion', 'descripción', 'concepto', 'detalle']):
                                 rename_dict[col] = 'descripcion'
                             elif any(x in col_clean for x in ['fecha', 'fec']):
                                 rename_dict[col] = 'fecha'
-                            elif any(x in col_clean for x in ['plan', 'cuenta', 'cod', 'codigo']) and 'nombre' not in col_clean:
+                            elif any(x in col_clean for x in ['plan', 'cuenta', 'cod', 'codigo', 'plan_de_cuen']):
                                 rename_dict[col] = 'plan_cuentas'
-                            elif any(x in col_clean for x in ['nombre', 'cuenta_contable']) or ('cuenta' in col_clean and 'nombre' in col_clean):
+                            elif any(x in col_clean for x in ['nombre', 'cuenta_contable']) or ('cuenta' in col_clean and 'contable' in col_clean):
                                 rename_dict[col] = 'cuenta_contable'
                             elif any(x in col_clean for x in ['referencia', 'ref', 'factura']):
                                 rename_dict[col] = 'referencia'
@@ -10634,7 +10635,7 @@ elif opcion_menu == "📝 Asientos Contables":
 
                         # 4. Validar obligatoriamente la existencia de 'plan_cuentas'
                         if 'plan_cuentas' not in df_subido.columns:
-                            st.error("❌ El archivo Excel no contiene una columna reconocible para el **Plan de Cuentas** (Asegúrate de que la columna se llame 'plan_cuentas', 'código' o 'cuenta').")
+                            st.error("❌ El archivo Excel no contiene una columna reconocible para el **Plan de Cuentas**. Verifica que la columna se llame 'plan_cuentas' o 'plan_de_cuentas'.")
                         else:
                             # 5. Formatear fecha
                             if 'fecha' in df_subido.columns:
@@ -10655,7 +10656,7 @@ elif opcion_menu == "📝 Asientos Contables":
                             else:
                                 df_subido['bloqueado'] = pd.to_numeric(df_subido['bloqueado'], errors='coerce').fillna(0).astype(int)
 
-                            # 7. Limpieza segura de campos de texto estrictamente columna por columna
+                            # 7. Limpieza segura de campos de texto columna por columna (evita errores de tipo)
                             campos_texto = ['n_comprobante', 'descripcion', 'plan_cuentas', 'cuenta_contable', 'referencia']
                             for c in campos_texto:
                                 if c not in df_subido.columns:
@@ -10664,7 +10665,7 @@ elif opcion_menu == "📝 Asientos Contables":
                                     df_subido[c] = df_subido[c].fillna("").astype(str).str.strip()
                                     df_subido[c] = df_subido[c].apply(lambda x: "" if str(x).lower() in ['nan', 'none', 'nat', 'null'] else str(x))
 
-                            # 8. Crear vista previa formateada adaptada a la estructura de la BD
+                            # 8. Crear vista previa formateada
                             df_para_mostrar = df_subido.copy()
                             for col in ['debe', 'haber']:
                                 if col in df_para_mostrar.columns:
