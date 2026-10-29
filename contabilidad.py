@@ -2515,8 +2515,8 @@ def generar_balance_profesional(db, f_i, f_f, sucursal):
             st.warning("⚠️ El plan de cuentas está vacío.")
             return pd.DataFrame()
 
-        # 2. Obtener los saldos del balance de comprobación pasando 'db' (string hashable) en lugar de 'conn'
-        df_saldos = generar_balance_comprobacion(db, f_i, f_f, sucursal)
+        # 2. Obtener los saldos del balance de comprobación
+        df_saldos = generar_balance_comprobacion(conn, f_i, f_f, sucursal)
         
         cols_finales = ['codigo', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final']
         
@@ -7505,6 +7505,9 @@ def generar_pdf_preimpreso(conn, datos_factura, items_factura):
 
 
 
+import re
+import pandas as pd
+
 def generar_auxiliar_cxp(conn, fecha_desde, fecha_hasta, proveedor_seleccionado=None):
     """
     Genera un DataFrame con el Auxiliar de Cuentas por Pagar filtrado 
@@ -7512,6 +7515,10 @@ def generar_auxiliar_cxp(conn, fecha_desde, fecha_hasta, proveedor_seleccionado=
     agrupando correctamente los ajustes administrativos bajo el proveedor del comprobante.
     """
     try:
+        # Formatear fechas de manera estricta a string YYYY-MM-DD
+        f_hasta_str = fecha_hasta.strftime('%Y-%m-%d') if hasattr(fecha_hasta, 'strftime') else str(fecha_hasta)
+        f_desde_str = fecha_desde.strftime('%Y-%m-%d') if hasattr(fecha_desde, 'strftime') else str(fecha_desde)
+
         # Consulta estricta: Solo buscamos el código exacto de Proveedores Nacionales
         query = """
             SELECT id, n_comprobante, fecha, descripcion, plan_cuentas, cuenta_contable, referencia, debe, haber
@@ -7520,7 +7527,7 @@ def generar_auxiliar_cxp(conn, fecha_desde, fecha_hasta, proveedor_seleccionado=
               AND fecha <= %s
             ORDER BY fecha ASC, n_comprobante ASC, id ASC
         """
-        df_total = ejecutar_consulta(query, conn, params=(str(fecha_hasta),))
+        df_total = ejecutar_consulta(query, conn, params=(f_hasta_str,))
         
         if df_total is None or df_total.empty:
             return pd.DataFrame()
@@ -7534,7 +7541,10 @@ def generar_auxiliar_cxp(conn, fecha_desde, fecha_hasta, proveedor_seleccionado=
         # Convertir montos a numéricos por seguridad
         df_total['debe'] = pd.to_numeric(df_total['debe'], errors='coerce').fillna(0.0)
         df_total['haber'] = pd.to_numeric(df_total['haber'], errors='coerce').fillna(0.0)
-        df_total['fecha'] = pd.to_datetime(df_total['fecha'])
+        
+        # Guardar datetime para filtros y convertir fecha a string YYYY-MM-DD para el reporte
+        df_total['fecha_dt'] = pd.to_datetime(df_total['fecha'])
+        df_total['fecha'] = df_total['fecha_dt'].dt.strftime('%Y-%m-%d')
 
         # 1. Extracción inteligente del proveedor base desde la descripción
         def extraer_proveedor_base(desc):
@@ -7554,15 +7564,14 @@ def generar_auxiliar_cxp(conn, fecha_desde, fecha_hasta, proveedor_seleccionado=
         df_total['proveedor_raw'] = df_total['descripcion'].apply(extraer_proveedor_base)
 
         # 2. Propagar el nombre del proveedor dentro del mismo comprobante 
-        # (Esto asegura que filas como "AJUSTES ADMINISTRATIVOS" cojan el proveedor de su mismo comprobante)
         df_total['proveedor'] = df_total.groupby('n_comprobante')['proveedor_raw'].transform(lambda x: next((v for v in x if v != ""), "GENERAL / OTROS"))
         
         # Si aun así quedó vacio en algún comprobante sin nombre explícito
         df_total['proveedor'] = df_total['proveedor'].replace("", "GENERAL / OTROS")
 
-        # Separar Saldo Inicial y Movimientos del Periodo
-        mask_inicial = df_total['fecha'] < pd.to_datetime(fecha_desde)
-        df_periodo = df_total[df_total['fecha'] >= pd.to_datetime(fecha_desde)].copy()
+        # Separar Saldo Inicial y Movimientos del Periodo usando las fechas en texto estricto
+        mask_inicial = df_total['fecha_dt'] < pd.to_datetime(f_desde_str)
+        df_periodo = df_total[df_total['fecha_dt'] >= pd.to_datetime(f_desde_str)].copy()
 
         # Filtrar por un proveedor específico si se selecciona
         if proveedor_seleccionado and proveedor_seleccionado != "TODOS":
@@ -7595,8 +7604,6 @@ def generar_auxiliar_cxp(conn, fecha_desde, fecha_hasta, proveedor_seleccionado=
         return pd.DataFrame()
 
 
-import re
-
 def limpiar_moneda(valor):
     """
     Limpia cadenas de texto con formato de moneda (ej: '1.250,50' o 'Bs. 500') 
@@ -7613,16 +7620,12 @@ def limpiar_moneda(valor):
 
     try:
         # Si usa formato europeo/venezolano (puntos para miles, comas para decimales)
-        # Ejemplo: 1.250,50 -> 1250.50
         if ',' in val_str and '.' in val_str:
-            # Si el punto está antes de la coma (ej: 1.250,50)
             if val_str.find('.') < val_str.find(','):
                 val_str = val_str.replace('.', '').replace(',', '.')
             else:
-                # Caso inverso (ej: 1,250.50)
                 val_str = val_str.replace(',', '')
         elif ',' in val_str:
-            # Solo tiene coma (ej: 1250,50)
             val_str = val_str.replace(',', '.')
         
         # Remover cualquier carácter que no sea número, signo menos o punto decimal
