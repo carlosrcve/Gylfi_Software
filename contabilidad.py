@@ -7547,69 +7547,75 @@ import io
 class PDFReporteAuxiliar(FPDF):
     def __init__(self, empresa_nombre, proveedor_nombre, f_desde, f_hasta, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.empresa_nombre = empresa_nombre
-        self.proveedor_nombre = proveedor_nombre
-        self.f_desde = f_desde
-        self.f_hasta = f_hasta
+        self.empresa_nombre = str(empresa_nombre).encode('latin-1', 'replace').decode('latin-1')
+        self.proveedor_nombre = str(proveedor_nombre).encode('latin-1', 'replace').decode('latin-1')
+        self.f_desde = str(f_desde)
+        self.f_hasta = str(f_hasta)
 
     def header(self):
-        # Encabezado del reporte
         self.set_font('helvetica', 'B', 14)
-        self.cell(0, 8, f"ESTADO DE CUENTA / AUXILIAR CXP", 0, 1, 'C')
+        self.cell(0, 8, "ESTADO DE CUENTA / AUXILIAR CXP", 0, 1, 'C')
         self.set_font('helvetica', 'B', 10)
         self.cell(0, 6, f"Empresa: {self.empresa_nombre}", 0, 1, 'C')
         self.cell(0, 6, f"Proveedor: {self.proveedor_nombre}", 0, 1, 'C')
-        self.cell(0, 6, f"Período: {self.f_desde} al {self.f_hasta}", 0, 1, 'C')
+        self.cell(0, 6, f"Periodo: {self.f_desde} al {self.f_hasta}", 0, 1, 'C')
         self.ln(5)
 
-        # Cabeceras de la tabla
         self.set_font('helvetica', 'B', 8)
         self.set_fill_color(240, 242, 246)
         
-        # Anchos de columna (Total ancho útil en A4 vertical = ~190mm)
         self.cell(20, 6, "Fecha", 1, 0, 'C', True)
         self.cell(22, 6, "Comprobante", 1, 0, 'C', True)
-        self.cell(18, 6, "Plan Cuentas", 1, 0, 'C', True)
-        self.cell(50, 6, "Descripción", 1, 0, 'C', True)
+        self.cell(18, 6, "Plan Ctas", 1, 0, 'C', True)
+        self.cell(50, 6, "Descripcion", 1, 0, 'C', True)
         self.cell(22, 6, "Debe", 1, 0, 'R', True)
         self.cell(22, 6, "Haber", 1, 0, 'R', True)
         self.cell(26, 6, "Saldo", 1, 1, 'R', True)
 
     def footer(self):
-        # Paginación al pie de página
         self.set_y(-15)
         self.set_font('helvetica', 'I', 8)
-        self.cell(0, 10, f"Página {self.page_no()} / {{nb}}", 0, 0, 'C')
+        self.cell(0, 10, f"Pagina {self.page_no()} / {{nb}}", 0, 0, 'C')
+
 
 def generar_pdf_auxiliar_cxp(df_vista, proveedor_nombre, empresa_nombre, f_desde, f_hasta):
-    pdf = PDFReporteAuxiliar(empresa_nombre, proveedor_nombre, str(f_desde), str(f_hasta), orientation='P', unit='mm', format='A4')
-    pdf.alias_nb_pages()
-    pdf.add_page()
-    pdf.set_font('helvetica', '', 8)
+    try:
+        pdf = PDFReporteAuxiliar(empresa_nombre, proveedor_nombre, str(f_desde), str(f_hasta), orientation='P', unit='mm', format='A4')
+        pdf.alias_nb_pages()
+        pdf.add_page()
+        pdf.set_font('helvetica', '', 8)
 
-    # Iterar sobre el DataFrame para pintar las filas
-    for _, row in df_vista.iterrows():
-        fecha = str(row.get('Fecha', ''))
-        comp = str(row.get('Comprobante', ''))
-        plan = str(row.get('Plan Cuentas', ''))
-        desc = str(row.get('Descripción', ''))
-        if len(desc) > 30:
-            desc = desc[:27] + "..." # Recortar descripciones muy largas para que quepan en la celda
-        
-        debe = float(row.get('Debe', 0.0))
-        haber = float(row.get('Haber', 0.0))
-        saldo = float(row.get('Saldo', 0.0))
+        for _, row in df_vista.iterrows():
+            fecha = str(row.get('Fecha', ''))
+            comp = str(row.get('Comprobante', ''))
+            plan = str(row.get('Plan Cuentas', ''))
+            
+            # Sanitizar texto para evitar crash de codificación latin-1 en Helvetica
+            desc_raw = str(row.get('Descripción', row.get('Descripcion', '')))
+            desc = desc_raw.encode('latin-1', 'replace').decode('latin-1')
+            if len(desc) > 30:
+                desc = desc[:27] + "..."
+            
+            debe = float(row.get('Debe', 0.0))
+            haber = float(row.get('Haber', 0.0))
+            saldo = float(row.get('Saldo', 0.0))
 
-        pdf.cell(20, 6, fecha, 1, 0, 'C')
-        pdf.cell(22, 6, comp, 1, 0, 'C')
-        pdf.cell(18, 6, plan, 1, 0, 'C')
-        pdf.cell(50, 6, desc, 1, 0, 'L')
-        pdf.cell(22, 6, f"{debe:,.2f}", 1, 0, 'R')
-        pdf.cell(22, 6, f"{haber:,.2f}", 1, 0, 'R')
-        pdf.cell(26, 6, f"{saldo:,.2f}", 1, 1, 'R')
+            pdf.cell(20, 6, fecha, 1, 0, 'C')
+            pdf.cell(22, 6, comp, 1, 0, 'C')
+            pdf.cell(18, 6, plan, 1, 0, 'C')
+            pdf.cell(50, 6, desc, 1, 0, 'L')
+            pdf.cell(22, 6, f"{debe:,.2f}", 1, 0, 'R')
+            pdf.cell(22, 6, f"{haber:,.2f}", 1, 0, 'R')
+            pdf.cell(26, 6, f"{saldo:,.2f}", 1, 1, 'R')
 
-    # Retornar los bytes del PDF generado
-    return pdf.output()
+        # Garantizar que devuelva bytes compatibles con Streamlit
+        res_output = pdf.output()
+        if isinstance(res_output, str):
+            return res_output.encode('latin-1')
+        return bytes(res_output)
+    except Exception as e:
+        print(f"Error generando PDF: {e}")
+        return b""
 # ==============================================================================
 # 1. FUNCIÓN BACKEND: GENERAR AUXILIAR DE CUENTAS POR PAGAR
 # ==============================================================================
@@ -19097,7 +19103,7 @@ if opcion_menu == "📄 Factura Preimpresa":
 
 
 # ==============================================================================
-# 2. VISTA FRONTEND EN STREAMLIT
+# 3. VISTA FRONTEND EN STREAMLIT
 # ==============================================================================
 if opcion_menu == "📄 Auxiliar Cta por Pagar":
     st.markdown("### 📊 Auxiliar de Cuentas por Pagar (Proveedores)")
@@ -19108,14 +19114,12 @@ if opcion_menu == "📄 Auxiliar Cta por Pagar":
     if not db_actual:
         st.warning("⚠️ Por favor, selecciona una empresa activa para ver el auxiliar.")
     else:
-        # Filtros de Rango de Fecha para el Auxiliar
         col_f1, col_f2 = st.columns(2)
         with col_f1:
             f_desde = st.date_input("Auxiliar Desde", value=date.today().replace(day=1), key="aux_cxp_desde")
         with col_f2:
             f_hasta = st.date_input("Auxiliar Hasta", value=date.today(), key="aux_cxp_hasta")
 
-        # Conexión con la base de datos actual seleccionada
         conn_aux = None
         try:
             conn_aux = conectar_db(db_actual)
@@ -19128,7 +19132,6 @@ if opcion_menu == "📄 Auxiliar Cta por Pagar":
                 conn_aux.close()
 
         if df_auxiliar is not None and not df_auxiliar.empty:
-            # 1. Filtrar lista de proveedores limpios (excluye pagos, bancos y genéricos)
             proveedores_unicos = df_auxiliar['Proveedor'].dropna().astype(str).str.strip()
             proveedores_unicos = proveedores_unicos[
                 (proveedores_unicos != "") & 
@@ -19139,12 +19142,16 @@ if opcion_menu == "📄 Auxiliar Cta por Pagar":
             lista_proveedores = ["TODOS"] + sorted(proveedores_unicos.unique().tolist())
             prov_seleccionado = st.selectbox("Filtrar por Proveedor Específico:", lista_proveedores, key="select_filtro_proveedor")
 
-            # 2. Aplicar filtro seleccionado sobre la copia para la vista y exportación
             df_vista = df_auxiliar.copy()
             if prov_seleccionado != "TODOS":
-                df_vista = df_vista[df_vista['Proveedor'] == prov_seleccionado]
+                df_vista = df_vista[df_vista['Proveedor'] == prov_seleccionado].copy()
+                df_vista['mov_temp'] = 0.0
+                es_cxp_m = df_vista['Plan Cuentas'].astype(str).str.strip() == '2.1.1.01.001'
+                df_vista.loc[es_cxp_m, 'mov_temp'] = df_vista.loc[es_cxp_m, 'Haber'] - df_vista.loc[es_cxp_m, 'Debe']
+                df_vista['Saldo'] = df_vista['mov_temp'].cumsum()
+                if 'mov_temp' in df_vista.columns:
+                    df_vista = df_vista.drop(columns=['mov_temp'])
 
-            # 3. Mostrar la tabla formateada en Streamlit
             st.dataframe(
                 df_vista,
                 use_container_width=True,
@@ -19156,7 +19163,6 @@ if opcion_menu == "📄 Auxiliar Cta por Pagar":
                 }
             )
             
-            # 4. Cálculo de Totales (Exclusivo para la cuenta de Pasivo 2.1.1.01.001)
             df_cxp_puro = df_vista[df_vista['Plan Cuentas'].astype(str).str.strip() == '2.1.1.01.001']
             
             total_pagos_cxp = df_cxp_puro['Debe'].sum()
@@ -19170,33 +19176,38 @@ if opcion_menu == "📄 Auxiliar Cta por Pagar":
 
             st.divider()
 
-            # --- ÁREA DE DESCARGAS (EXCEL Y PDF) ---
             st.write("### 📥 Exportar Auxiliar del Proveedor")
             col_ex, col_pdf = st.columns(2)
 
-            # 1. BOTÓN DE EXCEL
+            nombre_prov_clean = str(prov_seleccionado).replace(' ', '_').replace('/', '_')
+
             output_aux = io.BytesIO()
+            cols_exp = ['Fecha', 'Comprobante', 'Plan Cuentas', 'Cuenta Contable', 'Referencia / Factura', 'Descripción', 'Proveedor', 'Debe', 'Haber', 'Saldo']
+            df_exportar = df_vista[[c for c in cols_exp if c in df_vista.columns]]
+
             with pd.ExcelWriter(output_aux, engine='xlsxwriter') as writer:
-                df_vista.to_excel(writer, index=False, sheet_name='Auxiliar_CxP')
+                df_exportar.to_excel(writer, index=False, sheet_name='Auxiliar_CxP')
             
             col_ex.download_button(
                 label="📥 Descargar Excel",
                 data=output_aux.getvalue(),
-                file_name=f"Auxiliar_CxP_{prov_seleccionado.replace(' ', '_')}_{EMPRESA}.xlsx",
+                file_name=f"Auxiliar_CxP_{nombre_prov_clean}_{EMPRESA}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True
             )
 
-            # 2. BOTÓN DE PDF (Funcional y conectado)
             pdf_bytes = generar_pdf_auxiliar_cxp(df_vista, prov_seleccionado, EMPRESA, f_desde, f_hasta)
             
-            col_pdf.download_button(
-                label="📄 Descargar PDF (Estado de Cuenta)",
-                data=pdf_bytes,
-                file_name=f"Auxiliar_CxP_{prov_seleccionado.replace(' ', '_')}_{EMPRESA}.pdf",
-                mime="application/pdf",
-                use_container_width=True
-            )
+            if pdf_bytes:
+                col_pdf.download_button(
+                    label="📄 Descargar PDF (Estado de Cuenta)",
+                    data=pdf_bytes,
+                    file_name=f"Auxiliar_CxP_{nombre_prov_clean}_{EMPRESA}.pdf",
+                    mime="application/pdf",
+                    use_container_width=True
+                )
+            else:
+                col_pdf.error("❌ No se pudo generar el archivo PDF.")
 
         else:
             st.info("ℹ️ No se encontraron movimientos en cuentas de pasivo para el rango de fechas seleccionado.")
