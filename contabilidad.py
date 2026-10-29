@@ -15137,22 +15137,20 @@ elif sub_opcion == "Estado de Resultados":
     f_er_desde = col_f1.date_input("Desde", obtener_fecha_segura('f_inicio_global'), key="er_desde")
     f_er_hasta = col_f2.date_input("Hasta", obtener_fecha_segura('f_fin_global'), key="er_hasta")
     
-    # --- FUNCIÓN CON CACHÉ PARA OPTIMIZAR EL ESTADO DE RESULTADOS ---
+    # --- FUNCIÓN CON CACHÉ CORREGIDA Y OPTIMIZADA ---
     @st.cache_data(ttl=60, show_spinner=False)
     def obtener_estado_resultados_cached(db_name, fecha_desde, fecha_hasta, sucursal_sel):
         df_datos = pd.DataFrame()
-        conn = conectar_db(db_name)
-        if conn:
-            try:
-                conn.ping(reconnect=True)
-                df_datos = generar_balance_profesional(conn, fecha_desde, fecha_hasta, sucursal_sel)
-            except Exception:
-                pass
-            finally:
-                try:
-                    conn.close()
-                except Exception:
-                    pass
+        try:
+            # 💡 Convertir las fechas a texto YYYY-MM-DD
+            f_i_str = fecha_desde.strftime('%Y-%m-%d') if hasattr(fecha_desde, 'strftime') else str(fecha_desde)
+            f_f_str = fecha_hasta.strftime('%Y-%m-%d') if hasattr(fecha_hasta, 'strftime') else str(fecha_hasta)
+            
+            # 💡 CORRECCIÓN CRÍTICA: Se pasa db_name (string) directamente en lugar de 'conn'
+            df_datos = generar_balance_profesional(db_name, f_i_str, f_f_str, sucursal_sel)
+        except Exception as err:
+            st.error(f"❌ Error al consultar estado de resultados: {err}")
+            df_datos = pd.DataFrame()
         return df_datos
 
     df_datos = obtener_estado_resultados_cached(db_actual, f_er_desde, f_er_hasta, sucursal)
@@ -15163,16 +15161,17 @@ elif sub_opcion == "Estado de Resultados":
         
         # 1. Filtramos cuentas de resultados (4 al 8) usando el código limpio
         df_er = df_datos[df_datos['codigo_limpio'].str.startswith(('4', '5', '6', '7', '8'))].copy()
-        df_er['Cuenta'] = df_er.apply(lambda x: f"{'    ' * (int(x['nivel'])-1)}{x['nombre']}", axis=1)
         
         if df_er.empty:
             st.warning("⚠️ No se encontraron registros para las cuentas de Resultados (4, 5, 6, 7, 8) en el período seleccionado.")
         else:
+            df_er['Cuenta'] = df_er.apply(lambda x: f"{'    ' * (int(x['nivel'])-1)}{x['nombre']}", axis=1)
+            
             # 2. RENDERIZADO EN PANTALLA
             st.dataframe(
                 df_er.style.format({'Saldo Final': formato_contable}).apply(estilo_balance, axis=1),
                 column_order=['codigo', 'Cuenta', 'Saldo Final'],
-                width='stretch', 
+                use_container_width=True, 
                 height=400, 
                 hide_index=True
             )
@@ -15200,7 +15199,7 @@ elif sub_opcion == "Estado de Resultados":
                             delta=f"{formato_contable(utilidad)}",
                             delta_color="normal" if utilidad >= 0 else "inverse")
 
-            # 1. GESTIÓN DE TASA BCV CON CACHÉ
+            # 4. GESTIÓN DE TASA BCV CON CACHÉ
             @st.cache_data(ttl=3600, show_spinner=False)
             def obtener_tasa_bcv_cached(db_name):
                 tasa_val = 1.0
@@ -15230,7 +15229,7 @@ elif sub_opcion == "Estado de Resultados":
             ing_usd, cos_usd, gas_usd, util_usd = [x / tasa for x in [abs(ing), abs(cos), abs(gas), utilidad]]
             costos_gastos_usd = cos_usd + gas_usd
 
-            # 3. VISUALIZACIÓN EN USD
+            # 5. VISUALIZACIÓN EN USD
             c1, c2, c3 = st.columns(3)
             with c1:
                 st.metric("Ingresos (USD)", f"$ {formato_contable(ing_usd)}")
@@ -15241,7 +15240,7 @@ elif sub_opcion == "Estado de Resultados":
                             delta=f"{formato_contable(util_usd)} USD",
                             delta_color="normal" if utilidad >= 0 else "inverse")
 
-            # Contenedor estético para la Tasa BCV
+            # Contenedor para la Tasa BCV
             with st.container():
                 st.markdown(
                     f"""
@@ -15268,7 +15267,7 @@ elif sub_opcion == "Estado de Resultados":
 
             st.divider()
 
-            # 4. ÁREA DE EXPORTACIÓN
+            # 6. ÁREA DE EXPORTACIÓN
             st.write("### 📥 Exportar Reporte")
             col_ex, col_pdf = st.columns(2)
 
@@ -15285,7 +15284,7 @@ elif sub_opcion == "Estado de Resultados":
                 data=output_er.getvalue(),
                 file_name=f"Estado_Resultados_{EMPRESA}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                width='stretch'
+                use_container_width=True
             )
 
             # --- PDF ---
