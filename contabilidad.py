@@ -2495,14 +2495,17 @@ def mostrar_interfaz_mayor(f_ini_g, f_fin_g, db_nombre):
 
 @st.cache_data(ttl=300)
 def generar_balance_profesional(db, f_i, f_f, sucursal):
-    # Abrimos una conexión fresca y segura dentro de la función cacheada
-    conn = conectar_db(db_name)
-    if not conn:
+    # Abrimos una conexión fresca y segura dentro de la función cacheada usando 'db'
+    conn = conectar_db(db)
+    script_conn_valido = bool(conn)
+    if not script_conn_valido:
+        st.error(f"Papi, no se pudo establecer conexión a la base de datos: {db}")
         return pd.DataFrame()
     
+    cursor = None
     try:
         cursor = conn.cursor()
-        cursor.execute(f"USE `{db_name}`")
+        cursor.execute(f"USE `{db}`")
         
         # 1. Consultar el plan de cuentas original
         query_plan = f"SELECT codigo, nombre, nivel, tipo, padre FROM `{db}`.plan_cuentas ORDER BY codigo"
@@ -2510,9 +2513,11 @@ def generar_balance_profesional(db, f_i, f_f, sucursal):
         
         if df_plan is None or df_plan.empty:
             st.warning("⚠️ El plan de cuentas está vacío.")
-            return None
+            return pd.DataFrame()
 
         # 2. Obtener los saldos del balance de comprobación
+        # Nota: Asegúrate de que 'generar_balance_comprobacion' NO esté decorada con @st.cache_data 
+        # si le estás pasando el objeto 'conn' directamente.
         df_saldos = generar_balance_comprobacion(conn, f_i, f_f, sucursal)
         
         cols_finales = ['codigo', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final']
@@ -2597,9 +2602,16 @@ def generar_balance_profesional(db, f_i, f_f, sucursal):
         st.error(f"Error en balance de comprobación: {e}")
         return pd.DataFrame()
     finally:
+        if cursor:
+            try:
+                cursor.close()
+            except Exception:
+                pass
         if conn:
-            conn.close()
-
+            try:
+                conn.close()
+            except Exception:
+                pass
 
 @st.cache_data(ttl=300)
 def consultar_libro_diario_db(db_a_usar=None, fecha_inicio=None, fecha_fin=None):
@@ -14610,6 +14622,7 @@ elif opcion_menu == "📖 Mayor Analítico":
 
 
 # E. ESTADOS FINANCIEROS -> BALANCE COMPROBACIÓN
+# E. ESTADOS FINANCIEROS -> BALANCE COMPROBACIÓN
 elif sub_opcion == "Balance de Comprobación":
     
     # 1. PRIMERO: Asegurar que la sesión tenga los datos del cliente activo
@@ -14647,27 +14660,20 @@ elif sub_opcion == "Balance de Comprobación":
 
     # --- FUNCIÓN CON CACHÉ OPTIMIZADA ---
     @st.cache_data(ttl=60, show_spinner="Generando balance de comprobación...")
-    def obtener_balance_cached(db_name, fecha_desde, fecha_hasta, sucursal_sel):
+    def obtener_balance_cached(db_name_param, fecha_desde, fecha_hasta, sucursal_sel):
         df = pd.DataFrame()
         try:
             # Convertir a string YYYY-MM-DD para evitar diferencias de tipo
             f_desde_str = fecha_desde.strftime('%Y-%m-%d') if hasattr(fecha_desde, 'strftime') else str(fecha_desde)
             f_hasta_str = fecha_hasta.strftime('%Y-%m-%d') if hasattr(fecha_hasta, 'strftime') else str(fecha_hasta)
             
-            # ⚠️ AQUÍ ESTABA EL ERROR: Se debe pasar db_name (string) y no la conexión conn
-            conn_temp = conectar_db(db_name)
-            if conn_temp:
-                try:
-                    df = generar_balance_profesional(db_name, f_desde_str, f_hasta_str, sucursal_sel)
-                finally:
-                    conn_temp.close()
-            else:
-                st.error(f"❌ No se pudo establecer conexión con la base de datos {db_name}")
+            # Llamamos a la función profesional pasando el nombre de la BD en texto
+            df = generar_balance_profesional(db_name_param, f_desde_str, f_hasta_str, sucursal_sel)
         except Exception as err:
             st.error(f"❌ Error al obtener balance en caché: {err}")
         return df
 
-    # 4. OBTENCIÓN DE DATOS
+    # 4. OBTENCIÓN DE DATOS (Pasando db_actual como argumento)
     df_bal = obtener_balance_cached(db_actual, f_bal_desde, f_bal_hasta, sucursal)
     
     # Validar que df_bal no sea None ni esté vacío
@@ -14693,7 +14699,6 @@ elif sub_opcion == "Balance de Comprobación":
             
             # Preparar columna con sangría para la pantalla
             df_display['Cuenta'] = df_display.apply(lambda x: f"{'    ' * (int(x['nivel'])-1)}{x['nombre']}", axis=1)
-            nombre_archivo_pdf = f"Balance_{EMPRESA}_{f_bal_hasta.strftime('%d_%m_%Y')}.pdf"
 
             # --- VISUALIZACIÓN EN DATAFRAME ---
             st.dataframe(
@@ -14739,7 +14744,6 @@ elif sub_opcion == "Balance de Comprobación":
             st.divider()
             col_btn1, col_btn2 = st.columns(2)
 
-            # 1. EXCEL
             columnas_excel = {
                 'codigo': 'Código',
                 'nombre': 'Cuenta',
