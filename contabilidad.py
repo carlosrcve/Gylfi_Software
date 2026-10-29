@@ -7544,16 +7544,13 @@ def generar_pdf_preimpreso(conn, datos_factura, items_factura):
 
 def generar_auxiliar_cxp(conn, fecha_desde, fecha_hasta, proveedor_seleccionado=None):
     """
-    Genera un DataFrame con el Auxiliar de Cuentas por Pagar detallado por comprobante 
-    (incluyendo todas las líneas contables asociadas a los comprobantes de la cuenta 2.1.1.01.001), 
-    coincidiendo exactamente con la estructura del reporte en Excel.
+    Genera un DataFrame con el Auxiliar de Cuentas por Pagar detallado por comprobante,
+    filtrando estrictamente descripciones bancarias o de pagos en la columna Proveedor.
     """
     try:
-        # Formatear fechas de manera estricta a string YYYY-MM-DD
         f_hasta_str = fecha_hasta.strftime('%Y-%m-%d') if hasattr(fecha_hasta, 'strftime') else str(fecha_hasta)
         f_desde_str = fecha_desde.strftime('%Y-%m-%d') if hasattr(fecha_desde, 'strftime') else str(fecha_desde)
 
-        # Consulta ampliada: Obtener todas las líneas de los comprobantes que tengan movimientos en 2.1.1.01.001
         query = """
             SELECT id, n_comprobante, fecha, descripcion, plan_cuentas, cuenta_contable, referencia, debe, haber
             FROM asientos_contables
@@ -7570,53 +7567,60 @@ def generar_auxiliar_cxp(conn, fecha_desde, fecha_hasta, proveedor_seleccionado=
         if df_total is None or df_total.empty:
             return pd.DataFrame()
 
-        # Convertir montos a numéricos por seguridad
         df_total['debe'] = pd.to_numeric(df_total['debe'], errors='coerce').fillna(0.0)
         df_total['haber'] = pd.to_numeric(df_total['haber'], errors='coerce').fillna(0.0)
         
-        # Guardar datetime para filtros y convertir fecha a string YYYY-MM-DD para el reporte
         df_total['fecha_dt'] = pd.to_datetime(df_total['fecha'])
         df_total['fecha'] = df_total['fecha_dt'].dt.strftime('%Y-%m-%d')
 
-        # 1. Extracción inteligente del proveedor base desde la descripción
+        # 💡 EXTRACCIÓN ESTRICTA DE PROVEEDORES (Filtra bancos y pagos)
         def extraer_proveedor_base(desc):
             if not isinstance(desc, str):
                 return ""
+            
+            d_upper = desc.upper().strip()
+            
+            # Palabras prohibidas que indican que es un pago o banco, no un proveedor
+            palabras_excluidas = ["PAGO A", "PAGOS", "BANCO", "TRANSFERENCIA", "NOTA DE", "AJUSTES", "IVSS", "SENIAT", "BANCRECER", "BDV"]
+            if any(p in d_upper for p in palabras_excluidas):
+                return ""
+
+            # Si tiene estructura con guion (ej: FACTURA - PROVEEDOR)
             if "-" in desc:
                 partes = desc.split("-")
                 candidato = partes[-1].strip()
-                if len(candidato) > 3 and "AJUSTES" not in candidato.upper():
+                c_up = candidato.upper()
+                if len(candidato) > 3 and not any(p in c_up for p in palabras_excluidas):
                     return candidato
-            if "AJUSTES" not in desc.upper() and "PAGADO" not in desc.upper() and len(desc.strip()) > 3:
+            
+            # Si el texto mismo es un nombre válido
+            if len(desc.strip()) > 3:
                 return desc.strip()
+                
             return ""
 
         df_total['proveedor_raw'] = df_total['descripcion'].apply(extraer_proveedor_base)
 
-        # 2. Propagar el nombre del proveedor dentro del mismo comprobante 
-        df_total['proveedor'] = df_total.groupby('n_comprobante')['proveedor_raw'].transform(lambda x: next((v for v in x if v != ""), "GENERAL / OTROS"))
+        # Propagar el nombre del proveedor dentro del mismo comprobante 
+        df_total['proveedor'] = df_total.groupby('n_comprobante')['proveedor_raw'].transform(lambda x: next((v for v in x if v != ""), ""))
         df_total['proveedor'] = df_total['proveedor'].replace("", "GENERAL / OTROS")
 
-        # Filtrar por un proveedor específico si se selecciona
         if proveedor_seleccionado and proveedor_seleccionado != "TODOS":
             df_total = df_total[df_total['proveedor'] == proveedor_seleccionado]
             if df_total.empty:
                 return pd.DataFrame()
 
-        # Separar Movimientos del Periodo (fecha >= fecha_desde)
         df_periodo = df_total[df_total['fecha_dt'] >= pd.to_datetime(f_desde_str)].copy()
 
         if df_periodo.empty:
             return pd.DataFrame()
 
-        # Calcular Saldo Acumulado: Solo las líneas de la cuenta de proveedores (2.1.1.01.001) modifican el saldo de CxP
         df_periodo['es_cxp'] = df_periodo['plan_cuentas'].astype(str).str.strip() == '2.1.1.01.001'
         df_periodo['movimiento'] = 0.0
         df_periodo.loc[df_periodo['es_cxp'], 'movimiento'] = df_periodo.loc[df_periodo['es_cxp'], 'haber'] - df_periodo.loc[df_periodo['es_cxp'], 'debe']
         
         df_periodo['saldo_acumulado'] = df_periodo.groupby('proveedor')['movimiento'].cumsum()
 
-        # Ordenar y renombrar columnas incluyendo Plan Cuentas y Cuenta Contable igual que en Excel
         auxiliar_final = df_periodo[[
             'fecha', 'n_comprobante', 'plan_cuentas', 'cuenta_contable', 'referencia', 'descripcion', 
             'proveedor', 'debe', 'haber', 'saldo_acumulado'
@@ -18975,9 +18979,14 @@ if opcion_menu == "📄 Auxiliar Cta por Pagar":
                 conn_aux.close()
 
         if df_auxiliar is not None and not df_auxiliar.empty:
-            # 💡 Extracción limpia y estricta de nombres de proveedores únicos
+            # 💡 Filtrar la lista para mostrar SOLO nombres de proveedores reales (excluyendo genéricos o vacíos)
             proveedores_unicos = df_auxiliar['Proveedor'].dropna().astype(str).str.strip()
-            proveedores_unicos = proveedores_unicos[proveedores_unicos != ""]
+            proveedores_unicos = proveedores_unicos[
+                (proveedores_unicos != "") & 
+                (proveedores_unicos != "GENERAL / OTROS") & 
+                (~proveedores_unicos.str.upper().str.startswith("PAGO"))
+            ]
+            
             lista_proveedores = ["TODOS"] + sorted(proveedores_unicos.unique().tolist())
             
             prov_seleccionado = st.selectbox("Filtrar por Proveedor Específico:", lista_proveedores, key="select_filtro_proveedor")
