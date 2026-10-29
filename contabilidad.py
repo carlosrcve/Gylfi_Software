@@ -2495,16 +2495,14 @@ def mostrar_interfaz_mayor(f_ini_g, f_fin_g, db_nombre):
 
 @st.cache_data(ttl=300)
 def generar_balance_profesional(db, f_i, f_f, sucursal):
-    # Nota: 'db' es un string (nombre de la BD), por lo que Streamlit lo puede cachear perfectamente.
-    conn = conectar_db(db)
+    # Abrimos una conexión fresca y segura dentro de la función cacheada
+    conn = conectar_db(db_name)
     if not conn:
-        st.error("Papi, no se pudo establecer conexión a la base de datos.")
-        return None
-
-    cursor = None
+        return pd.DataFrame()
+    
     try:
         cursor = conn.cursor()
-        cursor.execute(f"USE `{db}`")
+        cursor.execute(f"USE `{db_name}`")
         
         # 1. Consultar el plan de cuentas original
         query_plan = f"SELECT codigo, nombre, nivel, tipo, padre FROM `{db}`.plan_cuentas ORDER BY codigo"
@@ -2596,11 +2594,11 @@ def generar_balance_profesional(db, f_i, f_f, sucursal):
         return df_final
 
     except Exception as e:
-        st.error(f"Error procesando balance profesional: {e}")
-        return None
+        st.error(f"Error en balance de comprobación: {e}")
+        return pd.DataFrame()
     finally:
-        if cursor: cursor.close()
-        if conn: conn.close()
+        if conn:
+            conn.close()
 
 
 @st.cache_data(ttl=300)
