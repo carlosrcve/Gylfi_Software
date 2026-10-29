@@ -2516,8 +2516,6 @@ def generar_balance_profesional(db, f_i, f_f, sucursal):
             return pd.DataFrame()
 
         # 2. Obtener los saldos del balance de comprobación
-        # Nota: Asegúrate de que 'generar_balance_comprobacion' NO esté decorada con @st.cache_data 
-        # si le estás pasando el objeto 'conn' directamente.
         df_saldos = generar_balance_comprobacion(conn, f_i, f_f, sucursal)
         
         cols_finales = ['codigo', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final']
