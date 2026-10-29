@@ -2515,8 +2515,8 @@ def generar_balance_profesional(db, f_i, f_f, sucursal):
             st.warning("⚠️ El plan de cuentas está vacío.")
             return pd.DataFrame()
 
-        # 2. Obtener los saldos del balance de comprobación
-        df_saldos = generar_balance_comprobacion(conn, f_i, f_f, sucursal)
+        # 2. Obtener los saldos del balance de comprobación pasando 'db' (string hashable) en lugar de 'conn'
+        df_saldos = generar_balance_comprobacion(db, f_i, f_f, sucursal)
         
         cols_finales = ['codigo', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final']
         
