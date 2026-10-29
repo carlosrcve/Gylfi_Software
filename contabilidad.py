@@ -14645,32 +14645,43 @@ elif sub_opcion == "Balance de Comprobación":
     f_bal_desde = col_f1.date_input("Desde", f_inicio_global, key="bal_desde")
     f_bal_hasta = col_f2.date_input("Hasta", f_fin_global, key="bal_hasta")
 
-    # --- FUNCIÓN CON CACHÉ PARA OPTIMIZAR EL RENDIMIENTO DEL BALANCE ---
-    @st.cache_data(ttl=60, show_spinner=False)
+    # Botón para limpiar caché si se sospecha de datos colgados
+    if st.button("🔄 Recargar / Limpiar Caché", key="btn_clear_cache_bal"):
+        st.cache_data.clear()
+        st.rerun()
+
+    # --- FUNCIÓN CON CACHÉ OPTIMIZADA ---
+    @st.cache_data(ttl=60, show_spinner="Generando balance de comprobación...")
     def obtener_balance_cached(db_name, fecha_desde, fecha_hasta, sucursal_sel):
         df = pd.DataFrame()
         conn = conectar_db(db_name)
         if conn:
             try:
-                conn.ping(reconnect=True)
-                df = generar_balance_profesional(conn, fecha_desde, fecha_hasta, sucursal_sel)
-            except Exception:
-                pass
+                # Convertir a string YYYY-MM-DD para evitar diferencias de tipo entre Python y MySQL
+                f_desde_str = fecha_desde.strftime('%Y-%m-%d') if hasattr(fecha_desde, 'strftime') else str(fecha_desde)
+                f_hasta_str = fecha_hasta.strftime('%Y-%m-%d') if hasattr(fecha_hasta, 'strftime') else str(fecha_hasta)
+                
+                df = generar_balance_profesional(conn, f_desde_str, f_hasta_str, sucursal_sel)
+            except Exception as err:
+                # Mostrar el error exacto en desarrollo en lugar de pasarlo por alto
+                st.error(f"❌ Error interno en generar_balance_profesional: {err}")
             finally:
                 try:
                     conn.close()
                 except Exception:
                     pass
+        else:
+            st.error(f"❌ No se pudo establecer conexión con la base de datos {db_name}")
         return df
 
-    # 4. OBTENCIÓN DE DATOS CON CACHÉ
+    # 4. OBTENCIÓN DE DATOS
     df_bal = obtener_balance_cached(db_actual, f_bal_desde, f_bal_hasta, sucursal)
     
     # Validar que df_bal no sea None ni esté vacío
     if df_bal is None or not hasattr(df_bal, 'empty') or df_bal.empty:
-        st.info("ℹ️ No hay datos o la función de balance retornó vacío para el rango seleccionado.")
+        st.info("ℹ️ No hay datos de asientos contables registrados para el rango de fechas seleccionado.")
     else:
-        # Normalizar nombres de columnas por si la función externa usa mayúsculas o nombres alternativos
+        # Normalizar nombres de columnas
         renombres = {}
         if 'Código' in df_bal.columns: renombres['Código'] = 'codigo'
         if 'Plan' in df_bal.columns: renombres['Plan'] = 'nombre'
@@ -14678,7 +14689,7 @@ elif sub_opcion == "Balance de Comprobación":
         if renombres:
             df_bal = df_bal.rename(columns=renombres)
 
-        # Asegurarnos de que las columnas requeridas existan antes de filtrar
+        # Asegurarnos de que las columnas requeridas existan
         columnas_necesarias = ['codigo', 'nombre', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final', 'nivel']
         faltantes = [c for c in columnas_necesarias if c not in df_bal.columns]
         
@@ -14706,7 +14717,6 @@ elif sub_opcion == "Balance de Comprobación":
             # --- OBTENER TOTALES DIRECTO DE LA FILA Σ ---
             fila_sigma = df_display[df_display['codigo'] == 'Σ']
 
-            # Inicializamos y extraemos de forma segura para pantalla y PDF
             if not fila_sigma.empty:
                 t = fila_sigma.iloc[0]
                 t_inicial = float(t['Saldo Inicial'])
