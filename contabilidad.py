@@ -18982,21 +18982,21 @@ if opcion_menu == "📄 Auxiliar Cta por Pagar":
             if prov_seleccionado != "TODOS":
                 df_auxiliar = df_auxiliar[df_auxiliar['Proveedor'] == prov_seleccionado]
 
-            # Mostrar la tabla formateada en Streamlit
+            # Mostrar la tabla formateada en Streamlit con los nombres actualizados de columnas
             st.dataframe(
                 df_auxiliar,
                 use_container_width=True,
                 hide_index=True,
                 column_config={
-                    "Debe (Pagos)": st.column_config.NumberColumn(format="%,.2f"),
-                    "Haber (Deudas)": st.column_config.NumberColumn(format="%,.2f"),
+                    "Debe": st.column_config.NumberColumn("Debe (Pagos)", format="%,.2f"),
+                    "Haber": st.column_config.NumberColumn("Haber (Deudas)", format="%,.2f"),
                     "Saldo": st.column_config.NumberColumn(format="%,.2f", help="Saldo pendiente con el proveedor")
                 }
             )
             
-            # Totales generales del auxiliar filtrado
-            total_debe = df_auxiliar['Debe (Pagos)'].sum()
-            total_haber = df_auxiliar['Haber (Deudas)'].sum()
+            # Totales generales del auxiliar filtrado (apuntando a las columnas 'Debe' y 'Haber')
+            total_debe = df_auxiliar['Debe'].sum()
+            total_haber = df_auxiliar['Haber'].sum()
             saldo_final_total = total_haber - total_debe
             
             col_t1, col_t2, col_t3 = st.columns(3)
