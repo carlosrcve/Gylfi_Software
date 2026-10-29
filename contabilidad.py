@@ -10594,7 +10594,7 @@ elif opcion_menu == "📝 Asientos Contables":
                             st.info(f"No se encontró ningún registro asociado al Comprobante N° '{comp_a_eliminar}'.")
 
             # ==========================================
-            # TAB 2: IMPORTACIÓN EXCEL (Blindado contra columnas duplicadas)
+            # TAB 2: IMPORTACIÓN EXCEL (Con tus funciones originales)
             # ==========================================
             with tab2:
                 st.markdown("### 📤 Cargar nuevos Asientos Contables")
@@ -10605,7 +10605,7 @@ elif opcion_menu == "📝 Asientos Contables":
                         # 1. Leer el Excel manteniendo todo como texto inicialmente
                         df_subido = pd.read_excel(archivo_excel, dtype=object)
                         
-                        # 2. Sanitizar nombres de columnas base
+                        # 2. Sanitizar nombres de columnas base de forma segura
                         new_cols = []
                         seen = {}
                         for c in df_subido.columns:
@@ -10620,7 +10620,7 @@ elif opcion_menu == "📝 Asientos Contables":
                             new_cols.append(c_str)
                         df_subido.columns = new_cols
 
-                        # 3. Mapeo único: Evita que dos columnas tomen el mismo nombre estándar
+                        # 3. Mapeo único para evitar duplicados
                         rename_dict = {}
                         assigned_targets = set()
                         
@@ -10650,48 +10650,22 @@ elif opcion_menu == "📝 Asientos Contables":
                                 assigned_targets.add(target)
                         
                         df_subido = df_subido.rename(columns=rename_dict)
-                        
-                        # Eliminar preventivamente cualquier columna duplicada en los índices
                         df_subido = df_subido.loc[:, ~df_subido.columns.duplicated()]
 
                         # 4. Validar obligatoriamente la existencia de 'plan_cuentas'
                         if 'plan_cuentas' not in df_subido.columns:
                             st.error("❌ El archivo Excel no contiene una columna reconocible para el **Plan de Cuentas**. Verifica que la columna se llame 'plan_cuentas' o 'plan_de_cuentas'.")
                         else:
-                            # 5. Formatear fecha de forma segura
+                            # 5. Formatear fecha
                             if 'fecha' in df_subido.columns:
                                 df_subido['fecha'] = pd.to_datetime(df_subido['fecha'], errors='coerce').dt.date
                             else:
                                 df_subido['fecha'] = date.today()
 
-                            # Funciones locales seguras
-                            def parsear_monto_local(val):
-                                if pd.isna(val):
-                                    return 0.0
-                                val_str = str(val).strip()
-                                if val_str in ['', '-', 'None', 'nan', 'NaN', 'NAT']:
-                                    return 0.0
-                                try:
-                                    clean = val_str.replace('.', '').replace(',', '.')
-                                    return float(clean)
-                                except:
-                                    try:
-                                        return float(val_str)
-                                    except:
-                                        return 0.0
-
-                            def formato_ve_local(val):
-                                try:
-                                    val_f = float(val)
-                                    s = f"{val_f:,.2f}"
-                                    return s.replace(',', 'X').replace('.', ',').replace('X', '.')
-                                except:
-                                    return "0,00"
-
-                            # 6. Procesar montos de Debe y Haber
+                            # 6. Procesar montos con tu función original parsear_monto_seguro
                             for col in ['debe', 'haber']:
                                 if col in df_subido.columns:
-                                    df_subido[col] = df_subido[col].apply(parsear_monto_local)
+                                    df_subido[col] = df_subido[col].apply(parsear_monto_seguro)
                                 else:
                                     df_subido[col] = 0.0
 
@@ -10712,11 +10686,11 @@ elif opcion_menu == "📝 Asientos Contables":
                                         else str(x).strip()
                                     )
 
-                            # 8. Crear vista previa formateada
+                            # 8. Vista previa usando tu función original formato_venezolano
                             df_para_mostrar = df_subido.copy()
                             for col in ['debe', 'haber']:
                                 if col in df_para_mostrar.columns:
-                                    df_para_mostrar[col] = df_para_mostrar[col].apply(formato_ve_local)
+                                    df_para_mostrar[col] = df_para_mostrar[col].apply(formato_venezolano)
 
                             if 'debe' in df_para_mostrar.columns and 'haber' in df_para_mostrar.columns:
                                 df_para_mostrar = df_para_mostrar.rename(columns={'debe': 'débito', 'haber': 'crédito'})
@@ -10765,6 +10739,7 @@ elif opcion_menu == "📝 Asientos Contables":
 
                                             st.balloons()
                                             st.success(f"✅ ¡Asientos procesados y cargados con éxito desde el Excel en {db_actual}!")
+                                            st.rerun()
                                         else:
                                             st.error("❌ No se pudo conectar a la base de datos de la empresa.")
                                 except Exception as e:
