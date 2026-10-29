@@ -7569,7 +7569,7 @@ def generar_auxiliar_cxp(conn, fecha_desde, fecha_hasta, proveedor_seleccionado=
     except Exception as e:
         print(f"Error generando auxiliar de CxP: {e}")
         return pd.DataFrame()
-    
+
 def gestionar_sidebar():
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
     user_id = st.session_state.get('user_id', st.session_state.get('cliente_id', 'N/A'))
@@ -7789,8 +7789,16 @@ if menu_lateral == "📊 Auditoría Contable":
         nombre_sel = st.session_state.get('CLIENTE_NOMBRE', '')
 
         modulos_disponibles = [
-            "🏠 Inicio", "📂 Plan de Cuentas", "📝 Asientos Contables",  
-            "📖 Mayor Analítico", "📊 Estados Financieros", "📚 Libros Fiscales", "👤 Proveedores","👤 Clientes","📦 Respaldos y Exportación, Auxiliar Cta por Pagar"
+            "🏠 Inicio", 
+            "📂 Plan de Cuentas", 
+            "📝 Asientos Contables",  
+            "📖 Mayor Analítico", 
+            "📊 Estados Financieros", 
+            "📚 Libros Fiscales", 
+            "👤 Proveedores",
+            "👤 Clientes",
+            "📦 Respaldos y Exportación", 
+            "📄 Auxiliar Cta por Pagar"
         ]
 
         if "PEDACITO" in str(nombre_sel).upper() and "CIELO" in str(nombre_sel).upper():
