@@ -2495,8 +2495,7 @@ def mostrar_interfaz_mayor(f_ini_g, f_fin_g, db_nombre):
 
 @st.cache_data(ttl=300)
 def generar_balance_profesional(db, f_i, f_f, sucursal):
-    # Nota: Pasamos 'db' como argumento para que el sistema de caché de Streamlit 
-    # sepa cuándo invalidar el resultado si cambia la empresa o el rango de fechas.
+    # Nota: 'db' es un string (nombre de la BD), por lo que Streamlit lo puede cachear perfectamente.
     conn = conectar_db(db)
     if not conn:
         st.error("Papi, no se pudo establecer conexión a la base de datos.")
@@ -2561,8 +2560,6 @@ def generar_balance_profesional(db, f_i, f_f, sucursal):
         # 5. SUMATORIA JERÁRQUICA OPTIMIZADA
         niveles_disponibles = sorted([n for n in df['nivel'].dropna().unique()], reverse=True)
         
-        # Convertimos a diccionario indexado para acelerar la acumulación sin iterrows pesados
-        # (Agrupamos de abajo hacia arriba de forma más eficiente)
         for n in niveles_disponibles:
             filas_nivel = df[df['nivel'] == n]
             for _, fila in filas_nivel.iterrows():
@@ -14654,24 +14651,22 @@ elif sub_opcion == "Balance de Comprobación":
     @st.cache_data(ttl=60, show_spinner="Generando balance de comprobación...")
     def obtener_balance_cached(db_name, fecha_desde, fecha_hasta, sucursal_sel):
         df = pd.DataFrame()
-        conn = conectar_db(db_name)
-        if conn:
-            try:
-                # Convertir a string YYYY-MM-DD para evitar diferencias de tipo entre Python y MySQL
-                f_desde_str = fecha_desde.strftime('%Y-%m-%d') if hasattr(fecha_desde, 'strftime') else str(fecha_desde)
-                f_hasta_str = fecha_hasta.strftime('%Y-%m-%d') if hasattr(fecha_hasta, 'strftime') else str(fecha_hasta)
-                
-                df = generar_balance_profesional(conn, f_desde_str, f_hasta_str, sucursal_sel)
-            except Exception as err:
-                # Mostrar el error exacto en desarrollo en lugar de pasarlo por alto
-                st.error(f"❌ Error interno en generar_balance_profesional: {err}")
-            finally:
+        try:
+            # Convertir a string YYYY-MM-DD para evitar diferencias de tipo
+            f_desde_str = fecha_desde.strftime('%Y-%m-%d') if hasattr(fecha_desde, 'strftime') else str(fecha_desde)
+            f_hasta_str = fecha_hasta.strftime('%Y-%m-%d') if hasattr(fecha_hasta, 'strftime') else str(fecha_hasta)
+            
+            # ⚠️ AQUÍ ESTABA EL ERROR: Se debe pasar db_name (string) y no la conexión conn
+            conn_temp = conectar_db(db_name)
+            if conn_temp:
                 try:
-                    conn.close()
-                except Exception:
-                    pass
-        else:
-            st.error(f"❌ No se pudo establecer conexión con la base de datos {db_name}")
+                    df = generar_balance_profesional(db_name, f_desde_str, f_hasta_str, sucursal_sel)
+                finally:
+                    conn_temp.close()
+            else:
+                st.error(f"❌ No se pudo establecer conexión con la base de datos {db_name}")
+        except Exception as err:
+            st.error(f"❌ Error al obtener balance en caché: {err}")
         return df
 
     # 4. OBTENCIÓN DE DATOS
