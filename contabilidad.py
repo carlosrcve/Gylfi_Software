@@ -10592,6 +10592,7 @@ elif opcion_menu == "📝 Asientos Contables":
                                         except Exception: pass
                         else:
                             st.info(f"No se encontró ningún registro asociado al Comprobante N° '{comp_a_eliminar}'.")
+
             # ==========================================
             # TAB 2: IMPORTACIÓN EXCEL
             # ==========================================
@@ -10603,9 +10604,11 @@ elif opcion_menu == "📝 Asientos Contables":
                     try:
                         # 1. Leer el Excel manteniendo todo como texto inicialmente
                         df_subido = pd.read_excel(archivo_excel, dtype=object)
+                        
+                        # Asegurar que las columnas sean strings antes de aplicar .str
                         df_subido.columns = df_subido.columns.astype(str).str.strip().str.lower()
 
-                        # 2. Mapeo ultra robusto para asegurar que la columna del plan de cuentas no se pierda
+                        # 2. Mapeo ultra flexible de columnas por coincidencia parcial
                         rename_dict = {}
                         for col in df_subido.columns:
                             col_clean = str(col).strip().lower()
@@ -10652,16 +10655,16 @@ elif opcion_menu == "📝 Asientos Contables":
                             else:
                                 df_subido['bloqueado'] = pd.to_numeric(df_subido['bloqueado'], errors='coerce').fillna(0).astype(int)
 
-                            # 6. Limpieza estricta de textos para garantizar que los códigos y nombres pasen intactos
+                            # 6. Limpieza segura de campos de texto columna por columna (evita el error de DataFrame.str)
                             campos_texto = ['n_comprobante', 'descripcion', 'plan_cuentas', 'cuenta_contable', 'referencia']
                             for c in campos_texto:
                                 if c not in df_subido.columns:
                                     df_subido[c] = ""
                                 else:
                                     df_subido[c] = df_subido[c].fillna("").astype(str).str.strip()
-                                    df_subido[c] = df_subido[c].apply(lambda x: "" if x.lower() in ['nan', 'none', 'nat', 'null'] else x)
+                                    df_subido[c] = df_subido[c].apply(lambda x: "" if str(x).lower() in ['nan', 'none', 'nat', 'null'] else str(x))
 
-                            # 7. Crear vista previa formateada adaptada a la tabla asientos_contables
+                            # 7. Crear vista previa formateada adaptada a la estructura de asientos_contables
                             df_para_mostrar = df_subido.copy()
                             for col in ['debe', 'haber']:
                                 if col in df_para_mostrar.columns:
@@ -10673,7 +10676,7 @@ elif opcion_menu == "📝 Asientos Contables":
                             st.write("### ✅ Vista previa directa del Excel (Estructura Contable):")
                             st.dataframe(df_para_mostrar, hide_index=True, use_container_width=True)
 
-                            # 8. Botón de confirmación para insertar directamente a la BD respetando las columnas reales
+                            # 8. Botón de confirmación para insertar directamente a la BD
                             if st.button("🚀 Confirmar e Importar al Diario", use_container_width=True, key="btn_conf_import_diario"):
                                 conn_imp = None
                                 try:
@@ -10693,8 +10696,8 @@ elif opcion_menu == "📝 Asientos Contables":
                                                         str(row.get('n_comprobante', '')),
                                                         str(row.get('descripcion', '')),
                                                         str(row.get('fecha', date.today())),
-                                                        str(row.get('plan_cuentas', '')),     # <--- Ahora sube limpio y directo el plan de cuentas
-                                                        str(row.get('cuenta_contable', '')),  # <--- Sube la cuenta contable
+                                                        str(row.get('plan_cuentas', '')),
+                                                        str(row.get('cuenta_contable', '')),
                                                         str(row.get('referencia', '')),
                                                         float(row.get('debe', 0.0)),
                                                         float(row.get('haber', 0.0)),
@@ -10704,6 +10707,7 @@ elif opcion_menu == "📝 Asientos Contables":
 
                                             st.balloons()
                                             st.success(f"✅ ¡Asientos procesados y cargados con éxito desde el Excel en {db_actual}!")
+                                            st.rerun()
                                         else:
                                             st.error("❌ No se pudo conectar a la base de datos de la empresa.")
                                 except Exception as e:
