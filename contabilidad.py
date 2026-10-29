@@ -10245,6 +10245,9 @@ elif opcion_menu == "📝 Asientos Contables":
                     df_diario = None
 
                     try:
+                        # Obtener siempre la conexión activa
+                        conn_act = conectar_db(db_actual) if 'db_actual' in locals() and db_actual else conn_general
+
                         if modo_busqueda == "📅 Rango de Fechas":
                             col1, col2 = st.columns(2)
                             with col1:
@@ -10252,24 +10255,39 @@ elif opcion_menu == "📝 Asientos Contables":
                             with col2:
                                 f_fin = st.date_input("Fecha Fin", key="f_fin_mod")
                             
-                            query = f"SELECT n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber FROM asientos_contables WHERE fecha BETWEEN '{f_inicio}' AND '{f_fin}' ORDER BY fecha, n_comprobante"
-                            df_diario = pd.read_sql(query, conn_general)
+                            query = """
+                                SELECT id, n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber 
+                                FROM asientos_contables 
+                                WHERE fecha BETWEEN %s AND %s 
+                                ORDER BY fecha, n_comprobante, id
+                            """
+                            df_diario = pd.read_sql(query, conn_act, params=(str(f_inicio), str(f_fin)))
                         else:
                             col_d1, col_d2 = st.columns(2)
                             with col_d1:
                                 fec_inicio = st.date_input("Fecha Desde (para buscar)", key="nc_desde")
                             with col_d2:
-                                fec_fin = st.date_input("Fecha Hasta (para buscar)", key="nc_hasta")
+                                fec_hasta = st.date_input("Fecha Hasta (para buscar)", key="nc_hasta")
 
-                            query_compps = f"SELECT DISTINCT n_comprobante FROM asientos_contables WHERE fecha BETWEEN '{fec_inicio}' AND '{fec_fin}' ORDER BY n_comprobante"
-                            df_compps = pd.read_sql(query_compps, conn_general)
+                            query_compps = """
+                                SELECT DISTINCT n_comprobante 
+                                FROM asientos_contables 
+                                WHERE fecha BETWEEN %s AND %s 
+                                ORDER BY n_comprobante
+                            """
+                            df_compps = pd.read_sql(query_compps, conn_act, params=(str(fec_inicio), str(fec_hasta)))
 
                             if not df_compps.empty:
                                 lista_comprobantes = df_compps['n_comprobante'].tolist()
                                 comp_seleccionado = st.selectbox("Seleccione el comprobante asociado:", lista_comprobantes, key="select_n_comp_exacto")
                                 if comp_seleccionado:
-                                    query = f"SELECT id, n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber FROM asientos_contables WHERE n_comprobante = '{comp_seleccionado}'"
-                                    df_diario = pd.read_sql(query, conn_general)
+                                    query = """
+                                        SELECT id, n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber 
+                                        FROM asientos_contables 
+                                        WHERE n_comprobante = %s 
+                                        ORDER BY id
+                                    """
+                                    df_diario = pd.read_sql(query, conn_act, params=(str(comp_seleccionado),))
                             else:
                                 st.warning("⚠️ No se encontraron comprobantes registrados en el rango seleccionado.")
                     except Exception as e:
@@ -10279,27 +10297,49 @@ elif opcion_menu == "📝 Asientos Contables":
                         df_diario.columns = [c.lower() for c in df_diario.columns]
                         st.info(f"Mostrando {len(df_diario)} registros para editar.")
 
+                        # 1. Cargar catálogo de cuentas de detalle
                         try:
-                            cursor_pc = conn_general.cursor()
-                            cursor_pc.execute("SELECT codigo, nombre FROM plan_cuentas WHERE tipo = 'Detalle' ORDER BY codigo")
-                            cuentas_db_mod = cursor_pc.fetchall()
-                            cursor_pc.close()
+                            conn_act = conectar_db(db_actual) if 'db_actual' in locals() and db_actual else conn_general
+                            with conn_act.cursor() as cur_pc:
+                                cur_pc.execute("SELECT codigo, nombre FROM plan_cuentas WHERE tipo = 'Detalle' ORDER BY codigo")
+                                cuentas_db_mod = cur_pc.fetchall()
                         except Exception:
                             cuentas_db_mod = []
 
                         opciones_cuentas_mod = [f"{cod} - {nom}" for cod, nom in cuentas_db_mod]
+                        dict_nombres_cuentas = {str(cod).strip(): nom for cod, nom in cuentas_db_mod}
 
+                        # 2. MATCH EXACTO: Mapear el código puro que viene de la BD al formato "CÓDIGO - NOMBRE"
+                        def mapear_plan_a_selectbox(val):
+                            if pd.isna(val) or not str(val).strip():
+                                return opciones_cuentas_mod[0] if opciones_cuentas_mod else ""
+                            val_clean = str(val).strip()
+                            # Si ya trae el guion, lo dejamos pasar
+                            if " - " in val_clean:
+                                return val_clean
+                            # Si solo es el código, buscamos su nombre completo
+                            nom = dict_nombres_cuentas.get(val_clean, "")
+                            return f"{val_clean} - {nom}" if nom else val_clean
+
+                        df_diario['plan_cuentas'] = df_diario['plan_cuentas'].apply(mapear_plan_a_selectbox)
+
+                        # Configurar columnas del data_editor
                         column_config_dict = {
                             "debe": st.column_config.NumberColumn("Debe", format="%,.2f", min_value=0.0),
                             "haber": st.column_config.NumberColumn("Haber", format="%,.2f", min_value=0.0),
                             "id": st.column_config.NumberColumn("ID", disabled=True),
                             "n_comprobante": st.column_config.TextColumn("Comprobante", disabled=True),
                             "fecha": st.column_config.DateColumn("Fecha"),
-                            "descripcion": st.column_config.TextColumn("Descripción")
+                            "descripcion": st.column_config.TextColumn("Descripción"),
+                            "cuenta_contable": st.column_config.TextColumn("Cuenta Contable", help="Se sincroniza al seleccionar el Plan de Cuentas")
                         }
 
                         if opciones_cuentas_mod:
-                            column_config_dict["plan_cuentas"] = st.column_config.SelectboxColumn("Plan Cuentas", options=opciones_cuentas_mod, required=True)
+                            column_config_dict["plan_cuentas"] = st.column_config.SelectboxColumn(
+                                "Plan Cuentas", 
+                                options=opciones_cuentas_mod, 
+                                required=True
+                            )
 
                         df_editado = st.data_editor(
                             df_diario, 
@@ -10310,14 +10350,14 @@ elif opcion_menu == "📝 Asientos Contables":
                             column_config=column_config_dict
                         )
 
-                        if not df_editado.empty:
-                            comprobante_fijo = df_diario['n_comprobante'].iloc[0]
-                            fecha_fija = df_diario['fecha'].iloc[0]
-                            desc_fija = df_diario['descripcion'].iloc[0] if 'descripcion' in df_diario.columns else ""
-
-                            df_editado['n_comprobante'] = df_editado['n_comprobante'].fillna(comprobante_fijo)
-                            df_editado['fecha'] = df_editado['fecha'].fillna(fecha_fija)
-                            df_editado['descripcion'] = df_editado['descripcion'].fillna(desc_fija)
+                        # 3. Sincronizar automáticamente la columna "cuenta_contable" basada en lo seleccionado en "plan_cuentas"
+                        for idx, row in df_editado.iterrows():
+                            plan_val = str(row.get('plan_cuentas', ''))
+                            if " - " in plan_val:
+                                cod_c, nom_c = plan_val.split(" - ", 1)
+                                df_editado.at[idx, 'cuenta_contable'] = nom_c
+                            elif plan_val in dict_nombres_cuentas:
+                                df_editado.at[idx, 'cuenta_contable'] = dict_nombres_cuentas[plan_val]
 
                         if st.button("💾 Guardar Cambios", key="btn_guardar_cambios", type="primary"):
                             try:
@@ -10325,9 +10365,15 @@ elif opcion_menu == "📝 Asientos Contables":
                                 t_haber_val = pd.to_numeric(df_editado['haber'], errors='coerce').sum()
 
                                 if abs(t_debe_val - t_haber_val) >= 0.01:
-                                    st.error(f"❌ El asiento no cuadra. Debe: {formato_contable(t_debe_val)} | Haber: {formato_contable(t_haber_val)}")
+                                    st.error(f"❌ El asiento no cuadra. Debe: {t_debe_val:,.2f} | Haber: {t_haber_val:,.2f}")
                                 else:
-                                    exito = actualizar_libro_diario_en_db(db_actual, df_editado)
+                                    # Limpiar columna plan_cuentas para guardar SOLO el código en la BD
+                                    df_a_guardar = df_editado.copy()
+                                    df_a_guardar['plan_cuentas'] = df_a_guardar['plan_cuentas'].apply(
+                                        lambda x: str(x).split(" - ")[0].strip() if " - " in str(x) else str(x).strip()
+                                    )
+
+                                    exito = actualizar_libro_diario_en_db(db_actual, df_a_guardar)
                                     if exito:
                                         st.success("¡Registros actualizados correctamente en la base de datos!")
                                         st.balloons()
