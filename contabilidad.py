@@ -7499,17 +7499,18 @@ def generar_pdf_preimpreso(conn, datos_factura, items_factura):
     return buffer.getvalue()
 
 
+
 def generar_auxiliar_cxp(conn, fecha_desde, fecha_hasta, proveedor_seleccionado=None):
     """
-    Genera un DataFrame con el Auxiliar de Cuentas por Pagar de Proveedores.
-    Filtra por rango de fechas y permite aislar un proveedor específico.
+    Genera un DataFrame con el Auxiliar de Cuentas por Pagar filtrado 
+    estrictamente para la cuenta 2.1.1.01.001 (Proveedores Nacionales).
     """
     try:
-        # 1. Consultar los asientos contables de la cuenta de Proveedores (Pasivo: ej. 2.1.1...)
+        # Consulta estrictamente amarrada a la cuenta 2.1.1.01.001
         query = """
             SELECT id, n_comprobante, fecha, descripcion, plan_cuentas, cuenta_contable, referencia, debe, haber
             FROM asientos_contables
-            WHERE (plan_cuentas LIKE '2.1.1%%' OR LOWER(cuenta_contable) LIKE '%%proveedor%%')
+            WHERE (plan_cuentas LIKE '2.1.1.01.001%%' OR plan_cuentas = '2.1.1.01.001')
               AND fecha <= %s
             ORDER BY fecha ASC, id ASC
         """
@@ -7523,7 +7524,7 @@ def generar_auxiliar_cxp(conn, fecha_desde, fecha_hasta, proveedor_seleccionado=
         df_total['haber'] = pd.to_numeric(df_total['haber'], errors='coerce').fillna(0.0)
         df_total['fecha'] = pd.to_datetime(df_total['fecha'])
 
-        # 2. Extraer o limpiar el nombre del Proveedor desde la descripción
+        # Extracción del nombre del Proveedor desde la descripción
         def extraer_proveedor(desc):
             if not isinstance(desc, str):
                 return "GENERAL / OTROS"
@@ -7536,16 +7537,16 @@ def generar_auxiliar_cxp(conn, fecha_desde, fecha_hasta, proveedor_seleccionado=
 
         df_total['proveedor'] = df_total['descripcion'].apply(extraer_proveedor)
 
-        # 3. Separar Saldo Inicial y Movimientos del Periodo
+        # Separar Saldo Inicial y Movimientos del Periodo
         mask_inicial = df_total['fecha'] < pd.to_datetime(fecha_desde)
         df_periodo = df_total[df_total['fecha'] >= pd.to_datetime(fecha_desde)].copy()
 
-        # Opcional: Filtrar por proveedor específico
+        # Filtrar por un proveedor específico si se selecciona
         if proveedor_seleccionado and proveedor_seleccionado != "TODOS":
             df_total = df_total[df_total['proveedor'] == proveedor_seleccionado]
             df_periodo = df_periodo[df_periodo['proveedor'] == proveedor_seleccionado]
 
-        # 4. Calcular Saldo Acumulado (Para Pasivos: Saldo = Haber - Debe)
+        # Calcular Saldo Acumulado (Para Pasivos: Saldo = Haber - Debe)
         df_periodo['movimiento'] = df_periodo['haber'] - df_periodo['debe']
         df_periodo['saldo_acumulado'] = df_periodo.groupby('proveedor')['movimiento'].cumsum()
 
