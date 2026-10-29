@@ -10241,7 +10241,6 @@ elif opcion_menu == "📝 Asientos Contables":
                     df_diario = None
 
                     try:
-                        # Obtener siempre la conexión activa
                         conn_act = conectar_db(db_actual) if 'db_actual' in locals() and db_actual else conn_general
 
                         if modo_busqueda == "📅 Rango de Fechas":
@@ -10251,6 +10250,7 @@ elif opcion_menu == "📝 Asientos Contables":
                             with col2:
                                 f_fin = st.date_input("Fecha Fin", key="f_fin_mod")
                             
+                            # Consulta explícita trayendo la columna plan_cuentas de la tabla asientos_contables
                             query = """
                                 SELECT id, n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber 
                                 FROM asientos_contables 
@@ -10290,24 +10290,25 @@ elif opcion_menu == "📝 Asientos Contables":
                         st.error(f"❌ Error al consultar los registros: {e}")
 
                     if df_diario is not None and not df_diario.empty:
+                        # Asegurar nombres de columnas en minúsculas y verificar plan_cuentas
                         df_diario.columns = [c.lower() for c in df_diario.columns]
-                        st.info(f"Mostrando {len(df_diario)} registros para editar.")
-
-                        # Limpiar textos respetando EXACTAMENTE el código y nombre del Excel o BD
-                        # Asegurar que plan_cuentas mantenga sus valores originales de texto de la BD
-                        df_diario['plan_cuentas'] = df_diario['plan_cuentas'].fillna("").astype(str).str.strip()
-                        df_diario['plan_cuentas'] = df_diario['plan_cuentas'].apply(lambda x: "" if x.lower() in ['nan', 'none', 'nat'] else x)
                         
-                        df_diario['cuenta_contable'] = df_diario['cuenta_contable'].fillna("").astype(str).str.strip()
-                        df_diario['cuenta_contable'] = df_diario['cuenta_contable'].apply(lambda x: "" if x.lower() in ['nan', 'none', 'nat'] else x)
+                        if 'plan_cuentas' not in df_diario.columns and 'plan de cuentas' in df_diario.columns:
+                            df_diario = df_diario.rename(columns={'plan de cuentas': 'plan_cuentas'})
+
+                        # Rellenar cualquier valor nulo o texto 'None' para que se vea el código real guardado en la BD
+                        df_diario['plan_cuentas'] = df_diario['plan_cuentas'].fillna("").astype(str)
+                        df_diario['plan_cuentas'] = df_diario['plan_cuentas'].apply(lambda x: "" if x.lower() in ['nan', 'none', 'nat', 'null'] else x.strip())
+
+                        st.info(f"Mostrando {len(df_diario)} registros para editar.")
 
                         column_config_dict = {
                             "id": st.column_config.NumberColumn("ID", disabled=True),
                             "n_comprobante": st.column_config.TextColumn("Comprobante", disabled=True),
                             "fecha": st.column_config.DateColumn("Fecha"),
                             "descripcion": st.column_config.TextColumn("Descripción"),
-                            "plan_cuentas": st.column_config.TextColumn("Plan Cuentas"),       # Se muestra el código directo
-                            "cuenta_contable": st.column_config.TextColumn("Cuenta Contable"), # Se muestra la cuenta directa
+                            "plan_cuentas": st.column_config.TextColumn("Plan Cuentas"),       # Muestra el código directo de la BD
+                            "cuenta_contable": st.column_config.TextColumn("Cuenta Contable"), # Muestra el nombre de la cuenta
                             "referencia": st.column_config.TextColumn("Referencia"),
                             "debe": st.column_config.NumberColumn("Debe", format="%,.2f", min_value=0.0),
                             "haber": st.column_config.NumberColumn("Haber", format="%,.2f", min_value=0.0)
@@ -10321,7 +10322,7 @@ elif opcion_menu == "📝 Asientos Contables":
                             key="editor_diario_dinamico",
                             column_config=column_config_dict
                         )
-
+                        
                         if st.button("💾 Guardar Cambios", key="btn_guardar_cambios", type="primary"):
                             try:
                                 t_debe_val = pd.to_numeric(df_editado['debe'], errors='coerce').sum()
