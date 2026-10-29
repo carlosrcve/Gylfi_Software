@@ -7503,20 +7503,27 @@ def generar_pdf_preimpreso(conn, datos_factura, items_factura):
 def generar_auxiliar_cxp(conn, fecha_desde, fecha_hasta, proveedor_seleccionado=None):
     """
     Genera un DataFrame con el Auxiliar de Cuentas por Pagar filtrado 
-    estrictamente para la cuenta 2.1.1.01.001 (Proveedores Nacionales).
+    ESTRICTAMENTE para la cuenta 2.1.1.01.001 (Proveedores Nacionales), 
+    excluyendo cuentas de accionistas u otras cuentas de pasivo.
     """
     try:
-        # Consulta estrictamente amarrada a la cuenta 2.1.1.01.001
+        # Consulta estricta: Solo buscamos el código exacto de Proveedores Nacionales
         query = """
             SELECT id, n_comprobante, fecha, descripcion, plan_cuentas, cuenta_contable, referencia, debe, haber
             FROM asientos_contables
-            WHERE (plan_cuentas LIKE '2.1.1.01.001%%' OR plan_cuentas = '2.1.1.01.001')
+            WHERE plan_cuentas = '2.1.1.01.001'
               AND fecha <= %s
             ORDER BY fecha ASC, id ASC
         """
         df_total = ejecutar_consulta(query, conn, params=(str(fecha_hasta),))
         
         if df_total is None or df_total.empty:
+            return pd.DataFrame()
+
+        # Doble seguridad en Pandas: Asegurar que la cuenta sea exactamente la deseada
+        df_total = df_total[df_total['plan_cuentas'].astype(str).str.strip() == '2.1.1.01.001']
+        
+        if df_total.empty:
             return pd.DataFrame()
 
         # Convertir montos a numéricos por seguridad
