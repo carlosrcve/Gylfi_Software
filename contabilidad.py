@@ -10294,8 +10294,12 @@ elif opcion_menu == "📝 Asientos Contables":
                         st.info(f"Mostrando {len(df_diario)} registros para editar.")
 
                         # Limpiar textos respetando EXACTAMENTE el código y nombre del Excel o BD
-                        df_diario['plan_cuentas'] = df_diario['plan_cuentas'].astype(str).replace(['nan', 'None'], '').str.strip()
-                        df_diario['cuenta_contable'] = df_diario['cuenta_contable'].astype(str).replace(['nan', 'None'], '').str.strip()
+                        # Asegurar que plan_cuentas mantenga sus valores originales de texto de la BD
+                        df_diario['plan_cuentas'] = df_diario['plan_cuentas'].fillna("").astype(str).str.strip()
+                        df_diario['plan_cuentas'] = df_diario['plan_cuentas'].apply(lambda x: "" if x.lower() in ['nan', 'none', 'nat'] else x)
+                        
+                        df_diario['cuenta_contable'] = df_diario['cuenta_contable'].fillna("").astype(str).str.strip()
+                        df_diario['cuenta_contable'] = df_diario['cuenta_contable'].apply(lambda x: "" if x.lower() in ['nan', 'none', 'nat'] else x)
 
                         column_config_dict = {
                             "id": st.column_config.NumberColumn("ID", disabled=True),
