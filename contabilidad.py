@@ -18988,21 +18988,21 @@ if opcion_menu == "📄 Auxiliar Cta por Pagar":
                 use_container_width=True,
                 hide_index=True,
                 column_config={
-                    "Debe": st.column_config.NumberColumn("Debe (Pagos)", format="%,.2f"),
+                    "Debe": st.column_config.NumberColumn("Debe (Contrapartidas / Pagos)", format="%,.2f"),
                     "Haber": st.column_config.NumberColumn("Haber (Deudas)", format="%,.2f"),
                     "Saldo": st.column_config.NumberColumn(format="%,.2f", help="Saldo pendiente con el proveedor")
                 }
             )
             
-            # --- CÁLCULO CORRECTO DE TOTALES (EXCLUSIVO CUENTA CXP 2.1.1.01.001) ---
+            # --- CÁLCULO DE TOTALES (EXCLUSIVO CUENTA CXP 2.1.1.01.001) ---
             df_cxp_puro = df_auxiliar[df_auxiliar['Plan Cuentas'].astype(str).str.strip() == '2.1.1.01.001']
             
-            total_debe = df_cxp_puro['Debe'].sum()
+            total_pagos_cxp = df_cxp_puro['Debe'].sum()
             total_haber = df_cxp_puro['Haber'].sum()
-            saldo_final_total = total_haber - total_debe
+            saldo_final_total = total_haber - total_pagos_cxp
             
             col_t1, col_t2, col_t3 = st.columns(3)
-            col_t1.metric("Total Pagos (Debe)", f"{total_debe:,.2f}")
+            col_t1.metric("Pagos / Notas Débito (CxP)", f"{total_pagos_cxp:,.2f}")
             col_t2.metric("Total Deudas (Haber)", f"{total_haber:,.2f}")
             col_t3.metric("Deuda Total Pendiente", f"{saldo_final_total:,.2f}")
         else:
