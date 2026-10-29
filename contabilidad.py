@@ -10765,7 +10765,6 @@ elif opcion_menu == "📝 Asientos Contables":
 
                                             st.balloons()
                                             st.success(f"✅ ¡Asientos procesados y cargados con éxito desde el Excel en {db_actual}!")
-                                            st.rerun()
                                         else:
                                             st.error("❌ No se pudo conectar a la base de datos de la empresa.")
                                 except Exception as e:
