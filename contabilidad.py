@@ -7498,6 +7498,78 @@ def generar_pdf_preimpreso(conn, datos_factura, items_factura):
     buffer.seek(0)
     return buffer.getvalue()
 
+
+def generar_auxiliar_cxp(conn, fecha_desde, fecha_hasta, proveedor_seleccionado=None):
+    """
+    Genera un DataFrame con el Auxiliar de Cuentas por Pagar de Proveedores.
+    Filtra por rango de fechas y permite aislar un proveedor específico.
+    """
+    try:
+        # 1. Consultar los asientos contables de la cuenta de Proveedores (Pasivo: ej. 2.1.1...)
+        query = """
+            SELECT id, n_comprobante, fecha, descripcion, plan_cuentas, cuenta_contable, referencia, debe, haber
+            FROM asientos_contables
+            WHERE (plan_cuentas LIKE '2.1.1%%' OR LOWER(cuenta_contable) LIKE '%%proveedor%%')
+              AND fecha <= %s
+            ORDER BY fecha ASC, id ASC
+        """
+        df_total = ejecutar_consulta(query, conn, params=(str(fecha_hasta),))
+        
+        if df_total is None or df_total.empty:
+            return pd.DataFrame()
+
+        # Convertir montos a numéricos por seguridad
+        df_total['debe'] = pd.to_numeric(df_total['debe'], errors='coerce').fillna(0.0)
+        df_total['haber'] = pd.to_numeric(df_total['haber'], errors='coerce').fillna(0.0)
+        df_total['fecha'] = pd.to_datetime(df_total['fecha'])
+
+        # 2. Extraer o limpiar el nombre del Proveedor desde la descripción
+        def extraer_proveedor(desc):
+            if not isinstance(desc, str):
+                return "GENERAL / OTROS"
+            if "-" in desc:
+                partes = desc.split("-")
+                candidato = partes[-1].strip()
+                if len(candidato) > 3:
+                    return candidato
+            return desc.strip()
+
+        df_total['proveedor'] = df_total['descripcion'].apply(extraer_proveedor)
+
+        # 3. Separar Saldo Inicial y Movimientos del Periodo
+        mask_inicial = df_total['fecha'] < pd.to_datetime(fecha_desde)
+        df_periodo = df_total[df_total['fecha'] >= pd.to_datetime(fecha_desde)].copy()
+
+        # Opcional: Filtrar por proveedor específico
+        if proveedor_seleccionado and proveedor_seleccionado != "TODOS":
+            df_total = df_total[df_total['proveedor'] == proveedor_seleccionado]
+            df_periodo = df_periodo[df_periodo['proveedor'] == proveedor_seleccionado]
+
+        # 4. Calcular Saldo Acumulado (Para Pasivos: Saldo = Haber - Debe)
+        df_periodo['movimiento'] = df_periodo['haber'] - df_periodo['debe']
+        df_periodo['saldo_acumulado'] = df_periodo.groupby('proveedor')['movimiento'].cumsum()
+
+        # Ordenar columnas para el reporte final
+        auxiliar_final = df_periodo[[
+            'fecha', 'n_comprobante', 'referencia', 'descripcion', 
+            'proveedor', 'debe', 'haber', 'saldo_acumulado'
+        ]].rename(columns={
+            'fecha': 'Fecha',
+            'n_comprobante': 'Comprobante',
+            'referencia': 'Referencia / Factura',
+            'descripcion': 'Descripción',
+            'proveedor': 'Proveedor',
+            'debe': 'Debe (Pagos)',
+            'haber': 'Haber (Deudas)',
+            'saldo_acumulado': 'Saldo'
+        })
+
+        return auxiliar_final
+
+    except Exception as e:
+        print(f"Error generando auxiliar de CxP: {e}")
+        return pd.DataFrame()
+    
 def gestionar_sidebar():
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
     user_id = st.session_state.get('user_id', st.session_state.get('cliente_id', 'N/A'))
@@ -7718,7 +7790,7 @@ if menu_lateral == "📊 Auditoría Contable":
 
         modulos_disponibles = [
             "🏠 Inicio", "📂 Plan de Cuentas", "📝 Asientos Contables",  
-            "📖 Mayor Analítico", "📊 Estados Financieros", "📚 Libros Fiscales", "👤 Proveedores","👤 Clientes","📦 Respaldos y Exportación"
+            "📖 Mayor Analítico", "📊 Estados Financieros", "📚 Libros Fiscales", "👤 Proveedores","👤 Clientes","📦 Respaldos y Exportación, Auxiliar Cta por Pagar"
         ]
 
         if "PEDACITO" in str(nombre_sel).upper() and "CIELO" in str(nombre_sel).upper():
@@ -18620,3 +18692,66 @@ if opcion_menu == "📄 Factura Preimpresa":
                             st.success(f"¡Cliente **{razon_social_new}** registrado/actualizado con éxito en `clientes_comerciales`!")
                     except Exception as err_c_db:
                         st.error(f"Error al guardar el cliente en MySQL: {err_c_db}")
+
+
+
+
+
+if opcion_menu == "📄 Auxiliar Cta por Pagar":
+    st.markdown("### 📊 Auxiliar de Cuentas por Pagar (Proveedores)")
+
+    db_actual = st.session_state.get('DB_ACTUAL')
+
+    if not db_actual:
+        st.warning("⚠️ Por favor, selecciona una empresa activa para ver el auxiliar.")
+    else:
+        # Filtros de Rango de Fecha para el Auxiliar
+        col_f1, col_f2 = st.columns(2)
+        with col_f1:
+            f_desde = st.date_input("Auxiliar Desde", value=date.today().replace(day=1), key="aux_cxp_desde")
+        with col_f2:
+            f_hasta = st.date_input("Auxiliar Hasta", value=date.today(), key="aux_cxp_hasta")
+
+        # Conexión con la base de datos actual seleccionada
+        conn_aux = None
+        try:
+            conn_aux = conectar_db(db_actual)
+            df_auxiliar = generar_auxiliar_cxp(conn_aux, f_desde, f_hasta)
+        except Exception as err:
+            st.error(f"❌ Error al conectar o consultar la base de datos: {err}")
+            df_auxiliar = pd.DataFrame()
+        finally:
+            if conn_aux and hasattr(conn_aux, 'close'):
+                conn_aux.close()
+
+        if df_auxiliar is not None and not df_auxiliar.empty:
+            # Selector adicional para filtrar por un proveedor específico extraído
+            lista_proveedores = ["TODOS"] + sorted(df_auxiliar['Proveedor'].unique().tolist())
+            prov_seleccionado = st.selectbox("Filtrar por Proveedor Específico:", lista_proveedores, key="select_filtro_proveedor")
+
+            if prov_seleccionado != "TODOS":
+                df_auxiliar = df_auxiliar[df_auxiliar['Proveedor'] == prov_seleccionado]
+
+            # Mostrar la tabla formateada en Streamlit
+            st.dataframe(
+                df_auxiliar,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "Debe (Pagos)": st.column_config.NumberColumn(format="%,.2f"),
+                    "Haber (Deudas)": st.column_config.NumberColumn(format="%,.2f"),
+                    "Saldo": st.column_config.NumberColumn(format="%,.2f", help="Saldo pendiente con el proveedor")
+                }
+            )
+            
+            # Totales generales del auxiliar filtrado
+            total_debe = df_auxiliar['Debe (Pagos)'].sum()
+            total_haber = df_auxiliar['Haber (Deudas)'].sum()
+            saldo_final_total = total_haber - total_debe
+            
+            col_t1, col_t2, col_t3 = st.columns(3)
+            col_t1.metric("Total Pagos (Debe)", f"{total_debe:,.2f}")
+            col_t2.metric("Total Deudas (Haber)", f"{total_haber:,.2f}")
+            col_t3.metric("Deuda Total Pendiente", f"{saldo_final_total:,.2f}")
+        else:
+            st.info("ℹ️ No se encontraron movimientos en cuentas de pasivo para el rango de fechas seleccionado.")
