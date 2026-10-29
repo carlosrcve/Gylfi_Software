@@ -10595,7 +10595,7 @@ elif opcion_menu == "📝 Asientos Contables":
 
 
             # ==========================================
-            # TAB 2: IMPORTACIÓN EXCEL
+            # TAB 2: IMPORTACIÓN EXCEL (Blindado sin .str)
             # ==========================================
             with tab2:
                 st.markdown("### 📤 Cargar nuevos Asientos Contables")
@@ -10606,10 +10606,10 @@ elif opcion_menu == "📝 Asientos Contables":
                         # 1. Leer el Excel manteniendo todo como texto inicialmente
                         df_subido = pd.read_excel(archivo_excel, dtype=object)
                         
-                        # 2. Asegurar estrictamente que las cabeceras sean strings limpias
+                        # 2. Limpiar nombres de columnas con bucle nativo de Python (CERO .str)
                         df_subido.columns = [str(c).strip().lower() for c in df_subido.columns]
 
-                        # 3. Mapeo ultra flexible adaptado a los nombres exactos de tu Excel
+                        # 3. Mapeo flexible adaptado a los nombres exactos de tu Excel ('plan_de_cuen', etc.)
                         rename_dict = {}
                         for col in df_subido.columns:
                             col_clean = str(col).strip().lower()
@@ -10637,7 +10637,7 @@ elif opcion_menu == "📝 Asientos Contables":
                         if 'plan_cuentas' not in df_subido.columns:
                             st.error("❌ El archivo Excel no contiene una columna reconocible para el **Plan de Cuentas**. Verifica que la columna se llame 'plan_cuentas' o 'plan_de_cuentas'.")
                         else:
-                            # 5. Formatear fecha
+                            # 5. Formatear fecha de forma segura
                             if 'fecha' in df_subido.columns:
                                 df_subido['fecha'] = pd.to_datetime(df_subido['fecha'], errors='coerce').dt.date
                             else:
@@ -10656,14 +10656,16 @@ elif opcion_menu == "📝 Asientos Contables":
                             else:
                                 df_subido['bloqueado'] = pd.to_numeric(df_subido['bloqueado'], errors='coerce').fillna(0).astype(int)
 
-                            # 7. Limpieza segura de campos de texto columna por columna (evita errores de tipo)
+                            # 7. Limpieza absoluta de textos usando .apply con funciones lambda (Sin usar .str)
                             campos_texto = ['n_comprobante', 'descripcion', 'plan_cuentas', 'cuenta_contable', 'referencia']
                             for c in campos_texto:
                                 if c not in df_subido.columns:
                                     df_subido[c] = ""
                                 else:
-                                    df_subido[c] = df_subido[c].fillna("").astype(str).str.strip()
-                                    df_subido[c] = df_subido[c].apply(lambda x: "" if str(x).lower() in ['nan', 'none', 'nat', 'null'] else str(x))
+                                    df_subido[c] = df_subido[c].apply(
+                                        lambda x: "" if pd.isna(x) or str(x).lower().strip() in ['nan', 'none', 'nat', 'null', ''] 
+                                        else str(x).strip()
+                                    )
 
                             # 8. Crear vista previa formateada
                             df_para_mostrar = df_subido.copy()
