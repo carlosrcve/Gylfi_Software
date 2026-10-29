@@ -7542,6 +7542,9 @@ def generar_pdf_preimpreso(conn, datos_factura, items_factura):
 
 
 
+# ==============================================================================
+# 1. FUNCIÓN BACKEND: GENERAR AUXILIAR DE CUENTAS POR PAGAR
+# ==============================================================================
 def generar_auxiliar_cxp(conn, fecha_desde, fecha_hasta, proveedor_seleccionado=None):
     """
     Genera un DataFrame con el Auxiliar de Cuentas por Pagar detallado por comprobante,
@@ -7569,12 +7572,6 @@ def generar_auxiliar_cxp(conn, fecha_desde, fecha_hasta, proveedor_seleccionado=
         if df_total is None or df_total.empty:
             return pd.DataFrame()
 
-        # 💡 FILTRO ADICIONAL EN PANDAS: Asegurar que las líneas del comprobante 
-        # pertenezcan a la cuenta de proveedores o a sus contrapartidas directas lógicas, 
-        # descartando cuentas de bancos u otros gastos totalmente desconectados si los hubiera.
-        # (O si prefieres que se vea la contrapartida de la factura, mantenemos el comprobante 
-        # pero aseguramos que la identificación del proveedor salga limpia).
-        
         df_total['debe'] = pd.to_numeric(df_total['debe'], errors='coerce').fillna(0.0)
         df_total['haber'] = pd.to_numeric(df_total['haber'], errors='coerce').fillna(0.0)
         
@@ -7616,12 +7613,10 @@ def generar_auxiliar_cxp(conn, fecha_desde, fecha_hasta, proveedor_seleccionado=
 
         # Propagar el nombre del proveedor dentro del mismo comprobante dándole prioridad a la línea de la cuenta 2.1.1.01.001
         def obtener_proveedor_comprobante(sub_df):
-            # Primero intentamos sacar el proveedor de las líneas propias de la cuenta de proveedores
             provs_filtrados = sub_df[sub_df['es_cuenta_prov']]['proveedor_raw'].tolist()
             for p in provs_filtrados:
                 if p and p != "GENERAL / OTROS":
                     return p
-            # Si no, buscamos en cualquier otra línea del comprobante que tenga un nombre válido
             provs_general = sub_df['proveedor_raw'].tolist()
             for p in provs_general:
                 if p and p != "GENERAL / OTROS":
@@ -19033,9 +19028,13 @@ if opcion_menu == "📄 Factura Preimpresa":
 
 
 
+# ==============================================================================
+# 2. VISTA FRONTEND EN STREAMLIT
+# ==============================================================================
 if opcion_menu == "📄 Auxiliar Cta por Pagar":
     st.markdown("### 📊 Auxiliar de Cuentas por Pagar (Proveedores)")
 
+    EMPRESA = st.session_state.get('CLIENTE_NOMBRE', 'EMPRESA')
     db_actual = st.session_state.get('DB_ACTUAL')
 
     if not db_actual:
@@ -19061,7 +19060,7 @@ if opcion_menu == "📄 Auxiliar Cta por Pagar":
                 conn_aux.close()
 
         if df_auxiliar is not None and not df_auxiliar.empty:
-            # 💡 Filtrar la lista para mostrar SOLO nombres de proveedores reales (excluyendo genéricos o vacíos)
+            # 1. Filtrar lista de proveedores limpios (excluye pagos, bancos y genéricos)
             proveedores_unicos = df_auxiliar['Proveedor'].dropna().astype(str).str.strip()
             proveedores_unicos = proveedores_unicos[
                 (proveedores_unicos != "") & 
@@ -19070,15 +19069,16 @@ if opcion_menu == "📄 Auxiliar Cta por Pagar":
             ]
             
             lista_proveedores = ["TODOS"] + sorted(proveedores_unicos.unique().tolist())
-            
             prov_seleccionado = st.selectbox("Filtrar por Proveedor Específico:", lista_proveedores, key="select_filtro_proveedor")
 
+            # 2. Aplicar filtro seleccionado sobre la copia para la vista y exportación
+            df_vista = df_auxiliar.copy()
             if prov_seleccionado != "TODOS":
-                df_auxiliar = df_auxiliar[df_auxiliar['Proveedor'] == prov_seleccionado]
+                df_vista = df_vista[df_vista['Proveedor'] == prov_seleccionado]
 
-            # Mostrar la tabla formateada en Streamlit
+            # 3. Mostrar la tabla formateada en Streamlit
             st.dataframe(
-                df_auxiliar,
+                df_vista,
                 use_container_width=True,
                 hide_index=True,
                 column_config={
@@ -19088,8 +19088,8 @@ if opcion_menu == "📄 Auxiliar Cta por Pagar":
                 }
             )
             
-            # --- CÁLCULO DE TOTALES (EXCLUSIVO CUENTA CXP 2.1.1.01.001) ---
-            df_cxp_puro = df_auxiliar[df_auxiliar['Plan Cuentas'].astype(str).str.strip() == '2.1.1.01.001']
+            # 4. Cálculo de Totales (Exclusivo para la cuenta de Pasivo 2.1.1.01.001)
+            df_cxp_puro = df_vista[df_vista['Plan Cuentas'].astype(str).str.strip() == '2.1.1.01.001']
             
             total_pagos_cxp = df_cxp_puro['Debe'].sum()
             total_haber = df_cxp_puro['Haber'].sum()
@@ -19099,5 +19099,34 @@ if opcion_menu == "📄 Auxiliar Cta por Pagar":
             col_t1.metric("Pagos / Notas Débito (CxP)", f"{total_pagos_cxp:,.2f}")
             col_t2.metric("Total Deudas (Haber)", f"{total_haber:,.2f}")
             col_t3.metric("Deuda Total Pendiente", f"{saldo_final_total:,.2f}")
+
+            st.divider()
+
+            # 5. Área de Exportación (Excel y PDF)
+            st.write("### 📥 Exportar Auxiliar del Proveedor")
+            col_ex, col_pdf = st.columns(2)
+
+            # Botón Excel
+            output_aux = io.BytesIO()
+            with pd.ExcelWriter(output_aux, engine='xlsxwriter') as writer:
+                df_vista.to_excel(writer, index=False, sheet_name='Auxiliar_CxP')
+            
+            col_ex.download_button(
+                label="📥 Descargar Excel",
+                data=output_aux.getvalue(),
+                file_name=f"Auxiliar_CxP_{prov_seleccionado.replace(' ', '_')}_{EMPRESA}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True
+            )
+
+            # Botón PDF
+            col_pdf.button(
+                label="📄 Descargar PDF (Estado de Cuenta)",
+                disabled=False,
+                help="Genera el reporte formal en formato PDF para el proveedor seleccionado",
+                use_container_width=True,
+                on_click=lambda: st.toast("💡 Conecta aquí tu función de generación de PDF con FPDF2.")
+            )
+
         else:
             st.info("ℹ️ No se encontraron movimientos en cuentas de pasivo para el rango de fechas seleccionado.")
