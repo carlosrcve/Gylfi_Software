@@ -2494,6 +2494,43 @@ def mostrar_interfaz_mayor(f_ini_g, f_fin_g, db_nombre):
 
 
 @st.cache_data(ttl=300)
+def generar_balance_comprobacion(_db, f_i, f_f, sucursal):
+    """
+    Función cacheada para calcular los saldos del balance de comprobación.
+    Usa '_db' con guion bajo para que Streamlit ignore la conexión en el hash.
+    """
+    conn_saldos = conectar_db(_db)
+    if not conn_saldos:
+        return pd.DataFrame()
+    
+    cursor_saldos = None
+    try:
+        cursor_saldos = conn_saldos.cursor()
+        cursor_saldos.execute(f"USE `{_db}`")
+        
+        # --- AQUÍ VA TU LÓGICA INTERNA PARA EXTRAER LOS SALDOS DESDE LA BD ---
+        # (Ejecuta tu consulta SQL de saldos usando conn_saldos o cursor_saldos y retorna el DataFrame de saldos)
+        # Ejemplo por defecto si requieres estructura:
+        # query_saldos = "..."
+        # df_saldos = ejecutar_consulta(query_saldos, conn_saldos)
+        # return df_saldos
+        
+        # (Placeholder de seguridad si tu función original ya estaba definida en otro lado,
+        # asegúrate de que esa otra definición tenga el _db en la firma).
+        
+    except Exception as e:
+        st.error(f"Error calculando saldos de comprobación: {e}")
+        return pd.DataFrame()
+    finally:
+        if cursor_saldos:
+            try: cursor_saldos.close()
+            except: pass
+        if conn_saldos:
+            try: conn_saldos.close()
+            except: pass
+
+
+@st.cache_data(ttl=300)
 def generar_balance_profesional(db, f_i, f_f, sucursal):
     # Abrimos una conexión fresca y segura dentro de la función cacheada usando 'db'
     conn = conectar_db(db)
@@ -2515,7 +2552,7 @@ def generar_balance_profesional(db, f_i, f_f, sucursal):
             st.warning("⚠️ El plan de cuentas está vacío.")
             return pd.DataFrame()
 
-        # 2. Obtener los saldos del balance de comprobación pasando 'db' (string hashable) en lugar de 'conn'
+        # 2. Obtener los saldos del balance de comprobación pasando 'db' (string) en lugar de 'conn'
         df_saldos = generar_balance_comprobacion(db, f_i, f_f, sucursal)
         
         cols_finales = ['codigo', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final']
