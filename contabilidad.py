@@ -10593,7 +10593,6 @@ elif opcion_menu == "📝 Asientos Contables":
                         else:
                             st.info(f"No se encontró ningún registro asociado al Comprobante N° '{comp_a_eliminar}'.")
 
-
             # ==========================================
             # TAB 2: IMPORTACIÓN EXCEL (Blindado sin .str)
             # ==========================================
