@@ -7541,7 +7541,75 @@ def generar_pdf_preimpreso(conn, datos_factura, items_factura):
     return buffer.getvalue()
 
 
+from fpdf import FPDF
+import io
 
+class PDFReporteAuxiliar(FPDF):
+    def __init__(self, empresa_nombre, proveedor_nombre, f_desde, f_hasta, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.empresa_nombre = empresa_nombre
+        self.proveedor_nombre = proveedor_nombre
+        self.f_desde = f_desde
+        self.f_hasta = f_hasta
+
+    def header(self):
+        # Encabezado del reporte
+        self.set_font('helvetica', 'B', 14)
+        self.cell(0, 8, f"ESTADO DE CUENTA / AUXILIAR CXP", 0, 1, 'C')
+        self.set_font('helvetica', 'B', 10)
+        self.cell(0, 6, f"Empresa: {self.empresa_nombre}", 0, 1, 'C')
+        self.cell(0, 6, f"Proveedor: {self.proveedor_nombre}", 0, 1, 'C')
+        self.cell(0, 6, f"Período: {self.f_desde} al {self.f_hasta}", 0, 1, 'C')
+        self.ln(5)
+
+        # Cabeceras de la tabla
+        self.set_font('helvetica', 'B', 8)
+        self.set_fill_color(240, 242, 246)
+        
+        # Anchos de columna (Total ancho útil en A4 vertical = ~190mm)
+        self.cell(20, 6, "Fecha", 1, 0, 'C', True)
+        self.cell(22, 6, "Comprobante", 1, 0, 'C', True)
+        self.cell(18, 6, "Plan Cuentas", 1, 0, 'C', True)
+        self.cell(50, 6, "Descripción", 1, 0, 'C', True)
+        self.cell(22, 6, "Debe", 1, 0, 'R', True)
+        self.cell(22, 6, "Haber", 1, 0, 'R', True)
+        self.cell(26, 6, "Saldo", 1, 1, 'R', True)
+
+    def footer(self):
+        # Paginación al pie de página
+        self.set_y(-15)
+        self.set_font('helvetica', 'I', 8)
+        self.cell(0, 10, f"Página {self.page_no()} / {{nb}}", 0, 0, 'C')
+
+def generar_pdf_auxiliar_cxp(df_vista, proveedor_nombre, empresa_nombre, f_desde, f_hasta):
+    pdf = PDFReporteAuxiliar(empresa_nombre, proveedor_nombre, str(f_desde), str(f_hasta), orientation='P', unit='mm', format='A4')
+    pdf.alias_nb_pages()
+    pdf.add_page()
+    pdf.set_font('helvetica', '', 8)
+
+    # Iterar sobre el DataFrame para pintar las filas
+    for _, row in df_vista.iterrows():
+        fecha = str(row.get('Fecha', ''))
+        comp = str(row.get('Comprobante', ''))
+        plan = str(row.get('Plan Cuentas', ''))
+        desc = str(row.get('Descripción', ''))
+        if len(desc) > 30:
+            desc = desc[:27] + "..." # Recortar descripciones muy largas para que quepan en la celda
+        
+        debe = float(row.get('Debe', 0.0))
+        haber = float(row.get('Haber', 0.0))
+        saldo = float(row.get('Saldo', 0.0))
+
+        pdf.cell(20, 6, fecha, 1, 0, 'C')
+        pdf.cell(22, 6, comp, 1, 0, 'C')
+        pdf.cell(18, 6, plan, 1, 0, 'C')
+        pdf.cell(50, 6, desc, 1, 0, 'L')
+        pdf.cell(22, 6, f"{debe:,.2f}", 1, 0, 'R')
+        pdf.cell(22, 6, f"{haber:,.2f}", 1, 0, 'R')
+        pdf.cell(26, 6, f"{saldo:,.2f}", 1, 1, 'R')
+
+    # Retornar los bytes del PDF generado
+    return pdf.output()
 # ==============================================================================
 # 1. FUNCIÓN BACKEND: GENERAR AUXILIAR DE CUENTAS POR PAGAR
 # ==============================================================================
@@ -19102,11 +19170,11 @@ if opcion_menu == "📄 Auxiliar Cta por Pagar":
 
             st.divider()
 
-            # 5. Área de Exportación (Excel y PDF)
+            # --- ÁREA DE DESCARGAS (EXCEL Y PDF) ---
             st.write("### 📥 Exportar Auxiliar del Proveedor")
             col_ex, col_pdf = st.columns(2)
 
-            # Botón Excel
+            # 1. BOTÓN DE EXCEL
             output_aux = io.BytesIO()
             with pd.ExcelWriter(output_aux, engine='xlsxwriter') as writer:
                 df_vista.to_excel(writer, index=False, sheet_name='Auxiliar_CxP')
@@ -19119,13 +19187,15 @@ if opcion_menu == "📄 Auxiliar Cta por Pagar":
                 use_container_width=True
             )
 
-            # Botón PDF
-            col_pdf.button(
+            # 2. BOTÓN DE PDF (Funcional y conectado)
+            pdf_bytes = generar_pdf_auxiliar_cxp(df_vista, prov_seleccionado, EMPRESA, f_desde, f_hasta)
+            
+            col_pdf.download_button(
                 label="📄 Descargar PDF (Estado de Cuenta)",
-                disabled=False,
-                help="Genera el reporte formal en formato PDF para el proveedor seleccionado",
-                use_container_width=True,
-                on_click=lambda: st.toast("💡 Conecta aquí tu función de generación de PDF con FPDF2.")
+                data=pdf_bytes,
+                file_name=f"Auxiliar_CxP_{prov_seleccionado.replace(' ', '_')}_{EMPRESA}.pdf",
+                mime="application/pdf",
+                use_container_width=True
             )
 
         else:
