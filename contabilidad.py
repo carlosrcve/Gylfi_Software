@@ -7542,37 +7542,32 @@ def generar_pdf_preimpreso(conn, datos_factura, items_factura):
 
 
 
-import re
-import pandas as pd
-
 def generar_auxiliar_cxp(conn, fecha_desde, fecha_hasta, proveedor_seleccionado=None):
     """
-    Genera un DataFrame con el Auxiliar de Cuentas por Pagar filtrado 
-    ESTRICTAMENTE para la cuenta 2.1.1.01.001 (Proveedores Nacionales), 
-    agrupando correctamente los ajustes administrativos bajo el proveedor del comprobante.
+    Genera un DataFrame con el Auxiliar de Cuentas por Pagar detallado por comprobante 
+    (incluyendo todas las líneas contables asociadas a los comprobantes de la cuenta 2.1.1.01.001), 
+    coincidiendo exactamente con la estructura del reporte en Excel.
     """
     try:
         # Formatear fechas de manera estricta a string YYYY-MM-DD
         f_hasta_str = fecha_hasta.strftime('%Y-%m-%d') if hasattr(fecha_hasta, 'strftime') else str(fecha_hasta)
         f_desde_str = fecha_desde.strftime('%Y-%m-%d') if hasattr(fecha_desde, 'strftime') else str(fecha_desde)
 
-        # Consulta estricta: Solo buscamos el código exacto de Proveedores Nacionales
+        # Consulta ampliada: Obtener todas las líneas de los comprobantes que tengan movimientos en 2.1.1.01.001
         query = """
             SELECT id, n_comprobante, fecha, descripcion, plan_cuentas, cuenta_contable, referencia, debe, haber
             FROM asientos_contables
-            WHERE plan_cuentas = '2.1.1.01.001'
-              AND fecha <= %s
+            WHERE n_comprobante IN (
+                SELECT DISTINCT n_comprobante 
+                FROM asientos_contables 
+                WHERE plan_cuentas = '2.1.1.01.001' 
+                  AND fecha <= %s
+            )
             ORDER BY fecha ASC, n_comprobante ASC, id ASC
         """
         df_total = ejecutar_consulta(query, conn, params=(f_hasta_str,))
         
         if df_total is None or df_total.empty:
-            return pd.DataFrame()
-
-        # Doble seguridad en Pandas: Asegurar que la cuenta sea exactamente la deseada
-        df_total = df_total[df_total['plan_cuentas'].astype(str).str.strip() == '2.1.1.01.001']
-        
-        if df_total.empty:
             return pd.DataFrame()
 
         # Convertir montos a numéricos por seguridad
@@ -7587,13 +7582,11 @@ def generar_auxiliar_cxp(conn, fecha_desde, fecha_hasta, proveedor_seleccionado=
         def extraer_proveedor_base(desc):
             if not isinstance(desc, str):
                 return ""
-            # Si tiene estructura con guion (ej: COMP PAGADO - PROVEEDOR)
             if "-" in desc:
                 partes = desc.split("-")
                 candidato = partes[-1].strip()
                 if len(candidato) > 3 and "AJUSTES" not in candidato.upper():
                     return candidato
-            # Si el texto mismo es un nombre de proveedor válido
             if "AJUSTES" not in desc.upper() and "PAGADO" not in desc.upper() and len(desc.strip()) > 3:
                 return desc.strip()
             return ""
@@ -7602,35 +7595,41 @@ def generar_auxiliar_cxp(conn, fecha_desde, fecha_hasta, proveedor_seleccionado=
 
         # 2. Propagar el nombre del proveedor dentro del mismo comprobante 
         df_total['proveedor'] = df_total.groupby('n_comprobante')['proveedor_raw'].transform(lambda x: next((v for v in x if v != ""), "GENERAL / OTROS"))
-        
-        # Si aun así quedó vacio en algún comprobante sin nombre explícito
         df_total['proveedor'] = df_total['proveedor'].replace("", "GENERAL / OTROS")
-
-        # Separar Saldo Inicial y Movimientos del Periodo usando las fechas en texto estricto
-        mask_inicial = df_total['fecha_dt'] < pd.to_datetime(f_desde_str)
-        df_periodo = df_total[df_total['fecha_dt'] >= pd.to_datetime(f_desde_str)].copy()
 
         # Filtrar por un proveedor específico si se selecciona
         if proveedor_seleccionado and proveedor_seleccionado != "TODOS":
             df_total = df_total[df_total['proveedor'] == proveedor_seleccionado]
-            df_periodo = df_periodo[df_periodo['proveedor'] == proveedor_seleccionado]
+            if df_total.empty:
+                return pd.DataFrame()
 
-        # Calcular Saldo Acumulado (Para Pasivos: Saldo = Haber - Debe)
-        df_periodo['movimiento'] = df_periodo['haber'] - df_periodo['debe']
+        # Separar Movimientos del Periodo (fecha >= fecha_desde)
+        df_periodo = df_total[df_total['fecha_dt'] >= pd.to_datetime(f_desde_str)].copy()
+
+        if df_periodo.empty:
+            return pd.DataFrame()
+
+        # Calcular Saldo Acumulado: Solo las líneas de la cuenta de proveedores (2.1.1.01.001) modifican el saldo de CxP
+        df_periodo['es_cxp'] = df_periodo['plan_cuentas'].astype(str).str.strip() == '2.1.1.01.001'
+        df_periodo['movimiento'] = 0.0
+        df_periodo.loc[df_periodo['es_cxp'], 'movimiento'] = df_periodo.loc[df_periodo['es_cxp'], 'haber'] - df_periodo.loc[df_periodo['es_cxp'], 'debe']
+        
         df_periodo['saldo_acumulado'] = df_periodo.groupby('proveedor')['movimiento'].cumsum()
 
-        # Ordenar columnas para el reporte final
+        # Ordenar y renombrar columnas incluyendo Plan Cuentas y Cuenta Contable igual que en Excel
         auxiliar_final = df_periodo[[
-            'fecha', 'n_comprobante', 'referencia', 'descripcion', 
+            'fecha', 'n_comprobante', 'plan_cuentas', 'cuenta_contable', 'referencia', 'descripcion', 
             'proveedor', 'debe', 'haber', 'saldo_acumulado'
         ]].rename(columns={
             'fecha': 'Fecha',
             'n_comprobante': 'Comprobante',
+            'plan_cuentas': 'Plan Cuentas',
+            'cuenta_contable': 'Cuenta Contable',
             'referencia': 'Referencia / Factura',
             'descripcion': 'Descripción',
             'proveedor': 'Proveedor',
-            'debe': 'Debe (Pagos)',
-            'haber': 'Haber (Deudas)',
+            'debe': 'Debe',
+            'haber': 'Haber',
             'saldo_acumulado': 'Saldo'
         })
 
