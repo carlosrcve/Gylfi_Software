@@ -10594,7 +10594,7 @@ elif opcion_menu == "📝 Asientos Contables":
                             st.info(f"No se encontró ningún registro asociado al Comprobante N° '{comp_a_eliminar}'.")
 
             # ==========================================
-            # TAB 2: IMPORTACIÓN EXCEL (Blindado sin .str)
+            # TAB 2: IMPORTACIÓN EXCEL (Blindado contra columnas duplicadas)
             # ==========================================
             with tab2:
                 st.markdown("### 📤 Cargar nuevos Asientos Contables")
@@ -10605,32 +10605,54 @@ elif opcion_menu == "📝 Asientos Contables":
                         # 1. Leer el Excel manteniendo todo como texto inicialmente
                         df_subido = pd.read_excel(archivo_excel, dtype=object)
                         
-                        # 2. Limpiar nombres de columnas con bucle nativo de Python (CERO .str)
-                        df_subido.columns = [str(c).strip().lower() for c in df_subido.columns]
+                        # 2. Sanitizar nombres de columnas base
+                        new_cols = []
+                        seen = {}
+                        for c in df_subido.columns:
+                            c_str = str(c).strip().lower()
+                            if not c_str or 'unnamed' in c_str:
+                                c_str = 'col_vacia'
+                            if c_str in seen:
+                                seen[c_str] += 1
+                                c_str = f"{c_str}_{seen[c_str]}"
+                            else:
+                                seen[c_str] = 0
+                            new_cols.append(c_str)
+                        df_subido.columns = new_cols
 
-                        # 3. Mapeo flexible adaptado a los nombres exactos de tu Excel ('plan_de_cuen', etc.)
+                        # 3. Mapeo único: Evita que dos columnas tomen el mismo nombre estándar
                         rename_dict = {}
+                        assigned_targets = set()
+                        
                         for col in df_subido.columns:
-                            col_clean = str(col).strip().lower()
+                            col_clean = str(col)
+                            target = None
                             
-                            if any(x in col_clean for x in ['comprobante', 'comp', 'n_comprobar']):
-                                rename_dict[col] = 'n_comprobante'
-                            elif any(x in col_clean for x in ['descripcion', 'descripción', 'concepto', 'detalle']):
-                                rename_dict[col] = 'descripcion'
-                            elif any(x in col_clean for x in ['fecha', 'fec']):
-                                rename_dict[col] = 'fecha'
-                            elif any(x in col_clean for x in ['plan', 'cuenta', 'cod', 'codigo', 'plan_de_cuen']):
-                                rename_dict[col] = 'plan_cuentas'
-                            elif any(x in col_clean for x in ['nombre', 'cuenta_contable']) or ('cuenta' in col_clean and 'contable' in col_clean):
-                                rename_dict[col] = 'cuenta_contable'
-                            elif any(x in col_clean for x in ['referencia', 'ref', 'factura']):
-                                rename_dict[col] = 'referencia'
-                            elif any(x in col_clean for x in ['debe', 'debito', 'débito', 'cargo']):
-                                rename_dict[col] = 'debe'
-                            elif any(x in col_clean for x in ['haber', 'credito', 'crédito', 'abono']):
-                                rename_dict[col] = 'haber'
+                            if any(x in col_clean for x in ['comprobante', 'comp', 'n_comprobar']) and 'n_comprobante' not in assigned_targets:
+                                target = 'n_comprobante'
+                            elif any(x in col_clean for x in ['descripcion', 'descripción', 'concepto', 'detalle']) and 'descripcion' not in assigned_targets:
+                                target = 'descripcion'
+                            elif any(x in col_clean for x in ['fecha', 'fec']) and 'fecha' not in assigned_targets:
+                                target = 'fecha'
+                            elif any(x in col_clean for x in ['plan', 'cuenta', 'cod', 'codigo', 'plan_de_cuen']) and 'nombre' not in col_clean and 'plan_cuentas' not in assigned_targets:
+                                target = 'plan_cuentas'
+                            elif (any(x in col_clean for x in ['nombre', 'cuenta_contable']) or ('cuenta' in col_clean and 'contable' in col_clean)) and 'cuenta_contable' not in assigned_targets:
+                                target = 'cuenta_contable'
+                            elif any(x in col_clean for x in ['referencia', 'ref', 'factura']) and 'referencia' not in assigned_targets:
+                                target = 'referencia'
+                            elif any(x in col_clean for x in ['debe', 'debito', 'débito', 'cargo']) and 'debe' not in assigned_targets:
+                                target = 'debe'
+                            elif any(x in col_clean for x in ['haber', 'credito', 'crédito', 'abono']) and 'haber' not in assigned_targets:
+                                target = 'haber'
+                            
+                            if target:
+                                rename_dict[col] = target
+                                assigned_targets.add(target)
                         
                         df_subido = df_subido.rename(columns=rename_dict)
+                        
+                        # Eliminar preventivamente cualquier columna duplicada en los índices
+                        df_subido = df_subido.loc[:, ~df_subido.columns.duplicated()]
 
                         # 4. Validar obligatoriamente la existencia de 'plan_cuentas'
                         if 'plan_cuentas' not in df_subido.columns:
@@ -10642,10 +10664,34 @@ elif opcion_menu == "📝 Asientos Contables":
                             else:
                                 df_subido['fecha'] = date.today()
 
-                            # 6. Procesar montos de Debe y Haber de forma segura
+                            # Funciones locales seguras
+                            def parsear_monto_local(val):
+                                if pd.isna(val):
+                                    return 0.0
+                                val_str = str(val).strip()
+                                if val_str in ['', '-', 'None', 'nan', 'NaN', 'NAT']:
+                                    return 0.0
+                                try:
+                                    clean = val_str.replace('.', '').replace(',', '.')
+                                    return float(clean)
+                                except:
+                                    try:
+                                        return float(val_str)
+                                    except:
+                                        return 0.0
+
+                            def formato_ve_local(val):
+                                try:
+                                    val_f = float(val)
+                                    s = f"{val_f:,.2f}"
+                                    return s.replace(',', 'X').replace('.', ',').replace('X', '.')
+                                except:
+                                    return "0,00"
+
+                            # 6. Procesar montos de Debe y Haber
                             for col in ['debe', 'haber']:
                                 if col in df_subido.columns:
-                                    df_subido[col] = df_subido[col].apply(parsear_monto_seguro)
+                                    df_subido[col] = df_subido[col].apply(parsear_monto_local)
                                 else:
                                     df_subido[col] = 0.0
 
@@ -10655,7 +10701,7 @@ elif opcion_menu == "📝 Asientos Contables":
                             else:
                                 df_subido['bloqueado'] = pd.to_numeric(df_subido['bloqueado'], errors='coerce').fillna(0).astype(int)
 
-                            # 7. Limpieza absoluta de textos usando .apply con funciones lambda (Sin usar .str)
+                            # 7. Limpieza absoluta de textos columna por columna
                             campos_texto = ['n_comprobante', 'descripcion', 'plan_cuentas', 'cuenta_contable', 'referencia']
                             for c in campos_texto:
                                 if c not in df_subido.columns:
@@ -10670,7 +10716,7 @@ elif opcion_menu == "📝 Asientos Contables":
                             df_para_mostrar = df_subido.copy()
                             for col in ['debe', 'haber']:
                                 if col in df_para_mostrar.columns:
-                                    df_para_mostrar[col] = df_para_mostrar[col].apply(formato_venezolano)
+                                    df_para_mostrar[col] = df_para_mostrar[col].apply(formato_ve_local)
 
                             if 'debe' in df_para_mostrar.columns and 'haber' in df_para_mostrar.columns:
                                 df_para_mostrar = df_para_mostrar.rename(columns={'debe': 'débito', 'haber': 'crédito'})
@@ -10694,16 +10740,26 @@ elif opcion_menu == "📝 Asientos Contables":
                                                 """
                                                 
                                                 for _, row in df_subido.iterrows():
+                                                    comp = row.get('n_comprobante', '')
+                                                    desc = row.get('descripcion', '')
+                                                    fec = row.get('fecha', date.today())
+                                                    plan = row.get('plan_cuentas', '')
+                                                    cta = row.get('cuenta_contable', '')
+                                                    ref = row.get('referencia', '')
+                                                    deb = row.get('debe', 0.0)
+                                                    hab = row.get('haber', 0.0)
+                                                    bloq = row.get('bloqueado', 0)
+
                                                     cursor.execute(query_insert, (
-                                                        str(row.get('n_comprobante', '')),
-                                                        str(row.get('descripcion', '')),
-                                                        str(row.get('fecha', date.today())),
-                                                        str(row.get('plan_cuentas', '')),
-                                                        str(row.get('cuenta_contable', '')),
-                                                        str(row.get('referencia', '')),
-                                                        float(row.get('debe', 0.0)),
-                                                        float(row.get('haber', 0.0)),
-                                                        int(row.get('bloqueado', 0))
+                                                        str(comp.iloc[0] if hasattr(comp, 'iloc') else comp),
+                                                        str(desc.iloc[0] if hasattr(desc, 'iloc') else desc),
+                                                        str(fec.iloc[0] if hasattr(fec, 'iloc') else fec),
+                                                        str(plan.iloc[0] if hasattr(plan, 'iloc') else plan),
+                                                        str(cta.iloc[0] if hasattr(cta, 'iloc') else cta),
+                                                        str(ref.iloc[0] if hasattr(ref, 'iloc') else ref),
+                                                        float(deb.iloc[0] if hasattr(deb, 'iloc') else deb),
+                                                        float(hab.iloc[0] if hasattr(hab, 'iloc') else hab),
+                                                        int(bloq.iloc[0] if hasattr(bloq, 'iloc') else bloq)
                                                     ))
                                                 conn_imp.commit()
 
