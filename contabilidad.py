@@ -10593,7 +10593,6 @@ elif opcion_menu == "📝 Asientos Contables":
                         else:
                             st.info(f"No se encontró ningún registro asociado al Comprobante N° '{comp_a_eliminar}'.")
 
-
             # ==========================================
             # TAB 2: IMPORTACIÓN EXCEL
             # ==========================================
@@ -10606,7 +10605,7 @@ elif opcion_menu == "📝 Asientos Contables":
                         # 1. Leer el Excel manteniendo todo como texto inicialmente
                         df_subido = pd.read_excel(archivo_excel, dtype=object)
                         
-                        # 2. Asegurar estrictamente que las columnas sean strings antes de manipularlas con .str
+                        # 2. Asegurar estrictamente que las cabeceras sean una lista de strings antes de aplicar .str
                         df_subido.columns = [str(c).strip().lower() for c in df_subido.columns]
 
                         # 3. Mapeo flexible de columnas por coincidencia parcial
@@ -10656,7 +10655,7 @@ elif opcion_menu == "📝 Asientos Contables":
                             else:
                                 df_subido['bloqueado'] = pd.to_numeric(df_subido['bloqueado'], errors='coerce').fillna(0).astype(int)
 
-                            # 7. Limpieza segura de campos de texto columna por columna
+                            # 7. Limpieza segura de campos de texto estrictamente columna por columna
                             campos_texto = ['n_comprobante', 'descripcion', 'plan_cuentas', 'cuenta_contable', 'referencia']
                             for c in campos_texto:
                                 if c not in df_subido.columns:
