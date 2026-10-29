@@ -10330,7 +10330,7 @@ elif opcion_menu == "📝 Asientos Contables":
                             key="editor_diario_dinamico",
                             column_config=column_config_dict
                         )
-                        
+
                         if st.button("💾 Guardar Cambios", key="btn_guardar_cambios", type="primary"):
                             try:
                                 t_debe_val = pd.to_numeric(df_editado['debe'], errors='coerce').sum()
@@ -10601,112 +10601,118 @@ elif opcion_menu == "📝 Asientos Contables":
                 
                 if archivo_excel:
                     try:
-                        # 1. Leer el Excel tal cual viene, manteniendo todo como texto/objeto inicialmente
+                        # 1. Leer el Excel manteniendo todo como texto inicialmente
                         df_subido = pd.read_excel(archivo_excel, dtype=object)
                         df_subido.columns = df_subido.columns.astype(str).str.strip().str.lower()
 
-                        # 2. Mapeo flexible de nombres de columnas por si acaso vienen con variaciones comunes
+                        # 2. Mapeo ultra robusto para asegurar que la columna del plan de cuentas no se pierda
                         rename_dict = {}
                         for col in df_subido.columns:
-                            if col in ['comprobante', 'n_comprobante', 'nro_comprobante', 'comprobante n°']:
+                            if col in ['comprobante', 'n_comprobante', 'nro_comprobante', 'comprobante n°', 'n° comprobante']:
                                 rename_dict[col] = 'n_comprobante'
-                            elif col in ['descripción', 'descripcion', 'concepto']:
+                            elif col in ['descripción', 'descripcion', 'concepto', 'detalle']:
                                 rename_dict[col] = 'descripcion'
-                            elif col in ['fecha', 'fec']:
+                            elif col in ['fecha', 'fec', 'date']:
                                 rename_dict[col] = 'fecha'
-                            elif col in ['plan_cuentas', 'codigo_cuenta', 'cuenta_codigo', 'codigo', 'cuenta']:
+                            elif col in ['plan_cuentas', 'plan cuentas', 'codigo_cuenta', 'cuenta_codigo', 'codigo', 'cuenta', 'cod_cuenta']:
                                 rename_dict[col] = 'plan_cuentas'
-                            elif col in ['cuenta_contable', 'nombre_cuenta', 'nombre']:
+                            elif col in ['cuenta_contable', 'nombre_cuenta', 'nombre cuenta', 'nombre']:
                                 rename_dict[col] = 'cuenta_contable'
-                            elif col in ['referencia', 'ref', 'n_referencia']:
+                            elif col in ['referencia', 'ref', 'n_referencia', 'factura', 'nro_factura']:
                                 rename_dict[col] = 'referencia'
-                            elif col in ['débito', 'debito', 'debe']:
+                            elif col in ['débito', 'debito', 'debe', 'cargo']:
                                 rename_dict[col] = 'debe'
-                            elif col in ['crédito', 'credito', 'haber']:
+                            elif col in ['crédito', 'credito', 'haber', 'abono']:
                                 rename_dict[col] = 'haber'
                         
                         df_subido = df_subido.rename(columns=rename_dict)
 
-                        # 3. Formatear la fecha si existe
-                        if 'fecha' in df_subido.columns:
-                            df_subido['fecha'] = pd.to_datetime(df_subido['fecha'], errors='coerce').dt.date
-
-                        # 4. Procesar los montos de Debe y Haber de forma segura con tus funciones
-                        for col in ['debe', 'haber']:
-                            if col in df_subido.columns:
-                                df_subido[col] = df_subido[col].apply(parsear_monto_seguro)
+                        # 3. Validar obligatoriamente la existencia de 'plan_cuentas'
+                        if 'plan_cuentas' not in df_subido.columns:
+                            st.error("❌ El archivo Excel no contiene una columna reconocible para el **Plan de Cuentas** (Asegúrate de que la columna se llame 'plan_cuentas', 'código' o 'cuenta').")
+                        else:
+                            # 4. Formatear fecha
+                            if 'fecha' in df_subido.columns:
+                                df_subido['fecha'] = pd.to_datetime(df_subido['fecha'], errors='coerce').dt.date
                             else:
-                                df_subido[col] = 0.0
+                                df_subido['fecha'] = date.today()
 
-                        # Validar columna de saldo opcional si la trae el archivo
-                        if 'saldo' in df_subido.columns:
-                            df_subido['saldo'] = df_subido['saldo'].apply(parsear_monto_seguro)
-                        
-                        # Asegurar campo bloqueado por defecto en 0
-                        if 'bloqueado' not in df_subido.columns:
-                            df_subido['bloqueado'] = 0
+                            # 5. Procesar montos de Debe y Haber de forma segura
+                            for col in ['debe', 'haber']:
+                                if col in df_subido.columns:
+                                    df_subido[col] = df_subido[col].apply(parsear_monto_seguro)
+                                else:
+                                    df_subido[col] = 0.0
 
-                        # 5. Crear una copia exacta para la vista previa aplicando formato venezolano en pantalla
-                        df_para_mostrar = df_subido.copy()
-                        for col in ['debe', 'haber']:
-                            if col in df_para_mostrar.columns:
-                                df_para_mostrar[col] = df_para_mostrar[col].apply(formato_venezolano)
+                            # Asegurar campo bloqueado por defecto en 0
+                            if 'bloqueado' not in df_subido.columns:
+                                df_subido['bloqueado'] = 0
+                            else:
+                                df_subido['bloqueado'] = pd.to_numeric(df_subido['bloqueado'], errors='coerce').fillna(0).astype(int)
 
-                        if 'debe' in df_para_mostrar.columns and 'haber' in df_para_mostrar.columns:
-                            df_para_mostrar = df_para_mostrar.rename(columns={'debe': 'débito', 'haber': 'crédito'})
+                            # 6. Limpieza estricta de textos para garantizar que los códigos y nombres pasen intactos
+                            campos_texto = ['n_comprobante', 'descripcion', 'plan_cuentas', 'cuenta_contable', 'referencia']
+                            for c in campos_texto:
+                                if c not in df_subido.columns:
+                                    df_subido[c] = ""
+                                else:
+                                    df_subido[c] = df_subido[c].fillna("").astype(str).str.strip()
+                                    df_subido[c] = df_subido[c].apply(lambda x: "" if x.lower() in ['nan', 'none', 'nat', 'null'] else x)
 
-                        # Limpiar nulos para visualización limpia
-                        for col in df_subido.columns:
-                            if col != 'fecha': 
-                                df_subido[col] = df_subido[col].astype(str).replace(['nan', 'None', 'nat'], '').str.strip()
+                            # 7. Crear vista previa formateada adaptada a la tabla asientos_contables
+                            df_para_mostrar = df_subido.copy()
+                            for col in ['debe', 'haber']:
+                                if col in df_para_mostrar.columns:
+                                    df_para_mostrar[col] = df_para_mostrar[col].apply(formato_venezolano)
 
-                        st.write("### ✅ Vista previa directa del Excel:")
-                        st.dataframe(df_para_mostrar, hide_index=True, use_container_width=True)
+                            if 'debe' in df_para_mostrar.columns and 'haber' in df_para_mostrar.columns:
+                                df_para_mostrar = df_para_mostrar.rename(columns={'debe': 'débito', 'haber': 'crédito'})
 
-                        # 6. Botón de confirmación para insertar tal cual viene el DataFrame a la BD
-                        if st.button("🚀 Confirmar e Importar al Diario", use_container_width=True, key="btn_conf_import_diario"):
-                            conn_imp = None
-                            try:
-                                with st.spinner(f"Subiendo datos a la base: {db_actual}..."):
-                                    conn_imp = conectar_db(db_actual)
-                                    if conn_imp:
-                                        with conn_imp.cursor() as cursor:
-                                            # Construir la inserción dinámica basándose estrictamente en las columnas que trae el df_subido
-                                            # Mapeando contra las columnas reales de la tabla asientos_contables
-                                            query_insert = """
-                                                INSERT INTO asientos_contables (
-                                                    n_comprobante, descripcion, fecha, plan_cuentas, 
-                                                    cuenta_contable, referencia, debe, haber, bloqueado
-                                                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                                            """
-                                            
-                                            for _, row in df_subido.iterrows():
-                                                cursor.execute(query_insert, (
-                                                    str(row.get('n_comprobante', '')),
-                                                    str(row.get('descripcion', '')),
-                                                    str(row.get('fecha', date.today())),
-                                                    str(row.get('plan_cuentas', '')),     # <--- Toma directamente el código que viene de Excel
-                                                    str(row.get('cuenta_contable', '')),  # <--- Toma directamente la cuenta que viene de Excel
-                                                    str(row.get('referencia', '')),
-                                                    float(row.get('debe', 0.0)),
-                                                    float(row.get('haber', 0.0)),
-                                                    int(row.get('bloqueado', 0))
-                                                ))
-                                            conn_imp.commit()
+                            st.write("### ✅ Vista previa directa del Excel (Estructura Contable):")
+                            st.dataframe(df_para_mostrar, hide_index=True, use_container_width=True)
 
-                                        st.balloons()
-                                        st.success(f"✅ ¡Asientos procesados y cargados con éxito desde el Excel en {db_actual}!")
-                                    else:
-                                        st.error("❌ No se pudo conectar a la base de datos de la empresa.")
-                            except Exception as e:
-                                st.error(f"Error crítico en la inserción: {e}")
-                            finally:
+                            # 8. Botón de confirmación para insertar directamente a la BD respetando las columnas reales
+                            if st.button("🚀 Confirmar e Importar al Diario", use_container_width=True, key="btn_conf_import_diario"):
+                                conn_imp = None
                                 try:
-                                    if conn_imp and hasattr(conn_imp, 'close'):
-                                        conn_imp.close()
-                                except Exception:
-                                    pass
-                                    
+                                    with st.spinner(f"Subiendo datos a la base: {db_actual}..."):
+                                        conn_imp = conectar_db(db_actual)
+                                        if conn_imp:
+                                            with conn_imp.cursor() as cursor:
+                                                query_insert = """
+                                                    INSERT INTO asientos_contables (
+                                                        n_comprobante, descripcion, fecha, plan_cuentas, 
+                                                        cuenta_contable, referencia, debe, haber, bloqueado
+                                                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                                """
+                                                
+                                                for _, row in df_subido.iterrows():
+                                                    cursor.execute(query_insert, (
+                                                        str(row.get('n_comprobante', '')),
+                                                        str(row.get('descripcion', '')),
+                                                        str(row.get('fecha', date.today())),
+                                                        str(row.get('plan_cuentas', '')),     # <--- Ahora sube limpio y directo el plan de cuentas
+                                                        str(row.get('cuenta_contable', '')),  # <--- Sube la cuenta contable
+                                                        str(row.get('referencia', '')),
+                                                        float(row.get('debe', 0.0)),
+                                                        float(row.get('haber', 0.0)),
+                                                        int(row.get('bloqueado', 0))
+                                                    ))
+                                                conn_imp.commit()
+
+                                            st.balloons()
+                                            st.success(f"✅ ¡Asientos procesados y cargados con éxito desde el Excel en {db_actual}!")
+                                        else:
+                                            st.error("❌ No se pudo conectar a la base de datos de la empresa.")
+                                except Exception as e:
+                                    st.error(f"Error crítico en la inserción: {e}")
+                                finally:
+                                    try:
+                                        if conn_imp and hasattr(conn_imp, 'close'):
+                                            conn_imp.close()
+                                    except Exception:
+                                        pass
+                                        
                     except Exception as e:
                         st.error(f"Error al procesar el archivo Excel: {e}")
             # ==========================================
