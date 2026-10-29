@@ -18982,7 +18982,7 @@ if opcion_menu == "📄 Auxiliar Cta por Pagar":
             if prov_seleccionado != "TODOS":
                 df_auxiliar = df_auxiliar[df_auxiliar['Proveedor'] == prov_seleccionado]
 
-            # Mostrar la tabla formateada en Streamlit con los nombres actualizados de columnas
+            # Mostrar la tabla formateada en Streamlit
             st.dataframe(
                 df_auxiliar,
                 use_container_width=True,
@@ -18994,9 +18994,11 @@ if opcion_menu == "📄 Auxiliar Cta por Pagar":
                 }
             )
             
-            # Totales generales del auxiliar filtrado (apuntando a las columnas 'Debe' y 'Haber')
-            total_debe = df_auxiliar['Debe'].sum()
-            total_haber = df_auxiliar['Haber'].sum()
+            # --- CÁLCULO CORRECTO DE TOTALES (EXCLUSIVO CUENTA CXP 2.1.1.01.001) ---
+            df_cxp_puro = df_auxiliar[df_auxiliar['Plan Cuentas'].astype(str).str.strip() == '2.1.1.01.001']
+            
+            total_debe = df_cxp_puro['Debe'].sum()
+            total_haber = df_cxp_puro['Haber'].sum()
             saldo_final_total = total_haber - total_debe
             
             col_t1, col_t2, col_t3 = st.columns(3)
