@@ -10290,6 +10290,20 @@ elif opcion_menu == "📝 Asientos Contables":
                 if accion_diario == "🔍 Consultar y Modificar Asientos":
                     st.subheader("Consulta y Modificación de Asientos Contables")
                     
+                    # ---------------------------------------------------------
+                    # 0. CARGAR CATÁLOGO DE CUENTAS DE LA BD PARA EL SELECTBOX
+                    # ---------------------------------------------------------
+                    try:
+                        conn_act = conectar_db(db_actual) if 'db_actual' in locals() and db_actual else conn_general
+                        with conn_act.cursor() as cur_pc:
+                            cur_pc.execute("SELECT codigo, nombre FROM plan_cuentas WHERE tipo = 'Detalle' ORDER BY codigo")
+                            cuentas_db = cur_pc.fetchall()
+                    except Exception:
+                        cuentas_db = [("1.1.1.01.001", "Caja Chica"), ("1.1.1.02.001", "Banco Banesco")]
+
+                    opciones_cuentas = [f"{str(cod).strip()} - {str(nom).strip()}" for cod, nom in cuentas_db]
+                    dict_nombres_cuentas = {str(cod).strip(): str(nom).strip() for cod, nom in cuentas_db}
+
                     modo_busqueda = st.radio(
                         "Filtrar asientos contables por:", 
                         ["📅 Rango de Fechas", "🔢 Número de Comprobante"], 
@@ -10300,8 +10314,6 @@ elif opcion_menu == "📝 Asientos Contables":
                     df_diario = None
 
                     try:
-                        conn_act = conectar_db(db_actual) if 'db_actual' in locals() and db_actual else conn_general
-
                         if modo_busqueda == "📅 Rango de Fechas":
                             col1, col2 = st.columns(2)
                             with col1:
@@ -10309,7 +10321,6 @@ elif opcion_menu == "📝 Asientos Contables":
                             with col2:
                                 f_fin = st.date_input("Fecha Fin", key="f_fin_mod")
                             
-                            # Validar coherencia de fechas antes de consultar
                             if f_inicio > f_fin:
                                 st.warning("⚠️ La fecha de inicio no puede ser mayor que la fecha fin.")
                             else:
@@ -10319,7 +10330,6 @@ elif opcion_menu == "📝 Asientos Contables":
                                     WHERE fecha BETWEEN %s AND %s 
                                     ORDER BY fecha, n_comprobante, id
                                 """
-                                # Forzar formato explícito de fecha string YYYY-MM-DD
                                 df_diario = pd.read_sql(query, conn_act, params=(f_inicio.strftime('%Y-%m-%d'), f_fin.strftime('%Y-%m-%d')))
                         else:
                             col_d1, col_d2 = st.columns(2)
@@ -10353,46 +10363,83 @@ elif opcion_menu == "📝 Asientos Contables":
                         st.error(f"❌ Error al consultar los registros: {e}")
 
                     if df_diario is not None and not df_diario.empty:
-                        # 1. Normalizar minúsculas y quitar espacios en los nombres de las columnas
+                        # 1. Normalizar minúsculas
                         df_diario.columns = [str(c).strip().lower() for c in df_diario.columns]
                         
-                        # 2. Forzar el nombre correcto si viene con variaciones
-                        if 'plan_cuentas' not in df_diario.columns:
-                            for col in df_diario.columns:
-                                if ('plan' in col or 'cuenta' in col) and col != 'cuenta_contable':
-                                    df_diario = df_diario.rename(columns={col: 'plan_cuentas'})
-                                    break
-
-                        # Si aún no existe la columna tras el intento de rescate, créala vacía para evitar que rompa el editor
                         if 'plan_cuentas' not in df_diario.columns:
                             df_diario['plan_cuentas'] = ""
 
-                        # 3. Asegurar formato de texto plano sin vacíos falsos
-                        df_diario['plan_cuentas'] = df_diario['plan_cuentas'].fillna("").astype(str).str.strip()
-                        df_diario['plan_cuentas'] = df_diario['plan_cuentas'].apply(lambda x: "" if str(x).lower() in ['nan', 'none', 'nat', 'null', ''] else str(x))
+                        # 2. Convertir código de cuenta al formato "CÓDIGO - NOMBRE" para coincidir con las opciones del Selectbox
+                        def formatear_plan_cuentas(cod_raw):
+                            cod_clean = str(cod_raw).strip()
+                            if cod_clean in dict_nombres_cuentas:
+                                return f"{cod_clean} - {dict_nombres_cuentas[cod_clean]}"
+                            return cod_clean
+
+                        df_diario['plan_cuentas'] = df_diario['plan_cuentas'].fillna("").apply(formatear_plan_cuentas)
 
                         st.info(f"Mostrando {len(df_diario)} registros para editar.")
 
+                        # ---------------------------------------------------------
+                        # 3. LÓGICA DE ACTUALIZACIÓN AUTOMÁTICA EN EL EDITOR
+                        # ---------------------------------------------------------
+                        if "df_editor_modificacion" not in st.session_state:
+                            st.session_state["df_editor_modificacion"] = df_diario.copy()
+
+                        # Si cambió la búsqueda o número de registros, refrescamos la sesión local
+                        if len(st.session_state["df_editor_modificacion"]) != len(df_diario) or \
+                           list(st.session_state["df_editor_modificacion"]["id"]) != list(df_diario["id"]):
+                            st.session_state["df_editor_modificacion"] = df_diario.copy()
+
+                        def procesar_cambios_editor_mod():
+                            estado_editor = st.session_state.get("editor_diario_mod_dinamico", {})
+                            df_act = st.session_state["df_editor_modificacion"]
+                            
+                            if isinstance(estado_editor, dict) and "edited_rows" in estado_editor:
+                                for idx_str, cambios in estado_editor["edited_rows"].items():
+                                    idx = int(idx_str)
+                                    for col, val in cambios.items():
+                                        if idx < len(df_act):
+                                            df_act.at[idx, col] = val
+                                            # Si se cambió la columna plan_cuentas, extraemos el código y actualizamos cuenta_contable automáticamente
+                                            if col == "plan_cuentas":
+                                                val_str = str(val).strip()
+                                                cod_puro = val_str.split(" - ")[0].strip() if " - " in val_str else val_str
+                                                df_act.at[idx, "cuenta_contable"] = dict_nombres_cuentas.get(cod_puro, "")
+
+                            if isinstance(estado_editor, dict) and "added_rows" in estado_editor:
+                                for nueva_fila in estado_editor["added_rows"]:
+                                    val_plan = nueva_fila.get("plan_cuentas", "")
+                                    if val_plan:
+                                        cod_puro = str(val_plan).split(" - ")[0].strip() if " - " in str(val_plan) else str(val_plan)
+                                        nueva_fila["cuenta_contable"] = dict_nombres_cuentas.get(cod_puro, "")
+                                    df_act = pd.concat([df_act, pd.DataFrame([nueva_fila])], ignore_index=True)
+
+                            st.session_state["df_editor_modificacion"] = df_act
+
                         column_config_dict = {
                             "id": st.column_config.NumberColumn("ID", disabled=True),
-                            "n_comprobante": st.column_config.TextColumn("Comprobante", disabled=True),
+                            "n_comprobante": st.column_config.TextColumn("Comprobante"),
                             "fecha": st.column_config.DateColumn("Fecha"),
                             "descripcion": st.column_config.TextColumn("Descripción"),
-                            "plan_cuentas": st.column_config.TextColumn("Plan Cuentas"),       
-                            "cuenta_contable": st.column_config.TextColumn("Cuenta Contable"), 
+                            "plan_cuentas": st.column_config.SelectboxColumn("Plan Cuentas", options=opciones_cuentas, required=True),        
+                            "cuenta_contable": st.column_config.TextColumn("Cuenta Contable", help="Se actualiza automáticamente al elegir la cuenta"), 
                             "referencia": st.column_config.TextColumn("Referencia"),
                             "debe": st.column_config.NumberColumn("Debe", format="%,.2f", min_value=0.0),
                             "haber": st.column_config.NumberColumn("Haber", format="%,.2f", min_value=0.0)
                         }
 
                         df_editado = st.data_editor(
-                            df_diario, 
+                            st.session_state["df_editor_modificacion"], 
                             use_container_width=True, 
                             hide_index=True,
                             num_rows="dynamic",
-                            key="editor_diario_dinamico",
+                            key="editor_diario_mod_dinamico",
+                            on_change=procesar_cambios_editor_mod,
                             column_config=column_config_dict
                         )
+
+                        st.session_state["df_editor_modificacion"] = df_editado
 
                         if st.button("💾 Guardar Cambios", key="btn_guardar_cambios", type="primary"):
                             try:
@@ -10402,10 +10449,18 @@ elif opcion_menu == "📝 Asientos Contables":
                                 if abs(t_debe_val - t_haber_val) >= 0.01:
                                     st.error(f"❌ El asiento no cuadra. Debe: {t_debe_val:,.2f} | Haber: {t_haber_val:,.2f}")
                                 else:
-                                    exito = actualizar_libro_diario_en_db(db_actual, df_editado)
+                                    # 4. Limpiar los valores de plan_cuentas para enviar solo el código puro a la BD
+                                    df_guardar = df_editado.copy()
+                                    df_guardar['plan_cuentas'] = df_guardar['plan_cuentas'].astype(str).apply(
+                                        lambda x: x.split(" - ")[0].strip() if " - " in x else x.strip()
+                                    )
+                                    
+                                    exito = actualizar_libro_diario_en_db(db_actual, df_guardar)
                                     if exito:
                                         st.success("¡Registros actualizados correctamente en la base de datos!")
                                         st.balloons()
+                                        if "df_editor_modificacion" in st.session_state:
+                                            del st.session_state["df_editor_modificacion"]
                                         time.sleep(1)
                                         st.rerun()
                                     else:
