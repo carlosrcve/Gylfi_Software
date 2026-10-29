@@ -10624,6 +10624,7 @@ elif opcion_menu == "📝 Asientos Contables":
                 else:
                     st.error("⚠️ Debes seleccionar una empresa primero.")
 
+
             # ==========================================
             # TAB 3: LIMPIEZA POR RANGO DE FECHAS
             # ==========================================
@@ -10642,18 +10643,37 @@ elif opcion_menu == "📝 Asientos Contables":
                     
                     if check_borrar:
                         if st.button("🧨 BORRAR RANGO SELECCIONADO", type="primary"):
+                            conn_del = None
                             try:
-                                cursor = conn_general.cursor()
-                                query_delete = "DELETE FROM asientos_contables WHERE fecha BETWEEN %s AND %s"
-                                cursor.execute(query_delete, (f_eliminar_inicio, f_eliminar_fin))
-                                
-                                filas_afectadas = cursor.rowcount
-                                conn_general.commit()
-                                cursor.close()
-                                
-                                st.success(f"✅ Éxito: Se eliminaron {filas_afectadas} asientos del periodo.")
+                                # Conectar directamente a la base de datos actual para asegurar una conexión activa
+                                conn_del = conectar_db(db_actual)
+                                if not conn_del:
+                                    st.error("❌ No se pudo establecer conexión con la base de datos de la empresa.")
+                                else:
+                                    with conn_del.cursor() as cursor:
+                                        # Opcional pero recomendado: limpiar primero referencias en banco_movimientos si están vinculadas por asiento_id
+                                        cursor.execute(
+                                            "UPDATE banco_movimientos SET asiento_id = NULL, estado_conciliacion = 'PENDIENTE' WHERE asiento_id IN (SELECT id FROM asientos_contables WHERE fecha BETWEEN %s AND %s)",
+                                            (str(f_eliminar_inicio), str(f_eliminar_fin))
+                                        )
+                                        
+                                        # Ejecutar el borrado de los asientos contables
+                                        query_delete = "DELETE FROM asientos_contables WHERE fecha BETWEEN %s AND %s"
+                                        cursor.execute(query_delete, (str(f_eliminar_inicio), str(f_eliminar_fin)))
+                                        
+                                        filas_afectadas = cursor.rowcount
+                                        conn_del.commit()
+                                    
+                                    st.success(f"✅ Éxito: Se eliminaron {filas_afectadas} registros del periodo contable.")
+                                    st.rerun()
                             except Exception as e:
                                 st.error(f"Error al ejecutar la limpieza: {e}")
+                            finally:
+                                try:
+                                    if conn_del and hasattr(conn_del, 'close'):
+                                        conn_del.close()
+                                except Exception:
+                                    pass
 
         finally:
             if conn_general:
