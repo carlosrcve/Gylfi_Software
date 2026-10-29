@@ -7058,8 +7058,8 @@ def renderizar_tab_asientos_ventas(db_connection):
 
 
 def cobranzas_facutras(conn):
-    st.markdown("### 💳 Conciliación, Cruce Bancario y Cobranza de Facturas")
-    st.markdown("Cruza las órdenes de cobranza pendientes, regístralas en el banco, genera su asiento contable y mantén tu contabilidad al día.")
+    st.markdown("### 💳 Conciliación, Cruce Bancario y Cobranza de Facturas (Abonos y Cuotas)")
+    st.markdown("Cruza órdenes de cobranza por montos totales o cuotas parciales, regístralas en el banco y mantén el control de saldos pendientes.")
 
     db_actual = st.session_state.get('DB_ACTUAL')
     if not db_actual:
@@ -7104,9 +7104,11 @@ def cobranzas_facutras(conn):
                             cxc_lista.append(lbl_cxc)
                             cxc_dict[lbl_cxc] = {'codigo': str(r_cxc['codigo']).strip(), 'nombre': str(r_cxc['nombre']).strip()}
 
-                    # 3. Órdenes de cobranza pendientes
+                    # 3. Órdenes de cobranza pendientes (incluimos soporte para abonos parciales si la tabla tiene monto_abonado)
+                    # Nota: Si monto_abonado no existe aún en tu BD, puedes agregarlo con: ALTER TABLE ordenes_cobranza ADD COLUMN monto_abonado DECIMAL(18,2) DEFAULT 0.00;
                     query_pendientes = """
-                        SELECT id, rif_cliente, n_factura, n_control, fecha_emision, base_imponible, monto_iva, monto_bruto, estado_cobro
+                        SELECT id, rif_cliente, n_factura, n_control, fecha_emision, base_imponible, monto_iva, monto_bruto, 
+                               COALESCE(monto_abonado, 0.00) as monto_abonado, estado_cobro
                         FROM ordenes_cobranza
                         WHERE (estado_cobro NOT IN ('Conciliado', 'PAGADO', 'Pagado', 'Procesado') OR estado_cobro IS NULL OR estado_cobro = 'PENDIENTE')
                         ORDER BY fecha_emision DESC
@@ -7148,27 +7150,38 @@ def cobranzas_facutras(conn):
             """
 
         # ==========================================
-        # ⚡ SECCIÓN 1: PROCESAR NUEVA COBRANZA
+        # ⚡ SECCIÓN 1: PROCESAR NUEVO ABONO O PAGO
         # ==========================================
         if df_pendientes is not None and not df_pendientes.empty:
             df_pendientes['monto_bruto'] = pd.to_numeric(df_pendientes['monto_bruto'], errors='coerce').fillna(0.0)
+            df_pendientes['monto_abonado'] = pd.to_numeric(df_pendientes['monto_abonado'], errors='coerce').fillna(0.0)
+            df_pendientes['saldo_pendiente'] = df_pendientes['monto_bruto'] - df_pendientes['monto_abonado']
             
             st.divider()
-            st.markdown("#### ⚡ Paso 1: Selección de Orden y Cuentas")
+            st.markdown("#### ⚡ Paso 1: Selección de Factura y Monto del Abono / Cuota")
             
             dict_cobs_pend = {
-                f"ID: {row['id']} | Factura: {row['n_factura']} | RIF: {row['rif_cliente']} | Total: {row['monto_bruto']:,.2f}": row['id']
+                f"ID: {row['id']} | Factura: {row['n_factura']} | RIF: {row['rif_cliente']} | Total: {row['monto_bruto']:,.2f} | Restante: {row['saldo_pendiente']:,.2f}": row['id']
                 for _, row in df_pendientes.iterrows()
             }
             
-            selected_cob_label = st.selectbox("Selecciona la Orden de Cobranza a Conciliar", list(dict_cobs_pend.keys()), key="select_cob_cruce")
+            selected_cob_label = st.selectbox("Selecciona la Orden de Cobranza / Factura", list(dict_cobs_pend.keys()), key="select_cob_cruce")
             fila_cob_sel = df_pendientes[df_pendientes['id'] == dict_cobs_pend[selected_cob_label]].iloc[0]
             
-            col_m1, col_m2 = st.columns(2)
+            monto_total_fact = float(fila_cob_sel['monto_bruto'])
+            monto_ya_abonado = float(fila_cob_sel['monto_abonado'])
+            saldo_restante = float(fila_cob_sel['saldo_pendiente'])
+
+            st.info(f"💡 **Información de la Factura:** Total: `{monto_total_fact:,.2f}` | Abonado previamente: `{monto_ya_abonado:,.2f}` | **Saldo Pendiente: `{saldo_restante:,.2f}`**")
+
+            col_m1, col_m2, col_m3 = st.columns(3)
             with col_m1:
                 referencia_bancaria = st.text_input("Número de Referencia Bancaria", key="input_ref_banco_cob").strip()
             with col_m2:
                 fecha_cobro_real = st.date_input("Fecha de Cobro (Banco)", value=date.today(), key="input_fec_banco_cob")
+            with col_m3:
+                # Permite cobrar el saldo restante por defecto, o una cuota parcial menor
+                monto_abono = st.number_input("Monto de este Abono / Cuota", min_value=0.01, max_value=saldo_restante, value=saldo_restante, step=10.0, format="%.2f", key="input_monto_abono")
 
             col_cta1, col_cta2 = st.columns(2)
             with col_cta1:
@@ -7179,18 +7192,17 @@ def cobranzas_facutras(conn):
             info_banco_prev = dict_bancos_detalle.get(cta_banco_entrada, {'codigo': '1.1.2.01.001', 'nombre': 'Banco Principal'})
             info_cxc_prev = dict_cxc_detalle.get(cta_cxc_salida, {'codigo': '1.1.3.01.001', 'nombre': 'Cuentas por Cobrar Comerciales'})
 
-            monto_prev = float(fila_cob_sel['monto_bruto'])
             n_fact_prev = str(fila_cob_sel['n_factura'])
             rif_prev = str(fila_cob_sel['rif_cliente'])
             n_comp_prev = f"COB-{n_fact_prev}"
-            desc_prev = f"Cobro Factura N° {n_fact_prev} - Cliente RIF: {rif_prev}"
+            desc_prev = f"Abono Factura N° {n_fact_prev} - Cliente RIF: {rif_prev}"
             ref_prev = referencia_bancaria if referencia_bancaria else "(Sin Ref)"
 
-            st.markdown("#### 📊 Previsualización del Asiento Contable")
-            st.markdown(render_asiento_html(n_comp_prev, desc_prev, str(fecha_cobro_real), info_banco_prev['codigo'], info_banco_prev['nombre'], info_cxc_prev['codigo'], info_cxc_prev['nombre'], ref_prev, monto_prev), unsafe_allow_html=True)
+            st.markdown("#### 📊 Previsualización del Asiento Contable del Abono")
+            st.markdown(render_asiento_html(n_comp_prev, desc_prev, str(fecha_cobro_real), info_banco_prev['codigo'], info_banco_prev['nombre'], info_cxc_prev['codigo'], info_cxc_prev['nombre'], ref_prev, monto_abono), unsafe_allow_html=True)
 
-            # --- BOTÓN ÚNICO DE GUARDADO ---
-            if st.button("💾 Procesar y Conciliar Cobranza", type="primary", key="btn_guardar_cobro_completo", use_container_width=True):
+            # --- BOTÓN DE GUARDADO DE ABONO ---
+            if st.button("💾 Registrar Abono, Banco y Generar Asiento", type="primary", key="btn_guardar_cobro_completo", use_container_width=True):
                 if not referencia_bancaria:
                     st.warning("⚠️ Ingresa la referencia bancaria obligatoriamente.")
                 elif not lista_bancos_detalle or "N/A" in cta_banco_entrada:
@@ -7201,30 +7213,37 @@ def cobranzas_facutras(conn):
                         conn_tx = conectar_db(db_actual)
                         if conn_tx:
                             with conn_tx.cursor() as cursor_tx:
+                                nuevo_abonado_total = monto_ya_abonado + monto_abono
+                                # Si el nuevo acumulado cubre o supera el monto bruto, la factura queda Conciliada (Pagada total)
+                                nuevo_estado = 'Conciliado' if nuevo_abonado_total >= monto_total_fact else 'PENDIENTE'
+
                                 query_asiento = "INSERT INTO asientos_contables (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber, bloqueado) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 0)"
                                 
-                                # Debe
-                                cursor_tx.execute(query_asiento, (n_comp_prev, desc_prev, str(fecha_cobro_real), info_banco_prev['codigo'], info_banco_prev['nombre'], referencia_bancaria, monto_prev, 0.00))
+                                # Debe (Banco)
+                                cursor_tx.execute(query_asiento, (n_comp_prev, desc_prev, str(fecha_cobro_real), info_banco_prev['codigo'], info_banco_prev['nombre'], referencia_bancaria, monto_abono, 0.00))
                                 asiento_id_gen = cursor_tx.lastrowid
 
-                                # Haber
-                                cursor_tx.execute(query_asiento, (n_comp_prev, desc_prev, str(fecha_cobro_real), info_cxc_prev['codigo'], info_cxc_prev['nombre'], referencia_bancaria, 0.00, monto_prev))
+                                # Haber (CxC)
+                                cursor_tx.execute(query_asiento, (n_comp_prev, desc_prev, str(fecha_cobro_real), info_cxc_prev['codigo'], info_cxc_prev['nombre'], referencia_bancaria, 0.00, monto_abono))
 
-                                # Movimiento Bancario
+                                # Movimiento Bancario del Abono
                                 cursor_tx.execute("INSERT INTO banco_movimientos (banco_nombre, cuenta_numero, fecha_movimiento, referencia, descripcion, monto, banco_receptor, estado_conciliacion, asiento_id) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
-                                                  (info_banco_prev['nombre'], info_banco_prev['codigo'], str(fecha_cobro_real), referencia_bancaria, desc_prev, monto_prev, info_banco_prev['nombre'], 'Conciliado', asiento_id_gen))
+                                                  (info_banco_prev['nombre'], info_banco_prev['codigo'], str(fecha_cobro_real), referencia_bancaria, desc_prev, monto_abono, info_banco_prev['nombre'], 'Conciliado', asiento_id_gen))
 
-                                # Actualización de la Orden
-                                cursor_tx.execute("UPDATE ordenes_cobranza SET referencia_banco = %s, banco_receptor = %s, fecha_cobranza = %s, estado_cobro = 'Conciliado' WHERE id = %s",
-                                                  (referencia_bancaria, info_banco_prev['nombre'], fecha_cobro_real, int(fila_cob_sel['id'])))
+                                # Actualización del acumulado de abonos y estado de la Orden
+                                cursor_tx.execute("UPDATE ordenes_cobranza SET monto_abonado = %s, referencia_banco = %s, banco_receptor = %s, fecha_cobranza = %s, estado_cobro = %s WHERE id = %s",
+                                                  (nuevo_abonado_total, referencia_bancaria, info_banco_prev['nombre'], fecha_cobro_real, nuevo_estado, int(fila_cob_sel['id'])))
 
                                 conn_tx.commit()
 
                             cargar_datos_cobranza_opt.clear()
-                            st.success(f"✅ ¡Factura {n_fact_prev} conciliada exitosamente!")
+                            if nuevo_estado == 'Conciliado':
+                                st.success(f"✅ ¡Abono registrado y factura **{n_fact_prev}** totalmente **CONCILIADA** (Pagada al 100%)!")
+                            else:
+                                st.success(f"✅ ¡Abono parcial de {monto_abono:,.2f} registrado con éxito! Saldo restante: **{(monto_total_fact - nuevo_abonado_total):,.2f}**")
                             st.rerun()
                     except Exception as ex_m:
-                        st.error(f"❌ Error al procesar: {ex_m}")
+                        st.error(f"❌ Error al procesar el abono: {ex_m}")
                     finally:
                         try:
                             if conn_tx and hasattr(conn_tx, 'close'): conn_tx.close()
@@ -7236,7 +7255,7 @@ def cobranzas_facutras(conn):
         # 📜 SECCIÓN 2: HISTORIAL Y REVERSIÓN
         # ==========================================
         st.divider()
-        st.markdown("### 📜 Historial de Cobros Conciliados")
+        st.markdown("### 📜 Historial de Cobros y Abonos Conciliados")
 
         col_fec1, col_fec2 = st.columns(2)
         with col_fec1: fecha_desde = st.date_input("Desde", value=date.today().replace(day=1), key="hist_cob_fecha_desde")
@@ -7247,7 +7266,7 @@ def cobranzas_facutras(conn):
         try:
             conn_conc = conectar_db(db_actual)
             if conn_conc:
-                query_conciliados = "SELECT id, rif_cliente, n_factura, monto_bruto, referencia_banco, banco_receptor, estado_cobro, fecha_emision, fecha_cobranza FROM ordenes_cobranza WHERE estado_cobro IN ('Conciliado', 'PAGADO', 'Pagado', 'Procesado') AND fecha_emision BETWEEN %s AND %s ORDER BY fecha_emision DESC"
+                query_conciliados = "SELECT id, rif_cliente, n_factura, monto_bruto, COALESCE(monto_abonado, monto_bruto) as monto_abonado, referencia_banco, banco_receptor, estado_cobro, fecha_emision, fecha_cobranza FROM ordenes_cobranza WHERE estado_cobro IN ('Conciliado', 'PAGADO', 'Pagado', 'Procesado') AND fecha_emision BETWEEN %s AND %s ORDER BY fecha_emision DESC"
                 df_conciliados = ejecutar_consulta(query_conciliados, conn_conc, params=(str(fecha_desde), str(fecha_hasta)))
         except Exception as err_hist:
             st.error(f"❌ Error al cargar historial: {err_hist}")
@@ -7277,19 +7296,13 @@ def cobranzas_facutras(conn):
                             conn_rev = conectar_db(db_actual)
                             if conn_rev:
                                 with conn_rev.cursor() as cur_r:
-                                    # 1. Eliminar asientos contables asociados al comprobante
                                     cur_r.execute("DELETE FROM asientos_contables WHERE n_comprobante = %s", (n_comp_h,))
-                                    
-                                    # 2. Eliminar movimientos bancarios asociados
                                     cur_r.execute("DELETE FROM banco_movimientos WHERE referencia = %s OR asiento_id IN (SELECT id FROM asientos_contables WHERE n_comprobante = %s)", (str(row_sel['referencia_banco']), n_comp_h))
-                                    
-                                    # 3. Devolver orden a estado PENDIENTE
-                                    cur_r.execute("UPDATE ordenes_cobranza SET estado_cobro = 'PENDIENTE', referencia_banco = NULL, banco_receptor = NULL, fecha_cobranza = NULL WHERE id = %s", (int(row_sel['id']),))
-                                    
+                                    cur_r.execute("UPDATE ordenes_cobranza SET estado_cobro = 'PENDIENTE', monto_abonado = 0.00, referencia_banco = NULL, banco_receptor = NULL, fecha_cobranza = NULL WHERE id = %s", (int(row_sel['id']),))
                                     conn_rev.commit()
 
                                 cargar_datos_cobranza_opt.clear()
-                                st.warning(f"⚠️ El cobro ID #{row_sel['id']} (Factura {n_fact_h}) se revirtió a PENDIENTE y sus registros contables fueron anulados.")
+                                st.warning(f"⚠️ El cobro ID #{row_sel['id']} (Factura {n_fact_h}) se revirtió a PENDIENTE.")
                                 st.rerun()
                         except Exception as err_rev:
                             st.error(f"❌ Error al revertir: {err_rev}")
