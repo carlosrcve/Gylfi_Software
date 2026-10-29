@@ -10290,15 +10290,23 @@ elif opcion_menu == "📝 Asientos Contables":
                         st.error(f"❌ Error al consultar los registros: {e}")
 
                     if df_diario is not None and not df_diario.empty:
-                        # Asegurar nombres de columnas en minúsculas y verificar plan_cuentas
-                        df_diario.columns = [c.lower() for c in df_diario.columns]
+                        # 1. Normalizar minúsculas y quitar espacios en los nombres de las columnas
+                        df_diario.columns = [str(c).strip().lower() for c in df_diario.columns]
                         
-                        if 'plan_cuentas' not in df_diario.columns and 'plan de cuentas' in df_diario.columns:
-                            df_diario = df_diario.rename(columns={'plan de cuentas': 'plan_cuentas'})
+                        # 2. Diagnóstico visual rápido en la app para ver si los datos existen en crudo
+                        st.write("Columnas detectadas en el DataFrame:", list(df_diario.columns))
+                        st.write("Muestra cruda de plan_cuentas:", df_diario['plan_cuentas'].head(3) if 'plan_cuentas' in df_diario.columns else "¡Columna plan_cuentas no encontrada!")
 
-                        # Rellenar cualquier valor nulo o texto 'None' para que se vea el código real guardado en la BD
-                        df_diario['plan_cuentas'] = df_diario['plan_cuentas'].fillna("").astype(str)
-                        df_diario['plan_cuentas'] = df_diario['plan_cuentas'].apply(lambda x: "" if x.lower() in ['nan', 'none', 'nat', 'null'] else x.strip())
+                        # 3. Forzar el nombre correcto si viene con variaciones
+                        if 'plan_cuentas' not in df_diario.columns:
+                            for col in df_diario.columns:
+                                if 'plan' in col or 'cuenta' in col and col != 'cuenta_contable':
+                                    df_diario = df_diario.rename(columns={col: 'plan_cuentas'})
+                                    break
+
+                        # 4. Asegurar formato de texto plano sin vacíos falsos
+                        df_diario['plan_cuentas'] = df_diario['plan_cuentas'].fillna("").astype(str).str.strip()
+                        df_diario['plan_cuentas'] = df_diario['plan_cuentas'].apply(lambda x: "" if x.lower() in ['nan', 'none', 'nat', 'null', ''] else x)
 
                         st.info(f"Mostrando {len(df_diario)} registros para editar.")
 
@@ -10307,8 +10315,8 @@ elif opcion_menu == "📝 Asientos Contables":
                             "n_comprobante": st.column_config.TextColumn("Comprobante", disabled=True),
                             "fecha": st.column_config.DateColumn("Fecha"),
                             "descripcion": st.column_config.TextColumn("Descripción"),
-                            "plan_cuentas": st.column_config.TextColumn("Plan Cuentas"),       # Muestra el código directo de la BD
-                            "cuenta_contable": st.column_config.TextColumn("Cuenta Contable"), # Muestra el nombre de la cuenta
+                            "plan_cuentas": st.column_config.TextColumn("Plan Cuentas"),       # Muestra el código directo
+                            "cuenta_contable": st.column_config.TextColumn("Cuenta Contable"), # Muestra el nombre
                             "referencia": st.column_config.TextColumn("Referencia"),
                             "debe": st.column_config.NumberColumn("Debe", format="%,.2f", min_value=0.0),
                             "haber": st.column_config.NumberColumn("Haber", format="%,.2f", min_value=0.0)
