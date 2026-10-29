@@ -10593,6 +10593,7 @@ elif opcion_menu == "📝 Asientos Contables":
                         else:
                             st.info(f"No se encontró ningún registro asociado al Comprobante N° '{comp_a_eliminar}'.")
 
+
             # ==========================================
             # TAB 2: IMPORTACIÓN EXCEL
             # ==========================================
@@ -10605,10 +10606,10 @@ elif opcion_menu == "📝 Asientos Contables":
                         # 1. Leer el Excel manteniendo todo como texto inicialmente
                         df_subido = pd.read_excel(archivo_excel, dtype=object)
                         
-                        # Asegurar que las columnas sean strings antes de aplicar .str
-                        df_subido.columns = df_subido.columns.astype(str).str.strip().str.lower()
+                        # 2. Asegurar estrictamente que las columnas sean strings antes de manipularlas con .str
+                        df_subido.columns = [str(c).strip().lower() for c in df_subido.columns]
 
-                        # 2. Mapeo ultra flexible de columnas por coincidencia parcial
+                        # 3. Mapeo flexible de columnas por coincidencia parcial
                         rename_dict = {}
                         for col in df_subido.columns:
                             col_clean = str(col).strip().lower()
@@ -10632,17 +10633,17 @@ elif opcion_menu == "📝 Asientos Contables":
                         
                         df_subido = df_subido.rename(columns=rename_dict)
 
-                        # 3. Validar obligatoriamente la existencia de 'plan_cuentas'
+                        # 4. Validar obligatoriamente la existencia de 'plan_cuentas'
                         if 'plan_cuentas' not in df_subido.columns:
                             st.error("❌ El archivo Excel no contiene una columna reconocible para el **Plan de Cuentas** (Asegúrate de que la columna se llame 'plan_cuentas', 'código' o 'cuenta').")
                         else:
-                            # 4. Formatear fecha
+                            # 5. Formatear fecha
                             if 'fecha' in df_subido.columns:
                                 df_subido['fecha'] = pd.to_datetime(df_subido['fecha'], errors='coerce').dt.date
                             else:
                                 df_subido['fecha'] = date.today()
 
-                            # 5. Procesar montos de Debe y Haber de forma segura
+                            # 6. Procesar montos de Debe y Haber de forma segura
                             for col in ['debe', 'haber']:
                                 if col in df_subido.columns:
                                     df_subido[col] = df_subido[col].apply(parsear_monto_seguro)
@@ -10655,7 +10656,7 @@ elif opcion_menu == "📝 Asientos Contables":
                             else:
                                 df_subido['bloqueado'] = pd.to_numeric(df_subido['bloqueado'], errors='coerce').fillna(0).astype(int)
 
-                            # 6. Limpieza segura de campos de texto columna por columna (evita el error de DataFrame.str)
+                            # 7. Limpieza segura de campos de texto columna por columna
                             campos_texto = ['n_comprobante', 'descripcion', 'plan_cuentas', 'cuenta_contable', 'referencia']
                             for c in campos_texto:
                                 if c not in df_subido.columns:
@@ -10664,7 +10665,7 @@ elif opcion_menu == "📝 Asientos Contables":
                                     df_subido[c] = df_subido[c].fillna("").astype(str).str.strip()
                                     df_subido[c] = df_subido[c].apply(lambda x: "" if str(x).lower() in ['nan', 'none', 'nat', 'null'] else str(x))
 
-                            # 7. Crear vista previa formateada adaptada a la estructura de asientos_contables
+                            # 8. Crear vista previa formateada adaptada a la estructura de la BD
                             df_para_mostrar = df_subido.copy()
                             for col in ['debe', 'haber']:
                                 if col in df_para_mostrar.columns:
@@ -10676,7 +10677,7 @@ elif opcion_menu == "📝 Asientos Contables":
                             st.write("### ✅ Vista previa directa del Excel (Estructura Contable):")
                             st.dataframe(df_para_mostrar, hide_index=True, use_container_width=True)
 
-                            # 8. Botón de confirmación para insertar directamente a la BD
+                            # 9. Botón de confirmación para insertar directamente a la BD
                             if st.button("🚀 Confirmar e Importar al Diario", use_container_width=True, key="btn_conf_import_diario"):
                                 conn_imp = None
                                 try:
@@ -10722,7 +10723,7 @@ elif opcion_menu == "📝 Asientos Contables":
                     except Exception as e:
                         st.error(f"Error al procesar el archivo Excel: {e}")
             # ==========================================
-            # TAB 4: ASIENTOS INTEGRADOS / VENTAS
+            # TAB 3: ASIENTOS INTEGRADOS / VENTAS
             # ==========================================
             with tab3:
                 if conn_general:
