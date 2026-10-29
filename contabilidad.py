@@ -10293,49 +10293,21 @@ elif opcion_menu == "📝 Asientos Contables":
                         df_diario.columns = [c.lower() for c in df_diario.columns]
                         st.info(f"Mostrando {len(df_diario)} registros para editar.")
 
-                        # 1. Cargar catálogo de cuentas de detalle
-                        try:
-                            conn_act = conectar_db(db_actual) if 'db_actual' in locals() and db_actual else conn_general
-                            with conn_act.cursor() as cur_pc:
-                                cur_pc.execute("SELECT codigo, nombre FROM plan_cuentas WHERE tipo = 'Detalle' ORDER BY codigo")
-                                cuentas_db_mod = cur_pc.fetchall()
-                        except Exception:
-                            cuentas_db_mod = []
+                        # Limpiar textos respetando EXACTAMENTE el código y nombre del Excel o BD
+                        df_diario['plan_cuentas'] = df_diario['plan_cuentas'].astype(str).replace(['nan', 'None'], '').str.strip()
+                        df_diario['cuenta_contable'] = df_diario['cuenta_contable'].astype(str).replace(['nan', 'None'], '').str.strip()
 
-                        opciones_cuentas_mod = [f"{cod} - {nom}" for cod, nom in cuentas_db_mod]
-                        dict_nombres_cuentas = {str(cod).strip(): nom for cod, nom in cuentas_db_mod}
-
-                        # 2. MATCH EXACTO: Mapear el código puro que viene de la BD al formato "CÓDIGO - NOMBRE"
-                        def mapear_plan_a_selectbox(val):
-                            if pd.isna(val) or not str(val).strip():
-                                return opciones_cuentas_mod[0] if opciones_cuentas_mod else ""
-                            val_clean = str(val).strip()
-                            # Si ya trae el guion, lo dejamos pasar
-                            if " - " in val_clean:
-                                return val_clean
-                            # Si solo es el código, buscamos su nombre completo
-                            nom = dict_nombres_cuentas.get(val_clean, "")
-                            return f"{val_clean} - {nom}" if nom else val_clean
-
-                        df_diario['plan_cuentas'] = df_diario['plan_cuentas'].apply(mapear_plan_a_selectbox)
-
-                        # Configurar columnas del data_editor
                         column_config_dict = {
-                            "debe": st.column_config.NumberColumn("Debe", format="%,.2f", min_value=0.0),
-                            "haber": st.column_config.NumberColumn("Haber", format="%,.2f", min_value=0.0),
                             "id": st.column_config.NumberColumn("ID", disabled=True),
                             "n_comprobante": st.column_config.TextColumn("Comprobante", disabled=True),
                             "fecha": st.column_config.DateColumn("Fecha"),
                             "descripcion": st.column_config.TextColumn("Descripción"),
-                            "cuenta_contable": st.column_config.TextColumn("Cuenta Contable", help="Se sincroniza al seleccionar el Plan de Cuentas")
+                            "plan_cuentas": st.column_config.TextColumn("Plan Cuentas"),       # Se muestra el código directo
+                            "cuenta_contable": st.column_config.TextColumn("Cuenta Contable"), # Se muestra la cuenta directa
+                            "referencia": st.column_config.TextColumn("Referencia"),
+                            "debe": st.column_config.NumberColumn("Debe", format="%,.2f", min_value=0.0),
+                            "haber": st.column_config.NumberColumn("Haber", format="%,.2f", min_value=0.0)
                         }
-
-                        if opciones_cuentas_mod:
-                            column_config_dict["plan_cuentas"] = st.column_config.SelectboxColumn(
-                                "Plan Cuentas", 
-                                options=opciones_cuentas_mod, 
-                                required=True
-                            )
 
                         df_editado = st.data_editor(
                             df_diario, 
@@ -10346,15 +10318,6 @@ elif opcion_menu == "📝 Asientos Contables":
                             column_config=column_config_dict
                         )
 
-                        # 3. Sincronizar automáticamente la columna "cuenta_contable" basada en lo seleccionado en "plan_cuentas"
-                        for idx, row in df_editado.iterrows():
-                            plan_val = str(row.get('plan_cuentas', ''))
-                            if " - " in plan_val:
-                                cod_c, nom_c = plan_val.split(" - ", 1)
-                                df_editado.at[idx, 'cuenta_contable'] = nom_c
-                            elif plan_val in dict_nombres_cuentas:
-                                df_editado.at[idx, 'cuenta_contable'] = dict_nombres_cuentas[plan_val]
-
                         if st.button("💾 Guardar Cambios", key="btn_guardar_cambios", type="primary"):
                             try:
                                 t_debe_val = pd.to_numeric(df_editado['debe'], errors='coerce').sum()
@@ -10363,13 +10326,7 @@ elif opcion_menu == "📝 Asientos Contables":
                                 if abs(t_debe_val - t_haber_val) >= 0.01:
                                     st.error(f"❌ El asiento no cuadra. Debe: {t_debe_val:,.2f} | Haber: {t_haber_val:,.2f}")
                                 else:
-                                    # Limpiar columna plan_cuentas para guardar SOLO el código en la BD
-                                    df_a_guardar = df_editado.copy()
-                                    df_a_guardar['plan_cuentas'] = df_a_guardar['plan_cuentas'].apply(
-                                        lambda x: str(x).split(" - ")[0].strip() if " - " in str(x) else str(x).strip()
-                                    )
-
-                                    exito = actualizar_libro_diario_en_db(db_actual, df_a_guardar)
+                                    exito = actualizar_libro_diario_en_db(db_actual, df_editado)
                                     if exito:
                                         st.success("¡Registros actualizados correctamente en la base de datos!")
                                         st.balloons()
@@ -10406,15 +10363,15 @@ elif opcion_menu == "📝 Asientos Contables":
                     st.subheader("Registro de Nuevo Comprobante Contable")
 
                     try:
-                        cursor_pc = conn_general.cursor()
-                        cursor_pc.execute("SELECT codigo, nombre FROM plan_cuentas WHERE tipo = 'Detalle' ORDER BY codigo")
-                        cuentas_db = cursor_pc.fetchall()
-                        cursor_pc.close()
+                        conn_act = conectar_db(db_actual) if 'db_actual' in locals() and db_actual else conn_general
+                        with conn_act.cursor() as cur_pc:
+                            cur_pc.execute("SELECT codigo, nombre FROM plan_cuentas WHERE tipo = 'Detalle' ORDER BY codigo")
+                            cuentas_db = cur_pc.fetchall()
                     except Exception:
                         cuentas_db = [("1.1.1.01.001", "Caja Chica"), ("1.1.1.02.001", "Banco Banesco")]
 
                     opciones_cuentas = [f"{cod} - {nom}" for cod, nom in cuentas_db]
-                    dict_nombres_cuentas = {cod: nom for cod, nom in cuentas_db}
+                    dict_nombres_cuentas = {str(cod).strip(): nom for cod, nom in cuentas_db}
 
                     col_f1, col_f2 = st.columns(2)
                     with col_f1:
@@ -10426,7 +10383,6 @@ elif opcion_menu == "📝 Asientos Contables":
 
                     st.markdown("### Líneas del Comprobante")
 
-                    # Inicialización en session_state
                     if "df_asiento_actual" not in st.session_state:
                         val_inicial = opciones_cuentas[0] if opciones_cuentas else ""
                         cod_inicial = val_inicial.split(" - ")[0].strip() if val_inicial else ""
@@ -10442,36 +10398,31 @@ elif opcion_menu == "📝 Asientos Contables":
                             }
                         ])
 
-                    # Callback optimizado que procesa los cambios al vuelo de manera inmediata
                     def procesar_cambios_editor():
                         estado_editor = st.session_state.get("editor_asiento_interactivo", {})
-                        df_actual = st.session_state["df_asiento_actual"]
+                        df_actual_edit = st.session_state["df_asiento_actual"]
                         
-                        # Procesamos filas editadas
                         if isinstance(estado_editor, dict) and "edited_rows" in estado_editor:
                             for idx_str, cambios in estado_editor["edited_rows"].items():
                                 idx = int(idx_str)
                                 for col, val in cambios.items():
-                                    if idx < len(df_actual):
-                                        df_actual.at[idx, col] = val
+                                    if idx < len(df_actual_edit):
+                                        df_actual_edit.at[idx, col] = val
 
-                        # Procesamos filas añadidas
                         if isinstance(estado_editor, dict) and "added_rows" in estado_editor:
                             for nueva_fila in estado_editor["added_rows"]:
                                 if not nueva_fila.get("plan_cuentas") and opciones_cuentas:
                                     nueva_fila["plan_cuentas"] = opciones_cuentas[0]
-                                df_actual = pd.concat([df_actual, pd.DataFrame([nueva_fila])], ignore_index=True)
+                                df_actual_edit = pd.concat([df_actual_edit, pd.DataFrame([nueva_fila])], ignore_index=True)
 
-                        # Sincronizamos las descripciones de cuentas contables automáticamente
-                        for idx, row in df_actual.iterrows():
+                        for idx, row in df_actual_edit.iterrows():
                             val_celda = str(row.get("plan_cuentas", ""))
                             if val_celda and val_celda != "nan":
                                 codigo_limpio = val_celda.split(" - ")[0].strip()
-                                df_actual.at[idx, "cuenta_contable"] = dict_nombres_cuentas.get(codigo_limpio, "")
+                                df_actual_edit.at[idx, "cuenta_contable"] = dict_nombres_cuentas.get(codigo_limpio, "")
 
-                        st.session_state["df_asiento_actual"] = df_actual
+                        st.session_state["df_asiento_actual"] = df_actual_edit
 
-                    # Pintamos el editor interactivo conectado al callback síncrono
                     df_editado_nuevo = st.data_editor(
                         st.session_state["df_asiento_actual"],
                         num_rows="dynamic",
@@ -10488,10 +10439,8 @@ elif opcion_menu == "📝 Asientos Contables":
                         }
                     )
 
-                    # Actualizamos permanentemente el session_state
                     st.session_state["df_asiento_actual"] = df_editado_nuevo
 
-                    # Filtrado y cálculos para los métricos en tiempo real
                     df_filtrado = df_editado_nuevo[
                         df_editado_nuevo['plan_cuentas'].notna() & 
                         (df_editado_nuevo['plan_cuentas'].astype(str).str.strip() != "")
@@ -10521,42 +10470,43 @@ elif opcion_menu == "📝 Asientos Contables":
                         elif abs(total_debe - total_haber) >= 0.01:
                             st.error(f"❌ El asiento no cuadra. Debe: {formato_contable(total_debe)} | Haber: {formato_contable(total_haber)}")
                         else:
+                            conn_ins = None
                             try:
-                                cursor_ins = conn_general.cursor()
-                                sql_insert = """
-                                    INSERT INTO asientos_contables 
-                                    (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber, bloqueado)
-                                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                                """
-                                
-                                datos_insertar = []
-                                for _, row in df_editado_nuevo.iterrows():
-                                    plan_val = str(row.get('plan_cuentas', ''))
-                                    codigo_cuenta = plan_val.split(" - ")[0] if " - " in plan_val else plan_val
-                                    desc_cuenta = dict_nombres_cuentas.get(codigo_cuenta, "")
+                                conn_ins = conectar_db(db_actual) if 'db_actual' in locals() and db_actual else conn_general
+                                with conn_ins.cursor() as cursor_ins:
+                                    sql_insert = """
+                                        INSERT INTO asientos_contables 
+                                        (n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber, bloqueado)
+                                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                    """
                                     
-                                    ref_val = row.get('referencia')
-                                    ref_str = str(ref_val) if pd.notna(ref_val) else ""
+                                    datos_insertar = []
+                                    for _, row in df_editado_nuevo.iterrows():
+                                        plan_val = str(row.get('plan_cuentas', ''))
+                                        codigo_cuenta = plan_val.split(" - ")[0].strip() if " - " in plan_val else plan_val.strip()
+                                        desc_cuenta = dict_nombres_cuentas.get(codigo_cuenta, row.get('cuenta_contable', ''))
+                                        
+                                        ref_val = row.get('referencia')
+                                        ref_str = str(ref_val) if pd.notna(ref_val) else ""
+                                        
+                                        debe_float = float(row.get('debe', 0.0)) if pd.notna(row.get('debe')) else 0.0
+                                        haber_float = float(row.get('haber', 0.0)) if pd.notna(row.get('haber')) else 0.0
+                                        
+                                        datos_insertar.append((
+                                            str(nuevo_n_comp),
+                                            str(nuevo_desc),
+                                            str(nuevo_fecha),
+                                            codigo_cuenta,
+                                            desc_cuenta,
+                                            ref_str,
+                                            debe_float,
+                                            haber_float,
+                                            0
+                                        ))
                                     
-                                    debe_float = float(row.get('debe', 0.0)) if pd.notna(row.get('debe')) else 0.0
-                                    haber_float = float(row.get('haber', 0.0)) if pd.notna(row.get('haber')) else 0.0
+                                    cursor_ins.executemany(sql_insert, datos_insertar)
+                                    conn_ins.commit()
                                     
-                                    datos_insertar.append((
-                                        str(nuevo_n_comp),
-                                        str(nuevo_desc),
-                                        str(nuevo_fecha),
-                                        codigo_cuenta,
-                                        desc_cuenta,
-                                        ref_str,
-                                        debe_float,
-                                        haber_float,
-                                        0
-                                    ))
-                                
-                                cursor_ins.executemany(sql_insert, datos_insertar)
-                                conn_general.commit()
-                                cursor_ins.close()
-                                
                                 st.success(f"¡Comprobante N° {nuevo_n_comp} guardado exitosamente!")
                                 st.balloons()
                                 
@@ -10568,6 +10518,11 @@ elif opcion_menu == "📝 Asientos Contables":
                                 
                             except Exception as e:
                                 st.error(f"Error al registrar en la base de datos: {str(e)}")
+                            finally:
+                                if conn_ins and hasattr(conn_ins, 'close'):
+                                    try: conn_ins.close()
+                                    except Exception: pass
+
                 elif accion_diario == "🗑️ Eliminar Comprobante Contable":
                     st.subheader("Eliminación de Comprobante")
                     st.warning("⚠️ Precaución: Esta acción eliminará permanentemente todas las líneas asociadas al número de comprobante indicado.")
@@ -10575,10 +10530,21 @@ elif opcion_menu == "📝 Asientos Contables":
                     comp_a_eliminar = st.text_input("Ingrese el Número de Comprobante que desea eliminar:")
                     
                     if comp_a_eliminar:
+                        conn_del_view = None
                         try:
-                            df_prev = pd.read_sql(f"SELECT n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber FROM asientos_contables WHERE n_comprobante = '{comp_a_eliminar}'", conn_general)
+                            conn_del_view = conectar_db(db_actual) if 'db_actual' in locals() and db_actual else conn_general
+                            query_del = """
+                                SELECT n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber 
+                                FROM asientos_contables 
+                                WHERE n_comprobante = %s
+                            """
+                            df_prev = pd.read_sql(query_del, conn_del_view, params=(str(comp_a_eliminar),))
                         except Exception:
                             df_prev = pd.DataFrame()
+                        finally:
+                            if conn_del_view and hasattr(conn_del_view, 'close'):
+                                try: conn_del_view.close()
+                                except Exception: pass
                         
                         if not df_prev.empty:
                             st.markdown(f"**Se encontraron {len(df_prev)} líneas para el Comprobante N° {comp_a_eliminar}:**")
@@ -10594,11 +10560,12 @@ elif opcion_menu == "📝 Asientos Contables":
                             )
                             
                             if st.button("🔥 Confirmar Eliminación Definitiva", type="primary"):
+                                conn_del_exec = None
                                 try:
-                                    cursor_del = conn_general.cursor()
-                                    cursor_del.execute("DELETE FROM asientos_contables WHERE n_comprobante = %s", (comp_a_eliminar,))
-                                    conn_general.commit()
-                                    cursor_del.close()
+                                    conn_del_exec = conectar_db(db_actual) if 'db_actual' in locals() and db_actual else conn_general
+                                    with conn_del_exec.cursor() as cursor_del:
+                                        cursor_del.execute("DELETE FROM asientos_contables WHERE n_comprobante = %s", (str(comp_a_eliminar),))
+                                        conn_del_exec.commit()
                                     
                                     st.success(f"¡Comprobante N° {comp_a_eliminar} eliminado correctamente!")
                                     st.balloons()
@@ -10606,9 +10573,12 @@ elif opcion_menu == "📝 Asientos Contables":
                                     st.rerun()
                                 except Exception as e:
                                     st.error(f"Error al eliminar el comprobante: {str(e)}")
+                                finally:
+                                    if conn_del_exec and hasattr(conn_del_exec, 'close'):
+                                        try: conn_del_exec.close()
+                                        except Exception: pass
                         else:
                             st.info(f"No se encontró ningún registro asociado al Comprobante N° '{comp_a_eliminar}'.")
-
             # ==========================================
             # TAB 2: IMPORTACIÓN EXCEL
             # ==========================================
@@ -10713,7 +10683,6 @@ elif opcion_menu == "📝 Asientos Contables":
 
                                         st.balloons()
                                         st.success(f"✅ ¡Asientos procesados y cargados con éxito desde el Excel en {db_actual}!")
-                                        st.rerun()
                                     else:
                                         st.error("❌ No se pudo conectar a la base de datos de la empresa.")
                             except Exception as e:
