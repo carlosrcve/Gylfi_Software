@@ -7274,7 +7274,6 @@ def cobranzas_facutras(conn):
 
                             cargar_datos_cobranza_opt.clear()
                             st.success(f"✅ ¡Cobro de la factura **{n_fact_val}** registrado con éxito! Asiento `{n_comp_asiento}` guardado, movimiento registrado en banco y factura conciliada.")
-                            st.rerun()
                     except Exception as ex_m:
                         st.error(f"❌ Error al procesar el cobro completo: {ex_m}")
                     finally:
