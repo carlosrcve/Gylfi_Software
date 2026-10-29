@@ -14875,7 +14875,6 @@ elif sub_opcion == "Balance de Comprobación":
                 except Exception as e_pdf:
                     st.error(f"Error generando PDF: {e_pdf}")
 
-# F. ESTADOS FINANCIEROS -> BALANCE GENERAL
 elif sub_opcion == "Balance General":
     # 1. Obtener datos de sesión
     EMPRESA = st.session_state.get('CLIENTE_NOMBRE')
@@ -14925,22 +14924,20 @@ elif sub_opcion == "Balance General":
 
     f_corte = st.date_input("Fecha de Corte", value=fecha_inicial_input, key="bg_corte")
     
-    # --- FUNCIÓN CON CACHÉ PARA OPTIMIZAR EL BALANCE GENERAL ---
+    # --- FUNCIÓN CON CACHÉ CORREGIDA PARA OPTIMIZAR EL BALANCE GENERAL ---
     @st.cache_data(ttl=60, show_spinner=False)
     def obtener_balance_general_cached(db_name, fecha_corte, sucursal_sel):
         df_datos = pd.DataFrame()
-        conn = conectar_db(db_name)
-        if conn:
-            try:
-                conn.ping(reconnect=True)
-                df_datos = generar_balance_profesional(conn, "2000-01-01", fecha_corte, sucursal_sel)
-            except Exception:
-                pass
-            finally:
-                try:
-                    conn.close()
-                except Exception:
-                    pass
+        try:
+            # Asegurar formato string YYYY-MM-DD
+            f_corte_str = fecha_corte.strftime('%Y-%m-%d') if hasattr(fecha_corte, 'strftime') else str(fecha_corte)
+            
+            # 💡 CORRECCIÓN: Se pasa db_name (string) en lugar de conn para no romper generar_balance_profesional
+            df_datos = generar_balance_profesional(db_name, "2000-01-01", f_corte_str, sucursal_sel)
+        except Exception as e:
+            st.error(f"❌ Error consultando datos del balance: {e}")
+            df_datos = pd.DataFrame()
+            
         return df_datos
 
     df_datos = obtener_balance_general_cached(db_actual, f_corte, sucursal)
