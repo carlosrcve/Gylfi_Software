@@ -10608,21 +10608,23 @@ elif opcion_menu == "📝 Asientos Contables":
                         # 2. Mapeo ultra robusto para asegurar que la columna del plan de cuentas no se pierda
                         rename_dict = {}
                         for col in df_subido.columns:
-                            if col in ['comprobante', 'n_comprobante', 'nro_comprobante', 'comprobante n°', 'n° comprobante']:
+                            col_clean = str(col).strip().lower()
+                            
+                            if any(x in col_clean for x in ['comprobante', 'comp']):
                                 rename_dict[col] = 'n_comprobante'
-                            elif col in ['descripción', 'descripcion', 'concepto', 'detalle']:
+                            elif any(x in col_clean for x in ['descripcion', 'descripción', 'concepto', 'detalle']):
                                 rename_dict[col] = 'descripcion'
-                            elif col in ['fecha', 'fec', 'date']:
+                            elif any(x in col_clean for x in ['fecha', 'fec']):
                                 rename_dict[col] = 'fecha'
-                            elif col in ['plan_cuentas', 'plan cuentas', 'codigo_cuenta', 'cuenta_codigo', 'codigo', 'cuenta', 'cod_cuenta']:
+                            elif any(x in col_clean for x in ['plan', 'cuenta', 'cod', 'codigo']) and 'nombre' not in col_clean:
                                 rename_dict[col] = 'plan_cuentas'
-                            elif col in ['cuenta_contable', 'nombre_cuenta', 'nombre cuenta', 'nombre']:
+                            elif any(x in col_clean for x in ['nombre', 'cuenta_contable']) or ('cuenta' in col_clean and 'nombre' in col_clean):
                                 rename_dict[col] = 'cuenta_contable'
-                            elif col in ['referencia', 'ref', 'n_referencia', 'factura', 'nro_factura']:
+                            elif any(x in col_clean for x in ['referencia', 'ref', 'factura']):
                                 rename_dict[col] = 'referencia'
-                            elif col in ['débito', 'debito', 'debe', 'cargo']:
+                            elif any(x in col_clean for x in ['debe', 'debito', 'débito', 'cargo']):
                                 rename_dict[col] = 'debe'
-                            elif col in ['crédito', 'credito', 'haber', 'abono']:
+                            elif any(x in col_clean for x in ['haber', 'credito', 'crédito', 'abono']):
                                 rename_dict[col] = 'haber'
                         
                         df_subido = df_subido.rename(columns=rename_dict)
