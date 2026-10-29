@@ -10250,14 +10250,18 @@ elif opcion_menu == "📝 Asientos Contables":
                             with col2:
                                 f_fin = st.date_input("Fecha Fin", key="f_fin_mod")
                             
-                            # Consulta explícita trayendo la columna plan_cuentas de la tabla asientos_contables
-                            query = """
-                                SELECT id, n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber 
-                                FROM asientos_contables 
-                                WHERE fecha BETWEEN %s AND %s 
-                                ORDER BY fecha, n_comprobante, id
-                            """
-                            df_diario = pd.read_sql(query, conn_act, params=(str(f_inicio), str(f_fin)))
+                            # Validar coherencia de fechas antes de consultar
+                            if f_inicio > f_fin:
+                                st.warning("⚠️ La fecha de inicio no puede ser mayor que la fecha fin.")
+                            else:
+                                query = """
+                                    SELECT id, n_comprobante, descripcion, fecha, plan_cuentas, cuenta_contable, referencia, debe, haber 
+                                    FROM asientos_contables 
+                                    WHERE fecha BETWEEN %s AND %s 
+                                    ORDER BY fecha, n_comprobante, id
+                                """
+                                # Forzar formato explícito de fecha string YYYY-MM-DD
+                                df_diario = pd.read_sql(query, conn_act, params=(f_inicio.strftime('%Y-%m-%d'), f_fin.strftime('%Y-%m-%d')))
                         else:
                             col_d1, col_d2 = st.columns(2)
                             with col_d1:
@@ -10271,7 +10275,7 @@ elif opcion_menu == "📝 Asientos Contables":
                                 WHERE fecha BETWEEN %s AND %s 
                                 ORDER BY n_comprobante
                             """
-                            df_compps = pd.read_sql(query_compps, conn_act, params=(str(fec_inicio), str(fec_hasta)))
+                            df_compps = pd.read_sql(query_compps, conn_act, params=(fec_inicio.strftime('%Y-%m-%d'), fec_hasta.strftime('%Y-%m-%d')))
 
                             if not df_compps.empty:
                                 lista_comprobantes = df_compps['n_comprobante'].tolist()
@@ -10293,20 +10297,20 @@ elif opcion_menu == "📝 Asientos Contables":
                         # 1. Normalizar minúsculas y quitar espacios en los nombres de las columnas
                         df_diario.columns = [str(c).strip().lower() for c in df_diario.columns]
                         
-                        # 2. Diagnóstico visual rápido en la app para ver si los datos existen en crudo
-                        st.write("Columnas detectadas en el DataFrame:", list(df_diario.columns))
-                        st.write("Muestra cruda de plan_cuentas:", df_diario['plan_cuentas'].head(3) if 'plan_cuentas' in df_diario.columns else "¡Columna plan_cuentas no encontrada!")
-
-                        # 3. Forzar el nombre correcto si viene con variaciones
+                        # 2. Forzar el nombre correcto si viene con variaciones
                         if 'plan_cuentas' not in df_diario.columns:
                             for col in df_diario.columns:
-                                if 'plan' in col or 'cuenta' in col and col != 'cuenta_contable':
+                                if ('plan' in col or 'cuenta' in col) and col != 'cuenta_contable':
                                     df_diario = df_diario.rename(columns={col: 'plan_cuentas'})
                                     break
 
-                        # 4. Asegurar formato de texto plano sin vacíos falsos
+                        # Si aún no existe la columna tras el intento de rescate, créala vacía para evitar que rompa el editor
+                        if 'plan_cuentas' not in df_diario.columns:
+                            df_diario['plan_cuentas'] = ""
+
+                        # 3. Asegurar formato de texto plano sin vacíos falsos
                         df_diario['plan_cuentas'] = df_diario['plan_cuentas'].fillna("").astype(str).str.strip()
-                        df_diario['plan_cuentas'] = df_diario['plan_cuentas'].apply(lambda x: "" if x.lower() in ['nan', 'none', 'nat', 'null', ''] else x)
+                        df_diario['plan_cuentas'] = df_diario['plan_cuentas'].apply(lambda x: "" if str(x).lower() in ['nan', 'none', 'nat', 'null', ''] else str(x))
 
                         st.info(f"Mostrando {len(df_diario)} registros para editar.")
 
@@ -10315,8 +10319,8 @@ elif opcion_menu == "📝 Asientos Contables":
                             "n_comprobante": st.column_config.TextColumn("Comprobante", disabled=True),
                             "fecha": st.column_config.DateColumn("Fecha"),
                             "descripcion": st.column_config.TextColumn("Descripción"),
-                            "plan_cuentas": st.column_config.TextColumn("Plan Cuentas"),       # Muestra el código directo
-                            "cuenta_contable": st.column_config.TextColumn("Cuenta Contable"), # Muestra el nombre
+                            "plan_cuentas": st.column_config.TextColumn("Plan Cuentas"),       
+                            "cuenta_contable": st.column_config.TextColumn("Cuenta Contable"), 
                             "referencia": st.column_config.TextColumn("Referencia"),
                             "debe": st.column_config.NumberColumn("Debe", format="%,.2f", min_value=0.0),
                             "haber": st.column_config.NumberColumn("Haber", format="%,.2f", min_value=0.0)
