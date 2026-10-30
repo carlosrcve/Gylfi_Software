@@ -7887,13 +7887,14 @@ def modulo_escaneo_facturas_qr(conn, db_actual):
                 rif_prov = st.text_input("RIF del Proveedor (Ej: J-12345678-9)", value=val_rif)
                 nombre_prov = st.text_input("Nombre del Proveedor", value=val_nombre)
             with col2:
+                # Si colocas la base imponible, puedes ver cómo se autocalcula el IVA y el Total
                 base_imp = st.number_input("Base Imponible", min_value=0.00, value=val_base, format="%.2f")
-                monto_iva = st.number_input("IVA (16%)", min_value=0.00, value=val_iva, format="%.2f")
+                monto_iva = st.number_input("IVA (16%)", min_value=0.00, value=round(base_imp * 0.16, 2) if base_imp > 0 else val_iva, format="%.2f")
                 monto_ex = st.number_input("Monto Exento", min_value=0.00, value=val_exento, format="%.2f")
                 
             domicilio = st.text_area("Domicilio Fiscal del Proveedor", value=val_domicilio)
             
-            # Cálculo automático del total
+            # Cálculo automático del total en tiempo real
             monto_total = base_imp + monto_iva + monto_ex
             st.info(f"💰 **Monto Total Calculado:** {monto_total:,.2f}")
 
