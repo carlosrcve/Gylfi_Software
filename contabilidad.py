@@ -8155,6 +8155,340 @@ def modulo_escaneo_facturas_manuales(conn, db_actual):
                 """)
                 st.success("✅ Facturación digital interna emitida correctamente.")
 
+
+import io
+from datetime import date
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import letter
+from reportlab.platypus import HRFlowable, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+import streamlit as st
+
+
+# ==============================================================================
+# FUNCIÓN AUXILIAR: GENERAR PDF PROFESIONAL DE CONTROL INTERNO
+# ==============================================================================
+def generar_pdf_comprobante_interno(datos_factura):
+  """Genera un archivo PDF elegante en memoria para el comprobante de control interno."""
+  buffer = io.BytesIO()
+  doc = SimpleDocTemplate(
+      buffer,
+      pagesize=letter,
+      rightMargin=40,
+      leftMargin=40,
+      topMargin=40,
+      bottomMargin=40,
+  )
+  story = []
+  styles = getSampleStyleSheet()
+
+  # Estilos personalizados
+  titulo_style = ParagraphStyle(
+      'TituloPDF',
+      parent=styles['Heading1'],
+      fontSize=18,
+      leading=22,
+      textColor=colors.HexColor('#1E3A8A'),
+      alignment=0,
+  )
+  sub_style = ParagraphStyle(
+      'SubPDF',
+      parent=styles['Normal'],
+      fontSize=10,
+      leading=14,
+      textColor=colors.HexColor('#4B5563'),
+  )
+  label_style = ParagraphStyle(
+      'LabelPDF',
+      parent=styles['Normal'],
+      fontSize=10,
+      leading=14,
+      fontName='Helvetica-Bold',
+      textColor=colors.HexColor('#1F2937'),
+  )
+  val_style = ParagraphStyle(
+      'ValPDF',
+      parent=styles['Normal'],
+      fontSize=10,
+      leading=14,
+      textColor=colors.HexColor('#1F2937'),
+  )
+
+  # Encabezado
+  story.append(Paragraph('GYLFI SOFTWARE', titulo_style))
+  story.append(
+      Paragraph(
+          'SISTEMA DE CONTROL CONTABLE Y AUDITORÍA INTERNA', sub_style
+      )
+  )
+  story.append(
+      Paragraph(
+          f"Empresa / Cliente: <b>{datos_factura['empresa'].upper()}</b>",
+          sub_style,
+      )
+  )
+  story.append(Spacer(1, 15))
+  story.append(
+      HRFlowable(
+          width='100%',
+          thickness=2,
+          color=colors.HexColor('#1E3A8A'),
+          spaceAfter=15,
+      )
+  )
+
+  story.append(
+      Paragraph(
+          'COMPROBANTE DIGITAL DE CONTROL INTERNO',
+          ParagraphStyle(
+              'SubHeader',
+              fontName='Helvetica-Bold',
+              fontSize=14,
+              textColor=colors.HexColor('#111827'),
+          ),
+      )
+  )
+  story.append(Spacer(1, 10))
+
+  # Tabla de Datos Principales
+  tabla_datos = [
+      [
+          Paragraph('Proveedor:', label_style),
+          Paragraph(
+              f"{datos_factura['proveedor']} ({datos_factura['rif']})", val_style
+          ),
+      ],
+      [
+          Paragraph('Domicilio Fiscal:', label_style),
+          Paragraph(f"{datos_factura['domicilio']}", val_style),
+      ],
+      [
+          Paragraph('Factura N°:', label_style),
+          Paragraph(f"{datos_factura['factura']}", val_style),
+      ],
+      [
+          Paragraph('Número de Control:', label_style),
+          Paragraph(f"{datos_factura['control']}", val_style),
+      ],
+      [
+          Paragraph('Fecha de Emisión:', label_style),
+          Paragraph(f"{datos_factura['fecha']}", val_style),
+      ],
+  ]
+
+  t_info = Table(tabla_datos, colWidths=[130, 400])
+  t_info.setStyle(
+      TableStyle([
+          ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+          ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+      ])
+  )
+  story.append(t_info)
+  story.append(Spacer(1, 15))
+
+  # Tabla Financiera / Montos
+  tabla_montos = [
+      [
+          Paragraph('<b>Concepto / Resumen Fiscal</b>', label_style),
+          Paragraph('<b>Monto Expresado en Bs.</b>', label_style),
+      ],
+      ['Base Imponible (16%)', f"{datos_factura['base']:,.2f} Bs."],
+      ['IVA Calculado (16%)', f"{datos_factura['iva']:,.2f} Bs."],
+      ['Monto Exento', f"{datos_factura.get('exento', 0.0):,.2f} Bs."],
+      ['<b>MONTO TOTAL REGISTRADO</b>', f"<b>{datos_factura['total']:,.2f} Bs.</b>"],
+  ]
+
+  t_montos = Table(tabla_montos, colWidths=[330, 200])
+  t_montos.setStyle(
+      TableStyle([
+          ('BACKGROUND', (0, 0), (1, 0), colors.HexColor('#F3F4F6')),
+          ('ALIGN', (1, 0), (1, -1), 'RIGHT'),
+          ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#E5E7EB')),
+          ('TOPPADDING', (0, 0), (-1, -1), 8),
+          ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+          ('BACKGROUND', (0, -1), (1, -1), colors.HexColor('#EFF6FF')),
+      ])
+  )
+  story.append(t_montos)
+  story.append(Spacer(1, 25))
+
+  # Sello de Auditoría Interna
+  story.append(
+      HRFlowable(
+          width='100%',
+          thickness=1,
+          color=colors.HexColor('#D1D5DB'),
+          spaceAfter=10,
+      )
+  )
+  story.append(
+      Paragraph(
+          '<b>ESTADO:</b> DOCUMENTO REGISTRADO Y AUDITADO EN GYLFI SOFTWARE |'
+          ' COMPROBANTE DE USO INTERNO CORPORATIVO',
+          ParagraphStyle(
+              'FooterPDF',
+              fontSize=8,
+              alignment=1,
+              textColor=colors.HexColor('#6B7280'),
+          ),
+      )
+  )
+
+  doc.build(story)
+  buffer.seek(0)
+  return buffer.getvalue()
+
+
+# ==============================================================================
+# MÓDULO DE HISTORIAL CON BÚSQUEDA POR FECHAS Y EMISIÓN DE PDF Y QR
+# ==============================================================================
+def modulo_historial_qr(conn, db_actual):
+  st.subheader("🔍 Historial de Comprobantes e Inspección Fiscal")
+  st.markdown(
+      "Filtra los registros por rango de fechas para regenerar el **Código"
+      " QR** o imprimir el **Comprobante Digital de Control Interno en PDF**."
+  )
+
+  if not conn:
+    st.warning("⚠️ Sin conexión a la base de datos.")
+    return
+
+  col_f1, col_f2 = st.columns(2)
+  with col_f1:
+    fecha_inicio = st.date_input(
+        "Fecha Desde", value=date.today().replace(day=1)
+    )
+  with col_f2:
+    fecha_fin = st.date_input("Fecha Hasta", value=date.today())
+
+  if st.button("🔎 Buscar en el Periodo", type="primary"):
+    try:
+      with conn.cursor() as cursor:
+        sql = """
+                    SELECT id, rif_proveedor, nombre_proveedor, domicilio_fiscal, nro_factura, nro_control, 
+                           fecha_factura, base_imponible, iva, monto_exento, monto_total 
+                    FROM facturas_escaneadas 
+                    WHERE fecha_factura BETWEEN %s AND %s
+                    ORDER BY fecha_factura DESC, id DESC
+                """
+        cursor.execute(sql, (fecha_inicio, fecha_fin))
+        resultados = cursor.fetchall()
+
+      if not resultados:
+        st.info("ℹ️ No se encontraron registros en el rango seleccionado.")
+        st.session_state.facturas_encontradas = []
+      else:
+        st.success(f"✅ Se encontraron {len(resultados)} registro(s).")
+        st.session_state.facturas_encontradas = resultados
+
+    except Exception as e:
+      st.error(f"❌ Error al consultar MySQL: {e}")
+
+  if (
+      "facturas_encontradas" in st.session_state
+      and st.session_state.facturas_encontradas
+  ):
+    st.markdown("---")
+    st.markdown("### 📋 Listado de Registros Encontrados")
+
+    opciones = []
+    mapping = {}
+    for r in st.session_state.facturas_encontradas:
+      # r: (id, rif, nombre, domicilio, nro_factura, nro_control, fecha, base, iva, exento, total)
+      lbl = f"Factura N° {r[4]} | Control: {r[5]} | Proveedor: {r[2]} ({r[1]}) | Fecha: {r[6].strftime('%d/%m/%Y')} | Total: {r[10]:,.2f} Bs."
+      opciones.append(lbl)
+      mapping[lbl] = r
+
+    factura_sel = st.selectbox(
+        "Seleccione un registro para exportar o auditar:", opciones
+    )
+
+    if factura_sel:
+      row = mapping[factura_sel]
+      (
+          id_f,
+          rif_p,
+          nom_p,
+          dom_p,
+          n_fac,
+          n_ctrl,
+          f_fac,
+          b_imp,
+          m_iva,
+          m_ex,
+          m_tot,
+      ) = row
+
+      st.markdown("---")
+      col_det, col_acc = st.columns([1.2, 1])
+
+      with col_det:
+        st.markdown("#### 📄 Detalle Fiscal del Registro")
+        st.markdown(f"""
+                * **Empresa Receptora:** `{db_actual}`
+                * **Proveedor:** {nom_p} ({rif_p})
+                * **Domicilio Fiscal:** {dom_p if dom_p else 'N/A'}
+                * **Factura N°:** `{n_fac}` | **Control N°:** `{n_ctrl}`
+                * **Fecha de Emisión:** {f_fac.strftime('%d/%m/%Y')}
+                --------------------------------------------------
+                * **Base Imponible:** {b_imp:,.2f} Bs.
+                * **IVA (16%):** {m_iva:,.2f} Bs.
+                * **Monto Exento:** {m_ex:,.2f} Bs.
+                * **MONTO TOTAL:** **{m_tot:,.2f} Bs.**
+                """)
+
+      with col_acc:
+        st.markdown("#### ⚙️ Opciones de Exportación")
+
+        # 1. Generación de PDF al vuelo
+        datos_doc = {
+            'empresa': db_actual,
+            'proveedor': nom_p,
+            'rif': rif_p,
+            'domicilio': dom_p if dom_p else 'N/A',
+            'factura': n_fac,
+            'control': n_ctrl,
+            'fecha': f_fac.strftime('%d/%m/%Y'),
+            'base': b_imp,
+            'iva': m_iva,
+            'exento': m_ex,
+            'total': m_tot,
+        }
+        pdf_bytes = generar_pdf_comprobante_interno(datos_doc)
+
+        st.download_button(
+            label="🖨️ Descargar Comprobante Digital (PDF)",
+            data=pdf_bytes,
+            file_name=f"Comprobante_Control_Interno_{n_fac}.pdf",
+            mime="application/pdf",
+            key=f"pdf_btn_{id_f}",
+        )
+
+        st.markdown("---")
+
+        # 2. Generación de QR al vuelo
+        info_qr = (
+            f"GYLFI SOFTWARE - CONTROL INTERNO\nFactura: {n_fac} | Control:"
+            f" {n_ctrl}\nFecha: {f_fac.strftime('%d/%m/%Y')}\nProveedor:"
+            f" {nom_p} ({rif_p})\nBase: {b_imp:,.2f} | IVA: {m_iva:,.2f} | Total:"
+            f" {m_tot:,.2f}"
+        )
+        qr = qrcode.QRCode(version=1, box_size=8, border=3)
+        qr.add_data(info_qr)
+        qr.make(fit=True)
+        img_qr = qr.make_image(fill_color="black", back_color="white")
+        buf_qr = io.BytesIO()
+        img_qr.save(buf_qr, format="PNG")
+        qr_bytes = buf_qr.getvalue()
+
+        st.image(qr_bytes, width=160, caption="Código QR de Auditoría")
+        st.download_button(
+            label="📥 Descargar QR",
+            data=qr_bytes,
+            file_name=f"QR_Control_{n_fac}.png",
+            mime="image/png",
+            key=f"qr_btn_{id_f}",
+        )
 def gestionar_sidebar():
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
     user_id = st.session_state.get('user_id', st.session_state.get('cliente_id', 'N/A'))
@@ -19601,40 +19935,41 @@ if opcion_menu == "📄 Auxiliar Cta por Pagar":
 
 
 # ==============================================================================
-# PUNTO DE ENTRADA EN EL MENÚ PRINCIPAL (CON SELECTOR DE TIPO)
+# PUNTO DE ENTRADA EN EL MENÚ PRINCIPAL (CON SELECTOR DE TIPO E HISTORIAL)
 # ==============================================================================
 if opcion_menu == "📸 Códigos QR y Escaneo":
-  db_actual = st.session_state.get("DB_ACTUAL")
+    db_actual = st.session_state.get("DB_ACTUAL")
 
-  if not db_actual:
-    st.warning(
-        "⚠️ Por favor, selecciona una empresa activa para usar este módulo."
-    )
-  else:
-    # Selector secundario en pestañas para elegir si vas a procesar Digital o Manual
-    tipo_proceso = st.radio(
-        "Seleccione el tipo de factura a procesar:",
-        [
-            "📄 Facturación Digital (PDF)",
-            "📸 Factura Manual (Imágenes JPG/PNG)",
-        ],
-        horizontal=True,
-    )
+    if not db_actual:
+        st.warning("⚠️ Por favor, selecciona una empresa activa para usar este módulo.")
+    else:
+        # Selector principal ampliado para incluir Digital, Manual y el Historial de QR
+        tipo_proceso = st.radio(
+            "Seleccione la operación a realizar:",
+            [
+                "📄 Facturación Digital (PDF)",
+                "📸 Factura Manual (Imágenes JPG/PNG)",
+                "🔍 Historial y Consulta de QR por Fechas"
+            ],
+            horizontal=True,
+        )
 
-    st.markdown("---")
+        st.markdown("---")
 
-    conn_qr = None
-    try:
-      conn_qr = conectar_db(db_actual)
-      if "Digital" in tipo_proceso:
-        modulo_escaneo_facturas_qr(conn_qr, db_actual)
-      else:
-        modulo_escaneo_facturas_manuales(conn_qr, db_actual)
-    except Exception as e:
-      st.error(f"❌ Error al conectar a la base de datos: {e}")
-    finally:
-      if conn_qr and hasattr(conn_qr, "close"):
+        conn_qr = None
         try:
-          conn_qr.close()
-        except:
-          pass
+            conn_qr = conectar_db(db_actual)
+            if "Digital" in tipo_proceso:
+                modulo_escaneo_facturas_qr(conn_qr, db_actual)
+            elif "Manual" in tipo_proceso:
+                modulo_escaneo_facturas_manuales(conn_qr, db_actual)
+            else:
+                modulo_historial_qr(conn_qr, db_actual)
+        except Exception as e:
+            st.error(f"❌ Error al conectar a la base de datos: {e}")
+        finally:
+            if conn_qr and hasattr(conn_qr, "close"):
+                try:
+                    conn_qr.close()
+                except:
+                    pass
