@@ -41,6 +41,7 @@ from reportlab.lib.units import mm
 import streamlit as st
 import qrcode
 from io import BytesIO
+import qrcode
 
 
 st.set_page_config(
