@@ -7820,7 +7820,7 @@ def modulo_escaneo_facturas_qr(conn, db_actual):
             
             lineas = [l.strip() for l in texto_ocr.split('\n') if l.strip()]
 
-            # A. Proveedor (Busca específicamente las líneas del nombre del emisor y descarta RIF)
+            # A. Proveedor
             val_nombre = ""
             for l in lineas:
                 l_upper = l.upper()
@@ -7836,7 +7836,7 @@ def modulo_escaneo_facturas_qr(conn, db_actual):
             if not val_nombre and len(lineas) > 0:
                 val_nombre = lineas[0]
 
-            # B. Domicilio Fiscal del Proveedor
+            # B. Domicilio Fiscal del Proveedor (Cortar estrictamente en la zona postal o teléfono)
             domicilio_lines = []
             capturar = False
             for l in lineas:
@@ -7844,9 +7844,12 @@ def modulo_escaneo_facturas_qr(conn, db_actual):
                     capturar = True
                     continue
                 if capturar:
-                    if "RIF:" in l.upper() or "FACTURA" in l.upper() or "CONTROL" in l.upper() or "LUGAR" in l.upper():
+                    l_upper = l.upper()
+                    if "RIF:" in l_upper or "FACTURA" in l_upper or "CONTROL" in l_upper or "CANT." in l_upper:
                         break
                     domicilio_lines.append(l)
+                    if "ZONA POSTAL" in l_upper or "TLF" in l_upper or "CAPITAL" in l_upper:
+                        break
             if domicilio_lines:
                 val_domicilio = ", ".join(domicilio_lines)
 
@@ -7865,8 +7868,8 @@ def modulo_escaneo_facturas_qr(conn, db_actual):
             if match_control:
                 val_control = match_control.group(1).replace('O', '0').replace('o', '0').strip()
 
-            # F. Extracción robusta de Base Imponible (corrigiendo confusiones de OCR en manuscritos)
-            match_base = re.search(r'Base\s*Imponible.*?(.*)', texto_ocr, re.IGNORECASE)
+            # F. Extracción precisa de Base Imponible
+            match_base = re.search(r'Base\s*Imponible.*?(?:Bs\.)?\s*([0-9$.eOlI,.]+)', texto_ocr, re.IGNORECASE)
             if match_base:
                 texto_base = match_base.group(1)
                 texto_limpio = (texto_base.replace('$', '5')
@@ -7884,8 +7887,8 @@ def modulo_escaneo_facturas_qr(conn, db_actual):
                     except:
                         pass
 
-            # G. Extracción robusta de IVA
-            match_iva = re.search(r'I\.?V\.?A\.?.*?(.*)', texto_ocr, re.IGNORECASE)
+            # G. Extracción precisa de IVA
+            match_iva = re.search(r'I\.?V\.?A\.?.*?(?:Bs\.)?\s*([0-9$.eOlI,.]+)', texto_ocr, re.IGNORECASE)
             if match_iva:
                 texto_iva = match_iva.group(1)
                 texto_limpio_iva = (texto_iva.replace('$', '5')
