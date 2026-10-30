@@ -7820,21 +7820,32 @@ def modulo_escaneo_facturas_qr(conn, db_actual):
             
             lineas = [l.strip() for l in texto_ocr.split('\n') if l.strip()]
 
-            # A. El Proveedor siempre está en la primera línea del membrete superior
-            if len(lineas) > 0:
+            # A. Proveedor (Extracción genérica: busca la primera línea que parezca un nombre de empresa/persona y no una dirección o RIF)
+            val_nombre = ""
+            for l in lineas[:3]:
+                l_upper = l.upper()
+                if not any(k in l_upper for k in ["RIF", "FACTURA", "TLF", "CALLE", "AV.", "ZONA POSTAL", "N°", "CONTROL", "LUGAR"]):
+                    val_nombre = l
+                    break
+            if not val_nombre and len(lineas) > 0:
                 val_nombre = lineas[0]
 
-            # B. Domicilio Fiscal del Proveedor (líneas debajo del nombre)
+            # B. Domicilio Fiscal del Proveedor (Captura las líneas ubicadas justo debajo del nombre)
             domicilio_lines = []
-            for l in lineas[1:4]:
-                if "RIF:" in l or "FACTURA" in l or "N°" in l:
-                    break
-                domicilio_lines.append(l)
+            capturar = False
+            for l in lineas:
+                if l == val_nombre:
+                    capturar = True
+                    continue
+                if capturar:
+                    if "RIF:" in l.upper() or "FACTURA" in l.upper() or "CONTROL" in l.upper() or "LUGAR" in l.upper():
+                        break
+                    domicilio_lines.append(l)
             if domicilio_lines:
                 val_domicilio = ", ".join(domicilio_lines)
 
-            # C. Buscar RIF del Proveedor (formato J-... o V-...)
-            match_rif = re.search(r'(?:RIF[:\s]*)?([VJGED]\s*[-]?\s*\d{7,9}\s*[-]?\s*\d)', texto_ocr, re.IGNORECASE)
+            # C. Buscar RIF del Proveedor (esquina superior derecha o junto a la etiqueta RIF)
+            match_rif = re.search(r'([VJGED]\s*[-]?\s*\d{7,9}\s*[-]?\s*\d)', texto_ocr, re.IGNORECASE)
             if match_rif:
                 val_rif = re.sub(r'\s+', '', match_rif.group(1)).upper()
 
@@ -7848,21 +7859,21 @@ def modulo_escaneo_facturas_qr(conn, db_actual):
             if match_control:
                 val_control = match_control.group(1).replace('O', '0').replace('o', '0').strip()
 
-            # F. Extracción precisa de Base Imponible e IVA por etiquetas en la factura
-            # Buscamos números con formato de miles y decimales (ej: 596070,85 o 596070.85)
-            # Buscar Base Imponible
-            match_base = re.search(r'Base\s*Imponible.*?([0-9.,]{5,12})', texto_ocr, re.IGNORECASE)
+            # F. Extracción precisa de Base Imponible
+            match_base = re.search(r'Base\s*Imponible.*?([0-9.,]+)', texto_ocr, re.IGNORECASE)
             if match_base:
                 str_base = match_base.group(1).replace('.', '').replace(',', '.')
+                str_base = re.sub(r'[^0-9.]', '', str_base)
                 try:
                     val_base = float(str_base)
                 except:
                     pass
 
-            # Buscar IVA
-            match_iva = re.search(r'I\.?V\.?A\.?.*?([0-9.,]{4,10})', texto_ocr, re.IGNORECASE)
+            # G. Extracción precisa de IVA
+            match_iva = re.search(r'I\.?V\.?A\.?.*?([0-9.,]+)', texto_ocr, re.IGNORECASE)
             if match_iva:
                 str_iva = match_iva.group(1).replace('.', '').replace(',', '.')
+                str_iva = re.sub(r'[^0-9.]', '', str_iva)
                 try:
                     val_iva = float(str_iva)
                 except:
