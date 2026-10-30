@@ -7864,47 +7864,38 @@ def modulo_escaneo_facturas_qr(conn, db_actual):
 
             # F. Extracción precisa de Base Imponible (Lectura directa de línea)
             # F. Extracción precisa de Base Imponible (Ajuste para evitar concatenaciones)
-            match_base = re.search(r'Base\s*Imponible[^\n]*', texto_ocr, re.IGNORECASE)
+            # F. Extracción flexible de Base Imponible
+            match_base = re.search(r'Base\s*Imponible.*', texto_ocr, re.IGNORECASE)
             if match_base:
-                linea_b = match_base.group(0)
-                # Buscamos un bloque que contenga números y separadores decimales/miles
-                match_monto = re.search(r'([0-9.,]{5,15})', linea_b)
-                if match_monto:
-                    str_b = match_monto.group(1)
-                    str_b = (str_b.replace('$', '5')
-                                 .replace('e', '9').replace('E', '9')
-                                 .replace('O', '0').replace('o', '0')
-                                 .replace('l', '1').replace('I', '1')
-                                 .replace('£', '5'))
-                    if ',' in str_b:
-                        partes = str_b.split(',')
-                        enteros = re.sub(r'[^0-9]', '', partes[0])
-                        decimales = re.sub(r'[^0-9]', '', partes[1])[:2]
-                        try:
-                            val_base = float(enteros + "." + decimales)
-                        except:
-                            pass
+                texto_linea = match_base.group(0)
+                # Buscamos cualquier bloque numérico con posibles separadores
+                posibles_montos = re.findall(r'[\d.,]+', texto_linea)
+                for m in posibles_montos:
+                    m_limpio = m.replace('.', '').replace(',', '.')
+                    m_limpio = re.sub(r'[^0-9.]', '', m_limpio)
+                    try:
+                        val = float(m_limpio)
+                        if val > 100:  # Validamos que sea un monto fiscal válido
+                            val_base = val
+                            break
+                    except:
+                        continue
 
-            # G. Extracción precisa de IVA
-            match_iva = re.search(r'I\.?V\.?A\.?[^\n]*', texto_ocr, re.IGNORECASE)
+            # G. Extracción flexible de IVA
+            match_iva = re.search(r'I\.?V\.?A\.?.*', texto_ocr, re.IGNORECASE)
             if match_iva:
-                linea_i = match_iva.group(0)
-                match_monto_i = re.search(r'([0-9.,]{4,12})', linea_i)
-                if match_monto_i:
-                    str_i = match_monto_i.group(1)
-                    str_i = (str_i.replace('$', '5')
-                                  .replace('e', '9').replace('E', '9')
-                                  .replace('O', '0').replace('o', '0')
-                                  .replace('l', '1').replace('I', '1')
-                                  .replace('£', '5'))
-                    if ',' in str_i:
-                        partes = str_i.split(',')
-                        enteros = re.sub(r'[^0-9]', '', partes[0])
-                        decimales = re.sub(r'[^0-9]', '', partes[1])[:2]
-                        try:
-                            val_iva = float(enteros + "." + decimales)
-                        except:
-                            pass
+                texto_linea_iva = match_iva.group(0)
+                posibles_montos_iva = re.findall(r'[\d.,]+', texto_linea_iva)
+                for m in posibles_montos_iva:
+                    m_limpio = m.replace('.', '').replace(',', '.')
+                    m_limpio = re.sub(r'[^0-9.]', '', m_limpio)
+                    try:
+                        val = float(m_limpio)
+                        if val > 10:  # Validamos que sea un monto de IVA válido
+                            val_iva = val
+                            break
+                    except:
+                        continue
 
             st.success("🔍 ¡Análisis completado! Revisa los campos detectados abajo.")
 
