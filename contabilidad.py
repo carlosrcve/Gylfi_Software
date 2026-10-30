@@ -7869,21 +7869,60 @@ def modulo_escaneo_facturas_qr(conn, db_actual):
                 val_control = match_control.group(1).replace('O', '0').replace('o', '0').strip()
 
             # F. Extracción precisa de Base Imponible
-            match_base = re.search(r'Base\s*Imponible.*?(?:Bs\.)?\s*([0-9$.eOlI,.]+)', texto_ocr, re.IGNORECASE)
+            # F. Extracción precisa de Base Imponible (Captura y corrección robusta para manuscritos)
+            match_base = re.search(r'Base\s*Imponible.*?(?:Bs\.)?\s*(.*)', texto_ocr, re.IGNORECASE)
             if match_base:
-                texto_base = match_base.group(1)
+                texto_base = match_base.group(1).split('\n')[0]
+                # Reemplazos inteligentes para errores comunes de OCR en números escritos a mano
                 texto_limpio = (texto_base.replace('$', '5')
-                                          .replace('e', '6')
+                                          .replace('e', '9')
+                                          .replace('E', '9')
                                           .replace('O', '0')
                                           .replace('o', '0')
                                           .replace('l', '1')
-                                          .replace('I', '1'))
-                numeros_en_base = re.findall(r'[0-9.,]+', texto_limpio)
-                if numeros_en_base:
-                    str_base = numeros_en_base[0].replace('.', '').replace(',', '.')
+                                          .replace('I', '1')
+                                          .replace('£', '5'))
+                # Extraer todos los bloques de números y separadores decimales/miles
+                # Buscamos un formato numérico largo típico de montos en bolívares
+                match_num_base = re.search(r'([0-9.,]{5,15})', texto_limpio)
+                if match_num_base:
+                    str_base = match_num_base.group(1)
+                    # Si tiene coma y puntos, estandarizamos a formato flotante de Python
+                    if ',' in str_base and '.' in str_base:
+                        # Asume formato venezolano: 596.070,85 -> 596070.85
+                        str_base = str_base.replace('.', '').replace(',', '.')
+                    elif ',' in str_base:
+                        str_base = str_base.replace(',', '.')
+                    
                     str_base = re.sub(r'[^0-9.]', '', str_base)
                     try:
                         val_base = float(str_base)
+                    except:
+                        pass
+
+            # G. Extracción precisa de IVA
+            match_iva = re.search(r'I\.?V\.?A\.?.*?(?:Bs\.)?\s*(.*)', texto_ocr, re.IGNORECASE)
+            if match_iva:
+                texto_iva = match_iva.group(1).split('\n')[0]
+                texto_limpio_iva = (texto_iva.replace('$', '5')
+                                            .replace('e', '9')
+                                            .replace('E', '9')
+                                            .replace('O', '0')
+                                            .replace('o', '0')
+                                            .replace('l', '1')
+                                            .replace('I', '1')
+                                            .replace('£', '5'))
+                match_num_iva = re.search(r'([0-9.,]{4,12})', texto_limpio_iva)
+                if match_num_iva:
+                    str_iva = match_num_iva.group(1)
+                    if ',' in str_iva and '.' in str_iva:
+                        str_iva = str_iva.replace('.', '').replace(',', '.')
+                    elif ',' in str_iva:
+                        str_iva = str_iva.replace(',', '.')
+                        
+                    str_iva = re.sub(r'[^0-9.]', '', str_iva)
+                    try:
+                        val_iva = float(str_iva)
                     except:
                         pass
 
