@@ -7814,26 +7814,28 @@ def modulo_escaneo_facturas_qr(conn, db_actual):
             # 2. Ejecución limpia de OCR
             texto_ocr = pytesseract.image_to_string(img)
             
-            # Mostramos el texto bruto para que veas qué leyó Tesseract exactamente
+            # Mostramos el texto bruto para depuración
             with st.expander("🔍 Ver texto bruto extraído por OCR (Depuración)"):
                 st.text(texto_ocr)
             
-            # 3. Búsqueda flexible mediante Expresiones Regulares (Regex)
-            # Buscar RIF (ej: V-05688194-2, tolerando espacios o puntos)
+            # 3. Búsqueda flexible mejorada para facturas venezolanas
+            
+            # Buscar RIF (Ej: V-95608104-2 o J-12345678-9)
             match_rif = re.search(r'([VJGED]\s*[-]?\s*\d{7,9}\s*[-]?\s*\d)', texto_ocr, re.IGNORECASE)
             if match_rif:
-                # Limpiamos espacios internos del RIF detectado
                 val_rif = re.sub(r'\s+', '', match_rif.group(1)).upper()
 
-            # Buscar Números de Factura o secuencias de 6 dígitos comunes
-            match_factura = re.search(r'(?:[Nn][°º]?\s*|[Ff]actura[:.\s]*)([0-9]{4,8})', texto_ocr)
+            # Buscar Número de Factura (ahora tolera la palabra "N°" o símbolos en el medio)
+            match_factura = re.search(r'[Ff]actura.*?([0-9]{4,8})', texto_ocr, re.DOTALL)
             if match_factura:
                 val_factura = match_factura.group(1)
 
-            # Buscar Número de Control
-            match_control = re.search(r'(?:[Cc]ontrol[:.\s]*)([0-9\s-]+)', texto_ocr)
+            # Buscar Número de Control (tolera letras O en lugar de ceros o guiones)
+            match_control = re.search(r'[Cc]ontrol.*?([0-9O\s-]+)', texto_ocr, re.DOTALL)
             if match_control:
-                val_control = re.sub(r'\s+', '', match_control.group(1))
+                # Limpiamos y reemplazamos posibles letras O por ceros si el OCR se confunde
+                ctrl_limpio = match_control.group(1).replace('O', '0').replace('o', '0')
+                val_control = re.sub(r'\s+', '', ctrl_limpio)
 
             st.success("🔍 ¡Análisis completado! Revisa los campos detectados abajo.")
 
