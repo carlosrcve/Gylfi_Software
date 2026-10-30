@@ -7775,9 +7775,7 @@ def limpiar_moneda(valor):
         return 0.0
 
 
-# ==============================================================================
-# MÓDULO QR: ESTACIÓN DE CARGA Y GENERACIÓN DE FACTURAS
-# ==============================================================================
+
 def modulo_escaneo_facturas_qr(conn, db_actual):
     st.subheader("📸 Estación de Carga, OCR y Generación QR de Facturas")
     st.markdown("Sube la fotografía nítida de la factura. El sistema extraerá automáticamente los datos fiscales mediante OCR para que solo debas verificarlos.")
@@ -7806,9 +7804,7 @@ def modulo_escaneo_facturas_qr(conn, db_actual):
         st.success("✅ ¡Imagen cargada con éxito! Procesando texto con OCR...")
 
         try:
-            # 2. Ejecutar OCR con respaldo automático si falta el idioma español
-            try:
-            # 2. Ejecutar OCR con el idioma por defecto del servidor (evita el error de archivos faltantes)
+            # 2. Ejecución limpia de OCR sin forzar ningún idioma (evita el error de archivos faltantes)
             texto_ocr = pytesseract.image_to_string(img)
             
             # 3. Extracción inteligente mediante Expresiones Regulares (Regex) para Venezuela
@@ -7831,6 +7827,7 @@ def modulo_escaneo_facturas_qr(conn, db_actual):
 
         except Exception as e:
             st.warning(f"⚠️ Nota de OCR: No se pudo escanear automáticamente ({e}), pero puedes completar los datos manualmente.")
+
         # 4. Formulario con los campos precargados por el OCR
         st.markdown("### 📝 Verificación y Datos Fiscales de la Factura")
         with st.form("form_datos_factura_qr"):
@@ -7917,7 +7914,6 @@ def modulo_escaneo_facturas_qr(conn, db_actual):
 
                     except Exception as e:
                         st.error(f"❌ Error al registrar en la base de datos: {e}")
-
 
 def gestionar_sidebar():
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
