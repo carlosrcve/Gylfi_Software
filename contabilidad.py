@@ -7785,9 +7785,9 @@ import qrcode
 
 def modulo_escaneo_facturas_qr(conn, db_actual):
     st.subheader("📸 Estación de Carga, OCR y Generación QR de Facturas")
-    st.markdown("Sube la fotografía nítida de la factura. El sistema extraerá automáticamente los datos fiscales mediante OCR para que solo debas verificarlos.")
+    st.markdown("Sube la fotografía de la factura. El sistema extraerá automáticamente los datos fiscales mediante OCR para que solo debas verificar los montos.")
 
-    # 1. Selector de archivos para la imagen nítida del teléfono
+    # 1. Selector de archivos para la imagen de la factura
     archivo_subido = st.file_uploader(
         "Seleccionar o arrastrar la imagen de la factura", 
         type=["png", "jpg", "jpeg"],
@@ -7808,7 +7808,7 @@ def modulo_escaneo_facturas_qr(conn, db_actual):
         # Mostrar imagen
         img = Image.open(archivo_subido)
         st.image(img, caption="Vista previa de la factura cargada", width=400)
-        st.success("✅ ¡Imagen cargada con éxito! Procesando texto con OCR...")
+        st.success("✅ ¡Imagen cargada con éxito! Procesando datos fiscales...")
 
         try:
             # 2. Ejecución limpia de OCR
@@ -7862,47 +7862,12 @@ def modulo_escaneo_facturas_qr(conn, db_actual):
             if match_control:
                 val_control = match_control.group(1).replace('O', '0').replace('o', '0').strip()
 
-            # F. Extracción precisa de Base Imponible (Lectura directa de línea)
-            # F. Extracción precisa de Base Imponible (Ajuste para evitar concatenaciones)
-            # F. Extracción flexible de Base Imponible
-            match_base = re.search(r'Base\s*Imponible.*', texto_ocr, re.IGNORECASE)
-            if match_base:
-                texto_linea = match_base.group(0)
-                # Buscamos cualquier bloque numérico con posibles separadores
-                posibles_montos = re.findall(r'[\d.,]+', texto_linea)
-                for m in posibles_montos:
-                    m_limpio = m.replace('.', '').replace(',', '.')
-                    m_limpio = re.sub(r'[^0-9.]', '', m_limpio)
-                    try:
-                        val = float(m_limpio)
-                        if val > 100:  # Validamos que sea un monto fiscal válido
-                            val_base = val
-                            break
-                    except:
-                        continue
-
-            # G. Extracción flexible de IVA
-            match_iva = re.search(r'I\.?V\.?A\.?.*', texto_ocr, re.IGNORECASE)
-            if match_iva:
-                texto_linea_iva = match_iva.group(0)
-                posibles_montos_iva = re.findall(r'[\d.,]+', texto_linea_iva)
-                for m in posibles_montos_iva:
-                    m_limpio = m.replace('.', '').replace(',', '.')
-                    m_limpio = re.sub(r'[^0-9.]', '', m_limpio)
-                    try:
-                        val = float(m_limpio)
-                        if val > 10:  # Validamos que sea un monto de IVA válido
-                            val_iva = val
-                            break
-                    except:
-                        continue
-
-            st.success("🔍 ¡Análisis completado! Revisa los campos detectados abajo.")
+            st.success("🔍 ¡Cabecera procesada con éxito! Verifique los montos abajo.")
 
         except Exception as e:
             st.warning(f"⚠️ Nota de OCR: No se pudo escanear automáticamente ({e}), pero puedes completar los datos manualmente.")
 
-        # 4. Formulario con los campos precargados
+        # 4. Formulario con los campos precargados y control manual ágil para los montos
         st.markdown("### 📝 Verificación y Datos Fiscales de la Factura")
         with st.form("form_datos_factura_qr"):
             col1, col2 = st.columns(2)
@@ -7912,8 +7877,9 @@ def modulo_escaneo_facturas_qr(conn, db_actual):
                 rif_prov = st.text_input("RIF del Proveedor (Ej: J-12345678-9)", value=val_rif)
                 nombre_prov = st.text_input("Nombre del Proveedor", value=val_nombre)
             with col2:
+                # Ingrese la Base Imponible; el IVA y el Total se calculan solos al instante
                 base_imp = st.number_input("Base Imponible", min_value=0.00, value=val_base, format="%.2f")
-                monto_iva = st.number_input("IVA (16%)", min_value=0.00, value=round(base_imp * 0.16, 2) if base_imp > 0 else val_iva, format="%.2f")
+                monto_iva = st.number_input("IVA (16%)", min_value=0.00, value=round(base_imp * 0.16, 2), format="%.2f")
                 monto_ex = st.number_input("Monto Exento", min_value=0.00, value=val_exento, format="%.2f")
                 
             domicilio = st.text_area("Domicilio Fiscal del Proveedor", value=val_domicilio)
