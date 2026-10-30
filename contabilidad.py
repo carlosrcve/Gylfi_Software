@@ -7775,16 +7775,6 @@ def limpiar_moneda(valor):
         return 0.0
 
 
-
-from datetime import date
-import re
-from io import BytesIO
-from PIL import Image
-import pytesseract
-import qrcode
-import streamlit as st
-
-
 def modulo_escaneo_facturas_qr(conn, db_actual):
   st.subheader("📸 Registro Fiscal de Facturas y Generación QR")
   st.markdown(
@@ -7895,20 +7885,23 @@ def modulo_escaneo_facturas_qr(conn, db_actual):
             .strip()
         )
 
-      # F. Búsqueda de Fecha en el texto de la factura (Ej: DD/MM/AAAA)
+      # F. Extracción precisa de la Fecha (Buscando ÚNICAMENTE en el encabezado superior para ignorar el pie de página)
+      texto_cabecera = "\n".join(
+          lineas[:12]
+      )  # Solo las primeras 12 líneas de la factura
       match_fec = re.search(
-          r"(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})", texto_ocr
+          r"(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})", texto_cabecera
       )
       if match_fec:
         try:
-          d, m, y = (
-              int(match_fec.group(1)),
-              int(match_fec.group(2)),
-              int(match_fec.group(3)),
-          )
+          d = int(match_fec.group(1))
+          m = int(match_fec.group(2))
+          y = int(match_fec.group(3))
           if y < 100:
             y += 2000
-          val_fecha = date(y, m, d)
+          # Filtramos para que acepte años lógicos de operación actuales
+          if 2024 <= y <= 2030:
+            val_fecha = date(y, m, d)
         except:
           pass
 
