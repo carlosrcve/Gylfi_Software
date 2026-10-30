@@ -7994,6 +7994,9 @@ def modulo_escaneo_facturas_qr(conn, db_actual):
 # ==============================================================================
 # MÓDULO 2: FACTURAS MANUALES (JPG/PNG CON Z-WRITE Y EMISIÓN DE CONTROL INTERNO)
 # ==============================================================================
+# ==============================================================================
+# MÓDULO 2: FACTURAS MANUALES (JPG/PNG CON Z-WRITE Y EMISIÓN DE CONTROL INTERNO)
+# ==============================================================================
 def modulo_escaneo_facturas_manuales(conn, db_actual):
   st.subheader("📸 Registro de Facturas Manuales (JPG/PNG) y Control Interno")
   st.markdown(
