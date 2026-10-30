@@ -7996,7 +7996,7 @@ def modulo_escaneo_facturas_qr(conn, db_actual):
 # ==============================================================================
 def modulo_escaneo_facturas_manuales(conn, db_actual):
     st.subheader("📸 Registro de Facturas Manuales y Control Interno")
-    st.markdown("Sube la foto del talonario. El sistema captura la cabecera fija y tú validas los montos a mano alzada para emitir tu control interno.")
+    st.markdown("Sube la foto del talonario. Valida los datos y emite tu control interno o código QR corporativo.")
 
     archivo_subido = st.file_uploader(
         "Seleccionar o arrastrar imagen de factura manual",
@@ -8004,10 +8004,10 @@ def modulo_escaneo_facturas_manuales(conn, db_actual):
         help="Sube una foto clara del talonario."
     )
 
-    val_factura = "0005"  # Pre-llenado base según tu ejemplo visual
+    val_factura = "0005"
     val_control = "00-0005"
     val_rif = "V-16412018-6"
-    val_nombre = "NICOLAS FRANZ GARGANO LABASTIDAS"
+    val_nombre = "NICOLAS FRANZ GARGANO LABASTIDA"
     val_domicilio = "Calle Manzana J, Casa Laura N° 24, Urb. Cementerio, Caracas"
 
     if archivo_subido is not None:
@@ -8017,17 +8017,23 @@ def modulo_escaneo_facturas_manuales(conn, db_actual):
 
         with col_izq:
             st.image(img, caption="Factura Manual Original", use_container_width=True)
-            st.info("💡 **Nota del sistema:** Las facturas manuales se procesan de forma híbrida. Consulta la imagen para rellenar los datos escritos a pulso.")
+            st.info("💡 **Nota del sistema:** Rellena los datos observando la imagen física.")
 
         with col_der:
             st.markdown("### 📝 Datos Fiscales y Control Interno")
+            
+            # Usamos un contenedor de variables en session_state para el QR fuera del form si es necesario
+            if "qr_generado_bytes" not in st.session_state:
+                st.session_state.qr_generado_bytes = None
+            if "nro_factura_cache" not in st.session_state:
+                st.session_state.nro_factura_cache = ""
+
             with st.form("form_factura_manual_hibrido"):
                 nro_factura = st.text_input("Número de Factura", value=val_factura)
                 nro_control = st.text_input("Número de Control", value=val_control)
                 rif_prov = st.text_input("RIF del Proveedor", value=val_rif)
                 nombre_prov = st.text_input("Nombre del Proveedor", value=val_nombre)
                 
-                # Campos limpios para tipear lo que está escrito a mano en la factura
                 fecha_str = st.text_input("Fecha de la Factura (DD/MM/AAAA)", value="30/09/2026", placeholder="Ej: 30/09/2026")
                 base_imp_str = st.text_input("Base Imponible Bs.", value="596070.85", placeholder="Ej: 596070.85")
                 monto_iva_str = st.text_input("IVA (16%) Bs.", value="95371.34", placeholder="Ej: 95371.34")
@@ -8102,30 +8108,52 @@ def modulo_escaneo_facturas_manuales(conn, db_actual):
                                 img_qr = qr.make_image(fill_color="black", back_color="white")
                                 buffer = BytesIO()
                                 img_qr.save(buffer, format="PNG")
-                                qr_bytes = buffer.getvalue()
-
-                                st.markdown("### 📱 Código QR de Auditoría Interna")
-                                st.image(img_qr.get_image() if hasattr(img_qr, 'get_image') else img_qr, width=220)
-                                st.download_button("📥 Descargar QR", data=qr_bytes, file_name=f"QR_{nro_factura}.png", mime="image/png")
+                                
+                                # Guardamos en session_state para renderizar FUERA del form
+                                st.session_state.qr_generado_bytes = buffer.getvalue()
+                                st.session_state.nro_factura_cache = nro_factura
+                                st.session_state.modo_resultado = "QR"
                             else:
-                                st.markdown("---")
-                                st.markdown("### 📄 Comprobante Digital de Control Interno")
-                                st.markdown(f"""
-                                **COMPROBANTE DE REGISTRO INTERNO**
-                                * **Empresa:** {db_actual}
-                                * **Proveedor:** {nombre_prov} ({rif_prov})
-                                * **Factura N°:** {nro_factura} | **Control:** {nro_control}
-                                * **Fecha:** {fecha_fac_final.strftime('%d/%m/%Y')}
-                                --------------------------------------------------
-                                * **Base Imponible:** {val_b:,.2f} Bs.
-                                * **IVA (16%):** {val_i:,.2f} Bs.
-                                * **MONTO TOTAL:** **{monto_total:,.2f} Bs.**
-                                --------------------------------------------------
-                                """)
-                                st.success("✅ Facturación digital interna emitida correctamente.")
+                                st.session_state.modo_resultado = "FACTURA"
+                                st.session_state.datos_factura_cache = {
+                                    "empresa": db_actual, "proveedor": nombre_prov, "rif": rif_prov,
+                                    "domicilio": domicilio, "factura": nro_factura, "control": nro_control,
+                                    "fecha": fecha_fac_final.strftime('%d/%m/%Y'), "base": val_b, "iva": val_i, "total": monto_total
+                                }
 
                         except Exception as e:
                             st.error(f"❌ Error al procesar: {e}")
+
+            # ==================================================================
+            # SALIDAS FUERA DEL FORMULARIO (Evita el error de st.download_button)
+            # ==================================================================
+            if st.session_state.get("modo_resultado") == "QR" and st.session_state.get("qr_generado_bytes"):
+                st.markdown("---")
+                st.markdown("### 📱 Código QR de Auditoría Interna")
+                st.image(st.session_state.qr_generado_bytes, width=220)
+                st.download_button(
+                    label="📥 Descargar QR de Control",
+                    data=st.session_state.qr_generado_bytes,
+                    file_name=f"QR_Manual_{st.session_state.nro_factura_cache}.png",
+                    mime="image/png"
+                )
+            elif st.session_state.get("modo_resultado") == "FACTURA" and st.session_state.get("datos_factura_cache"):
+                d = st.session_state.datos_factura_cache
+                st.markdown("---")
+                st.markdown("### 📄 Comprobante Digital de Control Interno")
+                st.markdown(f"""
+                **COMPROBANTE DE REGISTRO INTERNO**
+                * **Empresa:** {d['empresa']}
+                * **Proveedor:** {d['proveedor']} ({d['rif']})
+                * **Factura N°:** {d['factura']} | **Control:** {d['control']}
+                * **Fecha:** {d['fecha']}
+                --------------------------------------------------
+                * **Base Imponible:** {d['base']:,.2f} Bs.
+                * **IVA (16%):** {d['iva']:,.2f} Bs.
+                * **MONTO TOTAL:** **{d['total']:,.2f} Bs.**
+                --------------------------------------------------
+                """)
+                st.success("✅ Facturación digital interna emitida correctamente.")
 
 def gestionar_sidebar():
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
