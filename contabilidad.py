@@ -7780,15 +7780,24 @@ def limpiar_moneda(valor):
 # ==============================================================================
 # 1. FUNCIÓN DEL MÓDULO QR (Toda la lógica visual y de base de datos)
 # ==============================================================================
+# ==============================================================================
+# MÓDULO QR: ESTACIÓN DE CARGA Y GENERACIÓN DE FACTURAS
+# ==============================================================================
 def modulo_escaneo_facturas_qr(conn, db_actual):
-    st.subheader("📸 Estación de Escaneo y Generación QR de Facturas")
-    st.markdown("Coloque la factura frente a la cámara de su laptop, capture la imagen y registre los datos fiscales para generar el código QR de auditoría.")
+    st.subheader("📸 Estación de Carga y Generación QR de Facturas")
+    st.markdown("Sube la fotografía nítida de la factura (capturada con tu teléfono o WhatsApp) para registrar sus datos fiscales y generar el código QR de auditoría.")
 
-    # 1. Captura con la cámara de la laptop
-    imagen_capturada = st.camera_input("Tomar foto de la factura")
+    # 1. Selector de archivos en lugar de la cámara de la laptop
+    archivo_subido = st.file_uploader(
+        "Seleccionar o arrastrar la imagen de la factura", 
+        type=["png", "jpg", "jpeg"],
+        help="Sube una foto clara tomada con el celular o descargada."
+    )
 
-    if imagen_capturada is not None:
-        st.success("✅ ¡Fotografía capturada con éxito!")
+    if archivo_subido is not None:
+        # Mostramos la imagen cargada de forma nítida en pantalla
+        st.image(archivo_subido, caption="Vista previa de la factura cargada", width=400)
+        st.success("✅ ¡Imagen cargada con éxito y lista para procesar!")
         
         st.markdown("### 📝 Verificación y Datos Fiscales de la Factura")
         with st.form("form_datos_factura_qr"):
@@ -19322,10 +19331,6 @@ if opcion_menu == "📄 Auxiliar Cta por Pagar":
             st.info("ℹ️ No se encontraron movimientos en cuentas de pasivo para el rango de fechas seleccionado.")
 
 
-# Asegúrate de que este texto sea idéntico al de tu lista "modulos_disponibles"
-# ==============================================================================
-# 2. PUNTO DE ENTRADA EN EL MENÚ PRINCIPAL DE STREAMLIT
-# ==============================================================================
 if opcion_menu == "📸 Códigos QR y Escaneo":
     db_actual = st.session_state.get('DB_ACTUAL')
     
@@ -19335,7 +19340,6 @@ if opcion_menu == "📸 Códigos QR y Escaneo":
         conn_qr = None
         try:
             conn_qr = conectar_db(db_actual)
-            # Llamamos a la función pasándole la conexión y la empresa actual
             modulo_escaneo_facturas_qr(conn_qr, db_actual)
         except Exception as e:
             st.error(f"❌ Error al conectar a la base de datos: {e}")
