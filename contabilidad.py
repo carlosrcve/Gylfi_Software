@@ -7778,8 +7778,8 @@ def limpiar_moneda(valor):
 def modulo_escaneo_facturas_qr(conn, db_actual):
   st.subheader("📸 Registro Fiscal de Facturas y Generación QR")
   st.markdown(
-      "Sube la imagen de la factura. El sistema extraerá los datos y te"
-      " mostrará el texto original para una verificación rápida."
+      "Sube la imagen de la factura. El sistema extraerá los datos fiscales y te"
+      " mostrará el texto original como referencia."
   )
 
   # 1. Selector de archivos
@@ -7886,28 +7886,27 @@ def modulo_escaneo_facturas_qr(conn, db_actual):
     except Exception as e:
       st.warning(f"⚠️ Nota de OCR: {e}")
 
-    # 💡 DISEÑO EN DOS COLUMNAS: Izquierda (Imagen y Texto OCR visible para guiarte) | Derecha (Formulario)
+    # 💡 DISEÑO EN DOS COLUMNAS
     col_izq, col_der = st.columns([1, 1.2])
 
     with col_izq:
       st.image(img, caption="Factura Original", use_container_width=True)
-      st.markdown("#### 🔍 Texto Bruto del OCR (Referencia)")
-      # Mostramos el texto completo fijo para que puedas ver qué leyó el sistema y copiar montos/fechas exactas
+      st.markdown("#### 🔍 Referencia del Texto OCR")
       st.code(
           texto_ocr if texto_ocr else "Sin texto detectado", language="text"
       )
 
     with col_der:
-      st.markdown("### 📝 Verificación y Carga Ágil")
+      st.markdown("### 📝 Carga y Verificación Rápida")
       with st.form("form_datos_factura_qr"):
         nro_factura = st.text_input("Número de Factura", value=val_factura)
         nro_control = st.text_input("Número de Control", value=val_control)
         rif_prov = st.text_input("RIF del Proveedor", value=val_rif)
         nombre_prov = st.text_input("Nombre del Proveedor", value=val_nombre)
 
-        # Campos abiertos para ingresar los datos reales que ves en la imagen
+        # Campos abiertos manuales para la fecha y montos escritos a pulso
         fecha_str = st.text_input(
-            "Fecha de la Factura (DD/MM/AAAA o AAAA-MM-DD)",
+            "Fecha de la Factura (DD/MM/AAAA)",
             value="",
             placeholder="Ej: 24/10/2026",
         )
@@ -7921,7 +7920,7 @@ def modulo_escaneo_facturas_qr(conn, db_actual):
 
         domicilio = st.text_area("Domicilio Fiscal", value=val_domicilio)
 
-        # Conversión matemática en tiempo real para mostrar el total estimado
+        # Cálculo matemático en tiempo real basado en lo que tipees
         try:
           val_b = (
               float(
@@ -7970,7 +7969,6 @@ def modulo_escaneo_facturas_qr(conn, db_actual):
             st.error("⚠️ Sin conexión a la base de datos.")
           else:
             try:
-              # Parseo flexible de la fecha ingresada por texto
               fecha_str_clean = fecha_str.strip()
               if "/" in fecha_str_clean:
                 fecha_fac_final = datetime.strptime(
