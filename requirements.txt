@@ -19,3 +19,4 @@ google-generativeai
 pdfplumber
 opencv-python-headless
 reportlab
+qrcode==7.4.2
