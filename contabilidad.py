@@ -38,6 +38,9 @@ import fitz  # PyMuPDF para manejar PDFs escaneados
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 from reportlab.lib.units import mm
+import streamlit as st
+import qrcode
+from io import BytesIO
 
 
 st.set_page_config(
@@ -7770,6 +7773,110 @@ def limpiar_moneda(valor):
     except Exception:
         return 0.0
 
+
+
+
+# ==============================================================================
+# 1. FUNCIÓN DEL MÓDULO QR (Toda la lógica visual y de base de datos)
+# ==============================================================================
+def modulo_escaneo_facturas_qr(conn, db_actual):
+    st.subheader("📸 Estación de Escaneo y Generación QR de Facturas")
+    st.markdown("Coloque la factura frente a la cámara de su laptop, capture la imagen y registre los datos fiscales para generar el código QR de auditoría.")
+
+    # 1. Captura con la cámara de la laptop
+    imagen_capturada = st.camera_input("Tomar foto de la factura")
+
+    if imagen_capturada is not None:
+        st.success("✅ ¡Fotografía capturada con éxito!")
+        
+        st.markdown("### 📝 Verificación y Datos Fiscales de la Factura")
+        with st.form("form_datos_factura_qr"):
+            col1, col2 = st.columns(2)
+            with col1:
+                nro_factura = st.text_input("Número de Factura")
+                nro_control = st.text_input("Número de Control")
+                rif_prov = st.text_input("RIF del Proveedor (Ej: J-12345678-9)")
+                nombre_prov = st.text_input("Nombre del Proveedor")
+            with col2:
+                base_imp = st.number_input("Base Imponible", min_value=0.00, format="%,.2f")
+                monto_iva = st.number_input("IVA (16%)", min_value=0.00, format="%,.2f")
+                monto_ex = st.number_input("Monto Exento", min_value=0.00, format="%,.2f")
+                
+            domicilio = st.text_area("Domicilio Fiscal del Proveedor")
+            
+            # Cálculo automático del total
+            monto_total = base_imp + monto_iva + monto_ex
+            st.info(f"💰 **Monto Total Calculado:** {monto_total:,.2f}")
+
+            submitted = st.form_submit_button("💾 Guardar y Generar Código QR", type="primary")
+
+            if submitted:
+                if not nro_factura or not nombre_prov or not rif_prov:
+                    st.error("⚠️ Por favor completa los campos obligatorios (Nro Factura, Proveedor y RIF).")
+                elif not conn:
+                    st.error("⚠️ No hay conexión activa a la base de datos.")
+                else:
+                    try:
+                        # 2. Guardar en la base de datos MySQL
+                        with conn.cursor() as cursor:
+                            sql = """
+                                INSERT INTO facturas_escaneadas 
+                                (rif_proveedor, nombre_proveedor, domicilio_fiscal, nro_factura, nro_control, base_imponible, iva, monto_exento, monto_total)
+                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                            """
+                            cursor.execute(sql, (
+                                rif_prov, nombre_prov, domicilio, nro_factura, nro_control, 
+                                base_imp, monto_iva, monto_ex, monto_total
+                            ))
+                            conn.commit()
+
+                        st.success("¡Factura registrada y guardada en MySQL correctamente!")
+
+                        # 3. Construir la cadena de información para el Código QR
+                        info_qr = (
+                            f"FACTURA ELECTRÓNICA / AUDITORÍA\n"
+                            f"Factura: {nro_factura}\n"
+                            f"Control: {nro_control}\n"
+                            f"Proveedor: {nombre_prov}\n"
+                            f"RIF: {rif_prov}\n"
+                            f"Domicilio: {domicilio}\n"
+                            f"Base Imponible: {base_imp:,.2f}\n"
+                            f"IVA: {monto_iva:,.2f}\n"
+                            f"Exento: {monto_ex:,.2f}\n"
+                            f"TOTAL: {monto_total:,.2f}"
+                        )
+
+                        # 4. Generar la imagen del Código QR usando la librería 'qrcode'
+                        qr = qrcode.QRCode(
+                            version=1,
+                            error_correction=qrcode.constants.ERROR_CORRECT_M,
+                            box_size=10,
+                            border=4,
+                        )
+                        qr.add_data(info_qr)
+                        qr.make(fit=True)
+
+                        img_qr = qr.make_image(fill_color="black", back_color="white")
+                        
+                        # Convertir a bytes para mostrar en Streamlit y permitir descarga
+                        buffer = BytesIO()
+                        img_qr.save(buffer, format="PNG")
+                        qr_bytes = buffer.getvalue()
+
+                        st.markdown("### 📱 Código QR Generado para la Factura")
+                        st.image(qr_bytes, width=250, caption=f"QR Factura N° {nro_factura}")
+
+                        st.download_button(
+                            label="📥 Descargar Imagen QR",
+                            data=qr_bytes,
+                            file_name=f"QR_Factura_{nro_factura}_{rif_prov}.png",
+                            mime="image/png"
+                        )
+
+                    except Exception as e:
+                        st.error(f"❌ Error al registrar en la base de datos: {e}")
+
+
 def gestionar_sidebar():
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
     user_id = st.session_state.get('user_id', st.session_state.get('cliente_id', 'N/A'))
@@ -7998,7 +8105,8 @@ if menu_lateral == "📊 Auditoría Contable":
             "👤 Proveedores",
             "👤 Clientes",
             "📦 Respaldos y Exportación", 
-            "📄 Auxiliar Cta por Pagar"
+            "📄 Auxiliar Cta por Pagar",
+            "📸 Códigos QR y Escaneo"
         ]
 
         if "PEDACITO" in str(nombre_sel).upper() and "CIELO" in str(nombre_sel).upper():
@@ -19211,3 +19319,28 @@ if opcion_menu == "📄 Auxiliar Cta por Pagar":
 
         else:
             st.info("ℹ️ No se encontraron movimientos en cuentas de pasivo para el rango de fechas seleccionado.")
+
+
+# Asegúrate de que este texto sea idéntico al de tu lista "modulos_disponibles"
+# ==============================================================================
+# 2. PUNTO DE ENTRADA EN EL MENÚ PRINCIPAL DE STREAMLIT
+# ==============================================================================
+if opcion_menu == "📸 Códigos QR y Escaneo":
+    db_actual = st.session_state.get('DB_ACTUAL')
+    
+    if not db_actual:
+        st.warning("⚠️ Por favor, selecciona una empresa activa para usar este módulo.")
+    else:
+        conn_qr = None
+        try:
+            conn_qr = conectar_db(db_actual)
+            # Llamamos a la función pasándole la conexión y la empresa actual
+            modulo_escaneo_facturas_qr(conn_qr, db_actual)
+        except Exception as e:
+            st.error(f"❌ Error al conectar a la base de datos: {e}")
+        finally:
+            if conn_qr and hasattr(conn_qr, 'close'):
+                try:
+                    conn_qr.close()
+                except:
+                    pass
