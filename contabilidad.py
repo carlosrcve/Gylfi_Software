@@ -7778,8 +7778,8 @@ def limpiar_moneda(valor):
 def modulo_escaneo_facturas_qr(conn, db_actual):
   st.subheader("📸 Registro Fiscal de Facturas y Generación QR")
   st.markdown(
-      "Sube la imagen de la factura. El sistema procesará automáticamente los"
-      " datos fiscales esenciales."
+      "Sube la imagen de la factura. El sistema extraerá los datos y te"
+      " mostrará el texto original para una verificación rápida."
   )
 
   # 1. Selector de archivos
@@ -7795,17 +7795,13 @@ def modulo_escaneo_facturas_qr(conn, db_actual):
   val_rif = ""
   val_nombre = ""
   val_domicilio = ""
-  val_fecha = date.today()  # Valor base si no se detecta
-  val_base = 0.00
-  val_iva = 0.00
-  val_exento = 0.00
+  texto_ocr = ""
 
   if archivo_subido is not None:
     img = Image.open(archivo_subido)
-    st.image(img, caption="Factura cargada", width=350)
 
     try:
-      # 2. Ejecución de OCR para cabecera fiscal
+      # 2. Ejecución de OCR completo
       texto_ocr = pytesseract.image_to_string(img)
       lineas = [l.strip() for l in texto_ocr.split("\n") if l.strip()]
 
@@ -7885,134 +7881,167 @@ def modulo_escaneo_facturas_qr(conn, db_actual):
             .strip()
         )
 
-      # F. Extracción precisa de la Fecha (Buscando ÚNICAMENTE en el encabezado superior para ignorar el pie de página)
-      texto_cabecera = "\n".join(
-          lineas[:12]
-      )  # Solo las primeras 12 líneas de la factura
-      match_fec = re.search(
-          r"(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})", texto_cabecera
-      )
-      if match_fec:
-        try:
-          d = int(match_fec.group(1))
-          m = int(match_fec.group(2))
-          y = int(match_fec.group(3))
-          if y < 100:
-            y += 2000
-          # Filtramos para que acepte años lógicos de operación actuales
-          if 2024 <= y <= 2030:
-            val_fecha = date(y, m, d)
-        except:
-          pass
-
-      st.success("✅ Datos de cabecera procesados con éxito.")
+      st.success("✅ Cabecera fiscal procesada con éxito.")
 
     except Exception as e:
-      st.warning(
-          f"⚠️ Nota de OCR: {e}. Verifique y complete los datos manualmente."
+      st.warning(f"⚠️ Nota de OCR: {e}")
+
+    # 💡 DISEÑO EN DOS COLUMNAS: Izquierda (Imagen y Texto OCR visible para guiarte) | Derecha (Formulario)
+    col_izq, col_der = st.columns([1, 1.2])
+
+    with col_izq:
+      st.image(img, caption="Factura Original", use_container_width=True)
+      st.markdown("#### 🔍 Texto Bruto del OCR (Referencia)")
+      # Mostramos el texto completo fijo para que puedas ver qué leyó el sistema y copiar montos/fechas exactas
+      st.code(
+          texto_ocr if texto_ocr else "Sin texto detectado", language="text"
       )
 
-    # 3. Formulario fiscal simplificado
-    st.markdown("### 📝 Verificación de Datos Fiscales y Montos")
-    with st.form("form_datos_factura_qr"):
-      col1, col2 = st.columns(2)
-      with col1:
+    with col_der:
+      st.markdown("### 📝 Verificación y Carga Ágil")
+      with st.form("form_datos_factura_qr"):
         nro_factura = st.text_input("Número de Factura", value=val_factura)
         nro_control = st.text_input("Número de Control", value=val_control)
         rif_prov = st.text_input("RIF del Proveedor", value=val_rif)
         nombre_prov = st.text_input("Nombre del Proveedor", value=val_nombre)
-      with col2:
-        # Aquí puedes ajustar la fecha manualmente si el sello o manuscrito es distinto
-        fecha_fac = st.date_input("Fecha de la Factura", value=val_fecha)
-        base_imp = st.number_input(
-            "Base Imponible Bs.", min_value=0.00, value=val_base, format="%.2f"
+
+        # Campos abiertos para ingresar los datos reales que ves en la imagen
+        fecha_str = st.text_input(
+            "Fecha de la Factura (DD/MM/AAAA o AAAA-MM-DD)",
+            value="",
+            placeholder="Ej: 24/10/2026",
         )
-        monto_iva = st.number_input(
-            "IVA (16%) Bs.",
-            min_value=0.00,
-            value=round(base_imp * 0.16, 2),
-            format="%.2f",
+        base_imp_str = st.text_input(
+            "Base Imponible Bs.", value="", placeholder="Ej: 596070.85"
         )
-        monto_ex = st.number_input(
-            "Monto Exento Bs.", min_value=0.00, value=val_exento, format="%.2f"
+        monto_iva_str = st.text_input(
+            "IVA (16%) Bs.", value="", placeholder="Ej: 95371.34"
         )
+        monto_ex_str = st.text_input("Monto Exento Bs.", value="0.00")
 
-      domicilio = st.text_area("Domicilio Fiscal", value=val_domicilio)
+        domicilio = st.text_area("Domicilio Fiscal", value=val_domicilio)
 
-      monto_total = base_imp + monto_iva + monto_ex
-      st.info(f"💰 **Monto Total Calculado:** {monto_total:,.2f} Bs.")
-
-      submitted = st.form_submit_button(
-          "💾 Guardar y Generar Código QR", type="primary"
-      )
-
-      if submitted:
-        if not nro_factura or not nombre_prov or not rif_prov:
-          st.error(
-              "⚠️ Complete los campos obligatorios (Nro Factura, Proveedor y"
-              " RIF)."
-          )
-        elif not conn:
-          st.error("⚠️ Sin conexión a la base de datos.")
-        else:
-          try:
-            with conn.cursor() as cursor:
-              sql = """
-                                INSERT INTO facturas_escaneadas 
-                                (rif_proveedor, nombre_proveedor, domicilio_fiscal, nro_factura, nro_control, fecha_factura, base_imponible, iva, monto_exento, monto_total)
-                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                            """
-              cursor.execute(
-                  sql,
-                  (
-                      rif_prov,
-                      nombre_prov,
-                      domicilio,
-                      nro_factura,
-                      nro_control,
-                      fecha_fac,
-                      base_imp,
-                      monto_iva,
-                      monto_ex,
-                      monto_total,
-                  ),
+        # Conversión matemática en tiempo real para mostrar el total estimado
+        try:
+          val_b = (
+              float(
+                  re.sub(r"[^0-9.]", "", base_imp_str.replace(",", "."))
               )
-              conn.commit()
+              if base_imp_str
+              else 0.00
+          )
+        except:
+          val_b = 0.00
 
-            st.success("¡Factura registrada en MySQL correctamente!")
+        try:
+          val_i = (
+              float(re.sub(r"[^0-9.]", "", monto_iva_str.replace(",", ".")))
+              if monto_iva_str
+              else round(val_b * 0.16, 2)
+          )
+        except:
+          val_i = round(val_b * 0.16, 2)
 
-            info_qr = (
-                f"FACTURA FISCAL / AUDITORÍA\n"
-                f"Factura: {nro_factura} | Control: {nro_control}\n"
-                f"Fecha: {fecha_fac.strftime('%d/%m/%Y')}\n"
-                f"Proveedor: {nombre_prov} ({rif_prov})\n"
-                (
-                    f"Base: {base_imp:,.2f} | IVA: {monto_iva:,.2f} | Total:"
-                    f" {monto_total:,.2f}"
+        try:
+          val_e = (
+              float(
+                  re.sub(r"[^0-9.]", "", monto_ex_str.replace(",", "."))
+              )
+              if monto_ex_str
+              else 0.00
+          )
+        except:
+          val_e = 0.00
+
+        monto_total = val_b + val_i + val_e
+        st.info(f"💰 **Monto Total Calculado:** {monto_total:,.2f} Bs.")
+
+        submitted = st.form_submit_button(
+            "💾 Guardar y Generar Código QR", type="primary"
+        )
+
+        if submitted:
+          if not nro_factura or not nombre_prov or not rif_prov or not fecha_str:
+            st.error(
+                "⚠️ Complete los campos obligatorios (Factura, RIF, Proveedor y"
+                " Fecha)."
+            )
+          elif not conn:
+            st.error("⚠️ Sin conexión a la base de datos.")
+          else:
+            try:
+              # Parseo flexible de la fecha ingresada por texto
+              fecha_str_clean = fecha_str.strip()
+              if "/" in fecha_str_clean:
+                fecha_fac_final = datetime.strptime(
+                    fecha_str_clean, "%d/%m/%Y"
+                ).date()
+              else:
+                fecha_fac_final = datetime.strptime(
+                    fecha_str_clean, "%Y-%m-%d"
+                ).date()
+
+              with conn.cursor() as cursor:
+                sql = """
+                                    INSERT INTO facturas_escaneadas 
+                                    (rif_proveedor, nombre_proveedor, domicilio_fiscal, nro_factura, nro_control, fecha_factura, base_imponible, iva, monto_exento, monto_total)
+                                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                """
+                cursor.execute(
+                    sql,
+                    (
+                        rif_prov,
+                        nombre_prov,
+                        domicilio,
+                        nro_factura,
+                        nro_control,
+                        fecha_fac_final,
+                        val_b,
+                        val_i,
+                        val_e,
+                        monto_total,
+                    ),
                 )
-            )
+                conn.commit()
 
-            qr = qrcode.QRCode(version=1, box_size=10, border=4)
-            qr.add_data(info_qr)
-            qr.make(fit=True)
+              st.success("¡Factura registrada en MySQL correctamente!")
 
-            img_qr = qr.make_image(fill_color="black", back_color="white")
-            buffer = BytesIO()
-            img_qr.save(buffer, format="PNG")
-            qr_bytes = buffer.getvalue()
+              # Generación del QR fiscal
+              info_qr = (
+                  f"FACTURA FISCAL / AUDITORÍA\n"
+                  f"Factura: {nro_factura} | Control: {nro_control}\n"
+                  f"Fecha: {fecha_fac_final.strftime('%d/%m/%Y')}\n"
+                  f"Proveedor: {nombre_prov} ({rif_prov})\n"
+                  (
+                      f"Base: {val_b:,.2f} | IVA: {val_i:,.2f} | Total:"
+                      f" {monto_total:,.2f}"
+                  )
+              )
 
-            st.markdown("### 📱 Código QR Fiscal Generado")
-            st.image(qr_bytes, width=220)
+              qr = qrcode.QRCode(version=1, box_size=10, border=4)
+              qr.add_data(info_qr)
+              qr.make(fit=True)
 
-            st.download_button(
-                label="📥 Descargar QR",
-                data=qr_bytes,
-                file_name=f"QR_Factura_{nro_factura}.png",
-                mime="image/png",
-            )
+              img_qr = qr.make_image(fill_color="black", back_color="white")
+              buffer = BytesIO()
+              img_qr.save(buffer, format="PNG")
+              qr_bytes = buffer.getvalue()
 
-          except Exception as e:
-            st.error(f"❌ Error al guardar: {e}")
+              st.markdown("### 📱 Código QR Fiscal Generado")
+              st.image(qr_bytes, width=220)
+
+              st.download_button(
+                  label="📥 Descargar QR",
+                  data=qr_bytes,
+                  file_name=f"QR_Factura_{nro_factura}.png",
+                  mime="image/png",
+              )
+
+            except Exception as e:
+              st.error(
+                  f"❌ Error al guardar (verifique el formato de fecha"
+                  f" DD/MM/AAAA y los números): {e}"
+              )
 
 def gestionar_sidebar():
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
