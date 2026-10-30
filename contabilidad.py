@@ -7808,10 +7808,8 @@ def modulo_escaneo_facturas_qr(conn, db_actual):
         try:
             # 2. Ejecutar OCR con respaldo automático si falta el idioma español
             try:
-                texto_ocr = pytesseract.image_to_string(img, lang='spa')
-            except Exception:
-                # Si falla por falta del paquete de idioma, usa el idioma por defecto del servidor
-                texto_ocr = pytesseract.image_to_string(img)
+            # 2. Ejecutar OCR con el idioma por defecto del servidor (evita el error de archivos faltantes)
+            texto_ocr = pytesseract.image_to_string(img)
             
             # 3. Extracción inteligente mediante Expresiones Regulares (Regex) para Venezuela
             # Buscar RIF (Ej: V-05688194-2 o J-12345678-9)
@@ -7833,7 +7831,6 @@ def modulo_escaneo_facturas_qr(conn, db_actual):
 
         except Exception as e:
             st.warning(f"⚠️ Nota de OCR: No se pudo escanear automáticamente ({e}), pero puedes completar los datos manualmente.")
-
         # 4. Formulario con los campos precargados por el OCR
         st.markdown("### 📝 Verificación y Datos Fiscales de la Factura")
         with st.form("form_datos_factura_qr"):
