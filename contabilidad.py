@@ -7776,153 +7776,233 @@ def limpiar_moneda(valor):
 
 
 
+from datetime import date
+import re
+from io import BytesIO
+from PIL import Image
+import pytesseract
+import qrcode
+import streamlit as st
+
+
 def modulo_escaneo_facturas_qr(conn, db_actual):
-    st.subheader("📸 Registro Fiscal de Facturas y Generación QR")
-    st.markdown("Sube la imagen de la factura. El sistema procesará automáticamente los datos fiscales esenciales.")
+  st.subheader("📸 Registro Fiscal de Facturas y Generación QR")
+  st.markdown(
+      "Sube la imagen de la factura. El sistema procesará automáticamente los"
+      " datos fiscales esenciales."
+  )
 
-    # 1. Selector de archivos
-    archivo_subido = st.file_uploader(
-        "Seleccionar o arrastrar la imagen de la factura", 
-        type=["png", "jpg", "jpeg"],
-        help="Sube una foto clara de la factura."
-    )
+  # 1. Selector de archivos
+  archivo_subido = st.file_uploader(
+      "Seleccionar o arrastrar la imagen de la factura",
+      type=["png", "jpg", "jpeg"],
+      help="Sube una foto clara de la factura.",
+  )
 
-    # Variables predeterminadas
-    val_factura = ""
-    val_control = ""
-    val_rif = ""
-    val_nombre = ""
-    val_domicilio = ""
-    val_base = 0.00
-    val_iva = 0.00
-    val_exento = 0.00
+  # Variables predeterminadas
+  val_factura = ""
+  val_control = ""
+  val_rif = ""
+  val_nombre = ""
+  val_domicilio = ""
+  val_fecha = date.today()
+  val_base = 0.00
+  val_iva = 0.00
+  val_exento = 0.00
 
-    if archivo_subido is not None:
-        img = Image.open(archivo_subido)
-        st.image(img, caption="Factura cargada", width=350)
-        
-        try:
-            # 2. Ejecución de OCR para cabecera fiscal
-            texto_ocr = pytesseract.image_to_string(img)
-            lineas = [l.strip() for l in texto_ocr.split('\n') if l.strip()]
+  if archivo_subido is not None:
+    img = Image.open(archivo_subido)
+    st.image(img, caption="Factura cargada", width=350)
 
-            # A. Nombre del Proveedor
-            for l in lineas:
-                l_upper = l.upper()
-                if not any(k in l_upper for k in ["RIF", "FACTURA", "TLF", "CALLE", "AV.", "ZONA", "N°", "CONTROL", "LUGAR", "V-", "J-"]):
-                    val_nombre = l
-                    break
-            if not val_nombre and len(lineas) > 0:
-                val_nombre = lineas[0]
+    try:
+      # 2. Ejecución de OCR para cabecera fiscal
+      texto_ocr = pytesseract.image_to_string(img)
+      lineas = [l.strip() for l in texto_ocr.split("\n") if l.strip()]
 
-            # B. Domicilio Fiscal
-            domicilio_lines = []
-            capturar = False
-            for l in lineas:
-                if l == val_nombre:
-                    capturar = True
-                    continue
-                if capturar:
-                    l_upper = l.upper()
-                    if "RIF:" in l_upper or "FACTURA" in l_upper or "CONTROL" in l_upper or "CANT." in l_upper:
-                        break
-                    domicilio_lines.append(l)
-                    if "ZONA POSTAL" in l_upper or "TLF" in l_upper or "CAPITAL" in l_upper:
-                        break
-            if domicilio_lines:
-                val_domicilio = ", ".join(domicilio_lines)
+      # A. Nombre del Proveedor
+      for l in lineas:
+        l_upper = l.upper()
+        if not any(
+            k in l_upper
+            for k in [
+                "RIF",
+                "FACTURA",
+                "TLF",
+                "CALLE",
+                "AV.",
+                "ZONA",
+                "N°",
+                "CONTROL",
+                "LUGAR",
+                "V-",
+                "J-",
+            ]
+        ):
+          val_nombre = l
+          break
+      if not val_nombre and len(lineas) > 0:
+        val_nombre = lineas[0]
 
-            # C. RIF del Proveedor
-            match_rif = re.search(r'([VJGED]\s*[-]?\s*\d{7,9}\s*[-]?\s*\d)', texto_ocr, re.IGNORECASE)
-            if match_rif:
-                val_rif = re.sub(r'\s+', '', match_rif.group(1)).upper()
+      # B. Domicilio Fiscal
+      domicilio_lines = []
+      capturar = False
+      for l in lineas:
+        if l == val_nombre:
+          capturar = True
+          continue
+        if capturar:
+          l_upper = l.upper()
+          if (
+              "RIF:" in l_upper
+              or "FACTURA" in l_upper
+              or "CONTROL" in l_upper
+              or "CANT." in l_upper
+          ):
+            break
+          domicilio_lines.append(l)
+          if (
+              "ZONA POSTAL" in l_upper
+              or "TLF" in l_upper
+              or "CAPITAL" in l_upper
+          ):
+            break
+      if domicilio_lines:
+        val_domicilio = ", ".join(domicilio_lines)
 
-            # D. Número de Factura
-            match_factura = re.search(r'FACTURA.*?N[°º]?\s*([0-9]{4,8})', texto_ocr, re.IGNORECASE)
-            if match_factura:
-                val_factura = match_factura.group(1)
+      # C. RIF del Proveedor
+      match_rif = re.search(
+          r"([VJGED]\s*[-]?\s*\d{7,9}\s*[-]?\s*\d)", texto_ocr, re.IGNORECASE
+      )
+      if match_rif:
+        val_rif = re.sub(r"\s+", "", match_rif.group(1)).upper()
 
-            # E. Número de Control
-            match_control = re.search(r'CONTROL.*?([0-9O\-]{5,12})', texto_ocr, re.IGNORECASE)
-            if match_control:
-                val_control = match_control.group(1).replace('O', '0').replace('o', '0').strip()
+      # D. Número de Factura
+      match_factura = re.search(
+          r"FACTURA.*?N[°º]?\s*([0-9]{4,8})", texto_ocr, re.IGNORECASE
+      )
+      if match_factura:
+        val_factura = match_factura.group(1)
 
-            st.success("✅ Datos fiscales extraídos con éxito.")
+      # E. Número de Control
+      match_control = re.search(
+          r"CONTROL.*?([0-9O\-]{5,12})", texto_ocr, re.IGNORECASE
+      )
+      if match_control:
+        val_control = (
+            match_control.group(1)
+            .replace("O", "0")
+            .replace("o", "0")
+            .strip()
+        )
 
-        except Exception as e:
-            st.warning(f"⚠️ Nota de OCR: {e}. Complete los datos si es necesario.")
+      st.success("✅ Datos fiscales extraídos con éxito.")
 
-        # 3. Formulario fiscal simplificado
-        st.markdown("### 📝 Verificación de Datos Fiscales y Montos")
-        with st.form("form_datos_factura_qr"):
-            col1, col2 = st.columns(2)
-            with col1:
-                nro_factura = st.text_input("Número de Factura", value=val_factura)
-                nro_control = st.text_input("Número de Control", value=val_control)
-                rif_prov = st.text_input("RIF del Proveedor", value=val_rif)
-                nombre_prov = st.text_input("Nombre del Proveedor", value=val_nombre)
-            with col2:
-                base_imp = st.number_input("Base Imponible Bs.", min_value=0.00, value=val_base, format="%.2f")
-                monto_iva = st.number_input("IVA (16%) Bs.", min_value=0.00, value=round(base_imp * 0.16, 2), format="%.2f")
-                monto_ex = st.number_input("Monto Exento Bs.", min_value=0.00, value=val_exento, format="%.2f")
-                
-            domicilio = st.text_area("Domicilio Fiscal", value=val_domicilio)
-            
-            monto_total = base_imp + monto_iva + monto_ex
-            st.info(f"💰 **Monto Total Calculado:** {monto_total:,.2f} Bs.")
+    except Exception as e:
+      st.warning(
+          f"⚠️ Nota de OCR: {e}. Verifique y complete los datos manualmente."
+      )
 
-            submitted = st.form_submit_button("💾 Guardar y Generar Código QR", type="primary")
+    # 3. Formulario fiscal simplificado con Fecha
+    st.markdown("### 📝 Verificación de Datos Fiscales y Montos")
+    with st.form("form_datos_factura_qr"):
+      col1, col2 = st.columns(2)
+      with col1:
+        nro_factura = st.text_input("Número de Factura", value=val_factura)
+        nro_control = st.text_input("Número de Control", value=val_control)
+        rif_prov = st.text_input("RIF del Proveedor", value=val_rif)
+        nombre_prov = st.text_input("Nombre del Proveedor", value=val_nombre)
+      with col2:
+        fecha_fac = st.date_input("Fecha de la Factura", value=val_fecha)
+        base_imp = st.number_input(
+            "Base Imponible Bs.", min_value=0.00, value=val_base, format="%.2f"
+        )
+        monto_iva = st.number_input(
+            "IVA (16%) Bs.",
+            min_value=0.00,
+            value=round(base_imp * 0.16, 2),
+            format="%.2f",
+        )
+        monto_ex = st.number_input(
+            "Monto Exento Bs.", min_value=0.00, value=val_exento, format="%.2f"
+        )
 
-            if submitted:
-                if not nro_factura or not nombre_prov or not rif_prov:
-                    st.error("⚠️ Complete los campos obligatorios (Nro Factura, Proveedor y RIF).")
-                elif not conn:
-                    st.error("⚠️ Sin conexión a la base de datos.")
-                else:
-                    try:
-                        with conn.cursor() as cursor:
-                            sql = """
+      domicilio = st.text_area("Domicilio Fiscal", value=val_domicilio)
+
+      monto_total = base_imp + monto_iva + monto_ex
+      st.info(f"💰 **Monto Total Calculado:** {monto_total:,.2f} Bs.")
+
+      submitted = st.form_submit_button(
+          "💾 Guardar y Generar Código QR", type="primary"
+      )
+
+      if submitted:
+        if not nro_factura or not nombre_prov or not rif_prov:
+          st.error(
+              "⚠️ Complete los campos obligatorios (Nro Factura, Proveedor y"
+              " RIF)."
+          )
+        elif not conn:
+          st.error("⚠️ Sin conexión a la base de datos.")
+        else:
+          try:
+            with conn.cursor() as cursor:
+              sql = """
                                 INSERT INTO facturas_escaneadas 
-                                (rif_proveedor, nombre_proveedor, domicilio_fiscal, nro_factura, nro_control, base_imponible, iva, monto_exento, monto_total)
-                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                (rif_proveedor, nombre_proveedor, domicilio_fiscal, nro_factura, nro_control, fecha_factura, base_imponible, iva, monto_exento, monto_total)
+                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                             """
-                            cursor.execute(sql, (
-                                rif_prov, nombre_prov, domicilio, nro_factura, nro_control, 
-                                base_imp, monto_iva, monto_ex, monto_total
-                            ))
-                            conn.commit()
+              cursor.execute(
+                  sql,
+                  (
+                      rif_prov,
+                      nombre_prov,
+                      domicilio,
+                      nro_factura,
+                      nro_control,
+                      fecha_fac,
+                      base_imp,
+                      monto_iva,
+                      monto_ex,
+                      monto_total,
+                  ),
+              )
+              conn.commit()
 
-                        st.success("¡Factura registrada en MySQL correctamente!")
+            st.success("¡Factura registrada en MySQL correctamente!")
 
-                        # Generación del QR puramente fiscal
-                        info_qr = (
-                            f"FACTURA FISCAL / AUDITORÍA\n"
-                            f"Factura: {nro_factura} | Control: {nro_control}\n"
-                            f"Proveedor: {nombre_prov} ({rif_prov})\n"
-                            f"Base: {base_imp:,.2f} | IVA: {monto_iva:,.2f} | Total: {monto_total:,.2f}"
-                        )
+            # Generación del QR fiscal incluyendo la fecha
+            info_qr = (
+                f"FACTURA FISCAL / AUDITORÍA\n"
+                f"Factura: {nro_factura} | Control: {nro_control}\n"
+                f"Fecha: {fecha_fac.strftime('%d/%m/%Y')}\n"
+                f"Proveedor: {nombre_prov} ({rif_prov})\n"
+                (
+                    f"Base: {base_imp:,.2f} | IVA: {monto_iva:,.2f} | Total:"
+                    f" {monto_total:,.2f}"
+                )
+            )
 
-                        qr = qrcode.QRCode(version=1, box_size=10, border=4)
-                        qr.add_data(info_qr)
-                        qr.make(fit=True)
+            qr = qrcode.QRCode(version=1, box_size=10, border=4)
+            qr.add_data(info_qr)
+            qr.make(fit=True)
 
-                        img_qr = qr.make_image(fill_color="black", back_color="white")
-                        buffer = BytesIO()
-                        img_qr.save(buffer, format="PNG")
-                        qr_bytes = buffer.getvalue()
+            img_qr = qr.make_image(fill_color="black", back_color="white")
+            buffer = BytesIO()
+            img_qr.save(buffer, format="PNG")
+            qr_bytes = buffer.getvalue()
 
-                        st.markdown("### 📱 Código QR Fiscal Generado")
-                        st.image(qr_bytes, width=220)
+            st.markdown("### 📱 Código QR Fiscal Generado")
+            st.image(qr_bytes, width=220)
 
-                        st.download_button(
-                            label="📥 Descargar QR",
-                            data=qr_bytes,
-                            file_name=f"QR_Factura_{nro_factura}.png",
-                            mime="image/png"
-                        )
+            st.download_button(
+                label="📥 Descargar QR",
+                data=qr_bytes,
+                file_name=f"QR_Factura_{nro_factura}.png",
+                mime="image/png",
+            )
 
-                    except Exception as e:
-                        st.error(f"❌ Error al guardar: {e}")
+          except Exception as e:
+            st.error(f"❌ Error al guardar: {e}")
 
 def gestionar_sidebar():
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
