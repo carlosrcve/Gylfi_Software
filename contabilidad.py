@@ -7776,6 +7776,13 @@ def limpiar_moneda(valor):
 
 
 
+import re
+import pytesseract
+from PIL import Image
+from io import BytesIO
+import streamlit as st
+import qrcode
+
 def modulo_escaneo_facturas_qr(conn, db_actual):
     st.subheader("📸 Estación de Carga, OCR y Generación QR de Facturas")
     st.markdown("Sube la fotografía nítida de la factura. El sistema extraerá automáticamente los datos fiscales mediante OCR para que solo debas verificarlos.")
@@ -7812,13 +7819,24 @@ def modulo_escaneo_facturas_qr(conn, db_actual):
                 st.text(texto_ocr)
             
             # 3. Extracción flexible de datos fiscales
-            
-            # A. Buscar RIF (ej: V-95608104-2 o J-12345678-9)
+            lineas = [l.strip() for l in texto_ocr.split('\n') if l.strip()]
+
+            # A. El nombre del proveedor suele estar en la primera línea del membrete (ej: Jorge E. González Silva)
+            if len(lineas) > 0:
+                val_nombre = lineas[0]
+
+            # B. El domicilio fiscal suele encontrarse en las líneas siguientes al nombre
+            if len(lineas) > 1:
+                val_domicilio = f"{lineas[1]}"
+                if len(lineas) > 2 and ("Caracas" in lineas[2] or "Urb" in lineas[2] or "Piso" in lineas[2]):
+                    val_domicilio += f", {lineas[2]}"
+
+            # C. Buscar RIF (ej: V-95608104-2 o J-12345678-9)
             match_rif = re.search(r'([VJGED]\s*[-]?\s*\d{7,9}\s*[-]?\s*\d)', texto_ocr, re.IGNORECASE)
             if match_rif:
                 val_rif = re.sub(r'\s+', '', match_rif.group(1)).upper()
 
-            # B. Búsqueda por etiquetas clave
+            # D. Búsqueda por etiquetas clave para Factura y Control
             if "FACTURA" in texto_ocr.upper():
                 partes = texto_ocr.upper().split("FACTURA")
                 if len(partes) > 1:
@@ -7838,7 +7856,7 @@ def modulo_escaneo_facturas_qr(conn, db_actual):
         except Exception as e:
             st.warning(f"⚠️ Nota de OCR: No se pudo escanear automáticamente ({e}), pero puedes completar los datos manualmente.")
 
-        # 4. Formulario con los campos limpios y listos para cualquier cliente
+        # 4. Formulario con los campos precargados
         st.markdown("### 📝 Verificación y Datos Fiscales de la Factura")
         with st.form("form_datos_factura_qr"):
             col1, col2 = st.columns(2)
