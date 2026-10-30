@@ -7818,25 +7818,25 @@ def modulo_escaneo_facturas_qr(conn, db_actual):
             with st.expander("🔍 Ver texto bruto extraído por OCR (Depuración)"):
                 st.text(texto_ocr)
             
-            # 3. Extracción flexible de datos fiscales
+            # 3. Extracción flexible de datos fiscales y montos
             lineas = [l.strip() for l in texto_ocr.split('\n') if l.strip()]
 
-            # A. El nombre del proveedor suele estar en la primera línea del membrete (ej: Jorge E. González Silva)
+            # A. Nombre del proveedor (primera línea del membrete)
             if len(lineas) > 0:
                 val_nombre = lineas[0]
 
-            # B. El domicilio fiscal suele encontrarse en las líneas siguientes al nombre
+            # B. Domicilio fiscal
             if len(lineas) > 1:
                 val_domicilio = f"{lineas[1]}"
                 if len(lineas) > 2 and ("Caracas" in lineas[2] or "Urb" in lineas[2] or "Piso" in lineas[2]):
                     val_domicilio += f", {lineas[2]}"
 
-            # C. Buscar RIF (ej: V-95608104-2 o J-12345678-9)
+            # C. Buscar RIF
             match_rif = re.search(r'([VJGED]\s*[-]?\s*\d{7,9}\s*[-]?\s*\d)', texto_ocr, re.IGNORECASE)
             if match_rif:
                 val_rif = re.sub(r'\s+', '', match_rif.group(1)).upper()
 
-            # D. Búsqueda por etiquetas clave para Factura y Control
+            # D. Número de Factura y Control
             if "FACTURA" in texto_ocr.upper():
                 partes = texto_ocr.upper().split("FACTURA")
                 if len(partes) > 1:
@@ -7850,6 +7850,27 @@ def modulo_escaneo_facturas_qr(conn, db_actual):
                     num_ctrl_match = re.search(r'[0-9O\-]{5,10}', partes_ctrl[1])
                     if num_ctrl_match:
                         val_control = num_ctrl_match.group(0).replace('O', '0').replace('o', '0').strip()
+
+            # E. Detección automática de montos (Sub-total / Base Imponible e IVA)
+            # Buscamos todas las cifras con formato de decimales (ej: 542,40 o 86.78 o con puntos/comas)
+            montos_encontrados = re.findall(r'\b\d{1,3}(?:[.,]\d{3})*[.,]\d{2}\b', texto_ocr)
+            if montos_encontrados:
+                # Por lo general, los últimos montos de la factura corresponden a Sub-total (Base), IVA y Total
+                limpiar_monto = lambda m: float(m.replace('.', '').replace(',', '.')) if ',' in m or '.' in m else float(m)
+                
+                try:
+                    if len(montos_encontrados) >= 2:
+                        # El penúltimo suele ser el IVA o Subtotal, ajustemos de forma inteligente:
+                        # Tomamos el valor más alto como base imponible si hay varios
+                        valores_flotantes = [float(m.replace('.', '').replace(',', '.')) for m in montos_encontrados[-4:]]
+                        if valores_flotantes:
+                            # Ordenamos para ubicar lógicamente la Base Imponible y el IVA
+                            valores_flotantes = sorted(list(set(valores_flotantes)))
+                            if len(valores_flotantes) >= 2:
+                                val_base = valores_flotantes[-2] # El segundo más alto suele ser la base
+                                val_iva = round(val_base * 0.16, 2) # O el cálculo del 16% estándar
+                except:
+                    pass
 
             st.success("🔍 ¡Análisis completado! Revisa los campos detectados abajo.")
 
