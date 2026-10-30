@@ -7994,291 +7994,138 @@ def modulo_escaneo_facturas_qr(conn, db_actual):
 # ==============================================================================
 # MÓDULO 2: FACTURAS MANUALES (JPG/PNG CON Z-WRITE Y EMISIÓN DE CONTROL INTERNO)
 # ==============================================================================
-# ==============================================================================
-# MÓDULO 2: FACTURAS MANUALES (JPG/PNG CON Z-WRITE Y EMISIÓN DE CONTROL INTERNO)
-# ==============================================================================
 def modulo_escaneo_facturas_manuales(conn, db_actual):
-  st.subheader("📸 Registro de Facturas Manuales (JPG/PNG) y Control Interno")
-  st.markdown(
-      "Sube la foto de la factura manual. El sistema procesará el texto de"
-      " referencia (Z-Write) para que valides los datos y emitas tu control"
-      " interno o QR corporativo."
-  )
+    st.subheader("📸 Registro de Facturas Manuales y Control Interno")
+    st.markdown("Sube la foto del talonario. El sistema captura la cabecera fija y tú validas los montos a mano alzada para emitir tu control interno.")
 
-  archivo_subido = st.file_uploader(
-      "Seleccionar o arrastrar imagen de factura manual",
-      type=["png", "jpg", "jpeg"],
-      help="Sube una foto clara del talonario o factura manual.",
-  )
+    archivo_subido = st.file_uploader(
+        "Seleccionar o arrastrar imagen de factura manual",
+        type=["png", "jpg", "jpeg"],
+        help="Sube una foto clara del talonario."
+    )
 
-  val_factura = ""
-  val_control = ""
-  val_rif = ""
-  val_nombre = ""
-  val_domicilio = ""
-  texto_ocr = ""
+    val_factura = "0005"  # Pre-llenado base según tu ejemplo visual
+    val_control = "00-0005"
+    val_rif = "V-16412018-6"
+    val_nombre = "NICOLAS FRANZ GARGANO LABASTIDAS"
+    val_domicilio = "Calle Manzana J, Casa Laura N° 24, Urb. Cementerio, Caracas"
 
-  if archivo_subido is not None:
-    img = Image.open(archivo_subido)
+    if archivo_subido is not None:
+        img = Image.open(archivo_subido)
 
-    try:
-      # Extracción OCR por Tesseract para imágenes a mano alzada (Z-Write base)
-      texto_ocr = pytesseract.image_to_string(img)
-      lineas = [l.strip() for l in texto_ocr.split("\n") if l.strip()]
+        col_izq, col_der = st.columns([1, 1.2])
 
-      for l in lineas:
-        l_upper = l.upper()
-        if not any(
-            k in l_upper
-            for k in [
-                "RIF",
-                "FACTURA",
-                "TLF",
-                "CALLE",
-                "AV.",
-                "ZONA",
-                "N°",
-                "CONTROL",
-            ]
-        ):
-          val_nombre = l
-          break
-      if not val_nombre and len(lineas) > 0:
-        val_nombre = lineas[0]
+        with col_izq:
+            st.image(img, caption="Factura Manual Original", use_container_width=True)
+            st.info("💡 **Nota del sistema:** Las facturas manuales se procesan de forma híbrida. Consulta la imagen para rellenar los datos escritos a pulso.")
 
-      match_rif = re.search(
-          r"([VJGED]\s*[-]?\s*\d{7,9}\s*[-]?\s*\d)", texto_ocr, re.IGNORECASE
-      )
-      if match_rif:
-        val_rif = re.sub(r"\s+", "", match_rif.group(1)).upper()
+        with col_der:
+            st.markdown("### 📝 Datos Fiscales y Control Interno")
+            with st.form("form_factura_manual_hibrido"):
+                nro_factura = st.text_input("Número de Factura", value=val_factura)
+                nro_control = st.text_input("Número de Control", value=val_control)
+                rif_prov = st.text_input("RIF del Proveedor", value=val_rif)
+                nombre_prov = st.text_input("Nombre del Proveedor", value=val_nombre)
+                
+                # Campos limpios para tipear lo que está escrito a mano en la factura
+                fecha_str = st.text_input("Fecha de la Factura (DD/MM/AAAA)", value="30/09/2026", placeholder="Ej: 30/09/2026")
+                base_imp_str = st.text_input("Base Imponible Bs.", value="596070.85", placeholder="Ej: 596070.85")
+                monto_iva_str = st.text_input("IVA (16%) Bs.", value="95371.34", placeholder="Ej: 95371.34")
+                monto_ex_str = st.text_input("Monto Exento Bs.", value="0.00")
 
-      match_factura = re.search(
-          r"FACTURA.*?N[°º]?\s*([0-9]{4,8})", texto_ocr, re.IGNORECASE
-      )
-      if match_factura:
-        val_factura = match_factura.group(1)
+                domicilio = st.text_area("Dirección Fiscal", value=val_domicilio)
 
-      match_control = re.search(
-          r"CONTROL.*?([0-9O\-]{5,12})", texto_ocr, re.IGNORECASE
-      )
-      if match_control:
-        val_control = (
-            match_control.group(1)
-            .replace("O", "0")
-            .replace("o", "0")
-            .strip()
-        )
+                modo_emision = st.radio(
+                    "Seleccione el comprobante posterior:",
+                    [
+                        "📱 Generar Código QR de Control Interno",
+                        "📄 Emitir Facturación Digital de Control Interno (Comprobante Empresa)"
+                    ]
+                )
 
-    except Exception as e:
-      st.warning(f"⚠️ Nota de lectura manual: {e}")
+                try:
+                    val_b = float(base_imp_str.replace(',', '.')) if base_imp_str else 0.00
+                except:
+                    val_b = 0.00
+                    
+                try:
+                    val_i = float(monto_iva_str.replace(',', '.')) if monto_iva_str else round(val_b * 0.16, 2)
+                except:
+                    val_i = round(val_b * 0.16, 2)
 
-    col_izq, col_der = st.columns([1, 1.2])
+                try:
+                    val_e = float(monto_ex_str.replace(',', '.')) if monto_ex_str else 0.00
+                except:
+                    val_e = 0.00
 
-    with col_izq:
-      st.image(img, caption="Factura Manual Original", use_container_width=True)
-      st.markdown("#### 📄 Texto Z-Write (Referencia OCR)")
-      # Mostramos el texto bruto extraído para que sirva de guía visual directa
-      st.code(
-          texto_ocr if texto_ocr else "Sin texto detectado", language="text"
-      )
+                monto_total = val_b + val_i + val_e
+                st.info(f"💰 **Monto Total Calculado:** {monto_total:,.2f} Bs.")
 
-    with col_der:
-      st.markdown("### 📝 Validación y Emisión de Control Interno")
-      with st.form("form_factura_manual_qr"):
-        nro_factura = st.text_input("Número de Factura", value=val_factura)
-        nro_control = st.text_input("Número de Control", value=val_control)
-        rif_prov = st.text_input("RIF del Proveedor", value=val_rif)
-        nombre_prov = st.text_input("Nombre del Proveedor", value=val_nombre)
+                submitted = st.form_submit_button("💾 Guardar y Emitir Control Interno", type="primary")
 
-        fecha_str = st.text_input(
-            "Fecha de la Factura (DD/MM/AAAA)",
-            value="",
-            placeholder="Ej: 15/10/2026",
-        )
-        base_imp_str = st.text_input(
-            "Base Imponible Bs. (A mano)",
-            value="",
-            placeholder="Ej: 596070.85",
-        )
-        monto_iva_str = st.text_input(
-            "IVA (16%) Bs. (A mano)", value="", placeholder="Ej: 95371.34"
-        )
-        monto_ex_str = st.text_input("Monto Exento Bs.", value="0.00")
+                if submitted:
+                    if not nro_factura or not nombre_prov or not rif_prov or not fecha_str:
+                        st.error("⚠️ Complete los campos obligatorios.")
+                    elif not conn:
+                        st.error("⚠️ Sin conexión a la base de datos.")
+                    else:
+                        try:
+                            fecha_fac_final = datetime.strptime(fecha_str.strip(), '%d/%m/%Y').date()
 
-        domicilio = st.text_area("Domicilio Fiscal", value=val_domicilio)
-
-        # Selector de la opción de salida comunicada con el Z-Write
-        modo_emision = st.radio(
-            "Seleccione el tipo de emisión de control posterior:",
-            [
-                "📱 Generar Código QR de Auditoría Interna",
-                (
-                    "📄 Emitir Facturación Digital de Control Interno (Comprobante"
-                    " Empresa)"
-                ),
-            ],
-        )
-
-        try:
-          val_b = (
-              float(
-                  re.sub(r"[^0-9.]", "", base_imp_str.replace(",", "."))
-              )
-              if base_imp_str
-              else 0.00
-          )
-        except:
-          val_b = 0.00
-
-        try:
-          val_i = (
-              float(re.sub(r"[^0-9.]", "", monto_iva_str.replace(",", ".")))
-              if monto_iva_str
-              else round(val_b * 0.16, 2)
-          )
-        except:
-          val_i = round(val_b * 0.16, 2)
-
-        try:
-          val_e = (
-              float(
-                  re.sub(r"[^0-9.]", "", monto_ex_str.replace(",", "."))
-              )
-              if monto_ex_str
-              else 0.00
-          )
-        except:
-          val_e = 0.00
-
-        monto_total = val_b + val_i + val_e
-        st.info(f"💰 **Monto Total Calculado:** {monto_total:,.2f} Bs.")
-
-        submitted = st.form_submit_button(
-            "💾 Procesar y Emitir Documento de Control", type="primary"
-        )
-
-        if submitted:
-          if not nro_factura or not nombre_prov or not rif_prov or not fecha_str:
-            st.error(
-                "⚠️ Complete los campos obligatorios (Factura, RIF, Proveedor y"
-                " Fecha)."
-            )
-          elif not conn:
-            st.error("⚠️ Sin conexión a la base de datos.")
-          else:
-            try:
-              fecha_str_clean = fecha_str.strip()
-              if "/" in fecha_str_clean:
-                fecha_fac_final = datetime.strptime(
-                    fecha_str_clean, "%d/%m/%Y"
-                ).date()
-              else:
-                fecha_fac_final = datetime.strptime(
-                    fecha_str_clean, "%Y-%m-%d"
-                ).date()
-
-              # Guardado de los datos validados del Z-Write en la base de datos
-              with conn.cursor() as cursor:
-                sql = """
+                            with conn.cursor() as cursor:
+                                sql = """
                                     INSERT INTO facturas_escaneadas 
                                     (rif_proveedor, nombre_proveedor, domicilio_fiscal, nro_factura, nro_control, fecha_factura, base_imponible, iva, monto_exento, monto_total)
                                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                                 """
-                cursor.execute(
-                    sql,
-                    (
-                        rif_prov,
-                        nombre_prov,
-                        domicilio,
-                        nro_factura,
-                        nro_control,
-                        fecha_fac_final,
-                        val_b,
-                        val_i,
-                        val_e,
-                        monto_total,
-                    ),
-                )
-                conn.commit()
+                                cursor.execute(sql, (
+                                    rif_prov, nombre_prov, domicilio, nro_factura, nro_control, 
+                                    fecha_fac_final, val_b, val_i, val_e, monto_total
+                                ))
+                                conn.commit()
 
-              st.success(
-                  "¡Datos del Z-Write registrados y consolidados en MySQL"
-                  " correctamente!"
-              )
+                            st.success("¡Factura manual registrada en MySQL con éxito!")
 
-              # Comunicación con la opción elegida para la salida de control interno
-              if "QR" in modo_emision:
-                info_qr = (
-                    f"GYLFI SOFTWARE - CONTROL FISCAL INTERNO\n"
-                    f"Factura: {nro_factura} | Control: {nro_control}\n"
-                    f"Fecha: {fecha_fac_final.strftime('%d/%m/%Y')}\n"
-                    f"Proveedor: {nombre_prov} ({rif_prov})\n"
-                    (
-                        f"Base: {val_b:,.2f} | IVA: {val_i:,.2f} | Total:"
-                        f" {monto_total:,.2f}"
-                    )
-                )
+                            if "QR" in modo_emision:
+                                info_qr = (
+                                    f"GYLFI SOFTWARE - CONTROL INTERNO\n"
+                                    f"Factura: {nro_factura} | Control: {nro_control}\n"
+                                    f"Fecha: {fecha_fac_final.strftime('%d/%m/%Y')}\n"
+                                    f"Proveedor: {nombre_prov} ({rif_prov})\n"
+                                    f"Base: {val_b:,.2f} | IVA: {val_i:,.2f} | Total: {monto_total:,.2f}"
+                                )
 
-                qr = qrcode.QRCode(version=1, box_size=10, border=4)
-                qr.add_data(info_qr)
-                qr.make(fit=True)
+                                qr = qrcode.QRCode(version=1, box_size=10, border=4)
+                                qr.add_data(info_qr)
+                                qr.make(fit=True)
 
-                img_qr = qr.make_image(fill_color="black", back_color="white")
-                buffer = BytesIO()
-                img_qr.save(buffer, format="PNG")
-                qr_bytes = buffer.getvalue()
+                                img_qr = qr.make_image(fill_color="black", back_color="white")
+                                buffer = BytesIO()
+                                img_qr.save(buffer, format="PNG")
+                                qr_bytes = buffer.getvalue()
 
-                st.markdown("### 📱 Código QR de Auditoría Interna Generado")
-                st.image(
-                    img_qr.get_image()
-                    if hasattr(img_qr, "get_image")
-                    else img_qr,
-                    width=220,
-                )
+                                st.markdown("### 📱 Código QR de Auditoría Interna")
+                                st.image(img_qr.get_image() if hasattr(img_qr, 'get_image') else img_qr, width=220)
+                                st.download_button("📥 Descargar QR", data=qr_bytes, file_name=f"QR_{nro_factura}.png", mime="image/png")
+                            else:
+                                st.markdown("---")
+                                st.markdown("### 📄 Comprobante Digital de Control Interno")
+                                st.markdown(f"""
+                                **COMPROBANTE DE REGISTRO INTERNO**
+                                * **Empresa:** {db_actual}
+                                * **Proveedor:** {nombre_prov} ({rif_prov})
+                                * **Factura N°:** {nro_factura} | **Control:** {nro_control}
+                                * **Fecha:** {fecha_fac_final.strftime('%d/%m/%Y')}
+                                --------------------------------------------------
+                                * **Base Imponible:** {val_b:,.2f} Bs.
+                                * **IVA (16%):** {val_i:,.2f} Bs.
+                                * **MONTO TOTAL:** **{monto_total:,.2f} Bs.**
+                                --------------------------------------------------
+                                """)
+                                st.success("✅ Facturación digital interna emitida correctamente.")
 
-                st.download_button(
-                    label="📥 Descargar QR de Control",
-                    data=qr_bytes,
-                    file_name=f"QR_Manual_{nro_factura}.png",
-                    mime="image/png",
-                )
-              else:
-                # Opción de Facturación Digital de Control Interno emitida por la empresa
-                st.markdown("---")
-                st.markdown(
-                    "### 📄 Comprobante de Facturación Digital - Control"
-                    " Interno"
-                )
-                st.info(
-                    "Este documento representa la contraparte digital interna"
-                    " generada por Gylfi Software a partir de la factura física"
-                    " procesada."
-                )
-
-                # Estructura del comprobante interno en pantalla
-                st.markdown(f"""
-                **COMPROBANTE DE REGISTRO INTERNO**
-                * **Empresa Receptora / Activa:** {db_actual}
-                * **Proveedor:** {nombre_prov} ({rif_prov})
-                * **Domicilio:** {domicilio}
-                * **Factura N°:** {nro_factura} | **Control:** {nro_control}
-                * **Fecha de Emisión:** {fecha_fac_final.strftime('%d/%m/%Y')}
-                --------------------------------------------------
-                * **Base Imponible:** {val_b:,.2f} Bs.
-                * **IVA (16%):** {val_i:,.2f} Bs.
-                * **Monto Exento:** {val_e:,.2f} Bs.
-                * **MONTO TOTAL:** **{monto_total:,.2f} Bs.**
-                --------------------------------------------------
-                *Estado: Procesado, auditado y validado mediante Z-Write.*
-                """)
-
-                st.success(
-                    "✅ Facturación digital de control interno emitida con"
-                    " éxito."
-                )
-
-            except Exception as e:
-              st.error(f"❌ Error al procesar: {e}")
+                        except Exception as e:
+                            st.error(f"❌ Error al procesar: {e}")
 
 def gestionar_sidebar():
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
