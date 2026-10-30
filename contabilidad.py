@@ -7805,7 +7805,7 @@ def modulo_escaneo_facturas_qr(conn, db_actual):
   val_rif = ""
   val_nombre = ""
   val_domicilio = ""
-  val_fecha = date.today()
+  val_fecha = date.today()  # Valor base si no se detecta
   val_base = 0.00
   val_iva = 0.00
   val_exento = 0.00
@@ -7895,14 +7895,31 @@ def modulo_escaneo_facturas_qr(conn, db_actual):
             .strip()
         )
 
-      st.success("✅ Datos fiscales extraídos con éxito.")
+      # F. Búsqueda de Fecha en el texto de la factura (Ej: DD/MM/AAAA)
+      match_fec = re.search(
+          r"(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})", texto_ocr
+      )
+      if match_fec:
+        try:
+          d, m, y = (
+              int(match_fec.group(1)),
+              int(match_fec.group(2)),
+              int(match_fec.group(3)),
+          )
+          if y < 100:
+            y += 2000
+          val_fecha = date(y, m, d)
+        except:
+          pass
+
+      st.success("✅ Datos de cabecera procesados con éxito.")
 
     except Exception as e:
       st.warning(
           f"⚠️ Nota de OCR: {e}. Verifique y complete los datos manualmente."
       )
 
-    # 3. Formulario fiscal simplificado con Fecha
+    # 3. Formulario fiscal simplificado
     st.markdown("### 📝 Verificación de Datos Fiscales y Montos")
     with st.form("form_datos_factura_qr"):
       col1, col2 = st.columns(2)
@@ -7912,6 +7929,7 @@ def modulo_escaneo_facturas_qr(conn, db_actual):
         rif_prov = st.text_input("RIF del Proveedor", value=val_rif)
         nombre_prov = st.text_input("Nombre del Proveedor", value=val_nombre)
       with col2:
+        # Aquí puedes ajustar la fecha manualmente si el sello o manuscrito es distinto
         fecha_fac = st.date_input("Fecha de la Factura", value=val_fecha)
         base_imp = st.number_input(
             "Base Imponible Bs.", min_value=0.00, value=val_base, format="%.2f"
@@ -7970,7 +7988,6 @@ def modulo_escaneo_facturas_qr(conn, db_actual):
 
             st.success("¡Factura registrada en MySQL correctamente!")
 
-            # Generación del QR fiscal incluyendo la fecha
             info_qr = (
                 f"FACTURA FISCAL / AUDITORÍA\n"
                 f"Factura: {nro_factura} | Control: {nro_control}\n"
