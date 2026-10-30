@@ -7799,9 +7799,9 @@ def modulo_escaneo_facturas_qr(conn, db_actual):
                 rif_prov = st.text_input("RIF del Proveedor (Ej: J-12345678-9)")
                 nombre_prov = st.text_input("Nombre del Proveedor")
             with col2:
-                base_imp = st.number_input("Base Imponible", min_value=0.00, format="%,.2f")
-                monto_iva = st.number_input("IVA (16%)", min_value=0.00, format="%,.2f")
-                monto_ex = st.number_input("Monto Exento", min_value=0.00, format="%,.2f")
+                base_imp = st.number_input("Base Imponible", min_value=0.00, format="%.2f")
+                monto_iva = st.number_input("IVA (16%)", min_value=0.00, format="%.2f")
+                monto_ex = st.number_input("Monto Exento", min_value=0.00, format="%.2f")
                 
             domicilio = st.text_area("Domicilio Fiscal del Proveedor")
             
