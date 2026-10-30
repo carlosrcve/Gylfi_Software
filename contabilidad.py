@@ -7824,19 +7824,13 @@ def modulo_escaneo_facturas_qr(conn, db_actual):
             val_nombre = ""
             for l in lineas:
                 l_upper = l.upper()
-                if ("NICOLAS" in l_upper or "GARGANO" in l_upper or "LABASTIDA" in l_upper) and "RIF" not in l_upper:
+                if not any(k in l_upper for k in ["RIF", "FACTURA", "TLF", "CALLE", "AV.", "ZONA", "N°", "CONTROL", "LUGAR", "V-", "J-"]):
                     val_nombre = l
                     break
-            if not val_nombre:
-                for l in lineas[:4]:
-                    l_upper = l.upper()
-                    if not any(k in l_upper for k in ["RIF", "FACTURA", "TLF", "CALLE", "AV.", "ZONA", "N°", "CONTROL", "LUGAR", "V-", "J-"]):
-                        val_nombre = l
-                        break
             if not val_nombre and len(lineas) > 0:
                 val_nombre = lineas[0]
 
-            # B. Domicilio Fiscal del Proveedor (Cortar estrictamente en la zona postal o teléfono)
+            # B. Domicilio Fiscal del Proveedor
             domicilio_lines = []
             capturar = False
             for l in lineas:
@@ -7868,111 +7862,42 @@ def modulo_escaneo_facturas_qr(conn, db_actual):
             if match_control:
                 val_control = match_control.group(1).replace('O', '0').replace('o', '0').strip()
 
-            # F. Extracción precisa de Base Imponible
-            # F. Extracción precisa de Base Imponible (Captura y corrección robusta para manuscritos)
-            # F. Extracción precisa de Base Imponible (Ajuste fino para manuscritos)
-            match_base = re.search(r'Base\s*Imponible.*?(?:Bs\.)?\s*(.*)', texto_ocr, re.IGNORECASE)
+            # F. Extracción precisa de Base Imponible (Lectura directa de línea)
+            match_base = re.search(r'Base\s*Imponible[^\n]*', texto_ocr, re.IGNORECASE)
             if match_base:
-                texto_base = match_base.group(1).split('\n')[0]
-                # Corregimos interpretaciones erróneas del OCR en números a mano alzada
-                texto_limpio = (texto_base.replace('$', '5')
-                                          .replace('e', '9')
-                                          .replace('E', '9')
-                                          .replace('O', '0')
-                                          .replace('o', '0')
-                                          .replace('l', '1')
-                                          .replace('I', '1')
+                linea_b = match_base.group(0)
+                # Reemplazos para corregir errores comunes de OCR en manuscritos
+                linea_b_limpia = (linea_b.replace('$', '5')
+                                          .replace('e', '9').replace('E', '9')
+                                          .replace('O', '0').replace('o', '0')
+                                          .replace('l', '1').replace('I', '1')
                                           .replace('£', '5'))
-                
-                match_num_base = re.search(r'([0-9.,]{5,15})', texto_limpio)
-                if match_num_base:
-                    str_base = match_num_base.group(1)
-                    if ',' in str_base and '.' in str_base:
-                        str_base = str_base.replace('.', '').replace(',', '.')
-                    elif ',' in str_base:
-                        str_base = str_base.replace(',', '.')
-                    
-                    str_base = re.sub(r'[^0-9.]', '', str_base)
-                    try:
-                        val_base = float(str_base)
-                        # Validación de seguridad por si lee un número incompleto de la base anterior
-                        if val_base < 1000 and "596" in texto_base:
-                            val_base = 596070.85 # Forzamos el valor real si el OCR lo mutila
-                    except:
-                        pass
+                digitos_b = re.findall(r'\d+', linea_b_limpia)
+                if digitos_b:
+                    numero_str = "".join(digitos_b)
+                    if len(numero_str) >= 5:
+                        try:
+                            val_base = float(numero_str[:-2] + "." + numero_str[-2:])
+                        except:
+                            pass
 
-            # G. Extracción precisa de IVA
-            match_iva = re.search(r'I\.?V\.?A\.?.*?(?:Bs\.)?\s*(.*)', texto_ocr, re.IGNORECASE)
+            # G. Extracción precisa de IVA (Lectura directa de línea)
+            match_iva = re.search(r'I\.?V\.?A\.?[^\n]*', texto_ocr, re.IGNORECASE)
             if match_iva:
-                texto_iva = match_iva.group(1).split('\n')[0]
-                texto_limpio_iva = (texto_iva.replace('$', '5')
-                                            .replace('e', '9')
-                                            .replace('E', '9')
-                                            .replace('O', '0')
-                                            .replace('o', '0')
-                                            .replace('l', '1')
-                                            .replace('I', '1')
-                                            .replace('£', '5'))
-                match_num_iva = re.search(r'([0-9.,]{4,12})', texto_limpio_iva)
-                if match_num_iva:
-                    str_iva = match_num_iva.group(1)
-                    if ',' in str_iva and '.' in str_iva:
-                        str_iva = str_iva.replace('.', '').replace(',', '.')
-                    elif ',' in str_iva:
-                        str_iva = str_iva.replace(',', '.')
-                        
-                    str_iva = re.sub(r'[^0-9.]', '', str_iva)
-                    try:
-                        val_iva = float(str_iva)
-                        if val_iva < 100 and "953" in texto_iva:
-                            val_iva = 95371.34
-                    except:
-                        pass
-
-            # G. Extracción precisa de IVA
-            match_iva = re.search(r'I\.?V\.?A\.?.*?(?:Bs\.)?\s*(.*)', texto_ocr, re.IGNORECASE)
-            if match_iva:
-                texto_iva = match_iva.group(1).split('\n')[0]
-                texto_limpio_iva = (texto_iva.replace('$', '5')
-                                            .replace('e', '9')
-                                            .replace('E', '9')
-                                            .replace('O', '0')
-                                            .replace('o', '0')
-                                            .replace('l', '1')
-                                            .replace('I', '1')
-                                            .replace('£', '5'))
-                match_num_iva = re.search(r'([0-9.,]{4,12})', texto_limpio_iva)
-                if match_num_iva:
-                    str_iva = match_num_iva.group(1)
-                    if ',' in str_iva and '.' in str_iva:
-                        str_iva = str_iva.replace('.', '').replace(',', '.')
-                    elif ',' in str_iva:
-                        str_iva = str_iva.replace(',', '.')
-                        
-                    str_iva = re.sub(r'[^0-9.]', '', str_iva)
-                    try:
-                        val_iva = float(str_iva)
-                    except:
-                        pass
-
-            # G. Extracción precisa de IVA
-            match_iva = re.search(r'I\.?V\.?A\.?.*?(?:Bs\.)?\s*([0-9$.eOlI,.]+)', texto_ocr, re.IGNORECASE)
-            if match_iva:
-                texto_iva = match_iva.group(1)
-                texto_limpio_iva = (texto_iva.replace('$', '5')
-                                            .replace('e', '6')
-                                            .replace('O', '0')
-                                            .replace('o', '0')
-                                            .replace('l', '1')
-                                            .replace('I', '1'))
-                numeros_en_iva = re.findall(r'[0-9.,]+', texto_limpio_iva)
-                if numeros_en_iva:
-                    str_iva = numeros_en_iva[0].replace('.', '').replace(',', '.')
-                    str_iva = re.sub(r'[^0-9.]', '', str_iva)
-                    try:
-                        val_iva = float(str_iva)
-                    except:
-                        pass
+                linea_i = match_iva.group(0)
+                linea_i_limpia = (linea_i.replace('$', '5')
+                                          .replace('e', '9').replace('E', '9')
+                                          .replace('O', '0').replace('o', '0')
+                                          .replace('l', '1').replace('I', '1')
+                                          .replace('£', '5'))
+                digitos_i = re.findall(r'\d+', linea_i_limpia)
+                if digitos_i:
+                    numero_str_i = "".join(digitos_i)
+                    if len(numero_str_i) >= 4:
+                        try:
+                            val_iva = float(numero_str_i[:-2] + "." + numero_str_i[-2:])
+                        except:
+                            pass
 
             st.success("🔍 ¡Análisis completado! Revisa los campos detectados abajo.")
 
@@ -7989,7 +7914,6 @@ def modulo_escaneo_facturas_qr(conn, db_actual):
                 rif_prov = st.text_input("RIF del Proveedor (Ej: J-12345678-9)", value=val_rif)
                 nombre_prov = st.text_input("Nombre del Proveedor", value=val_nombre)
             with col2:
-                # Si colocas la base imponible, puedes ver cómo se autocalcula el IVA y el Total
                 base_imp = st.number_input("Base Imponible", min_value=0.00, value=val_base, format="%.2f")
                 monto_iva = st.number_input("IVA (16%)", min_value=0.00, value=round(base_imp * 0.16, 2) if base_imp > 0 else val_iva, format="%.2f")
                 monto_ex = st.number_input("Monto Exento", min_value=0.00, value=val_exento, format="%.2f")
