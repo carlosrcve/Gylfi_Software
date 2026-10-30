@@ -7776,13 +7776,6 @@ def limpiar_moneda(valor):
 
 
 
-import re
-import pytesseract
-from PIL import Image
-from io import BytesIO
-import streamlit as st
-import qrcode
-
 def modulo_escaneo_facturas_qr(conn, db_actual):
     st.subheader("📸 Estación de Carga, OCR y Generación QR de Facturas")
     st.markdown("Sube la fotografía nítida de la factura. El sistema extraerá automáticamente los datos fiscales mediante OCR para que solo debas verificarlos.")
@@ -7794,7 +7787,7 @@ def modulo_escaneo_facturas_qr(conn, db_actual):
         help="Sube una foto clara tomada con el celular."
     )
 
-    # Variables predeterminadas para los campos
+    # Variables predeterminadas neutrales
     val_factura = ""
     val_control = ""
     val_rif = ""
@@ -7814,35 +7807,38 @@ def modulo_escaneo_facturas_qr(conn, db_actual):
             # 2. Ejecución limpia de OCR
             texto_ocr = pytesseract.image_to_string(img)
             
-            # Mostramos el texto bruto para depuración
+            # Depuración visual del texto extraído
             with st.expander("🔍 Ver texto bruto extraído por OCR (Depuración)"):
                 st.text(texto_ocr)
             
-            # 3. Búsqueda flexible mejorada para facturas venezolanas
+            # 3. Extracción flexible de datos fiscales
             
-            # Buscar RIF (Ej: V-95608104-2 o J-12345678-9)
+            # A. Buscar RIF (ej: V-95608104-2 o J-12345678-9)
             match_rif = re.search(r'([VJGED]\s*[-]?\s*\d{7,9}\s*[-]?\s*\d)', texto_ocr, re.IGNORECASE)
             if match_rif:
                 val_rif = re.sub(r'\s+', '', match_rif.group(1)).upper()
 
-            # Buscar Número de Factura (ahora tolera la palabra "N°" o símbolos en el medio)
-            match_factura = re.search(r'[Ff]actura.*?([0-9]{4,8})', texto_ocr, re.DOTALL)
-            if match_factura:
-                val_factura = match_factura.group(1)
+            # B. Búsqueda por etiquetas clave
+            if "FACTURA" in texto_ocr.upper():
+                partes = texto_ocr.upper().split("FACTURA")
+                if len(partes) > 1:
+                    num_fac_match = re.search(r'\d{4,8}', partes[1])
+                    if num_fac_match:
+                        val_factura = num_fac_match.group(0)
 
-            # Buscar Número de Control (tolera letras O en lugar de ceros o guiones)
-            match_control = re.search(r'[Cc]ontrol.*?([0-9O\s-]+)', texto_ocr, re.DOTALL)
-            if match_control:
-                # Limpiamos y reemplazamos posibles letras O por ceros si el OCR se confunde
-                ctrl_limpio = match_control.group(1).replace('O', '0').replace('o', '0')
-                val_control = re.sub(r'\s+', '', ctrl_limpio)
+            if "CONTROL" in texto_ocr.upper():
+                partes_ctrl = texto_ocr.upper().split("CONTROL")
+                if len(partes_ctrl) > 1:
+                    num_ctrl_match = re.search(r'[0-9O\-]{5,10}', partes_ctrl[1])
+                    if num_ctrl_match:
+                        val_control = num_ctrl_match.group(0).replace('O', '0').replace('o', '0').strip()
 
             st.success("🔍 ¡Análisis completado! Revisa los campos detectados abajo.")
 
         except Exception as e:
             st.warning(f"⚠️ Nota de OCR: No se pudo escanear automáticamente ({e}), pero puedes completar los datos manualmente.")
 
-        # 4. Formulario con los campos precargados
+        # 4. Formulario con los campos limpios y listos para cualquier cliente
         st.markdown("### 📝 Verificación y Datos Fiscales de la Factura")
         with st.form("form_datos_factura_qr"):
             col1, col2 = st.columns(2)
