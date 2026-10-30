@@ -7990,6 +7990,238 @@ def modulo_escaneo_facturas_qr(conn, db_actual):
                         except Exception as e:
                             st.error(f"❌ Error al guardar: {e}")
 
+# ==============================================================================
+# MÓDULO 2: FACTURAS MANUALES (EXCLUSIVO PARA JPG / PNG CON st.code)
+# ==============================================================================
+def modulo_escaneo_facturas_manuales(conn, db_actual):
+  st.subheader("📸 Registro de Facturas Manuales (JPG/PNG) y QR Interno")
+  st.markdown(
+      "Sube la foto de la factura manual. El sistema mostrará la referencia"
+      " del texto OCR y te permitirá validar los datos para generar tu QR"
+      " corporativo."
+  )
+
+  archivo_subido = st.file_uploader(
+      "Seleccionar o arrastrar imagen de factura manual",
+      type=["png", "jpg", "jpeg"],
+      help="Sube una foto clara del talonario o factura manual.",
+  )
+
+  val_factura = ""
+  val_control = ""
+  val_rif = ""
+  val_nombre = ""
+  val_domicilio = ""
+  texto_ocr = ""
+
+  if archivo_subido is not None:
+    img = Image.open(archivo_subido)
+
+    try:
+      # Extracción OCR por Tesseract para imágenes a mano alzada
+      texto_ocr = pytesseract.image_to_string(img)
+      lineas = [l.strip() for l in texto_ocr.split("\n") if l.strip()]
+
+      for l in lineas:
+        l_upper = l.upper()
+        if not any(
+            k in l_upper
+            for k in [
+                "RIF",
+                "FACTURA",
+                "TLF",
+                "CALLE",
+                "AV.",
+                "ZONA",
+                "N°",
+                "CONTROL",
+            ]
+        ):
+          val_nombre = l
+          break
+      if not val_nombre and len(lineas) > 0:
+        val_nombre = lineas[0]
+
+      match_rif = re.search(
+          r"([VJGED]\s*[-]?\s*\d{7,9}\s*[-]?\s*\d)", texto_ocr, re.IGNORECASE
+      )
+      if match_rif:
+        val_rif = re.sub(r"\s+", "", match_rif.group(1)).upper()
+
+      match_factura = re.search(
+          r"FACTURA.*?N[°º]?\s*([0-9]{4,8})", texto_ocr, re.IGNORECASE
+      )
+      if match_factura:
+        val_factura = match_factura.group(1)
+
+      match_control = re.search(
+          r"CONTROL.*?([0-9O\-]{5,12})", texto_ocr, re.IGNORECASE
+      )
+      if match_control:
+        val_control = (
+            match_control.group(1)
+            .replace("O", "0")
+            .replace("o", "0")
+            .strip()
+        )
+
+    except Exception as e:
+      st.warning(f"⚠️ Nota de lectura manual: {e}")
+
+    col_izq, col_der = st.columns([1, 1.2])
+
+    with col_izq:
+      st.image(img, caption="Factura Manual Original", use_container_width=True)
+      st.markdown("#### 📄 Referencia de Texto Extraído (OCR)")
+      # Mostramos todo el texto bruto con st.code para tenerlo a la vista
+      st.code(
+          texto_ocr if texto_ocr else "Sin texto detectado", language="text"
+      )
+
+    with col_der:
+      st.markdown("### 📝 Validación y Emisión de QR Interno")
+      with st.form("form_factura_manual_qr"):
+        nro_factura = st.text_input("Número de Factura", value=val_factura)
+        nro_control = st.text_input("Número de Control", value=val_control)
+        rif_prov = st.text_input("RIF del Proveedor", value=val_rif)
+        nombre_prov = st.text_input("Nombre del Proveedor", value=val_nombre)
+
+        fecha_str = st.text_input(
+            "Fecha de la Factura (DD/MM/AAAA)",
+            value="",
+            placeholder="Ej: 15/10/2026",
+        )
+        base_imp_str = st.text_input(
+            "Base Imponible Bs. (A mano)",
+            value="",
+            placeholder="Ej: 596070.85",
+        )
+        monto_iva_str = st.text_input(
+            "IVA (16%) Bs. (A mano)", value="", placeholder="Ej: 95371.34"
+        )
+        monto_ex_str = st.text_input("Monto Exento Bs.", value="0.00")
+
+        domicilio = st.text_area("Domicilio Fiscal", value=val_domicilio)
+
+        try:
+          val_b = (
+              float(
+                  re.sub(r"[^0-9.]", "", base_imp_str.replace(",", "."))
+              )
+              if base_imp_str
+              else 0.00
+          )
+        except:
+          val_b = 0.00
+
+        try:
+          val_i = (
+              float(re.sub(r"[^0-9.]", "", monto_iva_str.replace(",", ".")))
+              if monto_iva_str
+              else round(val_b * 0.16, 2)
+          )
+        except:
+          val_i = round(val_b * 0.16, 2)
+
+        try:
+          val_e = (
+              float(
+                  re.sub(r"[^0-9.]", "", monto_ex_str.replace(",", "."))
+              )
+              if monto_ex_str
+              else 0.00
+          )
+        except:
+          val_e = 0.00
+
+        monto_total = val_b + val_i + val_e
+        st.info(f"💰 **Monto Total Calculado:** {monto_total:,.2f} Bs.")
+
+        submitted = st.form_submit_button(
+            "💾 Guardar y Generar Código QR Interno", type="primary"
+        )
+
+        if submitted:
+          if not nro_factura or not nombre_prov or not rif_prov or not fecha_str:
+            st.error(
+                "⚠️ Complete los campos obligatorios (Factura, RIF, Proveedor y"
+                " Fecha)."
+            )
+          elif not conn:
+            st.error("⚠️ Sin conexión a la base de datos.")
+          else:
+            try:
+              fecha_str_clean = fecha_str.strip()
+              if "/" in fecha_str_clean:
+                fecha_fac_final = datetime.strptime(
+                    fecha_str_clean, "%d/%m/%Y"
+                ).date()
+              else:
+                fecha_fac_final = datetime.strptime(
+                    fecha_str_clean, "%Y-%m-%d"
+                ).date()
+
+              with conn.cursor() as cursor:
+                sql = """
+                                    INSERT INTO facturas_escaneadas 
+                                    (rif_proveedor, nombre_proveedor, domicilio_fiscal, nro_factura, nro_control, fecha_factura, base_imponible, iva, monto_exento, monto_total)
+                                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                """
+                cursor.execute(
+                    sql,
+                    (
+                        rif_prov,
+                        nombre_prov,
+                        domicilio,
+                        nro_factura,
+                        nro_control,
+                        fecha_fac_final,
+                        val_b,
+                        val_i,
+                        val_e,
+                        monto_total,
+                    ),
+                )
+                conn.commit()
+
+              st.success("¡Factura manual registrada en MySQL correctamente!")
+
+              info_qr = (
+                  f"GYLFI SOFTWARE - CONTROL FISCAL INTERNO\n"
+                  f"Factura: {nro_factura} | Control: {nro_control}\n"
+                  f"Fecha: {fecha_fac_final.strftime('%d/%m/%Y')}\n"
+                  f"Proveedor: {nombre_prov} ({rif_prov})\n"
+                  (
+                      f"Base: {val_b:,.2f} | IVA: {val_i:,.2f} | Total:"
+                      f" {monto_total:,.2f}"
+                  )
+              )
+
+              qr = qrcode.QRCode(version=1, box_size=10, border=4)
+              qr.add_data(info_qr)
+              qr.make(fit=True)
+
+              img_qr = qr.make_image(fill_color="black", back_color="white")
+              buffer = BytesIO()
+              img_qr.save(buffer, format="PNG")
+              qr_bytes = buffer.getvalue()
+
+              st.markdown("### 📱 Código QR Interno Generado")
+              st.image(
+                  img_qr.get_image() if hasattr(img_qr, "get_image") else img_qr,
+                  width=220,
+              )
+
+              st.download_button(
+                  label="📥 Descargar QR de Auditoría",
+                  data=qr_bytes,
+                  file_name=f"QR_Manual_{nro_factura}.png",
+                  mime="image/png",
+              )
+
+            except Exception as e:
+              st.error(f"❌ Error al guardar: {e}")
+
 def gestionar_sidebar():
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
     user_id = st.session_state.get('user_id', st.session_state.get('cliente_id', 'N/A'))
@@ -19434,24 +19666,42 @@ if opcion_menu == "📄 Auxiliar Cta por Pagar":
             st.info("ℹ️ No se encontraron movimientos en cuentas de pasivo para el rango de fechas seleccionado.")
 
 
+
 # ==============================================================================
-# PUNTO DE ENTRADA EN EL MENÚ PRINCIPAL
+# PUNTO DE ENTRADA EN EL MENÚ PRINCIPAL (CON SELECTOR DE TIPO)
 # ==============================================================================
 if opcion_menu == "📸 Códigos QR y Escaneo":
-    db_actual = st.session_state.get('DB_ACTUAL')
-    
-    if not db_actual:
-        st.warning("⚠️ Por favor, selecciona una empresa activa para usar este módulo.")
-    else:
-        conn_qr = None
+  db_actual = st.session_state.get("DB_ACTUAL")
+
+  if not db_actual:
+    st.warning(
+        "⚠️ Por favor, selecciona una empresa activa para usar este módulo."
+    )
+  else:
+    # Selector secundario en pestañas para elegir si vas a procesar Digital o Manual
+    tipo_proceso = st.radio(
+        "Seleccione el tipo de factura a procesar:",
+        [
+            "📄 Facturación Digital (PDF)",
+            "📸 Factura Manual (Imágenes JPG/PNG)",
+        ],
+        horizontal=True,
+    )
+
+    st.markdown("---")
+
+    conn_qr = None
+    try:
+      conn_qr = conectar_db(db_actual)
+      if "Digital" in tipo_proceso:
+        modulo_escaneo_facturas_qr(conn_qr, db_actual)
+      else:
+        modulo_escaneo_facturas_manuales(conn_qr, db_actual)
+    except Exception as e:
+      st.error(f"❌ Error al conectar a la base de datos: {e}")
+    finally:
+      if conn_qr and hasattr(conn_qr, "close"):
         try:
-            conn_qr = conectar_db(db_actual)
-            modulo_escaneo_facturas_qr(conn_qr, db_actual)
-        except Exception as e:
-            st.error(f"❌ Error al conectar a la base de datos: {e}")
-        finally:
-            if conn_qr and hasattr(conn_qr, 'close'):
-                try:
-                    conn_qr.close()
-                except:
-                    pass
+          conn_qr.close()
+        except:
+          pass
