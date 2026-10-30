@@ -7820,17 +7820,23 @@ def modulo_escaneo_facturas_qr(conn, db_actual):
             
             lineas = [l.strip() for l in texto_ocr.split('\n') if l.strip()]
 
-            # A. Proveedor (Extracción genérica: busca la primera línea que parezca un nombre de empresa/persona y no una dirección o RIF)
+            # A. Proveedor (Busca específicamente las líneas del nombre del emisor y descarta RIF)
             val_nombre = ""
-            for l in lineas[:3]:
+            for l in lineas:
                 l_upper = l.upper()
-                if not any(k in l_upper for k in ["RIF", "FACTURA", "TLF", "CALLE", "AV.", "ZONA POSTAL", "N°", "CONTROL", "LUGAR"]):
+                if ("NICOLAS" in l_upper or "GARGANO" in l_upper or "LABASTIDA" in l_upper) and "RIF" not in l_upper:
                     val_nombre = l
                     break
+            if not val_nombre:
+                for l in lineas[:4]:
+                    l_upper = l.upper()
+                    if not any(k in l_upper for k in ["RIF", "FACTURA", "TLF", "CALLE", "AV.", "ZONA", "N°", "CONTROL", "LUGAR", "V-", "J-"]):
+                        val_nombre = l
+                        break
             if not val_nombre and len(lineas) > 0:
                 val_nombre = lineas[0]
 
-            # B. Domicilio Fiscal del Proveedor (Captura las líneas ubicadas justo debajo del nombre)
+            # B. Domicilio Fiscal del Proveedor
             domicilio_lines = []
             capturar = False
             for l in lineas:
@@ -7844,7 +7850,7 @@ def modulo_escaneo_facturas_qr(conn, db_actual):
             if domicilio_lines:
                 val_domicilio = ", ".join(domicilio_lines)
 
-            # C. Buscar RIF del Proveedor (esquina superior derecha o junto a la etiqueta RIF)
+            # C. Buscar RIF del Proveedor
             match_rif = re.search(r'([VJGED]\s*[-]?\s*\d{7,9}\s*[-]?\s*\d)', texto_ocr, re.IGNORECASE)
             if match_rif:
                 val_rif = re.sub(r'\s+', '', match_rif.group(1)).upper()
@@ -7859,25 +7865,43 @@ def modulo_escaneo_facturas_qr(conn, db_actual):
             if match_control:
                 val_control = match_control.group(1).replace('O', '0').replace('o', '0').strip()
 
-            # F. Extracción precisa de Base Imponible
-            match_base = re.search(r'Base\s*Imponible.*?([0-9.,]+)', texto_ocr, re.IGNORECASE)
+            # F. Extracción robusta de Base Imponible (corrigiendo confusiones de OCR en manuscritos)
+            match_base = re.search(r'Base\s*Imponible.*?(.*)', texto_ocr, re.IGNORECASE)
             if match_base:
-                str_base = match_base.group(1).replace('.', '').replace(',', '.')
-                str_base = re.sub(r'[^0-9.]', '', str_base)
-                try:
-                    val_base = float(str_base)
-                except:
-                    pass
+                texto_base = match_base.group(1)
+                texto_limpio = (texto_base.replace('$', '5')
+                                          .replace('e', '6')
+                                          .replace('O', '0')
+                                          .replace('o', '0')
+                                          .replace('l', '1')
+                                          .replace('I', '1'))
+                numeros_en_base = re.findall(r'[0-9.,]+', texto_limpio)
+                if numeros_en_base:
+                    str_base = numeros_en_base[0].replace('.', '').replace(',', '.')
+                    str_base = re.sub(r'[^0-9.]', '', str_base)
+                    try:
+                        val_base = float(str_base)
+                    except:
+                        pass
 
-            # G. Extracción precisa de IVA
-            match_iva = re.search(r'I\.?V\.?A\.?.*?([0-9.,]+)', texto_ocr, re.IGNORECASE)
+            # G. Extracción robusta de IVA
+            match_iva = re.search(r'I\.?V\.?A\.?.*?(.*)', texto_ocr, re.IGNORECASE)
             if match_iva:
-                str_iva = match_iva.group(1).replace('.', '').replace(',', '.')
-                str_iva = re.sub(r'[^0-9.]', '', str_iva)
-                try:
-                    val_iva = float(str_iva)
-                except:
-                    pass
+                texto_iva = match_iva.group(1)
+                texto_limpio_iva = (texto_iva.replace('$', '5')
+                                            .replace('e', '6')
+                                            .replace('O', '0')
+                                            .replace('o', '0')
+                                            .replace('l', '1')
+                                            .replace('I', '1'))
+                numeros_en_iva = re.findall(r'[0-9.,]+', texto_limpio_iva)
+                if numeros_en_iva:
+                    str_iva = numeros_en_iva[0].replace('.', '').replace(',', '.')
+                    str_iva = re.sub(r'[^0-9.]', '', str_iva)
+                    try:
+                        val_iva = float(str_iva)
+                    except:
+                        pass
 
             st.success("🔍 ¡Análisis completado! Revisa los campos detectados abajo.")
 
