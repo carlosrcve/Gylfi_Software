@@ -7776,25 +7776,18 @@ def limpiar_moneda(valor):
 
 
 
-import re
-import pytesseract
-from PIL import Image
-from io import BytesIO
-import streamlit as st
-import qrcode
-
 def modulo_escaneo_facturas_qr(conn, db_actual):
-    st.subheader("📸 Estación de Carga, OCR y Generación QR de Facturas")
-    st.markdown("Sube la fotografía de la factura. El sistema extraerá automáticamente los datos fiscales mediante OCR para que solo debas verificar los montos.")
+    st.subheader("📸 Registro Fiscal de Facturas y Generación QR")
+    st.markdown("Sube la imagen de la factura. El sistema procesará automáticamente los datos fiscales esenciales.")
 
-    # 1. Selector de archivos para la imagen de la factura
+    # 1. Selector de archivos
     archivo_subido = st.file_uploader(
         "Seleccionar o arrastrar la imagen de la factura", 
         type=["png", "jpg", "jpeg"],
-        help="Sube una foto clara tomada con el celular."
+        help="Sube una foto clara de la factura."
     )
 
-    # Variables predeterminadas neutrales
+    # Variables predeterminadas
     val_factura = ""
     val_control = ""
     val_rif = ""
@@ -7805,23 +7798,15 @@ def modulo_escaneo_facturas_qr(conn, db_actual):
     val_exento = 0.00
 
     if archivo_subido is not None:
-        # Mostrar imagen
         img = Image.open(archivo_subido)
-        st.image(img, caption="Vista previa de la factura cargada", width=400)
-        st.success("✅ ¡Imagen cargada con éxito! Procesando datos fiscales...")
-
+        st.image(img, caption="Factura cargada", width=350)
+        
         try:
-            # 2. Ejecución limpia de OCR
+            # 2. Ejecución de OCR para cabecera fiscal
             texto_ocr = pytesseract.image_to_string(img)
-            
-            # Depuración visual del texto extraído
-            with st.expander("🔍 Ver texto bruto extraído por OCR (Depuración)"):
-                st.text(texto_ocr)
-            
             lineas = [l.strip() for l in texto_ocr.split('\n') if l.strip()]
 
-            # A. Proveedor
-            val_nombre = ""
+            # A. Nombre del Proveedor
             for l in lineas:
                 l_upper = l.upper()
                 if not any(k in l_upper for k in ["RIF", "FACTURA", "TLF", "CALLE", "AV.", "ZONA", "N°", "CONTROL", "LUGAR", "V-", "J-"]):
@@ -7830,7 +7815,7 @@ def modulo_escaneo_facturas_qr(conn, db_actual):
             if not val_nombre and len(lineas) > 0:
                 val_nombre = lineas[0]
 
-            # B. Domicilio Fiscal del Proveedor
+            # B. Domicilio Fiscal
             domicilio_lines = []
             capturar = False
             for l in lineas:
@@ -7847,7 +7832,7 @@ def modulo_escaneo_facturas_qr(conn, db_actual):
             if domicilio_lines:
                 val_domicilio = ", ".join(domicilio_lines)
 
-            # C. Buscar RIF del Proveedor
+            # C. RIF del Proveedor
             match_rif = re.search(r'([VJGED]\s*[-]?\s*\d{7,9}\s*[-]?\s*\d)', texto_ocr, re.IGNORECASE)
             if match_rif:
                 val_rif = re.sub(r'\s+', '', match_rif.group(1)).upper()
@@ -7862,42 +7847,39 @@ def modulo_escaneo_facturas_qr(conn, db_actual):
             if match_control:
                 val_control = match_control.group(1).replace('O', '0').replace('o', '0').strip()
 
-            st.success("🔍 ¡Cabecera procesada con éxito! Verifique los montos abajo.")
+            st.success("✅ Datos fiscales extraídos con éxito.")
 
         except Exception as e:
-            st.warning(f"⚠️ Nota de OCR: No se pudo escanear automáticamente ({e}), pero puedes completar los datos manualmente.")
+            st.warning(f"⚠️ Nota de OCR: {e}. Complete los datos si es necesario.")
 
-        # 4. Formulario con los campos precargados y control manual ágil para los montos
-        st.markdown("### 📝 Verificación y Datos Fiscales de la Factura")
+        # 3. Formulario fiscal simplificado
+        st.markdown("### 📝 Verificación de Datos Fiscales y Montos")
         with st.form("form_datos_factura_qr"):
             col1, col2 = st.columns(2)
             with col1:
                 nro_factura = st.text_input("Número de Factura", value=val_factura)
                 nro_control = st.text_input("Número de Control", value=val_control)
-                rif_prov = st.text_input("RIF del Proveedor (Ej: J-12345678-9)", value=val_rif)
+                rif_prov = st.text_input("RIF del Proveedor", value=val_rif)
                 nombre_prov = st.text_input("Nombre del Proveedor", value=val_nombre)
             with col2:
-                # Ingrese la Base Imponible; el IVA y el Total se calculan solos al instante
-                base_imp = st.number_input("Base Imponible", min_value=0.00, value=val_base, format="%.2f")
-                monto_iva = st.number_input("IVA (16%)", min_value=0.00, value=round(base_imp * 0.16, 2), format="%.2f")
-                monto_ex = st.number_input("Monto Exento", min_value=0.00, value=val_exento, format="%.2f")
+                base_imp = st.number_input("Base Imponible Bs.", min_value=0.00, value=val_base, format="%.2f")
+                monto_iva = st.number_input("IVA (16%) Bs.", min_value=0.00, value=round(base_imp * 0.16, 2), format="%.2f")
+                monto_ex = st.number_input("Monto Exento Bs.", min_value=0.00, value=val_exento, format="%.2f")
                 
-            domicilio = st.text_area("Domicilio Fiscal del Proveedor", value=val_domicilio)
+            domicilio = st.text_area("Domicilio Fiscal", value=val_domicilio)
             
-            # Cálculo automático del total en tiempo real
             monto_total = base_imp + monto_iva + monto_ex
-            st.info(f"💰 **Monto Total Calculado:** {monto_total:,.2f}")
+            st.info(f"💰 **Monto Total Calculado:** {monto_total:,.2f} Bs.")
 
             submitted = st.form_submit_button("💾 Guardar y Generar Código QR", type="primary")
 
             if submitted:
                 if not nro_factura or not nombre_prov or not rif_prov:
-                    st.error("⚠️ Por favor completa los campos obligatorios (Nro Factura, Proveedor y RIF).")
+                    st.error("⚠️ Complete los campos obligatorios (Nro Factura, Proveedor y RIF).")
                 elif not conn:
-                    st.error("⚠️ No hay conexión activa a la base de datos.")
+                    st.error("⚠️ Sin conexión a la base de datos.")
                 else:
                     try:
-                        # 5. Guardar en la base de datos MySQL
                         with conn.cursor() as cursor:
                             sql = """
                                 INSERT INTO facturas_escaneadas 
@@ -7910,50 +7892,37 @@ def modulo_escaneo_facturas_qr(conn, db_actual):
                             ))
                             conn.commit()
 
-                        st.success("¡Factura registrada y guardada en MySQL correctamente!")
+                        st.success("¡Factura registrada en MySQL correctamente!")
 
-                        # 6. Construir la cadena de información para el Código QR
+                        # Generación del QR puramente fiscal
                         info_qr = (
-                            f"FACTURA ELECTRÓNICA / AUDITORÍA\n"
-                            f"Factura: {nro_factura}\n"
-                            f"Control: {nro_control}\n"
-                            f"Proveedor: {nombre_prov}\n"
-                            f"RIF: {rif_prov}\n"
-                            f"Domicilio: {domicilio}\n"
-                            f"Base Imponible: {base_imp:,.2f}\n"
-                            f"IVA: {monto_iva:,.2f}\n"
-                            f"Exento: {monto_ex:,.2f}\n"
-                            f"TOTAL: {monto_total:,.2f}"
+                            f"FACTURA FISCAL / AUDITORÍA\n"
+                            f"Factura: {nro_factura} | Control: {nro_control}\n"
+                            f"Proveedor: {nombre_prov} ({rif_prov})\n"
+                            f"Base: {base_imp:,.2f} | IVA: {monto_iva:,.2f} | Total: {monto_total:,.2f}"
                         )
 
-                        # 7. Generar la imagen del Código QR usando la librería 'qrcode'
-                        qr = qrcode.QRCode(
-                            version=1,
-                            error_correction=qrcode.constants.ERROR_CORRECT_M,
-                            box_size=10,
-                            border=4,
-                        )
+                        qr = qrcode.QRCode(version=1, box_size=10, border=4)
                         qr.add_data(info_qr)
                         qr.make(fit=True)
 
                         img_qr = qr.make_image(fill_color="black", back_color="white")
-                        
                         buffer = BytesIO()
                         img_qr.save(buffer, format="PNG")
                         qr_bytes = buffer.getvalue()
 
-                        st.markdown("### 📱 Código QR Generado para la Factura")
-                        st.image(qr_bytes, width=250, caption=f"QR Factura N° {nro_factura}")
+                        st.markdown("### 📱 Código QR Fiscal Generado")
+                        st.image(qr_bytes, width=220)
 
                         st.download_button(
-                            label="📥 Descargar Imagen QR",
+                            label="📥 Descargar QR",
                             data=qr_bytes,
-                            file_name=f"QR_Factura_{nro_factura}_{rif_prov}.png",
+                            file_name=f"QR_Factura_{nro_factura}.png",
                             mime="image/png"
                         )
 
                     except Exception as e:
-                        st.error(f"❌ Error al registrar en la base de datos: {e}")
+                        st.error(f"❌ Error al guardar: {e}")
 
 def gestionar_sidebar():
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
