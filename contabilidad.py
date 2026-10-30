@@ -7775,44 +7775,76 @@ def limpiar_moneda(valor):
         return 0.0
 
 
-
-
-# ==============================================================================
-# 1. FUNCIÓN DEL MÓDULO QR (Toda la lógica visual y de base de datos)
-# ==============================================================================
 # ==============================================================================
 # MÓDULO QR: ESTACIÓN DE CARGA Y GENERACIÓN DE FACTURAS
 # ==============================================================================
 def modulo_escaneo_facturas_qr(conn, db_actual):
-    st.subheader("📸 Estación de Carga y Generación QR de Facturas")
-    st.markdown("Sube la fotografía nítida de la factura (capturada con tu teléfono o WhatsApp) para registrar sus datos fiscales y generar el código QR de auditoría.")
+    st.subheader("📸 Estación de Carga, OCR y Generación QR de Facturas")
+    st.markdown("Sube la fotografía nítida de la factura. El sistema extraerá automáticamente los datos fiscales mediante OCR para que solo debas verificarlos.")
 
-    # 1. Selector de archivos en lugar de la cámara de la laptop
+    # 1. Selector de archivos para la imagen nítida del teléfono
     archivo_subido = st.file_uploader(
         "Seleccionar o arrastrar la imagen de la factura", 
         type=["png", "jpg", "jpeg"],
-        help="Sube una foto clara tomada con el celular o descargada."
+        help="Sube una foto clara tomada con el celular."
     )
 
+    # Variables predeterminadas para los campos
+    val_factura = ""
+    val_control = ""
+    val_rif = ""
+    val_nombre = ""
+    val_domicilio = ""
+    val_base = 0.00
+    val_iva = 0.00
+    val_exento = 0.00
+
     if archivo_subido is not None:
-        # Mostramos la imagen cargada de forma nítida en pantalla
-        st.image(archivo_subido, caption="Vista previa de la factura cargada", width=400)
-        st.success("✅ ¡Imagen cargada con éxito y lista para procesar!")
-        
+        # Mostrar imagen
+        img = Image.open(archivo_subido)
+        st.image(img, caption="Vista previa de la factura cargada", width=400)
+        st.success("✅ ¡Imagen cargada con éxito! Procesando texto con OCR...")
+
+        try:
+            # 2. Ejecutar OCR usando pytesseract (idioma español si está disponible, sino inglés por defecto)
+            texto_ocr = pytesseract.image_to_string(img, lang='spa')
+            
+            # 3. Extracción inteligente mediante Expresiones Regulares (Regex) para Venezuela
+            # Buscar RIF (Ej: V-05688194-2 o J-12345678-9)
+            match_rif = re.search(r'([VJGED]-\d{7,9}-\d)', texto_ocr, re.IGNORECASE)
+            if match_rif:
+                val_rif = match_rif.group(1).upper()
+
+            # Buscar Número de Factura
+            match_factura = re.search(r'(?:N[°º]?\s*[Ff]actura|Factura)[:.\s]*([0-9]+)', texto_ocr)
+            if match_factura:
+                val_factura = match_factura.group(1)
+
+            # Buscar Número de Control
+            match_control = re.search(r'(?:[Cc]ontrol)[:.\s]*([0-9-]+)', texto_ocr)
+            if match_control:
+                val_control = match_control.group(1)
+
+            st.info("🔍 ¡Texto analizado! Revisa los campos detectados automáticamente abajo y ajusta lo que sea necesario.")
+
+        except Exception as e:
+            st.warning(f"⚠️ No se pudo procesar el OCR automáticamente (asegúrate de tener instalado tesseract-ocr en el servidor): {e}")
+
+        # 4. Formulario con los campos precargados por el OCR
         st.markdown("### 📝 Verificación y Datos Fiscales de la Factura")
         with st.form("form_datos_factura_qr"):
             col1, col2 = st.columns(2)
             with col1:
-                nro_factura = st.text_input("Número de Factura")
-                nro_control = st.text_input("Número de Control")
-                rif_prov = st.text_input("RIF del Proveedor (Ej: J-12345678-9)")
-                nombre_prov = st.text_input("Nombre del Proveedor")
+                nro_factura = st.text_input("Número de Factura", value=val_factura)
+                nro_control = st.text_input("Número de Control", value=val_control)
+                rif_prov = st.text_input("RIF del Proveedor (Ej: J-12345678-9)", value=val_rif)
+                nombre_prov = st.text_input("Nombre del Proveedor", value=val_nombre)
             with col2:
-                base_imp = st.number_input("Base Imponible", min_value=0.00, format="%.2f")
-                monto_iva = st.number_input("IVA (16%)", min_value=0.00, format="%.2f")
-                monto_ex = st.number_input("Monto Exento", min_value=0.00, format="%.2f")
+                base_imp = st.number_input("Base Imponible", min_value=0.00, value=val_base, format="%.2f")
+                monto_iva = st.number_input("IVA (16%)", min_value=0.00, value=val_iva, format="%.2f")
+                monto_ex = st.number_input("Monto Exento", min_value=0.00, value=val_exento, format="%.2f")
                 
-            domicilio = st.text_area("Domicilio Fiscal del Proveedor")
+            domicilio = st.text_area("Domicilio Fiscal del Proveedor", value=val_domicilio)
             
             # Cálculo automático del total
             monto_total = base_imp + monto_iva + monto_ex
@@ -7827,7 +7859,7 @@ def modulo_escaneo_facturas_qr(conn, db_actual):
                     st.error("⚠️ No hay conexión activa a la base de datos.")
                 else:
                     try:
-                        # 2. Guardar en la base de datos MySQL
+                        # 5. Guardar en la base de datos MySQL
                         with conn.cursor() as cursor:
                             sql = """
                                 INSERT INTO facturas_escaneadas 
@@ -7842,7 +7874,7 @@ def modulo_escaneo_facturas_qr(conn, db_actual):
 
                         st.success("¡Factura registrada y guardada en MySQL correctamente!")
 
-                        # 3. Construir la cadena de información para el Código QR
+                        # 6. Construir la cadena de información para el Código QR
                         info_qr = (
                             f"FACTURA ELECTRÓNICA / AUDITORÍA\n"
                             f"Factura: {nro_factura}\n"
@@ -7856,7 +7888,7 @@ def modulo_escaneo_facturas_qr(conn, db_actual):
                             f"TOTAL: {monto_total:,.2f}"
                         )
 
-                        # 4. Generar la imagen del Código QR usando la librería 'qrcode'
+                        # 7. Generar la imagen del Código QR usando la librería 'qrcode'
                         qr = qrcode.QRCode(
                             version=1,
                             error_correction=qrcode.constants.ERROR_CORRECT_M,
@@ -7868,7 +7900,6 @@ def modulo_escaneo_facturas_qr(conn, db_actual):
 
                         img_qr = qr.make_image(fill_color="black", back_color="white")
                         
-                        # Convertir a bytes para mostrar en Streamlit y permitir descarga
                         buffer = BytesIO()
                         img_qr.save(buffer, format="PNG")
                         qr_bytes = buffer.getvalue()
@@ -19331,6 +19362,9 @@ if opcion_menu == "📄 Auxiliar Cta por Pagar":
             st.info("ℹ️ No se encontraron movimientos en cuentas de pasivo para el rango de fechas seleccionado.")
 
 
+# ==============================================================================
+# PUNTO DE ENTRADA EN EL MENÚ PRINCIPAL
+# ==============================================================================
 if opcion_menu == "📸 Códigos QR y Escaneo":
     db_actual = st.session_state.get('DB_ACTUAL')
     
