@@ -7990,15 +7990,16 @@ def modulo_escaneo_facturas_qr(conn, db_actual):
                         except Exception as e:
                             st.error(f"❌ Error al guardar: {e}")
 
+
 # ==============================================================================
-# MÓDULO 2: FACTURAS MANUALES (EXCLUSIVO PARA JPG / PNG CON st.code)
+# MÓDULO 2: FACTURAS MANUALES (JPG/PNG CON Z-WRITE Y EMISIÓN DE CONTROL INTERNO)
 # ==============================================================================
 def modulo_escaneo_facturas_manuales(conn, db_actual):
-  st.subheader("📸 Registro de Facturas Manuales (JPG/PNG) y QR Interno")
+  st.subheader("📸 Registro de Facturas Manuales (JPG/PNG) y Control Interno")
   st.markdown(
-      "Sube la foto de la factura manual. El sistema mostrará la referencia"
-      " del texto OCR y te permitirá validar los datos para generar tu QR"
-      " corporativo."
+      "Sube la foto de la factura manual. El sistema procesará el texto de"
+      " referencia (Z-Write) para que valides los datos y emitas tu control"
+      " interno o QR corporativo."
   )
 
   archivo_subido = st.file_uploader(
@@ -8018,7 +8019,7 @@ def modulo_escaneo_facturas_manuales(conn, db_actual):
     img = Image.open(archivo_subido)
 
     try:
-      # Extracción OCR por Tesseract para imágenes a mano alzada
+      # Extracción OCR por Tesseract para imágenes a mano alzada (Z-Write base)
       texto_ocr = pytesseract.image_to_string(img)
       lineas = [l.strip() for l in texto_ocr.split("\n") if l.strip()]
 
@@ -8072,14 +8073,14 @@ def modulo_escaneo_facturas_manuales(conn, db_actual):
 
     with col_izq:
       st.image(img, caption="Factura Manual Original", use_container_width=True)
-      st.markdown("#### 📄 Referencia de Texto Extraído (OCR)")
-      # Mostramos todo el texto bruto con st.code para tenerlo a la vista
+      st.markdown("#### 📄 Texto Z-Write (Referencia OCR)")
+      # Mostramos el texto bruto extraído para que sirva de guía visual directa
       st.code(
           texto_ocr if texto_ocr else "Sin texto detectado", language="text"
       )
 
     with col_der:
-      st.markdown("### 📝 Validación y Emisión de QR Interno")
+      st.markdown("### 📝 Validación y Emisión de Control Interno")
       with st.form("form_factura_manual_qr"):
         nro_factura = st.text_input("Número de Factura", value=val_factura)
         nro_control = st.text_input("Número de Control", value=val_control)
@@ -8102,6 +8103,18 @@ def modulo_escaneo_facturas_manuales(conn, db_actual):
         monto_ex_str = st.text_input("Monto Exento Bs.", value="0.00")
 
         domicilio = st.text_area("Domicilio Fiscal", value=val_domicilio)
+
+        # Selector de la opción de salida comunicada con el Z-Write
+        modo_emision = st.radio(
+            "Seleccione el tipo de emisión de control posterior:",
+            [
+                "📱 Generar Código QR de Auditoría Interna",
+                (
+                    "📄 Emitir Facturación Digital de Control Interno (Comprobante"
+                    " Empresa)"
+                ),
+            ],
+        )
 
         try:
           val_b = (
@@ -8138,7 +8151,7 @@ def modulo_escaneo_facturas_manuales(conn, db_actual):
         st.info(f"💰 **Monto Total Calculado:** {monto_total:,.2f} Bs.")
 
         submitted = st.form_submit_button(
-            "💾 Guardar y Generar Código QR Interno", type="primary"
+            "💾 Procesar y Emitir Documento de Control", type="primary"
         )
 
         if submitted:
@@ -8161,6 +8174,7 @@ def modulo_escaneo_facturas_manuales(conn, db_actual):
                     fecha_str_clean, "%Y-%m-%d"
                 ).date()
 
+              # Guardado de los datos validados del Z-Write en la base de datos
               with conn.cursor() as cursor:
                 sql = """
                                     INSERT INTO facturas_escaneadas 
@@ -8184,43 +8198,84 @@ def modulo_escaneo_facturas_manuales(conn, db_actual):
                 )
                 conn.commit()
 
-              st.success("¡Factura manual registrada en MySQL correctamente!")
-
-              info_qr = (
-                  f"GYLFI SOFTWARE - CONTROL FISCAL INTERNO\n"
-                  f"Factura: {nro_factura} | Control: {nro_control}\n"
-                  f"Fecha: {fecha_fac_final.strftime('%d/%m/%Y')}\n"
-                  f"Proveedor: {nombre_prov} ({rif_prov})\n"
-                  (
-                      f"Base: {val_b:,.2f} | IVA: {val_i:,.2f} | Total:"
-                      f" {monto_total:,.2f}"
-                  )
+              st.success(
+                  "¡Datos del Z-Write registrados y consolidados en MySQL"
+                  " correctamente!"
               )
 
-              qr = qrcode.QRCode(version=1, box_size=10, border=4)
-              qr.add_data(info_qr)
-              qr.make(fit=True)
+              # Comunicación con la opción elegida para la salida de control interno
+              if "QR" in modo_emision:
+                info_qr = (
+                    f"GYLFI SOFTWARE - CONTROL FISCAL INTERNO\n"
+                    f"Factura: {nro_factura} | Control: {nro_control}\n"
+                    f"Fecha: {fecha_fac_final.strftime('%d/%m/%Y')}\n"
+                    f"Proveedor: {nombre_prov} ({rif_prov})\n"
+                    (
+                        f"Base: {val_b:,.2f} | IVA: {val_i:,.2f} | Total:"
+                        f" {monto_total:,.2f}"
+                    )
+                )
 
-              img_qr = qr.make_image(fill_color="black", back_color="white")
-              buffer = BytesIO()
-              img_qr.save(buffer, format="PNG")
-              qr_bytes = buffer.getvalue()
+                qr = qrcode.QRCode(version=1, box_size=10, border=4)
+                qr.add_data(info_qr)
+                qr.make(fit=True)
 
-              st.markdown("### 📱 Código QR Interno Generado")
-              st.image(
-                  img_qr.get_image() if hasattr(img_qr, "get_image") else img_qr,
-                  width=220,
-              )
+                img_qr = qr.make_image(fill_color="black", back_color="white")
+                buffer = BytesIO()
+                img_qr.save(buffer, format="PNG")
+                qr_bytes = buffer.getvalue()
 
-              st.download_button(
-                  label="📥 Descargar QR de Auditoría",
-                  data=qr_bytes,
-                  file_name=f"QR_Manual_{nro_factura}.png",
-                  mime="image/png",
-              )
+                st.markdown("### 📱 Código QR de Auditoría Interna Generado")
+                st.image(
+                    img_qr.get_image()
+                    if hasattr(img_qr, "get_image")
+                    else img_qr,
+                    width=220,
+                )
+
+                st.download_button(
+                    label="📥 Descargar QR de Control",
+                    data=qr_bytes,
+                    file_name=f"QR_Manual_{nro_factura}.png",
+                    mime="image/png",
+                )
+              else:
+                # Opción de Facturación Digital de Control Interno emitida por la empresa
+                st.markdown("---")
+                st.markdown(
+                    "### 📄 Comprobante de Facturación Digital - Control"
+                    " Interno"
+                )
+                st.info(
+                    "Este documento representa la contraparte digital interna"
+                    " generada por Gylfi Software a partir de la factura física"
+                    " procesada."
+                )
+
+                # Estructura del comprobante interno en pantalla
+                st.markdown(f"""
+                **COMPROBANTE DE REGISTRO INTERNO**
+                * **Empresa Receptora / Activa:** {db_actual}
+                * **Proveedor:** {nombre_prov} ({rif_prov})
+                * **Domicilio:** {domicilio}
+                * **Factura N°:** {nro_factura} | **Control:** {nro_control}
+                * **Fecha de Emisión:** {fecha_fac_final.strftime('%d/%m/%Y')}
+                --------------------------------------------------
+                * **Base Imponible:** {val_b:,.2f} Bs.
+                * **IVA (16%):** {val_i:,.2f} Bs.
+                * **Monto Exento:** {val_e:,.2f} Bs.
+                * **MONTO TOTAL:** **{monto_total:,.2f} Bs.**
+                --------------------------------------------------
+                *Estado: Procesado, auditado y validado mediante Z-Write.*
+                """)
+
+                st.success(
+                    "✅ Facturación digital de control interno emitida con"
+                    " éxito."
+                )
 
             except Exception as e:
-              st.error(f"❌ Error al guardar: {e}")
+              st.error(f"❌ Error al procesar: {e}")
 
 def gestionar_sidebar():
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
