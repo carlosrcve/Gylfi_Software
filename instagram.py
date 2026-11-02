@@ -115,13 +115,14 @@ def ejecutar_consulta(query, conn, params=None):
 
 def obtener_facturas_pendientes(conn, f_desde, f_hasta):
     try:
+        # Asegúrate de que la consulta SELECT incluya exactamente retencion_iva_realizada:
         query = """
             SELECT id, fecha_operacion, tipo_documento, n_factura, n_control, 
                    proveedor, rif, total_compras, base_imponible, iva_monto, 
-                   importe_exento, retencion_iva_realizada
+                   importe_exento, retencion_iva_realizada 
             FROM libro_compras 
-            WHERE (retencion_iva_realizada = 0 OR retencion_iva_realizada IS NULL OR retencion_iva_realizada = FALSE)
-            AND fecha_operacion BETWEEN %s AND %s
+            WHERE (retencion_iva_realizada = 0 OR retencion_iva_realizada IS NULL OR retencion_iva_realizada = FALSE) 
+            AND fecha_operacion BETWEEN %s AND %s 
             ORDER BY fecha_operacion ASC
         """
         df = ejecutar_consulta(query, conn, params=(f_desde, f_hasta))
