@@ -131,6 +131,35 @@ def conectar_db(nombre_db=None):
         st.session_state.conn = None
         return None
 
+import streamlit as st
+
+# 🛑 INTERCEPTOR ABSOLUTO E INMEDIATO (Línea 1)
+try:
+    # Capturamos directamente desde el diccionario de query_params
+    modulo_url = str(st.query_params.get("modulo", "")).strip().lower()
+except:
+    modulo_url = ""
+
+if modulo_url == "libro_compras":
+    # Limpiamos cualquier rastro previo para evitar conflictos
+    st.session_state.clear()
+    
+    # Configuramos la sesión de invitado al instante
+    st.session_state["logueado"] = True
+    st.session_state["usuario"] = "invitado_insta"
+    st.session_state["rol"] = "admin"
+    st.session_state["DB_ACTUAL"] = "kingdriver_ca"
+    
+    # Importamos y ejecutamos la vista pública sin tocar logins
+    import instagram
+    instagram.modulo_compras()
+    
+    # Detenemos totalmente la ejecución aquí mismo
+    st.stop()
+
+# ==========================================
+# A PARTIR DE AQUÍ VA EL RESTO DE TU CÓDIGO NORMAL (LOGIN, ETC.)
+# ==========================================
 
 def obtener_datos_empresa_activa():
     """
