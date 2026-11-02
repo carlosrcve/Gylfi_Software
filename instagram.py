@@ -2446,6 +2446,1073 @@ def modulo_retencion_islr():
                     if isinstance(xml_code, bytes):
                         xml_code = xml_code.decode('utf-8')
                     st.code(xml_code, language="xml")
+
+def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
+    st.subheader(f"📑 Emisión de Comprobantes de Retención IVA: {EMPRESA}")
+
+    # --- CONTROL DE PESTAÑA ACTIVA ---
+    if 'active_tab' not in st.session_state:
+        st.session_state.active_tab = 0 # 0 es la primera tab ("📥 Cargar Excel")
+    
+    # 1. INICIALIZACIÓN DE ESTADOS (Prevenir KeyErrors)
+    if 'exito_data' not in st.session_state:
+        st.session_state['exito_data'] = None
+    if 'mostrar_exito' not in st.session_state:
+        st.session_state['mostrar_exito'] = False
+
+    # 2. GESTIÓN DE CONEXIÓN
+    db_actual = st.session_state.get('DB_ACTUAL')
+    
+    if 'db_conn' not in st.session_state or st.session_state.db_conn is None:
+        st.session_state.db_conn = conectar_db(db_actual)
+    else:
+        try:
+            st.session_state.db_conn.ping(reconnect=True, attempts=3, delay=1)
+        except:
+            st.session_state.db_conn = conectar_db(db_actual)
+
+    conn = st.session_state.db_conn
+
+    # 3. VALIDACIÓN DE SEGURIDAD
+    if conn is None or not conn:
+        st.error("❌ No hay conexión activa con la base de datos.")
+        return
+
+    facturas_seleccionadas = None
+
+    # --- 1. INICIALIZACIÓN ---
+    if 'active_tab' not in st.session_state:
+        st.session_state.active_tab = "📝 Generar Nueva"
+
+    # --- 2. NAVEGACIÓN ---
+    # 1. Creamos las pestañas en una sola línea
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+        "📝 Generar Nueva", 
+        "📄 PDF Comp. Retenciones", 
+        "🖨️ Elimina Retencion", 
+        "⚙️ Habilitar Facturas", 
+        "🗒️ Archivo TXT SENIAT"
+    ])
+
+
+
+    # --- 2. VALIDACIÓN DE CONEXIÓN Y CARGA ---
+    with tab1:
+        st.write("Cargando Generar Nueva...")
+        st.subheader("📝 Generar Nueva Retención de IVA")
+        db_actual = st.session_state.get("DB_ACTUAL")
+
+        if not db_actual:
+            st.error("⚠️ Debes seleccionar una empresa primero.")
+            st.stop()
+
+        conn = conectar_db(db_actual)
+        if not conn:
+            st.error("❌ No se pudo establecer conexión.")
+            st.stop()
+
+        st.write(f"Conectado a: **{db_actual}**")
+
+        # --- MANEJADOR DE PANTALLA DE ÉXITO (PERSISTENTE) ---
+        if st.session_state.get('mostrar_exito'):
+            st.success(f"### ✅ Comprobante `{st.session_state.get('last_iva', {}).get('nro_comp')}` generado y guardado exitosamente.")
+            
+            if 'last_iva' in st.session_state and 'facturas_seleccionadas' in st.session_state:
+                st.divider()
+                st.write("#### 📄 Detalle del Comprobante Generado:")
+                
+                facturas_guardadas = st.session_state.get('facturas_seleccionadas')
+                porcentaje_actual = st.session_state.get('porcentaje_ret', 75)
+
+                if facturas_guardadas is not None and not facturas_guardadas.empty:
+                    lista_de_facturas = []
+                    for _, fila in facturas_guardadas.iterrows():
+                        iva = float(fila.get('impuesto_iva', 0))
+                        monto_ret = (iva * porcentaje_actual) / 100
+                        
+                        lista_de_facturas.append({
+                            'Fecha': fila['fecha_operacion'],
+                            'N° Factura': fila['n_factura'],
+                            'N° Control': fila['n_control'],
+                            'Total Compras': fila['total_compras'],
+                            'Base Imponible': fila['base_imponible'],
+                            'IVA': iva,
+                            'IVA Retenido': monto_ret
+                        })
+                    
+                    df_resumen_procesado = pd.DataFrame(lista_de_facturas)
+                    st.dataframe(df_resumen_procesado, hide_index=True, width="stretch")
+            
+            # Botón para limpiar y registrar otro grupo cuando el usuario lo decida
+            if st.button("🔄 Registrar otro grupo de facturas", key="btn_reset_retencion"):
+                st.session_state['facturas_seleccionadas'] = None
+                st.session_state['mostrar_exito'] = False
+                st.rerun()
+            
+            st.divider()
+
+        # --- 3. LÓGICA DE PROCESAMIENTO NORMAL (PENDIENTES) ---
+        col_b1, col_b2 = st.columns(2)
+        f_desde = col_b1.date_input("Desde", st.session_state.get('f_inicio_global', dt.date.today()), key="ret_iva_desde")
+        f_hasta = col_b2.date_input("Hasta", st.session_state.get('f_fin_global', dt.date.today()), key="ret_iva_hasta")
+
+        df_facturas = obtener_facturas_pendientes(conn, f_desde, f_hasta)
+
+        if not df_facturas.empty:
+            if 'Seleccionar' not in df_facturas.columns:
+                df_facturas.insert(0, "Seleccionar", False)
+
+            df_editado = st.data_editor(
+                df_facturas,
+                column_config={"Seleccionar": st.column_config.CheckboxColumn(required=True)},
+                hide_index=True,
+                width="stretch"
+            )
+
+            seleccion = df_editado[df_editado["Seleccionar"] == True]
+            
+            if not seleccion.empty:
+                st.session_state['facturas_seleccionadas'] = seleccion
+                st.success(f"Facturas seleccionadas: {len(seleccion)}")
+            else:
+                # Solo limpiamos si no estamos mostrando un éxito reciente
+                if not st.session_state.get('mostrar_exito'):
+                    st.session_state['facturas_seleccionadas'] = None
+
+        facturas_seleccionadas = st.session_state.get('facturas_seleccionadas')
+        
+        if facturas_seleccionadas is not None and not facturas_seleccionadas.empty:
+            # Obtención segura de columnas manejando posibles nombres alternativos o nulos
+            col_exento = 'importe_exento' if 'importe_exento' in facturas_seleccionadas.columns else ('monto_exento' if 'monto_exento' in facturas_seleccionadas.columns else None)
+            
+            total_base_agrupado = float(facturas_seleccionadas['base_imponible'].sum() if 'base_imponible' in facturas_seleccionadas.columns else 0)
+            total_iva_agrupado = float(facturas_seleccionadas['iva_monto'].sum() if 'iva_monto' in facturas_seleccionadas.columns else facturas_seleccionadas.get('impuesto_iva', 0).sum())
+            total_facturas_agrupado = float(facturas_seleccionadas['total_compras'].sum() if 'total_compras' in facturas_seleccionadas.columns else 0)
+            total_exento_agrupado = float(facturas_seleccionadas[col_exento].sum() if col_exento else 0)
+            
+            factura_principal = facturas_seleccionadas.iloc[0]
+            val_sugerido = str(factura_principal['fecha_operacion']).replace("-", "")[:6] + str(factura_principal['id']).zfill(8)
+
+            st.write("### 📝 Datos del Comprobante (Grupo)")
+            st.info(f"Agrupando {len(facturas_seleccionadas)} facturas de **{factura_principal['proveedor']}**")
+            
+            with st.form("form_retencion_iva"):
+                c1, c2, c3 = st.columns(3)
+                razon_social_ret = c1.text_input("Sujeto Retenido", value=factura_principal['proveedor'])
+                rif_ret = c2.text_input("RIF Retenido", value=factura_principal['rif'])
+                nro_comp = c3.text_input("N° Comprobante (14 dígitos)", value=val_sugerido, key=f"nro_{val_sugerido}")
+                
+                st.write("*(Los montos abajo representan la suma de todas las facturas seleccionadas)*")
+                
+                c7, c8, c9, c_ex = st.columns(4)
+                base_i = c7.number_input("Base Imponible Total", value=float(total_base_agrupado), format="%.2f")
+                iva_i = c8.number_input("Impuesto IVA Total", value=float(total_iva_agrupado), format="%.2f")
+                monto_exento_val = c_ex.number_input("Monto Exento Total", value=float(total_exento_agrupado), format="%.2f")
+                total_c = c9.number_input("Total Facturas", value=float(total_facturas_agrupado), format="%.2f")
+                
+                c10, c11 = st.columns(2)
+                porcentaje_ret = c10.selectbox("Porcentaje de Retención", [75, 100])
+                st.session_state['porcentaje_ret'] = porcentaje_ret 
+                iva_retenido = (float(iva_i) * porcentaje_ret) / 100
+                c11.metric("IVA a Retener Total", f"Bs. {iva_retenido:,.2f}")
+
+                db_actual_form = st.session_state.get('DB_ACTUAL')
+                empresa_data = obtener_datos_agente_db(db_actual_form)
+
+                if not empresa_data:
+                    st.error("⚠️ No se pudieron cargar los datos de la empresa.")
+                else:
+                    empresa_seleccionada = st.selectbox(
+                        "Empresa", 
+                        options=[empresa_data] if isinstance(empresa_data, dict) else empresa_data, 
+                        format_func=lambda x: x.get('nombre_empresa', 'EMPRESA')
+                    )
+                    st.session_state['id_empresa_seleccionada'] = empresa_seleccionada
+
+                enviado = st.form_submit_button("💾 Guardar y Generar Documentos")
+
+            if enviado:
+                empresa_data_env = st.session_state.get('id_empresa_seleccionada') or st.session_state.get('id_empresa_actual')
+                db_nombre = st.session_state.get('DB_ACTUAL')
+                
+                if not empresa_data_env or not db_nombre:
+                    st.error("❌ Faltan datos de empresa o base de datos.")
+                    st.stop()
+
+                conn_env = conectar_db(db_nombre)
+                if not conn_env:
+                    conn_env = conectar_db(db_nombre)
+
+                empresa_nombre = empresa_data_env.get('nombre_empresa') or empresa_data_env.get('razon_social') or "EMPRESA"
+                empresa_rif = empresa_data_env.get('rif') or "000000000"
+                
+                domicilio_fiscal = (
+                    empresa_data_env.get('direccion_fiscal') or 
+                    empresa_data_env.get('direccion') or 
+                    "DIRECCIÓN NO REGISTRADA"
+                )
+
+                cursor = None
+                try:
+                    cursor = conn_env.cursor()
+        
+                    for _, fila in facturas_seleccionadas.iterrows():
+                        tipo_doc_str = str(fila.get('tipo_documento', '')).strip().lower()
+                        monto_total_fila = float(fila.get('total_compras', 0) or 0)
+                        es_nc = 'credito' in tipo_doc_str or 'nota de credito' in tipo_doc_str or monto_total_fila < 0
+                        
+                        signo = -1 if es_nc else 1
+
+                        total_fila = abs(float(fila.get('total_compras', 0) or 0)) * signo
+                        base = abs(float(fila.get('base_imponible', 0) or 0)) * signo
+                        impuesto = abs(float(fila.get('iva_monto', 0) or fila.get('impuesto_iva', 0) or 0)) * signo
+                        exento = abs(float(fila.get('importe_exento', 0) or 0)) * signo
+
+                        if abs(base) == 0 and abs(impuesto) == 0 and abs(total_fila) > 0:
+                            if abs(exento) > 0:
+                                base = (abs(total_fila) - abs(exento)) * signo
+                            else:
+                                base = round(abs(total_fila) / 1.16, 2) * signo
+                            impuesto = round(abs(total_fila) - abs(exento) - abs(base), 2) * signo
+
+                        ratio = round(abs(impuesto) / abs(base), 2) if abs(base) > 0 else 0
+                        es_8 = ratio <= 0.08
+                        
+                        iva_retenido_fila = round((abs(impuesto) * porcentaje_ret) / 100, 2) * signo
+                        
+                        b16, i16, r16 = (base, impuesto, iva_retenido_fila) if not es_8 else (0.0, 0.0, 0.0)
+                        b8, i8, r8 = (base, impuesto, iva_retenido_fila) if es_8 else (0.0, 0.0, 0.0)
+                        
+                        fecha_corta = str(fila['fecha_operacion']).split(" ")[0]
+                        ano_f, mes_f = fecha_corta.split("-")[0], fecha_corta.split("-")[1]
+
+                        n_factura_cruda = str(fila.get('n_factura', '')).strip()
+                        n_control_cruda = str(fila.get('n_control', '')).strip()
+                        
+                        es_nota_credito = es_nc
+                        es_nota_debito = 'debito' in tipo_doc_str or 'nota de debito' in tipo_doc_str
+
+                        num_factura_val = n_factura_cruda
+                        num_control_val = n_control_cruda
+                        n_nota_credito_val = None
+                        n_nota_debito_val = None
+                        
+                        n_factura_afectada_val = (
+                            str(fila.get('factura_afectada', '')).strip() or 
+                            str(fila.get('n_factura_afectada', '')).strip() or 
+                            str(fila.get('afectada', '')).strip()
+                        )
+                        if n_factura_afectada_val in ["None", "nan", ""]:
+                            n_factura_afectada_val = None
+
+                        if es_nota_credito:
+                            n_nota_credito_val = n_factura_cruda
+                            num_factura_val = None
+                        elif es_nota_debito:
+                            n_nota_debito_val = n_factura_cruda
+                            num_factura_val = None
+
+                        query_ins_iva = """
+                            INSERT INTO retenciones_iva (
+                                Razon_Social_del_Agente_de_Retencion, 
+                                RIF_Agente_Retencion,  
+                                Direccion_FiscalAgente_Retencion, 
+                                E_Emision, 
+                                F_Entrega, 
+                                Razon_Social_Sujeto_Retenido, 
+                                RIF_Sujeto_Retenido, 
+                                Ano, 
+                                Mes, 
+                                N_Comprobante1, 
+                                Fecha_Factura, 
+                                Numero_Factura, 
+                                Numero_Contro, 
+                                N_Nota_Debito,
+                                N_Nota_Credito,
+                                NFactura_Afectada,
+                                Total_Comrpas, 
+                                Compras_Excentas, 
+                                Base_Imponible, 
+                                Alicuota,
+                                Impuesto_Iva, 
+                                Alicuota_75,
+                                IVA_Retenido, 
+                                Base_Imponible_8, 
+                                IVA_8, 
+                                RET_IVA_8
+                            ) VALUES (
+                                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 
+                                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 
+                                %s, %s, %s, %s, %s, %s
+                            )
+                        """
+
+                        params_iva = (
+                            empresa_nombre, 
+                            empresa_rif, 
+                            domicilio_fiscal,
+                            fecha_corta, 
+                            fecha_corta, 
+                            razon_social_ret, 
+                            rif_ret, 
+                            ano_f, 
+                            mes_f,
+                            nro_comp, 
+                            fecha_corta, 
+                            num_factura_val,       
+                            num_control_val,       
+                            n_nota_debito_val,     
+                            n_nota_credito_val,    
+                            n_factura_afectada_val,
+                            str(round(float(fila.get('total_compras', 0)), 2)),
+                            str(round(float(fila.get('importe_exento', 0)), 2)),
+                            str(round(b16, 2)), 
+                            "16%", 
+                            str(round(i16, 2)), 
+                            f"{porcentaje_ret}%", 
+                            str(round(iva_retenido_fila, 2)),
+                            round(b8, 2), 
+                            round(i8, 2), 
+                            round(r8, 2)
+                        )
+                        
+                        cursor.execute(query_ins_iva, params_iva)
+
+                        # Actualización exclusiva de IVA sin tocar el ISLR
+                        query_update = """
+                            UPDATE libro_compras 
+                            SET retencion_iva_realizada = 1 
+                            WHERE id = %s
+                        """
+                        cursor.execute(query_update, (int(fila['id']),))
+
+                    conn_env.commit()
+                    st.session_state['last_iva'] = {'nro_comp': nro_comp}
+                    st.session_state['mostrar_exito'] = True
+                    st.rerun()
+
+                except Exception as e:
+                    if conn_env: 
+                        conn_env.rollback()
+                    st.error(f"❌ Error al procesar: {e}")
+                finally:
+                    if cursor: 
+                        cursor.close()
+                    if conn_env: 
+                        conn_env.close()
+                
+        with tab2:
+            st.write("Cargando PDF...")
+            st.subheader("🔍 Historial y Consulta de Comprobantes")
+            db_actual = st.session_state.get("DB_ACTUAL")
+            
+            # --- ELIMINA LAS SIGUIENTES DOS LÍNEAS QUE CAUSAN EL ERROR ---
+            # detalle = obtener_detalle_comprobante(opcion_busqueda) 
+            # st.write("Datos recibidos de BD:", detalle)
+            # -------------------------------------------------------------
+            
+            # 1. VALIDACIÓN PREVENTIVA DE CONEXIÓN
+            try:
+                if conn:
+                    conn.ping(reconnect=True)
+                else:
+                    conn = conectar_db(db_actual)
+            except Exception:
+                conn = conectar_db(db_actual)
+                    
+            # Filtros de búsqueda
+            col_h1, col_h2 = st.columns(2)
+            f_desde_h = col_h1.date_input("Desde", f_inicio_global, key="hist_desde")
+            f_hasta_h = col_h2.date_input("Hasta", f_fin_global, key="hist_hasta")
+
+            # Reutilizamos la función de carga
+            df_historial = cargar_datos_reimpresion(f_desde_h, f_hasta_h)
+            
+            # Inicializamos la variable aquí para que siempre exista
+            opcion_busqueda = None 
+            
+            if not df_historial.empty:
+                opciones = {row['id']: f"Comp: {row['nro_comp']} | {row['razon']}" for i, row in df_historial.iterrows()}
+
+                opcion_busqueda = st.selectbox(
+                    "Seleccione el Comprobante para ver el historial detallado:",
+                    options=list(opciones.keys()),
+                    format_func=lambda x: opciones[x],
+                    index=None,
+                    placeholder="Seleccione un comprobante..."
+                )
+
+                st.write("---")
+
+                # Ahora sí, esta validación es segura
+                if opcion_busqueda is not None: 
+
+                    df_detalle = obtener_detalle_comprobante(opcion_busqueda)
+                    # 1. Definimos el ID de forma segura
+                    id_actual = int(EMPRESA) if str(EMPRESA).isdigit() else 1 
+                    id_real = st.session_state.get('id_empresa_seleccionada', {}).get('id', 1)
+                    # 2. Llamamos a la función y forzamos un valor por defecto si falla
+                    datos_empresa = obtener_datos_agente_db(id_real)
+
+                    # 3. Doble protección: Si por alguna razón la función devolvió None, le ponemos valor
+                    if datos_empresa is None:
+                        # CORREGIDO: Usamos 'direccion' en lugar de 'domicilio_fiscal'
+                        datos_empresa = {"nombre_empresa": "NO ENCONTRADO", "rif": "N/A", "direccion": "N/A"}
+
+                    # AHORA SÍ: Esto nunca fallará
+                    # 2. Piso 2: El PDF y Visualización (Solo si hay datos)
+                    if not df_detalle.empty:
+                        d = df_detalle.iloc[0].to_dict()
+                        
+                        # --- DISEÑO TIPO FICHA / REPORTE ---
+                        st.markdown(f"### 📄 Reporte del Comprobante: {d.get('N_Comprobante1', 'N/A')}")
+                        
+                        c1, c2, c3 = st.columns(3)
+                        with c1: 
+                            total_val = float(d.get('Total_Compras') or 0)
+                            st.metric("Total Operación", f"{total_val:,.2f}")
+                        with c2: 
+                            st.metric("Base Imponible", f"{float(d.get('Base_Imponible') or 0):,.2f}")
+                        with c3: 
+                            st.metric("IVA Retenido", f"{float(d.get('IVA_Retenido') or 0):,.2f}")
+
+                        # --- LÓGICA DE EXPORTACIÓN A PDF PROFESIONAL (CORREGIDO) ---
+                        st.write("---")
+                        try:
+                            from fpdf import FPDF
+                            
+                            def safe_float(valor):
+                                try: return float(valor) if valor is not None else 0.0
+                                except: return 0.0
+
+                            class PDF_PRO(FPDF):
+                                def header(self):
+                                    self.set_font('Arial', 'B', 10)
+                                    self.cell(0, 5, 'COMPROBANTE DE RETENCION DEL IMPUESTO AL VALOR AGREGADO', 0, 1, 'C')
+                                    self.set_font('Arial', '', 8)
+                                    texto_legal = (
+                                        "Ley IVA Art.11 Serán Responsables del Pago del Impuesto en Calidad de Agentes de Retención,\n"
+                                        "los compradores o adquirientes de determinados bienes muebles y los receptores de ciertos\n"
+                                        "servicios, a quienes la administración tributaria designe como tal"
+                                    )
+                                    self.multi_cell(0, 4, texto_legal, 0, 'C') 
+                                    self.ln(3)
+
+                            pdf = PDF_PRO(orientation='L', unit='mm', format='A4')
+                            pdf.add_page()
+
+                            # --- 1. OBTENER DATOS DE LA CONSULTA DETALLADA ---
+                            df_detalle = obtener_detalle_comprobante(opcion_busqueda)
+
+                            if not df_detalle.empty:
+                                d = df_detalle.iloc[0].to_dict()
+                            else:
+                                st.error("No se encontraron datos para este comprobante.")
+                                return
+
+                            # --- BLOQUE 1: AGENTE DE RETENCIÓN ---
+                            id_real = st.session_state.get('id_empresa_seleccionada', {}).get('id', 1)
+                            if not id_real or id_real == 1:
+                                id_real = int(EMPRESA) if str(EMPRESA).isdigit() else 1
+
+                            datos_empresa = obtener_datos_agente_db(id_real)
+                            if datos_empresa is None:
+                                datos_empresa = {"nombre_empresa": "NO ENCONTRADO", "rif": "N/A", "direccion": "N/A"}
+
+                            pdf.rect(15, 35, 110, 15) 
+                            pdf.set_font("Arial", "", 8); pdf.text(17, 39, "Razon Social del Agente de Retencion:")
+                            pdf.set_font("Arial", "B", 9); pdf.text(17, 46, str(datos_empresa.get('nombre_empresa', 'N/A'))) 
+
+                            pdf.rect(130, 35, 60, 15) 
+                            pdf.set_font("Arial", "", 8); pdf.text(132, 39, "RIF Agente Retencion:")
+                            pdf.set_font("Arial", "B", 10); pdf.text(132, 46, str(datos_empresa.get('rif', 'N/A')))
+
+                            pdf.rect(200, 35, 75, 15) 
+                            pdf.set_font("Arial", "", 8); pdf.text(202, 39, "N° Comprobante:")
+                            pdf.set_font("Arial", "B", 11); pdf.text(202, 47, str(d.get('N_Comprobante1', '')))
+
+                            # ------- BLOQUE 2: DIRECCIÓN Y FECHAS ----------------------
+                            pdf.rect(15, 55, 175, 15)
+                            pdf.set_font("Arial", "", 8)
+                            pdf.text(17, 59, "Dirección Fiscal del Agente de Retencion:")
+                            pdf.set_font("Arial", "", 7)
+                            pdf.set_xy(17, 61) 
+
+                            # Inyección directa de la dirección exacta de la empresa para terminar de una vez
+                            # ------- BLOQUE 2: DIRECCIÓN Y FECHAS ----------------------
+                            pdf.rect(15, 55, 175, 15)
+                            pdf.set_font("Arial", "", 8)
+                            pdf.text(17, 59, "Dirección Fiscal del Agente de Retencion:")
+                            pdf.set_font("Arial", "", 7)
+                            pdf.set_xy(17, 61) 
+
+                            # Dirección oficial exacta con saltos de línea
+                            dir_final = str(d.get('Direccion_FiscalAgente_Retencion', 'NO REGISTRADO'))
+
+                            pdf.multi_cell(170, 3.2, dir_final.upper())
+
+                            # ------- BLOQUE 3:  ----------------------
+                            pdf.rect(200, 55, 35, 15) 
+                            pdf.set_font("Arial", "", 8); pdf.text(202, 59, "E. Emision:")
+                            pdf.set_font("Arial", "B", 9); pdf.text(202, 66, str(d.get('E_Emision', '')))
+
+                            pdf.rect(235, 55, 40, 15) 
+                            pdf.set_font("Arial", "", 8); pdf.text(237, 59, "F. Entrega:")
+                            pdf.set_font("Arial", "B", 9); pdf.text(237, 66, str(d.get('F_Entrega', '')))
+
+                            # --- BLOQUE 4: SUJETO RETENIDO ---
+                            pdf.rect(15, 75, 110, 15)
+                            pdf.set_font("Arial", "", 8); pdf.text(17, 79, "Razon Social Sujeto Retenido:")
+                            pdf.set_font("Arial", "B", 9); pdf.text(17, 86, str(d.get('Razon_Social_Sujeto_Retenido', '')))
+
+                            pdf.rect(130, 75, 60, 15)
+                            pdf.set_font("Arial", "", 8); pdf.text(132, 79, "RIF Sujeto Retenido:")
+                            pdf.set_font("Arial", "B", 10); pdf.text(132, 86, str(d.get('RIF_Sujeto_Retenido', '')))
+
+                            pdf.rect(200, 75, 35, 15)
+                            pdf.set_font("Arial", "", 8); pdf.text(202, 79, "Año:")
+                            pdf.set_font("Arial", "B", 10); pdf.text(202, 86, str(d.get('Ano', '')))
+
+                            pdf.rect(235, 75, 40, 15)
+                            pdf.set_font("Arial", "", 8); pdf.text(237, 79, "Mes:")
+                            pdf.set_font("Arial", "B", 10); pdf.text(237, 86, str(d.get('Mes', '')).zfill(2))
+
+                            # --- DETECCIÓN REAL Y ROBUSTA DE NOTA DE CRÉDITO / DÉBITO ---
+                            cols_numericas = ['Compras_Excentas', 'Base_Imponible', 'Impuesto_Iva', 'IVA_Retenido', 
+                                             'Base_Imponible_8', 'IVA_8', 'RET_IVA_8']
+                            for col in cols_numericas:
+                                if col in df_detalle.columns:
+                                    df_detalle[col] = df_detalle[col].fillna(0)
+
+                            tiene_alicuota_8 = 'Base_Imponible_8' in df_detalle.columns and df_detalle['Base_Imponible_8'].sum() > 0
+
+                            # Evaluamos si hay notas revisando tipos de documento, columnas de notas o montos negativos
+                            tiene_notas = False
+                            for _, r_val in df_detalle.iterrows():
+                                td = str(r_val.get('tipo_documento', '')).strip()
+                                nc = str(r_val.get('nota_credito', '')).strip()
+                                nd = str(r_val.get('nota_debito', '')).strip()
+                                tot_val_check = safe_float(r_val.get('Total_Comrpas') or r_val.get('Total_Compras') or 0)
+                                if td in ['02', '03'] or (nc and nc != 'None' and nc != 'nan') or (nd and nd != 'None' and nd != 'nan') or tot_val_check < 0:
+                                    tiene_notas = True
+                                    break
+
+                            # ESTRUCTURA Y ANCHOS DE LA TABLA DINÁMICA
+                            if tiene_notas:
+                                if tiene_alicuota_8:
+                                    h = ["Fecha", "Tipo", "Nº NCredito", "N.Contr", "Fac. Afectada", "Total", "Exento", "Base 16%", "IVA 16%", "Ret. 16%", "Base 8%", "IVA 8%", "Ret. 8%", "Total Ret."]
+                                    w = [18, 12, 22, 20, 22, 22, 16, 18, 16, 18, 16, 16, 16, 20]
+                                else:
+                                    h = ["Fecha", "Tipo", "Nº Fact", "N.Contr", "Fac. Afectada", "Total", "Exento", "Base 16%", "IVA 16%", "Ret. 16%", "Total Ret."]
+                                    w = [20, 14, 25, 22, 25, 25, 18, 22, 20, 22, 24]
+                            else:
+                                if tiene_alicuota_8:
+                                    h = ["Fecha", "N.Fact", "N.Contr", "Total", "Exento", "Base 16%", "IVA 16%", "Ret. 16%", "Base 8%", "IVA 8%", "Ret. 8%", "Total Ret."]
+                                    w = [20, 18, 22, 25, 20, 22, 20, 22, 20, 20, 20, 22]
+                                else:
+                                    h = ["Fecha", "N.Fact", "N.Contr", "Total", "Exento", "Base 16%", "IVA 16%", "Ret. 16%", "Total Ret."]
+                                    w = [22, 20, 25, 28, 22, 26, 22, 26, 28]
+
+                            ancho_total_tabla = sum(w) 
+                            # Centramos la tabla correctamente en la página A4 apaisada (297mm de ancho total, 267mm imprimibles)
+                            x_inicio_tabla = (297 - ancho_total_tabla) / 2
+
+                            # --- DIBUJAR CABECERA DE TABLA ---
+                            pdf.set_y(95)
+                            pdf.set_x(x_inicio_tabla)
+                            pdf.set_fill_color(240, 240, 240)
+                            pdf.set_font("Arial", "B", 7)
+
+                            for i in range(len(h)):
+                                pdf.cell(w[i], 5, h[i], 1, 0, 'C', fill=True)
+                            pdf.ln()
+
+                            # Inicializar Totales Generales
+                            tot_gen_total, tot_gen_exento = 0.0, 0.0
+                            tot_gen_base16, tot_gen_iva16, tot_gen_ret16 = 0.0, 0.0, 0.0
+                            tot_gen_base8, tot_gen_iva8, tot_gen_ret8 = 0.0, 0.0, 0.0
+
+                            # --- BUCLE DE REGISTROS ---
+                            pdf.set_font("Arial", "", 7)
+                            for _, fila in df_detalle.iterrows():
+                                pdf.set_x(x_inicio_tabla)
+                                d_row = fila.to_dict()
+                                
+                                exento = safe_float(d_row.get('Compras_Excentas'))
+                                b16 = safe_float(d_row.get('Base_Imponible'))
+                                i16 = safe_float(d_row.get('Impuesto_Iva'))
+                                r16 = safe_float(d_row.get('IVA_Retenido'))
+                                b8 = safe_float(d_row.get('Base_Imponible_8'))
+                                i8 = safe_float(d_row.get('IVA_8'))
+                                r8 = safe_float(d_row.get('RET_IVA_8'))
+                                
+                                # Si total viene directo de la BD lo usamos, de lo contrario sumamos
+                                total_fila = safe_float(d_row.get('Total_Comrpas') or d_row.get('Total_Compras'))
+                                if total_fila == 0 and (exento != 0 or b16 != 0 or b8 != 0):
+                                    total_fila = exento + b16 + b8 + i16 + i8 
+                                
+                                tot_gen_total += total_fila
+                                tot_gen_exento += exento
+                                tot_gen_base16 += b16
+                                tot_gen_iva16 += i16
+                                tot_gen_base8 += b8
+                                tot_gen_iva8 += i8
+
+                                # EVALUAMOS CON ABS() PARA PERMITIR VALORES NEGATIVOS DE NOTAS DE CRÉDITO
+                                valor_a_mostrar_r16 = r16 if abs(b16) > 0 or abs(r16) > 0 else 0.0
+                                valor_a_mostrar_r8 = r8 if abs(b8) > 0 or abs(r8) > 0 else 0.0
+                                total_fila_retencion = valor_a_mostrar_r16 + valor_a_mostrar_r8
+
+                                if abs(b16) > 0 or abs(r16) > 0:
+                                    tot_gen_ret16 += r16
+                                if abs(b8) > 0 or abs(r8) > 0:
+                                    tot_gen_ret8 += r8
+
+                                # Capturamos la fecha y la factura afectada de forma totalmente segura
+                                fecha_op = str(d_row.get('Fecha_Factura') or '')
+                                tipo_doc = str(d_row.get('tipo', tipo_doc_calculado if 'tipo_doc_calculado' in locals() else ('03' if total_fila < 0 else '01')))
+                                
+                                # 🛠️ CAPTURA INTELIGENTE DEL NÚMERO DE DOCUMENTO (Evita que salga "None")
+                                nro_doc = str(
+                                    d_row.get('Numero_Factura') or 
+                                    d_row.get('N_Nota_Credito') or 
+                                    d_row.get('N_Nota_Debito') or 
+                                    d_row.get('n_factura') or 
+                                    ''
+                                ).strip()
+                                if nro_doc.lower() in ['none', 'nan', 'nat', '']:
+                                    nro_doc = ""
+
+                                nro_ctrl = str(d_row.get('Numero_Contro', ''))
+                                
+                                fac_afectada = str(
+                                    d_row.get('NFactura_Afectada') or 
+                                    d_row.get('nfactura_afectada') or 
+                                    d_row.get('N_Factura_Afectada') or 
+                                    ''
+                                ).strip()
+                                if fac_afectada.lower() in ['none', 'nan', 'nat', '']:
+                                    fac_afectada = ""
+
+                                if tiene_notas:
+                                    # 1. Fecha en w[0] (¡ESTO FALTABA Y DESCUADRABA TODO!)
+                                    pdf.cell(w[0], 4, fecha_op, 1, 0, 'C')
+                                    # 2. Tipo en w[1]
+                                    pdf.cell(w[1], 4, tipo_doc, 1, 0, 'C')
+                                    # 3. N° Doc/Nota en w[2]
+                                    pdf.cell(w[2], 4, nro_doc, 1, 0, 'C')
+                                    # 4. N.Contr en w[3]
+                                    pdf.cell(w[3], 4, nro_ctrl, 1, 0, 'C')
+                                    # 5. Fac. Afectada en w[4] (¡AQUÍ SE PINTA EL NÚMERO!)
+                                    pdf.cell(w[4], 4, fac_afectada, 1, 0, 'C')
+                                    # Resto de columnas intactas
+                                    pdf.cell(w[5], 4, f"{total_fila:,.2f}", 1, 0, 'R')
+                                    pdf.cell(w[6], 4, f"{exento:,.2f}", 1, 0, 'R')
+                                    pdf.cell(w[7], 4, f"{b16:,.2f}", 1, 0, 'R')
+                                    pdf.cell(w[8], 4, f"{i16:,.2f}", 1, 0, 'R')
+                                    pdf.cell(w[9], 4, f"{valor_a_mostrar_r16:,.2f}", 1, 0, 'R')
+
+                                    if tiene_alicuota_8:
+                                        pdf.cell(w[10], 4, f"{b8:,.2f}", 1, 0, 'R')
+                                        pdf.cell(w[11], 4, f"{i8:,.2f}", 1, 0, 'R')
+                                        pdf.cell(w[12], 4, f"{valor_a_mostrar_r8:,.2f}", 1, 0, 'R')
+                                        pdf.cell(w[13], 4, f"{total_fila_retencion:,.2f}", 1, 1, 'R', fill=True)
+                                    else:
+                                        pdf.cell(w[10], 4, f"{valor_a_mostrar_r16:,.2f}", 1, 1, 'R', fill=True)
+                                else:
+                                    # Sin notas (cuando no aplica factura afectada)
+                                    pdf.cell(w[0], 4, fecha_op, 1, 0, 'C')
+                                    pdf.cell(w[1], 4, nro_doc, 1, 0, 'C')
+                                    pdf.cell(w[2], 4, nro_ctrl, 1, 0, 'C')
+                                    pdf.cell(w[3], 4, f"{total_fila:,.2f}", 1, 0, 'R')
+                                    pdf.cell(w[4], 4, f"{exento:,.2f}", 1, 0, 'R')
+                                    pdf.cell(w[5], 4, f"{b16:,.2f}", 1, 0, 'R')
+                                    pdf.cell(w[6], 4, f"{i16:,.2f}", 1, 0, 'R')
+                                    pdf.cell(w[7], 4, f"{valor_a_mostrar_r16:,.2f}", 1, 0, 'R')
+
+                                    if tiene_alicuota_8:
+                                        pdf.cell(w[8], 4, f"{b8:,.2f}", 1, 0, 'R')
+                                        pdf.cell(w[9], 4, f"{i8:,.2f}", 1, 0, 'R')
+                                        pdf.cell(w[10], 4, f"{valor_a_mostrar_r8:,.2f}", 1, 0, 'R')
+                                        pdf.cell(w[11], 4, f"{total_fila_retencion:,.2f}", 1, 1, 'R', fill=True)
+                                    else:
+                                        pdf.cell(w[8], 4, f"{valor_a_mostrar_r16:,.2f}", 1, 1, 'R', fill=True)
+                            # --- FILA DE TOTALES GENERALES ---
+                            pdf.set_x(x_inicio_tabla)
+                            pdf.set_font("Arial", "B", 7)
+                            pdf.set_fill_color(220, 220, 220)
+
+                            if tiene_notas:
+                                pdf.cell(sum(w[:5]), 5, "TOTALES", 1, 0, 'R', fill=True)
+                                pdf.cell(w[5], 5, f"{tot_gen_total:,.2f}", 1, 0, 'R')
+                                pdf.cell(w[6], 5, f"{tot_gen_exento:,.2f}", 1, 0, 'R')
+                                pdf.cell(w[7], 5, f"{tot_gen_base16:,.2f}", 1, 0, 'R')
+                                pdf.cell(w[8], 5, f"{tot_gen_iva16:,.2f}", 1, 0, 'R')
+                                pdf.cell(w[9], 5, f"{tot_gen_ret16:,.2f}", 1, 0, 'R')
+
+                                if tiene_alicuota_8:
+                                    pdf.cell(w[10], 5, f"{tot_gen_base8:,.2f}", 1, 0, 'R')
+                                    pdf.cell(w[11], 5, f"{tot_gen_iva8:,.2f}", 1, 0, 'R')
+                                    pdf.cell(w[12], 5, f"{tot_gen_ret8:,.2f}", 1, 0, 'R')
+                                    pdf.cell(w[13], 5, f"{tot_gen_ret16 + tot_gen_ret8:,.2f}", 1, 1, 'R', fill=True)
+                                else:
+                                    pdf.cell(w[10], 5, f"{tot_gen_ret16:,.2f}", 1, 1, 'R', fill=True)
+                            else:
+                                pdf.cell(sum(w[:3]), 5, "TOTALES", 1, 0, 'R', fill=True)
+                                pdf.cell(w[3], 5, f"{tot_gen_total:,.2f}", 1, 0, 'R')
+                                pdf.cell(w[4], 5, f"{tot_gen_exento:,.2f}", 1, 0, 'R')
+                                pdf.cell(w[5], 5, f"{tot_gen_base16:,.2f}", 1, 0, 'R')
+                                pdf.cell(w[6], 5, f"{tot_gen_iva16:,.2f}", 1, 0, 'R')
+                                pdf.cell(w[7], 5, f"{tot_gen_ret16:,.2f}", 1, 0, 'R')
+
+                                if tiene_alicuota_8:
+                                    pdf.cell(w[8], 5, f"{tot_gen_base8:,.2f}", 1, 0, 'R')
+                                    pdf.cell(w[9], 5, f"{tot_gen_iva8:,.2f}", 1, 0, 'R')
+                                    pdf.cell(w[10], 5, f"{tot_gen_ret8:,.2f}", 1, 0, 'R')
+                                    pdf.cell(w[11], 5, f"{tot_gen_ret16 + tot_gen_ret8:,.2f}", 1, 1, 'R', fill=True)
+                                else:
+                                    pdf.cell(w[8], 5, f"{tot_gen_ret16:,.2f}", 1, 1, 'R', fill=True)
+
+                            # --- SECCIÓN DE FIRMAS CONTROLADA DINÁMICAMENTE ---
+                            pos_y_actual = pdf.get_y()
+                            if pos_y_actual > 165:
+                                pdf.add_page()
+                                y_firmas = 60
+                            else:
+                                y_firmas = pos_y_actual + 30
+
+                            import os
+                            ruta_firma = os.path.join("assets", "cielo.png")
+
+                            # Dibujar firma e imágenes alineadas
+                            if os.path.exists(ruta_firma):
+                                pdf.image(ruta_firma, x=55, y=y_firmas - 20, w=35)
+                                
+                            pdf.set_font("Arial", "B", 8)
+                            pdf.line(40, y_firmas, 110, y_firmas)
+                            pdf.line(185, y_firmas, 255, y_firmas)
+
+                            pdf.text(52, y_firmas + 5, "AGENTE DE RETENCION")
+                            pdf.text(197, y_firmas + 5, "SUJETO RETENIDO")
+
+                            pdf.set_font("Arial", "B", 7)
+                            nombre_empresa = datos_empresa.get('nombre_empresa', 'N/A')
+                            rif_empresa = datos_empresa.get('rif', 'N/A')
+
+                            pdf.set_xy(40, y_firmas + 8)
+                            pdf.multi_cell(70, 4, f"{nombre_empresa}\nRIF: {rif_empresa}", 0, 'C')
+
+                            pdf_output = bytes(pdf.output())
+                            
+                            st.download_button(
+                                label="📥 Exportar este Comprobante a PDF",
+                                data=pdf_output,
+                                file_name=f"COMP_{d.get('N_Comprobante1', '0')}.pdf",
+                                mime="application/pdf",
+                                type="primary"
+                            )
+
+                        except Exception as e:
+                            st.error(f"Error al generar PDF: {e}")
+
+                    else:
+                        st.error("⚠️ No se encontraron detalles válidos para este comprobante.")
+
+                    # 3. Piso 3: El Historial (¡Se ve siempre que haya una selección!)
+                    st.divider()
+                    st.write("📋 Resumen del período seleccionado:")
+                    if not df_historial.empty:
+                        st.dataframe(df_historial, use_container_width=True, hide_index=True)
+                    else:
+                        st.info("No se encontraron registros en el historial para este rango de fechas.")
+
+                else:
+                    # Planta Baja vacía
+                    st.info("Por favor, seleccione un comprobante de la lista superior.")
+
+        
+
+        with tab3:
+            st.write("Cargando Eliminar Retencion...")
+            
+            col_r1, col_r2 = st.columns(2)
+            f_desde_r = col_r1.date_input("Desde", f_inicio_global, key="reimp_desde")
+            f_hasta_r = col_r2.date_input("Hasta", f_fin_global, key="reimp_hasta")
+
+            df_reimp = cargar_datos_reimpresion(f_desde_r, f_hasta_r)
+
+            if not df_reimp.empty:
+                # 1. Definimos configuración de columnas con anchos más generosos
+                column_config = {}
+                for col in df_reimp.columns:
+                    if col in ['id', 'id_empresa', 'Ano', 'Mes']:
+                        column_config[col] = st.column_config.NumberColumn(width=100)
+                    else:
+                        column_config[col] = st.column_config.TextColumn(width=200) # Más ancho para que no se encojan
+
+                # Bloqueos de seguridad
+                column_config['id'] = st.column_config.NumberColumn(disabled=True, width=80)
+                if 'id_empresa' in df_reimp.columns:
+                    column_config['id_empresa'] = st.column_config.NumberColumn(disabled=True, width=80)
+
+                st.write("Modifica los valores directamente en la tabla y presiona 'Guardar Cambios':")
+                
+                # 2. ELIMINAMOS EL CSS DE ANCHO AL 100%
+                # Usamos el contenedor para el scroll vertical y permitimos el horizontal naturalmente
+                with st.container(height=300):
+                    edited_df = st.data_editor(
+                        df_reimp,
+                        column_config={
+                            "id": st.column_config.NumberColumn(disabled=True), # El ID nunca debe ser editable
+                            "nro_comp": st.column_config.TextColumn(disabled=True) # Si no quieres que cambien el número de comprobante
+                        },
+                        use_container_width=True,
+                        hide_index=True,
+                        key="editor_retenciones" # Clave única para evitar conflictos de estado
+                    )
+                # 3. Guardado
+                if st.button("💾 Guardar Cambios"):
+                    for _, row in edited_df.iterrows():
+                        # Buscamos la fila original en el df_reimp original mediante el ID
+                        original_row = df_reimp[df_reimp['id'] == row['id']].iloc[0]
+                        
+                        # Solo actualizamos si algo cambió realmente
+                        if not row.equals(original_row):
+                            if actualizar_registro_retencion(row):
+                                st.toast(f"Registro {row['id']} actualizado", icon="✅")
+                    
+                    st.rerun() # Recargamos para refrescar la tabla después de guardar
+
+                st.divider()
+
+                # 4. Eliminación
+                st.subheader("🗑️ Eliminar Registro")
+                def get_label(row):
+                    # Intentamos obtener el valor, si la columna no existe, devuelve 'Sin Nro'
+                    nro = row.get('nro_comp', 'Sin Nro')
+                    fact = row.get('Numero_Factura', 'Sin Factura')
+                    return f"Comp: {nro} | Fact: {fact}"
+
+                opciones_eliminar = {row['id']: get_label(row) for _, row in df_reimp.iterrows()}
+                
+                seleccion_del = st.selectbox(
+                    "Seleccione el comprobante a ELIMINAR:",
+                    options=list(opciones_eliminar.keys()),
+                    format_func=lambda x: opciones_eliminar[x]
+                )
+
+                if st.button("🚨 Confirmar Eliminación Permanente"):
+                    if eliminar_registro_retencion(seleccion_del):
+                        st.toast("Comprobante eliminado", icon="✅")
+                        st.rerun()
+            else:
+                st.info("No hay registros en este rango.")
+
+        # --- TAB 5: GESTIÓN DE FACTURAS (DESBLOQUEO) ---
+        with tab4:
+            st.write("Cargando Habilitar...")
+            st.subheader("🔓 Desbloquear Facturas (Quitar Retención)")
+
+            # 1. VALIDACIÓN PREVENTIVA (Antes de cargar la lista)
+            try:
+                if not conn:
+                    conn = conectar_db(db_actual)
+            except Exception as e:
+                conn = conectar_db(db_actual)
+
+            # Usamos el nombre real de la columna: 'retencion_realizada'
+            query_facturas = "SELECT n_factura as numero_factura, proveedor FROM libro_compras WHERE retencion_realizada = 1"
+            
+            facturas_bloqueadas = ejecutar_consulta(query_facturas, conn)
+
+            if facturas_bloqueadas is not None and not facturas_bloqueadas.empty:
+                opciones = facturas_bloqueadas['numero_factura'].astype(str) + " - " + facturas_bloqueadas['proveedor'].astype(str)
+                seleccion_label = st.selectbox("Seleccione factura para habilitar:", opciones, key="sel_des_iva")
+                nro_a_desbloquear = seleccion_label.split(" - ")[0]
+                
+                if st.button("Habilitar Factura", key="btn_des_iva"):
+                    cursor_aux = conn.cursor()
+                    # Actualizamos usando la misma columna correcta
+                    cursor_aux.execute("UPDATE libro_compras SET retencion_realizada = 0 WHERE n_factura = %s", (nro_a_desbloquear,))
+                    conn.commit()
+                    cursor_aux.close()
+                    st.success(f"Factura {nro_a_desbloquear} habilitada.")
+                    st.rerun()
+            else:
+                st.info("No hay facturas bloqueadas actualmente.")
+
+        
+        # --- TAB 6: ARCHIVO TXT SENIAT ---
+        with tab5:
+            st.write("Cargando TXT...")
+            st.subheader("🚀 Generación de Archivo TXT para el SENIAT")
+            st.info("Seleccione el rango de fechas para consolidar las retenciones.")
+
+            # --- BLINDAJE LOCAL DE FECHAS ---
+            from datetime import date as d_tipo, datetime
+
+            hoy = d_tipo.today()
+            inicio_mes = hoy.replace(day=1)
+
+            col1, col2 = st.columns(2)
+            with col1:
+                fecha_inicio = st.date_input("Fecha Inicio", inicio_mes, key="txt_f_inicio")
+            with col2:
+                fecha_fin = st.date_input("Fecha Fin", hoy, key="txt_f_fin")
+
+            if st.button("🔍 Filtrar y Generar TXT"):
+                db_nombre = st.session_state.get('DB_ACTUAL')
+                if not db_nombre:
+                    st.error("Error: No se ha seleccionado una base de datos.")
+                else:
+                    conn = conectar_db(db_nombre)
+                    try:
+                        import pymysql
+                        cursor = conn.cursor(pymysql.cursors.DictCursor)
+                        
+                        query_txt = "SELECT * FROM retenciones_iva WHERE E_Emision BETWEEN %s AND %s"
+                        cursor.execute(query_txt, (fecha_inicio.strftime('%Y-%m-%d'), fecha_fin.strftime('%Y-%m-%d')))
+                        registros_txt = cursor.fetchall()
+                        cursor.close()
+                        
+                        if registros_txt:
+                            lineas_txt = []
+                            for reg in registros_txt:
+                                # 1. Detectar si es Nota de Crédito o Nota de Débito
+                                nc_raw = str(reg.get('N_Nota_Credito') or reg.get('nota_credito') or '').strip()
+                                nd_raw = str(reg.get('N_Nota_Debito') or reg.get('nota_debito') or '').strip()
+                                
+                                tiene_nc = nc_raw and nc_raw.lower() not in ['none', 'nan', '', 'null', 'nat']
+                                tiene_nd = nd_raw and nd_raw.lower() not in ['none', 'nan', '', 'null', 'nat']
+                                
+                                if tiene_nc:
+                                    tipo_doc = '03'  # Nota de Crédito
+                                    num_doc = nc_raw
+                                    factura_afectada = str(reg.get('NFactura_Afectada') or reg.get('n_factura_afectada') or '').strip()
+                                elif tiene_nd:
+                                    tipo_doc = '02'  # Nota de Débito
+                                    num_doc = nd_raw
+                                    factura_afectada = str(reg.get('NFactura_Afectada') or reg.get('n_factura_afectada') or '').strip()
+                                else:
+                                    tipo_doc = str(reg.get('Tipo_Documento') or reg.get('tipo_documento') or '01').strip()
+                                    num_doc = str(reg.get('Numero_Factura') or reg.get('n_factura') or '').strip()
+                                    factura_afectada = ""
+
+                                # 2. Manejo de Alícuotas y Montos (¡Absolutamente en positivo, sin signos negativos!)
+                                es_ocho = float(reg.get('Base_Imponible_8', 0) or 0) > 0
+                                
+                                if es_ocho:
+                                    m_base = abs(float(reg.get('Base_Imponible_8', 0) or 0))
+                                    m_ret = abs(float(reg.get('RET_IVA_8', 0) or 0))
+                                    m_ali = "8.00"
+                                else:
+                                    m_base = abs(float(reg.get('Base_Imponible', reg.get('base_imponible', 0)) or 0))
+                                    m_ret = abs(float(reg.get('IVA_Retenido', reg.get('monto_iva_retenido', 0)) or 0))
+                                    m_ali = "16.00"
+
+                                exento = abs(float(reg.get('Compras_Excentas', reg.get('importe_exento', 0)) or 0))
+                                
+                                # Cálculo estricto del IVA y Total Compras exigido por el SENIAT
+                                iva_monto_calc = round(m_base * (float(m_ali) / 100.0), 2)
+                                total_compras_calc = round(exento + m_base + iva_monto_calc, 2)
+                                
+                                # Si el monto retenido viene en 0, lo calculamos de forma predeterminada (ej. 75% o 100%)
+                                if m_ret == 0.0 and iva_monto_calc > 0:
+                                    m_ret = round(iva_monto_calc * 0.75, 2) # Ajusta el porcentaje según tu cliente (0.75 o 1.0)
+
+                                # 3. Manejo seguro de fecha
+                                fecha_raw = reg.get('Fecha_Factura') or reg.get('fecha_operacion') or ''
+                                try:
+                                    f_obj = datetime.strptime(str(fecha_raw).split(" ")[0], '%Y-%m-%d')
+                                except:
+                                    f_obj = datetime.now()
+                                periodo = f_obj.strftime("%Y%m")
+                                
+                                # 4. Construcción estricta de los 15 campos del SENIAT
+                                campos = [
+                                    str(reg.get('RIF_Agente_Retencion', '')).replace('-', '').strip(),
+                                    periodo,
+                                    f_obj.strftime('%Y-%m-%d'),
+                                    'C', 
+                                    tipo_doc,  # '01' Factura, '03' Nota de Crédito
+                                    str(reg.get('RIF_Sujeto_Retenido', reg.get('rif', ''))).replace('-', '').strip(),
+                                    num_doc,  # Número de Factura o de Nota de Crédito
+                                    str(reg.get('Numero_Contro', reg.get('n_control', ''))).strip(),
+                                    f"{total_compras_calc:.2f}",
+                                    f"{m_base:.2f}", 
+                                    f"{m_ret:.2f}", 
+                                    '0',
+                                    str(reg.get('N_Comprobante1', reg.get('n_comprobante_retencion', ''))).strip(),
+                                    f"{exento:.2f}",
+                                    m_ali, 
+                                    '0'
+                                ]
+                                
+                                lineas_txt.append("\t".join(campos))
+                            
+                            contenido_final_txt = "\n".join(lineas_txt)
+                            st.code(contenido_final_txt)
+                            
+                            nombre_archivo = f"IVA_SENIAT_{fecha_inicio.strftime('%Y-%m-%d')}_al_{fecha_fin.strftime('%Y-%m-%d')}.txt"
+
+                            st.download_button(
+                                label="💾 Descargar TXT",
+                                data=contenido_final_txt,
+                                file_name=nombre_archivo,
+                                mime="text/plain"
+                            )
+                        else:
+                            st.warning("No hay registros en este rango.")
+                    except Exception as e:
+                        st.error(f"Error al generar TXT: {e}")
+                    finally:
+                        if conn:
+                            try:
+                                conn.close()
+                            except Exception:
+                                pass
+
+def modulo_retencion_iva():
+    aplicar_estilo_publico()
+    
+    db_actual = st.session_state.get("DB_ACTUAL", "kingdriver_ca")
+    empresa_data = obtener_datos_agente_db(db_actual)
+    nombre = (
+        empresa_data.get("nombre_empresa", "King Driver, C.A.")
+        if empresa_data
+        else "King Driver, C.A."
+    )
+
+    st.title("🧾 Comprobante de Retención IVA")
+    st.markdown(f"### 🏢 {nombre}")
+    st.markdown("---")
+
+    import datetime as dt
+
+    # Validación de base de datos activa
+    if db_actual and db_actual != 'none':
+        try:
+            # Definimos un diccionario de empresa básico por si se requiere localmente
+            empresa_dict = {
+                "nombre": nombre,
+                "rif": empresa_data.get("rif", "J507757188") if empresa_data else "J507757188",
+                "direccion": empresa_data.get("direccion", "CARACAS") if empresa_data else "CARACAS"
+            }
+            
+            # Carga delegada a la interfaz principal de retención de IVA
+            if 'mostrar_interfaz_retencion_iva' in globals():
+                mostrar_interfaz_retencion_iva(
+                    empresa_dict, 
+                    st.session_state.get('f_inicio_global', dt.date.today()), 
+                    st.session_state.get('f_fin_global', dt.date.today())
+                )
+            else:
+                st.info("Módulo de retención IVA vinculado correctamente. Interfaz en preparación.")
+        except Exception as e:
+            st.error(f"❌ Error al cargar el módulo de Retención IVA: {e}")
+    else:
+        st.error("⚠️ No se detectó una base de datos activa en la sesión.")
+
 if __name__ == "__main__":
     # Prueba local opcional
     pass
