@@ -44,15 +44,17 @@ def modulo_compras():
   st.markdown(f"**RIF:** {empresa_data.get('rif', 'N/D')}")
   st.markdown("---")
   
-  # Asegúrate de tener esta línea declarada antes de usar los bloques "with tabX:"
-  tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-      "🔍 Consultar y Editar",
-      "📸 Escaneo Inteligente",
-      "🚨 Vaciado de Rango",
-      "📊 Cargar desde Excel",
+  # --- 1. DECLARACIÓN Y DESEMPAQUETADO DE LAS PESTAÑAS (CRÍTICO) ---
+  tab_titles = [
+      "🔍 Consultar y Editar", 
+      "📸 Escaneo Inteligente", 
+      "🚨 Vaciado de Rango", 
+      "📊 Cargar desde Excel", 
       "📁 PDFs POR LOTES",
       "📝 Notas de Crédito / Débito"
-  ])
+  ]
+  tabs = st.tabs(tab_titles)
+  tab1, tab2, tab3, tab4, tab5, tab6 = tabs
 
   # ==========================================
   # TAB 1: CONSULTAR Y EDITAR
