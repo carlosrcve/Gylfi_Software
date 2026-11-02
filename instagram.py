@@ -696,13 +696,176 @@ def modulo_compras():
                         st.session_state.df_buffer_escaneo = pd.DataFrame()
                         st.rerun()
 
+    # ==========================================
+    # TAB 3: VACIADO DE RANGO
+    # ==========================================
     with tab3:
-        st.subheader("🚨 Vaciado de Compras por Rango")
-        st.warning("Herramienta para depuración de rangos de fechas en el libro de compras.")
+        st.subheader("🚨 Vaciado de Compras")
+        
+        with st.popover("🚨 VACIAR COMPRAS (RANGO SELECCIONADO)", use_container_width=True):
+            st.subheader("Seleccionar Rango a Borrar")
+            
+            fecha_d = st.date_input("Desde:", key="rango_desde_borrar_compras")
+            fecha_h = st.date_input("Hasta:", key="rango_hasta_borrar_compras")
+            
+            st.markdown("---")
+            st.subheader("Confirmar Borrado")
+            st.warning(f"Se eliminarán los registros desde {fecha_d} hasta {fecha_h}") 
+            
+            confirmar_check = st.checkbox("Confirmo que deseo borrar", key="check_borrar_final_compras")
+            
+            if st.button("EJECUTAR BORRADO", type="primary", disabled=not confirmar_check, key="btn_ejecutar_borrado_compras_rango"):
+                f_d_str = fecha_d.strftime('%Y-%m-%d')
+                f_h_str = fecha_h.strftime('%Y-%m-%d')
+                
+                try:
+                    conn_del = conectar_db(db_actual)
+                    if conn_del:
+                        conn_del.ping(reconnect=True)
+                        with conn_del.cursor() as cursor:
+                            cursor.execute(
+                                "DELETE FROM libro_compras WHERE fecha_operacion BETWEEN %s AND %s", 
+                                (f_d_str, f_h_str)
+                            )
+                            conn_del.commit()
+                        conn_del.close()
+                    
+                    st.cache_data.clear()
+                    st.success("✅ Rango de compras eliminado correctamente.")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"❌ Error al ejecutar el borrado: {e}")
 
+        st.divider()
+
+        @st.cache_data(ttl=30, show_spinner=False)
+        def obtener_fechas_compras_cached(empresa):
+            fechas = []
+            conn = conectar_db(empresa)
+            if conn:
+                try:
+                    conn.ping(reconnect=True)
+                    df_fechas = pd.read_sql("SELECT DISTINCT fecha_operacion FROM libro_compras ORDER BY fecha_operacion DESC LIMIT 10", conn)
+                    if not df_fechas.empty:
+                        fechas = df_fechas['fecha_operacion'].tolist()
+                except Exception:
+                    pass
+                finally:
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
+            return fechas
+
+        with st.expander("🕵️ Inspeccionar fechas de compras antes de borrar"):
+            try:
+                fechas_existentes = obtener_fechas_compras_cached(db_actual)
+                if fechas_existentes:
+                    st.write("Las 10 fechas de operación más recientes en tu libro de compras:")
+                    for f in fechas_existentes:
+                        st.write(f"- {f}")
+                else:
+                    st.info("ℹ️ No se encontraron registros en el libro de compras.")
+            except Exception:
+                st.error("No se pudieron cargar las fechas de inspección.")
+
+    # ==========================================
+    # TAB 4: CARGAR DESDE EXCEL
+    # ==========================================
     with tab4:
         st.subheader("📊 Cargar desde Excel")
-        st.info("📊 Carga Masiva desde Excel (LIBROS DE COMPRAS)")
+        st.subheader("📊 Carga Masiva desde Excel (LIBROS DE COMPRAS)")
+        archivo_ex = st.file_uploader("Sube tu archivo Excel", type=['xlsx'], key="uploader_excel_compras_masivo")
+        
+        @st.cache_data(show_spinner=False)
+        def leer_excel_masivo_cached(file_buffer):
+            df_excel = pd.read_excel(file_buffer)
+            df_excel.columns = df_excel.columns.str.strip().str.lower().str.replace(" ", "_")
+            
+            for col in df_excel.columns:
+                if any(k in col for k in ['control', 'factura', 'rif', 'documento', 'proveedor']):
+                    df_excel[col] = df_excel[col].astype(str).replace({'nan': '', 'None': ''})
+                    
+            return df_excel
+
+        if archivo_ex is not None:
+            st.session_state.df_carga_excel = leer_excel_masivo_cached(archivo_ex)
+
+        if "df_carga_excel" in st.session_state and not st.session_state.df_carga_excel.empty:
+            df_temp = st.session_state.df_carga_excel.copy()
+            
+            col_fecha = next((c for c in df_temp.columns if 'fecha' in c.lower()), None)
+            if col_fecha:
+                df_temp = df_temp.rename(columns={col_fecha: 'fecha_operacion'})
+                
+                df_temp['fecha_operacion'] = pd.to_datetime(df_temp['fecha_operacion'], errors='coerce')\
+                                            .dt.strftime('%Y-%m-%d')\
+                                            .fillna(pd.Timestamp.now().strftime('%Y-%m-%d'))
+                
+                st.session_state.df_carga_excel = df_temp
+
+            df_visual = st.session_state.df_carga_excel.copy()
+            
+            cols_para_formatear = ['total_compras', 'compras_exentas', 'base_imponible', 'credito_fiscales']
+            for col in cols_para_formatear:
+                if col in df_visual.columns:
+                    df_visual[col] = df_visual[col].apply(
+                        lambda x: "{:,.2f}".format(float(x)).replace(",", "X").replace(".", ",").replace("X", ".") 
+                        if pd.notnull(x) else "0,00"
+                    )
+                    
+            st.subheader("👁️ Vista de los datos cargados")
+            st.dataframe(df_visual, use_container_width=True, hide_index=True)
+
+            st.markdown("---")
+            def f_bs(v): return f"Bs. {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+            df_calc = st.session_state.df_carga_excel.copy()
+            
+            renombres = {
+                'importe_exento': 'compras_exentas',
+                'iva_monto': 'credito_fiscales',
+                'total_exento': 'compras_exentas'
+            }
+            df_calc = df_calc.rename(columns=renombres)
+
+            for col in ['total_compras', 'compras_exentas', 'base_imponible', 'credito_fiscales']:
+                if col not in df_calc.columns:
+                    df_calc[col] = 0.0
+                else:
+                    df_calc[col] = pd.to_numeric(df_calc[col], errors='coerce').fillna(0.0)
+
+            m1, m2, m3, m4 = st.columns(4)
+            m1.metric("TOTAL COMPRAS", f_bs(df_calc['total_compras'].sum()))
+            m2.metric("TOTAL EXENTO", f_bs(df_calc['compras_exentas'].sum()))
+            m3.metric("TOTAL BASE", f_bs(df_calc['base_imponible'].sum()))
+            m4.metric("TOTAL IVA", f_bs(df_calc['credito_fiscales'].sum()))
+
+            st.markdown("---")
+
+            if st.button("🚀 Guardar carga masiva en DB", type="primary", use_container_width=True, key="btn_guardar_masivo_compras"):
+                with st.spinner("⏳ Guardando registros en la base de datos..."):
+                    try:
+                        df_to_save = st.session_state.df_carga_excel.copy()
+                        
+                        if 'retencion_realizada' not in df_to_save.columns:
+                            df_to_save['retencion_realizada'] = 0.0
+                        
+                        if 'retencion_iva_realizada' not in df_to_save.columns:
+                            df_to_save['retencion_iva_realizada'] = 0.0
+
+                        cargar_libro_compras_db(df_to_save, db_actual)
+                        
+                        st.cache_data.clear()
+                        st.success("✅ ¡Proceso finalizado y guardado correctamente en la base de datos!")
+                        
+                        del st.session_state.df_carga_excel
+                        st.rerun()
+                        
+                    except Exception as e:
+                        st.error(f"❌ Error crítico al guardar en DB: {e}")
+        else:
+            st.info("ℹ️ Por favor, sube un archivo Excel válido para comenzar la carga masiva.")
 
     with tab5:
         st.subheader("📁 PDFs POR LOTES")
