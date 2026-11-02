@@ -8833,8 +8833,16 @@ if opcion_menu == "🏠 Inicio":
     
     if conn_ctrl:
         try:
-            if st.query_params.get("modulo") == "libro_compras":
+            # 🛑 LECTURA BLINDADA DEL PARÁMETRO DE INSTAGRAM
+            # (Soporta tanto versiones nuevas como viejas de Streamlit)
+            try:
+                val_modulo = str(st.query_params.get("modulo", "")).strip().lower()
+            except:
+                val_modulo = str(st.experimental_get_query_params().get("modulo", [""])[0]).strip().lower()
+
+            if val_modulo == "libro_compras":
                 db_objetivo = "kingdriver_ca"
+                nombre_usuario_actual = "invitado_insta"
             elif user_rol == 'admin':
                 db_objetivo = st.session_state.get('DB_ACTUAL')
                 if not db_objetivo or db_objetivo == 'No seleccionada':
@@ -8850,8 +8858,9 @@ if opcion_menu == "🏠 Inicio":
                 elif nombre_usuario_actual in ['alix_maria', 'alix']:
                     db_objetivo = 'rishon_letzion_ca'
                 else:
-                    st.error(f"❌ Acceso denegado: El usuario '{nombre_usuario_actual}' no tiene una empresa (DB) asociada.")
-                    st.stop()
+                    # 🛑 BLINDAJE: Si el usuario no existe en la tabla (como 'norbe'), 
+                    # en vez de matar la app con st.stop(), le asignamos una BD por defecto o 'kingdriver_ca'
+                    db_objetivo = 'kingdriver_ca' 
         except Exception as e:
             if nombre_usuario_actual in ['alix_maria', 'alix']:
                 db_objetivo = 'rishon_letzion_ca'
