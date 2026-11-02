@@ -1,6 +1,6 @@
 # instagram.py - Módulo Independiente del Libro de Compras
 #https://gylfisoftware.streamlit.app/?modulo=libro_compras
-# instagram.py - Módulo Independiente del Libro de Compras
+#https://gylfisoftware.streamlit.app/?modulo=libro_ventas
 import io
 import ssl
 import time
@@ -1208,5 +1208,212 @@ def modulo_compras():
                                     conn.close()
 
 
+def modulo_ventas():
+    aplicar_estilo_publico()
+
+    db_actual = st.session_state.get("DB_ACTUAL", "kingdriver_ca")
+    empresa_data = obtener_datos_agente_db(db_actual)
+    nombre = (
+        empresa_data.get("nombre_empresa", "King Driver, C.A.")
+        if empresa_data
+        else "King Driver, C.A."
+    )
+
+    st.title("📊 Libro de Ventas")
+    st.markdown(f"### 🏢 {nombre}")
+    st.markdown("---")
+
+    # Validación inicial de empresa
+    if not db_actual or db_actual == 'none':
+        st.warning("⚠️ Selecciona una empresa en el menú lateral.")
+        st.stop()
+
+    # Inicialización de estado de pestaña activa
+    if 'active_tab' not in st.session_state:
+        st.session_state.active_tab = "🔍 Consultar y Editar"
+
+    # Estructura de pestañas
+    tab_titles = ["📊 Cargar desde Excel", "🔍 Consultar y Editar", "🚨 Vaciado de Rango"]
+    tab1, tab2, tab3 = st.tabs(tab_titles)
+
+    # ==========================================
+    # TAB 1: CARGAR DESDE EXCEL
+    # ==========================================
+    with tab1:
+        st.subheader("📊 Cargar desde Excel")
+        with st.expander("📥 Importar Libro de Ventas desde Excel", expanded=True):
+            archivo_v = st.file_uploader("Seleccionar archivo Excel", type=['xlsx'], key="v_up_directo")
+            
+            if archivo_v:
+                df_preview = pd.read_excel(archivo_v, header=0)
+
+                df_preview = df_preview.rename(columns={
+                    "Fecha de Factura": "fecha_factura",
+                    "Nombre y Apellido o Razón Social": "nombre_razon_social",
+                    "R.I.F.": "rif",
+                    "Número de Factura": "n_factura",
+                    "Num. Control de": "n_control",
+                    "Total Ventas Incluyendo el IVA": "total_ventas_con_iva",
+                    "Ventas Exentas": "ventas_exentas",
+                    "Base Imponible": "base_imponible",
+                    "% Alícuota": "porcentaje_alicuota",
+                    "Débito Fiscal": "debito_fiscal"
+                })
+
+                if 'fecha_factura' in df_preview.columns:
+                    df_preview['fecha_factura'] = pd.to_datetime(df_preview['fecha_factura'], errors='coerce').dt.strftime('%Y-%m-%d').fillna('2026-06-13')
+                
+                column_config = {
+                    "fecha_factura": st.column_config.TextColumn("fecha_factura")
+                }
+                
+                resultado = st.data_editor(df_preview, key=f"editor_{archivo_v.name}", use_container_width=True, column_config=column_config)
+                
+                st.markdown("### 📊 Totales")
+                def f_bs(v): return f"Bs. {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+                cols_a_sumar = ['total_ventas_con_iva', 'ventas_exentas', 'base_imponible', 'debito_fiscal']
+                df_limpio = resultado.copy()
+                
+                for col in cols_a_sumar:
+                    if col in df_limpio.columns:
+                        df_limpio[col] = pd.to_numeric(df_limpio[col], errors='coerce').fillna(0.0)
+                    else:
+                        df_limpio[col] = 0.0
+                        st.warning(f"⚠️ La columna esperada '{col}' no se encontró en el archivo. Verifique el encabezado del Excel.")
+
+                t1, t2, t3, t4 = st.columns(4)
+                t1.metric("Total Ventas", f_bs(df_limpio['total_ventas_con_iva'].sum()))
+                t2.metric("Ventas Exentas", f_bs(df_limpio['ventas_exentas'].sum()))
+                t3.metric("Total Base", f_bs(df_limpio['base_imponible'].sum()))
+                t4.metric("Débito Fiscal", f_bs(df_limpio['debito_fiscal'].sum()))
+                
+                if st.button("🚀 Procesar e Importar", type="primary"):
+                    with st.spinner("⏳ Procesando..."):
+                        try:
+                            conn_upload = conectar_db(db_actual)
+                            if conn_upload:
+                                if 'cargar_libro_ventas_db' in globals():
+                                    cargar_libro_ventas_db(resultado, conn_upload)
+                                conn_upload.close()
+                                st.success("✅ Archivo procesado correctamente.")
+                                st.balloons()
+                        except Exception as e:
+                            st.error(f"❌ Error crítico: {e}")
+
+    # ==========================================
+    # TAB 2: CONSULTAR Y EDITAR
+    # ==========================================
+    with tab2:
+        st.subheader("🔍 Consultar y Editar: Libro de Ventas")
+        st.info("💡 Consulta, modifica o elimina registros del libro de ventas almacenados en la base de datos.")
+        
+        col_v1, col_v2, col_v3 = st.columns([1, 1, 1])
+        with col_v3:
+            ver_todo_v = st.checkbox("📂 Ver todo", key="todo_ventas")
+
+        def _obtener_f_segura_v(key_s):
+            val = st.session_state.get(key_s)
+            if val is not None:
+                try:
+                    if hasattr(val, "year") and hasattr(val, "month"):
+                        return val
+                    elif isinstance(val, str):
+                        return datetime.strptime(val, "%Y-%m-%d").date()
+                except Exception:
+                    pass
+            return datetime.today().date()
+
+        with col_v1:
+            desde_v = st.date_input("Desde", _obtener_f_segura_v("f_inicio_global_v"), key="desde_v", disabled=ver_todo_v)
+        with col_v2:
+            hasta_v = st.date_input("Hasta", _obtener_f_segura_v("f_fin_global_v"), key="hasta_v", disabled=ver_todo_v)
+
+        @st.cache_data(ttl=30, show_spinner=False)
+        def consultar_libro_ventas_cached(empresa, ver_todo_val, f_desde, f_hasta):
+            df_res = pd.DataFrame()
+            conn = conectar_db(empresa)
+            if conn:
+                try:
+                    conn.ping(reconnect=True)
+                    if ver_todo_val:
+                        query = "SELECT * FROM libro_ventas ORDER BY fecha_factura DESC"
+                        df_res = pd.read_sql(query, conn)
+                    else:
+                        query = "SELECT * FROM libro_ventas WHERE fecha_factura BETWEEN %s AND %s ORDER BY fecha_factura ASC"
+                        df_res = pd.read_sql(query, conn, params=(f_desde, f_hasta))
+                except Exception:
+                    pass
+                finally:
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
+            return df_res
+
+        if st.button("📊 Consultar Ventas", key="btn_consultar_ventas"):
+            df_recuperado_v = consultar_libro_ventas_cached(db_actual, ver_todo_v, desde_v, hasta_v)
+            if df_recuperado_v is not None and not df_recuperado_v.empty:
+                st.session_state.df_ventas_editor = df_recuperado_v
+            else:
+                st.warning("No se encontraron registros de ventas en el rango seleccionado.")
+                if "df_ventas_editor" in st.session_state:
+                    del st.session_state.df_ventas_editor
+
+        if "df_ventas_editor" in st.session_state:
+            df_mostrar_ventas = st.session_state.df_ventas_editor.copy()
+            st.subheader("✏️ Administrar Ventas (Modificar, Eliminar)")
+            
+            key_editor_ventas = "editor_consulta_ventas_final"
+            cambios_ventas_df = st.data_editor(
+                df_mostrar_ventas,
+                key=key_editor_ventas,
+                num_rows="fixed",
+                use_container_width=True,
+                hide_index=True
+            )
+
+    # ==========================================
+    # TAB 3: VACIADO DE RANGO
+    # ==========================================
+    with tab3:
+        st.subheader("🚨 Vaciado de Ventas por Rango")
+        with st.popover("🚨 VACIAR VENTAS (RANGO SELECCIONADO)", use_container_width=True):
+            st.subheader("Seleccionar Rango a Borrar")
+            fecha_d_v = st.date_input("Desde:", key="rango_desde_borrar_ventas")
+            fecha_h_v = st.date_input("Hasta:", key="rango_hasta_borrar_ventas")
+            
+            st.markdown("---")
+            st.warning(f"Se eliminarán los registros de ventas desde {fecha_d_v} hasta {fecha_h_v}")
+            confirmar_check_v = st.checkbox("Confirmo que deseo borrar las ventas", key="check_borrar_ventas")
+            
+            if st.button("EJECUTAR BORRADO VENTAS", type="primary", disabled=not confirmar_check_v, key="btn_ejecutar_borrado_ventas"):
+                try:
+                    conn_del_v = conectar_db(db_actual)
+                    if conn_del_v:
+                        conn_del_v.ping(reconnect=True)
+                        with conn_del_v.cursor() as cursor:
+                            cursor.execute(
+                                "DELETE FROM libro_ventas WHERE fecha_factura BETWEEN %s AND %s",
+                                (fecha_d_v.strftime('%Y-%m-%d'), fecha_h_v.strftime('%Y-%m-%d'))
+                            )
+                            conn_del_v.commit()
+                        conn_del_v.close()
+                    st.cache_data.clear()
+                    st.success("✅ Rango de ventas eliminado correctamente.")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"❌ Error al ejecutar el borrado: {e}")
+
 if __name__ == "__main__":
-    modulo_compras()
+    # Menú rápido para pruebas locales en tu entorno de desarrollo
+    st.sidebar.title("🛠️ Selector de Pruebas")
+    selector = st.sidebar.selectbox(
+        "Selecciona el módulo a probar:", 
+        ["Libro de Compras", "Libro de Ventas"]
+    )
+    
+    if selector == "Libro de Compras":
+        modulo_compras()
+    elif selector == "Libro de Ventas":
+        modulo_ventas()
