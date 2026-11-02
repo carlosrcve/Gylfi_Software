@@ -139,100 +139,100 @@ def conectar_db(nombre_db=None):
 
 
 # ----------------------------------------------------
-    # VALIDACIÓN DE ROL Y FILTRADO DE EMPRESAS
-    # ----------------------------------------------------
-    es_admin = False
-    dbs_filtradas = []
-    mapa_nombres_empresas = {}
+# VALIDACIÓN DE ROL Y FILTRADO DE EMPRESAS
+# ----------------------------------------------------
+es_admin = False
+dbs_filtradas = []
+mapa_nombres_empresas = {}
 
-    # 🛑 1. ESCUDO / PUENTE DE INSTAGRAM (INVITADO PÚBLICO - VE TODAS LAS EMPRESAS)
-    if st.query_params.get("modulo") == "libro_compras":
-        usuario_actual = "invitado_insta"
-        rol_usuario = "publico"
-        db_asignada_usuario = ""
-        
-        # Para que el invitado de Instagram pueda ver y elegir CUALQUIER empresa, 
-        # tratamos sus permisos de forma similar al admin para el listado:
-        try:
-            with db_connection.cursor(pymysql.cursors.DictCursor) as cursor_temp:
-                cursor_temp.execute("SELECT * FROM control_central.clientes")
-                clientes_db = cursor_temp.fetchall()
+# 🛑 1. ESCUDO / PUENTE DE INSTAGRAM (INVITADO PÚBLICO - VE TODAS LAS EMPRESAS)
+if st.query_params.get("modulo") == "libro_compras":
+    usuario_actual = "invitado_insta"
+    rol_usuario = "publico"
+    db_asignada_usuario = ""
+    
+    # Para que el invitado de Instagram pueda ver y elegir CUALQUIER empresa, 
+    # tratamos sus permisos de forma similar al admin para el listado:
+    try:
+        with db_connection.cursor(pymysql.cursors.DictCursor) as cursor_temp:
+            cursor_temp.execute("SELECT * FROM control_central.clientes")
+            clientes_db = cursor_temp.fetchall()
 
-            for cli in clientes_db:
-                db_name = str(cli.get("db_nombre", "")).strip()
-                nombre_comercial = str(cli.get("nombre_empresa", db_name)).strip()
+        for cli in clientes_db:
+            db_name = str(cli.get("db_nombre", "")).strip()
+            nombre_comercial = str(cli.get("nombre_empresa", db_name)).strip()
 
-                if db_name:
-                    dbs_filtradas.append(db_name)
-                    mapa_nombres_empresas[db_name] = nombre_comercial
-        except Exception as e:
-            st.warning(f"⚠️ Error cargando la lista de empresas para invitados: {e}")
-            dbs_filtradas = ["kingdriver_ca"]
-            mapa_nombres_empresas["kingdriver_ca"] = "KING DRIVER C.A."
-
-    # 🔒 2. FLUJO NORMAL (USUARIOS REGISTRADOS EN LA BD)
-    else:
-        usuario_actual = str(
-            st.session_state.get("user", st.session_state.get("usuario", "invitado"))
-        ).strip()
-        rol_usuario = "cliente"
-        db_asignada_usuario = ""
-
-        try:
-            with db_connection.cursor(pymysql.cursors.DictCursor) as cursor_temp:
-                cursor_temp.execute(
-                    "SELECT rol, db_nombre FROM control_central.usuarios WHERE usuario = %s",
-                    (usuario_actual,),
-                )
-                res_usuario = cursor_temp.fetchone()
-
-                if res_usuario:
-                    rol_usuario = str(res_usuario.get("rol", "cliente")).strip().lower()
-                    db_asignada_usuario = str(
-                        res_usuario.get("db_nombre", "")
-                    ).strip()
-
-                es_admin = rol_usuario in [
-                    "admin",
-                    "administrador",
-                ] or st.session_state.get("es_admin", False)
-
-                cursor_temp.execute("SELECT * FROM control_central.clientes")
-                clientes_db = cursor_temp.fetchall()
-
-            for cli in clientes_db:
-                db_name = str(cli.get("db_nombre", "")).strip()
-                nombre_comercial = str(cli.get("nombre_empresa", db_name)).strip()
-
-                if db_name:
-                    if es_admin:
-                        dbs_filtradas.append(db_name)
-                        mapa_nombres_empresas[db_name] = nombre_comercial
-                    else:
-                        if (
-                            db_asignada_usuario
-                            and db_name.lower() == db_asignada_usuario.lower()
-                        ):
-                            dbs_filtradas.append(db_name)
-                            mapa_nombres_empresas[db_name] = nombre_comercial
-
-        except Exception as e:
-            st.warning(f"⚠️ Error consultando `control_central`: {e}")
-            if es_admin:
-                dbs_filtradas = ["kingdriver_ca"]
-                mapa_nombres_empresas["kingdriver_ca"] = "KING DRIVER C.A."
-            else:
-                db_defecto = db_asignada_usuario if db_asignada_usuario else "kingdriver_ca"
-                dbs_filtradas = [db_defecto]
-                mapa_nombres_empresas[db_defecto] = db_defecto.upper()
-
-    if not dbs_filtradas:
+            if db_name:
+                dbs_filtradas.append(db_name)
+                mapa_nombres_empresas[db_name] = nombre_comercial
+    except Exception as e:
+        st.warning(f"⚠️ Error cargando la lista de empresas para invitados: {e}")
         dbs_filtradas = ["kingdriver_ca"]
         mapa_nombres_empresas["kingdriver_ca"] = "KING DRIVER C.A."
 
-    if not dbs_filtradas:
-        st.error("⚠️ No se encontraron empresas registradas en el sistema.")
-        return
+# 🔒 2. FLUJO NORMAL (USUARIOS REGISTRADOS EN LA BD)
+else:
+    usuario_actual = str(
+        st.session_state.get("user", st.session_state.get("usuario", "invitado"))
+    ).strip()
+    rol_usuario = "cliente"
+    db_asignada_usuario = ""
+
+    try:
+        with db_connection.cursor(pymysql.cursors.DictCursor) as cursor_temp:
+            cursor_temp.execute(
+                "SELECT rol, db_nombre FROM control_central.usuarios WHERE usuario = %s",
+                (usuario_actual,),
+            )
+            res_usuario = cursor_temp.fetchone()
+
+            if res_usuario:
+                rol_usuario = str(res_usuario.get("rol", "cliente")).strip().lower()
+                db_asignada_usuario = str(
+                    res_usuario.get("db_nombre", "")
+                ).strip()
+
+            es_admin = rol_usuario in [
+                "admin",
+                "administrador",
+            ] or st.session_state.get("es_admin", False)
+
+            cursor_temp.execute("SELECT * FROM control_central.clientes")
+            clientes_db = cursor_temp.fetchall()
+
+        for cli in clientes_db:
+            db_name = str(cli.get("db_nombre", "")).strip()
+            nombre_comercial = str(cli.get("nombre_empresa", db_name)).strip()
+
+            if db_name:
+                if es_admin:
+                    dbs_filtradas.append(db_name)
+                    mapa_nombres_empresas[db_name] = nombre_comercial
+                else:
+                    if (
+                        db_asignada_usuario
+                        and db_name.lower() == db_asignada_usuario.lower()
+                    ):
+                        dbs_filtradas.append(db_name)
+                        mapa_nombres_empresas[db_name] = nombre_comercial
+
+    except Exception as e:
+        st.warning(f"⚠️ Error consultando `control_central`: {e}")
+        if es_admin:
+            dbs_filtradas = ["kingdriver_ca"]
+            mapa_nombres_empresas["kingdriver_ca"] = "KING DRIVER C.A."
+        else:
+            db_defecto = db_asignada_usuario if db_asignada_usuario else "kingdriver_ca"
+            dbs_filtradas = [db_defecto]
+            mapa_nombres_empresas[db_defecto] = db_defecto.upper()
+
+if not dbs_filtradas:
+    dbs_filtradas = ["kingdriver_ca"]
+    mapa_nombres_empresas["kingdriver_ca"] = "KING DRIVER C.A."
+
+if not dbs_filtradas:
+    st.error("⚠️ No se encontraron empresas registradas en el sistema.")
+    return
 
 def obtener_datos_empresa_activa():
     """
