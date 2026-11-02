@@ -504,11 +504,13 @@ def modulo_compras():
 
     with tab2:
         st.subheader("📸 Escaneo Inteligente de Documentos (OCR)")
-        archivo = st.file_uploader("Sube factura, nota de crédito o débito (PDF o Imagen)", type=['jpg', 'png', 'jpeg', 'pdf'], key="uploader_factura")
         
+        # Inicialización correcta dentro del ámbito de la pestaña
         if "df_buffer_escaneo" not in st.session_state:
             st.session_state.df_buffer_escaneo = pd.DataFrame()
 
+        archivo = st.file_uploader("Sube factura, nota de crédito o débito (PDF o Imagen)", type=['jpg', 'png', 'jpeg', 'pdf'], key="uploader_factura")
+        
         if archivo:
             st.divider()
             
