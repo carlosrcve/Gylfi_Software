@@ -139,7 +139,7 @@ try:
 except Exception:
     modulo_url = ""
 
-if modulo_url in ["libro_compras", "libro_ventas", "retencion_islr"]:
+if modulo_url in ["libro_compras", "libro_ventas", "retencion_islr", "retencion_iva"]:
     st.session_state.clear()
     st.session_state["logueado"] = True
     st.session_state["usuario"] = "invitado_insta"
@@ -153,6 +153,8 @@ if modulo_url in ["libro_compras", "libro_ventas", "retencion_islr"]:
         instagram.modulo_ventas()
     elif modulo_url == "retencion_islr":
         instagram.modulo_retencion_islr()
+    elif modulo_url == "retencion_iva":
+        instagram.modulo_retencion_iva()
     
     st.stop()
 # ==========================================
