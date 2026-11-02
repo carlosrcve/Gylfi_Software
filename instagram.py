@@ -37,7 +37,7 @@ def conectar_db(db_name=None):
     
     # Mapeo de nombres lógicos a los nombres reales de las bases de datos en TiDB Cloud
     mapeo_bases = {
-        "kingdirver_ca": "kingdiver_ca",  # <--- Reemplaza "kingdriver" por el nombre exacto de la BD en TiDB si difiere
+        "kingdirver_ca": "kingdirver_ca",  # <--- Reemplaza "kingdriver" por el nombre exacto de la BD en TiDB si difiere
         # Agrega aquí otras empresas si es necesario
     }
     
