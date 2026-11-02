@@ -42,12 +42,6 @@ import streamlit as st
 import qrcode
 from io import BytesIO
 import qrcode
-import io
-from datetime import date
-from reportlab.lib import colors
-from reportlab.lib.pagesizes import letter
-from reportlab.platypus import HRFlowable, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
-from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 
 
 st.set_page_config(
@@ -137,28 +131,54 @@ def conectar_db(nombre_db=None):
         st.session_state.conn = None
         return None
 
-import streamlit as st
 
-# 🛑 BARRIDO TOTAL: Elimina cualquier rastro de 'norbe' de la sesión del navegador
+# 1. Configuración de página
+st.set_page_config(page_title="Sistema King Driver", layout="wide")
+
+# 🛑 INTERCEPTOR ABSOLUTO DE INSTAGRAM EN EL ARCHIVO PRINCIPAL
+modulo_url = ""
 try:
-  for key in list(st.session_state.keys()):
-    if (
-        isinstance(st.session_state[key], str)
-        and "norbe" in st.session_state[key].lower()
-    ):
-      st.session_state[key] = "invitado_insta"
+    params_dict = dict(st.query_params)
+    modulo_url = str(params_dict.get("modulo", "")).strip().lower()
+except:
+    try:
+        params_old = st.experimental_get_query_params()
+        modulo_url = str(params_old.get("modulo", [""])[0]).strip().lower()
+    except:
+        modulo_url = ""
 
-  # Forzar el acceso de Instagram si viene el parámetro
-  if st.query_params.get("modulo") == "libro_compras":
+if modulo_url in ["libro_compras", "libro_ventas", "retencion_islr", "retencion_iva"]:
+    # Limpiamos cualquier sesión basura o rastro de 'norbe'
+    st.session_state.clear()
+    
+    # Asignamos los valores de invitado de Instagram
+    st.session_state["logueado"] = True
     st.session_state["usuario"] = "invitado_insta"
     st.session_state["user"] = "invitado_insta"
     st.session_state["rol"] = "admin"
-    st.markdown(
-        "<style>[data-testid='stSidebar'] {display: none !important;}</style>",
-        unsafe_allow_html=True,
-    )
-except Exception:
-  pass
+    st.session_state["DB_ACTUAL"] = "kingdriver_ca"
+    st.session_state["CLIENTE_NOMBRE"] = "King Driver, C.A."
+
+    # Importamos y ejecutamos la vista pública desde instagram.py
+    import instagram
+    if modulo_url == "libro_compras":
+        instagram.modulo_compras()
+    elif modulo_url == "libro_ventas":
+        instagram.modulo_ventas()
+    elif modulo_url == "retencion_islr":
+        instagram.modulo_retencion_islr()
+    elif modulo_url == "retencion_iva":
+        instagram.modulo_retencion_iva()
+    else:
+        instagram.aplicar_estilo_publico()
+        st.error("Módulo no encontrado.")
+
+    # 🛑 FRENO ABSOLUTO: Evita que cargue el login o la auditoría de norbe
+    st.stop()
+
+# =====================================================================
+# A PARTIR DE AQUÍ SIGUE EL CÓDIGO NORMAL DE TU CONTABILIDAD / LOGIN
+# =====================================================================
 
 def obtener_datos_empresa_activa():
     """
@@ -6374,7 +6394,7 @@ def renderizar_tab_asientos_ventas(db_connection):
     # VALIDACIÓN DE ROL Y FILTRADO DE EMPRESAS
     # ----------------------------------------------------
     usuario_actual = str(
-        st.session_state.get("user", st.session_state.get("usuario", "carlos_admin"))
+        st.session_state.get("user", st.session_state.get("usuario", "norbe"))
     ).strip()
 
     rol_usuario = "cliente"
@@ -8185,6 +8205,14 @@ def modulo_escaneo_facturas_manuales(conn, db_actual):
                 st.success("✅ Facturación digital interna emitida correctamente.")
 
 
+import io
+from datetime import date
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import letter
+from reportlab.platypus import HRFlowable, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+import streamlit as st
+
 
 # ==============================================================================
 # FUNCIÓN AUXILIAR: GENERAR PDF PROFESIONAL DE CONTROL INTERNO
@@ -8789,43 +8817,16 @@ if 'df_gastos_c6' in locals() and df_gastos_c6.empty:
     st.sidebar.warning("⚠️ El DataFrame de Gastos C6 está vacío.")
 
 
-import streamlit as st
-
-# 🛑 ESCUDO NUCLEAR DE INSTAGRAM (LÍNEA 1 ABSOLUTA)
-try:
-    modulo_url = str(st.query_params.get("modulo", "")).strip().lower()
-except:
-    try:
-        modulo_url = str(st.experimental_get_query_params().get("modulo", [""])[0]).strip().lower()
-    except:
-        modulo_url = ""
-
-if modulo_url == "libro_compras":
-    # Forzamos la sesión de invitado de inmediato para que NUNCA aparezca 'norbe'
-    st.session_state["logueado"] = True
-    st.session_state["usuario"] = "invitado_insta"
-    st.session_state["user"] = "invitado_insta"
-    st.session_state["username"] = "invitado_insta"
-    st.session_state["nombre_usuario"] = "invitado_insta"
-    st.session_state["rol"] = "admin"
-    st.session_state["DB_ACTUAL"] = "kingdriver_ca"
-    st.session_state["CLIENTE_NOMBRE"] = "King Driver, C.A."
-    
-    # CSS agresivo para borrar el sidebar y la barra flotante del mapa visual
-    st.markdown("""
-        <style>
-            [data-testid="stSidebar"] { display: none !important; width: 0 !important; }
-            [data-testid="collapsedControl"] { display: none !important; }
-            section.main { width: 100% !important; margin-left: 0 !important; }
-        </style>
-    """, unsafe_allow_html=True)
-
-# Configuración del menú
+# Al autenticar o pasar la plantilla de bienvenida por primera vez:
+# 1. Aseguramos que la opción por defecto del menú de auditoría sea Inicio si no existe
 if 'opcion_menu_auditoria' not in st.session_state:
     st.session_state['opcion_menu_auditoria'] = "🏠 Inicio"
 
+# 2. Recuperamos siempre la opción actual del menú
 opcion_menu = st.session_state.get('opcion_menu_auditoria', "🏠 Inicio")
 
+
+# 3. Evaluamos si el usuario está en el Dashboard de Inicio
 if opcion_menu == "🏠 Inicio":
     # --- INYECCIÓN DE CSS ---
     st.markdown("""<style>
@@ -8834,44 +8835,41 @@ if opcion_menu == "🏠 Inicio":
             div[data-testid="element-container"] { width: 100% !important; }
         </style>""", unsafe_allow_html=True)
 
-    # 🛑 Si ya viene resuelto por Instagram, nos saltamos la consulta a la BD para este fin
-    if modulo_url != "libro_compras":
-        conn_ctrl = conectar_db()
-        
-        if conn_ctrl:
-            try:
-                # Si viene por Instagram O si el usuario es 'norbe' / está vacío
-                if modulo_url == "libro_compras" or not nombre_usuario_actual or nombre_usuario_actual == 'norbe':
-                    db_objetivo = "kingdriver_ca"
-                    nombre_usuario_actual = "invitado_insta"
-                elif user_rol == 'admin':
-                    db_objetivo = st.session_state.get('DB_ACTUAL')
-                    if not db_objetivo or db_objetivo == 'No seleccionada':
-                        df_temp = ejecutar_consulta("SELECT db_nombre FROM clientes LIMIT 1", conn_ctrl)
-                        if not df_temp.empty: 
-                            db_objetivo = str(df_temp['db_nombre'].iloc[0])
-                else:
-                    # --- BÚSQUEDA DIRECTA Y SEGURA EN LA TABLA ---
-                    query = f"SELECT db_nombre FROM usuarios WHERE LOWER(TRIM(usuario)) = '{nombre_usuario_actual}'"
-                    df_temp = ejecutar_consulta(query, conn_ctrl)
-                    
-                    if not df_temp.empty and df_temp['db_nombre'].iloc[0]:
-                        db_objetivo = str(df_temp['db_nombre'].iloc[0]).strip()
-                    elif nombre_usuario_actual in ['alix_maria', 'alix']:
-                        db_objetivo = 'rishon_letzion_ca'
-                    else:
-                        # 🛑 RESCATE: Si no existe en la tabla (como 'norbe'), asignamos kingdriver_ca
-                        db_objetivo = 'kingdriver_ca'
-                        
-            except Exception as e:
-                if nombre_usuario_actual in ['alix_maria', 'alix']:
+    user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
+    nombre_usuario_actual = (st.session_state.get('nombre_usuario') or st.session_state.get('username') or st.session_state.get('usuario') or '').strip().lower()
+
+    conn_ctrl = conectar_db()
+    db_objetivo = None
+    
+    if conn_ctrl:
+        try:
+            if user_rol == 'admin':
+                db_objetivo = st.session_state.get('DB_ACTUAL')
+                if not db_objetivo or db_objetivo == 'No seleccionada':
+                    df_temp = ejecutar_consulta("SELECT db_nombre FROM clientes LIMIT 1", conn_ctrl)
+                    if not df_temp.empty: db_objetivo = str(df_temp['db_nombre'].iloc[0])
+            else:
+                # --- BÚSQUEDA DIRECTA Y SEGURA ---
+                query = f"SELECT db_nombre FROM usuarios WHERE LOWER(TRIM(usuario)) = '{nombre_usuario_actual}'"
+                df_temp = ejecutar_consulta(query, conn_ctrl)
+                
+                if not df_temp.empty and df_temp['db_nombre'].iloc[0]:
+                    db_objetivo = str(df_temp['db_nombre'].iloc[0]).strip()
+                elif nombre_usuario_actual in ['alix_maria', 'alix']:
                     db_objetivo = 'rishon_letzion_ca'
                 else:
-                    db_objetivo = 'kingdriver_ca'
-            finally:
-                if conn_ctrl and hasattr(conn_ctrl, 'close'):
-                    conn_ctrl.close()
-                    
+                    st.error(f"❌ Acceso denegado: El usuario '{nombre_usuario_actual}' no tiene una empresa (DB) asociada.")
+                    st.stop()
+        except Exception as e:
+            if nombre_usuario_actual in ['alix_maria', 'alix']:
+                db_objetivo = 'rishon_letzion_ca'
+            else:
+                st.error(f"❌ Error al resolver la base de datos: {e}")
+                st.stop()
+        finally:
+            if conn_ctrl and hasattr(conn_ctrl, 'close'):
+                conn_ctrl.close()
+
     # Aseguramos que la sesión mantenga la DB activa
     if db_objetivo:
         st.session_state['DB_ACTUAL'] = db_objetivo
@@ -20024,4 +20022,3 @@ if opcion_menu == "📸 Códigos QR y Escaneo":
                     conn_qr.close()
                 except:
                     pass
-
