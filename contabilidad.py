@@ -8789,30 +8789,26 @@ if 'df_gastos_c6' in locals() and df_gastos_c6.empty:
     st.sidebar.warning("⚠️ El DataFrame de Gastos C6 está vacío.")
 
 
-# 🛑 1. ESCUDO MAESTRO DE INSTAGRAM (ARRIBA DEL TODO)
+# 🛑 1.5 INTERCEPTOR TOTAL DE INSTAGRAM (ANTES DE TODO)
 try:
     modulo_url = str(st.query_params.get("modulo", "")).strip().lower()
 except:
-    try:
-        modulo_url = str(st.experimental_get_query_params().get("modulo", [""])[0]).strip().lower()
-    except:
-        modulo_url = ""
+    modulo_url = ""
 
-
-# 🛑 SECUESTRO Y BLINDAJE DE SESIÓN (LÍNEA 1 ABSOLUTA)
-# Si viene por Instagram, inyectamos los datos para que NUNCA caiga en 'norbe'
-try:
-    if st.query_params.get("modulo") == "libro_compras":
-        st.session_state["usuario"] = "invitado_insta"
-        st.session_state["user"] = "invitado_insta"
-        st.session_state["username"] = "invitado_insta"
-        st.session_state["rol"] = "admin"
-        st.session_state["DB_ACTUAL"] = "kingdriver_ca"
-        
-        # Ocultar la barra lateral de golpe
-        st.markdown("<style>[data-testid='stSidebar'] {display: none !important;}</style>", unsafe_allow_html=True)
-except Exception:
-    pass
+if modulo_url == "libro_compras":
+    # Blindamos todas las llaves posibles que cualquier módulo (incluyendo invoice.py) pueda buscar
+    st.session_state["logueado"] = True
+    st.session_state["usuario"] = "invitado_insta"
+    st.session_state["user"] = "invitado_insta"
+    st.session_state["username"] = "invitado_insta"
+    st.session_state["nombre_usuario"] = "invitado_insta"
+    st.session_state["nombre_usuario_actual"] = "invitado_insta"
+    st.session_state["rol"] = "admin"
+    st.session_state["DB_ACTUAL"] = "kingdriver_ca"
+    st.session_state["CLIENTE_NOMBRE"] = "King Driver, C.A."
+    
+    # Ocultar barra lateral
+    st.markdown("<style>[data-testid='stSidebar'] {display: none !important;}</style>", unsafe_allow_html=True)
 
 # Configuración del menú
 if 'opcion_menu_auditoria' not in st.session_state:
