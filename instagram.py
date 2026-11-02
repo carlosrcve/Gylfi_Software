@@ -1,4 +1,4 @@
-## instagram.py 
+## instagram.py - Módulo Independiente del Libro de Compras
 import io
 import ssl
 import time
@@ -88,6 +88,10 @@ def obtener_engine_cached(db_name):
   return create_engine(
       database_url,
       connect_args={"ssl": {"ssl_ca": None, "check_hostname": False}},
+  )
+
+
+# --- FUNCIÓN PRINCIPAL DEL MÓDULO ---
 def modulo_compras():
     aplicar_estilo_publico()
 
