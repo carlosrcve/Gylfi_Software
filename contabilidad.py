@@ -143,18 +143,16 @@ def conectar_db(nombre_db=None):
 params = st.query_params
 modulo_url = params.get("modulo", None)
 
-# Si alguien entra con el link de Instagram, mostramos SOLO el cargador de Excel
-if modulo_url == "libre_compra":
-  st.set_page_config(
-      page_title="Libro de Compras - Gylfi Software", layout="wide"
-  )
-  st.title("🛒 Módulo Exclusivo: Libro de Compras")
+# Si entran por el link de Instagram: ?modulo=libro_compras
+if modulo_url == "libro_compras":
+  st.title("🛒 Gylfi Software - Libro de Compras (Público)")
+  st.markdown("---")
 
-  # Aquí pegas el código de tu cargador de Excel (el mismo que tienes en tab4)
+  # 1. Uploader con KEY DIFERENTE para que no choque con el de la app interna
   archivo_ex = st.file_uploader(
       "Sube tu archivo Excel",
       type=["xlsx"],
-      key="uploader_excel_compras_masivo",
+      key="uploader_excel_compras_masivo_insta",
   )
 
 def obtener_datos_empresa_activa():
