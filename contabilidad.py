@@ -8789,33 +8789,37 @@ if 'df_gastos_c6' in locals() and df_gastos_c6.empty:
     st.sidebar.warning("⚠️ El DataFrame de Gastos C6 está vacío.")
 
 
-# 🛑 ESCUDO MAESTRO A PRUEBA DE TODO
+# 🛑 1. ESCUDO MAESTRO DE INSTAGRAM (ARRIBA DEL TODO)
 try:
-  modulo_url = st.query_params.get("modulo", "")
+    modulo_url = str(st.query_params.get("modulo", "")).strip().lower()
 except:
-  modulo_url = st.experimental_get_query_params().get("modulo", [""])[0]
+    try:
+        modulo_url = str(st.experimental_get_query_params().get("modulo", [""])[0]).strip().lower()
+    except:
+        modulo_url = ""
 
+# Definimos variables de sesión iniciales seguras
 if modulo_url == "libro_compras":
-  st.session_state["rol"] = "admin"
-  st.session_state["usuario"] = "invitado_insta"
-  st.session_state["user"] = "invitado_insta"
-  user_rol = "admin"
-  nombre_usuario_actual = "invitado_insta"
-  db_objetivo = "kingdriver_ca"
-  st.markdown(
-      "<style>[data-testid='stSidebar'] {display: none !important;}</style>",
-      unsafe_allow_html=True,
-  )
+    st.session_state["rol"] = "admin"
+    st.session_state["usuario"] = "invitado_insta"
+    st.session_state["user"] = "invitado_insta"
+    user_rol = "admin"
+    nombre_usuario_actual = "invitado_insta"
+    db_objetivo = "kingdriver_ca"
+    
+    # Ocultar barra lateral para el público de Instagram
+    st.markdown("<style>[data-testid='stSidebar'] {display: none !important;}</style>", unsafe_allow_html=True)
 else:
-  user_rol = str(st.session_state.get("rol", "admin")).strip().lower()
-  nombre_usuario_actual = (
-      st.session_state.get("nombre_usuario")
-      or st.session_state.get("username")
-      or st.session_state.get("usuario")
-      or ""
-  ).strip().lower()
+    user_rol = str(st.session_state.get("rol", "admin")).strip().lower()
+    nombre_usuario_actual = (
+        st.session_state.get("nombre_usuario")
+        or st.session_state.get("username")
+        or st.session_state.get("usuario")
+        or ""
+    ).strip().lower()
+    db_objetivo = None
 
-# Si no estamos en modo Instagram, procedemos con la conexión normal a la BD
+# Configuración del menú
 if 'opcion_menu_auditoria' not in st.session_state:
     st.session_state['opcion_menu_auditoria'] = "🏠 Inicio"
 
@@ -8829,47 +8833,42 @@ if opcion_menu == "🏠 Inicio":
             div[data-testid="element-container"] { width: 100% !important; }
         </style>""", unsafe_allow_html=True)
 
-    conn_ctrl = conectar_db()
-    
-    if conn_ctrl:
-        try:
-            # 🛑 SI ES INSTAGRAM: Forzamos el usuario invitado para que no busque en la tabla
-            if st.query_params.get("modulo") == "libro_compras":
-                nombre_usuario_actual = "invitado_insta"
-                st.session_state["usuario"] = "invitado_insta"
-                st.session_state["user"] = "invitado_insta"
-                db_objetivo = "kingdriver_ca"
+    # 🛑 Si ya viene resuelto por Instagram, nos saltamos la consulta a la BD para este fin
+    if modulo_url != "libro_compras":
+        conn_ctrl = conectar_db()
+        
+        if conn_ctrl:
+            try:
+                if user_rol == 'admin':
+                    db_objetivo = st.session_state.get('DB_ACTUAL')
+                    if not db_objetivo or db_objetivo == 'No seleccionada':
+                        df_temp = ejecutar_consulta("SELECT db_nombre FROM clientes LIMIT 1", conn_ctrl)
+                        if not df_temp.empty:
+                            db_objetivo = str(df_temp['db_nombre'].iloc[0])
+                else:
+                    # --- BÚSQUEDA NORMAL DE USUARIOS REGISTRADOS ---
+                    if not nombre_usuario_actual:
+                        db_objetivo = 'kingdriver_ca'
+                    else:
+                        query = f"SELECT db_nombre FROM usuarios WHERE LOWER(TRIM(usuario)) = '{nombre_usuario_actual}'"
+                        df_temp = ejecutar_consulta(query, conn_ctrl)
+                        
+                        if not df_temp.empty and df_temp['db_nombre'].iloc[0]:
+                            db_objetivo = str(df_temp['db_nombre'].iloc[0]).strip()
+                        elif nombre_usuario_actual in ['alix_maria', 'alix']:
+                            db_objetivo = 'rishon_letzion_ca'
+                        else:
+                            db_objetivo = 'kingdriver_ca'
 
-            elif user_rol == 'admin':
-                db_objetivo = st.session_state.get('DB_ACTUAL')
-                if not db_objetivo or db_objetivo == 'No seleccionada':
-                    df_temp = ejecutar_consulta("SELECT db_nombre FROM clientes LIMIT 1", conn_ctrl)
-                    if not df_temp.empty:
-                        db_objetivo = str(df_temp['db_nombre'].iloc[0])
-
-            else:
-                # --- BÚSQUEDA NORMAL DE USUARIOS REGISTRADOS ---
-                query = f"SELECT db_nombre FROM usuarios WHERE LOWER(TRIM(usuario)) = '{nombre_usuario_actual}'"
-                df_temp = ejecutar_consulta(query, conn_ctrl)
-                
-                if not df_temp.empty and df_temp['db_nombre'].iloc[0]:
-                    db_objetivo = str(df_temp['db_nombre'].iloc[0]).strip()
-                elif nombre_usuario_actual in ['alix_maria', 'alix']:
+            except Exception as e:
+                if nombre_usuario_actual in ['alix_maria', 'alix']:
                     db_objetivo = 'rishon_letzion_ca'
                 else:
-                    # 🛡️ RESCATE: Si la sesión viene sin usuario o cae en 'norbe',
-                    # se le asigna la BD por defecto para no romper la app.
                     db_objetivo = 'kingdriver_ca'
-
-        except Exception as e:
-            if nombre_usuario_actual in ['alix_maria', 'alix']:
-                db_objetivo = 'rishon_letzion_ca'
-            else:
-                db_objetivo = 'kingdriver_ca'
-        finally:
-            if conn_ctrl and hasattr(conn_ctrl, 'close'):
-                conn_ctrl.close()
-
+            finally:
+                if conn_ctrl and hasattr(conn_ctrl, 'close'):
+                    conn_ctrl.close()
+                    
     # Aseguramos que la sesión mantenga la DB activa
     if db_objetivo:
         st.session_state['DB_ACTUAL'] = db_objetivo
