@@ -138,12 +138,19 @@ def conectar_db(nombre_db=None):
         return None
 
 
-# ==============================================================================
-# 0. PUENTE DE INSTAGRAM (Bypassing total para acceso público)
-# ==============================================================================
+# ----------------------------------------------------
+# VALIDACIÓN DE ROL Y FILTRADO DE EMPRESAS
+# ----------------------------------------------------
 if st.query_params.get("modulo") == "libro_compras":
-  return  # o pass, dependiendo de si estás dentro de una función o bloque
-
+  usuario_actual = "invitado_insta"
+  # Capturamos la BD desde el link de Instagram, con una por defecto si no la especifican
+  db_asignada_usuario = st.query_params.get("db", "kingdriver_ca")
+  rol_usuario = "publico"
+  es_admin = False
+else:
+  usuario_actual = str(
+      st.session_state.get("user", st.session_state.get("usuario", "invitado"))
+  ).strip()
 
 def obtener_datos_empresa_activa():
     """
