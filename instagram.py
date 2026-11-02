@@ -2544,22 +2544,19 @@ def modulo_retencion_islr():
                     st.code(xml_code, language="xml")
 
 def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
-    st.subheader(f"📑 Emisión de Comprobantes de Retención IVA: {EMPRESA}")
+    # --- EXTRACCIÓN SEGURA DE LA BASE DE DATOS DESDE EL PARÁMETRO EMPRESA O SESIÓN ---
+    if isinstance(EMPRESA, dict):
+        nombre_empresa_display = EMPRESA.get('nombre', 'Empresa')
+    else:
+        nombre_empresa_display = str(EMPRESA)
 
-    # --- CONTROL DE PESTAÑA ACTIVA ---
-    if 'active_tab' not in st.session_state:
-        st.session_state.active_tab = 0
+    st.subheader(f"📑 Emisión de Comprobantes de Retención IVA: {nombre_empresa_display}")
 
-    # 1. INICIALIZACIÓN DE ESTADOS (Prevenir KeyErrors)
-    if 'exito_data' not in st.session_state:
-        st.session_state['exito_data'] = None
-    if 'mostrar_exito' not in st.session_state:
-        st.session_state['mostrar_exito'] = False
-
-    # 2. GESTIÓN DE CONEXIÓN
+    # Forzamos a buscar la base de datos activa real en session_state o usamos un fallback seguro
     db_actual = st.session_state.get('DB_ACTUAL') or "kingdriver_ca"
     st.session_state['DB_ACTUAL'] = db_actual
 
+    # --- GESTIÓN DE CONEXIÓN ROBUSTA ---
     if 'db_conn' not in st.session_state or st.session_state.db_conn is None:
         st.session_state.db_conn = conectar_db(db_actual)
     else:
@@ -2570,9 +2567,9 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
 
     conn = st.session_state.db_conn
 
-    # 3. VALIDACIÓN DE SEGURIDAD
+    # --- VALIDACIÓN DE SEGURIDAD ---
     if conn is None or not conn:
-        st.error("❌ No hay conexión activa con la base de datos.")
+        st.error(f"❌ No hay conexión activa con la base de datos para: {db_actual}")
         return
 
     facturas_seleccionadas = None
