@@ -2,17 +2,14 @@
 from datetime import datetime
 import streamlit as st
 import pandas as pd
-import invoice
-import contabilidad
-import instagram
+import instagram  # Módulo exclusivo de vistas públicas
 
-# 1. Configuración de página (DEBE SER LO PRIMERO)
+# 1. Configuración de página (OBLIGATORIO EN LA LÍNEA 1 DE UI)
 st.set_page_config(page_title="Sistema King Driver", layout="wide")
 
-# 🛑 1.5 CAPTURA ULTRA-ROBUSTA DEL PARÁMETRO DE INSTAGRAM
+# 🛑 1.5 INTERCEPTOR ABSOLUTO DE INSTAGRAM (ANTES DE CUALQUIER OTRA COSA)
 modulo_url = ""
 try:
-    # Intento 1: Streamlit moderno
     q_params = st.query_params
     if "modulo" in q_params:
         modulo_url = str(q_params["modulo"]).strip().lower()
@@ -21,16 +18,14 @@ except:
 
 if not modulo_url:
     try:
-        # Intento 2: Streamlit clásico de respaldo
         q_params_old = st.experimental_get_query_params()
         if "modulo" in q_params_old:
             modulo_url = str(q_params_old["modulo"][0]).strip().lower()
     except:
         pass
 
-# Si detectamos cualquier parámetro de módulo, forzamos el modo invitado y detenemos todo
 if modulo_url:
-    # Limpiamos cualquier sesión anterior de 'norbe'
+    # Limpiamos cualquier sesión basura anterior (como 'norbe')
     st.session_state.clear()
     
     # Asignamos los valores de invitado de Instagram
@@ -54,12 +49,16 @@ if modulo_url:
         instagram.aplicar_estilo_publico()
         st.error("Módulo de Instagram no válido o no encontrado.")
 
-    # 🛑 FRENO ABSOLUTO: Evita que cargue la app normal, el login o el sidebar
+    # 🛑 FRENO ABSOLUTO: Jamás tocará el login ni cargará contabilidad.py
     st.stop()
 
-# ==========================================
-# A PARTIR DE AQUÍ SIGE TU APP NORMAL (ADMIN)
-# ==========================================
+
+# =====================================================================
+# A PARTIR DE AQUÍ SÍ CARGAMOS LOS MÓDULOS DE ADMINISTRACIÓN (INTERNO)
+# =====================================================================
+import contabilidad
+import invoice
+from contabilidad import conectar_db
 
 # 2. Inicialización de sesión normal
 if "session_initialized" not in st.session_state:
@@ -90,7 +89,7 @@ def reset_empresa():
     st.rerun()
 
 
-# 5. Lógica de Login Normal (Solo para administradores / usuarios internos)
+# 5. Lógica de Login Normal (Solo para administradores)
 if not st.session_state.logueado:
     contabilidad.login_screen()
     st.stop()
