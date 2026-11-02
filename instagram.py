@@ -103,9 +103,49 @@ def modulo_compras():
   st.markdown(f"**RIF:** {empresa_data.get('rif', 'N/D')}")
   st.markdown("---")
 
+  # Estructura principal de pestañas
+  tab_titles = [
+      "🔍 Consultar y Editar",
+      "📸 Escaneo Inteligente",
+      "🚨 Vaciado de Rango",
+      "📊 Cargar desde Excel",
+      "📁 PDFs POR LOTES",
+      "📝 Notas de Crédito / Débito"
+  ]
+  tabs = st.tabs(tab_titles)
+  tab1, tab2, tab3, tab4, tab5, tab6 = tabs
+
+  with tab1:
+    st.subheader("🔍 Consulta y Edición: Libro de Compras")
+    st.info("💡 Utiliza las pestañas superiores para navegar entre el escaneo OCR, consulta de registros y herramientas de mantenimiento.")
+
+  with tab2:
+    st.subheader("📸 Escaneo Inteligente de Documentos (OCR)")
+
+  with tab3:
+    st.subheader("🚨 Vaciado de Compras por Rango")
+    st.warning("Herramienta para depuración de rangos de fechas en el libro de compras.")
+  with tab4:
+    st.info("📊 Módulo de Carga desde Excel en desarrollo.")
+    st.subheader("📊 Cargar desde Excel")
+    st.subheader("📊 Carga Masiva desde Excel (LIBROS DE COMPRAS)")
+  with tab5:
+    st.info("📁 Módulo de PDFs Por Lotes en desarrollo.")
+    st.subheader("📁 PDFs POR LOTES")
+    st.subheader("📥 Bandeja de Entrada - Procesamiento Local de Facturas (PDF)")
+    st.info("Arrastra o selecciona múltiples archivos PDF de facturas. Se acumularán en cola para su posterior revisión y registro.")
+  with tab6:
+    st.info("📝 Módulo de Notas de Crédito / Débito en desarrollo.")
+    st.subheader("📝 Gestión de Notas de Crédito y Débito")
+    st.info("💡 **Flujo Fiscal:** Consulta el libro de compras por fecha, selecciona la factura a afectar y genera su documento de ajuste asociado con su respectivo número de control.")
+
+
 
 
 
 
 if __name__ == "__main__":
   modulo_compras()
+
+
+
