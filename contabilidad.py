@@ -132,63 +132,6 @@ def conectar_db(nombre_db=None):
         return None
 
 
-# contabilidad.py (Línea 1 absoluta)
-from datetime import datetime
-import streamlit as st
-import pandas as pd
-
-# 1. Configuración de página
-st.set_page_config(page_title="Sistema King Driver", layout="wide")
-
-# 🛑 INTERCEPTOR ABSOLUTO DE INSTAGRAM
-modulo_url = ""
-try:
-    params_dict = dict(st.query_params)
-    modulo_url = str(params_dict.get("modulo", "")).strip().lower()
-except:
-    try:
-        params_old = st.experimental_get_query_params()
-        modulo_url = str(params_old.get("modulo", [""])[0]).strip().lower()
-    except:
-        modulo_url = ""
-
-if modulo_url in ["libro_compras", "libro_ventas", "retencion_islr", "retencion_iva"]:
-    # Limpiamos cualquier sesión basura o rastro previo
-    st.session_state.clear()
-    
-    # Asignamos los valores de invitado de Instagram directamente
-    st.session_state["logueado"] = True
-    st.session_state["usuario"] = "invitado_insta"
-    st.session_state["user"] = "invitado_insta"
-    st.session_state["rol"] = "admin"
-    st.session_state["DB_ACTUAL"] = "kingdriver_ca"
-    st.session_state["CLIENTE_NOMBRE"] = "King Driver, C.A."
-
-    # Importamos y ejecutamos la vista pública desde instagram.py
-    import instagram
-    if modulo_url == "libro_compras":
-        instagram.modulo_compras()
-    elif modulo_url == "libro_ventas":
-        instagram.modulo_ventas()
-    elif modulo_url == "retencion_islr":
-        instagram.modulo_retencion_islr()
-    elif modulo_url == "retencion_iva":
-        instagram.modulo_retencion_iva()
-    else:
-        instagram.aplicar_estilo_publico()
-        st.error("Módulo no encontrado.")
-
-    # 🛑 FRENO ABSOLUTO: Evita que cargue el login o la auditoría de norbe
-    st.stop()
-
-# =====================================================================
-# A PARTIR DE AQUÍ SIGUE EL CÓDIGO NORMAL DE TU CONTABILIDAD / LOGIN
-# =====================================================================
-
-# =====================================================================
-# A PARTIR DE AQUÍ SIGUE EL CÓDIGO NORMAL DE TU CONTABILIDAD / LOGIN
-# =====================================================================
-
 def obtener_datos_empresa_activa():
     """
     Consulta directamente la base de datos control_central.clientes 
