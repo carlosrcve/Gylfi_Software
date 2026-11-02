@@ -26,6 +26,37 @@ def aplicar_estilo_publico():
       unsafe_allow_html=True,
   )
 
+@st.cache_data(ttl=300)
+def obtener_datos_agente_db(valor_busqueda):
+    return _obtener_datos_agente_db_v2(valor_busqueda)
+
+def _obtener_datos_agente_db_v2(valor_busqueda):
+    conn_central = conectar_db() 
+    if not conn_central: 
+        return None
+
+    cursor = None
+    try:
+        cursor = conn_central.cursor(pymysql.cursors.DictCursor)
+        
+        # ¡Añadimos direccion_fiscal a las columnas seleccionadas!
+        if isinstance(valor_busqueda, str):
+            query = "SELECT id, nombre_empresa, rif, db_nombre, estado, direccion_fiscal FROM clientes WHERE db_nombre = %s"
+        else:
+            query = "SELECT id, nombre_empresa, rif, db_nombre, estado, direccion_fiscal FROM clientes WHERE id = %s"
+        
+        cursor.execute(query, (valor_busqueda,))
+        datos = cursor.fetchone()
+        return datos
+        
+    except Exception as e:
+        st.error(f"❌ Error interno de consulta: {e}")
+        return None
+        
+    finally:
+        if cursor: cursor.close()
+        if conn_central: conn_central.close()
+
 
 @st.cache_resource(show_spinner=False)
 def obtener_engine_cached(db_name):
