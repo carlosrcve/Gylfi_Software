@@ -3569,8 +3569,6 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                                 pass
 
 def modulo_retencion_iva():
-    import datetime as dt
-    
     aplicar_estilo_publico()
     
     db_actual = st.session_state.get("DB_ACTUAL", "kingdriver_ca")
@@ -3584,6 +3582,11 @@ def modulo_retencion_iva():
     st.title("🧾 Comprobante de Retención IVA")
     st.markdown(f"### 🏢 {nombre}")
     st.markdown("---")
+
+    # Forzar o asegurar conexión en session_state si no existe
+    if 'db_conn' not in st.session_state or st.session_state.db_conn is None:
+        if 'conectar_db' in globals():
+            st.session_state.db_conn = conectar_db(db_actual)
 
     # Validación de base de datos activa
     if db_actual and db_actual != 'none':
