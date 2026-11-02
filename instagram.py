@@ -505,7 +505,7 @@ def modulo_compras():
     with tab2:
         st.subheader("📸 Escaneo Inteligente de Documentos (OCR)")
         
-        # Inicialización segura dentro del ámbito de la pestaña tab2
+        # Inicialización segura y única dentro del ámbito de tab2
         if "df_buffer_escaneo" not in st.session_state:
             st.session_state.df_buffer_escaneo = pd.DataFrame()
 
