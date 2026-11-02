@@ -141,12 +141,7 @@ def conectar_db(nombre_db=None):
 
 # Si entramos por el link de Instagram, nos saltamos la validación del usuario 'norbe'
 if st.query_params.get("modulo") == "libro_compras":
-  usuario_actual = "invitado_insta"
-else:
-  # AQUÍ DEJAS TU CÓDIGO NORMAL QUE BUSCA A 'NORBE' O AL USUARIO QUE ESTÉ LOGUEADO
-  usuario_actual = str(
-      st.session_state.get("user", st.session_state.get("usuario", "norbe"))
-  ).strip()
+    st.stop()  # Detiene la ejecución aquí mismo para que no pinte nada de la barra lateral ni de 'norbe'
 
 def obtener_datos_empresa_activa():
     """
