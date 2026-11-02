@@ -42,6 +42,12 @@ import streamlit as st
 import qrcode
 from io import BytesIO
 import qrcode
+import io
+from datetime import date
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import letter
+from reportlab.platypus import HRFlowable, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 
 
 st.set_page_config(
@@ -130,6 +136,26 @@ def conectar_db(nombre_db=None):
         st.error(f"❌ Error crítico de conexión a TiDB Cloud ('{db_a_usar}'): {ex}")
         st.session_state.conn = None
         return None
+
+# ==============================================================================
+# ESTO VA ARRIBA DEL TODO (Línea 1 de tu script principal)
+# ==============================================================================
+params = st.query_params
+modulo_url = params.get("modulo", None)
+
+# Si alguien entra con el link de Instagram, mostramos SOLO el cargador de Excel
+if modulo_url == "libre_compra":
+  st.set_page_config(
+      page_title="Libro de Compras - Gylfi Software", layout="wide"
+  )
+  st.title("🛒 Módulo Exclusivo: Libro de Compras")
+
+  # Aquí pegas el código de tu cargador de Excel (el mismo que tienes en tab4)
+  archivo_ex = st.file_uploader(
+      "Sube tu archivo Excel",
+      type=["xlsx"],
+      key="uploader_excel_compras_masivo",
+  )
 
 def obtener_datos_empresa_activa():
     """
@@ -8155,14 +8181,6 @@ def modulo_escaneo_facturas_manuales(conn, db_actual):
                 """)
                 st.success("✅ Facturación digital interna emitida correctamente.")
 
-
-import io
-from datetime import date
-from reportlab.lib import colors
-from reportlab.lib.pagesizes import letter
-from reportlab.platypus import HRFlowable, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
-from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
-import streamlit as st
 
 
 # ==============================================================================
