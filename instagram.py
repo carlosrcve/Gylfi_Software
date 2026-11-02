@@ -1525,17 +1525,8 @@ def modulo_retencion_islr():
     if 'active_tab_islr' not in st.session_state:
         st.session_state.active_tab_islr = 0
 
-    tab_names = [
-        "➕ Generar Nueva", 
-        "🔍 Editor/Historial", 
-        "🖨️ Reimpresión", 
-        "⚙️ Gestión Facturas", 
-        "🚀 XML SENIAT",
-        "📊 Reportes y Resumen"
-    ]
-    
+    tab_names = ["➕ Generar Nueva", "🔍 Editor/Historial", "🖨️ Reimpresión", "⚙️ Gestión Facturas", "🚀 XML SENIAT"]
     tab2, tab3, tab4, tab5, tab6 = st.tabs(tab_names)
-
 
 
     with tab2:
