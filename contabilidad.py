@@ -6357,7 +6357,7 @@ def renderizar_tab_asientos_ventas(db_connection):
     # VALIDACIÓN DE ROL Y FILTRADO DE EMPRESAS
     # ----------------------------------------------------
     usuario_actual = str(
-        st.session_state.get("user", st.session_state.get("usuario", "norbe"))
+        st.session_state.get("user", st.session_state.get("usuario", "carlos_admin"))
     ).strip()
 
     rol_usuario = "cliente"
