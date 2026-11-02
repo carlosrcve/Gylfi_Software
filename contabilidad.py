@@ -141,108 +141,16 @@ def conectar_db(nombre_db=None):
 # ----------------------------------------------------
 # VALIDACIÓN DE ROL Y FILTRADO DE EMPRESAS
 # ----------------------------------------------------
-es_admin = False
-es_invitado_insta = st.query_params.get("modulo") == "libro_compras"
-dbs_filtradas = []
-mapa_nombres_empresas = {}
-
-# 🛑 1. PUENTE DE INSTAGRAM (ACCESO LIBRE MULTI-EMPRESA)
-if es_invitado_insta:
-    usuario_actual = "invitado_insta"
-    rol_usuario = "publico"
-    db_asignada_usuario = ""
-    
-    # Carga TODAS las empresas registradas en la plataforma
-    try:
-        with db_connection.cursor(pymysql.cursors.DictCursor) as cursor_temp:
-            cursor_temp.execute("SELECT * FROM control_central.clientes")
-            clientes_db = cursor_temp.fetchall()
-
-        for cli in clientes_db:
-            db_name = str(cli.get("db_nombre", "")).strip()
-            nombre_comercial = str(cli.get("nombre_empresa", db_name)).strip()
-            if db_name:
-                dbs_filtradas.append(db_name)
-                mapa_nombres_empresas[db_name] = nombre_comercial
-    except Exception as e:
-        st.warning(f"⚠️ Error cargando empresas: {e}")
-
-# 🔒 2. FLUJO NORMAL DE USUARIOS REGISTRADOS
-else:
-    usuario_actual = str(
-        st.session_state.get("user", st.session_state.get("usuario", "invitado"))
-    ).strip()
-    rol_usuario = "cliente"
-    db_asignada_usuario = ""
-
-    try:
-        with db_connection.cursor(pymysql.cursors.DictCursor) as cursor_temp:
-            cursor_temp.execute(
-                "SELECT rol, db_nombre FROM control_central.usuarios WHERE usuario = %s",
-                (usuario_actual,),
-            )
-            res_usuario = cursor_temp.fetchone()
-
-            if res_usuario:
-                rol_usuario = str(res_usuario.get("rol", "cliente")).strip().lower()
-                db_asignada_usuario = str(res_usuario.get("db_nombre", "")).strip()
-
-            es_admin = rol_usuario in ["admin", "administrador"] or st.session_state.get("es_admin", False)
-
-            cursor_temp.execute("SELECT * FROM control_central.clientes")
-            clientes_db = cursor_temp.fetchall()
-
-        for cli in clientes_db:
-            db_name = str(cli.get("db_nombre", "")).strip()
-            nombre_comercial = str(cli.get("nombre_empresa", db_name)).strip()
-
-            if db_name:
-                if es_admin:
-                    dbs_filtradas.append(db_name)
-                    mapa_nombres_empresas[db_name] = nombre_comercial
-                else:
-                    if db_asignada_usuario and db_name.lower() == db_asignada_usuario.lower():
-                        dbs_filtradas.append(db_name)
-                        mapa_nombres_empresas[db_name] = nombre_comercial
-
-    except Exception as e:
-        st.warning(f"⚠️ Error consultando `control_central`: {e}")
-
-if not dbs_filtradas:
-    st.error("⚠️ No se encontraron empresas disponibles en la base de datos.")
-    return
-
-# ----------------------------------------------------
-# INTERFAZ SEGÚN EL ROL (PERMITE SELECTBOX A ADMIN E INVITADOS)
-# ----------------------------------------------------
-if es_admin or es_invitado_insta:
-    st.markdown("### 🏢 Selecciona la Empresa / Base de Datos")
-
-    format_func = lambda db: (
-        f"{mapa_nombres_empresas.get(db, db)} ({db})"
-        if db in mapa_nombres_empresas
-        else db
-    )
-
-    nombre_db_cliente = st.selectbox(
-        "Selecciona la Base de Datos de la Empresa Activa:",
-        dbs_filtradas,
-        index=0,
-        format_func=format_func,
-        key="select_db_admin_asientos_ventas",
-    )
-else:
-    nombre_db_cliente = dbs_filtradas[0]
-    nombre_amigable = mapa_nombres_empresas.get(
-        nombre_db_cliente, nombre_db_cliente
-    )
-    st.info(f"🏢 **Empresa Activa:** {nombre_amigable} (`{nombre_db_cliente}`)")
-
-if not nombre_db_cliente:
-    st.error("⚠️ Debes seleccionar una base de datos.")
-    return
-
-db_segura = str(nombre_db_cliente).strip()
+# Ocultar barra lateral si entran por el link de Instagram
+if st.query_params.get("modulo") == "libro_compras":
+  st.markdown(
+      """
+        <style>
+            [data-testid="stSidebar"] {display: none;}
+        </style>
+        """,
+      unsafe_allow_html=True,
+  )
 
 def obtener_datos_empresa_activa():
     """
