@@ -835,6 +835,8 @@ def modulo_compras():
       except Exception:
         st.error("No se pudieron cargar las fechas de inspección.")
 
+  with tab3:
+    st.info("📊 Módulo de Carga desde Excel en desarrollo.")
   # ==========================================
   # TABS RESTANTES
   # ==========================================
