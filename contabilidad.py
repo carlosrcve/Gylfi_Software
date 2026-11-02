@@ -8789,36 +8789,32 @@ if 'df_gastos_c6' in locals() and df_gastos_c6.empty:
     st.sidebar.warning("⚠️ El DataFrame de Gastos C6 está vacío.")
 
 
-# 🛑 1.5 INTERCEPTOR TOTAL DE INSTAGRAM (ANTES DE TODO)
-try:
-    modulo_url = str(st.query_params.get("modulo", "")).strip().lower()
-except:
-    modulo_url = ""
+import streamlit as st
 
-if modulo_url == "libro_compras":
-    # Blindamos todas las llaves posibles que cualquier módulo (incluyendo invoice.py) pueda buscar
+# 🛑 ESCUDO NUCLEAR DE INSTAGRAM (LÍNEA 1 ABSOLUTA)
+# Esto se ejecuta antes de cualquier renderizado y antes de app.py
+try:
+    _url_param = str(st.query_params.get("modulo", "")).strip().lower()
+except:
+    _url_param = ""
+
+if _url_param == "libro_compras":
+    # Forzamos la sesión de invitado de inmediato para que NUNCA aparezca 'norbe'
     st.session_state["logueado"] = True
     st.session_state["usuario"] = "invitado_insta"
     st.session_state["user"] = "invitado_insta"
     st.session_state["username"] = "invitado_insta"
     st.session_state["nombre_usuario"] = "invitado_insta"
-    st.session_state["nombre_usuario_actual"] = "invitado_insta"
     st.session_state["rol"] = "admin"
     st.session_state["DB_ACTUAL"] = "kingdriver_ca"
     st.session_state["CLIENTE_NOMBRE"] = "King Driver, C.A."
     
-    # Ocultar barra lateral y el botón flotante por completo de forma agresiva
+    # CSS agresivo para borrar el sidebar y la barra flotante del mapa visual
     st.markdown("""
         <style>
-            /* Ocultar el panel lateral por completo */
-            [data-testid="stSidebar"] {
-                display: none !important;
-                width: 0 !important;
-            }
-            /* Ocultar el botón colapsado flotante (la flechita de la esquina) */
-            [data-testid="collapsedControl"] {
-                display: none !important;
-            }
+            [data-testid="stSidebar"] { display: none !important; width: 0 !important; }
+            [data-testid="collapsedControl"] { display: none !important; }
+            section.main { width: 100% !important; margin-left: 0 !important; }
         </style>
     """, unsafe_allow_html=True)
 
