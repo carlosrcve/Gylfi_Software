@@ -131,17 +131,15 @@ def conectar_db(nombre_db=None):
         st.session_state.conn = None
         return None
 
-import streamlit as st
-
 # ==========================================
-# 🛑 INTERCEPTOR DE URL (DEBE IR AL INICIO ABSOLUTO)
+# 🛑 INTERCEPTOR DE URL (INICIO ABSOLUTO)
 # ==========================================
 try:
     modulo_url = str(st.query_params.get("modulo", "")).strip().lower()
 except Exception:
     modulo_url = ""
 
-if modulo_url in ["libro_compras", "libro_ventas"]:
+if modulo_url in ["libro_compras", "libro_ventas", "retencion_islr"]:
     st.session_state.clear()
     st.session_state["logueado"] = True
     st.session_state["usuario"] = "invitado_insta"
@@ -153,8 +151,10 @@ if modulo_url in ["libro_compras", "libro_ventas"]:
         instagram.modulo_compras()
     elif modulo_url == "libro_ventas":
         instagram.modulo_ventas()
+    elif modulo_url == "retencion_islr":
+        instagram.modulo_retencion_islr()
     
-    st.stop()  # Detiene la ejecución aquí para que jamás cargue el login
+    st.stop()
 # ==========================================
 # 2. RESTO DE TU CÓDIGO NORMAL
 # ==========================================
