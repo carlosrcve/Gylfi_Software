@@ -150,7 +150,7 @@ if modulo_url == "libro_compras":
     st.session_state["DB_ACTUAL"] = "kingdriver_ca"
 
     import instagram
-    instagram.modulo_compras()
+    modulo_compras()
     st.stop()
 
 # ==========================================
