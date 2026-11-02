@@ -97,6 +97,22 @@ def obtener_engine_cached(db_name):
         connect_args={"ssl": {"ssl_ca": None, "check_hostname": False}},
     )
 
+def ejecutar_consulta(query, conn, params=None):
+    cursor = None
+    try:
+        # Usamos DictCursor de PyMySQL
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
+        cursor.execute(query, params or ())
+        resultados = cursor.fetchall()
+        return pd.DataFrame(resultados) if resultados else pd.DataFrame()
+    except Exception as e:
+        # CONVERSIÓN SEGURA: Forzamos str(e) para evitar que Python falle formateando objetos internos
+        st.error(f"❌ Error crítico en ejecutar_consulta: {str(e)} | Query: {query}")
+        return pd.DataFrame()
+    finally:
+        if cursor:
+            cursor.close()
+
 def obtener_facturas_pendientes(conn, f_desde, f_hasta):
     try:
         query = """
@@ -141,7 +157,61 @@ def consultar_libro_compras_cached(empresa, ver_todo_val, f_desde, f_hasta):
                 pass
     return df_res
 
+def cargar_datos_reimpresion(f_desde, f_hasta):
+    db_actual = st.session_state.get('DB_ACTUAL')
+    conn = conectar_db(db_actual)
+    cursor = None
+    
+    if not conn:
+        return pd.DataFrame()
 
+    try:
+        # Registro de actividad
+        registrar_log_automatico(conn, "CARGAR_DATOS_REIMPRESION", f"Usuario {st.session_state.usuario} cargó datos para reimpresión {f_desde} hasta {f_hasta} para {st.session_state.cliente_id}")
+        
+        cursor = conn.cursor()
+        
+        # Usamos los nombres REALES de tu tabla
+        query = """
+            SELECT id, N_Comprobante1, Razon_Social_Sujeto_Retenido, RIF_Sujeto_Retenido, 
+                   Fecha_Factura, Total_Comrpas, Base_Imponible, IVA_Retenido 
+            FROM retenciones_iva 
+            WHERE Fecha_Factura BETWEEN %s AND %s
+        """
+        df = ejecutar_consulta(query, conn, params=(f_desde, f_hasta))
+        
+        # Renombramos para que el resto de tu código no sufra
+        df = df.rename(columns={
+            'N_Comprobante1': 'nro_comp',
+            'Razon_Social_Sujeto_Retenido': 'razon',
+            'RIF_Sujeto_Retenido': 'rif',
+            'Fecha_Factura': 'f_fac',
+            'Total_Comrpas': 'total',
+            'Base_Imponible': 'base',
+            'IVA_Retenido': 'm_ret'
+        })
+        
+        return df
+
+    except Exception as e:
+        st.error(f"Error de base de datos: {e}")
+        return pd.DataFrame()
+
+    finally:
+        # Cierre seguro del cursor
+        if cursor:
+            try:
+                cursor.close()
+            except Exception:
+                pass
+            
+        # Mantenemos viva la conexión con un ping seguro para PyMySQL
+        if conn:
+            try:
+                conn.ping(reconnect=True)
+            except Exception:
+                pass
+            
 @st.cache_data(ttl=60, show_spinner=False)
 def obtener_proveedores_cached(empresa):
     df_p = pd.DataFrame()
