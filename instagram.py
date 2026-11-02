@@ -34,21 +34,30 @@ def aplicar_estilo_publico():
 def conectar_db(db_name=None):
     """Establece una conexión directa segura con TiDB Cloud."""
     target_db = db_name if db_name else st.session_state.get("DB_ACTUAL", "kingdriver_ca")
+    
+    # Mapeo de nombres lógicos a nombres reales en TiDB Cloud
+    mapeo_bases = {
+        "kingdriver_ca": "nombre_real_en_tidb", # Cambia esto por el nombre exacto en tu servidor
+        # "otra_empresa": "nombre_real_2"
+    }
+    
+    db_a_usar = mapeo_bases.get(target_db, target_db)
+
     try:
         password_escaped = quote_plus("W3Zkbr4E2trGCfoX")
         conn = pymysql.connect(
             host="gateway01.us-east-1.prod.aws.tidbcloud.com",
             user="4K4VAw4t4ZPFUTF.root",
             password="W3Zkbr4E2trGCfoX",
-            database=target_db,
+            database=db_a_usar, # Usamos la variable mapeada
             port=4000,
             ssl={"ssl": None},
             cursorclass=pymysql.cursors.DictCursor
         )
         return conn
     except Exception as e:
+        print(f"Error de conexión: {e}") # Útil para depurar en consola si vuelve a fallar
         return None
-
 
 @st.cache_data(ttl=300)
 def obtener_datos_agente_db(valor_busqueda):
