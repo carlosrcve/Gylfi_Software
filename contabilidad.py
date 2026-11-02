@@ -132,6 +132,11 @@ def conectar_db(nombre_db=None):
         return None
 
 
+# contabilidad.py (Línea 1 absoluta)
+from datetime import datetime
+import streamlit as st
+import pandas as pd
+
 # 1. Configuración de página
 st.set_page_config(page_title="Sistema King Driver", layout="wide")
 
@@ -175,6 +180,10 @@ if modulo_url in ["libro_compras", "libro_ventas", "retencion_islr", "retencion_
 
     # 🛑 FRENO ABSOLUTO: Evita que cargue el login o la auditoría de norbe
     st.stop()
+
+# =====================================================================
+# A PARTIR DE AQUÍ SIGUE EL CÓDIGO NORMAL DE TU CONTABILIDAD / LOGIN
+# =====================================================================
 
 # =====================================================================
 # A PARTIR DE AQUÍ SIGUE EL CÓDIGO NORMAL DE TU CONTABILIDAD / LOGIN
