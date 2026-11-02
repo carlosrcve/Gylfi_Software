@@ -33,12 +33,12 @@ def aplicar_estilo_publico():
 
 def conectar_db(db_name=None):
     """Establece una conexión directa segura con TiDB Cloud."""
-    target_db = db_name if db_name else st.session_state.get("DB_ACTUAL", "kingdriver_ca")
+    target_db = db_name if db_name else st.session_state.get("DB_ACTUAL", "kingdirver_ca")
     
-    # Mapeo de nombres lógicos a nombres reales en TiDB Cloud
+    # Mapeo de nombres lógicos a los nombres reales de las bases de datos en TiDB Cloud
     mapeo_bases = {
-        "kingdriver_ca": "nombre_real_en_tidb", # Cambia esto por el nombre exacto en tu servidor
-        # "otra_empresa": "nombre_real_2"
+        "kingdirver_ca": "kingdiver_ca",  # <--- Reemplaza "kingdriver" por el nombre exacto de la BD en TiDB si difiere
+        # Agrega aquí otras empresas si es necesario
     }
     
     db_a_usar = mapeo_bases.get(target_db, target_db)
@@ -49,20 +49,20 @@ def conectar_db(db_name=None):
             host="gateway01.us-east-1.prod.aws.tidbcloud.com",
             user="4K4VAw4t4ZPFUTF.root",
             password="W3Zkbr4E2trGCfoX",
-            database=db_a_usar, # Usamos la variable mapeada
+            database=db_a_usar,  # Usamos el nombre mapeado correcto
             port=4000,
             ssl={"ssl": None},
             cursorclass=pymysql.cursors.DictCursor
         )
         return conn
     except Exception as e:
-        print(f"Error de conexión: {e}") # Útil para depurar en consola si vuelve a fallar
+        print(f"Error de conexión: {e}")
         return None
 
 @st.cache_data(ttl=300)
 def obtener_datos_agente_db(valor_busqueda):
     """Consulta segura de los datos de la empresa para el encabezado."""
-    conn_central = conectar_db("kingdriver_ca")
+    conn_central = conectar_db("kingdirver_ca")
     if not conn_central:
         return {
             "nombre_empresa": "Empresa Inteligencia Artificial, C.A.",
@@ -221,7 +221,7 @@ def cargar_datos_reimpresion(f_desde, f_hasta):
                 conn.ping(reconnect=True)
             except Exception:
                 pass
-            
+
 @st.cache_data(ttl=60, show_spinner=False)
 def obtener_proveedores_cached(empresa):
     df_p = pd.DataFrame()
@@ -244,7 +244,7 @@ def obtener_proveedores_cached(empresa):
 def modulo_compras():
     aplicar_estilo_publico()
 
-    db_actual = st.session_state.get("DB_ACTUAL", "kingdriver_ca")
+    db_actual = st.session_state.get("DB_ACTUAL", "kingdirver_ca")
     empresa_data = obtener_datos_agente_db(db_actual)
     st.title("📖 Libro de Compras")
     st.markdown(f"### 🏢 {empresa_data.get('nombre_empresa', 'King Driver, C.A.')}")
@@ -700,7 +700,7 @@ def modulo_compras():
 
             with col_b2:
                 if st.button("🚀 Guardar TODAS en DB (Modo Seguro)", type="primary", use_container_width=True, key="btn_guardar_ocr_db"):
-                    target_db = st.session_state.get('DB_ACTUAL') or st.session_state.get('id_empresa_actual') or "kingdriver_ca"
+                    target_db = st.session_state.get('DB_ACTUAL') or st.session_state.get('id_empresa_actual') or "kingdirve_ca"
                     
                     try:
                         engine_db = obtener_engine_cached(target_db)
@@ -1317,7 +1317,7 @@ def modulo_compras():
 def modulo_ventas():
     aplicar_estilo_publico()
 
-    db_actual = st.session_state.get("DB_ACTUAL", "kingdriver_ca")
+    db_actual = st.session_state.get("DB_ACTUAL", "kingdirver_ca")
     empresa_data = obtener_datos_agente_db(db_actual)
     nombre = (
         empresa_data.get("nombre_empresa", "King Driver, C.A.")
@@ -1514,7 +1514,7 @@ def modulo_ventas():
 
 def modulo_retencion_islr():
     aplicar_estilo_publico()
-    db_actual = st.session_state.get("DB_ACTUAL", "kingdriver_ca")
+    db_actual = st.session_state.get("DB_ACTUAL", "kingdirver_ca")
     empresa_data = obtener_datos_agente_db(db_actual)
     nombre = (
         empresa_data.get("nombre_empresa", "King Driver, C.A.")
@@ -2562,7 +2562,7 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
     st.subheader(f"📑 Emisión de Comprobantes de Retención IVA: {nombre_empresa_display}")
 
     # Forzamos a buscar la base de datos activa real en session_state o usamos un fallback seguro
-    db_actual = st.session_state.get('DB_ACTUAL') or "kingdriver_ca"
+    db_actual = st.session_state.get('DB_ACTUAL') or "kingdirver_ca"
     st.session_state['DB_ACTUAL'] = db_actual
 
     # --- GESTIÓN DE CONEXIÓN ROBUSTA ---
@@ -3578,7 +3578,7 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
 def modulo_retencion_iva():
     aplicar_estilo_publico()
     
-    db_actual = st.session_state.get("DB_ACTUAL", "kingdriver_ca")
+    db_actual = st.session_state.get("DB_ACTUAL", "kingdirver_ca")
     empresa_data = obtener_datos_agente_db(db_actual)
     nombre = (
         empresa_data.get("nombre_empresa", "King Driver, C.A.")
