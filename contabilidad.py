@@ -131,24 +131,30 @@ def conectar_db(nombre_db=None):
         st.session_state.conn = None
         return None
 
-# 🛑 Interceptor para módulo público por URL (?modulo=libro_compras)
-import instagram
+import streamlit as st
 
+# ==========================================
+# 🛑 INTERCEPTOR DE URL (DEBE IR AL INICIO ABSOLUTO)
+# ==========================================
 try:
     modulo_url = str(st.query_params.get("modulo", "")).strip().lower()
 except Exception:
     modulo_url = ""
 
-if modulo_url == "libro_compras":
+if modulo_url in ["libro_compras", "libro_ventas"]:
     st.session_state.clear()
     st.session_state["logueado"] = True
     st.session_state["usuario"] = "invitado_insta"
     st.session_state["rol"] = "admin"
     st.session_state["DB_ACTUAL"] = "kingdriver_ca"
 
-    instagram.modulo_compras()
-    st.stop()
-
+    import instagram
+    if modulo_url == "libro_compras":
+        instagram.modulo_compras()
+    elif modulo_url == "libro_ventas":
+        instagram.modulo_ventas()
+    
+    st.stop()  # Detiene la ejecución aquí para que jamás cargue el login
 # ==========================================
 # 2. RESTO DE TU CÓDIGO NORMAL
 # ==========================================
@@ -16742,7 +16748,6 @@ elif opcion_menu == "📚 Libros Fiscales":
                                 st.error(f"❌ Error al guardar la factura: {e}")
 
         with tab2:
-            st.subheader("📸 Escaneo Inteligente de Documentos (OCR)")
             st.subheader("📸 Escaneo Inteligente de Documentos (OCR)")
             archivo = st.file_uploader("Sube factura, nota de crédito o débito (PDF o Imagen)", type=['jpg', 'png', 'jpeg', 'pdf'], key="uploader_factura")
             
