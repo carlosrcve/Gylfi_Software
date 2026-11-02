@@ -142,17 +142,17 @@ def conectar_db(nombre_db=None):
 # VALIDACIÓN DE ROL Y FILTRADO DE EMPRESAS
 # ----------------------------------------------------
 es_admin = False
+es_invitado_insta = st.query_params.get("modulo") == "libro_compras"
 dbs_filtradas = []
 mapa_nombres_empresas = {}
 
-# 🛑 1. ESCUDO / PUENTE DE INSTAGRAM (INVITADO PÚBLICO - VE TODAS LAS EMPRESAS)
-if st.query_params.get("modulo") == "libro_compras":
+# 🛑 1. PUENTE DE INSTAGRAM (ACCESO LIBRE MULTI-EMPRESA)
+if es_invitado_insta:
     usuario_actual = "invitado_insta"
     rol_usuario = "publico"
     db_asignada_usuario = ""
     
-    # Para que el invitado de Instagram pueda ver y elegir CUALQUIER empresa, 
-    # tratamos sus permisos de forma similar al admin para el listado:
+    # Carga TODAS las empresas registradas en la plataforma
     try:
         with db_connection.cursor(pymysql.cursors.DictCursor) as cursor_temp:
             cursor_temp.execute("SELECT * FROM control_central.clientes")
@@ -161,16 +161,13 @@ if st.query_params.get("modulo") == "libro_compras":
         for cli in clientes_db:
             db_name = str(cli.get("db_nombre", "")).strip()
             nombre_comercial = str(cli.get("nombre_empresa", db_name)).strip()
-
             if db_name:
                 dbs_filtradas.append(db_name)
                 mapa_nombres_empresas[db_name] = nombre_comercial
     except Exception as e:
-        st.warning(f"⚠️ Error cargando la lista de empresas para invitados: {e}")
-        dbs_filtradas = ["kingdriver_ca"]
-        mapa_nombres_empresas["kingdriver_ca"] = "KING DRIVER C.A."
+        st.warning(f"⚠️ Error cargando empresas: {e}")
 
-# 🔒 2. FLUJO NORMAL (USUARIOS REGISTRADOS EN LA BD)
+# 🔒 2. FLUJO NORMAL DE USUARIOS REGISTRADOS
 else:
     usuario_actual = str(
         st.session_state.get("user", st.session_state.get("usuario", "invitado"))
@@ -188,14 +185,9 @@ else:
 
             if res_usuario:
                 rol_usuario = str(res_usuario.get("rol", "cliente")).strip().lower()
-                db_asignada_usuario = str(
-                    res_usuario.get("db_nombre", "")
-                ).strip()
+                db_asignada_usuario = str(res_usuario.get("db_nombre", "")).strip()
 
-            es_admin = rol_usuario in [
-                "admin",
-                "administrador",
-            ] or st.session_state.get("es_admin", False)
+            es_admin = rol_usuario in ["admin", "administrador"] or st.session_state.get("es_admin", False)
 
             cursor_temp.execute("SELECT * FROM control_central.clientes")
             clientes_db = cursor_temp.fetchall()
@@ -209,30 +201,48 @@ else:
                     dbs_filtradas.append(db_name)
                     mapa_nombres_empresas[db_name] = nombre_comercial
                 else:
-                    if (
-                        db_asignada_usuario
-                        and db_name.lower() == db_asignada_usuario.lower()
-                    ):
+                    if db_asignada_usuario and db_name.lower() == db_asignada_usuario.lower():
                         dbs_filtradas.append(db_name)
                         mapa_nombres_empresas[db_name] = nombre_comercial
 
     except Exception as e:
         st.warning(f"⚠️ Error consultando `control_central`: {e}")
-        if es_admin:
-            dbs_filtradas = ["kingdriver_ca"]
-            mapa_nombres_empresas["kingdriver_ca"] = "KING DRIVER C.A."
-        else:
-            db_defecto = db_asignada_usuario if db_asignada_usuario else "kingdriver_ca"
-            dbs_filtradas = [db_defecto]
-            mapa_nombres_empresas[db_defecto] = db_defecto.upper()
 
 if not dbs_filtradas:
-    dbs_filtradas = ["kingdriver_ca"]
-    mapa_nombres_empresas["kingdriver_ca"] = "KING DRIVER C.A."
-
-if not dbs_filtradas:
-    st.error("⚠️ No se encontraron empresas registradas en el sistema.")
+    st.error("⚠️ No se encontraron empresas disponibles en la base de datos.")
     return
+
+# ----------------------------------------------------
+# INTERFAZ SEGÚN EL ROL (PERMITE SELECTBOX A ADMIN E INVITADOS)
+# ----------------------------------------------------
+if es_admin or es_invitado_insta:
+    st.markdown("### 🏢 Selecciona la Empresa / Base de Datos")
+
+    format_func = lambda db: (
+        f"{mapa_nombres_empresas.get(db, db)} ({db})"
+        if db in mapa_nombres_empresas
+        else db
+    )
+
+    nombre_db_cliente = st.selectbox(
+        "Selecciona la Base de Datos de la Empresa Activa:",
+        dbs_filtradas,
+        index=0,
+        format_func=format_func,
+        key="select_db_admin_asientos_ventas",
+    )
+else:
+    nombre_db_cliente = dbs_filtradas[0]
+    nombre_amigable = mapa_nombres_empresas.get(
+        nombre_db_cliente, nombre_db_cliente
+    )
+    st.info(f"🏢 **Empresa Activa:** {nombre_amigable} (`{nombre_db_cliente}`)")
+
+if not nombre_db_cliente:
+    st.error("⚠️ Debes seleccionar una base de datos.")
+    return
+
+db_segura = str(nombre_db_cliente).strip()
 
 def obtener_datos_empresa_activa():
     """
