@@ -118,6 +118,17 @@ def modulo_compras():
   with tab1:
     st.subheader("🔍 Consulta y Edición: Libro de Compras")
     st.info("💡 Utiliza las pestañas superiores para navegar entre el escaneo OCR, consulta de registros y herramientas de mantenimiento.")
+    # Carga inicial básica de la tabla si existe
+    engine = obtener_engine_cached(db_actual)
+    try:
+        df_inicial = pd.read_sql("SELECT * FROM libro_compras ORDER BY fecha_operacion DESC LIMIT 50", engine)
+        if not df_inicial.empty:
+            st.dataframe(df_inicial, use_container_width=True)
+        else:
+            st.info("ℹ️ No hay registros guardados en el libro de compras todavía.")
+    except Exception:
+        st.info("ℹ️ La tabla de compras se inicializará al registrar el primer documento.")
+
 
   with tab2:
     st.subheader("📸 Escaneo Inteligente de Documentos (OCR)")
@@ -138,8 +149,6 @@ def modulo_compras():
     st.info("📝 Módulo de Notas de Crédito / Débito en desarrollo.")
     st.subheader("📝 Gestión de Notas de Crédito y Débito")
     st.info("💡 **Flujo Fiscal:** Consulta el libro de compras por fecha, selecciona la factura a afectar y genera su documento de ajuste asociado con su respectivo número de control.")
-
-
 
 
 
