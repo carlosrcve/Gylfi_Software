@@ -144,13 +144,14 @@ def conectar_db(nombre_db=None):
 if st.query_params.get("modulo") == "libro_compras":
   st.session_state['logueado'] = True
   st.session_state['bienvenida_completada'] = True
-  st.session_state['usuario'] = "norbe"
-  st.session_state['rol'] = "admin"
-  st.session_state['cliente_id'] = (
-      1  # ID genérico por si la BD lo pide de forma numérica
-  )
-  st.session_state['db_cliente'] = "kingdriver_ca"  # Tu empresa por defecto
+  
+  # Forzamos los valores directamente en la sesión para que la app crea 
+  # que ya está todo validado, sin ir a buscar nada a la tabla de usuarios:
+  st.session_state['usuario'] = "invitado_instagram"
+  st.session_state['rol'] = "publico"
+  st.session_state['db_cliente'] = "kingdriver_ca"  # La empresa fija donde se guardará
   st.session_state['db_actual'] = "kingdriver_ca"
+  
   st.session_state.sub_opcion = "Libro de Compras"
   st.session_state.active_tab = "📊 Cargar desde Excel"
 
