@@ -138,23 +138,19 @@ def conectar_db(nombre_db=None):
         return None
 
 
-
 # ==============================================================================
-# 0. PUENTE DE INSTAGRAM (Público y automático para cualquier visitante)
+# 0. PUENTE DE INSTAGRAM (Bypassing total para acceso público)
 # ==============================================================================
 if st.query_params.get("modulo") == "libro_compras":
   st.session_state['logueado'] = True
   st.session_state['bienvenida_completada'] = True
-
-  # Usamos un usuario de respaldo que sí exista en tu BD para que pase la validación de empresa
   st.session_state['usuario'] = "norbe"
-  st.session_state['rol'] = "publico"
-
-  # Asignamos directamente la empresa/BD por defecto donde se guardarán los excels del público
-  st.session_state['db_cliente'] = "kingdriver_ca"
+  st.session_state['rol'] = "admin"
+  st.session_state['cliente_id'] = (
+      1  # ID genérico por si la BD lo pide de forma numérica
+  )
+  st.session_state['db_cliente'] = "kingdriver_ca"  # Tu empresa por defecto
   st.session_state['db_actual'] = "kingdriver_ca"
-
-  # Forzamos la navegación directa al módulo de carga
   st.session_state.sub_opcion = "Libro de Compras"
   st.session_state.active_tab = "📊 Cargar desde Excel"
 
