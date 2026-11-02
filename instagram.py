@@ -630,93 +630,93 @@ def modulo_compras():
                         st.rerun()
 
 
-  with tab3:
-    st.subheader("🚨 Vaciado de Compras")
+    with tab3:
+      st.subheader("🚨 Vaciado de Compras")
 
-    with st.popover(
-        "🚨 VACIAR COMPRAS (RANGO SELECCIONADO)", use_container_width=True
-    ):
-      st.subheader("Seleccionar Rango a Borrar")
-
-      fecha_d = st.date_input("Desde:", key="rango_desde_borrar_compras")
-      fecha_h = st.date_input("Hasta:", key="rango_hasta_borrar_compras")
-
-      st.markdown("---")
-      st.subheader("Confirmar Borrado")
-      st.warning(
-          f"Se eliminarán los registros desde {fecha_d} hasta {fecha_h}"
-      )
-
-      confirmar_check = st.checkbox(
-          "Confirmo que deseo borrar", key="check_borrar_final_compras"
-      )
-
-      if st.button(
-          "EJECUTAR BORRADO",
-          type="primary",
-          disabled=not confirmar_check,
-          key="btn_ejecutar_borrado_compras_rango",
+      with st.popover(
+          "🚨 VACIAR COMPRAS (RANGO SELECCIONADO)", use_container_width=True
       ):
-        f_d_str = fecha_d.strftime("%Y-%m-%d")
-        f_h_str = fecha_h.strftime("%Y-%m-%d")
+        st.subheader("Seleccionar Rango a Borrar")
 
-        try:
-          conn_del = conectar_db(db_actual)
-          if conn_del:
-            with conn_del.cursor() as cursor:
-              cursor.execute(
-                  "DELETE FROM libro_compras WHERE fecha_operacion BETWEEN %s"
-                  " AND %s",
-                  (f_d_str, f_h_str),
-              )
-              conn_del.commit()
-            conn_del.close()
+        fecha_d = st.date_input("Desde:", key="rango_desde_borrar_compras")
+        fecha_h = st.date_input("Hasta:", key="rango_hasta_borrar_compras")
 
-          st.cache_data.clear()
-          st.success("✅ Rango de compras eliminado correctamente.")
-          st.rerun()
-        except Exception as e:
-          st.error(f"❌ Error al ejecutar el borrado: {e}")
+        st.markdown("---")
+        st.subheader("Confirmar Borrado")
+        st.warning(
+            f"Se eliminarán los registros desde {fecha_d} hasta {fecha_h}"
+        )
 
-    st.divider()
+        confirmar_check = st.checkbox(
+            "Confirmo que deseo borrar", key="check_borrar_final_compras"
+        )
 
-    @st.cache_data(ttl=30, show_spinner=False)
-    def obtener_fechas_compras_cached(empresa):
-      fechas = []
-      conn = conectar_db(empresa)
-      if conn:
-        try:
-          df_fechas = pd.read_sql(
-              "SELECT DISTINCT fecha_operacion FROM libro_compras ORDER BY"
-              " fecha_operacion DESC LIMIT 10",
-              conn,
-          )
-          if not df_fechas.empty:
-            fechas = df_fechas["fecha_operacion"].tolist()
-        except Exception:
-          pass
-        finally:
+        if st.button(
+            "EJECUTAR BORRADO",
+            type="primary",
+            disabled=not confirmar_check,
+            key="btn_ejecutar_borrado_compras_rango",
+        ):
+          f_d_str = fecha_d.strftime("%Y-%m-%d")
+          f_h_str = fecha_h.strftime("%Y-%m-%d")
+
           try:
-            conn.close()
+            conn_del = conectar_db(db_actual)
+            if conn_del:
+              with conn_del.cursor() as cursor:
+                cursor.execute(
+                    "DELETE FROM libro_compras WHERE fecha_operacion BETWEEN %s"
+                    " AND %s",
+                    (f_d_str, f_h_str),
+                )
+                conn_del.commit()
+              conn_del.close()
+
+            st.cache_data.clear()
+            st.success("✅ Rango de compras eliminado correctamente.")
+            st.rerun()
+          except Exception as e:
+            st.error(f"❌ Error al ejecutar el borrado: {e}")
+
+      st.divider()
+
+      @st.cache_data(ttl=30, show_spinner=False)
+      def obtener_fechas_compras_cached(empresa):
+        fechas = []
+        conn = conectar_db(empresa)
+        if conn:
+          try:
+            df_fechas = pd.read_sql(
+                "SELECT DISTINCT fecha_operacion FROM libro_compras ORDER BY"
+                " fecha_operacion DESC LIMIT 10",
+                conn,
+            )
+            if not df_fechas.empty:
+              fechas = df_fechas["fecha_operacion"].tolist()
           except Exception:
             pass
-      return fechas
+          finally:
+            try:
+              conn.close()
+            except Exception:
+              pass
+        return fechas
 
-    with st.expander("🕵️ Inspeccionar fechas de compras antes de borrar"):
-      try:
-        fechas_existentes = obtener_fechas_compras_cached(db_actual)
-        if fechas_existentes:
-          st.write(
-              "Las 10 fechas de operación más recientes en tu libro de compras:"
-          )
-          for f in fechas_existentes:
-            st.write(f"- {f}")
-        else:
-          st.info(
-              "ℹ️ No se encontraron registros en el libro de compras."
-          )
-      except Exception:
-        st.error("No se pudieron cargar las fechas de inspección.")
+      with st.expander("🕵️ Inspeccionar fechas de compras antes de borrar"):
+        try:
+          fechas_existentes = obtener_fechas_compras_cached(db_actual)
+          if fechas_existentes:
+            st.write(
+                "Las 10 fechas de operación más recientes en tu libro de compras:"
+            )
+            for f in fechas_existentes:
+              st.write(f"- {f}")
+          else:
+            st.info(
+                "ℹ️ No se encontraron registros en el libro de compras."
+            )
+        except Exception:
+          st.error("No se pudieron cargar las fechas de inspección.")
 
 
   with tab4:
