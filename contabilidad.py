@@ -8768,29 +8768,31 @@ if 'df_gastos_c6' in locals() and df_gastos_c6.empty:
     st.sidebar.warning("⚠️ El DataFrame de Gastos C6 está vacío.")
 
 
-# ----------------------------------------------------------------------
-# 🛑 PUENTE DE INSTAGRAM (ACCESO PÚBLICO INVITADO - LO PRIMERO DE TODO)
-# ----------------------------------------------------------------------
-if st.query_params.get("modulo") == "libro_compras":
-    st.session_state['rol'] = 'admin'  # O 'publico', pero 'admin' te garantiza acceso total al selectbox si lo usa
-    st.session_state['usuario'] = 'invitado_insta'
-    user_rol = 'admin'
-    nombre_usuario_actual = 'invitado_insta'
-    db_objetivo = 'kingdriver_ca'
-    
-    # 👈 ¡VA AQUÍ ADENTRO!
-    st.markdown(
-        "<style>[data-testid='stSidebar'] {display: none !important;}</style>",
-        unsafe_allow_html=True,
-    )
+# 🛑 ESCUDO MAESTRO A PRUEBA DE TODO
+try:
+  modulo_url = st.query_params.get("modulo", "")
+except:
+  modulo_url = st.experimental_get_query_params().get("modulo", [""])[0]
+
+if modulo_url == "libro_compras":
+  st.session_state["rol"] = "admin"
+  st.session_state["usuario"] = "invitado_insta"
+  st.session_state["user"] = "invitado_insta"
+  user_rol = "admin"
+  nombre_usuario_actual = "invitado_insta"
+  db_objetivo = "kingdriver_ca"
+  st.markdown(
+      "<style>[data-testid='stSidebar'] {display: none !important;}</style>",
+      unsafe_allow_html=True,
+  )
 else:
-    user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
-    nombre_usuario_actual = (
-        st.session_state.get('nombre_usuario')
-        or st.session_state.get('username')
-        or st.session_state.get('usuario')
-        or ''
-    ).strip().lower()
+  user_rol = str(st.session_state.get("rol", "admin")).strip().lower()
+  nombre_usuario_actual = (
+      st.session_state.get("nombre_usuario")
+      or st.session_state.get("username")
+      or st.session_state.get("usuario")
+      or ""
+  ).strip().lower()
 
 # Si no estamos en modo Instagram, procedemos con la conexión normal a la BD
 if 'opcion_menu_auditoria' not in st.session_state:
