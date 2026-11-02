@@ -140,7 +140,7 @@ import pandas as pd
 # 1. Configuración de página
 st.set_page_config(page_title="Sistema King Driver", layout="wide")
 
-# 🛑 INTERCEPTOR ABSOLUTO DE INSTAGRAM EN EL ARCHIVO PRINCIPAL
+# 🛑 INTERCEPTOR ABSOLUTO DE INSTAGRAM
 modulo_url = ""
 try:
     params_dict = dict(st.query_params)
@@ -153,10 +153,10 @@ except:
         modulo_url = ""
 
 if modulo_url in ["libro_compras", "libro_ventas", "retencion_islr", "retencion_iva"]:
-    # Limpiamos cualquier sesión basura o rastro de 'norbe'
+    # Limpiamos cualquier sesión basura o rastro previo
     st.session_state.clear()
     
-    # Asignamos los valores de invitado de Instagram
+    # Asignamos los valores de invitado de Instagram directamente
     st.session_state["logueado"] = True
     st.session_state["usuario"] = "invitado_insta"
     st.session_state["user"] = "invitado_insta"
