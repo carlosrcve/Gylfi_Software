@@ -2548,8 +2548,8 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
 
     # --- CONTROL DE PESTAÑA ACTIVA ---
     if 'active_tab' not in st.session_state:
-        st.session_state.active_tab = 0 # 0 es la primera tab ("📥 Cargar Excel")
-    
+        st.session_state.active_tab = 0
+
     # 1. INICIALIZACIÓN DE ESTADOS (Prevenir KeyErrors)
     if 'exito_data' not in st.session_state:
         st.session_state['exito_data'] = None
@@ -2557,8 +2557,9 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
         st.session_state['mostrar_exito'] = False
 
     # 2. GESTIÓN DE CONEXIÓN
-    db_actual = st.session_state.get('DB_ACTUAL')
-    
+    db_actual = st.session_state.get('DB_ACTUAL') or "kingdriver_ca"
+    st.session_state['DB_ACTUAL'] = db_actual
+
     if 'db_conn' not in st.session_state or st.session_state.db_conn is None:
         st.session_state.db_conn = conectar_db(db_actual)
     else:
