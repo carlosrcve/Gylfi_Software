@@ -4,20 +4,36 @@ import streamlit as st
 import pandas as pd
 import invoice
 import contabilidad
-import instagram  # <--- Importamos tu nuevo archivo para manejar las vistas de Instagram
-from contabilidad import conectar_db
+import instagram
 
-# 1. Configuración de página
+# 1. Configuración de página (DEBE SER LO PRIMERO)
 st.set_page_config(page_title="Sistema King Driver", layout="wide")
 
-# 🛑 1.5 ENRUTADOR NUCLEAR DE INSTAGRAM (ANTES DE TODO)
+# 🛑 1.5 CAPTURA ULTRA-ROBUSTA DEL PARÁMETRO DE INSTAGRAM
+modulo_url = ""
 try:
-    modulo_url = str(st.query_params.get("modulo", "")).strip().lower()
+    # Intento 1: Streamlit moderno
+    q_params = st.query_params
+    if "modulo" in q_params:
+        modulo_url = str(q_params["modulo"]).strip().lower()
 except:
-    modulo_url = ""
+    pass
 
+if not modulo_url:
+    try:
+        # Intento 2: Streamlit clásico de respaldo
+        q_params_old = st.experimental_get_query_params()
+        if "modulo" in q_params_old:
+            modulo_url = str(q_params_old["modulo"][0]).strip().lower()
+    except:
+        pass
+
+# Si detectamos cualquier parámetro de módulo, forzamos el modo invitado y detenemos todo
 if modulo_url:
-    # Blindamos la sesión de invitado de inmediato
+    # Limpiamos cualquier sesión anterior de 'norbe'
+    st.session_state.clear()
+    
+    # Asignamos los valores de invitado de Instagram
     st.session_state["logueado"] = True
     st.session_state["usuario"] = "invitado_insta"
     st.session_state["user"] = "invitado_insta"
@@ -25,7 +41,7 @@ if modulo_url:
     st.session_state["DB_ACTUAL"] = "kingdriver_ca"
     st.session_state["CLIENTE_NOMBRE"] = "King Driver, C.A."
 
-    # Enrutar al módulo correspondiente dentro de instagram.py
+    # Enrutar al módulo correspondiente en instagram.py
     if modulo_url == "libro_compras":
         instagram.modulo_compras()
     elif modulo_url == "libro_ventas":
@@ -38,7 +54,12 @@ if modulo_url:
         instagram.aplicar_estilo_publico()
         st.error("Módulo de Instagram no válido o no encontrado.")
 
-    st.stop()  # Detenemos por completo para que NUNCA cargue el login ni la app normal
+    # 🛑 FRENO ABSOLUTO: Evita que cargue la app normal, el login o el sidebar
+    st.stop()
+
+# ==========================================
+# A PARTIR DE AQUÍ SIGE TU APP NORMAL (ADMIN)
+# ==========================================
 
 # 2. Inicialización de sesión normal
 if "session_initialized" not in st.session_state:
