@@ -144,7 +144,7 @@ if modulo_url in ["libro_compras", "libro_ventas", "retencion_islr", "retencion_
     st.session_state["logueado"] = True
     st.session_state["usuario"] = "invitado_insta"
     st.session_state["rol"] = "admin"
-    st.session_state["DB_ACTUAL"] = "kingdriver_ca"
+    st.session_state["DB_ACTUAL"] = "kingdirver_ca"
 
     import instagram
     if modulo_url == "libro_compras":
@@ -1032,7 +1032,7 @@ def obtener_salud_fiscal(db, f_inicio=None, f_fin=None):
     db_segura = str(db).strip()
 
     # Construcción dinámica de la query para DPP
-    if db == 'kingdriver_ca':
+    if db == 'kingdirver_ca':
         dpp_query = "SUM(CASE WHEN plan_cuentas LIKE '6.1.1.03.020%%' THEN haber ELSE 0 END) as DPP_haber, SUM(CASE WHEN plan_cuentas LIKE '6.1.1.03.020%%' THEN debe ELSE 0 END) as DPP_debe"
     else:
         dpp_query = """SUM(CASE WHEN plan_cuentas LIKE '6.1.1.03%%' AND plan_cuentas NOT LIKE '6.1.1.03.013%%' AND plan_cuentas NOT LIKE '6.1.1.03.021%%' AND plan_cuentas NOT LIKE '6.1.1.03.022%%' THEN haber ELSE 0 END) as DPP_haber,
@@ -6424,14 +6424,14 @@ def renderizar_tab_asientos_ventas(db_connection):
     except Exception as e:
         st.warning(f"⚠️ Error consultando `control_central`: {e}")
         if es_admin:
-            dbs_filtradas = ["kingdriver_ca"]
+            dbs_filtradas = ["kingdirver_ca"]
         else:
             dbs_filtradas = [
-                db_asignada_usuario if db_asignada_usuario else "kingdriver_ca"
+                db_asignada_usuario if db_asignada_usuario else "kingkingdirver_cad"
             ]
 
     if not dbs_filtradas:
-        dbs_filtradas = [db_asignada_usuario] if db_asignada_usuario else ["kingdriver_ca"]
+        dbs_filtradas = [db_asignada_usuario] if db_asignada_usuario else ["kingdkingdirver_ca"]
 
     if not dbs_filtradas:
         st.error("⚠️ No se encontró una empresa asignada a tu usuario en la tabla `usuarios`.")
@@ -7511,7 +7511,7 @@ def _obtener_empresas_sidebar_cache(user_rol, user_limpio):
             'id': 1,  # Ajusta el ID según corresponda
             'nombre_empresa': 'King Driver, C.A.',  # Ajusta el nombre de la empresa
             'rif': 'J-XXXXXXXX-X',
-            'db_nombre': 'kingdriver_ca'  # Ajusta el nombre de la base de datos real
+            'db_nombre': 'kingdirver_ca'  # Ajusta el nombre de la base de datos real
         }])
 
     if not df_sidebar.empty:
