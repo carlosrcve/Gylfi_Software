@@ -132,6 +132,8 @@ def conectar_db(nombre_db=None):
         return None
 
 # 🛑 Interceptor para módulo público por URL (?modulo=libro_compras)
+import instagram
+
 try:
     modulo_url = str(st.query_params.get("modulo", "")).strip().lower()
 except Exception:
@@ -144,7 +146,6 @@ if modulo_url == "libro_compras":
     st.session_state["rol"] = "admin"
     st.session_state["DB_ACTUAL"] = "kingdriver_ca"
 
-    import instagram
     instagram.modulo_compras()
     st.stop()
 
