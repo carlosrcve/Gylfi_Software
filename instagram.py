@@ -118,16 +118,23 @@ def modulo_compras():
   with tab1:
     st.subheader("🔍 Consulta y Edición: Libro de Compras")
     st.info("💡 Utiliza las pestañas superiores para navegar entre el escaneo OCR, consulta de registros y herramientas de mantenimiento.")
-    # Carga inicial básica de la tabla si existe
-    engine = obtener_engine_cached(db_actual)
+    
+    db_actual = st.session_state.get("DB_ACTUAL", "kingdriver_ca")
+    
     try:
+        engine = obtener_engine_cached(db_actual)
+        # Intentamos consultar la tabla
         df_inicial = pd.read_sql("SELECT * FROM libro_compras ORDER BY fecha_operacion DESC LIMIT 50", engine)
+        
         if not df_inicial.empty:
             st.dataframe(df_inicial, use_container_width=True)
         else:
             st.info("ℹ️ No hay registros guardados en el libro de compras todavía.")
-    except Exception:
-        st.info("ℹ️ La tabla de compras se inicializará al registrar el primer documento.")
+            
+    except Exception as e:
+        # Mostramos el error exacto en la app para saber qué está fallando (tabla no existe, credenciales, red, etc.)
+        st.error(f"❌ Error detallado al cargar el libro de compras: {e}")
+        st.info("ℹ️ Si la tabla 'libro_compras' no existe en esta base de datos, se inicializará automáticamente al registrar el primer documento.")
 
 
   with tab2:
