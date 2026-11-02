@@ -8833,23 +8833,22 @@ if opcion_menu == "🏠 Inicio":
     
     if conn_ctrl:
         try:
-            # 🛑 LECTURA BLINDADA DEL PARÁMETRO DE INSTAGRAM
-            # (Soporta tanto versiones nuevas como viejas de Streamlit)
-            try:
-                val_modulo = str(st.query_params.get("modulo", "")).strip().lower()
-            except:
-                val_modulo = str(st.experimental_get_query_params().get("modulo", [""])[0]).strip().lower()
-
-            if val_modulo == "libro_compras":
-                db_objetivo = "kingdriver_ca"
+            # 🛑 SI ES INSTAGRAM: Forzamos el usuario invitado para que no busque en la tabla
+            if st.query_params.get("modulo") == "libro_compras":
                 nombre_usuario_actual = "invitado_insta"
+                st.session_state["usuario"] = "invitado_insta"
+                st.session_state["user"] = "invitado_insta"
+                db_objetivo = "kingdriver_ca"
+
             elif user_rol == 'admin':
                 db_objetivo = st.session_state.get('DB_ACTUAL')
                 if not db_objetivo or db_objetivo == 'No seleccionada':
                     df_temp = ejecutar_consulta("SELECT db_nombre FROM clientes LIMIT 1", conn_ctrl)
-                    if not df_temp.empty: db_objetivo = str(df_temp['db_nombre'].iloc[0])
+                    if not df_temp.empty:
+                        db_objetivo = str(df_temp['db_nombre'].iloc[0])
+
             else:
-                # --- BÚSQUEDA DIRECTA Y SEGURA ---
+                # --- BÚSQUEDA NORMAL DE USUARIOS REGISTRADOS ---
                 query = f"SELECT db_nombre FROM usuarios WHERE LOWER(TRIM(usuario)) = '{nombre_usuario_actual}'"
                 df_temp = ejecutar_consulta(query, conn_ctrl)
                 
@@ -8858,15 +8857,15 @@ if opcion_menu == "🏠 Inicio":
                 elif nombre_usuario_actual in ['alix_maria', 'alix']:
                     db_objetivo = 'rishon_letzion_ca'
                 else:
-                    # 🛑 BLINDAJE: Si el usuario no existe en la tabla (como 'norbe'), 
-                    # en vez de matar la app con st.stop(), le asignamos una BD por defecto o 'kingdriver_ca'
-                    db_objetivo = 'kingdriver_ca' 
+                    # 🛡️ RESCATE: Si la sesión viene sin usuario o cae en 'norbe',
+                    # se le asigna la BD por defecto para no romper la app.
+                    db_objetivo = 'kingdriver_ca'
+
         except Exception as e:
             if nombre_usuario_actual in ['alix_maria', 'alix']:
                 db_objetivo = 'rishon_letzion_ca'
             else:
-                st.error(f"❌ Error al resolver la base de datos: {e}")
-                st.stop()
+                db_objetivo = 'kingdriver_ca'
         finally:
             if conn_ctrl and hasattr(conn_ctrl, 'close'):
                 conn_ctrl.close()
