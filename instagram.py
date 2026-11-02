@@ -97,6 +97,26 @@ def obtener_engine_cached(db_name):
         connect_args={"ssl": {"ssl_ca": None, "check_hostname": False}},
     )
 
+def obtener_facturas_pendientes(conn, f_desde, f_hasta):
+    try:
+        query = """
+            SELECT id, fecha_operacion, tipo_documento, n_factura, n_control, 
+                   proveedor, rif, total_compras, base_imponible, iva_monto, 
+                   importe_exento, retencion_iva_realizada
+            FROM libro_compras 
+            WHERE (retencion_iva_realizada = 0 OR retencion_iva_realizada IS NULL OR retencion_iva_realizada = FALSE)
+            AND fecha_operacion BETWEEN %s AND %s
+            ORDER BY fecha_operacion ASC
+        """
+        df = ejecutar_consulta(query, conn, params=(f_desde, f_hasta))
+        
+        if df.empty:
+            st.info(f"ℹ️ No hay facturas pendientes de retención de IVA entre {f_desde} y {f_hasta}.")
+            
+        return df
+    except Exception as e:
+        st.error(f"Error al cargar facturas pendientes de IVA: {e}")
+        return pd.DataFrame()
 
 # --- FUNCIÓN CON CACHÉ GLOBAL (Fuera de modulo_compras) ---
 @st.cache_data(ttl=30, show_spinner=False)
