@@ -8777,6 +8777,12 @@ if st.query_params.get("modulo") == "libro_compras":
     user_rol = 'admin'
     nombre_usuario_actual = 'invitado_insta'
     db_objetivo = 'kingdriver_ca'
+    
+    # 👈 ¡VA AQUÍ ADENTRO!
+    st.markdown(
+        "<style>[data-testid='stSidebar'] {display: none !important;}</style>",
+        unsafe_allow_html=True,
+    )
 else:
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
     nombre_usuario_actual = (
@@ -8785,7 +8791,6 @@ else:
         or st.session_state.get('usuario')
         or ''
     ).strip().lower()
-    db_objetivo = None
 
 # Si no estamos en modo Instagram, procedemos con la conexión normal a la BD
 if 'opcion_menu_auditoria' not in st.session_state:
