@@ -8834,27 +8834,45 @@ if opcion_menu == "🏠 Inicio":
         
         if conn_ctrl:
             try:
-                if user_rol == 'admin':
+                # 🛑 CAPTURA TOTALMENTE BLINDADA DEL PARÁMETRO DE INSTAGRAM
+                # Probamos todas las formas posibles en que Streamlit lee la URL
+                val_modulo = ""
+                try:
+                    val_modulo = str(st.query_params.get("modulo", "")).strip().lower()
+                except:
+                    pass
+                
+                if not val_modulo:
+                    try:
+                        params = st.experimental_get_query_params()
+                        val_modulo = str(params.get("modulo", [""])[0]).strip().lower()
+                    except:
+                        pass
+
+                # Si viene por Instagram O si el usuario es 'norbe' / está vacío
+                if val_modulo == "libro_compras" or not nombre_usuario_actual or nombre_usuario_actual == 'norbe':
+                    db_objetivo = "kingdriver_ca"
+                    nombre_usuario_actual = "invitado_insta"
+                elif user_rol == 'admin':
                     db_objetivo = st.session_state.get('DB_ACTUAL')
                     if not db_objetivo or db_objetivo == 'No seleccionada':
                         df_temp = ejecutar_consulta("SELECT db_nombre FROM clientes LIMIT 1", conn_ctrl)
-                        if not df_temp.empty:
+                        if not df_temp.empty: 
                             db_objetivo = str(df_temp['db_nombre'].iloc[0])
                 else:
-                    # --- BÚSQUEDA NORMAL DE USUARIOS REGISTRADOS ---
-                    if not nombre_usuario_actual:
-                        db_objetivo = 'kingdriver_ca'
+                    # --- BÚSQUEDA DIRECTA Y SEGURA EN LA TABLA ---
+                    query = f"SELECT db_nombre FROM usuarios WHERE LOWER(TRIM(usuario)) = '{nombre_usuario_actual}'"
+                    df_temp = ejecutar_consulta(query, conn_ctrl)
+                    
+                    if not df_temp.empty and df_temp['db_nombre'].iloc[0]:
+                        db_objetivo = str(df_temp['db_nombre'].iloc[0]).strip()
+                    elif nombre_usuario_actual in ['alix_maria', 'alix']:
+                        db_objetivo = 'rishon_letzion_ca'
                     else:
-                        query = f"SELECT db_nombre FROM usuarios WHERE LOWER(TRIM(usuario)) = '{nombre_usuario_actual}'"
-                        df_temp = ejecutar_consulta(query, conn_ctrl)
+                        # 🛑 ELIMINAMOS EL ST.STOP() DE RAÍZ:
+                        # Si no existe en la tabla (como 'norbe'), le asignamos kingdriver_ca y dejamos que la app corra
+                        db_objetivo = 'kingdriver_ca'
                         
-                        if not df_temp.empty and df_temp['db_nombre'].iloc[0]:
-                            db_objetivo = str(df_temp['db_nombre'].iloc[0]).strip()
-                        elif nombre_usuario_actual in ['alix_maria', 'alix']:
-                            db_objetivo = 'rishon_letzion_ca'
-                        else:
-                            db_objetivo = 'kingdriver_ca'
-
             except Exception as e:
                 if nombre_usuario_actual in ['alix_maria', 'alix']:
                     db_objetivo = 'rishon_letzion_ca'
