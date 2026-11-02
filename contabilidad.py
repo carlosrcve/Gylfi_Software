@@ -153,6 +153,7 @@ if modulo_url in ["libro_compras", "libro_ventas", "retencion_islr", "retencion_
         instagram.modulo_ventas()
     elif modulo_url == "retencion_islr":
         instagram.modulo_retencion_islr()
+    import instagram
     elif modulo_url == "retencion_iva":
         instagram.modulo_retencion_iva()
     
