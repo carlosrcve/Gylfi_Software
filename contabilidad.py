@@ -8798,26 +8798,21 @@ except:
     except:
         modulo_url = ""
 
-# Definimos variables de sesión iniciales seguras
-if modulo_url == "libro_compras":
-    st.session_state["rol"] = "admin"
-    st.session_state["usuario"] = "invitado_insta"
-    st.session_state["user"] = "invitado_insta"
-    user_rol = "admin"
-    nombre_usuario_actual = "invitado_insta"
-    db_objetivo = "kingdriver_ca"
-    
-    # Ocultar barra lateral para el público de Instagram
-    st.markdown("<style>[data-testid='stSidebar'] {display: none !important;}</style>", unsafe_allow_html=True)
-else:
-    user_rol = str(st.session_state.get("rol", "admin")).strip().lower()
-    nombre_usuario_actual = (
-        st.session_state.get("nombre_usuario")
-        or st.session_state.get("username")
-        or st.session_state.get("usuario")
-        or ""
-    ).strip().lower()
-    db_objetivo = None
+
+# 🛑 SECUESTRO Y BLINDAJE DE SESIÓN (LÍNEA 1 ABSOLUTA)
+# Si viene por Instagram, inyectamos los datos para que NUNCA caiga en 'norbe'
+try:
+    if st.query_params.get("modulo") == "libro_compras":
+        st.session_state["usuario"] = "invitado_insta"
+        st.session_state["user"] = "invitado_insta"
+        st.session_state["username"] = "invitado_insta"
+        st.session_state["rol"] = "admin"
+        st.session_state["DB_ACTUAL"] = "kingdriver_ca"
+        
+        # Ocultar la barra lateral de golpe
+        st.markdown("<style>[data-testid='stSidebar'] {display: none !important;}</style>", unsafe_allow_html=True)
+except Exception:
+    pass
 
 # Configuración del menú
 if 'opcion_menu_auditoria' not in st.session_state:
@@ -8868,7 +8863,7 @@ if opcion_menu == "🏠 Inicio":
             finally:
                 if conn_ctrl and hasattr(conn_ctrl, 'close'):
                     conn_ctrl.close()
-                    
+
     # Aseguramos que la sesión mantenga la DB activa
     if db_objetivo:
         st.session_state['DB_ACTUAL'] = db_objetivo
