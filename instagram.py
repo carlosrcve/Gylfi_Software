@@ -50,8 +50,8 @@ def obtener_datos_agente_db(valor_busqueda):
     conn_central = conectar_db("kingdriver_ca")
     if not conn_central:
         return {
-            "nombre_empresa": "King Driver, C.A.",
-            "rif": "J-XXXXXXXX-X",
+            "nombre_empresa": "Empresa Inteligencia Artificial, C.A.",
+            "rif": "J-12345678-9",
             "domicilio_fiscal": "Caracas, Venezuela"
         }
     
