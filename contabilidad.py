@@ -138,19 +138,15 @@ def conectar_db(nombre_db=None):
         return None
 
 
-# ----------------------------------------------------
-# VALIDACIÓN DE ROL Y FILTRADO DE EMPRESAS
-# ----------------------------------------------------
-# Ocultar barra lateral si entran por el link de Instagram
+
+# Si entramos por el link de Instagram, nos saltamos la validación del usuario 'norbe'
 if st.query_params.get("modulo") == "libro_compras":
-  st.markdown(
-      """
-        <style>
-            [data-testid="stSidebar"] {display: none;}
-        </style>
-        """,
-      unsafe_allow_html=True,
-  )
+  usuario_actual = "invitado_insta"
+else:
+  # AQUÍ DEJAS TU CÓDIGO NORMAL QUE BUSCA A 'NORBE' O AL USUARIO QUE ESTÉ LOGUEADO
+  usuario_actual = str(
+      st.session_state.get("user", st.session_state.get("usuario", "norbe"))
+  ).strip()
 
 def obtener_datos_empresa_activa():
     """
