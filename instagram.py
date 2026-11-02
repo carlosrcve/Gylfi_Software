@@ -32,7 +32,22 @@ def modulo_compras():
   ssl_context.verify_mode = ssl.CERT_NONE
 
   try:
-    # Conexión directa a TiDB Cloud usando tus credenciales y la base de datos de King Driver
+    # 1. Conectamos primero a la base central o general para asegurar que la BD exista
+    conn_temp = pymysql.connect(
+        host="gateway01.us-east-1.prod.aws.tidbcloud.com",
+        port=4000,
+        user="4K4VAw4t4ZPFUTF.root",
+        password="W3Zkbr4E2trGCfoX",
+        database="control_central",
+        connect_timeout=20,
+        charset="utf8mb4",
+        ssl=ssl_context,
+    )
+    with conn_temp.cursor() as cursor:
+      cursor.execute("CREATE DATABASE IF NOT EXISTS `kingdriver_ca`;")
+    conn_temp.close()
+
+    # 2. Ahora conectamos directamente a la base de datos de King Driver
     conn = pymysql.connect(
         host="gateway01.us-east-1.prod.aws.tidbcloud.com",
         port=4000,
@@ -44,7 +59,7 @@ def modulo_compras():
         ssl=ssl_context,
     )
 
-    query = "SELECT * FROM libro_compras"  # Ajusta el nombre de tu tabla real si es necesario
+    query = "SELECT * FROM libro_compras"
     df = pd.read_sql(query, conn)
     conn.close()
 
@@ -62,16 +77,13 @@ def modulo_compras():
 def modulo_ventas():
   aplicar_estilo_publico()
   st.title("📊 Libro de Ventas - King Driver, C.A.")
-  # Tu lógica para ventas aquí...
 
 
 def modulo_retencion_islr():
   aplicar_estilo_publico()
   st.title("🧾 Comprobante de Retención ISLR")
-  # Tu lógica para ISLR aquí...
 
 
 def modulo_retencion_iva():
   aplicar_estilo_publico()
   st.title("🧾 Comprobante de Retención IVA")
-  # Tu lógica para IVA aquí...
