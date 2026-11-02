@@ -118,7 +118,6 @@ def modulo_compras():
     # --- LÓGICA DE NAVEGACIÓN (BLOQUES ORDENADOS) ---
     with tab1:
         st.subheader("🔍 Consulta y Edición: Libro de Compras")
-        st.subheader("🔍 Consulta y Edición: Libro de Compras")
 
         # 1. Filtros de fecha y botón de consulta inicial
         col_c1, col_c2, col_c3 = st.columns([1, 1, 1])
@@ -297,17 +296,15 @@ def modulo_compras():
                             conn.ping(reconnect=True)
                             with conn.cursor() as cursor:
                                 cursor.execute("DESCRIBE libro_compras")
-                                columnas_db = [fila[0] for fila in cursor.fetchall()]
+                                columnas_db = [fila["Field"] if isinstance(fila, dict) else fila[0] for fila in cursor.fetchall()]
 
                                 def limpiar_dato(val):
-                                    if val is None or (isinstance(val, float) and np.isnan(val)):
+                                    if val is None or pd.isna(val):
                                         return None
-                                    if isinstance(val, (pd.Timestamp, pd.Timedelta)):
-                                        return str(val.date())
-                                    if isinstance(val, (np.integer, np.int64)):
-                                        return int(val)
-                                    if isinstance(val, (np.floating, np.float64)):
-                                        return float(val)
+                                    if hasattr(val, "strftime"):
+                                        return val.strftime("%Y-%m-%d")
+                                    if isinstance(val, (int, float)):
+                                        return val
                                     return str(val).strip()
 
                                 cursor.execute("START TRANSACTION")
@@ -364,7 +361,7 @@ def modulo_compras():
                 if conn_prov:
                     try:
                         conn_prov.ping(reconnect=True)
-                        df_p = ejecutar_consulta("SELECT rif, razon_social FROM proveedores", conn_prov)
+                        df_p = pd.read_sql("SELECT rif, razon_social FROM proveedores", conn_prov)
                     except Exception:
                         pass
                     finally:
@@ -380,7 +377,7 @@ def modulo_compras():
             ):
                 df_prov = obtener_proveedores_cached(db_actual)
 
-                if not df_prov.empty:
+                if not df_prov.empty and "razon_social" in df_prov.columns and "rif" in df_prov.columns:
                     df_prov["display_prov"] = (
                         df_prov["razon_social"] + " (" + df_prov["rif"] + ")"
                     )
