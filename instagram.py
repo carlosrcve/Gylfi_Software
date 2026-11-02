@@ -1406,13 +1406,5 @@ def modulo_ventas():
                     st.error(f"❌ Error al ejecutar el borrado: {e}")
 
 if __name__ == "__main__":
-    st.sidebar.title("🛠️ Selector de Pruebas")
-    selector = st.sidebar.selectbox(
-        "Selecciona el módulo a probar:", 
-        ["Libro de Compras", "Libro de Ventas"]
-    )
-    
-    if selector == "Libro de Compras":
-        modulo_compras()
-    elif selector == "Libro de Ventas":
-        modulo_ventas()
+    # Prueba local opcional
+    pass
