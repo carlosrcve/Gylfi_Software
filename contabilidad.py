@@ -8792,13 +8792,15 @@ if 'df_gastos_c6' in locals() and df_gastos_c6.empty:
 import streamlit as st
 
 # 🛑 ESCUDO NUCLEAR DE INSTAGRAM (LÍNEA 1 ABSOLUTA)
-# Esto se ejecuta antes de cualquier renderizado y antes de app.py
 try:
-    _url_param = str(st.query_params.get("modulo", "")).strip().lower()
+    modulo_url = str(st.query_params.get("modulo", "")).strip().lower()
 except:
-    _url_param = ""
+    try:
+        modulo_url = str(st.experimental_get_query_params().get("modulo", [""])[0]).strip().lower()
+    except:
+        modulo_url = ""
 
-if _url_param == "libro_compras":
+if modulo_url == "libro_compras":
     # Forzamos la sesión de invitado de inmediato para que NUNCA aparezca 'norbe'
     st.session_state["logueado"] = True
     st.session_state["usuario"] = "invitado_insta"
@@ -8838,23 +8840,8 @@ if opcion_menu == "🏠 Inicio":
         
         if conn_ctrl:
             try:
-                # 🛑 CAPTURA TOTALMENTE BLINDADA DEL PARÁMETRO DE INSTAGRAM
-                # Probamos todas las formas posibles en que Streamlit lee la URL
-                val_modulo = ""
-                try:
-                    val_modulo = str(st.query_params.get("modulo", "")).strip().lower()
-                except:
-                    pass
-                
-                if not val_modulo:
-                    try:
-                        params = st.experimental_get_query_params()
-                        val_modulo = str(params.get("modulo", [""])[0]).strip().lower()
-                    except:
-                        pass
-
                 # Si viene por Instagram O si el usuario es 'norbe' / está vacío
-                if val_modulo == "libro_compras" or not nombre_usuario_actual or nombre_usuario_actual == 'norbe':
+                if modulo_url == "libro_compras" or not nombre_usuario_actual or nombre_usuario_actual == 'norbe':
                     db_objetivo = "kingdriver_ca"
                     nombre_usuario_actual = "invitado_insta"
                 elif user_rol == 'admin':
@@ -8873,8 +8860,7 @@ if opcion_menu == "🏠 Inicio":
                     elif nombre_usuario_actual in ['alix_maria', 'alix']:
                         db_objetivo = 'rishon_letzion_ca'
                     else:
-                        # 🛑 ELIMINAMOS EL ST.STOP() DE RAÍZ:
-                        # Si no existe en la tabla (como 'norbe'), le asignamos kingdriver_ca y dejamos que la app corra
+                        # 🛑 RESCATE: Si no existe en la tabla (como 'norbe'), asignamos kingdriver_ca
                         db_objetivo = 'kingdriver_ca'
                         
             except Exception as e:
@@ -8885,7 +8871,7 @@ if opcion_menu == "🏠 Inicio":
             finally:
                 if conn_ctrl and hasattr(conn_ctrl, 'close'):
                     conn_ctrl.close()
-
+                    
     # Aseguramos que la sesión mantenga la DB activa
     if db_objetivo:
         st.session_state['DB_ACTUAL'] = db_objetivo
