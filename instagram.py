@@ -155,7 +155,7 @@ def modulo_compras():
 
         st.error("⚠️ **Atención:** Las acciones aquí solo afectan al Libro de Compras.")
 
-        # --- FUNCIÓN CON CACHÉ PARA CONSULTAR EL LIBRO DE COMPRAS ---
+        # --- FUNCIÓN CON CACHÉ GLOBAL (Fuera de modulo_compras) ---
         @st.cache_data(ttl=30, show_spinner=False)
         def consultar_libro_compras_cached(empresa, ver_todo_val, f_desde, f_hasta):
             df_res = pd.DataFrame()
@@ -178,6 +178,7 @@ def modulo_compras():
                         pass
             return df_res
 
+        # Botón explícito de consulta
         # Botón explícito de consulta
         if st.button("📊 Consultar Compras", key="btn_consultar_compras"):
             df_recuperado = consultar_libro_compras_cached(db_actual, ver_todo, desde_c, hasta_c)
@@ -213,6 +214,7 @@ def modulo_compras():
                         if pd.notnull(x)
                         else "0,00"
                     )
+
 
             st.subheader("👁️ Vista de Consulta")
             st.dataframe(df_visual_c, use_container_width=True, hide_index=True)
