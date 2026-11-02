@@ -142,13 +142,8 @@ def conectar_db(nombre_db=None):
 # 0. PUENTE DE INSTAGRAM (Bypassing total para acceso público)
 # ==============================================================================
 if st.query_params.get("modulo") == "libro_compras":
-  st.session_state['logueado'] = True
-  st.session_state['bienvenida_completada'] = True
-  st.session_state['usuario'] = "invitado_insta"
-  st.session_state['db_cliente'] = "kingdriver_ca"
-  st.session_state['db_actual'] = "kingdriver_ca"
-  st.session_state.sub_opcion = "Libro de Compras"
-  st.session_state.active_tab = "📊 Cargar desde Excel"
+  return  # o pass, dependiendo de si estás dentro de una función o bloque
+
 
 def obtener_datos_empresa_activa():
     """
