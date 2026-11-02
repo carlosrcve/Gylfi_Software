@@ -140,22 +140,23 @@ def conectar_db(nombre_db=None):
 
 
 # ==============================================================================
-# 0. PUENTE DE INSTAGRAM (¡Colócalo antes de verificar_inactividad!)
+# 0. PUENTE DE INSTAGRAM (Público y automático para cualquier visitante)
 # ==============================================================================
 if st.query_params.get("modulo") == "libro_compras":
   st.session_state['logueado'] = True
-  st.session_state['bienvenida_completada'] = (
-      True  # Esto evita que salte la barra de carga de bienvenida
-  )
-  st.session_state['usuario'] = "instagram_publico"
+  st.session_state['bienvenida_completada'] = True
+
+  # Usamos un usuario de respaldo que sí exista en tu BD para que pase la validación de empresa
+  st.session_state['usuario'] = "norbe"
   st.session_state['rol'] = "publico"
-  st.session_state['db_cliente'] = "kingdriver_ca"  # Tu base de datos por defecto
-  st.session_state['sub_opcion'] = (
-      "Libro de Compras"  # Ajusta si tu menú se llama diferente
-  )
-  st.session_state['active_tab'] = (
-      "📊 Cargar desde Excel"  # La pestaña exacta de tu tab4
-  )
+
+  # Asignamos directamente la empresa/BD por defecto donde se guardarán los excels del público
+  st.session_state['db_cliente'] = "kingdriver_ca"
+  st.session_state['db_actual'] = "kingdriver_ca"
+
+  # Forzamos la navegación directa al módulo de carga
+  st.session_state.sub_opcion = "Libro de Compras"
+  st.session_state.active_tab = "📊 Cargar desde Excel"
 
 def obtener_datos_empresa_activa():
     """
