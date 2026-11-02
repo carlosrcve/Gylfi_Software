@@ -137,24 +137,16 @@ def conectar_db(nombre_db=None):
         st.session_state.conn = None
         return None
 
-# ==============================================================================
-# ESTO VA ARRIBA DEL TODO (Línea 1 de tu script principal)
-# ==============================================================================
-params = st.query_params
-modulo_url = params.get("modulo", None)
 
-# Si entran por el link de Instagram: ?modulo=libro_compras
-if modulo_url == "libro_compras":
-  st.title("🛒 Gylfi Software - Libro de Compras (Público)")
-  st.markdown("---")
-
-  # 1. Uploader con KEY DIFERENTE para que no choque con el de la app interna
-  archivo_ex = st.file_uploader(
-      "Sube tu archivo Excel",
-      type=["xlsx"],
-      key="uploader_excel_compras_masivo_insta",
+# ==============================================================================
+# 1. PUENTE DE INSTAGRAM (Va en la Línea 1, antes de cualquier login)
+# ==============================================================================
+if st.query_params.get("modulo") == "libro_compras":
+  st.session_state.autenticado = True  # Salta el login automáticamente
+  st.session_state.sub_opcion = "Libro de Compras"  # Selecciona el menú
+  st.session_state.active_tab = (  # Selecciona la pestaña de Cargar desde Excel
+      "📊 Cargar desde Excel"
   )
-
 def obtener_datos_empresa_activa():
     """
     Consulta directamente la base de datos control_central.clientes 
