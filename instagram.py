@@ -59,6 +59,30 @@ def conectar_db(db_name=None):
         print(f"Error de conexión: {e}")
         return None
 
+def registrar_log_automatico(conn, accion, detalles):
+    """Registra automáticamente las interacciones del usuario en la tabla logs_auditoria
+    ubicada en la base de datos central de control.
+    """
+    cursor = None
+    try:
+        if conn is not None:
+            usuario = st.session_state.get("usuario", "Desconocido")
+            cliente_id = str(st.session_state.get("cliente_id", ""))
+
+            cursor = conn.cursor()
+            query = """
+                INSERT INTO control_central.logs_auditoria (usuario_id, accion, detalles, ip_address, fecha) 
+                VALUES (%s, %s, %s, %s, NOW())
+            """
+            cursor.execute(query, (usuario, accion, detalles, cliente_id))
+            conn.commit()
+    except Exception as e:
+        # Manejo de error silencioso o impreso para depuración
+        print(f"Error registrando log: {e}")
+    finally:
+        if cursor:
+            cursor.close()
+
 @st.cache_data(ttl=300)
 def obtener_datos_agente_db(valor_busqueda):
     """Consulta segura de los datos de la empresa para el encabezado."""
