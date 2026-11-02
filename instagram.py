@@ -744,9 +744,7 @@ def modulo_compras():
             st.session_state.df_buffer_escaneo = pd.DataFrame()
             st.rerun()
 
-  # ==========================================
-  # TAB 3: VACIADO DE RANGO
-  # ==========================================
+
   with tab3:
     st.subheader("🚨 Vaciado de Compras")
 
@@ -835,11 +833,7 @@ def modulo_compras():
       except Exception:
         st.error("No se pudieron cargar las fechas de inspección.")
 
-  with tab3:
-    st.info("📊 Módulo de Carga desde Excel en desarrollo.")
-  # ==========================================
-  # TABS RESTANTES
-  # ==========================================
+
   with tab4:
     st.info("📊 Módulo de Carga desde Excel en desarrollo.")
   with tab5:
