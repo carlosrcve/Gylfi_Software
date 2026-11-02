@@ -8798,7 +8798,11 @@ if opcion_menu == "🏠 Inicio":
     
     if conn_ctrl:
         try:
-            if user_rol == 'admin':
+            # 🛑 PUENTE DE INSTAGRAM (ACCESO PÚBLICO INVITADO)
+            if st.query_params.get("modulo") == "libro_compras":
+                db_objetivo = "kingdriver_ca"  # O la base de datos que quieras por defecto para el link
+                nombre_usuario_actual = "invitado_insta"
+            elif user_rol == 'admin':
                 db_objetivo = st.session_state.get('DB_ACTUAL')
                 if not db_objetivo or db_objetivo == 'No seleccionada':
                     df_temp = ejecutar_consulta("SELECT db_nombre FROM clientes LIMIT 1", conn_ctrl)
@@ -8815,15 +8819,15 @@ if opcion_menu == "🏠 Inicio":
                 else:
                     st.error(f"❌ Acceso denegado: El usuario '{nombre_usuario_actual}' no tiene una empresa (DB) asociada.")
                     st.stop()
-        except Exception as e:
-            if nombre_usuario_actual in ['alix_maria', 'alix']:
-                db_objetivo = 'rishon_letzion_ca'
-            else:
-                st.error(f"❌ Error al resolver la base de datos: {e}")
-                st.stop()
-        finally:
-            if conn_ctrl and hasattr(conn_ctrl, 'close'):
-                conn_ctrl.close()
+            except Exception as e:
+                if nombre_usuario_actual in ['alix_maria', 'alix']:
+                    db_objetivo = 'rishon_letzion_ca'
+                else:
+                    st.error(f"❌ Error al resolver la base de datos: {e}")
+                    st.stop()
+            finally:
+                if conn_ctrl and hasattr(conn_ctrl, 'close'):
+                    conn_ctrl.close()
 
     # Aseguramos que la sesión mantenga la DB activa
     if db_objetivo:
