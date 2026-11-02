@@ -2,6 +2,7 @@
 #https://gylfisoftware.streamlit.app/?modulo=libro_compras
 #https://gylfisoftware.streamlit.app/?modulo=libro_ventas
 #https://gylfisoftware.streamlit.app/?modulo=retencion_islr
+#https://gylfisoftware.streamlit.app/?modulo=retencion_iva
 import io
 import ssl
 import time
@@ -3473,6 +3474,8 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
                                 pass
 
 def modulo_retencion_iva():
+    import datetime as dt
+    
     aplicar_estilo_publico()
     
     db_actual = st.session_state.get("DB_ACTUAL", "kingdriver_ca")
@@ -3487,12 +3490,9 @@ def modulo_retencion_iva():
     st.markdown(f"### 🏢 {nombre}")
     st.markdown("---")
 
-    import datetime as dt
-
     # Validación de base de datos activa
     if db_actual and db_actual != 'none':
         try:
-            # Definimos un diccionario de empresa básico por si se requiere localmente
             empresa_dict = {
                 "nombre": nombre,
                 "rif": empresa_data.get("rif", "J507757188") if empresa_data else "J507757188",
