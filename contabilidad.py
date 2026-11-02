@@ -8768,16 +8768,31 @@ if 'df_gastos_c6' in locals() and df_gastos_c6.empty:
     st.sidebar.warning("⚠️ El DataFrame de Gastos C6 está vacío.")
 
 
-# Al autenticar o pasar la plantilla de bienvenida por primera vez:
-# 1. Aseguramos que la opción por defecto del menú de auditoría sea Inicio si no existe
+# ----------------------------------------------------------------------
+# 🛑 PUENTE DE INSTAGRAM (ACCESO PÚBLICO INVITADO - LO PRIMERO DE TODO)
+# ----------------------------------------------------------------------
+if st.query_params.get("modulo") == "libro_compras":
+    st.session_state['rol'] = 'admin'  # O 'publico', pero 'admin' te garantiza acceso total al selectbox si lo usa
+    st.session_state['usuario'] = 'invitado_insta'
+    user_rol = 'admin'
+    nombre_usuario_actual = 'invitado_insta'
+    db_objetivo = 'kingdriver_ca'
+else:
+    user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
+    nombre_usuario_actual = (
+        st.session_state.get('nombre_usuario')
+        or st.session_state.get('username')
+        or st.session_state.get('usuario')
+        or ''
+    ).strip().lower()
+    db_objetivo = None
+
+# Si no estamos en modo Instagram, procedemos con la conexión normal a la BD
 if 'opcion_menu_auditoria' not in st.session_state:
     st.session_state['opcion_menu_auditoria'] = "🏠 Inicio"
 
-# 2. Recuperamos siempre la opción actual del menú
 opcion_menu = st.session_state.get('opcion_menu_auditoria', "🏠 Inicio")
 
-
-# 3. Evaluamos si el usuario está en el Dashboard de Inicio
 if opcion_menu == "🏠 Inicio":
     # --- INYECCIÓN DE CSS ---
     st.markdown("""<style>
@@ -8786,18 +8801,12 @@ if opcion_menu == "🏠 Inicio":
             div[data-testid="element-container"] { width: 100% !important; }
         </style>""", unsafe_allow_html=True)
 
-    user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
-    nombre_usuario_actual = (st.session_state.get('nombre_usuario') or st.session_state.get('username') or st.session_state.get('usuario') or '').strip().lower()
-
     conn_ctrl = conectar_db()
-    db_objetivo = None
     
     if conn_ctrl:
         try:
-            # 🛑 PUENTE DE INSTAGRAM (ACCESO PÚBLICO INVITADO)
             if st.query_params.get("modulo") == "libro_compras":
                 db_objetivo = "kingdriver_ca"
-                nombre_usuario_actual = "invitado_insta"
             elif user_rol == 'admin':
                 db_objetivo = st.session_state.get('DB_ACTUAL')
                 if not db_objetivo or db_objetivo == 'No seleccionada':
