@@ -139,14 +139,15 @@ def conectar_db(nombre_db=None):
 
 
 # ==============================================================================
-# 1. PUENTE DE INSTAGRAM (Va en la Línea 1, antes de cualquier login)
+# PUENTE DE INSTAGRAM (Línea 1)
 # ==============================================================================
 if st.query_params.get("modulo") == "libro_compras":
-  st.session_state.autenticado = True  # Salta el login automáticamente
-  st.session_state.sub_opcion = "Libro de Compras"  # Selecciona el menú
-  st.session_state.active_tab = (  # Selecciona la pestaña de Cargar desde Excel
-      "📊 Cargar desde Excel"
-  )
+  st.session_state.autenticado = True
+  st.session_state.sub_opcion = "Libro de Compras"
+  st.session_state.active_tab = "📊 Cargar desde Excel"
+  # Forzamos una recarga limpia para que entre directo sin mostrar el login
+  st.rerun()
+  
 def obtener_datos_empresa_activa():
     """
     Consulta directamente la base de datos control_central.clientes 
