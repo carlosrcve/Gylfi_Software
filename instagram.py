@@ -66,14 +66,14 @@ def obtener_datos_agente_db(valor_busqueda):
         cursor.execute(query, (valor_busqueda,))
         datos = cursor.fetchone()
         return datos if datos else {
-            "nombre_empresa": "King Driver, C.A.",
-            "rif": "J-XXXXXXXX-X",
+            "nombre_empresa": "Empresa Inteligencia Artificial, C.A.",
+            "rif": "J-12345678-9",
             "domicilio_fiscal": "Caracas, Venezuela"
         }
     except Exception:
         return {
-            "nombre_empresa": "King Driver, C.A.",
-            "rif": "J-XXXXXXXX-X",
+            "nombre_empresa": "Empresa Inteligencia Artificial, C.A.",
+            "rif": "J-12345678-9",
             "domicilio_fiscal": "Caracas, Venezuela"
         }
     finally:
