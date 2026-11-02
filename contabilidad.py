@@ -138,16 +138,25 @@ def conectar_db(nombre_db=None):
         return None
 
 
+
 # ==============================================================================
-# PUENTE DE INSTAGRAM (Línea 1)
+# 0. PUENTE DE INSTAGRAM (¡Colócalo antes de verificar_inactividad!)
 # ==============================================================================
 if st.query_params.get("modulo") == "libro_compras":
-  st.session_state.autenticado = True
-  st.session_state.sub_opcion = "Libro de Compras"
-  st.session_state.active_tab = "📊 Cargar desde Excel"
-  # Forzamos una recarga limpia para que entre directo sin mostrar el login
-  st.rerun()
-  
+  st.session_state['logueado'] = True
+  st.session_state['bienvenida_completada'] = (
+      True  # Esto evita que salte la barra de carga de bienvenida
+  )
+  st.session_state['usuario'] = "instagram_publico"
+  st.session_state['rol'] = "publico"
+  st.session_state['db_cliente'] = "kingdriver_ca"  # Tu base de datos por defecto
+  st.session_state['sub_opcion'] = (
+      "Libro de Compras"  # Ajusta si tu menú se llama diferente
+  )
+  st.session_state['active_tab'] = (
+      "📊 Cargar desde Excel"  # La pestaña exacta de tu tab4
+  )
+
 def obtener_datos_empresa_activa():
     """
     Consulta directamente la base de datos control_central.clientes 
