@@ -156,11 +156,6 @@ if modulo_url == "libro_compras":
 # ==========================================
 # 2. RESTO DE TU CÓDIGO NORMAL
 # ==========================================
-
-# ==========================================
-# A PARTIR DE AQUÍ VA EL RESTO DE TU CÓDIGO NORMAL (LOGIN, ETC.)
-# ==========================================
-
 def obtener_datos_empresa_activa():
     """
     Consulta directamente la base de datos control_central.clientes 
