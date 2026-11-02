@@ -8807,8 +8807,20 @@ if modulo_url == "libro_compras":
     st.session_state["DB_ACTUAL"] = "kingdriver_ca"
     st.session_state["CLIENTE_NOMBRE"] = "King Driver, C.A."
     
-    # Ocultar barra lateral
-    st.markdown("<style>[data-testid='stSidebar'] {display: none !important;}</style>", unsafe_allow_html=True)
+    # Ocultar barra lateral y el botón flotante por completo de forma agresiva
+    st.markdown("""
+        <style>
+            /* Ocultar el panel lateral por completo */
+            [data-testid="stSidebar"] {
+                display: none !important;
+                width: 0 !important;
+            }
+            /* Ocultar el botón colapsado flotante (la flechita de la esquina) */
+            [data-testid="collapsedControl"] {
+                display: none !important;
+            }
+        </style>
+    """, unsafe_allow_html=True)
 
 # Configuración del menú
 if 'opcion_menu_auditoria' not in st.session_state:
