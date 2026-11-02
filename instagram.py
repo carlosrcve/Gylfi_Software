@@ -2640,6 +2640,14 @@ def mostrar_interfaz_retencion_iva(EMPRESA, f_inicio_global, f_fin_global):
 
         st.write(f"Conectado a: **{db_actual}**")
 
+        # 1. INICIALIZACIÓN DE ESTADOS (Prevenir KeyErrors)
+        if 'exito_data' not in st.session_state:
+            st.session_state['exito_data'] = None
+        if 'mostrar_exito' not in st.session_state:
+            st.session_state['mostrar_exito'] = False
+        if 'cliente_id' not in st.session_state:
+            st.session_state['cliente_id'] = None  # <-- Inicialización preventiva
+
         # --- MANEJADOR DE PANTALLA DE ÉXITO (PERSISTENTE) ---
         if st.session_state.get('mostrar_exito'):
             st.success(f"### ✅ Comprobante `{st.session_state.get('last_iva', {}).get('nro_comp')}` generado y guardado exitosamente.")
