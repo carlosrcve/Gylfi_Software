@@ -18415,29 +18415,33 @@ elif opcion_menu == "📚 Libros Fiscales":
                             st.warning("⚠️ No se ha seleccionado una base de datos activa.")
 
                     # Si ya hay datos procesados, renderizamos directamente usando registros puros de Python
+                    # Si ya hay datos procesados, renderizamos directamente usando registros puros de Python
                     if st.session_state.get('xml_records') is not None:
                         records = st.session_state['xml_records']
                         
-                        # --- 🛠️ DEPOSITO DE DEPURACIÓN VISUAL ---
-                        if records:
-                            # Esto te mostrará en pantalla las llaves exactas que trae tu diccionario
-                            st.write("🔍 Claves disponibles en tus registros:", list(records[0].keys()))
-
                         for row in records:
-                            # Ampliamos las opciones de búsqueda para capturar cualquier variante posible
-                            nombre_prov = (
-                                row.get('Nombre o Razón Social') or 
-                                row.get('razon') or 
-                                row.get('nombre_razon_social') or 
-                                row.get('proveedor') or 
-                                row.get('razon_social') or 
-                                row.get('nombre_proveedor') or 
-                                row.get('nombre') or 
-                                row.get('Razon_Social_Sujeto_Retenido') or
-                                row.get('contribuyente') or
-                                "PROVEEDOR NO ESPECIFICADO"
-                            )
-                            row['Nombre o Razón Social'] = str(nombre_prov)
+                            # Buscamos en orden de prioridad absoluta cualquier campo válido
+                            val_encontrado = None
+                            
+                            # Revisamos primero las llaves lógicas de texto
+                            for k in ['Nombre o Razón Social', 'razon', 'nombre_razon_social', 'proveedor', 'razon_social', 'nombre_proveedor', 'Razon_Social_Sujeto_Retenido']:
+                                if k in row and row[k] and str(row[k]).strip() not in ['', 'None', 'nan', 'PROVEEDOR NO ESPECIFICADO']:
+                                    val_encontrado = row[k]
+                                    break
+                            
+                            # Si de plano ningún campo de texto tiene el nombre, buscamos en los valores del registro
+                            if not val_encontrado:
+                                for val in row.values():
+                                    # Si encontramos un texto largo que parezca una razón social (más de 3 letras y no es un número)
+                                    if val and isinstance(val, str) and len(str(val).strip()) > 3:
+                                        s_val = str(val).strip()
+                                        # Evitamos que agarre la fecha o el rif por error
+                                        if not s_val.replace('-', '').replace('/', '').isdigit():
+                                            val_encontrado = s_val
+                                            break
+
+                            # Asignamos el resultado definitivo (si todo falla, ponemos un texto claro de depuración)
+                            row['Nombre o Razón Social'] = str(val_encontrado) if val_encontrado else f"PROVEEDOR (ID: {row.get('id', 'N/A')})"
 
                         st.markdown("#### 📊 Resumen de Retenciones del Periodo")
                         
