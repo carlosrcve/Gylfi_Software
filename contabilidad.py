@@ -18332,7 +18332,6 @@ elif opcion_menu == "📚 Libros Fiscales":
                     f_xml_desde = col_xml1.date_input("Desde", value=d_tipo(2026, 8, 1), key="xml_desde")
                     f_xml_hasta = col_xml2.date_input("Hasta", value=d_tipo(2026, 8, 31), key="xml_hasta")
                     
-                    # --- FUNCIÓN CON CACHÉ PARA CONSULTAR DATOS DEL XML SENIAT ---
                     @st.cache_data(ttl=30, show_spinner=False)
                     def consultar_datos_xml_cached(empresa, patron):
                         df_res = pd.DataFrame()
@@ -18340,7 +18339,9 @@ elif opcion_menu == "📚 Libros Fiscales":
                         if conn:
                             try:
                                 conn.ping(reconnect=True)
+                                # --- CONSULTA SQL CORREGIDA CON EL SELECT Y EL JOIN ---
                                 query_xml = """
+                                    SELECT 
                                         r.id, r.id_sec, r.rif_retenido, r.numero_factura, r.numero_control, 
                                         r.fecha_operacion, r.codigo_concepto, r.monto_operacion, r.porcentaje_retencion, 
                                         r.monto_retenido, r.periodo_retenido, r.sustraendo, r.n_comprob_islr,
@@ -18350,8 +18351,8 @@ elif opcion_menu == "📚 Libros Fiscales":
                                     WHERE r.n_comprob_islr LIKE %s
                                 """
                                 df_res = ejecutar_consulta(query_xml, conn, params=(patron,))
-                            except Exception:
-                                pass
+                            except Exception as e:
+                                st.error(f"Error en consulta: {e}")
                             finally:
                                 try:
                                     conn.close()
