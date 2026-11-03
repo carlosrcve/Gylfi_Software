@@ -18415,33 +18415,39 @@ elif opcion_menu == "📚 Libros Fiscales":
                             st.warning("⚠️ No se ha seleccionado una base de datos activa.")
 
                     # Si ya hay datos procesados, renderizamos directamente usando registros puros de Python
-                    # Si ya hay datos procesados, renderizamos directamente usando registros puros de Python
                     if st.session_state.get('xml_records') is not None:
                         records = st.session_state['xml_records']
                         
                         for row in records:
-                            # Buscamos en orden de prioridad absoluta cualquier campo válido
                             val_encontrado = None
                             
-                            # Revisamos primero las llaves lógicas de texto
-                            for k in ['Nombre o Razón Social', 'razon', 'nombre_razon_social', 'proveedor', 'razon_social', 'nombre_proveedor', 'Razon_Social_Sujeto_Retenido']:
-                                if k in row and row[k] and str(row[k]).strip() not in ['', 'None', 'nan', 'PROVEEDOR NO ESPECIFICADO']:
+                            # 1. Buscamos primero en campos específicos de texto del proveedor (excluyendo la columna de R.I.F.)
+                            for k in ['razon', 'nombre_razon_social', 'proveedor', 'razon_social', 'nombre_proveedor', 'nombre', 'Razon_Social_Sujeto_Retenido']:
+                                if k in row and row[k] and str(row[k]).strip() not in ['', 'None', 'nan']:
                                     val_encontrado = row[k]
                                     break
                             
-                            # Si de plano ningún campo de texto tiene el nombre, buscamos en los valores del registro
+                            # 2. Si no lo hallamos, barremos los valores del registro pero FILTRANDO los RIFs (que empiezan por J, V, E, G y tienen números)
                             if not val_encontrado:
-                                for val in row.values():
-                                    # Si encontramos un texto largo que parezca una razón social (más de 3 letras y no es un número)
-                                    if val and isinstance(val, str) and len(str(val).strip()) > 3:
+                                for k, val in row.items():
+                                    # Evitamos agarrar la columna del R.I.F. o valores que parezcan un RIF
+                                    if k in ['R.I.F.', 'rif', 'Rif']:
+                                        continue
+                                        
+                                    if val and isinstance(val, str):
                                         s_val = str(val).strip()
-                                        # Evitamos que agarre la fecha o el rif por error
-                                        if not s_val.replace('-', '').replace('/', '').isdigit():
+                                        # Validamos que no sea un RIF (ej: J-12345678 o V12345678) y que tenga longitud de texto real
+                                        es_rif_o_numero = (
+                                            s_val.replace('-', '').replace('.', '').isdigit() or 
+                                            (len(s_val) < 12 and s_val[:1].upper() in ['J', 'V', 'E', 'G', 'P'] and s_val[1:].replace('-', '').isdigit())
+                                        )
+                                        
+                                        if not es_rif_o_numero and len(s_val) > 3:
                                             val_encontrado = s_val
                                             break
 
-                            # Asignamos el resultado definitivo (si todo falla, ponemos un texto claro de depuración)
-                            row['Nombre o Razón Social'] = str(val_encontrado) if val_encontrado else f"PROVEEDOR (ID: {row.get('id', 'N/A')})"
+                            # Asignamos el nombre real o un aviso limpio si no existe
+                            row['Nombre o Razón Social'] = str(val_encontrado) if val_encontrado else "PROVEEDOR NO ESPECIFICADO"
 
                         st.markdown("#### 📊 Resumen de Retenciones del Periodo")
                         
