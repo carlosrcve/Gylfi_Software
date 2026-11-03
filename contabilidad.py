@@ -18419,7 +18419,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                         records = st.session_state['xml_records']
                         
                         for row in records:
-                            # Buscamos prioritariamente la columna exacta que viene de tu tabla MySQL: 'proveedor_nombre'
+                            # Buscamos primero en la llave real de la base de datos ('proveedor_nombre') y alternativas
                             nombre_prov = (
                                 row.get('proveedor_nombre') or 
                                 row.get('Nombre o Razón Social') or 
@@ -18429,7 +18429,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                                 "PROVEEDOR NO ESPECIFICADO"
                             )
                             
-                            # Asignamos el nombre correcto a la columna de la tabla
+                            # Forzamos la asignación para que la tabla muestre el nombre correcto
                             row['Nombre o Razón Social'] = str(nombre_prov)
 
                         st.markdown("#### 📊 Resumen de Retenciones del Periodo")
