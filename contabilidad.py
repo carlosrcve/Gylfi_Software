@@ -18341,9 +18341,13 @@ elif opcion_menu == "📚 Libros Fiscales":
                             try:
                                 conn.ping(reconnect=True)
                                 query_xml = """
-                                    SELECT * 
-                                    FROM retenciones_islr 
-                                    WHERE n_comprob_islr LIKE %s
+                                        r.id, r.id_sec, r.rif_retenido, r.numero_factura, r.numero_control, 
+                                        r.fecha_operacion, r.codigo_concepto, r.monto_operacion, r.porcentaje_retencion, 
+                                        r.monto_retenido, r.periodo_retenido, r.sustraendo, r.n_comprob_islr,
+                                        COALESCE(p.nombre, p.razon_social, r.proveedor_nombre, 'PROVEEDOR NO ESPECIFICADO') AS proveedor_nombre
+                                    FROM retenciones_islr r
+                                    LEFT JOIN proveedores p ON r.rif_retenido = p.rif
+                                    WHERE r.n_comprob_islr LIKE %s
                                 """
                                 df_res = ejecutar_consulta(query_xml, conn, params=(patron,))
                             except Exception:
