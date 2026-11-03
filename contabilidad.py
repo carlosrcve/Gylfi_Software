@@ -18418,18 +18418,20 @@ elif opcion_menu == "📚 Libros Fiscales":
                     if st.session_state.get('xml_records') is not None:
                         records = st.session_state['xml_records']
                         
-                        # --- 🛠️ ASEGURAR QUE EL NOMBRE DEL PROVEEDOR SE RELLENE CORRECTAMENTE ---
+                        # --- 🛠️ CORRECCIÓN: EXTRAER EXCLUSIVAMENTE EL NOMBRE DEL PROVEEDOR ---
                         for row in records:
-                            # Buscamos en las distintas claves posibles donde pueda venir el nombre del proveedor
+                            # Buscamos campos que sean estrictamente de nombre o razón social (evitando direcciones)
                             nombre_prov = (
-                                row.get('Nombre o Razón Social') or 
                                 row.get('proveedor') or 
                                 row.get('razon_social') or 
                                 row.get('nombre_proveedor') or 
                                 row.get('nombre') or 
+                                row.get('Razon_Social_Sujeto_Retenido') or
                                 "PROVEEDOR NO ESPECIFICADO"
                             )
-                            row['Nombre o Razón Social'] = nombre_prov
+                            
+                            # Forzamos a que la columna muestre el nombre y nunca una dirección fiscal
+                            row['Nombre o Razón Social'] = str(nombre_prov)
 
                         st.markdown("#### 📊 Resumen de Retenciones del Periodo")
                         
