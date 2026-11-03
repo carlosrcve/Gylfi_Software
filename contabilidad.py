@@ -18377,8 +18377,14 @@ elif opcion_menu == "📚 Libros Fiscales":
                                 st.session_state['xml_filename'] = f"RET_ISLR_{periodo_str}.xml"
 
                                 df_view = df_xml_raw.copy()
-                                rename_map = {}
                                 
+                                # --- ASEGURAR QUE EL NOMBRE DEL PROVEEDOR EXISTA EN EL DATAFRAME ---
+                                if 'proveedor_nombre' in df_view.columns:
+                                    df_view['Nombre o Razón Social'] = df_view['proveedor_nombre'].astype(str)
+                                else:
+                                    df_view['Nombre o Razón Social'] = "PROVEEDOR NO ESPECIFICADO"
+
+                                rename_map = {}
                                 for col in df_view.columns:
                                     c_low = str(col).lower()
                                     if 'comprob' in c_low: rename_map[col] = 'Fila / Doc'
@@ -18386,9 +18392,6 @@ elif opcion_menu == "📚 Libros Fiscales":
                                     elif 'factura' in c_low: rename_map[col] = 'N° Doc'
                                     elif 'control' in c_low: rename_map[col] = 'N° Control'
                                     elif 'rif' in c_low and 'retenido' in c_low: rename_map[col] = 'R.I.F.'
-                                    # --- CORREGIDO: Mapeo directo y seguro de la columna de la BD ---
-                                    elif c_low == 'proveedor_nombre' or 'proveedor_nombre' in c_low: rename_map[col] = 'Nombre o Razón Social'
-                                    elif any(k in c_low for k in ['razon', 'contribuyente']) and 'nombre' not in c_low: rename_map[col] = 'Nombre o Razón Social'
                                     elif 'concepto' in c_low: rename_map[col] = 'Cód. Concepto (XML)'
                                     elif 'monto_operacion' in c_low or 'base' in c_low: rename_map[col] = 'Base Imponible (Bs.)'
                                     elif 'porcentaje' in c_low or 'alicuota' in c_low: rename_map[col] = 'Alicuota ISLR'
@@ -18396,10 +18399,6 @@ elif opcion_menu == "📚 Libros Fiscales":
                                     elif 'sustraendo' in c_low: rename_map[col] = 'Sustraendo (Bs.)'
 
                                 df_view = df_view.rename(columns=rename_map)
-
-                                # Forzamos una garantía extra por si el rename_map no atrapó la columna exacta
-                                if 'proveedor_nombre' in df_view.columns and 'Nombre o Razón Social' not in df_view.columns:
-                                    df_view['Nombre o Razón Social'] = df_view['proveedor_nombre']
 
                                 cols_num = ['Base Imponible (Bs.)', 'Alicuota ISLR', 'Sustraendo (Bs.)', 'Retención Neta (Bs.)']
                                 for col_num in cols_num:
