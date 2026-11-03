@@ -18419,37 +18419,18 @@ elif opcion_menu == "📚 Libros Fiscales":
                         records = st.session_state['xml_records']
                         
                         for row in records:
-                            val_encontrado = None
+                            # Buscamos prioritariamente la columna exacta que viene de tu tabla MySQL: 'proveedor_nombre'
+                            nombre_prov = (
+                                row.get('proveedor_nombre') or 
+                                row.get('Nombre o Razón Social') or 
+                                row.get('razon') or 
+                                row.get('proveedor') or 
+                                row.get('razon_social') or 
+                                "PROVEEDOR NO ESPECIFICADO"
+                            )
                             
-                            # 1. Buscamos primero en las llaves lógicas del proveedor
-                            for k in ['Nombre o Razón Social', 'razon', 'nombre_razon_social', 'proveedor', 'razon_social', 'nombre_proveedor', 'nombre', 'Razon_Social_Sujeto_Retenido']:
-                                val = row.get(k)
-                                if val and str(val).strip() not in ['', 'None', 'nan', 'Juridica', 'Natural', 'PROVEEDOR NO ESPECIFICADO']:
-                                    val_encontrado = val
-                                    break
-                            
-                            # 2. Si no lo hallamos, barremos el diccionario bloqueando campos prohibidos (RIF, tipo_persona, IDs, etc.)
-                            if not val_encontrado:
-                                campos_prohibidos = ['R.I.F.', 'rif', 'Rif', 'tipo_persona', 'id', 'id_sec', 'periodo_retenido', 'Alicuota ISLR']
-                                for k, val in row.items():
-                                    if k in campos_prohibidos:
-                                        continue
-                                        
-                                    if val and isinstance(val, str):
-                                        s_val = str(val).strip()
-                                        # Descartamos palabras de tipo de persona, RIFs o números puros
-                                        es_invalido = (
-                                            s_val.lower() in ['juridica', 'natural', 'contribuyente'] or
-                                            s_val.replace('-', '').replace('.', '').isdigit() or 
-                                            (len(s_val) < 12 and s_val[:1].upper() in ['J', 'V', 'E', 'G', 'P'] and s_val[1:].replace('-', '').isdigit())
-                                        )
-                                        
-                                        if not es_invalido and len(s_val) > 3:
-                                            val_encontrado = s_val
-                                            break
-
-                            # Asignamos el nombre correcto o un aviso si de verdad no se encuentra
-                            row['Nombre o Razón Social'] = str(val_encontrado) if val_encontrado else "PROVEEDOR NO ESPECIFICADO"
+                            # Asignamos el nombre correcto a la columna de la tabla
+                            row['Nombre o Razón Social'] = str(nombre_prov)
 
                         st.markdown("#### 📊 Resumen de Retenciones del Periodo")
                         
