@@ -18418,19 +18418,26 @@ elif opcion_menu == "📚 Libros Fiscales":
                     if st.session_state.get('xml_records') is not None:
                         records = st.session_state['xml_records']
                         
-                        # --- 🛠️ CORRECCIÓN: EXTRAER EXCLUSIVAMENTE EL NOMBRE DEL PROVEEDOR ---
+                        # --- 🛠️ DEPURACIÓN Y ASIGNACIÓN CORRECTA ---
+                        if records:
+                            # Esto te mostrará en pantalla las llaves reales que tiene tu diccionario para que sepas cómo se llama el campo exactamente
+                            # st.write("Llaves disponibles en el registro:", list(records[0].keys()))
+                            pass
+
                         for row in records:
-                            # Buscamos campos que sean estrictamente de nombre o razón social (evitando direcciones)
+                            # Buscamos el nombre del proveedor probando cualquier llave posible (incluso la que mostraba la dirección por error)
                             nombre_prov = (
+                                row.get('Nombre o Razón Social') or
                                 row.get('proveedor') or 
                                 row.get('razon_social') or 
                                 row.get('nombre_proveedor') or 
                                 row.get('nombre') or 
                                 row.get('Razon_Social_Sujeto_Retenido') or
-                                "PROVEEDOR NO ESPECIFICADO"
+                                row.get('Direccion_FiscalAgente_Retencion') or # Temporal por si el nombre viene aquí
+                                str(list(row.values())[1] if len(row.values()) > 1 else "PROVEEDOR NO DEFINIDO")
                             )
                             
-                            # Forzamos a que la columna muestre el nombre y nunca una dirección fiscal
+                            # Asignamos el valor encontrado
                             row['Nombre o Razón Social'] = str(nombre_prov)
 
                         st.markdown("#### 📊 Resumen de Retenciones del Periodo")
