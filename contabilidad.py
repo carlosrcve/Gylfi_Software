@@ -18421,32 +18421,34 @@ elif opcion_menu == "📚 Libros Fiscales":
                         for row in records:
                             val_encontrado = None
                             
-                            # 1. Buscamos primero en campos específicos de texto del proveedor (excluyendo la columna de R.I.F.)
-                            for k in ['razon', 'nombre_razon_social', 'proveedor', 'razon_social', 'nombre_proveedor', 'nombre', 'Razon_Social_Sujeto_Retenido']:
-                                if k in row and row[k] and str(row[k]).strip() not in ['', 'None', 'nan']:
-                                    val_encontrado = row[k]
+                            # 1. Buscamos primero en las llaves lógicas del proveedor
+                            for k in ['Nombre o Razón Social', 'razon', 'nombre_razon_social', 'proveedor', 'razon_social', 'nombre_proveedor', 'nombre', 'Razon_Social_Sujeto_Retenido']:
+                                val = row.get(k)
+                                if val and str(val).strip() not in ['', 'None', 'nan', 'Juridica', 'Natural', 'PROVEEDOR NO ESPECIFICADO']:
+                                    val_encontrado = val
                                     break
                             
-                            # 2. Si no lo hallamos, barremos los valores del registro pero FILTRANDO los RIFs (que empiezan por J, V, E, G y tienen números)
+                            # 2. Si no lo hallamos, barremos el diccionario bloqueando campos prohibidos (RIF, tipo_persona, IDs, etc.)
                             if not val_encontrado:
+                                campos_prohibidos = ['R.I.F.', 'rif', 'Rif', 'tipo_persona', 'id', 'id_sec', 'periodo_retenido', 'Alicuota ISLR']
                                 for k, val in row.items():
-                                    # Evitamos agarrar la columna del R.I.F. o valores que parezcan un RIF
-                                    if k in ['R.I.F.', 'rif', 'Rif']:
+                                    if k in campos_prohibidos:
                                         continue
                                         
                                     if val and isinstance(val, str):
                                         s_val = str(val).strip()
-                                        # Validamos que no sea un RIF (ej: J-12345678 o V12345678) y que tenga longitud de texto real
-                                        es_rif_o_numero = (
+                                        # Descartamos palabras de tipo de persona, RIFs o números puros
+                                        es_invalido = (
+                                            s_val.lower() in ['juridica', 'natural', 'contribuyente'] or
                                             s_val.replace('-', '').replace('.', '').isdigit() or 
                                             (len(s_val) < 12 and s_val[:1].upper() in ['J', 'V', 'E', 'G', 'P'] and s_val[1:].replace('-', '').isdigit())
                                         )
                                         
-                                        if not es_rif_o_numero and len(s_val) > 3:
+                                        if not es_invalido and len(s_val) > 3:
                                             val_encontrado = s_val
                                             break
 
-                            # Asignamos el nombre real o un aviso limpio si no existe
+                            # Asignamos el nombre correcto o un aviso si de verdad no se encuentra
                             row['Nombre o Razón Social'] = str(val_encontrado) if val_encontrado else "PROVEEDOR NO ESPECIFICADO"
 
                         st.markdown("#### 📊 Resumen de Retenciones del Periodo")
