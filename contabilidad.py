@@ -18339,7 +18339,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                         if conn:
                             try:
                                 conn.ping(reconnect=True)
-                                # --- CONSULTA SQL CORREGIDA CON EL SELECT Y EL JOIN ---
+                                # --- SOLUCIÓN AL MEZCLADO DE COLLATIONS CON CONVERT / COLLATE ---
                                 query_xml = """
                                     SELECT 
                                         r.id, r.id_sec, r.rif_retenido, r.numero_factura, r.numero_control, 
@@ -18347,7 +18347,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                                         r.monto_retenido, r.periodo_retenido, r.sustraendo, r.n_comprob_islr,
                                         COALESCE(p.nombre, p.razon_social, r.proveedor_nombre, 'PROVEEDOR NO ESPECIFICADO') AS proveedor_nombre
                                     FROM retenciones_islr r
-                                    LEFT JOIN proveedores p ON r.rif_retenido = p.rif
+                                    LEFT JOIN proveedores p ON CONVERT(r.rif_retenido USING utf8mb4) = CONVERT(p.rif USING utf8mb4)
                                     WHERE r.n_comprob_islr LIKE %s
                                 """
                                 df_res = ejecutar_consulta(query_xml, conn, params=(patron,))
