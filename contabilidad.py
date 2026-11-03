@@ -18386,7 +18386,9 @@ elif opcion_menu == "📚 Libros Fiscales":
                                     elif 'factura' in c_low: rename_map[col] = 'N° Doc'
                                     elif 'control' in c_low: rename_map[col] = 'N° Control'
                                     elif 'rif' in c_low and 'retenido' in c_low: rename_map[col] = 'R.I.F.'
-                                    elif any(k in c_low for k in ['razon', 'nombre', 'contribuyente', 'proveedor']): rename_map[col] = 'Nombre o Razón Social'
+                                    # --- CORREGIDO: Mapeo directo y seguro de la columna de la BD ---
+                                    elif c_low == 'proveedor_nombre' or 'proveedor_nombre' in c_low: rename_map[col] = 'Nombre o Razón Social'
+                                    elif any(k in c_low for k in ['razon', 'contribuyente']) and 'nombre' not in c_low: rename_map[col] = 'Nombre o Razón Social'
                                     elif 'concepto' in c_low: rename_map[col] = 'Cód. Concepto (XML)'
                                     elif 'monto_operacion' in c_low or 'base' in c_low: rename_map[col] = 'Base Imponible (Bs.)'
                                     elif 'porcentaje' in c_low or 'alicuota' in c_low: rename_map[col] = 'Alicuota ISLR'
@@ -18394,6 +18396,10 @@ elif opcion_menu == "📚 Libros Fiscales":
                                     elif 'sustraendo' in c_low: rename_map[col] = 'Sustraendo (Bs.)'
 
                                 df_view = df_view.rename(columns=rename_map)
+
+                                # Forzamos una garantía extra por si el rename_map no atrapó la columna exacta
+                                if 'proveedor_nombre' in df_view.columns and 'Nombre o Razón Social' not in df_view.columns:
+                                    df_view['Nombre o Razón Social'] = df_view['proveedor_nombre']
 
                                 cols_num = ['Base Imponible (Bs.)', 'Alicuota ISLR', 'Sustraendo (Bs.)', 'Retención Neta (Bs.)']
                                 for col_num in cols_num:
@@ -18419,19 +18425,14 @@ elif opcion_menu == "📚 Libros Fiscales":
                         records = st.session_state['xml_records']
                         
                         for row in records:
-                            # Buscamos primero en la llave real de la base de datos ('proveedor_nombre') y alternativas
+                            # Rescatamos el nombre directamente de la columna original o la mapeada
                             nombre_prov = (
-                                row.get('proveedor_nombre') or 
                                 row.get('Nombre o Razón Social') or 
-                                row.get('razon') or 
+                                row.get('proveedor_nombre') or 
                                 row.get('proveedor') or 
-                                row.get('razon_social') or 
                                 "PROVEEDOR NO ESPECIFICADO"
                             )
-                            
-                            # Forzamos la asignación para que la tabla muestre el nombre correcto
                             row['Nombre o Razón Social'] = str(nombre_prov)
-
                         st.markdown("#### 📊 Resumen de Retenciones del Periodo")
                         
                         cols_a_mostrar = [
