@@ -18418,26 +18418,25 @@ elif opcion_menu == "📚 Libros Fiscales":
                     if st.session_state.get('xml_records') is not None:
                         records = st.session_state['xml_records']
                         
-                        # --- 🛠️ DEPURACIÓN Y ASIGNACIÓN CORRECTA ---
+                        # --- 🛠️ DEPOSITO DE DEPURACIÓN VISUAL ---
                         if records:
-                            # Esto te mostrará en pantalla las llaves reales que tiene tu diccionario para que sepas cómo se llama el campo exactamente
-                            # st.write("Llaves disponibles en el registro:", list(records[0].keys()))
-                            pass
+                            # Esto te mostrará en pantalla las llaves exactas que trae tu diccionario
+                            st.write("🔍 Claves disponibles en tus registros:", list(records[0].keys()))
 
                         for row in records:
-                            # Buscamos el nombre del proveedor probando cualquier llave posible (incluso la que mostraba la dirección por error)
+                            # Ampliamos las opciones de búsqueda para capturar cualquier variante posible
                             nombre_prov = (
-                                row.get('Nombre o Razón Social') or
+                                row.get('Nombre o Razón Social') or 
+                                row.get('razon') or 
+                                row.get('nombre_razon_social') or 
                                 row.get('proveedor') or 
                                 row.get('razon_social') or 
                                 row.get('nombre_proveedor') or 
                                 row.get('nombre') or 
                                 row.get('Razon_Social_Sujeto_Retenido') or
-                                row.get('Direccion_FiscalAgente_Retencion') or # Temporal por si el nombre viene aquí
-                                str(list(row.values())[1] if len(row.values()) > 1 else "PROVEEDOR NO DEFINIDO")
+                                row.get('contribuyente') or
+                                "PROVEEDOR NO ESPECIFICADO"
                             )
-                            
-                            # Asignamos el valor encontrado
                             row['Nombre o Razón Social'] = str(nombre_prov)
 
                         st.markdown("#### 📊 Resumen de Retenciones del Periodo")
