@@ -8537,9 +8537,12 @@ def procesar_capture_pago(imagen_path_o_stream):
             file_bytes = np.asarray(bytearray(imagen_path_o_stream.read()), dtype=np.uint8)
             img = cv2.imdecode(file_bytes, 1)
 
-        # 2. Preprocesamiento para mejorar el contraste
+        # 2. Preprocesamiento avanzado con Otsu (ideal para captures digitales nítidos)
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        _, thresh = cv2.threshold(gray, 150, 255, cv2.THRESH_BINARY)
+        
+        # Aplicamos un ligero blur para limpiar ruido y luego Otsu para binarizar automáticamente
+        blur = cv2.GaussianBlur(gray, (3, 3), 0)
+        _, thresh = cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
 
         # 3. Extraer texto usando Tesseract OCR
         texto_extraido = pytesseract.image_to_string(thresh, lang='spa')
