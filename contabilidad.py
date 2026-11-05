@@ -8522,6 +8522,7 @@ import cv2
 import pytesseract
 import re
 from datetime import datetime
+import numpy as np
 
 def procesar_capture_pago(imagen_path_o_stream):
     """
@@ -8533,7 +8534,6 @@ def procesar_capture_pago(imagen_path_o_stream):
         if isinstance(imagen_path_o_stream, str):
             img = cv2.imread(imagen_path_o_stream)
         else:
-            import numpy as np
             file_bytes = np.asarray(bytearray(imagen_path_o_stream.read()), dtype=np.uint8)
             img = cv2.imdecode(file_bytes, 1)
 
@@ -8545,19 +8545,18 @@ def procesar_capture_pago(imagen_path_o_stream):
         texto_extraido = pytesseract.image_to_string(thresh, lang='spa')
         texto_lower = texto_extraido.lower()
 
-        # --- 4. FILTRO DE SEGURIDAD ANTIFALSKO / ANTICUALQUIER FOTO ---
         # --- 4. FILTRO DE SEGURIDAD AMPLIADO ---
         palabras_clave_banco = [
             'referencia', 'ref', 'pago movil', 'transferencia', 'banco', 
             'comprobante', 'exitoso', 'operacion', 'destino', 'origen', 
             'fecha', 'monto', 'bs', 'ves', 'cedula', 'rif',
-            'movimiento', 'enviado', 'recibido', 'compras', 'pos'  # <-- Nuevas palabras clave añadidas
+            'movimiento', 'enviado', 'recibido', 'compras', 'pos'
         ]
         
         # Cuenta cuántas palabras clave coinciden en el texto de la imagen
         coincidencias = sum(1 for palabra in palabras_clave_banco if palabra in texto_lower)
         
-        # Si tiene muy pocas coincidencias (ej: menos de 2 palabras clave), NO es un capture de pago
+        # Si tiene muy pocas coincidencias, NO es un capture de pago
         if coincidencias < 2 or len(texto_extraido.strip()) < 15:
             return {
                 "valido": False,
@@ -8574,16 +8573,16 @@ def procesar_capture_pago(imagen_path_o_stream):
             "texto_completo": texto_extraido
         }
 
-        # Buscar número de referencia
-        match_ref = re.search(r'(?:ref|referencia|N[°º]?\.?\s*op(?:eraci[oó]n)?)\s*[:#]?\s*(\d{4,8})', texto_extraido, re.IGNORECASE)
+        # --- CORRECCIÓN: Buscar número de referencia ampliado hasta 12 dígitos ---
+        match_ref = re.search(r'(?:ref|referencia|N[°º]?\.?\s*op(?:eraci[oó]n)?)[:#\s]*(\d{4,12})', texto_extraido, re.IGNORECASE)
         if match_ref:
             datos_pago["referencia"] = match_ref.group(1)
         else:
-            digitos_largos = re.findall(r'\b\d{6,8}\b', texto_extraido)
+            digitos_largos = re.findall(r'\b\d{6,12}\b', texto_extraido)
             if digitos_largos:
                 datos_pago["referencia"] = digitos_largos[-1]
 
-        # Buscar montos
+        # Buscar montos con formato venezolano
         match_monto = re.search(r'(?:Bs\.?|USD|\$)?\s*([\d{1,3}(?:\.\d{3})*,\d{2}|\d+,\d{2})', texto_extraido)
         if match_monto:
             monto_str = match_monto.group(1).replace('.', '').replace(',', '.')
@@ -8592,7 +8591,7 @@ def procesar_capture_pago(imagen_path_o_stream):
             except ValueError:
                 pass
 
-        # Si no encontró ni referencia ni monto claros, lo marcamos como inválido para evitar basura
+        # Si no encontró ni referencia ni monto claros, lo marcamos como inválido
         if not datos_pago["referencia"] or not datos_pago["monto"]:
             datos_pago["valido"] = False
             datos_pago["error"] = "Se detectó que es un comprobante, pero no se pudo leer con claridad la referencia o el monto."
