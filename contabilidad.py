@@ -8985,6 +8985,9 @@ if menu_lateral == "📊 Auditoría Contable":
                 modulos_disponibles.append("📄 Factura Preimpresa")
 
         # --- CONDICIÓN EXCLUSIVA PARA KING DRIVER ---
+        # Aseguramos obtener la variable de la sesión de manera segura para evitar el NameError
+        db_actual = st.session_state.get("DB_ACTUAL", "")
+        
         if "KING" in str(nombre_sel).upper() or "DRIVER" in str(nombre_sel).upper() or "KINGDRIVER" in str(db_actual).upper():
             if "🟢 WhatsApp" not in modulos_disponibles:
                 modulos_disponibles.append("🟢 WhatsApp")
