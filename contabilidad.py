@@ -8749,24 +8749,24 @@ if menu_lateral == "📊 Auditoría Contable":
                     "📸 Códigos QR y Escaneo"
                 ]
 
-                if "PEDACITO" in str(nombre_sel).upper() and "CIELO" in str(nombre_sel).upper():
-                    if "🧁 Inventarios" not in modulos_disponibles:
-                        modulos_disponibles.append("🧁 Inventarios")
+        if "PEDACITO" in str(nombre_sel).upper() and "CIELO" in str(nombre_sel).upper():
+            if "🧁 Inventarios" not in modulos_disponibles:
+                modulos_disponibles.append("🧁 Inventarios")
 
-                # Condición para Gomas Puente Hierro
-                if "GOMAS" in str(nombre_sel).upper() and "PUENTE" in str(nombre_sel).upper():
-                    if "📄 Factura Preimpresa" not in modulos_disponibles:
-                        modulos_disponibles.append("📄 Factura Preimpresa")
+        # Condición para Gomas Puente Hierro
+        if "GOMAS" in str(nombre_sel).upper() and "PUENTE" in str(nombre_sel).upper():
+            if "📄 Factura Preimpresa" not in modulos_disponibles:
+                modulos_disponibles.append("📄 Factura Preimpresa")
 
-                # --- CONDICIÓN EXCLUSIVA PARA KING DRIVER ---
-                if "KING" in str(nombre_sel).upper() or "DRIVER" in str(nombre_sel).upper() or "KINGDRIVER" in str(db_actual).upper():
-                    if "📸 WhatSapp" not in modulos_disponibles:
-                        modulos_disponibles.append("📸 WhatSapp")
+        # --- CONDICIÓN EXCLUSIVA PARA KING DRIVER ---
+        if "KING" in str(nombre_sel).upper() or "DRIVER" in str(nombre_sel).upper() or "KINGDRIVER" in str(db_actual).upper():
+            if "📸 WhatSapp" not in modulos_disponibles:
+                modulos_disponibles.append("📸 WhatSapp")
 
-                # Buscamos si ya hay una opción guardada, de lo contrario fijamos 0 (Inicio)
-                indice_actual = 0
-                if 'opcion_menu_auditoria' in st.session_state and st.session_state['opcion_menu_auditoria'] in modulos_disponibles:
-                    indice_actual = modulos_disponibles.index(st.session_state['opcion_menu_auditoria'])
+        # Buscamos si ya hay una opción guardada, de lo contrario fijamos 0 (Inicio)
+        indice_actual = 0
+        if 'opcion_menu_auditoria' in st.session_state and st.session_state['opcion_menu_auditoria'] in modulos_disponibles:
+            indice_actual = modulos_disponibles.index(st.session_state['opcion_menu_auditoria'])
 
         opcion_menu = st.selectbox("📂 SELECCIONE UN MÓDULO", modulos_disponibles, index=indice_actual, key="opcion_menu_selectbox_dinamico")
         st.session_state['opcion_menu_auditoria'] = opcion_menu
