@@ -8970,8 +8970,8 @@ if menu_lateral == "📊 Auditoría Contable":
 
         # --- CONDICIÓN EXCLUSIVA PARA KING DRIVER ---
         if "KING" in str(nombre_sel).upper() or "DRIVER" in str(nombre_sel).upper() or "KINGDRIVER" in str(db_actual).upper():
-            if "📸 WhatSapp" not in modulos_disponibles:
-                modulos_disponibles.append("📸 WhatSapp")
+            if "🟢 WhatsApp" not in modulos_disponibles:
+                modulos_disponibles.append("🟢 WhatsApp")
 
         # Buscamos si ya hay una opción guardada, de lo contrario fijamos 0 (Inicio)
         indice_actual = 0
@@ -20250,13 +20250,12 @@ if opcion_menu == "🟢 WhatsApp":
     db_actual = st.session_state.get("DB_ACTUAL")
     
     st.markdown("### 📱 Conciliación Inteligente de Captures de WhatsApp")
-    st.markdown("Sube o arrastra los captures de pago de King Driver al recuadro de abajo. El sistema filtrará automáticamente cualquier imagen que no corresponda a un comprobante bancario.")
+    st.markdown("Sube los captures de pago de King Driver para procesarlos y conciliarlos de forma automática.")
     
     if not db_actual:
         st.warning("⚠️ Por favor selecciona una base de datos activa primero.")
     else:
         with st.container(border=True):
-            # Selector de archivos múltiple (puedes arrastrar varios captures a la vez de forma súper rápida)
             uploaded_files = st.file_uploader(
                 "Selecciona o arrastra los captures de pago (PNG, JPG)", 
                 type=["png", "jpg", "jpeg"], 
@@ -20272,7 +20271,6 @@ if opcion_menu == "🟢 WhatsApp":
                     for archivo in uploaded_files:
                         datos = procesar_capture_pago(archivo)
                         
-                        # VALIDACIÓN ESTRICTA: Solo aceptamos si el filtro inteligente dio True
                         if datos and datos.get("valido") == True:
                             datos["archivo_nombre"] = archivo.name
                             resultados_validos.append(datos)
@@ -20285,9 +20283,9 @@ if opcion_menu == "🟢 WhatsApp":
                         if rechazados > 0:
                             st.warning(f"⚠️ Se descartaron {rechazados} archivos por no cumplir con el formato de un comprobante bancario.")
                     else:
-                        st.error("❌ Ninguna de las imágenes subidas pasó el filtro de pago. Asegúrate de que sean captures de transferencias o pago móvil nítidos.")
+                        st.error("❌ Ninguna de las imágenes subidas pasó el filtro de pago.")
 
-        # Si hay resultados válidos en memoria, los mostramos en tabla para revisión
+        # Mostrar resultados en tabla si existen en memoria
         if st.session_state.get('captures_procesados'):
             st.markdown("#### 📋 Pagos Listos para Registrar en Libros")
             
@@ -20314,7 +20312,6 @@ if opcion_menu == "🟢 WhatsApp":
                                 fecha = item.get("fecha")
                                 
                                 if ref and monto:
-                                    # Inserción directa en tu tabla banco_movimientos con la estructura oficial
                                     query_insert = """
                                         INSERT INTO banco_movimientos (
                                             banco_nombre, 
@@ -20332,7 +20329,6 @@ if opcion_menu == "🟢 WhatsApp":
                                             estado_conciliacion = 'CONCILIADO',
                                             monto = VALUES(monto)
                                     """
-                                    
                                     valores = (
                                         "Pago Movil",
                                         "WhatsApp",
@@ -20343,13 +20339,12 @@ if opcion_menu == "🟢 WhatsApp":
                                         "King Driver",
                                         "CONCILIADO"
                                     )
-                                    
                                     cursor.execute(query_insert, valores)
                                     exitos += 1
                             
                             conn.commit()
                             cursor.close()
-                            st.success(f"🎉 ¡Se guardaron y conciliaron {exitos} movimientos exitosamente en `banco_movimientos`!")
+                            st.success(f"🎉 ¡Se guardaron y conciliaron {exitos} movimientos en `banco_movimientos`!")
                         except Exception as e:
                             st.error(f"Error al guardar en la base de datos: {e}")
                         finally:
