@@ -20369,23 +20369,40 @@ if opcion_menu == "🟢 WhatsApp":
         with tab_gestion:
             st.markdown("#### ⚙️ Consulta, Modificación y Eliminación de Movimientos")
             
+            # Filtros de Rango de Fechas en la parte superior
+            col_f1, col_f2 = st.columns(2)
+            with col_f1:
+                import datetime
+                # Por defecto mostramos desde hace 30 días hasta hoy
+                fec_inicio = st.date_input("📅 Fecha Desde", value=datetime.date.today() - datetime.timedelta(days=30))
+            with col_f2:
+                fec_fin = st.date_input("📅 Fecha Hasta", value=datetime.date.today())
+            
             conn = conectar_db(db_actual)
             if conn:
                 try:
                     import pandas as pd
-                    # Consultamos todos los movimientos de la tabla
-                    query_select = "SELECT id, banco_nombre, cuenta_numero, fecha_movimiento, referencia, descripcion, monto, banco_receptor, estado_conciliacion, fecha_importacion FROM banco_movimientos ORDER BY id DESC LIMIT 100"
-                    df_movs = pd.read_sql(query_select, conn)
+                    # Consultamos filtrando por el rango de fechas seleccionado en la columna fecha_movimiento
+                    query_select = """
+                        SELECT id, banco_nombre, cuenta_numero, fecha_movimiento, referencia, descripcion, monto, banco_receptor, estado_conciliacion, fecha_importacion 
+                        FROM banco_movimientos 
+                        WHERE fecha_movimiento BETWEEN %s AND %s 
+                        ORDER BY fecha_movimiento DESC, id DESC
+                    """
+                    
+                    # Ejecutamos pasando los parámetros de fecha de forma segura
+                    df_movs = pd.read_sql(query_select, conn, params=(fec_inicio, fec_fin))
                     
                     if df_movs.empty:
-                        st.info("ℹ️ No hay movimientos registrados en la tabla `banco_movimientos` todavía.")
+                        st.info(f"ℹ️ No hay movimientos registrados entre el {fec_inicio} y el {fec_fin}.")
                     else:
+                        st.success(f"📊 Se encontraron {len(df_movs)} movimientos en el rango seleccionado.")
                         st.dataframe(df_movs, use_container_width=True)
                         
                         st.markdown("---")
                         st.markdown("#### 🛠️ Modificar o Eliminar Registro Específico")
                         
-                        # Selector por ID de movimiento para acciones
+                        # Selector por ID de movimiento filtrado
                         ids_disponibles = df_movs['id'].tolist()
                         id_seleccionado = st.selectbox("Seleccione el ID del movimiento a gestionar", options=ids_disponibles)
                         
@@ -20396,7 +20413,11 @@ if opcion_menu == "🟢 WhatsApp":
                             col_m1, col_m2 = st.columns(2)
                             with col_m1:
                                 nuevo_monto = st.number_input("Modificar Monto", value=float(reg_actual['monto']), format="%.2f")
-                                nuevo_estado = st.selectbox("Modificar Estado", options=["CONCILIADO", "PENDIENTE", "ANULADO"], index=["CONCILIADO", "PENDIENTE", "ANULADO"].index(reg_actual['estado_conciliacion']) if reg_actual['estado_conciliacion'] in ["CONCILIADO", "PENDIENTE", "ANULADO"] else 0)
+                                nuevo_estado = st.selectbox(
+                                    "Modificar Estado", 
+                                    options=["CONCILIADO", "PENDIENTE", "ANULADO"], 
+                                    index=["CONCILIADO", "PENDIENTE", "ANULADO"].index(reg_actual['estado_conciliacion']) if reg_actual['estado_conciliacion'] in ["CONCILIADO", "PENDIENTE", "ANULADO"] else 0
+                                )
                             
                             with col_m2:
                                 nueva_ref = st.text_input("Modificar Referencia", value=str(reg_actual['referencia']))
