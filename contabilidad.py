@@ -8592,15 +8592,31 @@ def procesar_capture_pago(imagen_path_o_stream):
                 datos_pago["referencia"] = digitos_largos[-1]
 
         # --- BUSCAR MONTO (Sintaxis 100% limpia sin errores de corchetes) ---
-        match_monto = re.search(r'(?:Bs\.?|USD|\$)?\s*([\d\.,]+)', texto_extraido)
+        # --- BUSCAR MONTO (Mejorado para buscar etiquetas o montos con decimales) ---
+        match_monto = re.search(
+            r'(?:monto|bs\.?|ves|total|pagar)[\s:\.]*([\d]{1,3}(?:\.\d{3})*(?:,\d{2})?|[\d]+,\d{2})', 
+            texto_lower, 
+            re.IGNORECASE
+        )
+        
         if match_monto:
             monto_bruto = match_monto.group(1)
-            # Limpiamos el formato de miles venezolano (ej: 1.500,00 -> 1500.00)
+            # Limpiamos el formato venezolano (ej: 1.500,00 -> 1500.00)
             monto_limpio = monto_bruto.replace('.', '').replace(',', '.')
             try:
                 datos_pago["monto"] = float(monto_limpio)
             except ValueError:
                 pass
+        else:
+            # Plan B: Si no encuentra la etiqueta, busca cualquier cifra que parezca un monto con decimales (ej: XX.XXX,XX)
+            cifras_decimales = re.findall(r'\b\d{1,3}(?:\.\d{3})*,\d{2}\b', texto_extraido)
+            if cifras_decimales:
+                monto_bruto = cifras_decimales[-1]  # Usamos la última cifra encontrada (suele ser el total)
+                monto_limpio = monto_bruto.replace('.', '').replace(',', '.')
+                try:
+                    datos_pago["monto"] = float(monto_limpio)
+                except ValueError:
+                    pass
 
         if not datos_pago["referencia"] or not datos_pago["monto"]:
             datos_pago["valido"] = False
