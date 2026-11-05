@@ -8518,16 +8518,18 @@ def modulo_historial_qr(conn, db_actual):
             key=f"qr_btn_{id_f}",
         )
 
+
 import cv2
 import pytesseract
 import re
 from datetime import datetime
 import numpy as np
+import streamlit as st  # Asegúrate de tenerlo importado
 
 def procesar_capture_pago(imagen_path_o_stream):
     """
     Procesa una imagen y valida si es un capture de pago legítimo 
-    antes de extraer la referencia y el monto.
+    antes de extraer la referencia y el monto (Modo Depuración).
     """
     try:
         # 1. Cargar la imagen con OpenCV
@@ -8537,16 +8539,21 @@ def procesar_capture_pago(imagen_path_o_stream):
             file_bytes = np.asarray(bytearray(imagen_path_o_stream.read()), dtype=np.uint8)
             img = cv2.imdecode(file_bytes, 1)
 
-        # 2. Preprocesamiento avanzado con Otsu (ideal para captures digitales nítidos)
+        if img is None:
+            return {"valido": False, "error": "OpenCV no pudo leer la imagen (está vacía o corrupta)."}
+
+        # 2. Preprocesamiento avanzado con Otsu
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        
-        # Aplicamos un ligero blur para limpiar ruido y luego Otsu para binarizar automáticamente
         blur = cv2.GaussianBlur(gray, (3, 3), 0)
         _, thresh = cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
 
         # 3. Extraer texto usando Tesseract OCR
+        # OJO: Si te da error de idioma, quita `, lang='spa'` temporalmente
         texto_extraido = pytesseract.image_to_string(thresh, lang='spa')
         texto_lower = texto_extraido.lower()
+
+        # --- MOSTRAR LO QUE LEYÓ TESSERACT EN STREAMLIT (DEPURACIÓN) ---
+        st.info("📝 Texto exacto que leyó Tesseract:\n```text\n" + texto_extraido + "\n```")
 
         # --- 4. FILTRO DE SEGURIDAD AMPLIADO ---
         palabras_clave_banco = [
@@ -8556,18 +8563,17 @@ def procesar_capture_pago(imagen_path_o_stream):
             'movimiento', 'enviado', 'recibido', 'compras', 'pos'
         ]
         
-        # Cuenta cuántas palabras clave coinciden en el texto de la imagen
         coincidencias = sum(1 for palabra in palabras_clave_banco if palabra in texto_lower)
-        
-        # Si tiene muy pocas coincidencias, NO es un capture de pago
+        st.write(f"🔎 Palabras clave encontradas: {coincidencias}")
+
         if coincidencias < 2 or len(texto_extraido.strip()) < 15:
             return {
                 "valido": False,
-                "error": "La imagen no parece un comprobante de pago válido.",
+                "error": f"Filtro falló: Solo encontró {coincidencias} palabras clave.",
                 "texto_completo": texto_extraido
             }
 
-        # 5. Si pasó el filtro, extraemos los datos con seguridad
+        # 5. Extracción de datos
         datos_pago = {
             "valido": True,
             "referencia": None,
@@ -8576,7 +8582,7 @@ def procesar_capture_pago(imagen_path_o_stream):
             "texto_completo": texto_extraido
         }
 
-        # --- CORRECCIÓN: Buscar número de referencia ampliado hasta 12 dígitos ---
+        # Buscar referencia
         match_ref = re.search(r'(?:ref|referencia|N[°º]?\.?\s*op(?:eraci[oó]n)?)[:#\s]*(\d{4,12})', texto_extraido, re.IGNORECASE)
         if match_ref:
             datos_pago["referencia"] = match_ref.group(1)
@@ -8585,7 +8591,7 @@ def procesar_capture_pago(imagen_path_o_stream):
             if digitos_largos:
                 datos_pago["referencia"] = digitos_largos[-1]
 
-        # Buscar montos con formato venezolano
+        # Buscar monto
         match_monto = re.search(r'(?:Bs\.?|USD|\$)?\s*([\d{1,3}(?:\.\d{3})*,\d{2}|\d+,\d{2})', texto_extraido)
         if match_monto:
             monto_str = match_monto.group(1).replace('.', '').replace(',', '.')
@@ -8594,15 +8600,14 @@ def procesar_capture_pago(imagen_path_o_stream):
             except ValueError:
                 pass
 
-        # Si no encontró ni referencia ni monto claros, lo marcamos como inválido
         if not datos_pago["referencia"] or not datos_pago["monto"]:
             datos_pago["valido"] = False
-            datos_pago["error"] = "Se detectó que es un comprobante, pero no se pudo leer con claridad la referencia o el monto."
+            datos_pago["error"] = f"Faltó extraer: Ref({datos_pago['referencia']}) o Monto({datos_pago['monto']})."
 
         return datos_pago
 
     except Exception as e:
-        print(f"Error procesando la imagen: {e}")
+        st.error(f"🚨 EXCEPCIÓN TÉCNICA CAPTURADA: {str(e)}")
         return {"valido": False, "error": str(e)}
 
 
