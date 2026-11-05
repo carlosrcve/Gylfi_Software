@@ -1,1 +1,26 @@
+streamlit
+mysql-connector-python
+pandas
+pymysql
+fpdf2
+plotly
+requests
+beautifulsoup4
+cryptography
+bcrypt
+openai
+sqlalchemy
+pytesseract
+numpy
+openpyxl
+xlsxwriter
+PyMuPDF
+google-generativeai
+pdfplumber
+opencv-python-headless
+reportlab
+qrcode==7.4.2
+pytesseract>=0.3.10
+Pillow>=9.0.0
+streamlit-paste-button==0.1.2
 
