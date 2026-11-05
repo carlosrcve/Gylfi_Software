@@ -8546,11 +8546,12 @@ def procesar_capture_pago(imagen_path_o_stream):
         texto_lower = texto_extraido.lower()
 
         # --- 4. FILTRO DE SEGURIDAD ANTIFALSKO / ANTICUALQUIER FOTO ---
-        # Verificamos que la imagen contenga al menos indicios de un comprobante bancario venezolano o pago
+        # --- 4. FILTRO DE SEGURIDAD AMPLIADO ---
         palabras_clave_banco = [
             'referencia', 'ref', 'pago movil', 'transferencia', 'banco', 
             'comprobante', 'exitoso', 'operacion', 'destino', 'origen', 
-            'fecha', 'monto', 'bs', 'ves', 'cedula', 'rif'
+            'fecha', 'monto', 'bs', 'ves', 'cedula', 'rif',
+            'movimiento', 'enviado', 'recibido', 'compras', 'pos'  # <-- Nuevas palabras clave añadidas
         ]
         
         # Cuenta cuántas palabras clave coinciden en el texto de la imagen
@@ -8601,6 +8602,121 @@ def procesar_capture_pago(imagen_path_o_stream):
     except Exception as e:
         print(f"Error procesando la imagen: {e}")
         return {"valido": False, "error": str(e)}
+
+
+def procesar_pago_whatsapp_automatico(imagen_stream, telefono_remitente, db_conexion):
+    """
+    Procesa el capture de WhatsApp y vincula el pago al chofer 
+    utilizando su número de teléfono registrado en la base de datos.
+    """
+    # 1. Ejecutamos el OCR que ya diseñamos para sacar monto y referencia
+    datos_ocr = procesar_capture_pago(imagen_stream)
+    
+    if not datos_ocr or not datos_ocr.get("valido"):
+        return {"status": "rechazado", "razón": "No es un comprobante de pago válido"}
+    
+    cursor = db_conexion.cursor()
+    
+    # 2. Buscamos a qué chofer pertenece este número de teléfono en tu BD
+    query_chofer = "SELECT id, nombre_chofer FROM choferes WHERE telefono = %s LIMIT 1"
+    cursor.execute(query_chofer, (telefono_remitente,))
+    chofer = cursor.fetchone()
+    
+    if not chofer:
+        cursor.close()
+        return {
+            "status": "alerta", 
+            "razón": f"El pago es válido (Ref: {datos_ocr['referencia']}, Monto: {datos_ocr['monto']}), "
+                     f"pero el número {telefono_remitente} no está registrado en la base de datos de choferes."
+        }
+    
+    chofer_id, nombre_chofer = chofer
+    
+    # 3. Guardamos el pago conciliado asociando directamente al chofer
+    query_insertar_pago = """
+        INSERT INTO pagos_choferes (chofer_id, telefono, referencia, monto, fecha, estado, fuente)
+        VALUES (%s, %s, %s, %s, %s, 'CONCILIADO', 'WHATSAPP_AUTO')
+    """
+    cursor.execute(query_insertar_pago, (
+        chofer_id, 
+        telefono_remitente, 
+        datos_ocr["referencia"], 
+        datos_ocr["monto"], 
+        datos_ocr["fecha"]
+    ))
+    db_conexion.commit()
+    cursor.close()
+    
+    return {
+        "status": "exito",
+        "mensaje": f"¡Pago de {nombre_chofer} conciliado con éxito! Ref: {datos_ocr['referencia']}"
+    }
+
+def procesar_pago_whatsapp_duenio(imagen_stream, telefono_remitente_duenio, db_global_conexion):
+    """
+    Procesa el pago que llega al WhatsApp central del dueño de la empresa.
+    Identifica a qué empresa (db_nombre) pertenece según el teléfono del dueño en la tabla usuarios.
+    """
+    # 1. Validar y extraer los datos del capture con nuestro OCR
+    datos_ocr = procesar_capture_pago(imagen_stream)
+    
+    if not datos_ocr or not datos_ocr.get("valido"):
+        return {"status": "rechazado", "razón": "La imagen no es un comprobante de pago válido."}
+    
+    cursor = db_global_conexion.cursor()
+    
+    # 2. Buscar en la tabla global de usuarios qué empresa (db_nombre) pertenece a este número de WhatsApp del dueño
+    query_usuario = "SELECT db_nombre, usuario FROM usuarios WHERE telefono_whatsapp = %s AND estado = 'ACTIVO' LIMIT 1"
+    cursor.execute(query_usuario, (telefono_remitente_duenio,))
+    user_info = cursor.fetchone()
+    
+    if not user_info:
+        cursor.close()
+        return {
+            "status": "alerta", 
+            "razón": f"El pago es válido (Ref: {datos_ocr['referencia']}), pero el número {telefono_remitente_duenio} no está registrado como WhatsApp central de ningún dueño de empresa."
+        }
+    
+    db_nombre_empresa, nombre_duenio = user_info
+    cursor.close()
+    
+    # 3. Conectarse a la base de datos específica de ESA empresa para guardar el pago
+    # (Aquí usas tu función de conexión existente conectándote a db_nombre_empresa)
+    conn_empresa = conectar_db(db_nombre_empresa)
+    
+    if not conn_empresa:
+        return {"status": "error", "razón": f"No se pudo conectar a la base de datos de la empresa: {db_nombre_empresa}"}
+    
+    try:
+        cursor_empresa = conn_empresa.cursor()
+        
+        # Guardamos el pago en la base de datos de la empresa del dueño
+        query_insertar = """
+            INSERT INTO pagos_choferes (referencia, monto, fecha, estado, fuente)
+            VALUES (%s, %s, %s, 'CONCILIADO', 'WHATSAPP_DUENIO')
+            ON DUPLICATE KEY UPDATE estado = 'CONCILIADO'
+        """
+        cursor_empresa.execute(query_insertar, (
+            datos_ocr["referencia"], 
+            datos_ocr["monto"], 
+            datos_ocr["fecha"]
+        ))
+        conn_empresa.commit()
+        cursor_empresa.close()
+        
+        return {
+            "status": "exito",
+            "mensaje": f"¡Pago de Ref: {datos_ocr['referencia']} procesado y guardado exitosamente en la empresa de {nombre_duenio} ({db_nombre_empresa})!"
+        }
+        
+    except Exception as e:
+        return {"status": "error", "razón": str(e)}
+    finally:
+        try:
+            conn_empresa.close()
+        except:
+            pass
+
 
 def gestionar_sidebar():
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
