@@ -8582,7 +8582,7 @@ def procesar_capture_pago(imagen_path_o_stream):
             "texto_completo": texto_extraido
         }
 
-        # Buscar referencia
+        # --- BUSCAR REFERENCIA (Corregida y blindada) ---
         match_ref = re.search(r'(?:ref|referencia|N[°º]?\.?\s*op(?:eraci[oó]n)?)[:#\s]*(\d{4,12})', texto_extraido, re.IGNORECASE)
         if match_ref:
             datos_pago["referencia"] = match_ref.group(1)
@@ -8591,12 +8591,14 @@ def procesar_capture_pago(imagen_path_o_stream):
             if digitos_largos:
                 datos_pago["referencia"] = digitos_largos[-1]
 
-        # Buscar monto
-        match_monto = re.search(r'(?:Bs\.?|USD|\$)?\s*([\d{1,3}(?:\.\d{3})*,\d{2}|\d+,\d{2})', texto_extraido)
+        # --- BUSCAR MONTO (Sintaxis 100% limpia sin errores de corchetes) ---
+        match_monto = re.search(r'(?:Bs\.?|USD|\$)?\s*([\d\.,]+)', texto_extraido)
         if match_monto:
-            monto_str = match_monto.group(1).replace('.', '').replace(',', '.')
+            monto_bruto = match_monto.group(1)
+            # Limpiamos el formato de miles venezolano (ej: 1.500,00 -> 1500.00)
+            monto_limpio = monto_bruto.replace('.', '').replace(',', '.')
             try:
-                datos_pago["monto"] = float(monto_str)
+                datos_pago["monto"] = float(monto_limpio)
             except ValueError:
                 pass
 
