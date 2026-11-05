@@ -20249,108 +20249,185 @@ from streamlit_paste_button import paste_image_button
 if opcion_menu == "🟢 WhatsApp":
     db_actual = st.session_state.get("DB_ACTUAL")
     
-    st.markdown("### 📱 Conciliación Inteligente de Captures de WhatsApp")
-    st.markdown("Sube los captures de pago de King Driver para procesarlos y conciliarlos de forma automática.")
+    st.markdown("### 📱 Conciliación Inteligente y Gestión de Movimientos")
+    st.markdown("Procesa nuevos captures de WhatsApp o administra los registros existentes en la base de datos.")
     
     if not db_actual:
         st.warning("⚠️ Por favor selecciona una base de datos activa primero.")
     else:
-        with st.container(border=True):
-            uploaded_files = st.file_uploader(
-                "Selecciona o arrastra los captures de pago (PNG, JPG)", 
-                type=["png", "jpg", "jpeg"], 
-                accept_multiple_files=True,
-                key="uploader_captures_whatsapp"
-            )
-            
-            if uploaded_files:
-                if st.button("🔍 Analizar y Filtrar Captures", use_container_width=True, key="btn_ejecutar_ocr"):
-                    resultados_validos = []
-                    rechazados = 0
-                    
-                    for archivo in uploaded_files:
-                        datos = procesar_capture_pago(archivo)
+        # Pestañas para separar el procesamiento de captures y la administración de la tabla
+        tab_proceso, tab_gestion = st.tabs(["📥 Procesar Nuevos Captures", "📊 Administrar `banco_movimientos`"])
+        
+        # ==========================================
+        # PESTAÑA 1: PROCESAR NUEVOS CAPTURES
+        # ==========================================
+        with tab_proceso:
+            with st.container(border=True):
+                uploaded_files = st.file_uploader(
+                    "Selecciona o arrastra los captures de pago (PNG, JPG)", 
+                    type=["png", "jpg", "jpeg"], 
+                    accept_multiple_files=True,
+                    key="uploader_captures_whatsapp"
+                )
+                
+                if uploaded_files:
+                    if st.button("🔍 Analizar y Filtrar Captures", use_container_width=True, key="btn_ejecutar_ocr"):
+                        resultados_validos = []
+                        rechazados = 0
                         
-                        if datos and datos.get("valido") == True:
-                            datos["archivo_nombre"] = archivo.name
-                            resultados_validos.append(datos)
-                        else:
-                            rechazados += 1
-                    
-                    if resultados_validos:
-                        st.session_state['captures_procesados'] = resultados_validos
-                        st.success(f"✅ Se validaron y procesaron {len(resultados_validos)} pagos legítimos.")
-                        if rechazados > 0:
-                            st.warning(f"⚠️ Se descartaron {rechazados} archivos por no cumplir con el formato de un comprobante bancario.")
-                    else:
-                        st.error("❌ Ninguna de las imágenes subidas pasó el filtro de pago.")
-
-        # Mostrar resultados en tabla si existen en memoria
-        if st.session_state.get('captures_procesados'):
-            st.markdown("#### 📋 Pagos Listos para Registrar en Libros")
-            
-            import pandas as pd
-            df_captures = pd.DataFrame(st.session_state['captures_procesados'])
-            
-            st.dataframe(
-                df_captures[['archivo_nombre', 'referencia', 'monto', 'fecha']],
-                use_container_width=True
-            )
-            
-            col_acc1, col_acc2 = st.columns(2)
-            
-            with col_acc1:
-                if st.button("💾 Guardar y Conciliar en Base de Datos", use_container_width=True, type="primary"):
-                    conn = conectar_db(db_actual)
-                    if conn:
-                        try:
-                            cursor = conn.cursor()
-                            exitos = 0
-                            for item in st.session_state['captures_procesados']:
-                                ref = item.get("referencia")
-                                monto = item.get("monto")
-                                fecha = item.get("fecha")
-                                
-                                if ref and monto:
-                                    query_insert = """
-                                        INSERT INTO banco_movimientos (
-                                            banco_nombre, 
-                                            cuenta_numero, 
-                                            fecha_movimiento, 
-                                            referencia, 
-                                            descripcion, 
-                                            monto, 
-                                            banco_receptor, 
-                                            estado_conciliacion, 
-                                            fecha_importacion
-                                        )
-                                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW())
-                                        ON DUPLICATE KEY UPDATE 
-                                            estado_conciliacion = 'CONCILIADO',
-                                            monto = VALUES(monto)
-                                    """
-                                    valores = (
-                                        "Pago Movil",
-                                        "WhatsApp",
-                                        fecha,
-                                        ref,
-                                        "Conciliacion automatica por WhatsApp OCR",
-                                        monto,
-                                        "King Driver",
-                                        "CONCILIADO"
-                                    )
-                                    cursor.execute(query_insert, valores)
-                                    exitos += 1
+                        for archivo in uploaded_files:
+                            datos = procesar_capture_pago(archivo)
                             
-                            conn.commit()
-                            cursor.close()
-                            st.success(f"🎉 ¡Se guardaron y conciliaron {exitos} movimientos en `banco_movimientos`!")
-                        except Exception as e:
-                            st.error(f"Error al guardar en la base de datos: {e}")
-                        finally:
-                            conn.close()
+                            if datos and datos.get("valido") == True:
+                                datos["archivo_nombre"] = archivo.name
+                                resultados_validos.append(datos)
+                            else:
+                                rechazados += 1
+                        
+                        if resultados_validos:
+                            st.session_state['captures_procesados'] = resultados_validos
+                            st.success(f"✅ Se validaron y procesaron {len(resultados_validos)} pagos legítimos.")
+                            if rechazados > 0:
+                                st.warning(f"⚠️ Se descartaron {rechazados} archivos por no cumplir con el formato de un comprobante bancario.")
+                        else:
+                            st.error("❌ Ninguna de las imágenes subidas pasó el filtro de pago.")
+
+            # Mostrar resultados pendientes de guardar en memoria
+            if st.session_state.get('captures_procesados'):
+                st.markdown("#### 📋 Pagos Listos para Registrar en Libros")
+                
+                import pandas as pd
+                df_captures = pd.DataFrame(st.session_state['captures_procesados'])
+                
+                st.dataframe(
+                    df_captures[['archivo_nombre', 'referencia', 'monto', 'fecha']],
+                    use_container_width=True
+                )
+                
+                col_acc1, col_acc2 = st.columns(2)
+                
+                with col_acc1:
+                    if st.button("💾 Guardar y Conciliar en Base de Datos", use_container_width=True, type="primary"):
+                        conn = conectar_db(db_actual)
+                        if conn:
+                            try:
+                                cursor = conn.cursor()
+                                exitos = 0
+                                for item in st.session_state['captures_procesados']:
+                                    ref = item.get("referencia")
+                                    monto = item.get("monto")
+                                    fecha = item.get("fecha")
+                                    
+                                    if ref and monto:
+                                        query_insert = """
+                                            INSERT INTO banco_movimientos (
+                                                banco_nombre, 
+                                                cuenta_numero, 
+                                                fecha_movimiento, 
+                                                referencia, 
+                                                descripcion, 
+                                                monto, 
+                                                banco_receptor, 
+                                                estado_conciliacion, 
+                                                fecha_importacion
+                                            )
+                                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                                            ON DUPLICATE KEY UPDATE 
+                                                estado_conciliacion = 'CONCILIADO',
+                                                monto = VALUES(monto)
+                                        """
+                                        valores = (
+                                            "Pago Movil",
+                                            "WhatsApp",
+                                            fecha,
+                                            ref,
+                                            "Conciliacion automatica por WhatsApp OCR",
+                                            monto,
+                                            "King Driver",
+                                            "CONCILIADO"
+                                        )
+                                        cursor.execute(query_insert, valores)
+                                        exitos += 1
+                                
+                                conn.commit()
+                                cursor.close()
+                                st.success(f"🎉 ¡Se guardaron y conciliaron {exitos} movimientos en `banco_movimientos`!")
+                                st.session_state['captures_procesados'] = None
+                            except Exception as e:
+                                st.error(f"Error al guardar en la base de datos: {e}")
+                            finally:
+                                conn.close()
+                
+                with col_acc2:
+                    if st.button("🗑️ Limpiar Resultados", use_container_width=True):
+                        st.session_state['captures_procesados'] = None
+                        st.rerun()
+
+        # ==========================================
+        # PESTAÑA 2: ADMINISTRAR BANCO_MOVIMIENTOS
+        # ==========================================
+        with tab_gestion:
+            st.markdown("#### ⚙️ Consulta, Modificación y Eliminación de Movimientos")
             
-            with col_acc2:
-                if st.button("🗑️ Limpiar Resultados", use_container_width=True):
-                    st.session_state['captures_procesados'] = None
-                    st.rerun()
+            conn = conectar_db(db_actual)
+            if conn:
+                try:
+                    import pandas as pd
+                    # Consultamos todos los movimientos de la tabla
+                    query_select = "SELECT id, banco_nombre, cuenta_numero, fecha_movimiento, referencia, descripcion, monto, banco_receptor, estado_conciliacion, fecha_importacion FROM banco_movimientos ORDER BY id DESC LIMIT 100"
+                    df_movs = pd.read_sql(query_select, conn)
+                    
+                    if df_movs.empty:
+                        st.info("ℹ️ No hay movimientos registrados en la tabla `banco_movimientos` todavía.")
+                    else:
+                        st.dataframe(df_movs, use_container_width=True)
+                        
+                        st.markdown("---")
+                        st.markdown("#### 🛠️ Modificar o Eliminar Registro Específico")
+                        
+                        # Selector por ID de movimiento para acciones
+                        ids_disponibles = df_movs['id'].tolist()
+                        id_seleccionado = st.selectbox("Seleccione el ID del movimiento a gestionar", options=ids_disponibles)
+                        
+                        if id_seleccionado:
+                            # Filtramos los datos del registro seleccionado
+                            reg_actual = df_movs[df_movs['id'] == id_seleccionado].iloc[0]
+                            
+                            col_m1, col_m2 = st.columns(2)
+                            with col_m1:
+                                nuevo_monto = st.number_input("Modificar Monto", value=float(reg_actual['monto']), format="%.2f")
+                                nuevo_estado = st.selectbox("Modificar Estado", options=["CONCILIADO", "PENDIENTE", "ANULADO"], index=["CONCILIADO", "PENDIENTE", "ANULADO"].index(reg_actual['estado_conciliacion']) if reg_actual['estado_conciliacion'] in ["CONCILIADO", "PENDIENTE", "ANULADO"] else 0)
+                            
+                            with col_m2:
+                                nueva_ref = st.text_input("Modificar Referencia", value=str(reg_actual['referencia']))
+                                nueva_desc = st.text_input("Modificar Descripción", value=str(reg_actual['descripcion']))
+                            
+                            col_btn1, col_btn2 = st.columns(2)
+                            with col_btn1:
+                                if st.button("💾 Actualizar Registro", use_container_width=True, type="primary"):
+                                    cursor = conn.cursor()
+                                    query_update = """
+                                        UPDATE banco_movimientos 
+                                        SET monto = %s, estado_conciliacion = %s, referencia = %s, descripcion = %s
+                                        WHERE id = %s
+                                    """
+                                    cursor.execute(query_update, (nuevo_monto, nuevo_estado, nueva_ref, nueva_desc, id_seleccionado))
+                                    conn.commit()
+                                    cursor.close()
+                                    st.success(f"✅ ¡Registro ID {id_seleccionado} actualizado con éxito!")
+                                    st.rerun()
+                            
+                            with col_btn2:
+                                if st.button("🗑️ Eliminar Registro", use_container_width=True):
+                                    cursor = conn.cursor()
+                                    query_delete = "DELETE FROM banco_movimientos WHERE id = %s"
+                                    cursor.execute(query_delete, (id_seleccionado,))
+                                    conn.commit()
+                                    cursor.close()
+                                    st.warning(f"⚠️ ¡Registro ID {id_seleccionado} eliminado de la base de datos!")
+                                    st.rerun()
+                                    
+                except Exception as e:
+                    st.error(f"Error al conectar o consultar la base de datos: {e}")
+                finally:
+                    conn.close()
