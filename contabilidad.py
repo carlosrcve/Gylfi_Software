@@ -20250,13 +20250,13 @@ if opcion_menu == "🟢 WhatsApp":
     db_actual = st.session_state.get("DB_ACTUAL")
     
     st.markdown("### 📱 Conciliación Inteligente de Captures de WhatsApp")
-    st.markdown("Sube los captures de pago de King Driver. El sistema filtrará automáticamente cualquier imagen que no corresponda a un comprobante bancario.")
+    st.markdown("Sube o arrastra los captures de pago de King Driver al recuadro de abajo. El sistema filtrará automáticamente cualquier imagen que no corresponda a un comprobante bancario.")
     
     if not db_actual:
         st.warning("⚠️ Por favor selecciona una base de datos activa primero.")
     else:
         with st.container(border=True):
-            # Selector de archivos múltiple para procesar los captures de forma rápida
+            # Selector de archivos múltiple (puedes arrastrar varios captures a la vez de forma súper rápida)
             uploaded_files = st.file_uploader(
                 "Selecciona o arrastra los captures de pago (PNG, JPG)", 
                 type=["png", "jpg", "jpeg"], 
@@ -20314,7 +20314,7 @@ if opcion_menu == "🟢 WhatsApp":
                                 fecha = item.get("fecha")
                                 
                                 if ref and monto:
-                                    # Inserción directa y segura en tu tabla banco_movimientos
+                                    # Inserción directa en tu tabla banco_movimientos con la estructura oficial
                                     query_insert = """
                                         INSERT INTO banco_movimientos (
                                             banco_nombre, 
