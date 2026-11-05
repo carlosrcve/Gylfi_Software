@@ -8734,34 +8734,39 @@ if menu_lateral == "📊 Auditoría Contable":
         st.subheader("Módulos")
         
         nombre_sel = st.session_state.get('CLIENTE_NOMBRE', '')
-
+        
         modulos_disponibles = [
-            "🏠 Inicio", 
-            "📂 Plan de Cuentas", 
-            "📝 Asientos Contables",  
-            "📖 Mayor Analítico", 
-            "📊 Estados Financieros", 
-            "📚 Libros Fiscales", 
-            "👤 Proveedores",
-            "👤 Clientes",
-            "📦 Respaldos y Exportación", 
-            "📄 Auxiliar Cta por Pagar",
-            "📸 Códigos QR y Escaneo"
-        ]
+                    "🏠 Inicio", 
+                    "📂 Plan de Cuentas", 
+                    "📝 Asientos Contables",  
+                    "📖 Mayor Analítico", 
+                    "📊 Estados Financieros", 
+                    "📚 Libros Fiscales", 
+                    "👤 Proveedores",
+                    "👤 Clientes",
+                    "📦 Respaldos y Exportación", 
+                    "📄 Auxiliar Cta por Pagar",
+                    "📸 Códigos QR y Escaneo"
+                ]
 
-        if "PEDACITO" in str(nombre_sel).upper() and "CIELO" in str(nombre_sel).upper():
-            if "🧁 Inventarios" not in modulos_disponibles:
-                modulos_disponibles.append("🧁 Inventarios")
+                if "PEDACITO" in str(nombre_sel).upper() and "CIELO" in str(nombre_sel).upper():
+                    if "🧁 Inventarios" not in modulos_disponibles:
+                        modulos_disponibles.append("🧁 Inventarios")
 
-        # Condición exclusiva para Gomas Puente Hierro (ajusta el texto según cómo aparezca en tu variable nombre_sel)
-        if "GOMAS" in str(nombre_sel).upper() and "PUENTE" in str(nombre_sel).upper():
-            if "📄 Factura Preimpresa" not in modulos_disponibles:
-                modulos_disponibles.append("📄 Factura Preimpresa")
+                # Condición para Gomas Puente Hierro
+                if "GOMAS" in str(nombre_sel).upper() and "PUENTE" in str(nombre_sel).upper():
+                    if "📄 Factura Preimpresa" not in modulos_disponibles:
+                        modulos_disponibles.append("📄 Factura Preimpresa")
 
-        # Buscamos si ya hay una opción guardada, de lo contrario fijamos 0 (Inicio)
-        indice_actual = 0
-        if 'opcion_menu_auditoria' in st.session_state and st.session_state['opcion_menu_auditoria'] in modulos_disponibles:
-            indice_actual = modulos_disponibles.index(st.session_state['opcion_menu_auditoria'])
+                # --- CONDICIÓN EXCLUSIVA PARA KING DRIVER ---
+                if "KING" in str(nombre_sel).upper() or "DRIVER" in str(nombre_sel).upper() or "KINGDRIVER" in str(db_actual).upper():
+                    if "📸 WhatSapp" not in modulos_disponibles:
+                        modulos_disponibles.append("📸 WhatSapp")
+
+                # Buscamos si ya hay una opción guardada, de lo contrario fijamos 0 (Inicio)
+                indice_actual = 0
+                if 'opcion_menu_auditoria' in st.session_state and st.session_state['opcion_menu_auditoria'] in modulos_disponibles:
+                    indice_actual = modulos_disponibles.index(st.session_state['opcion_menu_auditoria'])
 
         opcion_menu = st.selectbox("📂 SELECCIONE UN MÓDULO", modulos_disponibles, index=indice_actual, key="opcion_menu_selectbox_dinamico")
         st.session_state['opcion_menu_auditoria'] = opcion_menu
@@ -20025,3 +20030,89 @@ if opcion_menu == "📸 Códigos QR y Escaneo":
                     conn_qr.close()
                 except:
                     pass
+
+if opcion_menu == "📸 WhatSapp":
+    db_actual = st.session_state.get("DB_ACTUAL")
+    
+    st.markdown("### 📱 Conciliación Automática de Captures de WhatsApp")
+    st.markdown("Sube los captures de pantalla enviados por los choferes para extraer la referencia, el monto y conciliar el pago de forma automática.")
+    
+    if not db_actual:
+        st.warning("⚠️ Por favor selecciona una base de datos activa primero.")
+    else:
+        with st.container(border=True):
+            # Widget para subir múltiples imágenes de captures
+            uploaded_files = st.file_uploader(
+                "Selecciona o arrastra los captures de pago (PNG, JPG)", 
+                type=["png", "jpg", "jpeg"], 
+                accept_multiple_files=True,
+                key="uploader_captures_whatsapp"
+            )
+            
+            if uploaded_files:
+                if st.button("🔍 Procesar Captures con OCR", use_container_width=True, key="btn_ejecutar_ocr"):
+                    resultados_procesados = []
+                    
+                    for archivo in uploaded_files:
+                        # Llamamos a nuestra función OCR
+                        datos = procesar_capture_pago(archivo)
+                        if datos:
+                            datos["archivo_nombre"] = archivo.name
+                            resultados_procesados.append(datos)
+                    
+                    if resultados_procesados:
+                        st.session_state['captures_procesados'] = resultados_procesados
+                        st.success(f"✅ Se procesaron {len(resultados_procesados)} captures exitosamente.")
+                    else:
+                        st.error("❌ No se pudo extraer información de los archivos. Intenta con imágenes más nítidas.")
+
+        # Si ya hay resultados en memoria, los mostramos en una tabla interactiva para validar
+        if st.session_state.get('captures_procesados'):
+            st.markdown("#### 📋 Resultados de la Extracción y Conciliación")
+            
+            import pandas as pd
+            df_captures = pd.DataFrame(st.session_state['captures_procesados'])
+            
+            # Mostramos una vista previa editable o de control
+            st.dataframe(
+                df_captures[['archivo_nombre', 'referencia', 'monto', 'fecha']],
+                use_container_width=True
+            )
+            
+            col_acc1, col_acc2 = st.columns(2)
+            
+            with col_acc1:
+                if st.button("💾 Guardar y Conciliar en Base de Datos", use_container_width=True, type="primary"):
+                    conn = conectar_db(db_actual)
+                    if conn:
+                        try:
+                            cursor = conn.cursor()
+                            exitos = 0
+                            for item in st.session_state['captures_procesados']:
+                                ref = item.get("referencia")
+                                monto = item.get("monto")
+                                fecha = item.get("fecha")
+                                
+                                if ref and monto:
+                                    # Ejemplo de consulta para actualizar o insertar el pago en tu BD
+                                    # Ajusta la tabla según tu lógica de cobros/choferes
+                                    query_insert = """
+                                        INSERT INTO pagos_choferes (referencia, monto, fecha, estado, fuente)
+                                        VALUES (%s, %s, %s, 'CONCILIADO', 'WHATSAPP_OCR')
+                                        ON DUPLICATE KEY UPDATE estado = 'CONCILIADO'
+                                    """
+                                    cursor.execute(query_insert, (ref, monto, fecha))
+                                    exitos += 1
+                            
+                            conn.commit()
+                            cursor.close()
+                            st.success(f"🎉 ¡Se concilian y guardaron {exitos} pagos exitosamente en la base de datos!")
+                        except Exception as e:
+                            st.error(f"Error al guardar en la base de datos: {e}")
+                        finally:
+                            conn.close()
+            
+            with col_acc2:
+                if st.button("🗑️ Limpiar Resultados", use_container_width=True):
+                    st.session_state['captures_procesados'] = None
+                    st.rerun()
