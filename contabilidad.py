@@ -8517,6 +8517,91 @@ def modulo_historial_qr(conn, db_actual):
             mime="image/png",
             key=f"qr_btn_{id_f}",
         )
+
+import cv2
+import pytesseract
+import re
+from datetime import datetime
+
+def procesar_capture_pago(imagen_path_o_stream):
+    """
+    Procesa una imagen y valida si es un capture de pago legítimo 
+    antes de extraer la referencia y el monto.
+    """
+    try:
+        # 1. Cargar la imagen con OpenCV
+        if isinstance(imagen_path_o_stream, str):
+            img = cv2.imread(imagen_path_o_stream)
+        else:
+            import numpy as np
+            file_bytes = np.asarray(bytearray(imagen_path_o_stream.read()), dtype=np.uint8)
+            img = cv2.imdecode(file_bytes, 1)
+
+        # 2. Preprocesamiento para mejorar el contraste
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        _, thresh = cv2.threshold(gray, 150, 255, cv2.THRESH_BINARY)
+
+        # 3. Extraer texto usando Tesseract OCR
+        texto_extraido = pytesseract.image_to_string(thresh, lang='spa')
+        texto_lower = texto_extraido.lower()
+
+        # --- 4. FILTRO DE SEGURIDAD ANTIFALSKO / ANTICUALQUIER FOTO ---
+        # Verificamos que la imagen contenga al menos indicios de un comprobante bancario venezolano o pago
+        palabras_clave_banco = [
+            'referencia', 'ref', 'pago movil', 'transferencia', 'banco', 
+            'comprobante', 'exitoso', 'operacion', 'destino', 'origen', 
+            'fecha', 'monto', 'bs', 'ves', 'cedula', 'rif'
+        ]
+        
+        # Cuenta cuántas palabras clave coinciden en el texto de la imagen
+        coincidencias = sum(1 for palabra in palabras_clave_banco if palabra in texto_lower)
+        
+        # Si tiene muy pocas coincidencias (ej: menos de 2 palabras clave), NO es un capture de pago
+        if coincidencias < 2 or len(texto_extraido.strip()) < 15:
+            return {
+                "valido": False,
+                "error": "La imagen no parece un comprobante de pago válido.",
+                "texto_completo": texto_extraido
+            }
+
+        # 5. Si pasó el filtro, extraemos los datos con seguridad
+        datos_pago = {
+            "valido": True,
+            "referencia": None,
+            "monto": None,
+            "fecha": datetime.now().strftime("%Y-%m-%d"),
+            "texto_completo": texto_extraido
+        }
+
+        # Buscar número de referencia
+        match_ref = re.search(r'(?:ref|referencia|N[°º]?\.?\s*op(?:eraci[oó]n)?)\s*[:#]?\s*(\d{4,8})', texto_extraido, re.IGNORECASE)
+        if match_ref:
+            datos_pago["referencia"] = match_ref.group(1)
+        else:
+            digitos_largos = re.findall(r'\b\d{6,8}\b', texto_extraido)
+            if digitos_largos:
+                datos_pago["referencia"] = digitos_largos[-1]
+
+        # Buscar montos
+        match_monto = re.search(r'(?:Bs\.?|USD|\$)?\s*([\d{1,3}(?:\.\d{3})*,\d{2}|\d+,\d{2})', texto_extraido)
+        if match_monto:
+            monto_str = match_monto.group(1).replace('.', '').replace(',', '.')
+            try:
+                datos_pago["monto"] = float(monto_str)
+            except ValueError:
+                pass
+
+        # Si no encontró ni referencia ni monto claros, lo marcamos como inválido para evitar basura
+        if not datos_pago["referencia"] or not datos_pago["monto"]:
+            datos_pago["valido"] = False
+            datos_pago["error"] = "Se detectó que es un comprobante, pero no se pudo leer con claridad la referencia o el monto."
+
+        return datos_pago
+
+    except Exception as e:
+        print(f"Error procesando la imagen: {e}")
+        return {"valido": False, "error": str(e)}
+
 def gestionar_sidebar():
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
     user_id = st.session_state.get('user_id', st.session_state.get('cliente_id', 'N/A'))
@@ -8734,7 +8819,7 @@ if menu_lateral == "📊 Auditoría Contable":
         st.subheader("Módulos")
         
         nombre_sel = st.session_state.get('CLIENTE_NOMBRE', '')
-        
+
         modulos_disponibles = [
                     "🏠 Inicio", 
                     "📂 Plan de Cuentas", 
@@ -20034,14 +20119,13 @@ if opcion_menu == "📸 Códigos QR y Escaneo":
 if opcion_menu == "📸 WhatSapp":
     db_actual = st.session_state.get("DB_ACTUAL")
     
-    st.markdown("### 📱 Conciliación Automática de Captures de WhatsApp")
-    st.markdown("Sube los captures de pantalla enviados por los choferes para extraer la referencia, el monto y conciliar el pago de forma automática.")
+    st.markdown("### 📱 Conciliación Inteligente de Captures de WhatsApp")
+    st.markdown("Sube los captures de pago. El sistema filtrará automáticamente cualquier imagen que no corresponda a un comprobante bancario.")
     
     if not db_actual:
         st.warning("⚠️ Por favor selecciona una base de datos activa primero.")
     else:
         with st.container(border=True):
-            # Widget para subir múltiples imágenes de captures
             uploaded_files = st.file_uploader(
                 "Selecciona o arrastra los captures de pago (PNG, JPG)", 
                 type=["png", "jpg", "jpeg"], 
@@ -20050,30 +20134,35 @@ if opcion_menu == "📸 WhatSapp":
             )
             
             if uploaded_files:
-                if st.button("🔍 Procesar Captures con OCR", use_container_width=True, key="btn_ejecutar_ocr"):
-                    resultados_procesados = []
+                if st.button("🔍 Analizar y Filtrar Captures", use_container_width=True, key="btn_ejecutar_ocr"):
+                    resultados_validos = []
+                    rechazados = 0
                     
                     for archivo in uploaded_files:
-                        # Llamamos a nuestra función OCR
                         datos = procesar_capture_pago(archivo)
-                        if datos:
+                        
+                        # VALIDACIÓN ESTRICTA: Solo aceptamos si el filtro inteligente dio True
+                        if datos and datos.get("valido") == True:
                             datos["archivo_nombre"] = archivo.name
-                            resultados_procesados.append(datos)
+                            resultados_validos.append(datos)
+                        else:
+                            rechazados += 1
                     
-                    if resultados_procesados:
-                        st.session_state['captures_procesados'] = resultados_procesados
-                        st.success(f"✅ Se procesaron {len(resultados_procesados)} captures exitosamente.")
+                    if resultados_validos:
+                        st.session_state['captures_procesados'] = resultados_validos
+                        st.success(f"✅ Se validaron y procesaron {len(resultados_validos)} pagos legítimos.")
+                        if rechazados > 0:
+                            st.warning(f"⚠️ Se descartaron {rechazados} archivos por no cumplir con el formato de un comprobante bancario.")
                     else:
-                        st.error("❌ No se pudo extraer información de los archivos. Intenta con imágenes más nítidas.")
+                        st.error("❌ Ninguna de las imágenes subidas pasó el filtro de pago. Asegúrate de que sean captures de transferencias o pago móvil nítidos.")
 
-        # Si ya hay resultados en memoria, los mostramos en una tabla interactiva para validar
+        # Si hay resultados válidos en memoria, los mostramos
         if st.session_state.get('captures_procesados'):
-            st.markdown("#### 📋 Resultados de la Extracción y Conciliación")
+            st.markdown("#### 📋 Pagos Listos para Conciliar")
             
             import pandas as pd
             df_captures = pd.DataFrame(st.session_state['captures_procesados'])
             
-            # Mostramos una vista previa editable o de control
             st.dataframe(
                 df_captures[['archivo_nombre', 'referencia', 'monto', 'fecha']],
                 use_container_width=True
@@ -20094,8 +20183,6 @@ if opcion_menu == "📸 WhatSapp":
                                 fecha = item.get("fecha")
                                 
                                 if ref and monto:
-                                    # Ejemplo de consulta para actualizar o insertar el pago en tu BD
-                                    # Ajusta la tabla según tu lógica de cobros/choferes
                                     query_insert = """
                                         INSERT INTO pagos_choferes (referencia, monto, fecha, estado, fuente)
                                         VALUES (%s, %s, %s, 'CONCILIADO', 'WHATSAPP_OCR')
@@ -20106,7 +20193,7 @@ if opcion_menu == "📸 WhatSapp":
                             
                             conn.commit()
                             cursor.close()
-                            st.success(f"🎉 ¡Se concilian y guardaron {exitos} pagos exitosamente en la base de datos!")
+                            st.success(f"🎉 ¡Se conciliaron {exitos} pagos de forma segura en la base de datos!")
                         except Exception as e:
                             st.error(f"Error al guardar en la base de datos: {e}")
                         finally:
