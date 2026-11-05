@@ -20241,34 +20241,59 @@ if opcion_menu == "📸 Códigos QR y Escaneo":
                 except:
                     pass
 
+
+from streamlit_paste_button import paste_image_button
+
+# Asegúrate de tener importadas tus librerías OCR (cv2, pytesseract, re, numpy, etc.)
+
 if opcion_menu == "📸 WhatSapp":
     db_actual = st.session_state.get("DB_ACTUAL")
     
     st.markdown("### 📱 Conciliación Inteligente de Captures de WhatsApp")
-    st.markdown("Sube los captures de pago. El sistema filtrará automáticamente cualquier imagen que no corresponda a un comprobante bancario.")
+    st.markdown("Copia y pega captures directamente desde WhatsApp o súbelos como archivos. El sistema filtrará automáticamente cualquier imagen que no corresponda a un comprobante bancario.")
     
     if not db_actual:
         st.warning("⚠️ Por favor selecciona una base de datos activa primero.")
     else:
         with st.container(border=True):
+            # --- NUEVA OPCIÓN: Pegar desde el Portapapeles (WhatsApp) ---
+            st.markdown("💡 **Tip:** Puedes copiar cualquier imagen en WhatsApp Web (`Ctrl+C`) y pegarla aquí directamente (`Ctrl+V`).")
+            
+            paste_result = paste_image_button(
+                label="📋 Pegar imagen desde el portapapeles (Ctrl+V)", 
+                key="paste_image_btn"
+            )
+            
+            # --- RESPALDO TRADICIONAL: File Uploader ---
             uploaded_files = st.file_uploader(
-                "Selecciona o arrastra los captures de pago (PNG, JPG)", 
+                "O selecciona/arrastra los captures de pago (PNG, JPG)", 
                 type=["png", "jpg", "jpeg"], 
                 accept_multiple_files=True,
                 key="uploader_captures_whatsapp"
             )
             
+            # Consolidamos en una sola lista las fuentes de imágenes (sea pegada o subida)
+            imagenes_a_procesar = []
+            
+            if paste_result.image_data is not None:
+                imagenes_a_procesar.append(("Captura_Pegada_WhatsApp.png", paste_result.image_data))
+                st.success("✅ ¡Imagen recibida desde el portapapeles con éxito!")
+            
             if uploaded_files:
+                for archivo in uploaded_files:
+                    imagenes_a_procesar.append((archivo.name, archivo))
+            
+            if imagenes_a_procesar:
                 if st.button("🔍 Analizar y Filtrar Captures", use_container_width=True, key="btn_ejecutar_ocr"):
                     resultados_validos = []
                     rechazados = 0
                     
-                    for archivo in uploaded_files:
-                        datos = procesar_capture_pago(archivo)
+                    for nombre_archivo, fuente_img in imagenes_a_procesar:
+                        datos = procesar_capture_pago(fuente_img)
                         
                         # VALIDACIÓN ESTRICTA: Solo aceptamos si el filtro inteligente dio True
                         if datos and datos.get("valido") == True:
-                            datos["archivo_nombre"] = archivo.name
+                            datos["archivo_nombre"] = nombre_archivo
                             resultados_validos.append(datos)
                         else:
                             rechazados += 1
@@ -20279,13 +20304,14 @@ if opcion_menu == "📸 WhatSapp":
                         if rechazados > 0:
                             st.warning(f"⚠️ Se descartaron {rechazados} archivos por no cumplir con el formato de un comprobante bancario.")
                     else:
-                        st.error("❌ Ninguna de las imágenes subidas pasó el filtro de pago. Asegúrate de que sean captures de transferencias o pago móvil nítidos.")
+                        st.error("❌ Ninguna de las imágenes evaluadas pasó el filtro de pago. Asegúrate de que sean captures nítidos.")
+            else:
+                st.info("ℹ️ Pega una imagen con `Ctrl+V` o selecciona un archivo para comenzar.")
 
         # Si hay resultados válidos en memoria, los mostramos
         if st.session_state.get('captures_procesados'):
             st.markdown("#### 📋 Pagos Listos para Conciliar")
             
-            import pandas as pd
             df_captures = pd.DataFrame(st.session_state['captures_procesados'])
             
             st.dataframe(
