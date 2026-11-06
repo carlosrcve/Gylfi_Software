@@ -673,64 +673,113 @@ def render_tab_movimientos(conn, df_prod, tasa_bcv_hoy):
 
 def render_tab_alertas(conn, df_prod):
     st.markdown("### 🚨 Panel de Alertas Predictivas e Inteligencia de Negocio")
-    # Pega aquí el código del semáforo y algoritmo ABC...
-    if productos_terminados:
-        with st.form("form_produccion_diaria"):
-            prod_a_producir = st.selectbox("¿Qué se produjo en el taller/horno?", productos_terminados)
-            cantidad_tanda = st.number_input("Cantidad de Unidades Listas:", min_value=1, value=10)
-            fecha_prod = st.date_input("Fecha de Producción:", datetime.now())
-            pastelero_responsable = st.text_input("Pastelero Responsable:", value="Pastelero Principal")
+    st.write("Análisis en tiempo real del inventario físico y el comportamiento de la demanda histórica del Kardex.")
+
+    if not df_prod.empty:
+        if 'stock_minimo' not in df_prod.columns:
+            df_prod['stock_minimo'] = 5.00 
+
+        st.markdown("#### 🚦 Semáforo de Gestión de Almacén")
+        
+        def calcular_semaforo(row):
+            stk = row['stock']
+            minimo = row['stock_minimo']
+            if stk < minimo:
+                return "🔴 ROJO (Quiebre Inminente)"
+            elif stk <= (minimo * 1.3): 
+                return "🟡 AMARILLO (Cerca del Límite)"
+            else:
+                return "🟢 VERDE (Surtido Optimo)"
+
+        df_semaforo = df_prod.copy()
+        df_semaforo['Estado'] = df_semaforo.apply(calcular_semaforo, axis=1)
+        
+        df_semaforo_v = df_semaforo.copy()
+        df_semaforo_v['Diferencia vs Mínimo'] = df_semaforo_v['stock'] - df_semaforo_v['stock_minimo']
+        
+        st.dataframe(
+            df_semaforo_v[['Estado', 'sku', 'descripcion', 'stock', 'stock_minimo', 'Diferencia vs Mínimo', 'unidad']],
+            use_container_width=True, hide_index=True
+        )
+
+        cant_rojos = len(df_semaforo[df_semaforo['Estado'].str.contains("🔴")])
+        cant_amarillos = len(df_semaforo[df_semaforo['Estado'].str.contains("🟡")])
+        
+        c_tar1, c_tar2 = st.columns(2)
+        with c_tar1:
+            if cant_rojos > 0:
+                st.error(f"🚨 ¡Papi, tienes {cant_rojos} producto(s) en zona de quiebre crítico! Genera compras ya.")
+            else:
+                st.success("✅ No tienes productos en Rojo. ¡Excelente control de reposición!")
+        with c_tar2:
+            if cant_amarillos > 0:
+                st.warning(f"⚠️ Atención: {cant_amarillos} producto(s) en Amarillo. Monitorea el consumo semanal.")
+
+        st.markdown("---")
+        st.markdown("#### 📊 Clasificación de Rotación Automática (Algoritmo ABC)")
+
+        try:
+            cursor = conn.cursor()
+            fecha_limite = datetime.now() - timedelta(days=90)
+            cursor.execute("""
+                SELECT producto_id, SUM(cantidad * precio_unitario_usd) as valor_salida_total, MAX(fecha) as ultima_salida
+                FROM pedacito_de_cielo_ca.inventario_kardex
+                WHERE tipo_movimiento LIKE 'SALIDA%' AND fecha >= %s
+                GROUP BY producto_id
+            """, (fecha_limite,))
+            salidas_kardex = cursor.fetchall()
+            cursor.close()
+
+            dict_salidas = {row[0]: {"valor": float(row[1]), "fecha": row[2]} for row in salidas_kardex}
             
-            if st.form_submit_button("🔥 Procesar Tanda de Producción e Inyectar a Stock"):
-                try:
-                    cursor = conn.cursor()
-                    
-                    cant_harina = 0.450 * cantidad_tanda
-                    cant_azucar = 0.250 * cantidad_tanda
-                    cant_mantequilla = 0.200 * cantidad_tanda
-                    
-                    def traer_metadatos(buscar):
-                        cursor.execute("SELECT id, costo_usd FROM pedacito_de_cielo_ca.inventario_productos WHERE descripcion LIKE %s", (f"%{buscar}%",))
-                        res = cursor.fetchone()
-                        return (res[0], float(res[1])) if res else (None, 0.0)
-                    
-                    id_pt, costo_pt = traer_metadatos(prod_a_producir)
-                    id_h, costo_h = traer_metadatos("Harina")
-                    id_a, costo_a = traer_metadatos("Azúcar")
-                    id_m, costo_m = traer_metadatos("Mantequilla")
-                    
-                    referencia_doc = f"Tanda Prod: {cantidad_tanda} Unds de {prod_a_producir}"
-                    
-                    # Descuentos y aumentos en caliente
-                    cursor.execute("UPDATE pedacito_de_cielo_ca.inventario_productos SET stock = stock + %s WHERE id = %s", (cantidad_tanda, id_pt))
-                    cursor.execute("UPDATE pedacito_de_cielo_ca.inventario_productos SET stock = stock - %s WHERE id = %s", (cant_harina, id_h))
-                    cursor.execute("UPDATE pedacito_de_cielo_ca.inventario_productos SET stock = stock - %s WHERE id = %s", (cant_azucar, id_a))
-                    cursor.execute("UPDATE pedacito_de_cielo_ca.inventario_productos SET stock = stock - %s WHERE id = %s", (cant_mantequilla, id_m))
-                    
-                    sql_kardex = """
-                        INSERT INTO pedacito_de_cielo_ca.inventario_kardex 
-                        (producto_id, tipo_movimiento, cantidad, precio_unitario_usd, tasa_bcv, referencia, usuario)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s)
-                    """
-                    costo_estimado_pt = (0.450 * costo_h) + (0.250 * costo_a) + (0.200 * costo_m)
-                    
-                    cursor.execute(sql_kardex, (id_pt, 'ENTRADA_COMPRA', cantidad_tanda, costo_estimado_pt, tasa_bcv_hoy, referencia_doc, pastelero_responsable))
-                    cursor.execute(sql_kardex, (id_h, 'SALIDA_PRODUCCION', cant_harina, costo_h, tasa_bcv_hoy, referencia_doc, pastelero_responsable))
-                    cursor.execute(sql_kardex, (id_a, 'SALIDA_PRODUCCION', cant_azucar, costo_a, tasa_bcv_hoy, referencia_doc, pastelero_responsable))
-                    cursor.execute(sql_kardex, (id_m, 'SALIDA_PRODUCCION', cant_mantequilla, costo_m, tasa_bcv_hoy, referencia_doc, pastelero_responsable))
-                    
-                    conn.commit()
-                    cursor.close()
-                    
-                    st.success(f"💥 ¡Tanda procesada con éxito y Kardex actualizado!")
-                    st.balloons()
-                    st.rerun()
-                    
-                except Exception as err_produccion:
-                    conn.rollback()
-                    st.error(f"❌ Error crítico en producción: {err_produccion}")
+            abc_list = []
+            valor_total_salidas_global = 0.0
+
+            for index, prod in df_prod.iterrows():
+                p_id = prod['id']
+                val_salida = dict_salidas.get(p_id, {"valor": 0.0, "fecha": None})["valor"]
+                f_salida = dict_salidas.get(p_id, {"valor": 0.0, "fecha": None})["fecha"]
+                
+                valor_total_salidas_global += val_salida
+                abc_list.append({
+                    "id": p_id,
+                    "sku": prod['sku'],
+                    "descripcion": prod['descripcion'],
+                    "Valor Inversión Movilizada (USD)": val_salida,
+                    "Último Movimiento de Salida": f_salida.strftime("%d/%m/%Y") if f_salida else "Sin salidas en 90 días"
+                })
+
+            df_abc = pd.DataFrame(abc_list)
+
+            if valor_total_salidas_global > 0:
+                df_abc = df_abc.sort_values(by="Valor Inversión Movilizada (USD)", ascending=False)
+                df_abc['% Participación'] = (df_abc['Valor Inversión Movilizada (USD)'] / valor_total_salidas_global) * 100
+                df_abc['% Acumulado'] = df_abc['% Participación'].cumsum()
+
+                def clasificar_abc(acum):
+                    if acum <= 70.0:
+                        return "Clase A (Alta Rotación - 70% del valor)"
+                    elif acum <= 95.0:
+                        return "Clase B (Rotación Media)"
+                    else:
+                        return "Clase C (Baja Rotación - Peligro Inmovilizado)"
+
+                df_abc['Clase ABC'] = df_abc['% Acumulado'].apply(clasificar_abc)
+                
+                df_abc_v = df_abc.copy()
+                df_abc_v['Valor Inversión Movilizada (USD)'] = df_abc_v['Valor Inversión Movilizada (USD)'].map(lambda x: f"$ {x:,.2f}")
+                df_abc_v['% Participación'] = df_abc_v['% Participación'].map(lambda x: f"{x:.2f}%")
+                
+                st.dataframe(
+                    df_abc_v[['Clase ABC', 'sku', 'descripcion', 'Valor Inversión Movilizada (USD)', '% Participación', 'Último Movimiento de Salida']],
+                    use_container_width=True, hide_index=True
+                )
+            else:
+                st.info("💡 Para calcular la rotación ABC del taller, se necesitan registrar consumos en producción o salidas manuales primero.")
+        except Exception as err_abc:
+            st.error(f"❌ Error en el motor analítico ABC: {err_abc}")
     else:
-        st.info("💡 Registre insumos y productos terminados para habilitar producción.")
+        st.info("💡 Base de datos vacía.")
 
 def render_tab_produccion(conn, df_prod, tasa_bcv_hoy):
     st.markdown("### 🚀 Panel de Producción Activa")
