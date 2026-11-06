@@ -808,130 +808,130 @@ def render_tab_alertas(conn, df_prod):
     st.write("Análisis en tiempo real del inventario físico y el comportamiento de la demanda histórica del Kardex.")
 
     if not df_prod.empty:
-            # --- PARCHE DE SEGURIDAD CONTRA KEYERROR ---
-            if 'stock_minimo' not in df_prod.columns:
-                df_prod['stock_minimo'] = 5.00  # Valor estándar por defecto si falta la columna
+        # --- PARCHE DE SEGURIDAD CONTRA KEYERROR ---
+        if 'stock_minimo' not in df_prod.columns:
+            df_prod['stock_minimo'] = 5.00  # Valor estándar por defecto si falta la columna
 
-            # --- 1. MOTOR SEMÁFORO (ESTADO CRÍTICO DE STOCK) ---
-            st.markdown("#### 🚦 Semáforo de Gestión de Almacén")
+        # --- 1. MOTOR SEMÁFORO (ESTADO CRÍTICO DE STOCK) ---
+        st.markdown("#### 🚦 Semáforo de Gestión de Almacén")
+        
+        def calcular_semaforo(row):
+            stk = row['stock']
+            minimo = row['stock_minimo']
+            if stk < minimo:
+                return "🔴 ROJO (Quiebre Inminente)"
+            elif stk <= (minimo * 1.3): # Un 30% por encima del mínimo ya es zona de alerta
+                return "🟡 AMARILLO (Cerca del Límite)"
+            else:
+                return "🟢 VERDE (Surtido Optimo)"
+
+        df_semaforo = df_prod.copy()
+        df_semaforo['Estado'] = df_semaforo.apply(calcular_semaforo, axis=1)
+        
+        # Formateo visual para la UI del cliente
+        df_semaforo_v = df_semaforo.copy()
+        df_semaforo_v['Diferencia vs Mínimo'] = df_semaforo_v['stock'] - df_semaforo_v['stock_minimo']
+        
+        st.dataframe(
+            df_semaforo_v[['Estado', 'sku', 'descripcion', 'stock', 'stock_minimo', 'Diferencia vs Mínimo', 'unidad']],
+            width='stretch', hide_index=True
+        )
+
+        # Tarjetas de resumen rápidas
+        cant_rojos = len(df_semaforo[df_semaforo['Estado'].str.contains("🔴")])
+        cant_amarillos = len(df_semaforo[df_semaforo['Estado'].str.contains("🟡")])
+        
+        c_tar1, c_tar2 = st.columns(2)
+        with c_tar1:
+            if cant_rojos > 0:
+                st.error(f"🚨 ¡Papi, tienes {cant_rojos} producto(s) en zona de quiebre crítico! Genera compras ya.")
+            else:
+                st.success("✅ No tienes productos en Rojo. ¡Excelente control de reposición!")
+        with c_tar2:
+            if cant_amarillos > 0:
+                st.warning(f"⚠️ Atención: {cant_amarillos} producto(s) en Amarillo. Monitorea el consumo semanal.")
+
+        st.markdown("---")
+
+        # --- 2. ANALÍTICA DE ROTACIÓN (ALGORITMO ABC CONTABLE) ---
+        st.markdown("#### 📊 Clasificación de Rotación Automática (Algoritmo ABC)")
+        st.write("Cálculo ejecutado analizando las salidas por producción, ventas o mermas registradas en los últimos 90 días.")
+
+        try:
+            cursor = conn.cursor()
+            # Consultamos las salidas totales de los últimos 3 meses del Kardex
+            fecha_limite = datetime.now() - timedelta(days=90)
+            cursor.execute("""
+                SELECT producto_id, SUM(cantidad * precio_unitario_usd) as valor_salida_total, MAX(fecha) as ultima_salida
+                FROM pedacito_de_cielo_ca.inventario_kardex
+                WHERE tipo_movimiento LIKE 'SALIDA%' AND fecha >= %s
+                GROUP BY producto_id
+            """, (fecha_limite,))
+            salidas_kardex = cursor.fetchall()
+            cursor.close()
+
+            # Mapeamos salidas con los nombres de productos
+            dict_salidas = {row[0]: {"valor": float(row[1]), "fecha": row[2]} for row in salidas_kardex}
             
-            def calcular_semaforo(row):
-                stk = row['stock']
-                minimo = row['stock_minimo']
-                if stk < minimo:
-                    return "🔴 ROJO (Quiebre Inminente)"
-                elif stk <= (minimo * 1.3): # Un 30% por encima del mínimo ya es zona de alerta
-                    return "🟡 AMARILLO (Cerca del Límite)"
-                else:
-                    return "🟢 VERDE (Surtido Optimo)"
+            abc_list = []
+            valor_total_salidas_global = 0.0
 
-            df_semaforo = df_prod.copy()
-            df_semaforo['Estado'] = df_semaforo.apply(calcular_semaforo, axis=1)
-            
-            # Formateo visual para la UI del cliente
-            df_semaforo_v = df_semaforo.copy()
-            df_semaforo_v['Diferencia vs Mínimo'] = df_semaforo_v['stock'] - df_semaforo_v['stock_minimo']
-            
-            st.dataframe(
-                df_semaforo_v[['Estado', 'sku', 'descripcion', 'stock', 'stock_minimo', 'Diferencia vs Mínimo', 'unidad']],
-                width='stretch', hide_index=True
-            )
-
-            # Tarjetas de resumen rápidas
-            cant_rojos = len(df_semaforo[df_semaforo['Estado'].str.contains("🔴")])
-            cant_amarillos = len(df_semaforo[df_semaforo['Estado'].str.contains("🟡")])
-            
-            c_tar1, c_tar2 = st.columns(2)
-            with c_tar1:
-                if cant_rojos > 0:
-                    st.error(f"🚨 ¡Papi, tienes {cant_rojos} producto(s) en zona de quiebre crítico! Genera compras ya.")
-                else:
-                    st.success("✅ No tienes productos en Rojo. ¡Excelente control de reposición!")
-            with c_tar2:
-                if cant_amarillos > 0:
-                    st.warning(f"⚠️ Atención: {cant_amarillos} producto(s) en Amarillo. Monitorea el consumo semanal.")
-
-            st.markdown("---")
-
-            # --- 2. ANALÍTICA DE ROTACIÓN (ALGORITMO ABC CONTABLE) ---
-            st.markdown("#### 📊 Clasificación de Rotación Automática (Algoritmo ABC)")
-            st.write("Cálculo ejecutado analizando las salidas por producción, ventas o mermas registradas en los últimos 90 días.")
-
-            try:
-                cursor = conn.cursor()
-                # Consultamos las salidas totales de los últimos 3 meses del Kardex
-                fecha_limite = datetime.now() - timedelta(days=90)
-                cursor.execute("""
-                    SELECT producto_id, SUM(cantidad * precio_unitario_usd) as valor_salida_total, MAX(fecha) as ultima_salida
-                    FROM pedacito_de_cielo_ca.inventario_kardex
-                    WHERE tipo_movimiento LIKE 'SALIDA%' AND fecha >= %s
-                    GROUP BY producto_id
-                """, (fecha_limite,))
-                salidas_kardex = cursor.fetchall()
-                cursor.close()
-
-                # Mapeamos salidas con los nombres de productos
-                dict_salidas = {row[0]: {"valor": float(row[1]), "fecha": row[2]} for row in salidas_kardex}
+            for index, prod in df_prod.iterrows():
+                p_id = prod['id']
+                val_salida = dict_salidas.get(p_id, {"valor": 0.0, "fecha": None})["valor"]
+                f_salida = dict_salidas.get(p_id, {"valor": 0.0, "fecha": None})["fecha"]
                 
-                abc_list = []
-                valor_total_salidas_global = 0.0
+                valor_total_salidas_global += val_salida
+                abc_list.append({
+                    "id": p_id,
+                    "sku": prod['sku'],
+                    "descripcion": prod['descripcion'],
+                    "Valor Inversión Movilizada (USD)": val_salida,
+                    "Último Movimiento de Salida": f_salida.strftime("%d/%m/%Y") if f_salida else "Sin salidas en 90 días"
+                })
 
-                for index, prod in df_prod.iterrows():
-                    p_id = prod['id']
-                    val_salida = dict_salidas.get(p_id, {"valor": 0.0, "fecha": None})["valor"]
-                    f_salida = dict_salidas.get(p_id, {"valor": 0.0, "fecha": None})["fecha"]
-                    
-                    valor_total_salidas_global += val_salida
-                    abc_list.append({
-                        "id": p_id,
-                        "sku": prod['sku'],
-                        "descripcion": prod['descripcion'],
-                        "Valor Inversión Movilizada (USD)": val_salida,
-                        "Último Movimiento de Salida": f_salida.strftime("%d/%m/%Y") if f_salida else "Sin salidas en 90 días"
-                    })
+            df_abc = pd.DataFrame(abc_list)
 
-                df_abc = pd.DataFrame(abc_list)
+            if valor_total_salidas_global > 0:
+                # Ordenamos de mayor a menor valor movilizado para aplicar Pareto (80/20)
+                df_abc = df_abc.sort_values(by="Valor Inversión Movilizada (USD)", ascending=False)
+                df_abc['% Participación'] = (df_abc['Valor Inversión Movilizada (USD)'] / valor_total_salidas_global) * 100
+                df_abc['% Acumulado'] = df_abc['% Participación'].cumsum()
 
-                if valor_total_salidas_global > 0:
-                    # Ordenamos de mayor a menor valor movilizado para aplicar Pareto (80/20)
-                    df_abc = df_abc.sort_values(by="Valor Inversión Movilizada (USD)", ascending=False)
-                    df_abc['% Participación'] = (df_abc['Valor Inversión Movilizada (USD)'] / valor_total_salidas_global) * 100
-                    df_abc['% Acumulado'] = df_abc['% Participación'].cumsum()
+                # Clasificación según teoría ERP
+                def clasificar_abc(acum):
+                    if acum <= 70.0:
+                        return "Clase A (Alta Rotación - 70% del valor)"
+                    elif acum <= 95.0:
+                        return "Clase B (Rotación Media)"
+                    else:
+                        return "Clase C (Baja Rotación - Peligro Inmovilizado)"
 
-                    # Clasificación según teoría ERP
-                    def clasificar_abc(acum):
-                        if acum <= 70.0:
-                            return "Clase A (Alta Rotación - 70% del valor)"
-                        elif acum <= 95.0:
-                            return "Clase B (Rotación Media)"
-                        else:
-                            return "Clase C (Baja Rotación - Peligro Inmovilizado)"
-
-                    df_abc['Clase ABC'] = df_abc['% Acumulado'].apply(clasificar_abc)
-                    
-                    # Formateo estético para mostrar al dueño
-                    df_abc_v = df_abc.copy()
-                    df_abc_v['Valor Inversión Movilizada (USD)'] = df_abc_v['Valor Inversión Movilizada (USD)'].map(lambda x: f"$ {x:,.2f}")
-                    df_abc_v['% Participación'] = df_abc_v['% Participación'].map(lambda x: f"{x:.2f}%")
-                    
-                    st.dataframe(
-                        df_abc_v[['Clase ABC', 'sku', 'descripcion', 'Valor Inversión Movilizada (USD)', '% Participación', 'Último Movimiento de Salida']],
-                        width='stretch', hide_index=True
-                    )
-                    
-                    # --- RECOMENDACIONES PREDICTIVAS DE LA IA ---
-                    st.markdown("#### 💡 Recomendaciones del Asistente Contable ERP:")
-                    for _, r in df_abc.iterrows():
-                        if "Clase A" in r['Clase ABC']:
-                            st.info(f"💎 **{r['descripcion']}** es **Clase A**. Representa el motor de tu producción. Muévelo al frente del taller y mantén stock de seguridad alto.")
-                        elif "Clase C" in r['Clase ABC']:
-                            st.error(f"⚠️ **{r['descripcion']}** es **Clase C**. Tiene muy baja salida financiera. Evalúa si tienes exceso de compras trancadas para cuidar el flujo de caja.")
-                else:
-                    st.info("💡 Para calcular la rotación ABC del taller, se necesitan registrar consumos en producción o salidas manuales primero.")
-            except Exception as err_abc:
-                st.error(f"❌ Error en el motor analítico ABC: {err_abc}")
-        else:
-            st.info("💡 Base de datos vacía.")
+                df_abc['Clase ABC'] = df_abc['% Acumulado'].apply(clasificar_abc)
+                
+                # Formateo estético para mostrar al dueño
+                df_abc_v = df_abc.copy()
+                df_abc_v['Valor Inversión Movilizada (USD)'] = df_abc_v['Valor Inversión Movilizada (USD)'].map(lambda x: f"$ {x:,.2f}")
+                df_abc_v['% Participación'] = df_abc_v['% Participación'].map(lambda x: f"{x:.2f}%")
+                
+                st.dataframe(
+                    df_abc_v[['Clase ABC', 'sku', 'descripcion', 'Valor Inversión Movilizada (USD)', '% Participación', 'Último Movimiento de Salida']],
+                    width='stretch', hide_index=True
+                )
+                
+                # --- RECOMENDACIONES PREDICTIVAS DE LA IA ---
+                st.markdown("#### 💡 Recomendaciones del Asistente Contable ERP:")
+                for _, r in df_abc.iterrows():
+                    if "Clase A" in r['Clase ABC']:
+                        st.info(f"💎 **{r['descripcion']}** es **Clase A**. Representa el motor de tu producción. Muévelo al frente del taller y mantén stock de seguridad alto.")
+                    elif "Clase C" in r['Clase ABC']:
+                        st.error(f"⚠️ **{r['descripcion']}** es **Clase C**. Tiene muy baja salida financiera. Evalúa si tienes exceso de compras trancadas para cuidar el flujo de caja.")
+            else:
+                st.info("💡 Para calcular la rotación ABC del taller, se necesitan registrar consumos en producción o salidas manuales primero.")
+        except Exception as err_abc:
+            st.error(f"❌ Error en el motor analítico ABC: {err_abc}")
+    else:
+        st.info("💡 Base de datos vacía.")
 
 def render_tab_produccion(conn, df_prod, tasa_bcv_hoy):
     st.markdown("### 🚀 Panel de Producción Activa")
