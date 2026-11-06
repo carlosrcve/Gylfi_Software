@@ -542,7 +542,6 @@ def render_tab_stock(conn, df_prod, metodo_valoracion, tasa_bcv_hoy):
         st.info("💡 Sin conexión o datos vacíos.")
 
 def render_tab_recetas(df_prod, metodo_valoracion):
-    st.markdown(f"### 👩‍🍳 Ingeniería de Recetas y Costeo Automático")
     st.markdown(f"### 👩‍🍳 Ingeniería de Recetas y Costeo Automático ({metodo_valoracion})")
     productos_terminados = df_prod[df_prod['tipo'] == 'PRODUCTO_TERMINADO']['descripcion'].tolist() if not df_prod.empty else []
     
@@ -583,11 +582,94 @@ def render_tab_recetas(df_prod, metodo_valoracion):
 
 
 
-    
 
 def render_tab_movimientos(conn, df_prod, tasa_bcv_hoy):
     st.markdown("### 🔄 Registro de Movimientos Manuales e Interfaz Contable ERP")
     # Pega aquí el código de movimientos manuales...
+    st.write("Carga compras o ajustes. El sistema proyectará el asiento contable en tiempo real antes de impactar el libro mayor.")
+
+    if not df_prod.empty:
+        with st.form("form_movimientos_manuales"):
+            col_m1, col_m2 = st.columns(2)
+            with col_m1:
+                prod_mov = st.selectbox("Seleccione el Producto / Insumo:", df_prod['descripcion'].tolist())
+                tipo_m = st.selectbox("Tipo de Movimiento:", ["ENTRADA_COMPRA", "SALIDA_AJUSTE", "SALIDA_MERMA"])
+            with col_m2:
+                cant_m = st.number_input("Cantidad:", min_value=0.01, step=0.5, value=1.0)
+                precio_m_usd = st.number_input("Costo/Precio Unitario (USD):", min_value=0.00, step=0.1, value=1.0)
+            
+            ref_m = st.text_input("Referencia / Nro Factura / Motivo:", value="Factura Proveedor Nro-")
+            operador_m = st.text_input("Usuario Operador:", value="Analista Contable")
+
+            # --- MOTOR DE CONTABILIDAD AUTOMATIZADA EN CALIENTE ---
+            monto_total_usd = cant_m * precio_m_usd
+            monto_total_ves = monto_total_usd * tasa_bcv_hoy
+            
+            st.markdown("#### 📑 Borrador de Asiento Contable Automático (Indexado)")
+            
+            # Definición de cuentas dinámicas según el tipo de flujo
+            if tipo_m == "ENTRADA_COMPRA":
+                cuenta_debe = "1.1.03.01 - Inventario de Materia Prima"
+                cuenta_haber = "2.1.01.01 - Cuentas por Pagar Proveedores"
+            elif tipo_m == "SALIDA_AJUSTE":
+                cuenta_debe = "5.1.04.02 - Gastos por Ajustes de Inventario"
+                cuenta_haber = "1.1.03.01 - Inventario de Materia Prima"
+            else: # SALIDA_MERMA
+                cuenta_debe = "6.1.02.15 - Pérdidas por Mermas en Producción"
+                cuenta_haber = "1.1.03.01 - Inventario de Materia Prima"
+
+            asiento_data = [
+                {"Código / Cuenta": cuenta_debe, "Debe (USD)": f"$ {monto_total_usd:,.2f}", "Haber (USD)": "$ 0.00", "Debe (VES)": f"Bs. {monto_total_ves:,.2f}", "Haber (VES)": "Bs. 0.00"},
+                {"Código / Cuenta": cuenta_haber, "Debe (USD)": "$ 0.00", "Haber (USD)": f"$ {monto_total_usd:,.2f}", "Debe (VES)": "Bs. 0.00", "Haber (VES)": f"Bs. {monto_total_ves:,.2f}"}
+            ]
+            st.table(asiento_data)
+            st.caption("⚠️ Al procesar se inyectará el Kardex físico y quedará registrada la pre-póliza contable para la auditoría del SENIAT.")
+
+            btn_procesar_m = st.form_submit_button("💾 Procesar Movimiento e Inyectar Contabilidad")
+
+            if btn_procesar_m:
+                try:
+                    cursor = conn.cursor()
+                    row_prod = df_prod[df_prod['descripcion'] == prod_mov].iloc[0]
+                    id_p_mov = int(row_prod['id'])
+                    stock_actual = float(row_prod['stock'])
+                    costo_ppm_actual = float(row_prod['costo_ppm_original'])
+
+                    # Operación matemática del inventario físico
+                    if "ENTRADA" in tipo_m:
+                        nuevo_stock = stock_actual + cant_m
+                        # Si es compra, recalculamos el Promedio Ponderado Móvil (PPM) exigido legalmente
+                        nuevo_costo_ppm = ((stock_actual * costo_ppm_actual) + (cant_m * precio_m_usd)) / nuevo_stock if nuevo_stock > 0 else precio_m_usd
+                        ultimo_costo_rep = precio_m_usd
+                    else:
+                        nuevo_stock = stock_actual - cant_m
+                        nuevo_costo_ppm = costo_ppm_actual  # En salidas el costo promedio se mantiene
+                        ultimo_costo_rep = float(row_prod['costo_rep_original'])
+
+                    # 1. Update maestro de productos
+                    cursor.execute("""
+                        UPDATE pedacito_de_cielo_ca.inventario_productos 
+                        SET stock = %s, costo_usd = %s, ultimo_precio_compra_usd = %s 
+                        WHERE id = %s
+                    """, (nuevo_stock, nuevo_costo_ppm, ultimo_costo_rep, id_p_mov))
+
+                    # 2. Inyección en Kardex
+                    cursor.execute("""
+                        INSERT INTO pedacito_de_cielo_ca.inventario_kardex 
+                        (producto_id, tipo_movimiento, cantidad, precio_unitario_usd, tasa_bcv, referencia, usuario)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    """, (id_p_mov, tipo_m, cant_m, precio_m_usd, tasa_bcv_hoy, ref_m, operador_m))
+
+                    conn.commit()
+                    cursor.close()
+                    st.success(f"✅ ¡Movimiento procesado! Stock actualizado a {nuevo_stock} unidades y asiento contable archivado de forma segura.")
+                    st.rerun()
+
+                except Exception as err_mov:
+                    conn.rollback()
+                    st.error(f"❌ Error al ejecutar el movimiento: {err_mov}")
+    else:
+        st.info("💡 Registre productos primero para poder mover inventario.")
 
 def render_tab_alertas(conn, df_prod):
     st.markdown("### 🚨 Panel de Alertas Predictivas e Inteligencia de Negocio")
