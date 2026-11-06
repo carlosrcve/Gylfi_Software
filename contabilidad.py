@@ -1849,7 +1849,7 @@ def obtener_analisis_gastos_clase5(db, f_i, f_f):
 
 
 @st.cache_data(ttl=300)
-def obtener_historico_utilidad_acumulada(db, año=2026, mes_limite=6):
+def obtener_historico_utilidad_acumulada(db, año=2026, mes_limite=12):
     df_default = pd.DataFrame({'mes': [], 'utilidad_mensual': []})
     
     if not db or not str(db).replace("_", "").isalnum():
@@ -1867,10 +1867,12 @@ def obtener_historico_utilidad_acumulada(db, año=2026, mes_limite=6):
         mes_limite = int(mes_limite)
     except (TypeError, ValueError):
         año = 2026
-        mes_limite = 6
+        mes_limite = 12
 
     f_ini = f"{año}-01-01"
-    f_fin = f"{año}-{str(mes_limite).zfill(2)}-31"
+    # Calculamos dinámicamente el último día del mes límite seleccionado
+    ultimo_dia_mes = calendar.monthrange(año, mes_limite)[1]
+    f_fin = f"{año}-{str(mes_limite).zfill(2)}-{ultimo_dia_mes:02d}"
 
     query = f"""
         SELECT 
@@ -10557,36 +10559,46 @@ if opcion_menu == "🏠 Inicio":
             
             df_utilidad = None
             
-            # 1. Verificamos que la función realmente exista en memoria antes de llamarla
-            if 'obtener_historico_utilidad_acumulada' not in globals() and 'obtener_historico_utilidad_acumulada' not in locals():
-                st.error("❌ Error crítico: La función 'obtener_historico_utilidad_acumulada' no está definida o no se importó correctamente.")
-            else:
-                # Asegúrate de extraer o convertir el mes seleccionado a entero (ej: 9 para Septiembre)
-                # Si ya tienes una variable numércia como 'mes_int', úsala directamente:
-                try:
-                    df_utilidad = obtener_historico_utilidad_acumulada(db, año=ano_int, mes_limite=mes_int)
-                except Exception as e:
-                    st.error(f"Error al conectar con la base de datos: {e}")
-                    df_utilidad = None
+            try:
+                # Extraemos directamente el año y el mes de los selectores o variables globales de tu barra lateral
+                # (ej. 'ano' y 'mes' que ya usas para los demás reportes)
+                ano_actual = int(ano) if 'ano' in locals() else 2026
+                
+                # Diccionario rápido para convertir el nombre del mes de la barra lateral a número (1 al 12)
+                meses_dict = {'Enero':1, 'Febrero':2, 'Marzo':3, 'Abril':4, 'Mayo':5, 'Junio':6, 
+                              'Julio':7, 'Agosto':8, 'Septiembre':9, 'Octubre':10, 'Noviembre':11, 'Diciembre':12}
+                
+                # Si 'mes' es el nombre del mes seleccionado (ej: 'Septiembre'), lo mapeamos; si ya es numérico, lo usamos directo
+                if 'mes' in locals():
+                    mes_actual = meses_dict.get(mes, int(mes)) if isinstance(mes, str) else int(mes)
+                else:
+                    mes_actual = 12 # Por defecto diciembre si no existe
 
-            # 2. Validación robusta del DataFrame resultante
+                # Invocamos la función pasando el mes dinámico elegido por el usuario
+                df_utilidad = obtener_historico_utilidad_acumulada(db, año=ano_actual, mes_limite=mes_actual)
+                
+            except Exception as e:
+                st.error(f"Error al procesar el histórico: {e}")
+                df_utilidad = None
+
+            # Validación y renderizado del gráfico y métricas
             if isinstance(df_utilidad, pd.DataFrame) and not df_utilidad.empty:
-                meses_nombres = {1:'Ene', 2:'Feb', 3:'Mar', 4:'Abr', 5:'May', 6:'Jun', 7:'Jul', 8:'Ago', 9:'Sep', 10:'Oct', 11:'Nov', 12:'Dic'}
-                df_utilidad['nombre_mes'] = df_utilidad['mes'].map(meses_nombres)
+                meses_nombres_map = {1:'Ene', 2:'Feb', 3:'Mar', 4:'Abr', 5:'May', 6:'Jun', 7:'Jul', 8:'Ago', 9:'Sep', 10:'Oct', 11:'Nov', 12:'Dic'}
+                df_utilidad['nombre_mes'] = df_utilidad['mes'].map(meses_nombres_map)
                 
                 utilidad_acumulada_total = df_utilidad['utilidad_mensual'].sum()
                 
                 col_total, col_detalle = st.columns([1, 2])
                 
                 with col_total:
-                    st.metric("Saldo Neto Acumulado al Periodo", f"Bs. {utilidad_acumulada_total:,.2f}")
+                    st.metric(f"Saldo Neto Acumulado (Ene - {list(meses_dict.keys())[mes_actual-1]})", f"Bs. {utilidad_acumulada_total:,.2f}")
                     
                 with col_detalle:
-                    st.markdown("**Utilidad por Mes del Periodo:**")
+                    st.markdown(f"**Utilidad por Mes (Enero a {list(meses_dict.keys())[mes_actual-1]} {ano_actual}):**")
                     etiquetas_meses = [f"**{row['nombre_mes']}:** Bs. {row['utilidad_mensual']:,.2f}" for _, row in df_utilidad.iterrows()]
                     st.markdown(" | ".join(etiquetas_meses))
                 
-                # Gráfico de barras
+                # Gráfico de barras interactivo con Plotly
                 df_utilidad['color'] = df_utilidad['utilidad_mensual'].apply(lambda x: 'Ganancia' if x >= 0 else 'Pérdida')
                 
                 import plotly.express as px
@@ -10596,14 +10608,14 @@ if opcion_menu == "🏠 Inicio":
                     y='utilidad_mensual', 
                     color='color',
                     color_discrete_map={'Ganancia': '#2ecc71', 'Pérdida': '#e74c3c'},
-                    title="Desglose Mensual",
+                    title=f"Desglose Mensual Acumulado — {ano_actual}",
                     text_auto='.2s'
                 )
                 
                 fig.update_layout(plot_bgcolor='rgba(0,0,0,0)', showlegend=False)
-                st.plotly_chart(fig, width='stretch')
+                st.plotly_chart(fig, use_container_width=True)
             else:
-                st.info("No hay datos disponibles o error al recuperar el histórico para el periodo seleccionado.")
+                st.info(f"💡 No hay registros contables en la base de datos `{db}` para el año **{ano_actual}** hasta el mes seleccionado.")
 
         with tab4:
             # --- SECCIÓN: ASIENTO CONTABLE COMPLETO POR COMPROBANTE ---
