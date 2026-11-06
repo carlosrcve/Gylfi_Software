@@ -464,88 +464,82 @@ def modulo_inventario_pedacito_cielo(conn):
    
 def render_tab_stock(conn, df_prod, metodo_valoracion, tasa_bcv_hoy):
     st.markdown(f"### 📊 Almacén Valorado vía: **{metodo_valoracion}**")
-    # Pega aquí todo el código de la pestaña stock que ya tenías...
-    # -------------------------------------------------------------------------
-    # PESTAÑA 1: CONTROL DE STOCK Y KARDEX MULTIMONEDA
-    # -------------------------------------------------------------------------
-    with tab_stock:
-        st.markdown(f"### 📊 Almacén Valorado vía: **{metodo_valoracion}**")
+    
+    if not df_prod.empty:
+        c1, c2 = st.columns(2)
+        with c1:
+            filto_tipo = st.selectbox("Filtrar por Tipo:", ["Todos", "MATERIA_PRIMA", "PRODUCTO_TERMINADO"])
+        with c2:
+            buscar_prod = st.text_input("🔍 Buscar Producto/Insumo:")
+            
+        df_filtrado = df_prod.copy()
+        if filto_tipo != "Todos":
+            df_filtrado = df_filtrado[df_filtrado['tipo'] == filto_tipo]
+        if buscar_prod:
+            df_filtrado = df_filtrado[df_filtrado['descripcion'].str.contains(buscar_prod, case=False)]
+            
+        df_visual = df_filtrado.copy()
+        df_visual['Costo Activo (USD)'] = df_visual['costo_usd'].map(lambda x: f"$ {x:,.2f}")
+        df_visual['Valor Total (USD)'] = (df_visual['stock'] * df_visual['costo_usd']).map(lambda x: f"$ {x:,.2f}")
+        df_visual['Valor Total (VES)'] = (df_visual['stock'] * df_visual['costo_usd'] * tasa_bcv_hoy).map(lambda x: f"Bs. {x:,.2f}")
         
-        if not df_prod.empty:
-            c1, c2 = st.columns(2)
-            with c1:
-                filto_tipo = st.selectbox("Filtrar por Tipo:", ["Todos", "MATERIA_PRIMA", "PRODUCTO_TERMINADO"])
-            with c2:
-                buscar_prod = st.text_input("🔍 Buscar Producto/Insumo:")
-                
-            df_filtrado = df_prod.copy()
-            if filto_tipo != "Todos":
-                df_filtrado = df_filtrado[df_filtrado['tipo'] == filto_tipo]
-            if buscar_prod:
-                df_filtrado = df_filtrado[df_filtrado['descripcion'].str.contains(buscar_prod, case=False)]
-                
-            df_visual = df_filtrado.copy()
-            df_visual['Costo Activo (USD)'] = df_visual['costo_usd'].map(lambda x: f"$ {x:,.2f}")
-            df_visual['Valor Total (USD)'] = (df_visual['stock'] * df_visual['costo_usd']).map(lambda x: f"$ {x:,.2f}")
-            df_visual['Valor Total (VES)'] = (df_visual['stock'] * df_visual['costo_usd'] * tasa_bcv_hoy).map(lambda x: f"Bs. {x:,.2f}")
-            
-            st.dataframe(
-                df_visual[['sku', 'descripcion', 'tipo', 'stock', 'unidad', 'Costo Activo (USD)', 'Valor Total (USD)', 'Valor Total (VES)']], 
-                width='stretch', hide_index=True
-            )
+        st.dataframe(
+            df_visual[['sku', 'descripcion', 'tipo', 'stock', 'unidad', 'Costo Activo (USD)', 'Valor Total (USD)', 'Valor Total (VES)']], 
+            use_container_width=True, hide_index=True
+        )
 
-            total_inventario_usd = (df_filtrado['stock'] * df_filtrado['costo_usd']).sum()
-            met1, met2 = st.columns(2)
-            with met1:
-                st.metric("Total Inventario (USD)", f"$ {total_inventario_usd:,.2f}")
-            with met2:
-                st.metric("Total Inventario (BCV)", f"Bs. {total_inventario_usd * tasa_bcv_hoy:,.2f}")
+        total_inventario_usd = (df_filtrado['stock'] * df_filtrado['costo_usd']).sum()
+        met1, met2 = st.columns(2)
+        with met1:
+            st.metric("Total Inventario (USD)", f"$ {total_inventario_usd:,.2f}")
+        with met2:
+            st.metric("Total Inventario (BCV)", f"Bs. {total_inventario_usd * tasa_bcv_hoy:,.2f}")
 
-            st.markdown("---")
-            st.markdown("### 📦 Ficha Clínica del Producto (Kardex Histórico)")
-            
-            lista_productos_kardex = df_filtrado['descripcion'].tolist()
-            producto_seleccionado = st.selectbox("Selecciona un producto para auditar su historial:", lista_productos_kardex)
-            
-            if producto_seleccionado:
-                id_producto = df_filtrado[df_filtrado['descripcion'] == producto_seleccionado]['id'].values[0]
-                try:
-                    cursor = conn.cursor()
-                    cursor.execute("""
-                        SELECT fecha, tipo_movimiento, cantidad, precio_unitario_usd, tasa_bcv, referencia, usuario
-                        FROM pedacito_de_cielo_ca.inventario_kardex
-                        WHERE producto_id = %s
-                        ORDER BY fecha DESC
-                    """, (int(id_producto),))
-                    movimientos = cursor.fetchall()
-                    cursor.close()
-                    
-                    if movimientos:
-                        data_kardex = []
-                        for m in movimientos:
-                            cant = float(m[2])
-                            p_usd = float(m[3]) if m[3] is not None else 0.0
-                            tasa = float(m[4]) if m[4] is not None else 0.0
-                            total_usd = cant * p_usd
-                            
-                            data_kardex.append({
-                                "Fecha/Hora": m[0].strftime("%d/%m/%Y %H:%M") if m[0] else "N/A",
-                                "Movimiento": m[1].replace("_", " "),
-                                "Cantidad": cant,
-                                "Precio (USD)": f"$ {p_usd:,.2f}",
-                                "Tasa BCV": f"Bs. {tasa:,.2f}",
-                                "Total (USD)": f"$ {total_usd:,.2f}",
-                                "Total (VES)": f"Bs. {total_usd * tasa:,.2f}",
-                                "Referencia": m[5],
-                                "Operador": m[6]
-                            })
-                        st.dataframe(pd.DataFrame(data_kardex), width='stretch', hide_index=True)
-                    else:
-                        st.info("💡 El producto está limpio. Sin movimientos en Kardex.")
-                except Exception as err_kardex:
-                    st.error(f"❌ Error al consultar el Kardex: {err_kardex}")
-        else:
-            st.info("💡 Sin conexión o datos vacíos.")
+        st.markdown("---")
+        st.markdown("### 📦 Ficha Clínica del Producto (Kardex Histórico)")
+        
+        lista_productos_kardex = df_filtrado['descripcion'].tolist()
+        producto_seleccionado = st.selectbox("Selecciona un producto para auditar su historial:", lista_productos_kardex)
+        
+        if producto_seleccionado:
+            id_producto = df_filtrado[df_filtrado['descripcion'] == producto_seleccionado]['id'].values[0]
+            try:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT fecha, tipo_movimiento, cantidad, precio_unitario_usd, tasa_bcv, referencia, usuario
+                    FROM pedacito_de_cielo_ca.inventario_kardex
+                    WHERE producto_id = %s
+                    ORDER BY fecha DESC
+                """, (int(id_producto),))
+                movimientos = cursor.fetchall()
+                cursor.close()
+                
+                if movimientos:
+                    data_kardex = []
+                    for m in movimientos:
+                        cant = float(m[2])
+                        p_usd = float(m[3]) if m[3] is not None else 0.0
+                        tasa = float(m[4]) if m[4] is not None else 0.0
+                        total_usd = cant * p_usd
+                        
+                        data_kardex.append({
+                            "Fecha/Hora": m[0].strftime("%d/%m/%Y %H:%M") if m[0] else "N/A",
+                            "Movimiento": m[1].replace("_", " "),
+                            "Cantidad": cant,
+                            "Precio (USD)": f"$ {p_usd:,.2f}",
+                            "Tasa BCV": f"Bs. {tasa:,.2f}",
+                            "Total (USD)": f"$ {total_usd:,.2f}",
+                            "Total (VES)": f"Bs. {total_usd * tasa:,.2f}",
+                            "Referencia": m[5],
+                            "Operador": m[6]
+                        })
+                    st.dataframe(pd.DataFrame(data_kardex), use_container_width=True, hide_index=True)
+                else:
+                    st.info("💡 El producto está limpio. Sin movimientos en Kardex.")
+            except Exception as err_kardex:
+                st.error(f"❌ Error al consultar el Kardex: {err_kardex}")
+    else:
+        st.info("💡 Sin conexión o datos vacíos.")
 
 def render_tab_recetas(df_prod, metodo_valoracion):
     st.markdown(f"### 👩‍🍳 Ingeniería de Recetas y Costeo Automático")
