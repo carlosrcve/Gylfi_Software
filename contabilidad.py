@@ -805,7 +805,10 @@ def render_tab_alertas(conn, df_prod):
 
 def render_tab_produccion(conn, df_prod, tasa_bcv_hoy):
     st.markdown("### 🚀 Panel de Producción Activa")
-    # Pega aquí el código de tandas de producción...
+    
+    # Declaramos la variable que faltaba dentro del ámbito de esta función
+    productos_terminados = df_prod[df_prod['tipo'] == 'PRODUCTO_TERMINADO']['descripcion'].tolist() if not df_prod.empty else []
+    
     if productos_terminados:
         with st.form("form_produccion_diaria"):
             prod_a_producir = st.selectbox("¿Qué se produjo en el taller/horno?", productos_terminados)
@@ -833,7 +836,6 @@ def render_tab_produccion(conn, df_prod, tasa_bcv_hoy):
                     
                     referencia_doc = f"Tanda Prod: {cantidad_tanda} Unds de {prod_a_producir}"
                     
-                    # Descuentos y aumentos en caliente
                     cursor.execute("UPDATE pedacito_de_cielo_ca.inventario_productos SET stock = stock + %s WHERE id = %s", (cantidad_tanda, id_pt))
                     cursor.execute("UPDATE pedacito_de_cielo_ca.inventario_productos SET stock = stock - %s WHERE id = %s", (cant_harina, id_h))
                     cursor.execute("UPDATE pedacito_de_cielo_ca.inventario_productos SET stock = stock - %s WHERE id = %s", (cant_azucar, id_a))
