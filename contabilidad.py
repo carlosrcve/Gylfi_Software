@@ -10298,30 +10298,53 @@ if opcion_menu == "🏠 Inicio":
         import datetime as dt
         import calendar
 
-        # Usamos un respaldo numérico directo (2026) para el año
-        año = int(st.session_state.get('año_seleccionado_contabilidad') or st.session_state.get('año_seleccionado') or 2026)
-        mes_elegido_str = str(st.session_state.get('mes_seleccionado_contabilidad', 'Junio')).strip().capitalize()
+        año_val = st.session_state.get('año_seleccionado_contabilidad') or st.session_state.get('anio') or 2026
+        mes_val = st.session_state.get('mes_seleccionado_contabilidad') or st.session_state.get('mes_seleccionado') or st.session_state.get('mes') or 'Mayo'
 
-        # Mapeo robusto de meses
+        # 2. Diccionario de traducción de texto a número
         meses_map = {
-            'Enero': 1, 'Febrero': 2, 'Marzo': 3, 'Abril': 4, 'Mayo': 5, 'Junio': 6,
-            'Julio': 7, 'Agosto': 8, 'Septiembre': 9, 'Octubre': 10, 'Noviembre': 11, 'Diciembre': 12
+            'Enero': 1, 'Febrero': 2, 'Marzo': 3, 'Abril': 4, 
+            'Mayo': 5, 'Junio': 6, 'Julio': 7, 'Agosto': 8, 
+            'Septiembre': 9, 'Octubre': 10, 'Noviembre': 11, 'Diciembre': 12
         }
-        
-        num_mes = meses_map.get(mes_elegido_str, 6)
 
-        # Construcción de fechas usando calendar para evitar errores en días máximos
-        ultimo_dia = int(calendar.monthrange(año, num_mes)[1])
-        
-        # Creamos tanto los strings como los objetos date de forma limpia usando el alias dt
-        f_i_str = f"{año}-{num_mes:02d}-01"
-        f_f_str = f"{año}-{num_mes:02d}-{ultimo_dia:02d}"
+        # 3. Conversión blindada del año
+        try:
+            año_int = int(str(año_val).strip())
+        except (ValueError, TypeError):
+            año_int = datetime.now().year if 'datetime' in globals() else 2026
 
-        f_i_date = dt.date(año, num_mes, 1)
-        f_f_date = dt.date(año, num_mes, ultimo_dia)
+        # 4. Conversión blindada del mes (soporta texto o número)
+        if str(mes_val).isdigit():
+            mes_int = int(mes_val)
+        elif isinstance(mes_val, str):
+            mes_int = meses_map.get(mes_val.strip().capitalize(), 5)
+        else:
+            mes_int = 5
 
-        # Cuadro informativo de depuración en tiempo real reflejando el período activo
+        # Validar que el mes esté en el rango correcto (1-12)
+        if not (1 <= mes_int <= 12):
+            mes_int = 5
+
+        # 5. Calcular el último día del mes de forma segura
+        _, ultimo_dia = calendar.monthrange(año_int, mes_int)
+
+        # 6. Generar strings unificados para la UI y las consultas SQL
+        f_i = f"{año_int:04d}-{mes_int:02d}-01"
+        f_f = f"{año_int:04d}-{mes_int:02d}-{ultimo_dia:02d}"
+
+        # Sincronizamos las variables que usa el banner informativo superior
+        f_i_str = f_i
+        f_f_str = f_f
+        mes_elegido_str = str(mes_val)
+        año = año_int
+
+        f_inicio_global = date(año_int, mes_int, 1)
+        f_fin_global = date(año_int, mes_int, ultimo_dia)
+
+        # 7. Cuadro informativo reflejando el período activo real
         st.info(f"📅 Período Activo: **{mes_elegido_str} {año}** | Rango SQL: **{f_i_str} al {f_f_str}**")
+        st.divider()
 
         # Validar Base de Datos activa
         db = st.session_state.get('DB_ACTUAL')
